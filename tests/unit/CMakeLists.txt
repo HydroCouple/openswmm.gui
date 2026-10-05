@@ -775,3 +775,22 @@ if(TARGET openswmm_engine)
         SWMMVIS_JSPLIT_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/data/inlets"
         SWMMVIS_JSPLIT_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/tests/output/junction_split")
 endif()
+
+add_swmmvis_unit_test(test_channelburnmesh
+    test_channelburnmesh.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnmesh.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshcavity.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshedgebcremap.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshcdt.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburn.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnboundary.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnnetwork.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnlattice.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/channelburnprofile.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshpatch.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshquadregion.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshnodemapper.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshautocouple.cpp
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+)
+target_link_libraries(test_channelburnmesh PRIVATE Qt6::Gui predicates_lib)

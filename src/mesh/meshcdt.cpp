@@ -701,6 +701,36 @@ int ConstrainedDelaunay::removeRegionAt(const QPointF &p)
     return removed;
 }
 
+// Seed by topology, not an epsilon-offset point (which can cross a thin region).
+int ConstrainedDelaunay::removeRegionLeftOf(int a, int b)
+{
+    if (!isConstrained(a,b)) return 0;
+    QVector<int> stack;
+    const auto chain = constrainedChain(a,b);
+    for (int k=0;k+1<chain.size();++k) {
+        QVector<int> around;
+        trianglesAround(chain[k], &around);
+        for (int t : around) {
+            const auto &tri=m_tris[t];
+            if (!tri.alive) continue;
+            bool hasB=false; int apex=-1;
+            for (int v:tri.v) { if(v==chain[k+1]) hasB=true; else if(v!=chain[k]) apex=v; }
+            if (hasB && apex>=0 && orient(a,b,apex)>0) stack.append(t);
+        }
+    }
+    int removed=0;
+    while (!stack.isEmpty()) {
+        const int t=stack.takeLast();
+        if (!m_tris[t].alive) continue;
+        m_tris[t].alive=false; ++removed;
+        for(int e=0;e<3;++e) {
+            const int n=m_tris[t].adj[e];
+            if(n>=0 && m_tris[n].alive && !m_tris[t].constrained[e]) stack.append(n);
+        }
+    }
+    return removed;
+}
+
 // ── Quality refinement ──────────────────────────────────────────────────
 // Ruppert's algorithm with Shewchuk's refinements, as Triangle implements
 // them (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §4).

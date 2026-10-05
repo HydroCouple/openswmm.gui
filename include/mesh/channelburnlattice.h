@@ -102,7 +102,16 @@ public:
      *  constraint joining moved by less than its tolerance. */
     Error error(const QPointF *xy, const double *z,
                 const std::function<bool(const QPointF &)> &inside, double minWidth = 0.0) const;
+    /*! Bounded refinement estimator against a permitted target (for example,
+     *  burnPixel's incision cap and lower envelope). Samples clipped face
+     *  corners, edge midpoints and interiors. Unlike error(), this is not an
+     *  exact authored-surface diagnostic; retain that independent final check. */
+    Error sampledTargetError(const QPointF *xy, const double *z,
+                const std::function<double(const QPointF &)> &target, double minWidth = 0.0) const;
 private:
+    Error errorImpl(const QPointF *xy, const double *z,
+                const std::function<bool(const QPointF &)> &inside, double minWidth,
+                const std::function<double(const QPointF &)> &target) const;
     struct Face { QPointF p[3]; double z[3],offset[3]; int profile; QRectF bounds; };
     QVector<Face> faces;
     QHash<QPair<int,int>,QVector<int>> grid;
@@ -138,7 +147,8 @@ private:
                                                double alongStep, double minCellSize,
                                                QStringList *warnings = nullptr,
                                                QString *err = nullptr,
-                                               double acrossTolerance = 0.0);
+                                               double acrossTolerance = 0.0,
+                                               double minSpacing = 0.0);
 
 /*!
  * \brief The corridor as quads — the P3 deliverable.

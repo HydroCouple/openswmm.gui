@@ -1681,9 +1681,11 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // An untitled project has no final directory yet; bind that destination
     // here, without changing its draft identity if any part of Save fails.
     const GeneratedMeshArtifacts::Entry *pendingImportedMesh = nullptr;
-    if (chosenMesh && chosenMesh->preservesImportedSections() && chosenMesh->generatedArtifacts()) {
+    if (chosenMesh && chosenMesh->generatedArtifacts()
+        && !chosenMesh->generatedArtifacts()->isPublished()) {
         for (const auto &entry : chosenMesh->generatedArtifacts()->entries())
-            if (entry.role == ProjectSaveOutputs::Mesh) pendingImportedMesh = &entry;
+            if (entry.role == ProjectSaveOutputs::Mesh && chosenMesh->generatedArtifacts()->isPendingEntry(entry))
+                pendingImportedMesh = &entry;
     }
     GeneratedMeshArtifacts::Entry rebasedImport;
     const GeneratedMeshArtifacts::Entry *importDestinationOverride = nullptr;
@@ -2164,6 +2166,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         const bool settingsExisted = QFile::exists(finalSettingsPath);
         if (!saveOutputs.publish())
             return failSave(tr("publish the prepared project"), newPath, saveOutputs.error());
+        if (chosenMesh && chosenMesh->generatedArtifacts())
+            chosenMesh->generatedArtifacts()->markPublished(extMeshPath);
         if (!extMeshPath.isEmpty()) { ++dmReads; ++dmWrites; }
         if (!finalSettingsPath.isEmpty() && !settingsExisted)
             qInfo().noquote() << QStringLiteral("Creating sibling project file: %1").arg(finalSettingsPath);

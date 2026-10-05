@@ -22,10 +22,6 @@
 #ifndef MESHGENERATIONDIALOG_H
 #define MESHGENERATIONDIALOG_H
 
-#include "mesh/burnedrasterwriter.h"
-#include "mesh/channelburnboundary.h"
-#include "mesh/channelburnlattice.h"
-#include "mesh/channelburnnetwork.h"
 #include "mesh/corridorsource.h"
 #include "mesh/meshgenerator.h"
 #include "mesh/meshquadregion.h"
@@ -41,7 +37,6 @@
 #include <QVector>
 #include <memory>
 
-class GeneratedMeshArtifacts;
 class SWMMVisProjectWindow;
 class SWMMModelLayer;
 class QCloseEvent;
@@ -285,32 +280,6 @@ public:
         struct RegionHydraulics { double manningsN = 0.0; double initDepth = 0.0; };
         QHash<QString, RegionHydraulics> regionHydraulics;
 
-        // ── Channel burn-in (CHANNEL_BURN_IN_PLAN_2026-09-21.md) ─────────
-        // collectInputs resolves the selector against the MODEL — the worker
-        // may not touch the engine — and hands over finished profiles in the
-        // mesh CRS and model vertical units, plus the 1D topology as plain
-        // data so the worker can classify nodes without a layer.
-        //
-        // The worker converts the profiles into the raster's frame and writes
-        // the burned DEM as an inspection/export artifact. Meshing reads the
-        // source dtmPath plus the exact channel surface, so the terrain index
-        // and break-line caches stay keyed on the source DEM.
-        bool                       burnEnabled = false;
-        mesh::BurnOptions          burnOptions;
-        QVector<mesh::BurnProfile> burnProfiles;
-        mesh::BurnNetwork          burnNetwork;
-        QString                    burnOutputDir;    ///< <project dir>/terrain
-        /*! The source DEM's CRS and pixel size, read once on the GUI thread.
-         *  The worker builds its mesh→DEM transform from these rather than
-         *  re-opening the raster, and the auto chainage step is resolved from
-         *  the pixel size before the profiles are built. */
-        QString                    burnDemCRSWkt;
-        double                     burnDemPixel = 0.0;
-        QString                    burnFingerprint;  ///< 8 hex over DEM + options + geometry
-        QStringList                burnWarnings;     ///< selector + profile-build notes
-        /*! Mesh minimum cell size at the time of collection, for the lattice's
-         *  densification guard. Mirrors minSizePolicy.minCellSize. */
-        double                     burnMinCellSize = 0.0;
     };
 
     /*! \brief Result produced by the pipeline worker and consumed on the
@@ -331,27 +300,6 @@ public:
         QVector<mesh::CorridorSource> corridorSources;
         QVector<mesh::CorridorSourceStamp> corridorSourceStamps;
 
-        // ── Channel burn-in outcome ──────────────────────────────────────
-        /*! Everything the GUI thread needs to perform the 1D surgery, computed
-         *  in the worker because the outfall invert must come from the MESHED
-         *  bed at the coupling point, not the pre-mesh nominal. Applying it
-         *  needs MapUndoStack and therefore the GUI thread (plan §16.3). */
-        struct BurnSurgery
-        {
-            QVector<mesh::BurnSplit> splits;
-            QStringList                  burnedConduits;  ///< Leave the 1D network (D-A).
-            QVector<mesh::BurnNodePlan>  nodePlans;
-            QHash<QString, double>       outfallInvert;   ///< node id → channel bottom.
-            QHash<QString, double>       outfallMaxDepth; ///< node id → mesh bed − invert.
-        };
-
-        std::shared_ptr<GeneratedMeshArtifacts> generatedArtifacts;
-        QString               burnedDemPath;
-        QString               burnReportPath;
-        mesh::BurnRasterStats burnStats;
-        QStringList           burnWarnings;
-        BurnSurgery           burnSurgery;
-        bool                  burnRan = false;
     };
 
     explicit MeshGenerationDialog(SWMMVisProjectWindow *pw,
@@ -390,22 +338,6 @@ private:
     [[nodiscard]] QStringList regionTags() const;
     /*! Pushes regionTags() into the region-defaults table. */
     void refreshRegionRows();
-
-    /*! \brief Channel burn-in options as the tab currently reads
-     *         (CHANNEL_BURN_IN_PLAN_2026-09-21.md §3). */
-    [[nodiscard]] mesh::BurnOptions burnOptionsFromUi() const;
-    /*! \brief The whole tab as one persisted unit (D-H). */
-    [[nodiscard]] mesh::ChannelBurnSettings burnSettingsFromUi() const;
-    /*! \brief Push persisted settings back into the tab's widgets. */
-    void applyBurnSettings(const mesh::ChannelBurnSettings &st);
-    /*! \brief Resolve the burn set against the model and build one profile per
-     *         accepted conduit. GUI thread only — it reads the engine. */
-    bool collectBurnInputs(PipelineInputs *out) const;
-    /*! \brief Enable/disable the burn widgets from the master checkbox. */
-    void updateBurnEnabled();
-    /*! \brief Resolve the burn set and report what WOULD burn, without
-     *         writing a raster or meshing anything. */
-    void previewBurn();
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
@@ -497,33 +429,6 @@ private:
     QDoubleSpinBox *m_trimTurnSpin     = nullptr;  ///< straightness trim: max turn (deg); (off) at 0
     QDoubleSpinBox *m_trimDeviationSpin = nullptr; ///< straightness trim: max deviation (map units)
 
-    // ── Channel burn-in tab ──────────────────────────────────────────────
-    QCheckBox      *m_burnEnabledBox      = nullptr;
-    QRadioButton   *m_burnAllOpenRadio    = nullptr;
-    QRadioButton   *m_burnQueryRadio      = nullptr;
-    QRadioButton   *m_burnListRadio       = nullptr;
-    QLineEdit      *m_burnQueryEdit       = nullptr;
-    QLineEdit      *m_burnListEdit        = nullptr;
-    QCheckBox      *m_burnStreetsBox      = nullptr;
-    QDoubleSpinBox *m_burnForceHalfWidth  = nullptr;
-    QDoubleSpinBox *m_burnMaxHalfWidth    = nullptr;
-    QCheckBox      *m_burnClipToBanksBox  = nullptr;
-    QDoubleSpinBox *m_burnBankPad         = nullptr;
-    QDoubleSpinBox *m_burnChainageStep    = nullptr;
-    QDoubleSpinBox *m_burnLateralStep     = nullptr;
-    QSpinBox       *m_burnStringCount     = nullptr;
-    QComboBox      *m_burnAnchorCombo     = nullptr;
-    QDoubleSpinBox *m_burnSectionBlend    = nullptr;
-    QCheckBox      *m_burnMonotoneBox     = nullptr;
-    QDoubleSpinBox *m_burnMaxIncision     = nullptr;
-    QCheckBox      *m_burnQuadCorridorBox = nullptr;
-    QDoubleSpinBox *m_burnChannelCellSize = nullptr;
-    QDoubleSpinBox *m_burnGeometryTolerance = nullptr;
-    QCheckBox      *m_burnRoughnessBox    = nullptr;
-    QCheckBox      *m_burnConvertNodesBox = nullptr;
-    QCheckBox      *m_burnTruncateBox     = nullptr;
-    QPushButton    *m_burnPreviewBtn      = nullptr;
-    QLabel         *m_burnSummaryLabel    = nullptr;
     // ── Uniform per-cell hydraulic seeds ────────────────────────────
     // These two stay the editors for the '*' row; the region-defaults table
     // below mirrors them read-only (GG0d, GUI plan §3.3).

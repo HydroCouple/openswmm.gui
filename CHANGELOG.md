@@ -20,6 +20,12 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Burn Channels…** is a separate operation on an existing generated or imported
+  mesh. Local cavities and regularized channel quads replace the old burn stage
+  in Generate Mesh. The tool preserves mesh attributes and boundary conditions,
+  reports quality and fallback warnings, supports atomic mesh/network Undo/Redo,
+  and optionally stages a burned DEM and report for project Save.
+
 - **Feature layers by role, with dropdowns for coded fields**
   (`workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md`, Part A). One role registry
   (`feature::featureRoleSpecs()`) now defines, per role, the geometries, the fields, their types,

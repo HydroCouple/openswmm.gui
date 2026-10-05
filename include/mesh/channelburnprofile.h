@@ -155,6 +155,11 @@ struct BurnSelector
 struct ChannelBurnSettings
 {
     bool         enabled = false;
+    bool exportRaster = false;
+    QString exportDemPath;
+    QString exportDirectory;
+    double exportRasterZToSI = 1.0;
+    int maxMeshCells = 2000000;
     BurnSelector selector;
     BurnOptions  options;
 };

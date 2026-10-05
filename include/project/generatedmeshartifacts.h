@@ -4,8 +4,10 @@
 #include "projectsaveoutputs.h"
 #include <QTemporaryDir>
 #include <QSet>
+#include <QHash>
 #include <QSaveFile>
 #include <functional>
+#include <atomic>
 
 // Shared by a generation job, its future result and the adopted mesh layer.
 // Only the last owner removes the private directory. Final files belong to
@@ -34,8 +36,51 @@ public:
         return artifacts;
     }
 
+    // Keep pending imported mesh/terrain snapshots alive when another operation
+    // adds outputs. Preserve their original destination fingerprints and hashes.
+    bool inheritPending(const std::shared_ptr<GeneratedMeshArtifacts> &previous, QString *error) {
+        if (!previous || previous->isPublished()) return true;
+        if (sealed_ || !entries_.isEmpty() || !previous->sealed_) {
+            if (error) *error = QStringLiteral("Cannot combine unfinished generated outputs.");
+            return false;
+        }
+        entries_ = previous->entries_;
+        inputs_ = previous->inputs_;
+        absentCompanions_ = previous->absentCompanions_;
+        entryOwners_ = previous->entryOwners_;
+        companionOwners_ = previous->companionOwners_;
+        for (const auto &entry : entries_)
+            if (!entryOwners_.contains(entry.stagedPath)) entryOwners_.insert(entry.stagedPath, previous);
+        for (const auto &path : absentCompanions_)
+            if (!companionOwners_.contains(path)) companionOwners_.insert(path, previous);
+        parents_.append(previous);
+        return true;
+    }
+
     QString directoryPath() const { return directory_.path(); }
     const QList<Entry> &entries() const { return entries_; }
+    bool isPublished() const { return published_; }
+    bool isPendingEntry(const Entry &entry) const {
+        if (published_) return false;
+        const auto owner = entryOwners_.value(entry.stagedPath).lock();
+        return !owner || !owner->isPublished();
+    }
+    const QString &publishedMeshPath() const {
+        if (!publishedMeshPath_.isEmpty()) return publishedMeshPath_;
+        for (const auto &parent : parents_)
+            if (!parent->publishedMeshPath().isEmpty()) return parent->publishedMeshPath();
+        return publishedMeshPath_;
+    }
+    // Undo states can share this immutable payload owner. Once its outputs
+    // have been published successfully, none is pending in any of those
+    // states. Keep the snapshots alive, but never replay obsolete output
+    // fingerprints (or overwrite auxiliary files) on an Undo/Redo Save.
+    void markPublished(const QString &meshPath = {}) {
+        if (published_) return;
+        publishedMeshPath_ = meshPath;
+        published_ = true;
+        for (const auto &parent : parents_) parent->markPublished(meshPath);
+    }
     void protectInput(const QString &path, int allowedRole = -1) {
         if (!path.isEmpty()) inputs_.append({path, allowedRole});
     }
@@ -131,6 +176,10 @@ public:
                 return false;
             }
             if (!ProjectSaveOutputs::captureDestination(entry.stagedPath, &payload, error)) return false;
+            if (!entry.payloadHash.isEmpty() && entry.payloadHash != payload.fingerprint) {
+                if (error) *error = QStringLiteral("Pending output changed: %1").arg(entry.finalPath);
+                return false;
+            }
             entry.payloadHash = payload.fingerprint;
             owned.insert(file.absoluteFilePath());
         }
@@ -148,6 +197,7 @@ public:
 
     void protectInputs(ProjectSaveOutputs &outputs) const {
         outputs.protectDirectory(directory_.path());
+        for (const auto &parent : parents_) parent->protectInputs(outputs);
         for (const auto &input : inputs_) outputs.protect(input.first, input.second);
         for (const auto &entry : entries_) outputs.protect(entry.stagedPath, -1);
         for (const auto &path : absentCompanions_) outputs.protect(path, -1);
@@ -161,12 +211,20 @@ public:
             if (error) *error = message;
             return false;
         };
+        if (published_) {
+            protectInputs(outputs);
+            return true;
+        }
         if (!sealed_) return fail(QStringLiteral("Generated outputs have not finished preparation."));
-        for (const auto &path : absentCompanions_)
+        for (const auto &path : absentCompanions_) {
+            const auto owner = companionOwners_.value(path).lock();
+            if (owner && owner->isPublished()) continue;
             if (QFileInfo::exists(path) || QFileInfo(path).isSymLink())
                 return fail(QStringLiteral("Raster companion appeared since generation: %1").arg(path));
+        }
         protectInputs(outputs);
         for (const auto &entry : entries_) {
+            if (!isPendingEntry(entry)) continue;
             const Entry &destination = entry.role == ProjectSaveOutputs::Mesh && meshDestinationOverride
                 ? *meshDestinationOverride : entry;
             const QString stage = outputs.stage(destination.finalPath, entry.role,
@@ -205,7 +263,11 @@ private:
     explicit GeneratedMeshArtifacts(const QString &path) : directory_(path) {}
     QTemporaryDir directory_;
     QList<Entry> entries_;
+    QList<std::shared_ptr<GeneratedMeshArtifacts>> parents_;
+    QHash<QString, std::weak_ptr<GeneratedMeshArtifacts>> entryOwners_, companionOwners_;
     QList<QPair<QString, int>> inputs_;
     QStringList absentCompanions_;
     bool sealed_ = false;
+    std::atomic_bool published_{false};
+    QString publishedMeshPath_;
 };

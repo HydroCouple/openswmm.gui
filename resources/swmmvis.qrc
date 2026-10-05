@@ -169,6 +169,7 @@
         <file alias="InvertSelection">images/invert_selection.svg</file>
         <file alias="Options">images/options.svg</file>
         <file alias="CreateMesh">images/create_mesh.svg</file>
+        <file alias="BurnChannels">images/burn_channels.svg</file>
         <!-- FEATURE_LAYER_TO_SWMM_IMPORT — Tools → Import Feature Layer… -->
         <file alias="ImportGIS">images/import_gis.svg</file>
         <file alias="AssignRainGages">images/assign_raingages.svg</file>

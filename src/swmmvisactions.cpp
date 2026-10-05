@@ -215,6 +215,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionImportFeatureLayer",    QT_TR_NOOP("Import\nFeature Layer")},
         {"actionAssignRainGages",       QT_TR_NOOP("Assign\nRain Gages")},
         {"actionGenerateMesh",          QT_TR_NOOP("Generate\nMesh")},
+        {"actionBurnChannels",           QT_TR_NOOP("Burn\nChannels")},
         {"actionMeshAssignFromRaster",  QT_TR_NOOP("From\nRaster")},
         {"actionMeshAssignFromVector",  QT_TR_NOOP("From\nShapefile")},
         {"actionMesh2DGWParams",        QT_TR_NOOP("Aquifer\nParameters")},
@@ -322,7 +323,7 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarModel, tr("Setup"),
              {"actionOptions", "actionUserFlags", "actionImportFeatureLayer"});
     addGroup(mToolBarModel, tr("Tools"), {"actionAssignRainGages"});
-    addGroup(mToolBarModel, tr("Mesh 2D"), {"actionGenerateMesh"});
+    addGroup(mToolBarModel, tr("Mesh 2D"), {"actionGenerateMesh", "actionBurnChannels"});
 
     // Features — editable, GeoPackage-backed layers the user draws
     // (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN §5.1). Its own tab rather
@@ -354,7 +355,7 @@ void SWMMVis::initializeCompactToolbar()
     mToolBarMesh2D = new QToolBar(tr("Mesh 2D"), this);
     mToolBarMesh2D->setObjectName(QStringLiteral("toolBarMesh2D"));
     addGroup(mToolBarMesh2D, tr("Select"), {"actionSelect"});
-    addGroup(mToolBarMesh2D, tr("Mesh"), {"actionGenerateMesh"});
+    addGroup(mToolBarMesh2D, tr("Mesh"), {"actionGenerateMesh", "actionBurnChannels"});
     addGroup(mToolBarMesh2D, tr("Cell Data"),
              {"actionMeshAssignFromRaster", "actionMeshAssignFromVector"});
     addGroup(mToolBarMesh2D, tr("Groundwater (2D)"),

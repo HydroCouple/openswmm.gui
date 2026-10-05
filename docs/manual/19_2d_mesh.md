@@ -79,7 +79,7 @@ editing, in three groups:
 ### The Generate 2D Mesh dialog
 
 **Model → Generate Mesh** opens a tabbed dialog — **Sources**, **Quality**,
-**Channel Burn-in** and **Hydraulics** — with the output destination in a fixed
+and **Hydraulics** — with the output destination in a fixed
 footer. Generation runs
 on a worker thread with a progress bar and a live stage label; **Cancel
 Generation** stops it cleanly at the next stage boundary.
@@ -234,103 +234,66 @@ order, so spatial neighbours being index-adjacent measurably helps both the
 solver's cache behaviour and the map renderer. It is a pure permutation: the
 geometry and every per-element attribute are unchanged.
 
-### Burning open channels into the terrain
+### Burning channels into an existing mesh
 
-The **Channel Burn-in** tab uses selected open-channel conduits and their
-cross-sections to represent the channel bed in the mesh. Raster export and
-mesh refinement use the same channel surface, so a channel narrower than a
-DTM pixel can still be represented. The source DTM is never modified.
+Generate or import a mesh first, then choose **Burn Channels…** in the Model
+tab's **Mesh 2D** group or the Mesh 2D tab's **Mesh** group. The tool uses the
+active mesh and the model's open-channel cross-sections. A DEM is not required:
+the surrounding elevations come from the existing mesh.
 
-\fig{19_channel_burn_tab.png, The Generate 2D Mesh dialog on the Channel Burn-in tab}
+Select all open channels, a query such as `link_tag = 'creek'`, or a list of
+conduit IDs. Closed pipes are excluded. Channels are clipped to the mesh
+boundary and its holes; outside intervals stay in 1D.
 
-**Selection and domain**
-
-Select **Every open channel**, a **Matching filter**, or **Named conduits**.
-Filters use the attribute table syntax, such as `link_tag = 'creek'`.
-Closed conduits are excluded. Open-shaped weirs are structures and are not
-selected as channel conduits.
-
-Replacement is restricted to the mesh domain. A channel crossing the boundary
-is split at every crossing; outside intervals remain in 1D. Holes count as
-outside. The channel's lateral footprint, constraints and raster edits are
-also clipped. Channels wholly outside the domain are retained unchanged.
-The report lists which intervals were retained or replaced.
-
-**Geometry and resolution**
-
-| Control | What it does |
+| Control | Meaning |
 | --- | --- |
-| **Stop at the transect's bank stations** | Restricts the lateral extent to the banks |
-| **Beyond the banks** | Adds a specified distance beyond the banks |
-| **Maximum half-width** | Limits the lateral extent |
-| **Forced half-width** | In terrain-only mode, replaces the DTM within this distance; farther out it only lowers the DTM |
-| **Maximum incision** | Limits the cut below the DTM; replacement stops if this prevents the section meeting its tolerance |
-| **Along-channel step** | Sets physical sample spacing; **auto** retains geometric stations and uses mesh spacing, independent of raster pixels |
-| **Across-channel step** | Sets the largest lateral gap; slope breaks, bank crests, toes and roughness boundaries are retained |
-| **Strings per side** | Adds lateral subdivisions |
-| **Section anchor** | Places the section at its thalweg, bank midpoint or station zero |
-| **Clamp adverse reaches flat** | Optional; disabled by default so real adverse slopes remain |
-| **Channel cell size** | Overrides the along-channel spacing used for the corridor |
-| **Channel elevation tolerance** | Independently checks channel elevations; defaults to **0.05 m**, regardless of the background terrain tolerance |
-| **Prefer quads** | Uses quads in regular, complete corridors, with triangles at clipped boundaries and overlapping junctions |
-| **Take Manning's n from the transect** | Assigns channel and overbank roughness to corridor cells |
+| Channel cell size | Target along-channel spacing; zero matches the existing mesh |
+| Minimum spacing divisor | Minimum row and column spacing is cell size divided by this value (default 4); this is not a strict aspect-ratio guarantee |
+| Minimum burn half-width | Within this width, replace existing elevations; farther out, lower elevations only |
+| Maximum incision | Limit the cut below the existing surface; zero is unlimited |
+| Channel elevation tolerance | Report deviations from the authored section, in metres |
+| Maximum total mesh cells | Limit the complete result, including retained cells and quads |
+| Use quadrilaterals where they fit | Use quads in regular channel runs and triangles near boundaries and confluences |
+| Replace burned channel intervals in the 1D model | Remove replaced intervals, retain outside intervals and create interface couplings |
 
-When replacing 1D conveyance, the complete selected cross-section extent
-replaces the terrain; the terrain-only lowering rule does not apply.
-Channel elevations follow the link's endpoint inverts and offsets, with the
-section's relative shape retained. Horizontal dimensions and elevations are
-converted independently between model, mesh and raster units.
+The tool opens local cavities around the selected channels, inserts the channel
+cells and stitches them to the retained mesh. Domain and building outlines stay
+fixed. Vertical banks become ramps at least one minimum-spacing cell wide.
+Cells outside the affected area retain their attributes; boundary conditions,
+existing couplings, infiltration overrides and layer display settings are
+carried forward. An interior edge assignment that cannot be retained is reported.
 
-A terrain surface cannot represent an exactly vertical wall. Rectangular
-channels retain the toe and crest using a small outward batter of 0.1% of the
-section width per bank. This changes rectangular cross-section area by at most
-0.1% and top width by at most 0.2% through bank-full depth. The mesh must still
-pass the elevation check; increase resolution if a narrow bank cannot be
-represented. Folded corridors are rejected with the channel name.
+If a cavity cannot be stitched within the limits, its original cells remain and
+only channel elevations are painted on its vertices. The result reports this
+fallback, channel elevation error, and before/after counts of poor-angle cells.
+Accuracy warnings do not prevent applying a valid mesh. Inspect these warnings
+before relying on the replacement's hydraulic behavior.
 
-Automatic section blending is disabled: it previously changed elevations
-without reconciling different channel widths. Authored section changes remain.
-Check confluences and genuine invert drops; an incompatible overlap blocks
-replacement rather than silently removing its 1D conveyance.
+With 1D replacement enabled, unreferenced interior junctions are removed.
+Delivery points, storage and other protected nodes are preserved; interfaces
+receive mesh couplings. A junction with one surviving link becomes a coupled
+outfall without changing the surviving pipe's invert or offsets. The model and
+mesh must use the same CRS for 1D replacement. Unsupported saved cell-indexed
+sections are refused before work starts. Every required interface must have a
+mesh coupling; if one cannot be connected, the operation leaves the mesh and
+1D network unchanged.
 
-**Network changes and Undo**
+The mesh and network changes form **one Undo operation**. Undo/Redo restores
+both, including after saving. Applying a burn changes the in-memory model;
+**Save** or **Save As** writes the channel deletions and updated mesh to disk.
+Cancellation and model changes during processing
+prevent adoption of the result. Generate Mesh has no channel-burn stage.
 
-| Connection | Result when replacement succeeds |
-| --- | --- |
-| Ordinary junction with exactly one surviving 1D link | Coupled outfall, when interface conversion is enabled |
-| Ordinary junction with multiple surviving links | Retained junction with a mesh coupling |
-| Headwater receiving runoff or external inflow | Retained delivery point coupled to the mesh |
-| Interior junction with no surviving links, inflow, initial water or other references | Removed |
-| Storage, divider, prescribed outfall or referenced node | Existing node type and behavior preserved |
+**Optional raster output** is off by default. Enable **Also prepare a burned DEM
+copy and report**, choose a source DEM and its elevation-unit conversion (1 for
+metres, 0.3048 for feet), and optionally select an output folder. The operation
+stages a VRT, changed-pixel GeoTIFF tiles and a CSV report. Project **Save**
+publishes them together; the source DEM remains unchanged. Export failure leaves
+the mesh and network unchanged. By default outputs go into `terrain/` beside
+the model, with a unique filename suffix.
 
-Surviving pipe endpoint elevations are preserved: conversion does not move
-the node invert or pipe offsets. Links referenced by controls or other model
-objects require those dependencies to be resolved before replacement.
-
-The generated mesh and network changes form **one Undo operation**. A failed
-adoption restores the previous network; Undo restores both the network and the
-previous mesh. Options are remembered when the dialog is reopened and saved
-with the project, including when burn-in is disabled.
-
-**Outputs and checks**
-
-Generation prepares a floating-point burned GeoTIFF and a CSV report. Project
-**Save** publishes them in the model's `terrain/` folder. The filename includes
-a hash of geometry, options, domain and coordinate reference information.
-The report includes interval decisions and raster edit statistics.
-
-Replacement requires channel geometry, elevation coverage and interface
-couplings to pass validation. A resource limit or unresolved channel error
-blocks replacement. A zero pixel-edit count is acceptable when the source
-already matches the channel or the channel lies between raster sample centres.
-These checks verify representation; they do not establish hydraulic
-calibration or equivalence to an entire 1D network.
-
-For a small reproducible test, use the bundled **Channel Burn at the Study
-Boundary** example. Its testing instructions in
-`examples/channel_burn_boundary/README.md` in the source repository
-describe boundary clipping, interior-node removal, closed-pipe coupling,
-outside-channel retention and Undo/Redo with expected results.
+Use the bundled **Channel Burn at the Study Boundary** example for the separate
+generate → burn → undo/redo → save/reopen workflow.
 
 ### Importing an existing mesh
 
@@ -682,10 +645,10 @@ visibility, panel layouts, the active mesh layer — lives in the project's
   may couple through cells instead of being forced into separate mesh vertices.
 - **Regenerating the mesh invalidates the coupling.** Run **Remap 1D↔2D**
   afterwards; it reports every node it could not place.
-- **Burn the channel before you chase the mesh.** If a creek refuses to convey
+- **Burn the channel after generating the mesh.** If a creek refuses to convey
   water, the usual cause is that the DTM never had it — no amount of refinement
-  resolves a bed the raster does not contain. Burn it in, and enable terrain
-  refinement and breakline capture to represent the resulting bed and banks.
+  resolves a bed the raster does not contain. Use **Burn Channels…**, then inspect the channel quality
+  report and breakline capture to represent the resulting bed and banks.
 - **Check the burn report, not just the mesh.** It names every conduit that was
   skipped and why. A channel that silently did not burn looks exactly like a
   channel that did until you read the row.

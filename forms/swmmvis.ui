@@ -1798,6 +1798,24 @@
     <enum>QAction::NoRole</enum>
    </property>
   </action>
+  <action name="actionBurnChannels">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/BurnChannels</normaloff>:/swmmvis/BurnChannels</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Burn Channels…</string>
+   </property>
+   <property name="toolTip">
+    <string>Burn selected open channels into the active 2D mesh.</string>
+   </property>
+   <property name="statusTip">
+    <string>Burn channel geometry into the current mesh as a separate, undoable operation.</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
   <action name="actionAssignRainGages">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">

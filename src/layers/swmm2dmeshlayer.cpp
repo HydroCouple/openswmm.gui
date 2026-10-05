@@ -3048,3 +3048,19 @@ void SWMM2DMeshLayer::onSublayersJsonLoaded(const QJsonObject &sublayersJson)
         }
     }
 }
+
+void SWMM2DMeshLayer::copyDisplayStateFrom(const SWMM2DMeshLayer &source)
+{
+    setName(source.name());
+    setVisible(source.isVisible());
+    setOpacity(source.opacity());
+    if (source.renderer()) setRenderer(source.renderer()->clone());
+    OpenSWMM::Render::ISublayerHost::loadSublayersFromJson(*this,
+        OpenSWMM::Render::ISublayerHost::saveSublayersToJson(source));
+    setEdgeZoomMinCellPx(source.edgeZoomMinCellPx());
+    setVertexZoomMinCellPx(source.vertexZoomMinCellPx());
+    setHillshadeAzimuth(source.hillshadeAzimuth());
+    setHillshadeAltitude(source.hillshadeAltitude());
+    setHillshadeZExag(source.hillshadeZExag());
+    setHillshadeMinLit(source.hillshadeMinLit());
+}
