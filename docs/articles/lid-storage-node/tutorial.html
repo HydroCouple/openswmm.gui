@@ -1,0 +1,108 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>T10 — Distributed LIDs: Active Control and Backwater</title><style>body{font:18px/1.65 system-ui,sans-serif;color:#123047;background:#f7fafb;max-width:1000px;margin:3rem auto;padding:0 1.4rem}img{max-width:100%;height:auto}figure{margin:2rem 0}h1,h2,h3{line-height:1.2}table{border-collapse:collapse;width:100%;font-size:16px}th,td{padding:.5rem;border-bottom:1px solid #dce6eb;text-align:left}.table-scroll{overflow:auto}pre{padding:1rem;background:#eaf1f4;overflow:auto}a{color:#007a80}blockquote{border-left:4px solid #008f83;padding-left:1rem}</style><body><nav><a href="../../articles.html#lid-storage-node">← Article</a> · <a href="models/lid_active_chain.zip">Download six models</a></nav><h1>T10 — Distributed LIDs: Active Control and Backwater</h1><h3>Goal</h3>
+<p>Explore two chained storage-node LIDs as a connected system. Compare passive outlets, timed detention, downstream-head guards, a second storm and valve failure. Assess flow attenuation and cumulative pollutant fate at every exit.</p>
+<h3>Capabilities exercised</h3>
+<ul><li>Layered LID assignment on ordinary storage nodes</li><li>Explicit inter-facility offsets and layer-relative overflow anchors</li><li>Dynamic Wave backwater and signed flow through controlled orifices</li><li>Timed rules; head isolation; a reopening band and depth relief</li><li>Conservative-tracer checks and reacting-pollutant mass accounting</li></ul>
+<h3>Files</h3>
+<p>These six self-contained native INP files are in <code>docs/manual/tutorials/models/lid_active_chain/</code>. Copy them into a working folder. Each contains all time series; no rainfall or external data file is required.</p>
+<div class="table-scroll"><table><thead><tr><th>Download</th><th>Experiment</th></tr></thead><tbody><tr><td><a href="models/01_passive_free.inp">01_passive_free.inp</a></td><td>Open valves and low receiving stage</td></tr><tr><td><a href="models/02_passive_backwater.inp">02_passive_backwater.inp</a></td><td>Open valves and high downstream stage</td></tr><tr><td><a href="models/03_timed_hold.inp">03_timed_hold.inp</a></td><td>Hold A until 6 h and B until 8 h</td></tr><tr><td><a href="models/04_head_guard.inp">04_head_guard.inp</a></td><td>Timed hold plus downstream-head guards</td></tr><tr><td><a href="models/05_repeat_storm.inp">05_repeat_storm.inp</a></td><td>Guarded system with a second larger pulse</td></tr><tr><td><a href="models/06_stuck_closed.inp">06_stuck_closed.inp</a></td><td>Both valves remain closed during both storms</td></tr></tbody></table></div>
+<p>These are synthetic tests with hypothetical treatment kinetics. They are not calibrated design recommendations. They require an engine containing the storage-node LID pollutant-balance corrections described in the article&#x27;s validation notes. Use Dynamic Wave and <code>QUALITY_SOLVER LEGACY</code>.</p>
+<h3>Steps</h3>
+<h4>1. Open the baseline and inspect the network</h4>
+<p>Open <strong>01_passive_free.inp</strong>. A and B are 1,000 ft² constant-footprint storage nodes, with inverts 0.30 ft and 0 ft and maximum depths of 2.50 ft. V_AB connects A to B; V_BR connects B to receiving outfall R. W_A and W_B connect surface overflows to separate outfalls FA and FB. Do not omit these overflow exits from the system assessment.</p>
+<figure><img src="assets/network-static.png" alt="Three strategies in the same chained LID system at 5.5 hours" loading="lazy"></figure>
+<p>A receives a triangular 0–0.30–0 cfs pulse at 0–1–2 h: 1,080 ft³. REACTIVE and TRACER each enter at 20 mg/L. TRACER has no reaction; REACTIVE is a hypothetical first-order constituent. Direct rainfall on a storage-node footprint must come from a contributing subcatchment or explicit inflow.</p>
+<h4>2. Inspect or recreate the layered control</h4>
+<p>Select A, then B, in the Object Browser. Set <strong>LID Control</strong> to <strong>Train</strong> and <strong>LID Initial Saturation (%)</strong> to <strong>10</strong>. Open <strong>Model → LID Control</strong> and select Train. For a new control, choose <strong>New layered LID</strong> and set <strong>Media / aggregate layers</strong> to <strong>2</strong>.</p>
+<div class="table-scroll"><table><thead><tr><th>Ordered layer</th><th>Physical properties in this CFS project</th></tr></thead><tbody><tr><td>1 SURFACE</td><td>Thickness 6 in; vegetation fraction 0.1</td></tr><tr><td>2 MEDIA</td><td>Thickness 12 in; porosity 0.45; field capacity 0.20; wilting point 0.08; conductivity 5 in/h; conductivity slope 3; suction 3 in</td></tr><tr><td>3 AGGREGATE</td><td>Thickness 12 in; porosity 0.40; conductivity 100 in/h</td></tr><tr><td>BOTTOM boundary</td><td>Seepage 0; clogging 0</td></tr></tbody></table></div>
+<p>Select each porous layer and open <strong>Pollutant treatment</strong>. <strong>Add pollutant</strong> REACTIVE, set <strong>Removal (%) = 0</strong>, <strong>Decay (1/day) = 2</strong>, and leave <strong>Expression</strong> empty. TRACER has no treatment row. Use <strong>Apply layers and treatment</strong>. Total physical thickness is 30 inches: 2.50 ft. BOTTOM is a boundary, not a treatment layer. See <a href="https://hydrocouple.github.io/openswmm.gui/tutorial_lid_storage.html">SWMMVis manual</a> for captured physical-property and treatment editor views.</p>
+<p>Equivalent native records are:</p>
+<pre><code>[LID_CONTROLS]
+Train NODE
+Train SURFACE 6 .1
+Train MEDIA 12 .45 .20 .08 5 3 3
+Train AGGREGATE 12 .40 100
+Train BOTTOM 0 0
+[LID_NODES]
+A Train 10
+B Train 10
+[LID_LAYER_TREATMENT]
+Train 2 REACTIVE 0 2 -
+Train 3 REACTIVE 0 2 -</code></pre>
+<h4>Physical interpretation of the layered control</h4>
+<p>Retained water occupies part of each cell’s pore volume. Connected mobile water fills the remaining pores below the node water table. The reported inventory includes both stores; an internal drainage transfer removes and adds the same water volume once.</p>
+<figure><img src="assets/water-stores.png" alt="Retained moisture and connected mobile storage in one layered facility" loading="lazy"></figure>
+<p>Intercell drainage is a gravity-only Darcy–Buckingham approximation, not an adjacent-cell total-head calculation. For downward-positive <code>xi</code>, the full one-dimensional relation is <code>q = K(theta) * (1 - dpsi/dxi)</code>; this kernel omits the matric-head gradient and uses donor conductivity:</p>
+<pre><code>q_i = Ks_i * clamp(theta_i / porosity_i, 0, 1)^n_i
+      if theta_i &gt; field_capacity_i; otherwise zero
+Q_i = area_i * q_i
+accepted_volume = min(Q_i * substep,
+                      max(0, (theta_i - field_capacity_i) * G_i),
+                      max(0, (porosity_receiver - theta_receiver) * G_receiver))</code></pre>
+<p>The receiving-space bound applies to a retained receiver entirely above the mobile water table. Otherwise, the transfer enters mobile storage. Cells whose bottoms lie below that table skip free drainage. Transfers use a common pre-update state and are debited/credited once, with explicit substeps at most one second. Aggregate cells use the same power law with zero field capacity and the default exponent three. The surface entry closure is separate:</p>
+<pre><code>q_inf = K_receiver * (1 + suction_receiver * max(porosity_receiver - theta_receiver, 0)
+                          / max(suction_receiver + theta_surface * thickness_surface, epsilon))</code></pre>
+<p>It uses the surface area and the same donor/receiver bounds; it does not track a wetting front. For media with Ks = 10 mm/h, theta = 0.30, porosity = 0.45, n = 3 and field capacity = 0.20, the trial drainage is 2.96 mm/h, independent of receiving-cell suction.</p>
+<figure><img src="assets/interlayer-flux.png" alt="Donor-based gravity flux and conservative limits compared with matric-gradient transport" loading="lazy"></figure>
+<p><a href="https://doi.org/10.1371/journal.pone.0235528">Tu, Wadzuk and Traver (2020), Sections 2.1–2.3</a> retain gravity and matric-gradient transport, with van Genuchten relations, bidirectional connections and equal-matric-head conversion between different textures. The present kernel omits that gradient term and adds a field-capacity cutoff. Its network backflow is not upward capillary redistribution. More cells do not restore the missing process. The approximation may suit coarse, relatively uniform media dominated by gravity drainage, but contrasting textures, capillary barriers and detailed root-zone moisture require additional assessment. The paper&#x27;s HYDRUS comparisons do not validate this simpler kernel.</p>
+<figure><img src="assets/richards-approximation.png" alt="What is retained and simplified from the Richards-equation formulation" loading="lazy"></figure>
+<p>The assigned <code>Decay (1/day) = 2</code> has a half-life of <code>ln(2)/2</code> days, or <strong>8.3 hours</strong>. Greater reaction with longer exposure follows directly from this assumption; these tests examine how hydraulics change that exposure and the mass leaving or remaining in the system. Fixed removal acts at a physical authored-layer exit and is not repeated at every media cell.</p>
+<figure><img src="assets/treatment-formulation.png" alt="Pollutant compartments and the assumed first-order exposure-time response" loading="lazy"></figure>
+<h4>3. Inspect the connections and receiving boundary</h4>
+<p>V_AB is a side orifice with diameter 0.15 ft and coefficient 0.6. Its authored orifice offset is 0.05 ft above the A invert. A link between two LID nodes uses explicit offsets rather than a single-ended LID anchor. V_BR has diameter 0.10 ft and coefficient 0.6; its anchor is <strong>layer 3 / BOTTOM</strong>. W_A and W_B are transverse weirs with coefficient 3.3, 0.5-ft crest width and 0.5-ft section height. Their physical crests are 2.0 ft above the respective node inverts, at <strong>layer 1 / BOTTOM</strong>.</p>
+<pre><code>[LID_NODE_OUTLETS]
+V_BR 3 BOTTOM
+W_A 1 BOTTOM
+W_B 1 BOTTOM</code></pre>
+<p>Open <strong>02_passive_backwater.inp</strong>. R&#x27;s Tailwater time series is zero until 3 h, rises linearly to 1.60 ft at 4 h, stays there until 7 h, then falls to zero at 9 h. The deck explicitly uses <code>OUTFALL_BACKFLOW_QUALITY ZERO</code>: returning boundary water is clean. With held-concentration backflow, imported pollutant must also be counted in the mass balance.</p>
+<h4>4. Compare timed detention and head-aware rules</h4>
+<p>Open <strong>03_timed_hold.inp</strong>, then <strong>Model → Data Objects → Control Rules…</strong>. Inspect the two rules that keep V_AB closed until 6 h and V_BR until 8 h. Open <strong>04_head_guard.inp</strong> to inspect the complete guarded rule set.</p>
+<p>A representative downstream-head rule is:</p>
+<pre><code>RULE IsolateB
+IF NODE R HEAD &gt; 1.25
+THEN ORIFICE V_BR SETTING = 0
+PRIORITY 3
+
+RULE KeepBIsolated
+IF NODE R HEAD &gt; 1.05
+AND LINK V_BR SETTING &lt; 0.5
+THEN ORIFICE V_BR SETTING = 0
+PRIORITY 3
+
+RULE ReliefB
+IF NODE B DEPTH &gt; 2.20
+AND NODE R HEAD &lt; 1.05
+THEN ORIFICE V_BR SETTING = 1
+PRIORITY 5</code></pre>
+<p>The reopening band avoids rapid switching at a single threshold. HEAD is an absolute hydraulic elevation; DEPTH is relative to the selected node&#x27;s invert. The relief rule opens only when downstream head is low. It does not replace an emergency overflow. Node HEAD and DEPTH track the mobile water table; perched surface ponding can be higher and supplies the local overflow-port head. Use the supplied full deck to reproduce all rules and priorities. Save a separate copy when editing.</p>
+<h4>5. Run and compare results</h4>
+<p>Run each file separately. Inspect A/B depth and volume, R head, actual valve settings, signed flows in V_AB and V_BR, W_A/W_B flows and pollutant concentrations. Negative link flow indicates reversal. Use comparison plots as described in <a href="https://hydrocouple.github.io/openswmm.gui/manual_time_series_plots.html">SWMMVis manual</a>.</p>
+<figure><img src="assets/release-hydrograph.png" alt="Receiving-outlet flow shifts with backwater and detention control" loading="lazy"></figure>
+<p>Check water and pollutant continuity. For each pollutant, include initial mass, all external sources, outfall discharge, flooding, seepage, reacted mass and final inventory. Reported storage includes retained and mobile water. A low effluent concentration or a closed valve does not prove removal.</p>
+<figure><img src="assets/pollutant-fate-static.png" alt="Cumulative tracer export and the final reactive-mass budget" loading="lazy"></figure>
+<figure class="lid-animation"><picture><source media="(prefers-reduced-motion: reduce)" srcset="assets/network-static.png"><img src="assets/network.gif" alt="Animated comparison of backwater and active controls" loading="lazy" data-animated="assets/network.gif" data-static="assets/network-static.png"></picture><button type="button">Show static figure</button></figure>
+<figure class="lid-animation"><picture><source media="(prefers-reduced-motion: reduce)" srcset="assets/pollutant-fate-static.png"><img src="assets/pollutant-fate.gif" alt="Animated cumulative tracer export with final pollutant fate" loading="lazy" data-animated="assets/pollutant-fate.gif" data-static="assets/pollutant-fate-static.png"></picture><button type="button">Show static figure</button></figure>
+<p>These animations show the same sampled runs. The mass-fate bars are final 24-hour totals; only the time-series curves progressively reveal simulated time. Static versions of both figures appear above.</p>
+<div class="table-scroll"><table><thead><tr><th>First-storm strategy</th><th class="num">V_BR peak (cfs)</th><th class="num">Tracer 50% export (h)</th><th class="num">Reacted by 24 h</th></tr></thead><tbody><tr><td>Passive / free outlet</td><td class="num">0.0369</td><td class="num">5.08</td><td class="num">33.9%</td></tr><tr><td>Passive / backwater</td><td class="num">0.0389</td><td class="num">10.33</td><td class="num">43.9%</td></tr><tr><td>Timed hold</td><td class="num">0.0345</td><td class="num">10.04</td><td class="num">42.6%</td></tr><tr><td>Hold + head guard</td><td class="num">0.0345</td><td class="num">10.04</td><td class="num">42.6%</td></tr></tbody></table></div>
+<h4>6. Add the second storm and failure test</h4>
+<p><strong>05_repeat_storm.inp</strong> adds a 0–0.45–0 cfs pulse at 9–10–11 h. <strong>06_stuck_closed.inp</strong> holds both orifices closed for all 24 hours. Examine surface bypass, any flooding and the mass left at the end. Compare every exit to the environment, not only V_BR. Do not credit retained pollutant as treated pollutant. Examine the remaining capacity before the second pulse. At the 0.025-second step the guarded two-storm run conveys approximately 1,208 ft³ through the emergency weirs; the stuck-closed run conveys approximately 2,007 ft³ through the weirs. Neither case has a flooding loss in the corrected runs. These volumes use cumulative engine accounting rather than snapshot sums.</p>
+<h3>What to look for</h3>
+<ul><li>Downstream head can reverse flow and change available detention in both LIDs.</li><li>Timed holding delays tracer export relative to the free-outlet case. Here its receiving-outlet peak is lower, but emergency bypass is larger.</li><li>Timed and guarded holding give the same result in this first-storm test: the additional guard rules do not change its valve schedule. Test other stages and storms before claiming a control benefit.</li><li>Passive backwater can produce more calculated reaction than the controller; treatment alone is insufficient to rank alternatives.</li><li>A stuck closed valve still permits emergency overflow and leaves an inventory.</li><li>MEDIA&#x27;s five internal cells do not imply five repeated removal events. Saturated mobile water remains a shared storage reactor.</li></ul>
+<h3>Variations</h3>
+<p>Change only one feature per saved copy: the hold duration, receiving stage, second-storm timing, footprint, media conductivity or decay coefficient. Run a no-reaction control first. Try an additional LID in the chain and compare all receiving-water exits over a common simulation horizon. Repeat with smaller routing steps; check pollutant continuity and convergence of peak flows, bypass volumes and treatment metrics separately. Flooding losses must remain visible even when a run has a small continuity error.</p>
+<p>These decks have closed bottom boundaries and do not include groundwater. A future tutorial will investigate the spatial groundwater model and the pathways between distributed recharge and receiving waters.</p>
+<h3>Formulation references</h3>
+<ul><li><a href="https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P100S9AS.txt">EPA Hydraulics Reference Manual</a></li><li><a href="https://doi.org/10.1371/journal.pone.0235528">Tu, Wadzuk and Traver (2020)</a> — a more detailed representation of unsaturated flow in SWMM</li><li><a href="https://doi.org/10.1061/%28ASCE%29WR.1943-5452.0001588">Gomes Junior et al. (2022), published valve-control paper</a></li></ul>
+<h3>Related</h3>
+<ul><li><a href="https://hydrocouple.github.io/openswmm.gui/tutorial_lid_storage.html">SWMMVis manual</a> — layer geometry and pollutant treatment editing</li><li><a href="https://hydrocouple.github.io/openswmm.gui/manual_hydraulics.html">SWMMVis manual</a> — control rules and hydraulic links</li><li><a href="https://hydrocouple.github.io/openswmm.gui/manual_water_quality.html">SWMMVis manual</a> — pollutant inputs and treatment expressions</li><li><a href="https://hydrocouple.github.io/openswmm.gui/manual_running.html">SWMMVis manual</a> — simulation and continuity reports</li><li><a href="https://hydrocouple.github.io/openswmm.gui/manual_time_series_plots.html">SWMMVis manual</a> — comparing result series</li><li><a href="https://hydrocouple.github.io/openswmm.gui/manual_data_objects.html">SWMMVis manual</a> — time series and data-object editors</li></ul><style>
+.lid-animation button{margin:.5rem 0;padding:.45rem .8rem;border:1px solid #557080;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}
+#lid-storage-node .article-body pre{overflow:auto;padding:1rem;background:#f1f5f7;color:#123047;border-radius:6px}
+@media print{.lid-animation button{display:none}}
+</style>
+<script>
+(function(){document.querySelectorAll('.lid-animation').forEach(function(fig){
+const img=fig.querySelector('img'), button=fig.querySelector('button'), source=fig.querySelector('source');
+let playing=!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(!playing){img.src=img.dataset.static;button.textContent='Play animation';}
+button.addEventListener('click',function(){if(source)source.remove();playing=!playing;img.src=playing?img.dataset.animated:img.dataset.static;button.textContent=playing?'Show static figure':'Play animation';});
+});})();
+</script></body></html>

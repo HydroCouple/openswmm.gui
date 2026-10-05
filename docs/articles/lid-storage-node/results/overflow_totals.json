@@ -1,0 +1,204 @@
+{
+  "library_filename": "libopenswmm.engine.6.0.0.dylib",
+  "library_sha256": "4a30e4e9c99443fca7bf99b649bc0f1c853eaaaa07a744275187e5d5b0180f10",
+  "sample_seconds": 30,
+  "acceptance_error_percent": 0.5,
+  "runs": [
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 0.1,
+      "warnings": [],
+      "flow_error_percent": -1.9614185682415056e-13,
+      "reactive_error_percent": 0.0,
+      "tracer_error_percent": 0.0,
+      "inflow_ft3": 2699.9999983910297,
+      "outflow_ft3": 2646.8294520898157,
+      "flood_ft3": 0.0,
+      "initial_ft3": 313.99999999999994,
+      "final_ft3": 367.17054630121976,
+      "mass_in_lbs": [
+        3.369,
+        3.369
+      ],
+      "mass_out_lbs": [
+        2.292,
+        3.062
+      ],
+      "mass_reacted_lbs": [
+        0.987,
+        0.0
+      ],
+      "mass_flood_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_initial_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_final_lbs": [
+        0.089,
+        0.307
+      ],
+      "peak_receiving_cfs": 0.0414076373854628,
+      "peak_all_exits_cfs": 0.2994787916486048,
+      "reverse_AB_ft3_sampled": 0,
+      "reverse_BR_ft3_sampled": 0,
+      "bypass_ft3_engine": 1208.0173589302983,
+      "bypass_ft3_sampled": 1208.0208063803268,
+      "max_depth_A_ft": 2.0000059206724377,
+      "max_depth_B_ft": 1.248930155305656,
+      "reacted_percent": 29.29652715939448,
+      "tracer_half_export_hour": 10.708333333255421,
+      "accepted_hydraulics": true,
+      "accepted": true
+    },
+    {
+      "case": "05_repeat_storm",
+      "step_seconds": 0.025,
+      "warnings": [],
+      "flow_error_percent": 4.37547219112349e-13,
+      "reactive_error_percent": 0.0,
+      "tracer_error_percent": 0.0,
+      "inflow_ft3": 2699.999998094208,
+      "outflow_ft3": 2646.8280758271894,
+      "flood_ft3": 0.0,
+      "initial_ft3": 313.99999999999994,
+      "final_ft3": 367.17192226700513,
+      "mass_in_lbs": [
+        3.369,
+        3.369
+      ],
+      "mass_out_lbs": [
+        2.292,
+        3.062
+      ],
+      "mass_reacted_lbs": [
+        0.987,
+        0.0
+      ],
+      "mass_flood_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_initial_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_final_lbs": [
+        0.089,
+        0.307
+      ],
+      "peak_receiving_cfs": 0.041410309388519875,
+      "peak_all_exits_cfs": 0.299443528748197,
+      "reverse_AB_ft3_sampled": 0,
+      "reverse_BR_ft3_sampled": 0,
+      "bypass_ft3_engine": 1207.9498912073045,
+      "bypass_ft3_sampled": 1207.9525141508943,
+      "max_depth_A_ft": 2.0000012589036302,
+      "max_depth_B_ft": 1.2490825899168854,
+      "reacted_percent": 29.29652715939448,
+      "tracer_half_export_hour": 10.70833333364498,
+      "accepted_hydraulics": true,
+      "accepted": true
+    },
+    {
+      "case": "06_stuck_closed",
+      "step_seconds": 0.1,
+      "warnings": [],
+      "flow_error_percent": -2.5649319738542767e-13,
+      "reactive_error_percent": 0.0,
+      "tracer_error_percent": 0.0,
+      "inflow_ft3": 2699.9999983910297,
+      "outflow_ft3": 2006.5647009726647,
+      "flood_ft3": 0.0,
+      "initial_ft3": 313.99999999999994,
+      "final_ft3": 1007.4352974183726,
+      "mass_in_lbs": [
+        3.369,
+        3.369
+      ],
+      "mass_out_lbs": [
+        2.503,
+        2.503
+      ],
+      "mass_reacted_lbs": [
+        0.737,
+        0.0
+      ],
+      "mass_flood_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_initial_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_final_lbs": [
+        0.128,
+        0.865
+      ],
+      "peak_receiving_cfs": 0,
+      "peak_all_exits_cfs": 0.3935425745846481,
+      "reverse_AB_ft3_sampled": 0,
+      "reverse_BR_ft3_sampled": 0,
+      "bypass_ft3_engine": 2006.5647009726647,
+      "bypass_ft3_sampled": 2006.5666271632663,
+      "max_depth_A_ft": 2.0000004445399595,
+      "max_depth_B_ft": 6.430037019849986e-07,
+      "reacted_percent": 21.875927574948054,
+      "tracer_half_export_hour": 10.349999999927302,
+      "accepted_hydraulics": true,
+      "accepted": true
+    },
+    {
+      "case": "06_stuck_closed",
+      "step_seconds": 0.025,
+      "warnings": [],
+      "flow_error_percent": 2.187736095561745e-12,
+      "reactive_error_percent": 0.0,
+      "tracer_error_percent": 0.0,
+      "inflow_ft3": 2699.999998094208,
+      "outflow_ft3": 2006.5646937921117,
+      "flood_ft3": 0.0,
+      "initial_ft3": 313.99999999999994,
+      "final_ft3": 1007.4353043020304,
+      "mass_in_lbs": [
+        3.369,
+        3.369
+      ],
+      "mass_out_lbs": [
+        2.503,
+        2.503
+      ],
+      "mass_reacted_lbs": [
+        0.737,
+        0.0
+      ],
+      "mass_flood_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_initial_lbs": [
+        0.0,
+        0.0
+      ],
+      "mass_final_lbs": [
+        0.128,
+        0.865
+      ],
+      "peak_receiving_cfs": 0,
+      "peak_all_exits_cfs": 0.3935387587769962,
+      "reverse_AB_ft3_sampled": 0,
+      "reverse_BR_ft3_sampled": 0,
+      "bypass_ft3_engine": 2006.5646937921117,
+      "bypass_ft3_sampled": 2006.5662015212738,
+      "max_depth_A_ft": 2.0000000495677956,
+      "max_depth_B_ft": 1.6075100318540063e-07,
+      "reacted_percent": 21.875927574948054,
+      "tracer_half_export_hour": 10.35000000029079,
+      "accepted_hydraulics": true,
+      "accepted": true
+    }
+  ]
+}
