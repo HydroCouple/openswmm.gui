@@ -11,7 +11,11 @@
 #include "mesh/meshcellparams.h"
 #include <QAccessible>
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_infil2d.h>
+#include "ui/properties/meshtrianglepropertyadapter.h"
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -41,6 +45,46 @@ struct Fixture{
 class TestGroundwaterAssignDialog:public QObject{
  Q_OBJECT
 private slots:
+ void ownershipMigrationIsReviewedAndUndoable(){
+  Fixture f;QVERIFY(f.open());f.select();
+  SWMM_Infil2DRow row{};row.has_method=1;row.method=SWMM_INFIL2D_CONSTANT;row.p[0]=2;row.dest=SWMM_INFIL2D_DEST_AQUIFER_2D;
+  SWMM_Infil2DAuthoredRow authored{};authored.cell=0;authored.row=row;authored.dest_explicit=1;
+  QCOMPARE(swmm_infil2d_replace_authored_rows(f.model.engine(),&authored,1),SWMM_OK);
+  mesh::InfilRow local;local.method=mesh::InfilMethod::Constant;local.p[0]=2;local.dest=mesh::InfilDest::Aquifer2D;f.mesh.applyMeshTriangleInfil(0,local);
+  GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);
+  auto* target=dialog.findChild<QComboBox*>("gwAssignmentTarget");target->setCurrentIndex(target->findData("INFILTRATION_OWNERSHIP"));
+  auto* preview=dialog.findChild<QPushButton*>("gwAssignmentPreviewButton");auto* apply=dialog.findChild<QPushButton*>("gwAssignmentApplyButton");
+  preview->click();QVERIFY(!apply->isEnabled());
+  auto* table=dialog.findChild<QTableWidget*>("gwAssignmentPreview");QCOMPARE(table->columnCount(),4);QCOMPARE(table->item(0,1)->text(),QString("Aquifer"));
+  dialog.findChild<QCheckBox*>("gwOwnershipRemoveOverrides")->setChecked(true);preview->click();QVERIFY2(apply->isEnabled(),qPrintable(dialog.findChild<QLabel*>("gwAssignmentStatus")->text()));
+  dialog.resize(1100,800);dialog.show();QTest::qWait(200);
+  const QString out=QDir::currentPath()+"/tests/gui/data/surface_r2_out";QDir().mkpath(out);QVERIFY(dialog.grab().save(out+"/ownership-review.png"));
+  int count=0;QCOMPARE(swmm_infil2d_get_authored_rows(f.model.engine(),nullptr,0,&count),SWMM_OK);QCOMPARE(count,1);
+  apply->click();QCOMPARE(f.canvas.undoStack()->count(),1);QCOMPARE(swmm_infil2d_get_authored_rows(f.model.engine(),nullptr,0,&count),SWMM_OK);QCOMPARE(count,0);QVERIFY(f.mesh.mesh().infilOverrides.isEmpty());
+  f.canvas.undoStack()->undo();QCOMPARE(swmm_infil2d_get_authored_rows(f.model.engine(),nullptr,0,&count),SWMM_OK);QCOMPARE(count,1);QVERIFY(f.mesh.mesh().infilOverrides.contains(0));
+  f.canvas.undoStack()->redo();QCOMPARE(swmm_infil2d_get_authored_rows(f.model.engine(),nullptr,0,&count),SWMM_OK);QCOMPARE(count,0);
+  MeshTrianglePropertyAdapter property(&f.mesh,0);QCOMPARE(property.infiltrationOwner(),QString("Aquifer"));QVERIFY(property.infiltrationSource().contains("row 1"));
+  QCOMPARE(mesh::cellParamValue(f.mesh.mesh(),0,"infil.owner"),2.);QCOMPARE(mesh::cellParamValue(f.mesh.mesh(),0,"infil.conflict"),0.);
+ }
+ void ownershipCancellationDoesNotWrite(){
+  Fixture f;QVERIFY(f.open());f.select();QCOMPARE(swmm_options_set_ext(f.model.engine(),"INFIL_DESTINATION","AQUIFER_2D"),SWMM_OK);
+  GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);
+  auto* target=dialog.findChild<QComboBox*>("gwAssignmentTarget");target->setCurrentIndex(target->findData("INFILTRATION_OWNERSHIP"));
+  dialog.findChild<QPushButton*>("gwAssignmentPreviewButton")->click();QVERIFY(dialog.findChild<QPushButton*>("gwAssignmentApplyButton")->isEnabled());
+  dialog.reject();char destination[100]{};QCOMPARE(swmm_options_get_ext(f.model.engine(),"INFIL_DESTINATION",destination,sizeof destination),SWMM_OK);QCOMPARE(QString(destination),QString("AQUIFER_2D"));QCOMPARE(f.canvas.undoStack()->count(),0);
+ }
+
+ void ownershipStalePreviewRefusesWholeMigration(){
+  Fixture f;QVERIFY(f.open());f.select();QCOMPARE(swmm_options_set_ext(f.model.engine(),"INFIL_DESTINATION","AQUIFER_2D"),SWMM_OK);
+  GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);
+  auto* target=dialog.findChild<QComboBox*>("gwAssignmentTarget");target->setCurrentIndex(target->findData("INFILTRATION_OWNERSHIP"));
+  dialog.findChild<QPushButton*>("gwAssignmentPreviewButton")->click();auto*apply=dialog.findChild<QPushButton*>("gwAssignmentApplyButton");QVERIFY(apply->isEnabled());
+  SWMM_Infil2DRow row{};row.has_method=1;row.method=SWMM_INFIL2D_CONSTANT;row.p[0]=10;
+  QCOMPARE(swmm_infil2d_set_default(f.model.engine(),"*",&row),SWMM_OK);apply->click();
+  char destination[100]{};QCOMPARE(swmm_options_get_ext(f.model.engine(),"INFIL_DESTINATION",destination,sizeof destination),SWMM_OK);QCOMPARE(QString(destination),QString("AQUIFER_2D"));
+  int count=0;QCOMPARE(swmm_infil2d_get_authored_rows(f.model.engine(),nullptr,0,&count),SWMM_OK);QCOMPARE(count,1);QCOMPARE(f.canvas.undoStack()->count(),0);
+ }
+
  void legacyGroundwaterTargetsPointToSupportedAssignment(){
   int found=0;for(const auto&spec:mesh::cellParamSpecs())if(spec.key.startsWith("gw.")){
    ++found;QVERIFY(!spec.enabled);QVERIFY(spec.tooltip.contains("Model"));QVERIFY(spec.tooltip.contains("Assign Groundwater"));QVERIFY(!spec.tooltip.contains("not yet available"));

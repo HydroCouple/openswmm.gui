@@ -13,6 +13,8 @@
 #include "core/crsreproject.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "core/preferencesmanager.h"
+#include "layers/swmmmodellayer.h"
+#include <openswmm/engine/openswmm_infil2d.h>
 
 #include "core/unitsystem.h"
 #include "mesh/meshcellgeom.h"
@@ -3063,4 +3065,36 @@ void SWMM2DMeshLayer::copyDisplayStateFrom(const SWMM2DMeshLayer &source)
     setHillshadeAltitude(source.hillshadeAltitude());
     setHillshadeZExag(source.hillshadeZExag());
     setHillshadeMinLit(source.hillshadeMinLit());
+}
+
+void SWMM2DMeshLayer::setInfiltrationModel(::SWMMModelLayer* model) {
+ if(m_infiltrationModel!=model){
+  disconnect(m_ownerClosing);disconnect(m_ownerEdited);
+  m_infiltrationModel=model;
+  if(model){m_ownerClosing=connect(model,&::SWMMModelLayer::engineAboutToClose,this,[this]{m_mesh.infiltrationOwner.clear();m_mesh.infiltrationConflict.clear();m_mesh.infiltrationSource.clear();emit meshEditsChanged();});
+   m_ownerEdited=connect(model,&::SWMMModelLayer::modelEdited,this,[this]{refreshInfiltrationOwnership();});}
+ }
+ refreshInfiltrationOwnership();
+}
+void SWMM2DMeshLayer::refreshInfiltrationOwnership() {
+ QVector<int> resolvedOwners,resolvedConflicts;QStringList resolvedSources;
+ const int count=m_mesh.triangles.size();QVector<int> owners(count),rows(count),conflicts(count);
+ if(m_infiltrationModel&&m_infiltrationModel->engine()&&count&&swmm_infil2d_get_ownership_bulk(m_infiltrationModel->engine(),owners.data(),rows.data(),conflicts.data(),count,nullptr)==SWMM_OK)
+ for(int cell=0;cell<count;++cell){const int owner=owners[cell],row=rows[cell];int conflict=conflicts[cell];
+  // Unsaved mesh edits participate in conflict display immediately.
+  if(owner==2&&m_mesh.infilOverrides.contains(cell)&&!m_mesh.infilOverrides[cell].isNone())conflict=1;
+  resolvedOwners.append(owner);resolvedConflicts.append(conflict);
+  resolvedSources.append(owner==2?(row<0?tr("Implicit whole-mesh aquifer default"):tr("Aquifer row %1").arg(row+1)):owner==0?tr("Infiltration OFF"):tr("Surface bank"));
+ }
+ if(m_mesh.infiltrationOwner==resolvedOwners&&m_mesh.infiltrationConflict==resolvedConflicts&&m_mesh.infiltrationSource==resolvedSources)return;
+ m_mesh.infiltrationOwner=resolvedOwners;m_mesh.infiltrationConflict=resolvedConflicts;m_mesh.infiltrationSource=resolvedSources;
+ ++m_attrRevision;emit meshEditsChanged();emit repaintRequested();
+}
+bool SWMM2DMeshLayer::surfaceInfiltrationEditable(int cell) const {
+ return cell<0||cell>=m_mesh.infiltrationOwner.size()||m_mesh.infiltrationOwner[cell]==1;
+}
+
+void SWMM2DMeshLayer::replaceInfiltrationRows(const QVector<mesh::InfilDefaultRow>& defaults,const QHash<int,mesh::InfilRow>& overrides) {
+ m_mesh.infilDefaults=defaults;m_mesh.infilOverrides=overrides;++m_attrRevision;
+ refreshInfiltrationOwnership();emit attributeChanged(sourcePath());emit meshEditsChanged();
 }

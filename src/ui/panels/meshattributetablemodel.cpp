@@ -215,6 +215,7 @@ void MeshAttributeTableModel::setModelLayer(SWMMModelLayer *layer)
     // so the schema itself changes — a reset, not a dataChanged.
     beginResetModel();
     m_modelLayer = layer;
+    if(m_layer)m_layer->setInfiltrationModel(layer);
     rebuildColumns();
     endResetModel();
 }
@@ -252,6 +253,7 @@ void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind)
     if (m_layer)
         disconnect(m_layer, nullptr, this, nullptr);
     m_layer = layer;
+    if(m_layer)m_layer->setInfiltrationModel(m_modelLayer);
     m_kind  = kind;
     connectLayer(layer);
     rebuildColumns();
@@ -571,6 +573,7 @@ bool MeshAttributeTableModel::cellInfilParamApplies(int row,
                                                     const QByteArray &key) const
 {
     if (!m_layer || m_kind != Kind::Cell) return false;
+    if (!m_layer->surfaceInfiltrationEditable(row)) return false;
     if (key == "infil.method") return true;   // the method itself always applies
     const mesh::ResolvedInfil r = mesh::resolveInfil(m_layer->mesh(), row);
     return mesh::infilSlotForKey(r.row.method, key) >= 0;
@@ -722,6 +725,12 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         // Per-cell parameter: unset reads back as the registry default, which
         // is what the engine would use; engine-pending keys have no value.
         const QByteArray key = spec.key.toUtf8();
+        if (key=="infil.owner"||key=="infil.conflict") {
+            const double raw=mesh::cellParamValue(m,row,key);
+            const auto* cs=mesh::cellParamSpec(key);
+            return std::isfinite(raw)?QVariant(cs->enumLabels.value(int(raw))):QVariant(tr("Unavailable"));
+        }
+        if(key.startsWith("infil.")&&!m_layer->surfaceInfiltrationEditable(row))return role==Qt::EditRole?QVariant():QVariant(m_layer->mesh().infiltrationOwner.value(row)==0?tr("Infiltration OFF"):tr("Computed by aquifer"));
         const mesh::CellParamSpec *cs = mesh::cellParamSpec(key);
         if (!cs) return {};
         if (!cs->enabled)

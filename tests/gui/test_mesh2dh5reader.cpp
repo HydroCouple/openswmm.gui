@@ -513,6 +513,22 @@ private slots:
         QVERIFY(values.empty()); QVERIFY(!reader.lastError().isEmpty());
     }
 
+    void aquiferReceivingResultsDistinguishMissingAndZero()
+    {
+        using S = openswmmvis::io::Mesh2DValueStatus;
+        using V = openswmmvis::io::Mesh2DResultVariable;
+        const QString path = catalogCopy(fixturePath_, "aquifer-receiving");
+        appendCatalogField(path, "Mesh2_face_gw_infil_capacity", {3,2}, {0,0,0,-9999,1,2}, "m s-1", {}, {}, nullptr, true);
+        appendCatalogField(path, "Mesh2_face_gw_infil_remaining", {3,2}, {0,0,0,-9999,1,2}, "m3", {}, {}, nullptr, true);
+        Mesh2DH5Reader reader; QVERIFY(reader.open(path));
+        const auto capacity=catalogVariable(reader,"Mesh2_face_gw_infil_capacity");
+        QCOMPARE(capacity.units,QString("m s-1"));QCOMPARE(capacity.temporal,V::Temporal::Held);
+        const auto remaining=catalogVariable(reader,"Mesh2_face_gw_infil_remaining");QCOMPARE(remaining.units,QString("m3"));
+        std::vector<float> values;std::vector<S> status;
+        QVERIFY(reader.readFaceVariableAt(capacity,1,values,status));
+        QCOMPARE(values[0],0.f);QCOMPARE(status[0],S::Valid);QVERIFY(std::isnan(values[1]));QCOMPARE(status[1],S::Missing);
+    }
+
     void scalarFillValuesAreMissing()
     {
         const QString path = catalogCopy(fixturePath_, "scalar-fill");

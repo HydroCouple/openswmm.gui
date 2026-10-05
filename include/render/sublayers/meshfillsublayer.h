@@ -81,6 +81,7 @@ public:
         GwThetaS,        ///< "gw.thetaS"  (engine support pending)
         GwHu0,           ///< "gw.hu0"     (engine support pending)
         GwHg0,           ///< "gw.hg0"     (engine support pending)
+        InfilOwner, InfilConflict,
     };
     Q_ENUM(CellAttribute)
 

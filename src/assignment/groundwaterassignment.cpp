@@ -1,5 +1,8 @@
 #include "assignment/groundwaterassignment.h"
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_2d.h>
+#include <cstring>
 #include <QSet>
 #include <QHash>
 #include <cmath>
@@ -137,5 +140,67 @@ bool undoAquiferPreview(SWMM_Engine e,const AquiferPreview&p,QString *error){
     if(now!=expected)return fail(error,"Aquifer data changed after this assignment. Undo was refused to preserve the newer edits.");
     if(!removeTail(e,int(p.before.rows.size())))return fail(error,"Unable to remove the assignment rows. Stop editing and reload the last saved model.");
     return true;
+}
+
+namespace {
+bool ownershipSnapshot(SWMM_Engine e,InfiltrationOwnershipSnapshot* out,QString* error) {
+ int count=0;if(swmm_infil2d_get_authored_rows(e,nullptr,0,&count)!=SWMM_OK)return fail(error,"Cannot read authored infiltration rows.");
+ out->rows.resize(count);if(count&&swmm_infil2d_get_authored_rows(e,out->rows.data(),count,&count)!=SWMM_OK)return fail(error,"Cannot snapshot infiltration rows.");
+ char value[4096]{};if(swmm_options_get_ext(e,"INFIL_DESTINATION",value,sizeof value)!=SWMM_OK)return fail(error,"Cannot read infiltration destination.");
+ out->destination=QString::fromUtf8(value);return true;
+}
+bool sameOwnership(const InfiltrationOwnershipSnapshot& a,const InfiltrationOwnershipSnapshot& b) {
+ if(a.destination!=b.destination||a.rows.size()!=b.rows.size())return false;
+ for(int i=0;i<a.rows.size();++i){const auto& x=a.rows[i];const auto& y=b.rows[i];
+  if(x.cell!=y.cell||std::strcmp(x.tag,y.tag)||x.dest_explicit!=y.dest_explicit||x.row.has_method!=y.row.has_method||x.row.method!=y.row.method||x.row.dest!=y.row.dest)return false;
+  for(int k=0;k<5;++k)if(x.row.p[k]!=y.row.p[k])return false;
+ }return true;
+}
+}
+InfiltrationOwnershipPreview previewInfiltrationOwnership(SWMM_Engine e,const QStringList& tags,bool removeExplicit) {
+ InfiltrationOwnershipPreview p;if(!ownershipSnapshot(e,&p.before,&p.error))return p;p.after=p.before;
+ int count=0;if(swmm_2d_triangle_count(e,&count)!=SWMM_OK||count!=tags.size()){p.error="Mesh and model cell counts differ.";return p;}
+ for(int cell=0;cell<count;++cell){char tag[4096]{};
+  if(swmm_2d_get_triangle_tag(e,cell,tag,sizeof tag)!=SWMM_OK||QString::fromUtf8(tag)!=tags[cell]){p.error="Save pending mesh tag edits before reviewing ownership.";return p;}
+ }
+ QVector<int> owners(count),sources(count),conflicts(count);
+ if(count&&swmm_infil2d_get_ownership_bulk(e,owners.data(),sources.data(),conflicts.data(),count,nullptr)!=SWMM_OK){p.error="Ownership is unavailable for this mesh.";return p;}
+ for(int cell=0;cell<count;++cell){const int owner=owners[cell],source=sources[cell],conflict=conflicts[cell];
+  InfiltrationOwnershipCell c;c.cell=cell;c.owner=owner;c.conflict=conflict;
+  c.source=owner==2?(source<0?QString("Implicit whole-mesh aquifer default"):QString("Aquifer row %1").arg(source+1)):owner==0?QString("Infiltration process OFF"):QString("Surface infiltration bank");
+  c.reason=owner==2?QString("Capacity is computed by the aquifer."):owner==0?QString("No water transfer."):QString("Ordinary method applies.");
+  if(conflict==1)c.reason=removeExplicit?QString("Remove conflicting surface cell override; aquifer computes capacity."):QString("Explicit surface cell override conflicts; select removal before Apply.");
+  if(conflict==2)c.reason=QString("Migrate obsolete AQUIFER_2D destination to LOST; coverage determines the infiltration owner.");
+  p.cells.append(c);
+ }
+ p.after.rows.clear();
+ for(auto row:p.before.rows){
+  if(row.cell>=0&&row.row.has_method&&p.cells[row.cell].owner==2){
+   if(!removeExplicit){p.error="Explicit surface overrides conflict with aquifer ownership. Review and select their removal before Apply.";}
+   else {
+    static const char* methods[]={"HORTON","MOD_HORTON","GREEN_AMPT","MOD_GREEN_AMPT","CURVE_NUM","CONSTANT"};
+    static const int counts[]={5,5,3,3,3,1};QStringList parameters;
+    for(int k=0;k<counts[row.row.method];++k)parameters.append(QString::number(row.row.p[k],'g',17));
+    p.cells[row.cell].reason=QString("Remove %1 surface override (parameters %2, in project units); aquifer computes capacity.").arg(methods[row.row.method],parameters.join(", "));continue;
+   }
+  }
+  if(row.row.dest==SWMM_INFIL2D_DEST_AQUIFER_2D)row.row.dest=SWMM_INFIL2D_DEST_LOST;
+  p.after.rows.append(row);
+  if(row.cell<0){const QString tag=QString::fromUtf8(row.tag);int applied=0,skipped=0;
+   for(int cell=0;cell<count;++cell)if(tag=="*"||tags[cell]==tag){if(p.cells[cell].owner==2)++skipped;else ++applied;}
+   p.summaries.append(QString("Default %1: %2 applied, %3 skipped (aquifer-owned)").arg(tag).arg(applied).arg(skipped));
+  }
+ }
+ if(p.after.destination=="AQUIFER_2D")p.after.destination="LOST";
+ p.changed=!sameOwnership(p.before,p.after);return p;
+}
+bool applyInfiltrationOwnership(SWMM_Engine e,const InfiltrationOwnershipSnapshot& expected,const InfiltrationOwnershipSnapshot& desired,QString* error) {
+ if(!editable(e))return fail(error,"Reset the simulation before changing infiltration ownership.");
+ InfiltrationOwnershipSnapshot now;if(!ownershipSnapshot(e,&now,error))return false;
+ if(!sameOwnership(now,expected))return fail(error,"Infiltration configuration changed since preview. Preview again.");
+ if(swmm_options_set_ext(e,"INFIL_DESTINATION",desired.destination.toUtf8().constData())!=SWMM_OK)return fail(error,"Cannot update the reviewed destination.");
+ if(swmm_infil2d_replace_authored_rows(e,desired.rows.constData(),desired.rows.size())!=SWMM_OK){
+  swmm_options_set_ext(e,"INFIL_DESTINATION",expected.destination.toUtf8().constData());return fail(error,"Cannot apply reviewed rows; the destination was restored.");
+ }return true;
 }
 }

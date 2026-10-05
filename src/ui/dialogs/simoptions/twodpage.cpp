@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QStandardItemModel>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -430,15 +431,15 @@ void TwoDPage::buildUi()
     m_infil2DDestCombo->addItem(tr("Lost (leaves the model)"), QStringLiteral("LOST"));
     m_infil2DDestCombo->addItem(tr("Subcatchment aquifer (containing subcatchment)"),
                                 QStringLiteral("SUBCATCH_AQUIFER"));
-    m_infil2DDestCombo->addItem(tr("2D aquifer (requires groundwater support)"),
+    m_infil2DDestCombo->addItem(tr("Obsolete 2D destination — review ownership migration"),
                                 QStringLiteral("AQUIFER_2D"));
     m_infil2DDestCombo->setToolTip(
         tr("[2D_OPTIONS] INFIL_DESTINATION — where infiltrated water goes "
            "for every row that does not spell its own DEST column. "
            "Subcatchment aquifer recharges the legacy aquifer of the "
-           "subcatchment containing each cell. The 2D aquifer requires a "
-           "compatible groundwater component and valid aquifer configuration. "
-           "Check the run report for the selected engine's support."));
+           "subcatchment containing each cell. Aquifer-covered cells compute "
+           "their own capacity and skip surface defaults. Use Assign Groundwater "
+           "to migrate the obsolete AQUIFER_2D destination."));
     rainfallForm->addRow(tr("Destination:"), m_infil2DDestCombo);
 
     m_editInfilCellsBtn = new QPushButton(tr("Edit per-cell infiltration…"), rainfallGroup);
@@ -897,33 +898,17 @@ void TwoDPage::refreshGates()
     // count — so it leaves the destination free and lets the engine validate,
     // rather than guessing and locking a control the user cannot then change.
     const QString mode = m_gw2DEnableCombo->currentData().toString();
-    const bool on  = (mode == QLatin1String("YES"));
     const bool off = (mode == QLatin1String("NO"));
     m_gw2DEtCombo->setEnabled(!off);
-    // The surface Infiltration destination and the subsurface are the two
-    // ends of the same water: with the 2D aquifer on, infiltration belongs
-    // to it, and the mutual exclusion the engine validates shows here as a
-    // state change rather than a hidden group (OPT plan section 7).
+    // Aquifer ownership is resolved from coverage. It is independent of
+    // the ordinary bank's destination; never synthesize the obsolete token.
     if (m_infil2DDestCombo) {
         const int aq = m_infil2DDestCombo->findData(QStringLiteral("AQUIFER_2D"));
-        if (aq >= 0 && on && m_infil2DDestCombo->currentIndex() != aq)
-            m_infil2DDestCombo->setCurrentIndex(aq);
-        m_infil2DDestCombo->setEnabled(!on);
-        m_infil2DDestCombo->setToolTip(
-            on ? tr("Locked to the 2D aquifer while Groundwater is enabled. "
-                    "This destination requires a compatible groundwater "
-                    "component and valid aquifer configuration; check the run "
-                    "report for support. Turn Groundwater off to choose "
-                    "another destination.")
-               : tr("[2D_OPTIONS] INFIL_DESTINATION: where infiltrated water "
-                    "goes for every row that does not spell its own DEST "
-                    "column. Subcatchment aquifer recharges the legacy aquifer "
-                    "of the subcatchment containing each cell. The 2D aquifer "
-                    "requires a compatible groundwater component and valid "
-                    "aquifer configuration. Check the run report for the "
-                    "selected engine's support."));
-        if (m_infil2DMethodCombo)
-            m_infil2DMethodCombo->setEnabled(!on);
+        if (auto *items = qobject_cast<QStandardItemModel *>(m_infil2DDestCombo->model()))
+            if (auto *item = items->item(aq)) item->setEnabled(false);
+        m_infil2DDestCombo->setEnabled(true);
+        m_infil2DDestCombo->setToolTip(tr("Destination for ordinary surface-bank cells. Aquifer-owned cells compute their receiving capacity from the aquifer. Use Assign Groundwater → Review infiltration ownership to migrate obsolete destinations."));
+        if (m_infil2DMethodCombo) m_infil2DMethodCombo->setEnabled(true);
     }
 
     // Name the [GW_*] authoring surface and what a run will do with it.

@@ -68,6 +68,33 @@ QStringList sourceFiles(const QString&path,QString*error){
  const auto primary=QFileInfo(path).absoluteFilePath();if(!result.contains(primary))result.append(primary);
  result.removeDuplicates();return result;
 }
+mesh::InfilRow meshRow(const SWMM_Infil2DRow& row) {
+ mesh::InfilRow value;value.method=row.has_method?mesh::InfilMethod(row.method):mesh::InfilMethod::None;
+ value.dest=mesh::InfilDest(row.dest);for(int k=0;k<5;++k)if(mesh::infilUsesParam(value.method,k))value.p[k]=row.p[k];return value;
+}
+bool meshMatchesOwnership(SWMM2DMeshLayer* layer,const InfiltrationOwnershipSnapshot& snapshot) {
+ QVector<mesh::InfilDefaultRow> defaults;QHash<int,mesh::InfilRow> overrides;
+ for(const auto& row:snapshot.rows)if(row.cell<0)defaults.append({QString::fromUtf8(row.tag),meshRow(row.row)});else overrides[row.cell]=meshRow(row.row);
+ const auto& mesh=layer->mesh();if(defaults.size()!=mesh.infilDefaults.size()||overrides!=mesh.infilOverrides)return false;
+ for(int i=0;i<defaults.size();++i)if(defaults[i].tag!=mesh.infilDefaults[i].tag||defaults[i].row!=mesh.infilDefaults[i].row)return false;
+ return true;
+}
+void installOwnershipRows(SWMM2DMeshLayer* layer,const InfiltrationOwnershipSnapshot& snapshot) {
+ QVector<mesh::InfilDefaultRow> defaults;QHash<int,mesh::InfilRow> overrides;
+ for(const auto& row:snapshot.rows)if(row.cell<0)defaults.append({QString::fromUtf8(row.tag),meshRow(row.row)});else overrides[row.cell]=meshRow(row.row);
+ layer->replaceInfiltrationRows(defaults,overrides);
+}
+class OwnershipUndo final:public QObject,public QUndoCommand {
+ QPointer<SWMMModelLayer> model;QPointer<SWMM2DMeshLayer> layer;SWMM_Engine engine;quint64 geometry;
+ InfiltrationOwnershipPreview preview;bool first=true;
+ void install(bool after){QString error;if(!model||!layer||model->engine()!=engine||layer->geomRevision()!=geometry||!meshMatchesOwnership(layer,after?preview.before:preview.after)||
+   !applyInfiltrationOwnership(engine,after?preview.before:preview.after,after?preview.after:preview.before,&error)){
+    setObsolete(true);QMessageBox::warning(QApplication::activeWindow(),QObject::tr("Infiltration ownership"),error.isEmpty()?QObject::tr("The model or mesh changed."):error);return;}
+  installOwnershipRows(layer,after?preview.after:preview.before);model->markEdited();}
+public:
+ OwnershipUndo(SWMMModelLayer* m,SWMM2DMeshLayer* l,InfiltrationOwnershipPreview p):model(m),layer(l),engine(m->engine()),geometry(l->geomRevision()),preview(std::move(p)){setText(QObject::tr("Migrate reviewed infiltration ownership"));}
+ void undo()override{install(false);}void redo()override{if(first){first=false;return;}install(true);}
+};
 class AssignmentUndo final:public QObject,public QUndoCommand {
  QPointer<SWMMModelLayer> model;QPointer<SWMM2DMeshLayer> mesh;
  SWMM_Engine engine;quint64 geometry;AquiferPreview preview;GroundwaterTransportPreview transport;bool isTransport=false,first=true,valid=true;
@@ -96,10 +123,12 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
  m_events=new GroundwaterAssignmentEvents(model?static_cast<QObject*>(model):this);
  setWindowTitle(tr("Assign groundwater values"));setWindowModality(Qt::NonModal);resize(780,790);
  m_engine=model?model->engine():nullptr;m_length=units?units->lengthLabel():tr("project length");m_rate=units?(units->isSI()?tr("mm/hr"):tr("in/hr")):tr("project rate");
- auto*outer=new QVBoxLayout(this);auto*intro=new QLabel(tr("Use the existing map rectangle or polygon cell selection, or enter cells below. Spatial property sampling uses cell centroids. Preview preserves existing aquifer rows and creates explicit cell overrides; these stop inheriting later property changes."),this);intro->setWordWrap(true);outer->addWidget(intro);
- auto*scroll=new QScrollArea(this);scroll->setWidgetResizable(true);auto*fields=new QWidget(scroll);auto*form=new QFormLayout(fields);scroll->setWidget(fields);outer->addWidget(scroll,2);
+ if(m_mesh)m_mesh->setInfiltrationModel(model);
+ auto*outer=new QVBoxLayout(this);auto*intro=new QLabel(tr("Use the existing map rectangle or polygon cell selection, or enter cells below. Spatial property sampling uses cell centroids. Preview preserves existing aquifer rows and creates explicit cell overrides; these stop inheriting later property changes."),this);intro->setObjectName("gwAssignmentIntro");intro->setWordWrap(true);outer->addWidget(intro);
+ auto*scroll=new QScrollArea(this);scroll->setWidgetResizable(true);auto*fields=new QWidget(scroll);auto*form=new QFormLayout(fields);form->setObjectName("gwAssignmentForm");scroll->setObjectName("gwAssignmentFields");scroll->setWidget(fields);outer->addWidget(scroll,2);
  m_target=new QComboBox(this);m_target->setObjectName("gwAssignmentTarget");
  for(const auto&t:aquiferTargets()){if(t.key=="FLOW")continue;m_target->addItem(t.label,t.key);const int i=m_target->count()-1;m_target->setItemData(i,t.unavailableReason,Qt::ToolTipRole);if(!t.supported)static_cast<QStandardItemModel*>(m_target->model())->item(i)->setEnabled(false);}
+ m_target->addItem(tr("Review / migrate infiltration ownership"),"INFILTRATION_OWNERSHIP");
  m_target->addItem(tr("Initial species concentration — SAT / UNSAT"),"INITIAL_QUALITY");m_target->addItem(tr("Add injection / extraction sources"),"FLOW");
  form->addRow(tr("&Target:"),m_target);m_units=new QLabel(this);m_units->setWordWrap(true);form->addRow(m_units);
  m_scopeChoice=new QComboBox(this);m_scopeChoice->setObjectName("gwAssignmentScope");m_scopeChoice->addItems({tr("Selected mesh cells"),tr("All mesh cells"),tr("Mesh tag"),tr("Cell numbers"),tr("Polygon WKT in mesh CRS")});form->addRow(tr("&Scope:"),m_scopeChoice);
@@ -134,6 +163,8 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
  m_scale=new QDoubleSpinBox(this);m_scale->setDecimals(12);m_scale->setRange(-1e15,1e15);m_scale->setValue(1);form->addRow(tr("Source scale:"),m_scale);
  m_offset=new QDoubleSpinBox(this);m_offset->setDecimals(12);m_offset->setRange(-1e15,1e15);form->addRow(tr("Source offset:"),m_offset);
  m_skip=new QCheckBox(tr("Preserve cells with NoData / no coverage (otherwise refuse the batch)"),this);form->addRow(m_skip);
+ m_removeInfilOverrides=new QCheckBox(tr("Remove the reviewed explicit surface overrides that conflict with aquifer ownership"),this);m_removeInfilOverrides->setObjectName("gwOwnershipRemoveOverrides");m_removeInfilOverrides->setVisible(false);outer->addWidget(m_removeInfilOverrides);
+ connect(m_removeInfilOverrides,&QCheckBox::toggled,this,&GroundwaterAssignDialog::invalidatePreview);
  m_status=new QLabel(tr("Choose a target and scope, then Preview. No model values change during preview."),this);m_status->setObjectName("gwAssignmentStatus");m_status->setWordWrap(true);m_status->setTextFormat(Qt::PlainText);outer->addWidget(m_status);
  m_table=new QTableWidget(0,3,this);m_table->setObjectName("gwAssignmentPreview");m_table->horizontalHeader()->setSortIndicator(-1,Qt::AscendingOrder);m_table->setSortingEnabled(true);m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Old effective value"),tr("New value")});m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);outer->addWidget(m_table,1);
  m_table->setAccessibleName(tr("Reviewed groundwater assignments"));m_table->setAccessibleDescription(tr("Preview of affected cell numbers and reviewed values. Apply reviewed values commits this batch."));
@@ -164,10 +195,16 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
 }
 GroundwaterAssignDialog::~GroundwaterAssignDialog(){if(m_watcher)m_watcher->cancel();}
 void GroundwaterAssignDialog::invalidateContext(){m_engine=nullptr;++m_serial;if(m_watcher)m_watcher->cancel();m_havePreview=false;setEnabled(false);QDialog::reject();}
-void GroundwaterAssignDialog::reject(){if(m_watcher){m_watcher->cancel();++m_serial;m_status->setText(tr("Cancelling; the model remains unchanged."));return;}QDialog::reject();}
-void GroundwaterAssignDialog::invalidatePreview(){++m_serial;m_havePreview=false;m_apply->setEnabled(false);if(m_watcher)m_watcher->cancel();}
+void GroundwaterAssignDialog::reject(){m_haveOwnership=false;m_apply->setEnabled(false);if(m_watcher){m_watcher->cancel();++m_serial;m_status->setText(tr("Cancelling; the model remains unchanged."));return;}QDialog::reject();}
+void GroundwaterAssignDialog::invalidatePreview(){m_haveOwnership=false;++m_serial;m_havePreview=false;m_apply->setEnabled(false);if(m_watcher)m_watcher->cancel();}
 void GroundwaterAssignDialog::updateTarget(){invalidatePreview();const QString key=m_target->currentData().toString();const bool quality=key=="INITIAL_QUALITY",source=key=="FLOW";
+ const bool ownership=key=="INFILTRATION_OWNERSHIP";m_removeInfilOverrides->setVisible(ownership);
+ if(auto*form=findChild<QFormLayout*>("gwAssignmentForm"))for(int row=2;row<form->rowCount();++row)form->setRowVisible(row,!ownership);
+ if(auto*intro=findChild<QLabel*>("gwAssignmentIntro"))intro->setVisible(!ownership);
+ if(auto*fields=findChild<QScrollArea*>("gwAssignmentFields"))fields->setMaximumHeight(ownership?130:QWIDGETSIZE_MAX);
+ m_scopeChoice->setEnabled(!ownership);m_scopeText->setEnabled(!ownership);m_route->setEnabled(!ownership);m_value->setEnabled(!ownership);
  m_transportControls->setVisible(quality);m_sourceControls->setVisible(source);
+ if(ownership){m_units->setText(tr("Whole-mesh ownership review. Capacities are computed by the aquifer; no second infiltration rate is assigned. Explicit conflicts block Apply until their removal is reviewed."));return;}
  if(source){m_units->setText(tr("Flow: m³/s, independent of project length units. Series values keep their authored times; preview lists only the currently authored constant or series reference."));}
  else if(quality){QString unit;for(const auto&sp:m_speciesCatalog)if(sp.id==m_species->currentData().toString())unit=sp.nativeConcUnits;m_units->setText(unit.isEmpty()?tr("Species units are unresolved. Initial quality cannot be assigned until a native unit mapping is available."):tr("Initial concentration: %1. SAT and UNSAT only; no sustained water or mass flux.").arg(unit));}
  else for(const auto&t:aquiferTargets())if(t.key==key){QString unit=t.unitKind;if(unit=="length")unit=m_length;else if(unit=="rate")unit=m_rate;else if(unit=="inverse-length")unit=tr("1/%1").arg(m_length);m_units->setText(tr("Units: %1. Values are authored in project units; source units are not inferred or converted.").arg(unit));break;}
@@ -201,6 +238,7 @@ void GroundwaterAssignDialog::sourceChanged(){invalidatePreview();const bool man
   if(auto*layer=qobject_cast<GISRasterLayer*>(base))m_path->setText(layer->filePath());
  }}
 QVector<int> GroundwaterAssignDialog::scope(QString*error)const{
+ if(m_target->currentData()=="INFILTRATION_OWNERSHIP"){QVector<int> cells;if(m_mesh)for(int i=0;i<m_mesh->mesh().triangles.size();++i)cells.append(i);return cells;}
  QVector<int> cells;if(!m_mesh){*error=tr("No mesh.");return cells;}const auto&m=m_mesh->mesh();const int mode=m_scopeChoice->currentIndex();QSet<int> chosen;
  if(mode==0&&m_selection){const auto key=mesh::MeshObjectRef::layerKey(m_mesh->sourcePath());for(const auto&ref:m_selection->selection()){QString layer;int cell=-1;if(mesh::MeshObjectRef::parseCell(ref,&layer,&cell)&&layer==key)chosen.insert(cell);}}
  else if(mode==1||mode==2){for(int i=0;i<m.triangles.size();++i)if(mode==1||m.triangles[i].tag==m_scopeText->text())chosen.insert(i);}
@@ -221,6 +259,19 @@ bool GroundwaterAssignDialog::currentContext(QString*error)const{
 }
 void GroundwaterAssignDialog::preview(){
  if(m_watcher||!m_model||!m_mesh||!m_engine)return;invalidatePreview();QString error;
+ if(m_target->currentData()=="INFILTRATION_OWNERSHIP"){
+  QStringList tags;for(const auto& cell:m_mesh->mesh().triangles)tags.append(cell.tag);
+  m_ownership=previewInfiltrationOwnership(m_engine,tags,m_removeInfilOverrides->isChecked());
+  if(m_ownership.error.isEmpty()&&!meshMatchesOwnership(m_mesh,m_ownership.before))m_ownership.error=tr("Save pending mesh infiltration edits before reviewing a migration. The preview has changed no values.");
+  m_geometry=m_mesh->geomRevision();m_attributes=m_mesh->attrRevision();m_scope=scope(&error);m_meshPath=m_mesh->sourcePath();m_meshCrs=m_mesh->srs()?m_mesh->srs()->toWkt():QString();
+  m_haveOwnership=true;const bool sorted=m_table->isSortingEnabled();m_table->setSortingEnabled(false);const auto sortGuard=qScopeGuard([this,sorted]{m_table->setSortingEnabled(sorted);});m_table->setColumnCount(4);m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Owner"),tr("Inherited source"),tr("Reviewed action / reason")});m_table->setRowCount(std::min(qsizetype(500),m_ownership.cells.size()));
+  for(int i=0;i<m_table->rowCount();++i){const auto& c=m_ownership.cells[i];m_table->setItem(i,0,new NumericTableWidgetItem(QString::number(c.cell+1)));m_table->setItem(i,1,new QTableWidgetItem(c.owner==2?tr("Aquifer"):c.owner==0?tr("Process disabled"):tr("Surface bank")));m_table->setItem(i,2,new QTableWidgetItem(c.source));m_table->setItem(i,3,new QTableWidgetItem(c.reason));if(c.conflict)m_table->item(i,3)->setBackground(QColor(255,230,190));}
+  for(int column=0;column<3;++column)m_table->horizontalHeader()->setSectionResizeMode(column,QHeaderView::ResizeToContents);
+  m_table->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Stretch);m_table->resizeRowsToContents();
+  m_status->setText(m_ownership.error.isEmpty()?tr("Reviewed %1 cells. %2 Original rows are preserved by Undo; Cancel changes nothing.").arg(tags.size()).arg(m_ownership.summaries.join("; ")):m_ownership.error);
+  m_apply->setEnabled(m_ownership.error.isEmpty()&&m_ownership.changed);return;
+ }
+ m_table->setColumnCount(3);m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);m_haveOwnership=false;
  AquiferRequest request;GroundwaterTransportRequest transport;const QString key=m_target->currentData().toString();const bool isTransport=key=="FLOW"||key=="INITIAL_QUALITY";
  if(isTransport){if(!readGroundwaterTransportSnapshot(m_engine,&transport.before,&error)){m_status->setText(error);return;}}
  else if(!readAquiferSnapshot(m_engine,&request.before,&error)){m_status->setText(error);return;}
@@ -300,6 +351,12 @@ void GroundwaterAssignDialog::finishPreview(){
  m_apply->setEnabled(!result.preview.appended.isEmpty());
 }
 void GroundwaterAssignDialog::apply(){
+ if(m_haveOwnership){QString error;if(!m_canvas||!m_canvas->undoStack()||!currentContext(&error)||!m_ownership.error.isEmpty()){m_status->setText(error);return;}
+  m_committing=true;const auto guard=qScopeGuard([this]{m_committing=false;});
+  if(!applyInfiltrationOwnership(m_engine,m_ownership.before,m_ownership.after,&error)){m_status->setText(error);invalidatePreview();return;}
+  installOwnershipRows(m_mesh,m_ownership.after);m_canvas->undoStack()->push(new OwnershipUndo(m_model,m_mesh,m_ownership));m_model->markEdited();
+  m_status->setText(tr("Reviewed ownership migration applied. Undo restores the original configuration."));m_haveOwnership=false;m_apply->setEnabled(false);emit applied();return;
+ }
  if(!m_havePreview||m_watcher)return;QString error;if(!currentContext(&error)){m_status->setText(error);invalidatePreview();return;}
  if(m_reviewed.fingerprints.isEmpty()){commitVerified();return;}
  const auto expected=m_reviewed.fingerprints;const auto serial=m_serial;m_apply->setEnabled(false);m_preview->setEnabled(false);m_status->setText(tr("Checking that source files still match the reviewed values…"));
@@ -315,9 +372,10 @@ void GroundwaterAssignDialog::commitVerified(){
  else if(!applyAquiferPreview(m_engine,m_reviewed.preview,&error)){m_status->setText(error);invalidatePreview();return;}
  QJsonObject hashes;for(auto it=m_reviewed.fingerprints.begin();it!=m_reviewed.fingerprints.end();++it)hashes[it.key()]=QString::fromLatin1(it.value().toHex());m_recipe["sourceSha256"]=hashes;
  QPointer<GroundwaterAssignmentEvents> events=m_events;const auto recipe=m_recipe;
- const auto changed=[events,recipe](bool installed){if(events){auto event=recipe;event["event"]=installed?"redone":"undone";emit events->changed(event,installed);}};
+ const auto changed=[events,recipe,mesh=QPointer<SWMM2DMeshLayer>(m_mesh)](bool installed){if(mesh)mesh->refreshInfiltrationOwnership();if(events){auto event=recipe;event["event"]=installed?"redone":"undone";emit events->changed(event,installed);}};
  const auto partial=[events,recipe](const QString&error){if(events){auto event=recipe;event["event"]="failed-after-write";event["error"]=error;emit events->changed(event,true);}};
  AssignmentUndo*command=m_reviewed.isTransport?new AssignmentUndo(m_model,m_mesh,m_reviewed.transport,changed,partial):new AssignmentUndo(m_model,m_mesh,m_reviewed.preview,changed);m_canvas->undoStack()->push(command);
+ m_mesh->refreshInfiltrationOwnership();
  if(events){auto event=recipe;event["event"]="applied";emit events->changed(event,true);}
  emit applied();emit recipeAccepted(m_recipe);m_status->setText(tr("Applied %1 cell overrides as one undoable operation.").arg(m_reviewed.isTransport?m_reviewed.transport.cells.size():m_reviewed.preview.cells.size()));invalidatePreview();
 }

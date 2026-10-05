@@ -108,6 +108,12 @@ const QVector<CellParamSpec> &cellParamSpecs()
                   tr("Standing water depth at the start of the run "
                      "([2D_TRIANGLES] INIT_DEPTH). 0 starts the cell dry.")});
 
+        for (const auto& key : {QByteArray("infil.owner"), QByteArray("infil.conflict")}) {
+            CellParamSpec s;s.key=key;s.enabled=false;s.kind=CellParamSpec::Kind::Enum;s.min=0;s.max=2;
+            s.label=key=="infil.owner"?tr("Infiltration owner"):tr("Infiltration conflict");
+            s.enumLabels=key=="infil.owner"?QStringList{tr("Process disabled"),tr("Surface bank"),tr("Aquifer")}:QStringList{tr("None"),tr("Explicit surface cell method"),tr("Obsolete destination")};
+            s.tooltip=tr("Resolved ownership. Capacity is computed by the aquifer on covered cells. Use Assign Groundwater to review conflicts.");v.append(s);
+        }
         // ---- Live: per-cell infiltration (GUI plan §3.5(2), phase GG0b) ----
         // Values resolve through mesh::resolveInfil, so a cell inheriting from
         // its region tag reads back the region's numbers; an edit materialises
@@ -194,6 +200,11 @@ QString cellParamLabel(const QByteArray &key, const QString &depthUnitLabel)
 
 double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key)
 {
+    if (key=="infil.owner"||key=="infil.conflict") {
+        const auto& values=key=="infil.owner"?mesh.infiltrationOwner:mesh.infiltrationConflict;
+        return tri>=0&&tri<values.size()?values[tri]:std::numeric_limits<double>::quiet_NaN();
+    }
+
     const double nan = std::numeric_limits<double>::quiet_NaN();
     if (tri < 0 || tri >= mesh.triangles.size()) return nan;
     const MeshTriangle &t = mesh.triangles[tri];

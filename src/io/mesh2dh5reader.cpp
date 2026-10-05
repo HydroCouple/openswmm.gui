@@ -230,7 +230,7 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString& nam
         static const QSet<QString> held{
             "Mesh2_face_gw_recharge", "Mesh2_face_gw_lateral", "Mesh2_face_gw_node_exchange",
             "Mesh2_face_gw_deep", "Mesh2_face_gw_et", "Mesh2_face_gw_dunne",
-            "Mesh2_face_gw_infil_in", "Mesh2_face_gw_link_seepage", "Mesh2_face_infil_rate"};
+            "Mesh2_face_gw_infil_in", "Mesh2_face_gw_link_seepage", "Mesh2_face_gw_infil_capacity", "Mesh2_face_gw_reject", "Mesh2_face_infil_rate"};
         if (held.contains(name)) base.temporal = V::Temporal::Held;
         variables.append(base);
         return variables;

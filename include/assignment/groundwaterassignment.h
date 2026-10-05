@@ -1,6 +1,7 @@
 #ifndef OPENSWMMVIS_GROUNDWATERASSIGNMENT_H
 #define OPENSWMMVIS_GROUNDWATERASSIGNMENT_H
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_infil2d.h>
 #include <QMap>
 #include <QPointF>
 #include <QStringList>
@@ -9,6 +10,24 @@
 #include <limits>
 
 namespace openswmmvis::assignment {
+struct InfiltrationOwnershipSnapshot {
+    QVector<SWMM_Infil2DAuthoredRow> rows;
+    QString destination;
+};
+struct InfiltrationOwnershipCell {
+    int cell=0,owner=0,conflict=0;
+    QString source,reason;
+};
+struct InfiltrationOwnershipPreview {
+    InfiltrationOwnershipSnapshot before,after;
+    QVector<InfiltrationOwnershipCell> cells;
+    QStringList summaries;
+    QString error;
+    bool changed=false;
+};
+InfiltrationOwnershipPreview previewInfiltrationOwnership(SWMM_Engine,const QStringList& tags,bool removeExplicit);
+bool applyInfiltrationOwnership(SWMM_Engine,const InfiltrationOwnershipSnapshot& expected,
+                               const InfiltrationOwnershipSnapshot& desired,QString* error);
 struct AquiferRow {
     int scope=0,cell=-1;
     QString tag;

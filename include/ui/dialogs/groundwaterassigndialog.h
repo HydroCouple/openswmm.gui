@@ -65,6 +65,9 @@ private:
  QVector<int> m_scope;
  QJsonObject m_recipe;
  WorkResult m_reviewed;
+ assignment::InfiltrationOwnershipPreview m_ownership;
+ bool m_haveOwnership=false;
+ QCheckBox* m_removeInfilOverrides=nullptr;
  bool m_havePreview=false,m_committing=false;
  QFutureWatcher<WorkResult>*m_watcher=nullptr;
  QComboBox *m_target=nullptr,*m_route=nullptr,*m_scopeChoice=nullptr,*m_source=nullptr,*m_sampling=nullptr;

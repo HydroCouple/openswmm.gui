@@ -96,16 +96,14 @@ public:
                                              : mesh::infilDestLabels());
             if (col == ColDest)
             {
-                // All three destinations are routed by the engine. AQUIFER_2D
-                // additionally needs a [2D_AQUIFER] in the model, which this
-                // delegate cannot see — so every entry stays selectable and
-                // carries its hint, and the engine refuses the combination by
-                // name at resolve.
+                // Keep the obsolete value readable in existing files; new
+                // assignments use the ownership review to migrate it.
                 if (auto *m = qobject_cast<QStandardItemModel *>(combo->model()))
                     for (int i = 0; i < combo->count(); ++i)
-                        if (QStandardItem *si = m->item(i))
-                            si->setToolTip(mesh::infilDestHint(
-                                static_cast<mesh::InfilDest>(i)));
+                        if (QStandardItem *si = m->item(i)) {
+                            si->setToolTip(mesh::infilDestHint(static_cast<mesh::InfilDest>(i)));
+                            if(i==int(mesh::InfilDest::Aquifer2D))si->setEnabled(false);
+                        }
             }
             return combo;
         }

@@ -21,6 +21,7 @@ MeshTrianglePropertyAdapter::MeshTrianglePropertyAdapter(SWMM2DMeshLayer *layer,
     : QObject(parent), m_layer(layer), m_idx(triIdx)
 {
     if (m_layer) {
+        connect(m_layer,&SWMM2DMeshLayer::meshEditsChanged,this,[this]{emit changed();});
         m_refName = mesh::MeshObjectRef::cell(m_layer->sourcePath(), m_idx).name;
         connect(m_layer, &SWMM2DMeshLayer::attributeChanged,
                 this, &MeshTrianglePropertyAdapter::onLayerAttributeChanged);
@@ -99,5 +100,20 @@ QString MeshTrianglePropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QStringLiteral("mannings"))  return mesh::cellParamLabel("mannings", m_depthUnit);
     if (property == QStringLiteral("initDepth")) return mesh::cellParamLabel("initDepth", m_depthUnit);
     if (property == QStringLiteral("tag"))      return QCoreApplication::translate("MeshTriangle", "Tag");
+    if (property == QStringLiteral("infiltrationOwner")) return tr("Infiltration owner");
+    if (property == QStringLiteral("infiltrationSource")) return tr("Ownership source");
+    if (property == QStringLiteral("infiltrationConflict")) return tr("Ownership conflict");
     return property;
+}
+
+QString MeshTrianglePropertyAdapter::infiltrationOwner() const {
+ const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"infil.owner"):qQNaN();
+ return std::isfinite(value)?mesh::cellParamSpec("infil.owner")->enumLabels.value(int(value)):tr("Unavailable");
+}
+QString MeshTrianglePropertyAdapter::infiltrationSource() const {
+ return m_layer&&m_idx>=0&&m_idx<m_layer->mesh().infiltrationSource.size()?m_layer->mesh().infiltrationSource[m_idx]:tr("Unavailable");
+}
+QString MeshTrianglePropertyAdapter::infiltrationConflict() const {
+ const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"infil.conflict"):qQNaN();
+ return std::isfinite(value)?mesh::cellParamSpec("infil.conflict")->enumLabels.value(int(value)):tr("Unavailable");
 }
