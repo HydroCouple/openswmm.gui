@@ -135,6 +135,9 @@ struct MeshResult
      *  inline). They must NOT be appended to [2D_TRIANGLES], whose columns
      *  are positional.
      */
+    // Engine-resolved authoring preview; absent means unavailable, not zero.
+    QVector<double> surfaceMeshWeatherPercent, surfaceSourcePerviousPercent;
+    QVector<int> surfaceOwnershipStatus;
     QVector<int> infiltrationOwner, infiltrationConflict;
     QStringList infiltrationSource;
     QVector<InfilDefaultRow> infilDefaults;   ///< Tag rows; '*' = mesh-wide fallback.

@@ -353,6 +353,8 @@ set(
         include/plot/profileattributetrackswidget.h
         include/plot/profileplotoptions.h
         include/assignment/groundwatertransportassignment.h
+        include/ui/dialogs/surfaceownershipdialog.h
+        include/assignment/surfaceownership.h
         include/ui/dialogs/groundwaterassigndialog.h
         include/project/groundwaterrecipestore.h
         include/assignment/groundwaterassignment.h
@@ -1122,6 +1124,8 @@ set(
         src/plot/profileattributetrackswidget.cpp
         src/plot/profileplotoptions.cpp
         src/assignment/groundwatertransportassignment.cpp
+        src/ui/dialogs/surfaceownershipdialog.cpp
+        src/assignment/surfaceownership.cpp
         src/ui/dialogs/groundwaterassigndialog.cpp
         src/project/groundwaterrecipestore.cpp
         src/assignment/groundwaterassignment.cpp

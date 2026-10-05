@@ -469,6 +469,8 @@ public:
     bool applyMeshTriangleInfil(int triIdx, const mesh::InfilRow &row);
     void setInfiltrationModel(::SWMMModelLayer* model);
     void refreshInfiltrationOwnership();
+    void refreshSurfaceOwnership();
+    void invalidateSurfaceOwnership();
     void replaceInfiltrationRows(const QVector<mesh::InfilDefaultRow>& defaults,
                                  const QHash<int,mesh::InfilRow>& overrides);
     bool surfaceInfiltrationEditable(int cell) const;
