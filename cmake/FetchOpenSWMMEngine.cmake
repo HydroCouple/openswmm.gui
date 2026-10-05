@@ -73,6 +73,7 @@ message(STATUS "openswmm.engine: using prebuilt package at ${OpenSWMMEngine_DIR}
 # the gate stays quiet — an unfamiliar install layout should not block a build
 # that may well be fine.
 set(_oe_api_sentinels
+    "openswmm_2d.h:swmm_2d_get_report_rainfall_bulk"
     "openswmm_infrastructure.h:swmm_lid_node_state_get"
     "openswmm_nodes.h:swmm_node_get_rim_depth"
     "openswmm_infrastructure.h:swmm_street_rename"

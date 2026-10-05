@@ -1014,7 +1014,11 @@ void SimulationRunner::start()
                     // Rainfall entries greyed out until the HDF5 swap-in.
                     {
                         std::vector<double> rawRain(twoD_n_tri), rawCum(twoD_n_tri);
-                        if (swmm_2d_get_rainfall_bulk(eng, rawRain.data()) == SWMM_OK
+                        // Match saved rainfall at this tick's timestamp. The
+                        // applied solver field is a mean over the preceding
+                        // routing window and can lag a gage record boundary.
+                        const double rainDate = startOA + curTSec / 86400.0;
+                        if (swmm_2d_get_report_rainfall_bulk(eng, rainDate, rawRain.data()) == SWMM_OK
                             && swmm_2d_get_rain_volume_bulk(eng, rawCum.data()) == SWMM_OK)
                         {
                             QVector<float> rain(twoD_n_tri), cum(twoD_n_tri);
