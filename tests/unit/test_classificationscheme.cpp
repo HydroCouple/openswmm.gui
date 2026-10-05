@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include "render/classificationscheme.h"
+#include "render/classificationcolorsampler.h"
 
 #include <QJsonObject>
 #include <limits>
@@ -291,5 +292,34 @@ TEST(ClassificationScheme, InvalidManualBreakReplacementPreservesPreviousDefinit
          QVector<double>{1.0, std::numeric_limits<double>::infinity()}}) {
         s.setManualBreaks(invalid);
         EXPECT_EQ(s.manualBreaks(), previous);
+    }
+}
+
+TEST(ClassificationColors, FramePaletteMatchesEveryBuiltinAndOverridesExactly)
+{
+    auto names=RasterColorRamp::builtinNames();names.append(QString());
+    for(const auto &name:names)for(bool invert:{false,true})for(bool custom:{false,true}) {
+        ClassificationScheme scheme;scheme.setRampName(name);scheme.setInvertRamp(invert);
+        scheme.setUseCustomRange(custom);scheme.setRangeMin(-3);scheme.setRangeMax(17);
+        scheme.setColorOverride(2,QColor(10,20,30,40));
+        OpenSWMM::Render::ClassificationColorSampler palette(scheme,0,10,7);
+        for(int i=0;i<7;++i)EXPECT_EQ(palette.classColor(i),scheme.colorForClass(i,7));
+        for(double v:{-100.0,-3.0,0.0,.001,1.7,5.5,10.0,17.0,100.0})
+            EXPECT_EQ(palette.valueColor(v),scheme.colorForValue(v,0,10));
+    }
+}
+TEST(ClassificationColors, CustomRampAndDegenerateRangeKeepExactColors)
+{
+    for(auto interp:{RampInterp::Rgb,RampInterp::HsvShort,RampInterp::HsvLong}) {
+        ClassificationScheme scheme;RasterColorRamp ramp;
+        ramp.stops={{0,QColor(10,20,30,40)},{.3,QColor(20,30,40,60)},{1,QColor(90,70,40,100)}};
+        ramp.interp=interp;scheme.setCustomRamp(ramp,"fixture");
+        for(bool invert:{false,true})for(auto bounds:{QPair<double,double>{0,10},{3,3},{10,0}}) {
+            scheme.setInvertRamp(invert);scheme.setUseCustomRange(true);
+            scheme.setRangeMin(bounds.first);scheme.setRangeMax(bounds.second);
+            OpenSWMM::Render::ClassificationColorSampler palette(scheme,0,10);
+            for(double v:{-5.0,0.0,.01,3.0,7.3,10.0,12.0})
+                EXPECT_EQ(palette.valueColor(v),scheme.colorForValue(v,0,10));
+        }
     }
 }

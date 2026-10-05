@@ -59,13 +59,23 @@ ContourJobOutput computeContourJob(const ContourJobInput &in)
         v2 = double(s[2]);
     };
 
-    const IndexRange range{n};
-    if (in.bandLevels.size() >= 2)
-        out.bands = OpenSWMM::Contour::marchingTrianglesIsobands(
-            range, in.bandLevels, extract, in.minimumVisibleValue);
-    if (!in.isoLevels.empty())
-        out.segs = OpenSWMM::Contour::marchingTriangles(
-            range, in.isoLevels, extract);
+    const auto march = [&](const auto& range) {
+        if (in.bandLevels.size() >= 2)
+            out.bands = OpenSWMM::Contour::marchingTrianglesIsobands(
+                range, in.bandLevels, extract, in.minimumVisibleValue);
+        if (!in.isoLevels.empty())
+            out.segs = OpenSWMM::Contour::marchingTriangles(
+                range, in.isoLevels, extract);
+    };
+    if (in.triangleIndices) {
+        std::vector<size_t> valid;
+        valid.reserve(in.triangleIndices->size());
+        for (size_t i : *in.triangleIndices)
+            if (i < n) valid.push_back(i);
+        march(valid);
+    } else {
+        march(IndexRange{n});
+    }
     return out;
 }
 

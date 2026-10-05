@@ -129,3 +129,36 @@ TEST(ContourJobTest, DegenerateSnapshotsAreSafe)
         EXPECT_LE(s.a.x() + s.a.y(), 1.0 + 1e-9);
     }
 }
+
+TEST(ContourJobTest, CoverageSelectionMatchesSelectedSnapshotExactly)
+{
+    auto input=makeSquareInput();
+    input.triangleIndices=std::make_shared<const std::vector<size_t>>(
+        std::vector<size_t>{1,99,std::numeric_limits<size_t>::max()});
+    const auto selected=computeContourJob(input);
+    auto reference=makeSquareInput();
+    reference.positions=std::make_shared<const std::vector<ContourJobInput::TriPos>>(
+        std::vector<ContourJobInput::TriPos>{(*input.positions)[1]});
+    reference.scalars=std::make_shared<const std::vector<std::array<float,3>>>(
+        std::vector<std::array<float,3>>{(*input.scalars)[1]});
+    const auto expected=computeContourJob(reference);
+    ASSERT_EQ(selected.bands.size(),expected.bands.size());
+    ASSERT_EQ(selected.segs.size(),expected.segs.size());
+    for(size_t i=0;i<expected.bands.size();++i) {
+        EXPECT_EQ(selected.bands[i].verts,expected.bands[i].verts);
+        EXPECT_EQ(selected.bands[i].bandIndex,expected.bands[i].bandIndex);
+    }
+    for(size_t i=0;i<expected.segs.size();++i) {
+        EXPECT_EQ(selected.segs[i].a,expected.segs[i].a);
+        EXPECT_EQ(selected.segs[i].b,expected.segs[i].b);
+        EXPECT_EQ(selected.segs[i].level,expected.segs[i].level);
+    }
+}
+
+TEST(ContourJobTest, EmptyCoverageDoesNotFallBackToWholeMesh)
+{
+    auto input=makeSquareInput();
+    input.triangleIndices=std::make_shared<const std::vector<size_t>>();
+    const auto result=computeContourJob(input);
+    EXPECT_TRUE(result.bands.empty());EXPECT_TRUE(result.segs.empty());
+}

@@ -15,6 +15,7 @@
  * (MeshStaticGeometryBuffers), and OPENSWMM_RENDER_PERF=1 sync stats.
  */
 #include "map/swmm2dresultsqsgrenderer.h"
+#include "render/classificationcolorsampler.h"
 
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
@@ -299,7 +300,7 @@ QImage rasteriseLabel(const QString &text, const QColor &color,
 
 /*! Phase 7 — async contour recomputation gate. Defaults to meshes big
  *  enough for the per-tick marching to be felt (≥ kAsyncContourThreshold
- *  cells); OPENSWMM_QSG_ASYNC_CONTOURS=1 forces it on at any size (useful
+ *  triangles); OPENSWMM_QSG_ASYNC_CONTOURS=1 forces it on at any size (useful
  *  for testing on small demos), =0 forces the synchronous path. */
 constexpr int kAsyncContourThreshold = 50'000;
 bool asyncContoursEnabled(int nTri)
@@ -337,8 +338,10 @@ SWMM2DResultsQSGRenderer::SWMM2DResultsQSGRenderer(QQuickItem *parent)
         const auto result = m_contourWatcher.result();
         // Accept completed intermediate frames during fast playback, but never
         // cross a geometry/style epoch or replace a newer synchronous frame.
-        if (result && result->key.compatible(m_requestedContourKey)
-            && (!m_contourFrame || result->key.frameRev > m_contourFrame->key.frameRev))
+        if (result && result->key.samePresentation(m_requestedContourKey)
+            && (!m_contourFrame || result->key.frameRev > m_contourFrame->key.frameRev
+                || (result->key.frameRev == m_contourFrame->key.frameRev
+                    && !(m_contourFrame->key == m_requestedContourKey))))
             m_contourFrame = result;
         m_dirty.noteDataChanged();
         noteContentChanged();
@@ -843,7 +846,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         // The snapshot already excludes dry cells and hidden films. Keep
         // the exact zero-depth boundary of every remaining partial cell.
         const double dryDepth = 0.0;
-        const double maxDepth = std::max(m_layer->maxDepth(), dryDepth + 1e-9);
+        double maxDepth = std::max(m_layer->maxDepth(), dryDepth + 1e-9);
 
         const OpenSWMM::Render::ContourBandStyle *bs =
             bandSub ? bandSub->bandStyle() : nullptr;
@@ -874,90 +877,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             isoLevels.erase(std::remove_if(isoLevels.begin(), isoLevels.end(),
                 [dryDepth](double v) { return !std::isfinite(v) || v < dryDepth; }), isoLevels.end());
         }
-        ContourJobKey key;
-        key.time = m_layer->currentTimeIndex();
-        key.frameRev = m_layer->frameRevision();
-        key.epoch = m_contourEpoch;
-        key.dryDepth = dryDepth;
-        key.maxDepth = maxDepth;
-        key.velocity = velSub && velSub->isVisible();
-        key.bandLevels = bandLevels;
-        key.smoothBands = smoothBands;
-        key.isoLevels = isoLevels;
-        m_requestedContourKey = key;
-        const bool compatible = m_contourFrame && m_contourFrame->key.compatible(key);
-        const bool needsMarching = (smoothBands && key.bandLevels.size() >= 2) || !key.isoLevels.empty();
-        const bool background = asyncContoursEnabled(nTri) && needsMarching && compatible;
-        if ((!m_contourFrame || !(m_contourFrame->key == key))
-            && (!background || !m_contourBusy)) {
-            if (!m_contourPositions) {
-                auto positions = std::make_shared<std::vector<ContourJobInput::TriPos>>(nTri);
-                for (int i = 0; i < nTri; ++i) {
-                    const auto& t = tris[i];
-                    (*positions)[i] = {float(t.a.x()-ox), float(t.a.y()-oy),
-                        float(t.b.x()-ox), float(t.b.y()-oy),
-                        float(t.c.x()-ox), float(t.c.y()-oy)};
-                }
-                m_contourPositions = std::move(positions);
-            }
-            auto frame = std::make_shared<ContourFrame>();
-            frame->key = key;
-            auto scalars = std::make_shared<std::vector<std::array<float,3>>>(nTri);
-            frame->cellValues.resize(nTri);
-            for (int i = 0; i < nTri; ++i) {
-                const auto& t = tris[i];
-                (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
-                frame->cellValues[i] = {t.depth, t.vx, t.vy, t.vmag};
-            }
-            frame->scalars = scalars;
-            if (key.velocity) frame->velocity = m_layer->captureVelocityField();
-            frame->maxVelocity = m_layer->maxVelocity();
-            frame->hasVelocity = m_layer->hasVelocityData();
-            ContourJobInput input;
-            input.positions = m_contourPositions;
-            input.scalars = std::move(scalars);
-            input.bandLevels = smoothBands ? key.bandLevels : std::vector<double>{};
-            input.isoLevels = key.isoLevels;
-            input.minimumVisibleValue = dryDepth;
-            auto compute = [frame, input = std::move(input)]() -> std::shared_ptr<const ContourFrame> {
-                frame->contours = computeContourJob(input);
-                return frame;
-            };
-            if (background) {
-                m_contourBusy = true;
-                m_contourWatcher.setFuture(QtConcurrent::run(std::move(compute)));
-            } else {
-                // Bootstrap/style changes get a complete frame immediately.
-                // Never substitute cell colours or blank contour lines.
-                m_contourFrame = compute();
-            }
-        }
-        const auto& frame = *m_contourFrame;
-        auto frameTri = [&](int i) {
-            auto t = tris[i];
-            const auto& d = (*frame.scalars)[i];
-            const auto& c = frame.cellValues[i];
-            t.dv0=d[0]; t.dv1=d[1]; t.dv2=d[2];
-            t.depth=c[0]; t.vx=c[1]; t.vy=c[2]; t.vmag=c[3];
-            return t;
-        };
-
-        // Issue 3B diagnostic — off by default. Set OPENSWMM_2D_RENDER_DEBUG=1
-        // to log, per content rebuild, the guard states that decide whether
-        // velocity vectors / contour bands / isolines / mesh edges / vertices
-        // draw in the live GPU view.
-        if (kUpnDebug) {
-            const bool live = m_layer->source() && m_layer->source()->isLive();
-            auto vis = [](OpenSWMM::Render::ISublayer *s) {
-                return s ? (s->isVisible() ? 1 : 0) : -1; };
-            qDebug("[2D-render] live=%d nTri=%d hasVel=%d t=%d | "
-                   "band(vis=%d) iso(vis=%d) vel(vis=%d) edge(vis=%d) vert(vis=%d)",
-                   live ? 1 : 0, nTri, m_layer->hasVelocityData() ? 1 : 0,
-                   m_layer->currentTimeIndex(),
-                   vis(bandSub), vis(isoSub), vis(velSub),
-                   vis(edgeSub), vis(nodeSub));
-        }
-
         // ---- Chunk index (Phase 4) — rebuilt once per geometry revision ----
         // A Selection-only rebuild touches just the highlight nodes; skip
         // the chunk query / visible-cell materialisation entirely then.
@@ -1016,6 +935,126 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             if (statsOn) stats.visibleCells = qint64(visibleCells.size());
         }
 
+        ContourJobKey key;
+        key.time = m_layer->currentTimeIndex();
+        key.frameRev = m_layer->frameRevision();
+        key.epoch = m_contourEpoch;
+        key.dryDepth = dryDepth;
+        key.maxDepth = maxDepth;
+        key.velocity = velSub && velSub->isVisible();
+        key.bandLevels = bandLevels;
+        key.smoothBands = smoothBands;
+        key.isoLevels = isoLevels;
+        if (bs) key.contourStyle.insert(QStringLiteral("bands"), bs->toJson());
+        if (is) key.contourStyle.insert(QStringLiteral("isolines"), is->toJson());
+        key.contourStyle.insert(QStringLiteral("bandsVisible"), bandsVisible);
+        key.contourStyle.insert(QStringLiteral("isolinesVisible"), isoVisible);
+        key.coverage = cullRect;
+        m_requestedContourKey = key;
+        const bool compatible = m_contourFrame && m_contourFrame->key.samePresentation(key);
+        const bool needsMarching = (smoothBands && key.bandLevels.size() >= 2) || !key.isoLevels.empty();
+        // Large bootstrap and range/style changes must not march inline.
+        // Keep the historical small-mesh bootstrap for immediate previews.
+        const bool background = asyncContoursEnabled(nTri) && needsMarching
+                             && (compatible || nTri >= kAsyncContourThreshold);
+        if ((!m_contourFrame || !(m_contourFrame->key == key))
+            && (!background || !m_contourBusy)) {
+            if (!m_contourPositions) {
+                auto positions = std::make_shared<std::vector<ContourJobInput::TriPos>>(nTri);
+                for (int i = 0; i < nTri; ++i) {
+                    const auto& t = tris[i];
+                    (*positions)[i] = {float(t.a.x()-ox), float(t.a.y()-oy),
+                        float(t.b.x()-ox), float(t.b.y()-oy),
+                        float(t.c.x()-ox), float(t.c.y()-oy)};
+                }
+                m_contourPositions = std::move(positions);
+            }
+            auto frame = std::make_shared<ContourFrame>();
+            frame->key = key;
+            auto scalars = std::make_shared<std::vector<std::array<float,3>>>(nTri);
+            frame->cellValues.resize(nTri);
+            for (int i = 0; i < nTri; ++i) {
+                const auto& t = tris[i];
+                (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
+                frame->cellValues[i] = {t.depth, t.vx, t.vy, t.vmag};
+            }
+            frame->scalars = scalars;
+            if (key.velocity) frame->velocity = m_layer->captureVelocityField();
+            frame->maxVelocity = m_layer->maxVelocity();
+            frame->hasVelocity = m_layer->hasVelocityData();
+            ContourJobInput input;
+            input.positions = m_contourPositions;
+            input.triangleIndices = std::make_shared<const std::vector<size_t>>(
+                visibleCells.begin(), visibleCells.end());
+            input.scalars = std::move(scalars);
+            input.bandLevels = smoothBands ? key.bandLevels : std::vector<double>{};
+            input.isoLevels = key.isoLevels;
+            input.minimumVisibleValue = dryDepth;
+            auto compute = [frame, input = std::move(input)]() -> std::shared_ptr<const ContourFrame> {
+                frame->contours = computeContourJob(input);
+                return frame;
+            };
+            if (background) {
+                m_contourBusy = true;
+                m_contourWatcher.setFuture(QtConcurrent::run(std::move(compute)));
+            } else {
+                // Small-mesh bootstrap and non-marching passes stay immediate.
+                // Never substitute cell colours or blank contour lines.
+                m_contourFrame = compute();
+            }
+        }
+        // No complete compatible frame yet: return to the event loop. Keep
+        // an existing same-mesh image until its replacement is ready, and
+        // clear it on geometry/source changes. The completion schedules sync.
+        if (!m_contourFrame || !m_contourFrame->key.samePresentation(key)) {
+            if (bits & D::Geometry) clearAll();
+            // Static inputs were captured: do not reset their epoch on each
+            // tick while the first worker is still running.
+            m_lastGeomRev = m_layer->geomRevision();
+            m_builtCoverage = cullRect;
+            m_dirty.noteStyleChanged(); // deferred passes must rebuild on completion
+            applyTransform();
+            return root;
+        }
+        const auto& frame = *m_contourFrame;
+        // A fast producer often synchronizes repeatedly without a newly
+        // completed contour frame. Reuse its GPU buffers rather than clipping
+        // and uploading exactly the same geometry on every tick.
+        if (background && compatible && frame.key.frameRev == m_lastRenderedFrame
+            && !(bits & (D::Geometry | D::Style | D::Lod | D::Selection))) {
+            applyTransform();
+            return root;
+        }
+        // Classify the displayed snapshot with its own automatic breaks.
+        // Mixing current levels with older polygons assigns wrong colors.
+        bandLevels = frame.key.bandLevels;
+        isoLevels = frame.key.isoLevels;
+        maxDepth = frame.key.maxDepth;
+        auto frameTri = [&](int i) {
+            auto t = tris[i];
+            const auto& d = (*frame.scalars)[i];
+            const auto& c = frame.cellValues[i];
+            t.dv0=d[0]; t.dv1=d[1]; t.dv2=d[2];
+            t.depth=c[0]; t.vx=c[1]; t.vy=c[2]; t.vmag=c[3];
+            return t;
+        };
+
+        // Issue 3B diagnostic — off by default. Set OPENSWMM_2D_RENDER_DEBUG=1
+        // to log, per content rebuild, the guard states that decide whether
+        // velocity vectors / contour bands / isolines / mesh edges / vertices
+        // draw in the live GPU view.
+        if (kUpnDebug) {
+            const bool live = m_layer->source() && m_layer->source()->isLive();
+            auto vis = [](OpenSWMM::Render::ISublayer *s) {
+                return s ? (s->isVisible() ? 1 : 0) : -1; };
+            qDebug("[2D-render] live=%d nTri=%d hasVel=%d t=%d | "
+                   "band(vis=%d) iso(vis=%d) vel(vis=%d) edge(vis=%d) vert(vis=%d)",
+                   live ? 1 : 0, nTri, m_layer->hasVelocityData() ? 1 : 0,
+                   m_layer->currentTimeIndex(),
+                   vis(bandSub), vis(isoSub), vis(velSub),
+                   vis(edgeSub), vis(nodeSub));
+        }
+
         // ---- Pass 2: filled contour bands -------------------------------
         if (rebuildFills) {
         if (bandsVisible && maxDepth > dryDepth) {
@@ -1024,12 +1063,15 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             if (levels.size() >= 2) {
                 const int bandCount = int(levels.size()) - 1;
                 const qreal bandOp = std::clamp<qreal>(bandSub->opacity(), 0.0, 1.0);
-                auto bandColor = [&](int idx) -> QColor {
-                    QColor c = bs ? bs->colorForBand(idx, bandCount)
-                                  : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / bandCount);
+                QVector<QColor> bandColors;
+                bandColors.reserve(bandCount);
+                for (int i = 0; i < bandCount; ++i) {
+                    QColor c = bs ? bs->colorForBand(i, bandCount)
+                                  : OpenSWMM::Contour::viridisAt((double(i) + 0.5) / bandCount);
                     c.setAlphaF(c.alphaF() * bandOp);
-                    return c;
-                };
+                    bandColors.append(c);
+                }
+                auto bandColor = [&](int idx) { return bandColors[idx]; };
 
                 // Flat per-cell classification (bucket each cell against the
                 // scheme edges), clipped to the wet footprint.
@@ -1144,6 +1186,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 bandCount = std::max(1, int(levels.size()) - 1);
             }
             const qreal op = std::clamp<qreal>(subOpacity, 0.0, 1.0);
+            const OpenSWMM::Render::ClassificationColorSampler colors(
+                style->scheme(), vMin, vMax, classified ? bandCount : 0);
             auto colorAt = [&](float value) -> QColor {
                 QColor c;
                 if (classified && levels.size() >= 2) {
@@ -1152,9 +1196,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                                                    double(value))
                                   - (levels.begin() + 1));
                     idx = std::clamp(idx, 0, bandCount - 1);
-                    c = style->colorForClass(idx, bandCount);
+                    c = colors.classColor(idx);
                 } else {
-                    c = style->colorForValue(double(value), vMin, vMax);
+                    c = colors.valueColor(double(value));
                 }
                 c.setAlphaF(c.alphaF() * op);
                 return c;

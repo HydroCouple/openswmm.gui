@@ -1,4 +1,5 @@
 #include "render/sublayers/resultscalarsublayer.h"
+#include "render/classificationcolorsampler.h"
 
 #include <QSignalBlocker>
 #include <QUuid>
@@ -136,6 +137,8 @@ QVector<QColor> ResultScalarSublayer::cellColors(const Mesh2DScalarFrame &frame)
     const bool validScheme = scheme.validationError(range.minimum, range.maximum).isEmpty();
     const auto edges = scheme.levelEdges(range.minimum, range.maximum, range.samples);
     const int classes = std::max(1, int(edges.size()) - 1);
+    const ClassificationColorSampler palette(scheme, range.minimum, range.maximum,
+        m_style->classified() ? classes : 0);
     QVector<QColor> colors;
     colors.reserve(qsizetype(frame.values.size()));
     for (size_t cell = 0; cell < frame.values.size(); ++cell) {
@@ -145,9 +148,9 @@ QVector<QColor> ResultScalarSublayer::cellColors(const Mesh2DScalarFrame &frame)
         else if (status == Mesh2DValueStatus::NotApplicable) color = m_style->notApplicableColor();
         else if (status != Mesh2DValueStatus::Valid || !std::isfinite(frame.values[cell])) color = m_style->missingColor();
         else if (!validScheme) color = m_style->missingColor();
-        else if (m_style->classified()) color = scheme.colorForClass(
-            ClassificationScheme::classIndexFor(frame.values[cell], edges), classes);
-        else color = scheme.colorForValue(frame.values[cell], range.minimum, range.maximum);
+        else if (m_style->classified()) color = palette.classColor(
+            ClassificationScheme::classIndexFor(frame.values[cell], edges));
+        else color = palette.valueColor(frame.values[cell]);
         color.setAlphaF(color.alphaF() * m_opacity);
         colors.append(color);
     }

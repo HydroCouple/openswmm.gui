@@ -275,6 +275,7 @@ private slots:
     void smoothMaximumContainsEveryFrame();
     void mapFillsStopAtExactShoreline();
     void contourAnimationPublishesCompleteFrames();
+    void largeContoursNeverMarchDuringSync();
     void depthClassificationRemainsStableDuringPlayback();
     void cpuContoursStopAtExactShoreline();
     void exactProfileIgnoresStationSpacing();
@@ -1202,6 +1203,117 @@ void Test2DResultsVizFixes::contourAnimationPublishesCompleteFrames()
     QTRY_VERIFY_WITH_TIMEOUT(ready.count()>4,5000);
     root.reset(renderer.sync(root.release()));
     QCOMPARE(signature(true),otherFill); QCOMPARE(signature(false),otherLines);
+}
+
+// Renderer-only scale fixture: fitted corners are supplied directly so this
+// measures synchronization/contouring independently of the surface solver.
+void Test2DResultsVizFixes::largeContoursNeverMarchDuringSync()
+{
+    if (qEnvironmentVariableIsSet("OPENSWMM_QSG_ASYNC_CONTOURS")
+        && qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS")==0)
+        QSKIP("This regression requires the default or enabled background worker");
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public: QSGNode* sync(QSGNode* old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    SWMM2DResultsLayer layer;
+    auto source=std::make_unique<FlowVfrSource>(); auto* raw=source.get();
+    layer.setSource(std::move(source)); layer.setVisible(true);
+    for (auto* sub:layer.sublayers()) sub->setVisible(false);
+    layer.contourBandSublayer()->setVisible(true);
+    layer.isolineSublayer()->setVisible(true);
+    layer.isolineSublayer()->isolineStyle()->setLabels(false);
+    int count=qEnvironmentVariableIntValue("OPENSWMM_RENDER_TEST_TRIANGLES");
+    count=std::max(60000,count);
+    const int cols=1600,rows=(count+cols-1)/cols;
+    auto expand=[&] {
+        const auto fitted=layer.m_sceneTris.front();
+        layer.m_sceneTris.resize(count);
+        for(int i=0;i<count;++i) {
+            auto t=fitted; const double x=i%cols,y=-(i/cols);
+            t.a=QPointF(x,y);t.b=QPointF(x+1,y);t.c=QPointF(x,y-1);
+            layer.m_sceneTris[i]=t;
+        }
+        layer.m_sceneBBox=QRectF(0,-rows,cols,rows);
+    };
+    expand();
+    Renderer renderer;renderer.setWidth(800);renderer.setHeight(500);
+    renderer.setMapExtent(MapExtent(0,0,16,10));renderer.setLayer(&layer);
+    QSignalSpy ready(&renderer,&SWMM2DResultsQSGRenderer::contentReady);
+    QElapsedTimer timer;timer.start();
+    std::unique_ptr<QSGNode> root(renderer.sync());
+    qInfo()<<"scale triangles"<<count<<"initial sync ms"<<timer.nsecsElapsed()/1e6;
+    // Before the fix this already presents the frame: marching was inline.
+    QVERIFY(renderer.displayedFrameRevision()!=layer.frameRevision());
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,10000);
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    qInfo()<<"initial presented ms"<<timer.nsecsElapsed()/1e6;
+    ready.clear();
+    const auto oldFrame=renderer.displayedFrameRevision();
+    for(float depth:{0.4f,0.6f,0.8f}) {
+        layer.m_sceneTris.resize(2);raw->frames[0][0]=depth;
+        layer.refreshCurrentFrame();expand();
+        // Auto-range growth must not force synchronous work or reject every
+        // completed intermediate frame while the producer keeps advancing.
+        layer.setMaxDepth(depth*10);
+        timer.restart();root.reset(renderer.sync(root.release()));
+        qInfo()<<"replacement sync ms"<<timer.nsecsElapsed()/1e6;
+        QCOMPARE(renderer.displayedFrameRevision(),oldFrame);
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,10000);
+    root.reset(renderer.sync(root.release()));
+    QVERIFY(renderer.displayedFrameRevision()>oldFrame);
+    for(int i=0;i<20 && renderer.displayedFrameRevision()!=layer.frameRevision();++i) {
+        QTest::qWait(20);root.reset(renderer.sync(root.release()));
+    }
+    QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    // Pan outside the prepared coverage: recompute the newly exposed area.
+    renderer.setMapExtent(MapExtent(800,0,816,10));
+    const int before=ready.count();root.reset(renderer.sync(root.release()));
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>before,10000);
+    root.reset(renderer.sync(root.release()));
+    int vertices=0;
+    for(auto* child=root->firstChild();child;child=child->nextSibling())
+        if(child->type()==QSGNode::GeometryNodeType) {
+            auto* g=static_cast<QSGGeometryNode*>(child)->geometry();
+            if(g)vertices+=g->vertexCount();
+        }
+    QVERIFY(vertices>0);
+    // Geometry is proportional to the view rather than the 1.6M-cell domain.
+    QVERIFY(vertices<100000);
+    // Same-time style replacement also runs in the background and cannot be
+    // undone by an earlier completed job.
+    const int styleBefore=ready.count();
+    layer.contourBandSublayer()->bandStyle()->setBandCount(5);
+    root.reset(renderer.sync(root.release()));
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>styleBefore,10000);
+    root.reset(renderer.sync(root.release()));
+    QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    // All-dry is a completed empty result, not a reason to retain stale flood.
+    layer.m_sceneTris.resize(2);raw->frames[0][0]=0;
+    layer.refreshCurrentFrame();expand();
+    const int dryBefore=ready.count();root.reset(renderer.sync(root.release()));
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>dryBefore,10000);
+    root.reset(renderer.sync(root.release()));
+    for(auto* child=root->firstChild();child;child=child->nextSibling())
+        if(child->type()==QSGNode::GeometryNodeType) {
+            auto* g=static_cast<QSGGeometryNode*>(child)->geometry();
+            if(g)QCOMPARE(g->vertexCount(),0);
+        }
+    if(qEnvironmentVariableIntValue("OPENSWMM_RENDER_TEST_OVERVIEW")==1) {
+        layer.m_sceneTris.resize(2);raw->frames[0][0]=0.8f;
+        layer.refreshCurrentFrame();expand();
+        renderer.setMapExtent(MapExtent(0,0,cols,rows));
+        const int overviewBefore=ready.count();timer.restart();
+        root.reset(renderer.sync(root.release()));
+        qInfo()<<"overview request sync ms"<<timer.nsecsElapsed()/1e6;
+        QTRY_VERIFY_WITH_TIMEOUT(ready.count()>overviewBefore,60000);
+        qInfo()<<"overview worker ready ms"<<timer.nsecsElapsed()/1e6;
+        timer.restart();root.reset(renderer.sync(root.release()));
+        qInfo()<<"overview presentation sync ms"<<timer.nsecsElapsed()/1e6;
+        QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    }
+
 }
 
 void Test2DResultsVizFixes::depthClassificationRemainsStableDuringPlayback()

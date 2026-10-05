@@ -209,6 +209,7 @@ set(
         include/render/intervalbinner.h
         # Slice US.1 — shared classification scheme (UNIFIED_STYLING plan S1).
         include/render/classificationscheme.h
+        include/render/classificationcolorsampler.h
         # P2 — static/dynamic source + range-mode spine (header-only enums).
         include/render/attributesource.h
         include/render/labelconfig.h
