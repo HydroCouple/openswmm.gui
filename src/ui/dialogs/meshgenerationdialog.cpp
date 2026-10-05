@@ -1397,6 +1397,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if(x1<rb.left() || x0>rb.right() || y1<rb.top() || y0>rb.bottom()) continue;
                 if(touches(cs.path,false)) return false;
             }
+            // The outer boundary too: every lattice vertex inside does not keep
+            // a concave bend of the boundary from cutting between them.
+            for(const auto &outer:burnDomain.rings)
+                if(outer.boundingRect().intersects(rb)
+                   && touches(QVector<QPointF>(outer.begin(),outer.end()),true)) return false;
             for(int h:burnDomain.holesNear(rb))
                 if(touches(QVector<QPointF>(burnDomain.holes[h].begin(),burnDomain.holes[h].end()),true)) return false;
             for(const auto &sp:std::as_const(in.steinerPoints))

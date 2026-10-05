@@ -403,6 +403,31 @@ private slots:
         }
     }
 
+    // A concave bend of the outer boundary that cuts a channel between lattice
+    // rows (every lattice vertex inside) must not leave a quad patch outside
+    // the domain: that band falls back to clipped lines.
+    void boundaryNotchBetweenLatticeRowsKeepsQuadsInside()
+    {
+        Inputs in;
+        const QDir dir(qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT")+"/channel_replacement/boundary_notch");
+        QVERIFY(prepareBurnFixture(dir,in,false));
+        in.domains={QPolygonF(QVector<QPointF>{{0,0},{32,0},{32,32},{17.1,32},{17,17},{16.9,32},{0,32}})};
+        in.cellSize=2;in.minCellSize=.05;in.genOpts.maxArea=2;
+        in.burnProfiles.clear();in.burnOptions.chainageStep=0;
+        in.burnOptions.quadCorridor=true;in.burnOptions.channelCellSize=2;
+        in.burnNetwork.nodes={{"A"},{"B"}};
+        mesh::ChannelInput c;c.conduitId="AB";c.centerline={{8,16},{24,16}};c.zUp=c.zDn=8;
+        c.section=mesh::sectionFromWidths({0,2},{4,4});
+        in.burnProfiles.append(mesh::buildBurnProfile(c,in.burnOptions));
+        in.burnNetwork.links.append({"AB",0,1});
+        const auto result=run(in);
+        QVERIFY2(result.ok,qPrintable(result.errorMsg));
+        QVERIFY(result.burnRan);
+        int quads=0;
+        for(const auto &cell:result.meshResult.triangles) if(cell.isQuad()) ++quads;
+        QVERIFY(quads>0);   // the bands clear of the notch stay quads
+    }
+
     // No dangling outfalls: a headwater with an inflow whose only link would
     // be burned keeps that link in 1D; the next node down becomes the coupled
     // interface outfall with exactly one 1D link.
