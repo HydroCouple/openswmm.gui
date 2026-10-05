@@ -37,6 +37,18 @@ private slots:
         model.remove(2);
         QVERIFY(model.treatmentRows().isEmpty());
     }
+    void retentionParametersFollowPhysicalRows() {
+        LidNodeLayerModel model;
+        for (int kind : {0, 1, 2, 3}) model.append(kind);
+        QVERIFY(model.setData(model.index(1, 11), 2.5));
+        QVERIFY(!model.setData(model.index(0, 11), 2.5));
+        QVERIFY(!model.setData(model.index(1, 14), -1));
+        model.move(1, 1);
+        QCOMPARE(model.data(model.index(2, 11)).toDouble(), 2.5);
+        model.remove(1);
+        QCOMPARE(model.retention.size(), model.layers.size());
+        QCOMPARE(model.data(model.index(1, 11)).toDouble(), 2.5);
+    }
     void defaultsRespectUnits() {
         LidNodeLayerModel si, us;
         si.append(1, true); us.append(1, false);

@@ -109,6 +109,12 @@ int LidControlRegistry::loadFromEngine(void *engineHandle)
                     if (swmm_lid_node_layer_get(eng, i, j, &row) == SWMM_OK) rows.append(row);
                 }
                 p->setNodeLayers(rows);
+                swmm_lid_richards_options_get(eng, i, &p->flowOptions);
+                for (int j = 0; j < rows.size(); ++j) {
+                    SWMM_LidRichardsMaterial material{};
+                    swmm_lid_richards_material_get(eng, i, j, &material);
+                    p->retention.append(material);
+                }
                 for(int j=0;j<swmm_lid_node_treatment_count(eng,i);++j) {
                     SWMM_LidLayerTreatment t{};
                     if(swmm_lid_node_treatment_get(eng,i,j,&t)==SWMM_OK)
@@ -167,7 +173,8 @@ int LidControlRegistry::saveToEngine(void *engineHandle)
                 expressions.append(t.expression.toUtf8());
                 rules.append({t.layer,swmm_pollutant_index(eng,t.pollutant.toUtf8().constData()),t.removal,t.decay,expressions.back().constData()});
             }
-            if (swmm_lid_node_configure(eng, idx, rows.constData(), rows.size(),rules.constData(),rules.size()) == SWMM_OK) {
+            if (swmm_lid_node_configure_flow(eng, idx, rows.constData(), rows.size(), rules.constData(), rules.size(),
+                &p->flowOptions, p->retention.size() == rows.size() ? p->retention.constData() : nullptr) == SWMM_OK) {
                 p->clearDirty(); ++written;
             } else if (isNew) {
                 swmm_lid_delete(eng, idx, nullptr);

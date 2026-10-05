@@ -112,7 +112,15 @@ private:
     QSpinBox *m_mediaCount = nullptr;
     QLabel *m_layerSummary = nullptr;
     QFormLayout *m_layerFields = nullptr;
-    QDoubleSpinBox *m_layerValues[9]{};
+    QFormLayout *m_retentionFields = nullptr;
+    QTabWidget *m_layerDetails = nullptr;
+    QDoubleSpinBox *m_layerValues[14]{};
+    QComboBox *m_flowModel = nullptr;
+    QWidget *m_richardsSettings = nullptr;
+    QLabel *m_richardsBoundaryNotice = nullptr;
+    QSpinBox *m_richardsCells = nullptr;
+    QDoubleSpinBox *m_richardsAtol = nullptr, *m_richardsRtol = nullptr, *m_richardsMaxStep = nullptr;
+    QWidget *m_retentionCurves = nullptr;
     bool m_syncLayerFields = false;
     QTableView *m_treatmentTable = nullptr;
     QStandardItemModel *m_treatmentModel = nullptr;

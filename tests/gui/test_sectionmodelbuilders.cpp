@@ -37,6 +37,7 @@
 #include <openswmm/engine/openswmm_nodes.h>
 
 #include <QDir>
+#include <QFile>
 #include <QImage>
 #include <QObject>
 #include <QPainter>
@@ -169,7 +170,40 @@ private slots:
     void linkProfileStubsTheOtherPipesAtBothEnds();
     void linkProfileGivesEachEndItsOwnPlanInset();
     void linkProfileStubsDoNotWidenTheDrawing();
+    void richardsProfileShowsCellMoistureAndPressure();
 };
+
+void TestSectionModelBuilders::richardsProfileShowsCellMoistureAndPressure()
+{
+    const QDir data(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"));
+    const QString folder=data.filePath("richards_profile_out");
+    QVERIFY(QDir().mkpath(folder));
+    auto e=swmm_engine_create(); QVERIFY(e);
+    const auto input=data.filePath("lid_treatment_editor.inp").toUtf8();
+    const auto report=(folder+"/profile.rpt").toUtf8();
+    QCOMPARE(swmm_engine_open(e,input.constData(),report.constData(),nullptr,nullptr),SWMM_OK);
+    SWMM_LidNodeLayer layers[3];
+    for(int row=0;row<3;++row)QCOMPARE(swmm_lid_node_layer_get(e,0,row,&layers[row]),SWMM_OK);
+    const SWMM_LidRichardsOptions options{1,4,1.e-7,1.e-5,30};
+    const SWMM_LidRichardsMaterial materials[3]{{},{.03,2,1.6,.5,1.e-4},{.03,2,1.6,.5,1.e-4}};
+    QCOMPARE(swmm_lid_node_configure_flow(e,0,layers,3,nullptr,0,&options,materials),SWMM_OK);
+    QCOMPARE(swmm_engine_initialize(e),SWMM_OK);
+    QCOMPARE(swmm_engine_start(e,0),SWMM_OK);
+    double time=0;
+    for(int step=0;step<50;++step)QCOMPARE(swmm_engine_step(e,&time),SWMM_OK);
+    const auto model=buildNodeProfile(e,0,kUnits);
+    QVERIFY(model.title.contains("Richards 1D"));
+    int cells=0;
+    for(const auto& poly:model.polys)if(poly.insetLabel.startsWith(QString::fromUtf8("θ "))) {
+        ++cells; QVERIFY(poly.insetLabel.contains("h ")); QVERIFY(poly.insetLabel.endsWith("ft"));
+    }
+    QCOMPARE(cells,8);
+    QImage image(1100,850,QImage::Format_ARGB32); image.fill(Qt::white);
+    QPainter painter(&image); paintSectionDiagram(painter,QRectF(0,0,1100,850),model,QPalette()); painter.end();
+    QVERIFY(image.save(folder+"/richards-profile.png"));
+    QCOMPARE(swmm_engine_end(e),SWMM_OK);
+    swmm_engine_close(e); swmm_engine_destroy(e);
+}
 
 void TestSectionModelBuilders::linkSectionReportsBothEndsWhenSloping()
 {

@@ -43,6 +43,9 @@ public:
 
     const QVector<SWMM_LidNodeLayer>& nodeLayers() const { return m_nodeLayers; }
     void setNodeLayers(QVector<SWMM_LidNodeLayer> layers);
+    SWMM_LidRichardsOptions flowOptions{0, 8, 1.e-7, 1.e-5, 30.0};
+    QVector<SWMM_LidRichardsMaterial> retention;
+    void setNodeFlow(SWMM_LidRichardsOptions options, QVector<SWMM_LidRichardsMaterial> materials);
     QVector<LidLayerTreatment> treatments;
 
 
