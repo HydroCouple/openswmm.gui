@@ -31,7 +31,7 @@ folder. Each contains all time series; no rainfall or external data file is requ
 
 These are synthetic tests with hypothetical treatment kinetics. They are not
 calibrated design recommendations. They require an engine containing the
-storage-node LID pollutant-balance corrections described in the article's
+storage-node LID legacy-hydrology adaptation and pollutant-balance corrections described in the article's
 validation notes. Use Dynamic Wave and `QUALITY_SOLVER LEGACY`.
 
 ## Steps
@@ -97,13 +97,12 @@ adds the same water volume once.
 
 \fig{t10_water-stores.png, Retained moisture and connected mobile storage in one layered facility}
 
-Intercell drainage is a gravity-only Darcy–Buckingham approximation, not
-an adjacent-cell total-head calculation. For downward-positive `xi`, the
-full one-dimensional relation is `q = K(theta) * (1 - dpsi/dxi)`; this
-kernel omits the matric-head gradient and uses donor conductivity:
+MEDIA drainage uses legacy SWMM's exponential conductivity law with a
+field-capacity cutoff. For downward-positive `xi`, Darcy–Buckingham gives
+`q = K(theta) * (1 - dpsi/dxi)`; this kernel omits the matric-head gradient:
 
 ```text
-q_i = Ks_i * clamp(theta_i / porosity_i, 0, 1)^n_i
+q_i = Ks_i * exp(-slope_i * (porosity_i - theta_i))
       if theta_i > field_capacity_i; otherwise zero
 Q_i = area_i * q_i
 accepted_volume = min(Q_i * substep,
@@ -111,23 +110,30 @@ accepted_volume = min(Q_i * substep,
                       max(0, (porosity_receiver - theta_receiver) * G_receiver))
 ```
 
-The receiving-space bound applies to a retained receiver entirely above
-the mobile water table. Otherwise, the transfer enters mobile storage.
-Cells whose bottoms lie below that table skip free drainage. Transfers
-use a common pre-update state and are debited/credited once, with explicit
-substeps at most one second. Aggregate cells use the same power law with
-zero field capacity and the default exponent three. The surface entry
-closure is separate:
+**Conductivity slope** is dimensionless, not a power exponent. A zero slope
+means constant Ks above field capacity. Ks = 10 mm/h, theta = 0.30,
+porosity = 0.45 and slope = 10 give 2.23 mm/h. AGGREGATE drains at its
+specified conductivity, with zero field capacity and the same volume bounds.
+The receiving-space bound applies above the mobile water table; a receiver
+intersected by that table routes to mobile storage. Submerged donors skip
+free drainage. All cells use a common pre-update state, explicit substeps
+at most one second and equal donor/receiver transfers.
+
+SURFACE → first MEDIA entry reuses modified Green–Ampt. Its ponded capacity
+for an existing downward front is:
 
 ```text
-q_inf = K_receiver * (1 + suction_receiver * max(porosity_receiver - theta_receiver, 0)
-                          / max(suction_receiver + theta_surface * thickness_surface, epsilon))
+f_cap = Ks * (1 + (suction + ponded_depth) * moisture_deficit / F)
+ponded_depth = theta_surface * thickness_surface / surface_void_fraction
+F_new = F_old + accepted_infiltration_volume / surface_area
 ```
 
-It uses the surface area and the same donor/receiver bounds; it does not
-track a wetting front. For media with Ks = 10 mm/h, theta = 0.30,
-porosity = 0.45, n = 3 and field capacity = 0.20, the trial drainage is
-2.96 mm/h, independent of receiving-cell suction.
+The native routine handles F = 0, integrated infiltration and supply-limited
+transitions. Rejected potential flux does not advance F or upper-zone wetness.
+Recovery cannot make the history drier than actual cell moisture. Suction and
+conductivity keep the authored in/mm and in/h or mm/h units. Green–Ampt applies
+only when MEDIA directly follows SURFACE; surface-to-aggregate entry uses the
+aggregate conductivity. Additional MEDIA layers use the drainage law above.
 
 \fig{t10_interlayer-flux.png, Donor-based gravity flux and conservative limits compared with matric-gradient transport}
 
@@ -208,7 +214,12 @@ rules and priorities. Save a separate copy when editing.
 
 ### 5. Run and compare results
 
-Run each file separately. Inspect A/B depth and volume, R head, actual valve
+In **Model → Simulation Options…**, set **Routing step** to **0.025 s**
+on the Time Steps page and set **Variable step factor** to **0** in
+Routing & Hydraulics → Solver (`VARIABLE_STEP 0`) for a controlled comparison. The supplied decks retain
+a 0.5-s initial step; the figure runner overrides it. The second-storm
+validation includes smaller steps and reports their measured differences.
+Save edited decks separately. Run each file separately. Inspect A/B depth and volume, R head, actual valve
 settings, signed flows in V_AB and V_BR, W_A/W_B flows and pollutant
 concentrations. Negative link flow indicates reversal. Use comparison plots
 as described in \ref manual_time_series_plots.
@@ -233,10 +244,10 @@ time. Static versions of both figures appear above.
 <!-- START RESULTS_TABLE -->
 | First-storm strategy | V_BR peak (cfs) | Tracer 50% export (h) | Reacted by 24 h |
 |---|---|---|---|
-| Passive / free outlet | 0.0369 | 5.08 | 33.9% |
-| Passive / backwater | 0.0389 | 10.33 | 43.9% |
-| Timed hold | 0.0345 | 10.04 | 42.6% |
-| Hold + head guard | 0.0345 | 10.04 | 42.6% |
+| Passive / free outlet | 0.0368 | 4.83 | 34.4% |
+| Passive / backwater | 0.0389 | 10.18 | 43.6% |
+| Timed hold | 0.0345 | 10.05 | 42.7% |
+| Hold + head guard | 0.0345 | 10.05 | 42.7% |
 <!-- END RESULTS_TABLE -->
 
 
@@ -246,11 +257,45 @@ time. Static versions of both figures appear above.
 **06_stuck_closed.inp** holds both orifices closed for all 24 hours. Examine
 surface bypass, any flooding and the mass left at the end. Compare every
 exit to the environment, not only V_BR. Do not credit retained pollutant as
-treated pollutant. Examine the remaining capacity before the second pulse. At the 0.025-second
-step the guarded two-storm run conveys approximately 1,208 ft³ through the
+treated pollutant. Examine the remaining capacity before the second pulse. At its finest 0.00625-second
+step the guarded two-storm run conveys approximately 1,189 ft³ through the
 emergency weirs; the stuck-closed run conveys approximately 2,007 ft³
 through the weirs. Neither case has a flooding loss in the corrected runs.
 These volumes use cumulative engine accounting rather than snapshot sums.
+
+### 7. Examine resaturation and a subsequent storm
+
+Open the supplementary [lid_resaturation.inp](lid_resaturation.inp), available
+at `docs/manual/tutorials/models/lid_resaturation.inp`. It is a separate
+six-minute, 10 ft² facility, with 6 in SURFACE, 12 in MEDIA and 6 in
+AGGREGATE; media Ks = 2 in/h, conductivity slope = 10 and initial saturation
+0%. A reversible 0.30-ft side orifice joins S to outfall O. O's stage rises
+to 2 ft at 20 s, remains high through 100 s, and falls to zero at 120 s.
+Surface inflow is 0.02 cfs at minutes 3–4 and carries 10 mg/L of TRACER;
+reverse boundary water is clean. Bottom seepage and decay are zero.
+
+Inspect signed D flow and S depth. Set the report interval to 1 s if you
+want finer plotted detail. The supplied interval is 1 s already; use a
+0.1-s routing step. Negative flow wets the facility from its port; full
+media submergence fills all pores. After recession, formerly submerged
+cells retain field-capacity moisture. The next pulse uses that wetter state.
+
+![Reverse inflow, resaturation, recession and subsequent infiltration](t10_resaturation.gif)
+
+\fig{t10_resaturation-static.png, Simulated resaturation and subsequent infiltration in the six-minute test}
+
+The infiltration history's finite upper zone counts retained moisture plus
+submerged pores. Backwater/accepted media-port wetting decreases its deficit
+without adding to cumulative surface infiltration F. Full media submergence
+clears the old front; gradual recession tracks remaining moisture until
+accepted surface infiltration starts a new approximate front. An empty surface above a backwater-wetted upper zone
+cannot trigger artificial dry recovery. This adaptation does not resolve
+upward capillary flux or interacting wetting fronts.
+
+Native V10 hotstarts retain this history and retained pollutant mass.
+Compatible pre-V10 files reconstruct infiltration history and warn that
+exact continuation is unavailable. Use a fresh run when comparing changes
+in conductivity, suction or geometry; these can invalidate saved history.
 
 ## What to look for
 
@@ -278,6 +323,9 @@ A future tutorial will investigate the spatial groundwater model and the
 pathways between distributed recharge and receiving waters.
 
 ## Formulation references
+
+- [EPA SWMM LID source](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/lidproc.c) — exponential soil conductivity and finite storage limits
+- [EPA SWMM infiltration source](https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/infil.c) — modified Green–Ampt
 
 - [EPA Hydraulics Reference Manual](https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=P100S9AS.txt)
 - [Tu, Wadzuk and Traver (2020)](https://doi.org/10.1371/journal.pone.0235528) — a more detailed representation of unsaturated flow in SWMM

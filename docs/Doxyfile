@@ -1494,6 +1494,8 @@ HTML_EXTRA_FILES       = custom/js/doxygen-awesome-darkmode-toggle.js \
                          manual/tutorials/models/lid_active_chain/04_head_guard.inp \
                          manual/tutorials/models/lid_active_chain/05_repeat_storm.inp \
                          manual/tutorials/models/lid_active_chain/06_stuck_closed.inp \
+                         manual/tutorials/models/lid_resaturation.inp \
+                         manual/images/t10_resaturation.gif \
                          manual/images/t10_network.gif \
                          manual/images/t10_hydraulic-control.gif \
                          manual/images/t10_pollutant-fate.gif

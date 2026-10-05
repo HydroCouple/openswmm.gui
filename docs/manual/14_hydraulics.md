@@ -192,6 +192,46 @@ first two parameters are the **full** axes, not semi-axes.
 
 \figtodo{14_storage_shapes.png, Storage shape rows for a conical unit}
 
+### Storage-node LID hydraulics
+
+Assign a **LID Control** and **LID Initial Saturation (%)** to the storage
+node, then use **Model → LID Control** to edit its ordered layers. The node
+footprint supplies layer areas; MEDIA has five numerical cells per authored
+layer. Dynamic Wave routes ordinary network links and downstream heads.
+
+For cell geometry G, retained fraction theta and porosity phi, total water
+is the retained sum `sum(theta * G)` plus mobile pore water
+`sum((phi - theta) * G * submerged_fraction)`. Reported node volume includes
+both. Internal drainage transfers the same volume between these stores.
+
+MEDIA drainage is `q = Ks * exp(-slope * (phi - theta))` above field capacity,
+otherwise zero. **Conductivity slope** is dimensionless and nonnegative;
+it is not an exponent. AGGREGATE drains at its specified conductivity.
+SURFACE → first MEDIA entry uses modified Green–Ampt; for an existing ponded
+front, capacity is `Ks * (1 + (suction + ponded_depth) * deficit / F)`.
+The native routine handles F = 0 and supply limits. Actual ponded depth is
+`theta_surface * thickness / surface_void_fraction`. Only accepted entry
+advances infiltration history. All transfers use donor water and receiver
+space limits, with explicit substeps at most one second.
+
+A reversed link enters its physical port. The rising mobile table fills
+submerged pores and reconciles upper-zone infiltration deficit/wetness;
+reverse inflow does not increment surface infiltration F. Full resaturation
+clears the old front. Gradual recession tracks remaining moisture until
+accepted surface entry starts the next approximate front. Previously submerged
+cells retain field-capacity moisture. Dry recovery respects actual moisture
+and is suppressed for an empty surface over a backwater-wetted upper zone.
+
+Node HEAD/DEPTH follows the mobile table; surface ponding can be higher and
+supplies the local overflow head. Use physical weir crests and layer-relative
+anchors consistently. A depth-relief rule does not replace a surface overflow.
+This model omits intercell matric-gradient redistribution and upward capillary
+flow. Check smaller routing steps for both continuity and performance.
+See \ref tutorial_lid_active_chain for equations, simulated figures and the
+six-minute resaturation example, and \ref manual_water_quality for mass accounting.
+Native V10 hotstarts save infiltration history and retained quality; compatible
+older files reconstruct missing history and issue a continuation warning.
+
 ### Node compound editors — Inflows; DWF; RDII; Treatment
 
 The four compound rows open one modal dialog showing the form matching the

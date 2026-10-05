@@ -152,8 +152,26 @@ that the hydraulic flow paths and residence times also change.
 For expressions, `DT` is seconds and `HRT` is hours; concentration uses the
 pollutant's units, while flow, depth and area use project units. `D` is the
 full authored layer thickness. `V` follows the engine's existing internal
-cubic-foot convention. Native V9 hotstarts preserve retained pollutant mass
+cubic-foot convention. Native V10 hotstarts preserve retained pollutant mass and modified Green–Ampt history
 as well as moisture; an ordinary model file saves configuration, not a restart.
+
+## Hydrology and backwater
+
+**Conductivity slope** uses the legacy SWMM exponential soil relation
+`K = Ks * exp(-slope * (porosity - theta))` above field capacity, with zero
+drainage below it. It is not a power-law exponent. A zero slope is valid.
+SURFACE → first MEDIA infiltration uses modified Green–Ampt with accepted
+volume history and the actual ponded depth. Aggregate drainage uses its
+specified conductivity, bounded by water availability and receiving space.
+
+A reversed hydraulic link enters at its physical port. Rising mobile water
+fills submerged pores and reconciles the infiltration history with the
+wetting. After full media resaturation and recession, a subsequent storm
+starts from remaining moisture. This remains a gravity-drainage and
+wetting-front approximation; it does not compute adjacent-cell matric-head
+gradients. Compatible older hotstarts reconstruct missing infiltration
+history and issue an exact-continuation warning. T10 contains the equations,
+a six-minute reversal test and a simulated resaturation animation.
 
 ## Related
 
