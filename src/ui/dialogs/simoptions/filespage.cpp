@@ -127,6 +127,7 @@ void FilesPage::tagWidgets()
     tagOption(m_rptFlowstatsBox, "RPT_FLOWSTATS");
     tagOption(m_rptControlsBox, "RPT_CONTROLS");
     tagOption(m_rptAveragesBox, "RPT_AVERAGES");
+    tagOption(m_rptLinkStepsBox, "RPT_LINK_STEPS");
     tagOption(m_signedHeadsCheck, "REPORT_SIGNED_HEADS");
     tagOption(m_rptSubcatchNoneRadio, "RPT_SUBCATCHMENTS");
     tagOption(m_rptNodeNoneRadio, "RPT_NODES");
@@ -258,7 +259,7 @@ bool FilesPage::validateFilesTab(QString *warn)
 // ---------------------------------------------------------------------------
 //
 // Engine surface: RPT_DISABLED / RPT_INPUT / RPT_CONTINUITY / RPT_FLOWSTATS /
-// RPT_CONTROLS / RPT_AVERAGES (booleans, YES/NO) plus RPT_SUBCATCHMENTS /
+// RPT_CONTROLS / RPT_AVERAGES / RPT_LINK_STEPS (booleans, YES/NO) plus RPT_SUBCATCHMENTS /
 // RPT_NODES / RPT_LINKS (selectors, "ALL" / "NONE" / "name1,name2,...").
 
 void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
@@ -280,6 +281,12 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
     m_rptFlowstatsBox  = new QCheckBox(tr("Flow statistics (FLOWSTATS)"),        flagsGroup);
     m_rptControlsBox   = new QCheckBox(tr("Control rule actions (CONTROLS)"),    flagsGroup);
     m_rptAveragesBox   = new QCheckBox(tr("Time-averaged results (AVERAGES)"),   flagsGroup);
+    m_rptLinkStepsBox  = new QCheckBox(tr("Conduit time step summary (LINK_STEPS)"), flagsGroup);
+    m_rptLinkStepsBox->setToolTip(tr(
+        "Per-conduit minimum / average / maximum local time step, percent of "
+        "time in each step range below the routing step, and percent of steps "
+        "converged. Dynamic wave reports the CFL step each conduit allows; "
+        "FV reports the local step each conduit took."));
 
     flagsForm->addRow(QString(), m_rptDisabledBox);
     flagsForm->addRow(QString(), m_rptInputBox);
@@ -287,6 +294,7 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
     flagsForm->addRow(QString(), m_rptFlowstatsBox);
     flagsForm->addRow(QString(), m_rptControlsBox);
     flagsForm->addRow(QString(), m_rptAveragesBox);
+    flagsForm->addRow(QString(), m_rptLinkStepsBox);
 
     // DISABLED short-circuits everything else — grey out the dependent
     // controls when it's on so the user knows nothing else matters.
@@ -294,7 +302,7 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout,
         const bool disabled = m_rptDisabledBox && m_rptDisabledBox->isChecked();
         for (QCheckBox *cb : { m_rptInputBox, m_rptContinuityBox,
                                m_rptFlowstatsBox, m_rptControlsBox,
-                               m_rptAveragesBox })
+                               m_rptAveragesBox, m_rptLinkStepsBox })
             if (cb) cb->setEnabled(!disabled);
         Q_UNUSED(flagsGroup);
     };
@@ -384,6 +392,7 @@ void FilesPage::readReportContentsFromEngine()
     setBox(m_rptFlowstatsBox,  "RPT_FLOWSTATS",  true);
     setBox(m_rptControlsBox,   "RPT_CONTROLS",   false);
     setBox(m_rptAveragesBox,   "RPT_AVERAGES",   false);
+    setBox(m_rptLinkStepsBox,  "RPT_LINK_STEPS", false);
     setBox(m_signedHeadsCheck, "REPORT_SIGNED_HEADS", false);
 
     // Sync the disabled-short-circuit state once after the initial read.
@@ -391,7 +400,7 @@ void FilesPage::readReportContentsFromEngine()
         const bool disabled = m_rptDisabledBox->isChecked();
         for (QCheckBox *cb : { m_rptInputBox, m_rptContinuityBox,
                                m_rptFlowstatsBox, m_rptControlsBox,
-                               m_rptAveragesBox })
+                               m_rptAveragesBox, m_rptLinkStepsBox })
             if (cb) cb->setEnabled(!disabled);
     }
 
@@ -447,6 +456,7 @@ int FilesPage::writeReportContentsToEngine()
     writeIfChanged("RPT_FLOWSTATS",  boolStr(m_rptFlowstatsBox,  true));
     writeIfChanged("RPT_CONTROLS",   boolStr(m_rptControlsBox,   false));
     writeIfChanged("RPT_AVERAGES",   boolStr(m_rptAveragesBox,   false));
+    writeIfChanged("RPT_LINK_STEPS", boolStr(m_rptLinkStepsBox,  false));
     writeIfChanged("REPORT_SIGNED_HEADS", boolStr(m_signedHeadsCheck, false));
 
     auto selectorStr = [](QRadioButton *noneR, QRadioButton *allR,

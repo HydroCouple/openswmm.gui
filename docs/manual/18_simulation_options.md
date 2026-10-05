@@ -639,12 +639,13 @@ how often rows are written to the binary output.
 
 | Check box | Writes |
 | --- | --- |
-| **Disable all reporting (DISABLED)** | `RPT_DISABLED` — greys out the five flags and the three selectors below, because none of them matter then |
+| **Disable all reporting (DISABLED)** | `RPT_DISABLED` — greys out the six flags and the three selectors below, because none of them matter then |
 | **Echo input summary (INPUT)** | `RPT_INPUT` |
 | **Continuity errors (CONTINUITY)** | `RPT_CONTINUITY` — on by default |
 | **Flow statistics (FLOWSTATS)** | `RPT_FLOWSTATS` — on by default |
 | **Control rule actions (CONTROLS)** | `RPT_CONTROLS` |
 | **Time-averaged results (AVERAGES)** | `RPT_AVERAGES` |
+| **Conduit time step summary (LINK_STEPS)** | `RPT_LINK_STEPS` — adds the per-conduit *Conduit Time Step Summary* table (minimum / average / maximum local time step, percent of time in each step range, percent converged); off by default |
 | **Report signed piezometric heads (sub-atmospheric)** | `REPORT_SIGNED_HEADS` — an `[OPTIONS]` key that shapes the `.out`, not the `.rpt`, so it stays live even when reporting is disabled |
 
 Three element selectors — **Subcatchments**, **Nodes** and **Links** — each a

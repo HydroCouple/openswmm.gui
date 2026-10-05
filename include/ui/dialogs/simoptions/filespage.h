@@ -116,6 +116,7 @@ private:
     QLineEdit      *m_reportFilePathEdit = nullptr;
     QComboBox      *m_reportWriterCombo = nullptr;
     QCheckBox      *m_rptAveragesBox    = nullptr;
+    QCheckBox      *m_rptLinkStepsBox   = nullptr;
     QCheckBox      *m_rptContinuityBox  = nullptr;
     QCheckBox      *m_rptControlsBox    = nullptr;
     QCheckBox      *m_rptDisabledBox    = nullptr;
