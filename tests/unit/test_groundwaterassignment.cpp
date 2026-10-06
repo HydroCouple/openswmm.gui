@@ -30,6 +30,15 @@ private slots:
   const auto other=p.before.options.value("PROJECT_FLOW_UNITS")=="CMS"?"CFS":"CMS";QCOMPARE(swmm_options_set(e.e,"FLOW_UNITS",other),SWMM_OK);
   QString error;QVERIFY(!applyAquiferProcesses(e.e,p.before,p.after,p.groundwater,&error));AquiferSnapshot now;QVERIFY(readAquiferSnapshot(e.e,&now,&error));QCOMPARE(now.options.value("WILTING_SUCTION"),QString("AUTO"));
  }
+ void cancellationLeavesNoActionablePreview(){
+    Engine e;auto s=seed(e);auto r=request(s);QString error;
+    int polls=0;auto p=previewAquiferAssignment(r,[&]{return ++polls==3;});
+    QCOMPARE(p.error,QString("Cancelled."));QVERIFY(p.appended.isEmpty());QVERIFY(p.cells.isEmpty());
+    QVERIFY(p.oldValues.isEmpty());QVERIFY(p.newValues.isEmpty());
+    AquiferSnapshot now;QVERIFY(readAquiferSnapshot(e.e,&now,&error));QCOMPARE(now,s);
+    polls=0;p=previewAquiferAssignment(r,[&]{++polls;return false;});
+    QVERIFY(p.error.isEmpty());QVERIFY(polls>=3);QCOMPARE(p.appended.size(),2);
+ }
  void snapshotAndExactIndependentFields(){
     Engine e;auto s=seed(e);QCOMPARE(s.rows.size(),1);
     auto p=previewAquiferAssignment(request(s));QVERIFY2(p.error.isEmpty(),qPrintable(p.error));

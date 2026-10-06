@@ -36,7 +36,9 @@ constexpr int    kMarginRight        = 16;
 constexpr int    kMarginTop          = 16;
 constexpr int    kMarginBottomBase   = 40;   // bottom margin without label rows
 constexpr int    kLabelRowGap        = 4;    // visual gap between rows
-constexpr double kPadFracY     = 0.0;    // no vertical padding — data range fills plot rect
+constexpr double kPadFracY     = 0.02;   // headroom so a feature exactly at the
+                                         // y-extent (a crown at ground level)
+                                         // stays off the clip edge / axis frame
 constexpr double kPadFracX     = 0.02;
 constexpr double kBeddingBelowFrac   = 0.05;  // bedding floor = minInvert − 5% range
 // Each zero-length link (pump/weir/orifice/outlet) is allotted this fraction
@@ -658,7 +660,9 @@ void ProfilePlotWidget::recomputeBounds()
             minInvert = std::min(minInvert, n.invertElev);
     }
     // Account for link end offsets (e.g. orifice/weir invert offsets) since
-    // the user-facing "lowest elevation" includes them.
+    // the user-facing "lowest elevation" includes them — and bound the top
+    // with conduit crowns (invert + full depth), which can reach or exceed
+    // the ground rim and would otherwise be clipped out of the plot.
     for (int i = 0; i < m_path.links.size(); ++i) {
         const auto &l = m_path.links[i];
         if (l.kind != ProfileBuilder::LinkKind::Conduit) continue;
@@ -666,6 +670,8 @@ void ProfilePlotWidget::recomputeBounds()
         const double zD = m_path.nodes[i + 1].invertElev + l.offset2;
         if (isFinite(zU)) minInvert = std::min(minInvert, zU);
         if (isFinite(zD)) minInvert = std::min(minInvert, zD);
+        if (isFinite(zU)) yMax = std::max(yMax, zU + l.maxDepth);
+        if (isFinite(zD)) yMax = std::max(yMax, zD + l.maxDepth);
     }
     // Use each series's envelope range to widen the y-extent.  When two
     // series share a SourceDerived (e.g. HGL + EGL on the same layer) the

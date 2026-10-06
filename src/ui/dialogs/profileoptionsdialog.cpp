@@ -24,6 +24,7 @@
 #include <QColorDialog>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -300,7 +301,7 @@ void ProfileOptionsDialog::buildSourcesTab()
             const QString p = (m_projectWindow->modelLayer() ? m_projectWindow->modelLayer()->modelFilePath() : QString());
             if (!p.isEmpty()) dir = QFileInfo(p).absolutePath();
         }
-        const QString path = QFileDialog::getOpenFileName(
+        const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("results-1d"),
             this, tr("Add Comparison Output"), dir,
             tr("SWMM Output Files (*.out);;All Files (*)"));
         if (path.isEmpty()) return;

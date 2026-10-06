@@ -19,5 +19,6 @@ struct ChannelBurnExportResult {
 // Prepares optional VRT/tiles/report output for the project's transactional Save.
 // All GDAL handles and coordinate transforms are local to the calling worker.
 ChannelBurnExportResult prepareChannelBurnExport(const ChannelMeshBurnResult &burn,
-    const ChannelBurnExportRequest &request, const std::function<bool()> &cancelled = {});
+    const ChannelBurnExportRequest &request, const std::function<bool()> &cancelled = {},
+    const std::function<void(int, const QString &)> &progress = {});
 }

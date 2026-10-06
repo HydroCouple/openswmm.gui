@@ -94,7 +94,6 @@ before writing any results.
 
 \fig{24_report_viewer_sections.png, The report viewer section list filtered to the continuity sections}
 
-\videotodo{From a finished run to a spreadsheet — filtering the attribute table; summarising the run and exporting CSV}
 
 ### Getting numbers out
 

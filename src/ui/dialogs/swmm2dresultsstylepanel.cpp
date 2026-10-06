@@ -15,6 +15,8 @@
 #include "layers/swmm2dresultslayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
 #include "io/mesh2dvariableexport.h"
+#include "ui/dialogs/resultvariableexportdialog.h"
+#include "map/spatialreferencesystem.h"
 #include <QListWidget>
 #include <QPushButton>
 #include <QHBoxLayout>
@@ -394,6 +396,32 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
     connect(variable,qOverload<int>(&QComboBox::currentIndexChanged),page,[this,sub,variable](int index) {
         if(sub && index>=0) {sub->setVariableKey(variable->itemData(index).toString()); refreshAdditionalResults();}
     });
+    auto *presentation=new QComboBox(page);presentation->setObjectName("additionalResultPresentation");presentation->setAccessibleName(tr("Result presentation"));
+    presentation->addItems({tr("Cell fill"),tr("Contours (display interpolation)"),tr("Native cell labels")});presentation->setCurrentIndex(int(style->presentation()));
+    form->addRow(tr("&Presentation:"),presentation);
+    connect(presentation,qOverload<int>(&QComboBox::currentIndexChanged),page,[style](int index){if(style)style->setPresentation(ResultScalarStyle::Presentation(index));});
+    auto *lineBox=new QGroupBox(tr("Contours and labels"),page);auto *lineForm=new QFormLayout(lineBox);form->addRow(lineBox);
+    QPointer<IsolineStyle> line=style->contourStyle();
+    auto *mode=new QComboBox(lineBox);mode->addItems({tr("Level count"),tr("Fixed interval")});mode->setCurrentIndex(int(line->levelMode()));lineForm->addRow(tr("Levels:"),mode);
+    connect(mode,qOverload<int>(&QComboBox::currentIndexChanged),page,[line](int i){if(line)line->setLevelMode(IsolineStyle::LevelMode(i));});
+    auto number=[&](const QString &label,double value,double lo,double hi,int decimals,auto setter){auto *spin=new QDoubleSpinBox(lineBox);spin->setRange(lo,hi);spin->setDecimals(decimals);spin->setValue(value);spin->setAccessibleName(label);lineForm->addRow(label,spin);connect(spin,qOverload<double>(&QDoubleSpinBox::valueChanged),page,[line,setter](double v){if(line)(line.data()->*setter)(v);});return spin;};
+    auto integer=[&](const QString &label,int value,int lo,int hi,auto setter){auto *spin=new QSpinBox(lineBox);spin->setRange(lo,hi);spin->setValue(value);spin->setAccessibleName(label);lineForm->addRow(label,spin);connect(spin,qOverload<int>(&QSpinBox::valueChanged),page,[line,setter](int v){if(line)(line.data()->*setter)(v);});return spin;};
+    integer(tr("Level count"),line->isoValueCount(),1,256,&IsolineStyle::setIsoValueCount);
+    number(tr("Interval (native units)"),line->levelInterval(),.000001,1e12,6,&IsolineStyle::setLevelInterval);
+    number(tr("Base level (native units)"),line->baseLevel(),-1e12,1e12,6,&IsolineStyle::setBaseLevel);
+    number(tr("Line width (px)"),line->lineWidthPx(),.1,10,2,&IsolineStyle::setLineWidthPx);
+    integer(tr("Index every N levels (0 off)"),line->indexEvery(),0,256,&IsolineStyle::setIndexEvery);
+    number(tr("Index width (px)"),line->indexWidthPx(),.1,20,2,&IsolineStyle::setIndexWidthPx);
+    auto *lineColor=new ColorButton(lineBox);lineColor->setShowAlpha(true);lineColor->setColor(line->color());lineColor->setAccessibleName(tr("Contour and label color"));lineForm->addRow(tr("Color:"),lineColor);
+    connect(lineColor,&ColorButton::colorChanged,page,[line](const QColor &c){if(line)line->setColor(c);});
+    auto *dash=new DashStyleCombo(lineBox);dash->setPenStyle(line->dashPattern());dash->setAccessibleName(tr("Contour stroke style"));lineForm->addRow(tr("Stroke style:"),dash);
+    connect(dash,&DashStyleCombo::penStyleChanged,page,[line](Qt::PenStyle p){if(line)line->setDashPattern(p);});
+    auto *labels=new QCheckBox(tr("Label contours"),lineBox);labels->setChecked(line->labels());lineForm->addRow(labels);connect(labels,&QCheckBox::toggled,page,[line](bool b){if(line)line->setLabels(b);});
+    integer(tr("Label decimal places"),line->labelDecimals(),0,12,&IsolineStyle::setLabelDecimals);
+    number(tr("Label font (pt)"),line->labelFontPt(),6,40,1,&IsolineStyle::setLabelFontPt);
+    auto *halo=new QCheckBox(tr("Label halo"),lineBox);halo->setChecked(line->labelHalo());lineForm->addRow(halo);connect(halo,&QCheckBox::toggled,page,[line](bool b){if(line)line->setLabelHalo(b);});
+    lineBox->setVisible(style->presentation()!=ResultScalarStyle::Presentation::Fill);
+    connect(presentation,qOverload<int>(&QComboBox::currentIndexChanged),lineBox,[lineBox](int i){lineBox->setVisible(i!=0);});
     auto *visible=new QCheckBox(tr("Show result layer"),page); visible->setChecked(sub->isVisible());
     visible->setObjectName("additionalResultVisible"); form->addRow(visible);
     connect(visible,&QCheckBox::toggled,page,[sub](bool value){if(sub)sub->setVisible(value);});
@@ -403,11 +431,11 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
     connect(opacity,qOverload<double>(&QDoubleSpinBox::valueChanged),page,[sub](double value){if(sub)sub->setOpacity(value/100);});
     auto frameFor=[layer,sub,style] {
         return layer&&sub&&style?layer->resultFrame(sub->variableKey(),layer->currentTimeIndex(),
-            !style->scheme().useCustomRange() && style->scheme().rangeMode()==RangeMode::FixedOverRun):std::shared_ptr<const Mesh2DScalarFrame>();
+            !style->rangeScheme().useCustomRange() && style->rangeScheme().rangeMode()==RangeMode::FixedOverRun):std::shared_ptr<const Mesh2DScalarFrame>();
     };
     auto *binding=new SublayerSchemeBinding(
-        [style]{return style?style->scheme():ClassificationScheme();},
-        [style](const ClassificationScheme&s){if(style)style->setScheme(s);},
+        [style]{return style?style->rangeScheme():ClassificationScheme();},
+        [style](const ClassificationScheme&s){if(style){if(style->presentation()==ResultScalarStyle::Presentation::Contours)style->contourStyle()->setScheme(s);else style->setScheme(s);}},
         [frameFor]{auto f=frameFor();return f?f->samples:QVector<double>();},
         [frameFor]{auto f=frameFor();const double nan=std::numeric_limits<double>::quiet_NaN();
             return f?qMakePair(f->minimum,f->maximum):qMakePair(nan,nan);},true,true);
@@ -434,7 +462,15 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
     exportButton->setObjectName("additionalResultExport");
     exportButton->setToolTip(tr("Exports all cells for this variable at the current report frame, with native units and availability status."));
     form->addRow(exportButton);
-    m_refreshResultData=[layer,sub,classification,status,table,exportButton,warnings] {
+    auto *gisButton=new QPushButton(tr("Export current variable to GIS…"),page);gisButton->setObjectName("additionalResultGisExport");
+    gisButton->setToolTip(tr("Captures this frame for asynchronous GeoPackage or GeoTIFF export with native units and explicit availability."));form->addRow(gisButton);
+    connect(gisButton,&QPushButton::clicked,page,[layer,sub,status,page]{
+        if(!layer||!sub||!layer->source())return;QString error;
+        auto snapshot=openswmmvis::io::captureMesh2DVariableGis(*layer->source(),sub->variableKey(),layer->currentTimeIndex(),layer->depthToMeshUnits(),layer->srs()?layer->srs()->toWkt():QString(),&error);
+        if(!snapshot){status->setText(error);return;}
+        auto *dialog=new ResultVariableExportDialog(std::move(snapshot),page);dialog->show();
+    });
+    m_refreshResultData=[layer,sub,classification,status,table,exportButton,gisButton,warnings] {
         if(!layer || !sub)return;
         const auto frame=layer->resultFrame(sub->variableKey(),layer->currentTimeIndex());
         const bool available=frame && frame->error.isEmpty();
@@ -454,6 +490,13 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
             case Mesh2DResultVariable::Temporal::Envelope: messages<<tr("Run envelope; values need not occur simultaneously."); break;
             default: messages<<tr("Result at the current report frame."); break;
             }
+        }
+        if(available && sub->fillStyle()->presentation()!=ResultScalarStyle::Presentation::Fill) {
+            const auto *line=sub->fillStyle()->contourStyle();const bool contours=sub->fillStyle()->presentation()==ResultScalarStyle::Presentation::Contours;
+            const auto levels=contours?sub->fillStyle()->contourLevels(frame->minimum,frame->maximum,frame->samples):std::vector<double>();
+            const auto geometry=layer->resultScalarGeometry(frame,levels,!contours);
+            messages<< (contours?tr("Contours reconstruct nodal display values from valid cell values; they are not native cell measurements."):tr("Labels display native valid cell values; screen collisions reduce visible labels."));
+            if(!geometry->error.isEmpty())messages<<geometry->error;
         }
         status->setText(messages.join('\n'));
         QSet<int> selectedCells;
@@ -479,8 +522,10 @@ void Swmm2DResultsStylePanel::rebuildResultDetails()
         }
 
         exportButton->setEnabled(available && frame->descriptor.unitsKnown && !frame->descriptor.units.isEmpty());
+        gisButton->setEnabled(exportButton->isEnabled());
     };
     m_refreshResultData();
+    connect(style,&SublayerStyle::styleChanged,page,[this]{if(m_refreshResultData)m_refreshResultData();});
 
     connect(exportButton,&QPushButton::clicked,page,[this,layer,sub,status] {
         if(!layer || !sub || !layer->source())return;

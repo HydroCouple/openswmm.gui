@@ -9,7 +9,6 @@ conduit-attribute inlet (`[INLET_USAGE]`) against a SWMM 6 inlet junction
 (`[INLET_JUNCTIONS]`), run the model, read the two street report tables, and
 then break the rules on purpose to see what the engine refuses.
 
-\videotodo{Editing a street cross-section — designing a curb-opening inlet — inserting an inlet junction on a street conduit}
 
 ## Capabilities exercised
 

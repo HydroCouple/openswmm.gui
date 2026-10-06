@@ -323,7 +323,6 @@ SWASHES suite in the openswmm.engine benchmarks and imported by
 
 \figtodo{01_example_copy_prompt.png, Choosing the destination folder before an example is copied and opened}
 
-\videotodo{First launch — accepting the licence; touring the Welcome page and opening a bundled example into a working folder}
 
 ### Opening your first model
 

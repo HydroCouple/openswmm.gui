@@ -1,4 +1,7 @@
 #include "layers/swmm2dresultslayer.h"
+#include "io/mesh2dvariablegisexport.h"
+#include <gdal_priv.h>
+#include <ogrsf_frmts.h>
 #include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
 #include "plot/meshprofileplotwidget.h"
@@ -225,6 +228,46 @@ private slots:
                 QVERIFY(std::abs(point.value-values[size_t(point.cellId)])<1e-6);
                 if(i==1)QVERIFY(std::abs(point.value-9)<1e-6);
             }
+        }
+        // Actual engine-produced species values must survive both GIS routes in
+        // native units. The source can be released after immutable acquisition.
+        using namespace openswmmvis::io;
+        auto gis=captureMesh2DVariableGis(*layer->source(),section.series[2].descriptor.key(),
+            frame,1.0,layer->srs()->toWkt(),&error);
+        QVERIFY2(gis,qPrintable(error));QCOMPARE(gis->scalar.descriptor.units,QString("MG/L"));
+        QCOMPARE(gis->cells.size(),size_t(2));
+        GDALAllRegister();
+        for(bool raster:{false,true}){
+            Mesh2DVariableGisOptions options;options.format=raster?Mesh2DVariableGisFormat::GeoTiff:Mesh2DVariableGisFormat::GeoPackage;
+            options.path=root_+(raster?"/groundwater-tss.tif":"/groundwater-tss.gpkg");options.pixelSize=1;
+            // GDAL inspection can leave an optional PAM duplicate beside this
+            // exact test-owned output. Remove it before repeating the journey.
+            QFile::remove(options.path+".aux.xml");
+            QVERIFY2(ProjectSaveOutputs::captureDestination(options.path,&options.destination,&error),qPrintable(error));
+            QVERIFY2(exportMesh2DVariableGis(*gis,options,{},&error),qPrintable(error));
+            auto *dataset=static_cast<GDALDataset*>(GDALOpenEx(options.path.toUtf8().constData(),
+                raster?GDAL_OF_RASTER|GDAL_OF_READONLY:GDAL_OF_VECTOR|GDAL_OF_READONLY,nullptr,nullptr,nullptr));
+            QVERIFY(dataset);
+            if(raster){
+                QCOMPARE(dataset->GetRasterCount(),2);
+                QCOMPARE(QString::fromUtf8(dataset->GetRasterBand(1)->GetUnitType()),QString("MG/L"));
+                const int width=dataset->GetRasterXSize(),height=dataset->GetRasterYSize();
+                std::vector<double> values(size_t(width)*height),status(values.size());
+                QCOMPARE(dataset->GetRasterBand(1)->RasterIO(GF_Read,0,0,width,height,values.data(),width,height,GDT_Float64,0,0),CE_None);
+                QCOMPARE(dataset->GetRasterBand(2)->RasterIO(GF_Read,0,0,width,height,status.data(),width,height,GDT_Float64,0,0),CE_None);
+                int valid=0;for(size_t i=0;i<values.size();++i)if(status[i]==0){
+                    ++valid;QVERIFY(std::abs(values[i]-gis->scalar.values[0])<1e-6||std::abs(values[i]-gis->scalar.values[1])<1e-6);
+                }QVERIFY(valid>0);
+            }else{
+                auto*features=dataset->GetLayerByName("scalar_cells");QVERIFY(features);QCOMPARE(features->GetFeatureCount(),GIntBig(2));
+                int rows=0;while(auto*feature=features->GetNextFeature()){
+                    const int cell=feature->GetFieldAsInteger("cell_index");QVERIFY(cell>=0&&cell<2);
+                    QCOMPARE(QString::fromUtf8(feature->GetFieldAsString("units")),QString("MG/L"));
+                    QVERIFY(std::abs(feature->GetFieldAsDouble("value")-gis->scalar.values[size_t(cell)])<1e-6);
+                    ++rows;OGRFeature::DestroyFeature(feature);
+                }QCOMPARE(rows,2);
+            }
+            GDALClose(dataset);
         }
         auto *store=ProfileSectionStore::forOwner(&window);bool saved=false;
         connect(&dialog,&MeshProfilePlotDialog::saveDefinitionRequested,store,[&](const Definition &d){saved=store->saveDefinition(d,&error);});

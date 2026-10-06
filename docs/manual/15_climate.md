@@ -64,7 +64,7 @@ engine's climate-file reader accepts four formats and detects them on open:
 One climate file supplies temperature, pan evaporation and wind speed together —
 which is why the Evaporation and Wind tabs both refer back to this page.
 
-\figtodo{15_temperature_tab.png, The Temperature tab with an external climate file selected}
+\fig{15_temperature_tab.png, The Temperature tab using the transport example’s AIR_TEMP time series; external-file controls are disabled for this source}
 
 ### Evaporation tab — `[EVAPORATION]`
 
@@ -171,7 +171,6 @@ applied to infiltration.
 
 \fig{15_adjustments_tab.png, The Adjustments tab with monthly multipliers}
 
-\videotodo{Setting up temperature from a climate file and adding monthly evaporation adjustments}
 
 ### Solar radiation and heat transport {#climate_solar}
 

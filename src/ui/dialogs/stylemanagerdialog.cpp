@@ -20,6 +20,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -357,7 +358,7 @@ void StyleManagerDialog::onSaveCurrent()
 
 void StyleManagerDialog::onImport()
 {
-    const QString src = QFileDialog::getOpenFileName(
+    const QString src = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("styles"),
         this,
         tr("Import style"),
         QString(),

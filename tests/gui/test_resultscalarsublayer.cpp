@@ -57,6 +57,19 @@ private slots:
             QCOMPARE(colors[5],s.fillStyle()->missingColor());
         }
     }
+    void contourAndLabelStylesPersistIndependently() {
+        ResultScalarSublayer s({});bind(s,frame());auto *style=s.fillStyle();
+        style->setPresentation(ResultScalarStyle::Presentation::Contours);style->contourStyle()->setLabels(true);
+        style->contourStyle()->setColor(Qt::magenta);style->contourStyle()->setDashPattern(Qt::DashLine);
+        style->contourStyle()->setLevelMode(IsolineStyle::LevelMode::FixedInterval);style->contourStyle()->setLevelInterval(2);
+        ResultScalarStyle restored;restored.fromJson(style->toJson());QCOMPARE(restored.presentation(),ResultScalarStyle::Presentation::Contours);
+        QCOMPARE(restored.contourStyle()->color(),QColor(Qt::magenta));QCOMPARE(restored.contourStyle()->dashPattern(),Qt::DashLine);
+        QVERIFY(restored.contourStyle()->labels());QCOMPARE(restored.contourLevels(0,10,{}),std::vector<double>({2,4,6,8}));
+        auto scheme=restored.contourStyle()->scheme();scheme.setUseCustomRange(true);scheme.setRangeMin(3);scheme.setRangeMax(7);restored.contourStyle()->setScheme(scheme);
+        QCOMPARE(restored.contourLevels(0,10,{}),std::vector<double>({4,6}));
+        restored.setPresentation(ResultScalarStyle::Presentation::Labels);QCOMPARE(restored.toJson()["presentation"].toInt(),2);
+        QSignalSpy changes(style,&SublayerStyle::styleChanged);style->contourStyle()->setLabelDecimals(5);QVERIFY(changes.count()>0);
+    }
     void uniqueIdsAndIndependentStyles()
     {
         ResultScalarSublayer a({}), b({}), restored("results2d.variable.saved");

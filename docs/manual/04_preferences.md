@@ -307,7 +307,6 @@ An exact duplicate of another command's binding blocks the assignment and names
 the command holding it; a platform-reserved sequence only warns. See
 \ref manual_shortcuts.
 
-\videotodo{Setting up Preferences before starting a project — simulation and 2D defaults; object defaults for both unit systems and a couple of shortcut rebinds}
 
 ### Where settings are stored
 

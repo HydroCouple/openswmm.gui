@@ -261,7 +261,6 @@ NSE / R² / RMSE / PBIAS, adjust parameters, re-run, watch the metrics move.
 
 \figtodo{22_1v1_scatter_metrics.png, A 1v1 scatter with the identity line and the fit metrics in the title}
 
-\videotodo{Comparing a simulated hydrograph with an observed record — loading a CSV; reading the fit metrics and exporting the data}
 
 ### Exporting
 

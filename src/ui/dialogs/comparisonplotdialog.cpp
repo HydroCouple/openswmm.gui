@@ -33,6 +33,7 @@
 #include <QChartView>
 #include <QCursor>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QPainter>
 #include <QColorDialog>
 #include <QComboBox>
@@ -1208,7 +1209,7 @@ void ComparisonPlotDialog::onRemoveSelectedClicked()
 void ComparisonPlotDialog::onLoadObservedClicked()
 {
     // 1) File picker.
-    const QString path = QFileDialog::getOpenFileName(this,
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("timeseries"), this,
         tr("Load observed time series"),
         QString(),
         tr("CSV / TSV / TSF / DAT (*.csv *.tsv *.tsf *.dat);;All files (*)"));

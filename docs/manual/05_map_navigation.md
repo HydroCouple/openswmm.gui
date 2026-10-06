@@ -142,7 +142,6 @@ Euclidean value is reported with no unit conversion.
 
 \figtodo{05_measure_panel.png, The measure tool in Area mode with the floating Mode and Units panel}
 
-\videotodo{Navigating a model — wheel zoom; middle-drag pan; Zoom Extent and a distance measurement}
 
 ### The canvas context menu
 

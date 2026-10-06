@@ -9,6 +9,7 @@
 
 #include <QDir>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -122,7 +123,7 @@ void RelativePathPicker::onBrowseClicked()
     if (m_mode == QFileDialog::AcceptSave) {
         picked = QFileDialog::getSaveFileName(this, m_caption, start, m_filter);
     } else {
-        picked = QFileDialog::getOpenFileName(this, m_caption, start, m_filter);
+        picked = FileOpenDialog::getOpenFileName(FileOpenDialog::typeForFilter(m_filter), this, m_caption, start, m_filter);
     }
     if (picked.isEmpty()) return;
     setPath(picked);

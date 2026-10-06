@@ -31,7 +31,6 @@ None of these carry a default keyboard shortcut. All of them require an open
 project — with no project the command logs a warning in the **Message Logs**
 panel instead of opening.
 
-\videotodo{Adding a pollutant with a land use and build-up/wash-off then running and theming the result}
 
 ## Step-by-step
 
@@ -485,3 +484,14 @@ compatible older files reconstruct missing history with a warning.
 See \ref tutorial_lid_storage for layer editing and expression units,
 \ref tutorial_lid_active_chain for control experiments and the resaturation
 animation, and \ref manual_hydraulics for the accepted water-flux formulation.
+
+
+In **Richards 1D** mode, each porous cell owns its complete water and pollutant
+inventory, including saturation; surface ponding is a separate mixed
+reservoir. Accepted directional fluxes move donor concentration times water
+volume, bounded by resident mass. Each cell uses its physical layer's decay
+rate; the shared-mobile weighting above belongs to the existing flow model.
+Fixed removal still acts once at an authored-layer exit. Evaporation retains
+solute, and dry surface mass redissolves with later supply. Richards does
+not add dispersion, sorption or new kinetic laws. Check every exit and final
+cell/surface inventory; water age, heat and MSX adapters are pending.

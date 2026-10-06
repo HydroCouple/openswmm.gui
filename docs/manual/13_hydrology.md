@@ -134,7 +134,6 @@ nodes move to a copy.
 
 \figtodo{13_assign_rain_gages.png, The Assign Rain Gages dialog previewing an interpolated plan}
 
-\videotodo{Assigning rain gages by Thiessen majority and then by natural-neighbour interpolation}
 
 ### Subcatchment properties
 
@@ -365,7 +364,6 @@ such a node warns that those subcatchments lose their receiving node.
 
 \fig{13_groundwater_exchange.png, The Groundwater Exchange dialog with a validated LATERAL expression}
 
-\videotodo{Defining an aquifer and wiring a subcatchment's groundwater exchange with a custom GWF expression}
 
 ### Unit hydrographs and RDII
 

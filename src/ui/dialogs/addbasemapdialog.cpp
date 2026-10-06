@@ -28,6 +28,7 @@
 #include <hydrocoupleogc/wfsrequest.h>
 #include <QFile>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -1240,7 +1241,7 @@ void AddBasemapDialog::onLocalDelete()
 
 void AddBasemapDialog::onLocalBrowseFile()
 {
-    const QString path = QFileDialog::getOpenFileName(this,
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("raster"), this,
         tr("Select Raster File"), m_localFile->text(),
         tr("GeoTIFF (*.tif *.tiff);;PNG (*.png);;JPEG (*.jpg *.jpeg);;"
            "BMP (*.bmp);;All GDAL rasters (*)"));
@@ -1253,7 +1254,7 @@ void AddBasemapDialog::onLocalBrowseWorldFile()
 {
     const QString start = m_localWorld->text().isEmpty() ? m_localFile->text()
                                                          : m_localWorld->text();
-    const QString path = QFileDialog::getOpenFileName(this,
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("world-files"), this,
         tr("Select World File"), start,
         tr("World files (*.tfw *.pgw *.jgw *.bpw *.wld);;All files (*)"));
     if (path.isEmpty()) return;

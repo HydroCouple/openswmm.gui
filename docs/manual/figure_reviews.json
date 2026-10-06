@@ -803,6 +803,336 @@
     "baseline": "round5-orientation-final",
     "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. First category label Window has a clipped leading edge; Map labels and shortcuts are readable."
   },
+  "t06_cell_closure_options.png": {
+    "reviewedAt": "2026-10-02T06:47:42.554224+00:00",
+    "sha256": "7c5aaa9c4a804ae1b90719e2c4516516028c49c3f221511875952ad9c5c7ba56",
+    "baseline": "documentation_2026-10-02_round7/slope-captures",
+    "notes": "Inspected native screenshot against caption at full size. Terrain Fill shows the 0\u20133 m bed-elevation range; closure page shows FLAT/MEAN; report shows 60 m3 rainfall/storage and 29,948 internal steps. CLI numerical verification retained separately. Overview rejected because geometry rendered as an oversized blue rectangle."
+  },
+  "t06_mesh_style_terrain.png": {
+    "reviewedAt": "2026-10-02T06:47:42.554583+00:00",
+    "sha256": "92c5ddc700d88136e83fde2f1bf3837eead872ede5c3ff1c403679029128a895",
+    "baseline": "documentation_2026-10-02_round7/slope-captures",
+    "notes": "Inspected native screenshot against caption at full size. Terrain Fill shows the 0\u20133 m bed-elevation range; closure page shows FLAT/MEAN; report shows 60 m3 rainfall/storage and 29,948 internal steps. CLI numerical verification retained separately. Overview rejected because geometry rendered as an oversized blue rectangle."
+  },
+  "t06_mass_balance.png": {
+    "reviewedAt": "2026-10-02T06:47:42.554879+00:00",
+    "sha256": "0cbcbf2468eac4ff8c0a6b7902424e62d707a84e43e9a200470de370948554bd",
+    "baseline": "documentation_2026-10-02_round7/slope-captures",
+    "notes": "Inspected native screenshot against caption at full size. Terrain Fill shows the 0\u20133 m bed-elevation range; closure page shows FLAT/MEAN; report shows 60 m3 rainfall/storage and 29,948 internal steps. CLI numerical verification retained separately. Overview rejected because geometry rendered as an oversized blue rectangle."
+  },
+  "02_status_bar.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "1dc9d4502618dd67c5b852657ea885668afb39e04212453eb9127075be69f455",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "06_status_bar_crs_button.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "a2f211267e9bd45ad8b4d24a4a05a250ca5bca1c55c952f41d1d5276d65ffef8",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "07_add_basemap_wms_tab.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "32a4afbfb5af2e56e03f0e4f8e59cc5f525a3280e38da173c8ea55c4edaea9a0",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "07_layers_panel.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "f6b14852a063663552df48a4705b6ae573161b19efa7cdcd2a91771a7bf75e8b",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "08_2d_results_style_panel.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "ff01c1a9a8bb1abfac0f2adce8eef4c5e925fffc9187dc04a8724e574269d3fd",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "08_label_expression_dialog.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "35c7eda03bdf060baebb53071fd68320cd6c051a225df56ce15fdc3a9688884a",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "08_mesh_style_panel.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "9186da905b64b4f63248cdcde2c2d7de4e9a7a49bc5cb435a33072fba36498b4",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "09_search_filter.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "2fc033ec2e353bb19854475967b423b7b9dc7917363ea8406baa8bee3b26c4fe",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "09_select_tool_preferences.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "4958aee758a39a10ee56104c280c70c8cda3d4f2512c1e66ebd9cb57a09ef999",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "10_node_compound_inflows.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "b88ebedca36c17252ff263d22edb3278d1ce8f400af849886456b4647b8cdad6",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "12_object_defaults_page.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "edbf35c0831d55fc3d52a6dc050c42a7cc98914744ff887a569168e8e68efba5",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "13_subcatchment_properties.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "dba2a58fe180b3faf0394d8e12bfa28b48514dacde9226d54b9edd0475b29aba",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "14_node_inflows_page.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "b88ebedca36c17252ff263d22edb3278d1ce8f400af849886456b4647b8cdad6",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "14_rules_editor.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "e55c287371797acdc6da107ae185ec87f0da6cab6256f0a8c464eb712e1fd64d",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "15_climatology_tabs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "b9ce9ca12834aa5cd3d08dededc57e97ed5f686a5d69a55943b96259f5bfde92",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "15_snowmelt_tab.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "fb4f614e58eb1503599d4501c5ee5fb9cf19de764dd322ba9a0eef57cd784b6e",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "18_2d_options.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "063329e7e0542301d69f02266161fdaaa61a6d227341f02e1b605ce790ae710a",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "18_spatial_crs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "c4a993b193aac3bfbe87239c4ab8678a1dfa2bfb523d3a120ea803b79cdaa49d",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "20_live_toggles.png": {
+    "reviewedAt": "2026-10-02T07:21:45.385955+00:00",
+    "sha256": "467761cc73328b3cd88fd0f0fff1f3c2c15276c3206d53157636c1f08052d286",
+    "baseline": "documentation_2026-10-02_round7/results-ribbons",
+    "notes": "Inspected native strips full-size. Labels readable; completed site-drainage 1D run selected. No 2D layer is loaded and its disabled controls are shown. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "20_message_logs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "6e2ad0b3d7f9bc66fa5b2589353a3e5c0922f177d5ec9238b180be5894ada48f",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "21_2d_style_panel_tabs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "ff01c1a9a8bb1abfac0f2adce8eef4c5e925fffc9187dc04a8724e574269d3fd",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "21_active_results_combos.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "0d208655dce639a866dfc4568759915292c50901e0dff22547595d953645f46a",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "21_results_symbology_tab.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "944b9699a27afc5f6d03f89d0d298c0f5bb34ad8ac3851e30b0ac758c3a8fd56",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "24_report_viewer_sections.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "a8908fd75be012e3c6ffbebd32dfbc67cb8355827bcd181271a5199e2ed825ea",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "24_tabular_overview.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "7c0c005e143c7275664f6e505a1aaf02c784799ab8ab47f1ce420a3d838c6573",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "t08_control_rules_editor.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "e55c287371797acdc6da107ae185ec87f0da6cab6256f0a8c464eb712e1fd64d",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "10_section_view_link.png": {
+    "reviewedAt": "2026-10-02T06:57:44.541473+00:00",
+    "sha256": "5c2200f3ca94fa8328b267e5d7165650f4241dc7aa0c85989ebeaf4de89dce6c",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "10_section_view_profile.png": {
+    "reviewedAt": "2026-10-02T06:57:44.542218+00:00",
+    "sha256": "71e09e9783c384395226717ad7001e3c97a304af95c633aa43cd87379ae99046",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "10_section_view_node.png": {
+    "reviewedAt": "2026-10-02T06:57:44.542870+00:00",
+    "sha256": "82daf7d470d4886de4b2368070f6992eec06e3a8be0847cccc23b4badd3c3828",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "24_attribute_table_dynamics.png": {
+    "reviewedAt": "2026-10-02T06:57:44.542993+00:00",
+    "sha256": "948f721e4981ab76a13e272033fc680774bcc37b1fd1e1ef98d67d4b1d34d36a",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "02_ribbon_compact_modes.png": {
+    "reviewedAt": "2026-10-02T07:17:46.689270+00:00",
+    "sha256": "49eba4687f96d7aff0df2847837e80659739d525d427caf6c99bc40fef4c9bf2",
+    "baseline": "documentation_2026-10-02_round7/ribbon",
+    "notes": "Inspected all three native source strips and composite. Common pixel scale preserves actual Full/Compact/Collapsed controls; window widths and composition are labelled. Empty model explains disabled actions. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "21_results_ribbon_tab.png": {
+    "reviewedAt": "2026-10-02T07:21:45.386349+00:00",
+    "sha256": "cbab3d508fea63f1f855dd99e93bb43ca636149023e39275d77148b77ab712db",
+    "baseline": "documentation_2026-10-02_round7/results-ribbons",
+    "notes": "Inspected native strips full-size. Labels readable; completed site-drainage 1D run selected. No 2D layer is loaded and its disabled controls are shown. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "25_analysis_ribbon.png": {
+    "reviewedAt": "2026-10-02T07:21:45.386659+00:00",
+    "sha256": "139d305100eb833f541bc6ccb3e5e022570d3286208f6f60f4c057c3a32a9bd9",
+    "baseline": "documentation_2026-10-02_round7/results-ribbons",
+    "notes": "Inspected native strips full-size. Labels readable; completed site-drainage 1D run selected. No 2D layer is loaded and its disabled controls are shown. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_mesh_style_panel.png": {
+    "reviewedAt": "2026-10-02T07:38:24.843744+00:00",
+    "sha256": "42591dd3491d15e80b7afb89d88c948db7c2e36179459ae180a86fa806253267",
+    "baseline": "documentation_2026-10-02_round7/bowl-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is first-frame context, not peak-depth validation. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_sim_options_2d.png": {
+    "reviewedAt": "2026-10-02T07:38:24.844252+00:00",
+    "sha256": "9dc3a4076a3f264523ba51b643206a880bd64201b316a1762d264e74d09f8c28",
+    "baseline": "documentation_2026-10-02_round7/bowl-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is first-frame context, not peak-depth validation. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_mass_balance_2d.png": {
+    "reviewedAt": "2026-10-02T07:38:24.844672+00:00",
+    "sha256": "bf01cd749ffadc35f31ae2eb1f6b0f9a6c7a95dd3a194e5a53339f9f4f0dc11d",
+    "baseline": "documentation_2026-10-02_round7/bowl-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is first-frame context, not peak-depth validation. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_project_open.png": {
+    "reviewedAt": "2026-10-02T07:38:24.845461+00:00",
+    "sha256": "518fca09fbfd5aef668c514252399b7d725f03b59e516b34b09f48103298ecd4",
+    "baseline": "documentation_2026-10-02_round7/bowl-map-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is loaded-model context. The application automatically selects a high-depth frame on HDF5 import; this image does not establish the initial frame. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_results_style_panel.png": {
+    "reviewedAt": "2026-10-02T07:50:14.912446+00:00",
+    "sha256": "e90274ba0849aaa3a2dc9c7edb16bcec44f3bcc00fe3c6e5904214ad70976e5b",
+    "baseline": "documentation_2026-10-02_round7/bowl-fixed-range",
+    "notes": "Visually checked native sources: fixed 0\u20130.10 m depth fill, frame 112/479 normalized cursor, matching localized time display, legible surface legend and inward velocity arrows. Public project style fields prepare the state; this does not certify manual save/reopen or cell-picking execution."
+  },
+  "t03_animation_peak.png": {
+    "reviewedAt": "2026-10-02T07:50:14.911863+00:00",
+    "sha256": "4eea45d45d0ed3f5fd7f82d809afbe51579d04f3dc4dc81284e1f6402533e904",
+    "baseline": "documentation_2026-10-02_round7/bowl-fixed-range",
+    "notes": "Visually checked native sources: fixed 0\u20130.10 m depth fill, frame 112/479 normalized cursor, matching localized time display, legible surface legend and inward velocity arrows. Public project style fields prepare the state; this does not certify manual save/reopen or cell-picking execution."
+  },
+  "t03_velocity_vectors.png": {
+    "reviewedAt": "2026-10-02T07:50:14.912181+00:00",
+    "sha256": "bf6c50096c5582105be7829fbdbaac5916c4d54d041d7884e5aa0ebaf607f358",
+    "baseline": "documentation_2026-10-02_round7/bowl-fixed-range",
+    "notes": "Visually checked native sources: fixed 0\u20130.10 m depth fill, frame 112/479 normalized cursor, matching localized time display, legible surface legend and inward velocity arrows. Public project style fields prepare the state; this does not certify manual save/reopen or cell-picking execution."
+  },
+  "t06_vfr_slope_overview.png": {
+    "reviewedAt": "2026-10-02T07:57:56.921827+00:00",
+    "sha256": "a7e7c29387bc362d84e9479533e9fc38cb09b3775a8fd65f3bba69b1b5abf040",
+    "baseline": "documentation_2026-10-02_round7/slope-geometry-captures",
+    "notes": "Inspected the native mesh footprint and empty 1D categories; rainfall plot and statistics show 20 mm over one hour. The long final dry gap is visible. Geometry-only capture has no simulation output attached."
+  },
+  "t06_rainfall_visualization.png": {
+    "reviewedAt": "2026-10-02T07:57:56.922085+00:00",
+    "sha256": "e54a7bb2b5a7f32accdee112ae822f6754b4faa6f25f2241a9f8c7250dc7dd34",
+    "baseline": "documentation_2026-10-02_round7/slope-geometry-captures",
+    "notes": "Inspected the native mesh footprint and empty 1D categories; rainfall plot and statistics show 20 mm over one hour. The long final dry gap is visible. Geometry-only capture has no simulation output attached."
+  },
+  "t04_mass_balance_coupled.png": {
+    "reviewedAt": "2026-10-02T08:06:43.787539+00:00",
+    "sha256": "835d168d5fb5c3948e771e547c8dacbd736f362e324e55b082ece339ce240d93",
+    "baseline": "documentation_2026-10-02_round7/plaza-captures",
+    "notes": "Inspected native report and vertex table. Two coupling rows show indices 16/18, J1/J2, Cd 0.65 and area 0.02 m\u00b2. Nonzero spill and drainback match the CLI run. Reconciliation and node continuity limitations remain visible and are discussed in T4; no design-validation claim."
+  },
+  "t04_vertices_attribute_table.png": {
+    "reviewedAt": "2026-10-02T08:06:43.788426+00:00",
+    "sha256": "fe8606094e446fa3355087da63290e1e5c20b77e070bde689a5e6e5bfca35160",
+    "baseline": "documentation_2026-10-02_round7/plaza-captures",
+    "notes": "Inspected native report and vertex table. Two coupling rows show indices 16/18, J1/J2, Cd 0.65 and area 0.02 m\u00b2. Nonzero spill and drainback match the CLI run. Reconciliation and node continuity limitations remain visible and are discussed in T4; no design-validation claim."
+  },
+  "t03_raster_style.png": {
+    "reviewedAt": "2026-10-02T08:08:02.973633+00:00",
+    "sha256": "5a806f9aea2672dca9b45e048d9c17bb90f88ef8dfac570b46e1eb02db0689d0",
+    "baseline": "documentation_2026-10-02_round7/bowl-raster-ready",
+    "notes": "Native raster renders and shows the expected ~97\u2013100 m data range. Source controls show the real loaded raster and projected boundary, metre units and relative output path. Configuration only: mesh generation was not executed."
+  },
+  "t03_mesh_generation_sources.png": {
+    "reviewedAt": "2026-10-02T08:08:02.973866+00:00",
+    "sha256": "958915de2507cd5740c6c2c66527f12c0f60474c4540461206fe99bcce63e660",
+    "baseline": "documentation_2026-10-02_round7/bowl-raster-ready",
+    "notes": "Native raster renders and shows the expected ~97\u2013100 m data range. Source controls show the real loaded raster and projected boundary, metre units and relative output path. Configuration only: mesh generation was not executed."
+  },
+  "15_temperature_tab.png": {
+    "reviewedAt": "2026-10-02T08:23:18.828496+00:00",
+    "sha256": "4811f133447d233254a8a2d474d8cfdc2a35324642fb2b382f453115cbec378d",
+    "baseline": "documentation_2026-10-02_round7/transport-climate-compact",
+    "notes": "Full-size native capture inspected: Time Series source and AIR_TEMP binding visible; file controls disabled correctly. The same copied transport fixture ran successfully. External-file selection is not verified by this image."
+  },
+  "07_layer_properties_source_tab.png": {
+    "reviewedAt": "2026-10-02T08:24:26.881808+00:00",
+    "sha256": "2bf954ce2212f835d76e5cd4a8d0b30b020d8e02a9ebeffd561dd2ec909bc5ed",
+    "baseline": "documentation_2026-10-02_round7/source-refresh",
+    "notes": "Native Source tab inspected full-size: copied site-drainage input source and Local CRS authority readable; Change control present. No claim of CRS conversion verification."
+  },
+  "18_mesh_page.png": {
+    "reviewedAt": "2026-10-02T08:26:35.383321+00:00",
+    "sha256": "bee23dbbd455d26de4cc126f53ef7eccedf76cbc540e3fdb9896dd1ff5129237",
+    "baseline": "documentation_2026-10-02_round7/mesh-page-compact",
+    "notes": "Native Mesh options page inspected: embedded inline mesh selected, active status and Set Active/Remove/Import/Refresh readable. External import and persistence not verified by this control reference."
+  },
+  "t07_water_age_sources.png": {
+    "reviewedAt": "2026-10-02T08:30:47.470019+00:00",
+    "sha256": "7733bbb9e483e26386d7bb9871a5f96a83feebeacba53f0aa349c55507bfb5b4",
+    "baseline": "documentation_2026-10-02_round7/transport-age",
+    "notes": "Full-size native dialog inspected: external inflow 0.500 h and initial network 6.000 h match the component file; override table correctly empty. Some source names elide, with full names documented immediately above. This is readback, not editing/save verification."
+  },
+  "08_classification_editor.png": {
+    "reviewedAt": "2026-10-02T08:32:40.993468+00:00",
+    "sha256": "6f9131cf0ebd6e2b5b2d25b93f0cc4e6bc1c7b5d3d6b81c0593da415d0c910f6",
+    "baseline": "documentation_2026-10-02_round7/classification-refresh",
+    "notes": "Native ClassificationEditor inspected: Equal interval method, eight classes, Viridis ramp, 97\u2013100 m data range, editable break and label rows readable. Lower two rows are accessible by the visible scroll bar. Control reference only; applying custom edits is not verified."
+  },
+  "t07_initial_quality.png": {
+    "reviewedAt": "2026-10-02T08:34:25.842518+00:00",
+    "sha256": "7f37efada6854303cc1980cb9e3138325590af51271d23846003745052a123dc",
+    "baseline": "documentation_2026-10-02_round7/transport-initial-controls",
+    "notes": "Native dialog inspected: Node J1 TRACER 1.0000, Link C1 DECAY 5.0000, inline CSV status. Separate variant executed successfully; input and report retained in transport-initial. The base solver-comparison input has no overrides."
+  },
   "t09_lid_physical.png": {
     "reviewedAt": "2026-10-04T13:44:30.830065+00:00",
     "sha256": "89ac1c6e832fe670a956e885acac7a4f91f27dcfd4be314425301c307ac50880",

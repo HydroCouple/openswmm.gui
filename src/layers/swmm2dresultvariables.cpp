@@ -118,6 +118,20 @@ std::shared_ptr<const Mesh2DScalarFrame> SWMM2DResultsLayer::resultFrame(
     return frame;
 }
 
+std::shared_ptr<const OpenSWMM::Render::ResultScalarGeometry> SWMM2DResultsLayer::resultScalarGeometry(
+    const std::shared_ptr<const Mesh2DScalarFrame> &frame,const std::vector<double> &levels,bool labels) const
+{
+    for(const auto &entry:m_scalarGeometryCache)
+        if(entry.frame==frame&&entry.levels==levels&&entry.labels==labels&&entry.geometry==geomRevision())return entry.output;
+    auto output=std::make_shared<OpenSWMM::Render::ResultScalarGeometry>();
+    if(!frame)output->error=tr("The scalar frame is unavailable.");
+    else *output=OpenSWMM::Render::buildResultScalarGeometry(m_sceneVerts,cellVertexIndices(),triVertexIndices(),triCellMap(),*frame,levels,labels);
+    size_t bytes=output->bytes();for(const auto &entry:m_scalarGeometryCache)bytes+=entry.output->bytes();
+    if(m_scalarGeometryCache.size()>=4||bytes>64*1024*1024)m_scalarGeometryCache.clear();
+    if(output->bytes()<=64*1024*1024)m_scalarGeometryCache.append({frame,levels,labels,geomRevision(),output});
+    return output;
+}
+
 ResultScalarSublayer *SWMM2DResultsLayer::addResultSublayer(const QString &key, const QString &requestedId)
 {
     (void)sublayers();

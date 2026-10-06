@@ -165,7 +165,6 @@ layer becomes the controller's driver.
 
 \fig{21_results_ribbon_tab.png, The Results ribbon tab — Playback; Timeline and Display groups}
 
-\videotodo{Loading a run and animating it — choosing the active results layer; colouring by flow and scrubbing the timeline}
 
 ### Styling 2D results
 
@@ -289,7 +288,9 @@ or `Ctrl+C` over the map to copy the current view to the clipboard (see
 The 2D result style panel's **Additional Results** controls configure independent
 scalar sublayers by dataset, species name and groundwater zone. Each keeps its
 own colour classification, range, visibility, opacity and missing/waterless
-colours. Saved settings resolve species by name when reopened; a missing species
+colours. Choose **Cell fill**, **Contours (display interpolation)** or **Native
+cell labels**. Add the same variable more than once to layer independent
+appearances; each presentation and its line/label settings is saved. Saved settings resolve species by name when reopened; a missing species
 remains unavailable instead of selecting another row.
 
 File-backed results expose supported surface pollutants/multispecies and
@@ -307,9 +308,30 @@ complete simulation. Groundwater age is in seconds and temperature in degrees C.
 
 Named species can also be sampled in combined sections (\ref manual_profile_plots).
 Native-unit CSV includes values and validity status; unresolved units prevent
-scientific CSV export. General species contours, labels and GIS raster/vector
-export are not supplied by these scalar fills. Live surface chemical
-concentrations remain unavailable through the current engine interface.
+scientific export. Contours reconstruct area-weighted nodal values from valid
+cell values for display. Missing/waterless cells remain gaps. Cell labels show
+original values and native units; collision avoidance reduces visible labels.
+Contour count/interval/base, stroke, index lines, labels and classification
+ranges are configurable. Very large contour workloads report an explicit limit;
+reconstruction and initial export snapshot capture can still occupy the GUI
+thread on large meshes.
+
+**Export GIS…** captures the selected variable and current frame before opening
+the export dialog. The dialog identifies that captured time even if animation
+continues. GeoPackage writes actual cell polygons with native values, status,
+cell index, species/zone and unit metadata. GeoTIFF writes unsmoothed
+cell-containing values plus a separate availability-status band (0 valid,
+1 missing, 2 waterless, 3 not applicable, 255 outside). Native zero and 255 remain
+valid values. Raster pixel size uses the projected CRS's linear units; it does
+not change chemical values or units.
+
+GIS export requires known native scalar units and an explicit projected CRS.
+The worker uses detached data, can be cancelled by closing its dialog, and
+publishes one verified file atomically. Existing destination sidecars/journals
+or a changed destination cause refusal; they are never silently deleted.
+Geographic/reprojection export and generic Shapefile output are not supported
+by this route. Live surface chemical concentrations remain unavailable through
+the current engine interface.
 
 ## Flow balance and travel time
 

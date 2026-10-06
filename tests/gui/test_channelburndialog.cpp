@@ -20,24 +20,92 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QTemporaryDir>
+#include <QProgressBar>
+#include <QSignalSpy>
+#include <QSpinBox>
+#include <QPromise>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QTest>
 #include <QTimer>
 
 class TestChannelBurnDialog : public QObject
 {
     Q_OBJECT
-    QTemporaryDir directory;
+    static QString outputTemplate()
+    {
+        const QString root=QDir::current().filePath("tests/output/channel_burn_progress");
+        QDir().mkpath(root);
+        return root+"/run-XXXXXX";
+    }
+    QTemporaryDir directory{outputTemplate()};
     OpenSWMMVisWorkspace *workspace = nullptr;
     SWMMVisProjectWindow *window = nullptr;
     SWMM2DMeshLayer *old = nullptr;
     QStringList errors;
     QTimer dismissMessages;
 private slots:
+    void workerProgressAndLateUpdatesRespectCancellation()
+    {
+        QPromise<ChannelBurnDialog::Result> promise;
+        promise.start(); promise.setProgressRange(0,100);
+        ChannelBurnDialog dialog(window);
+        dialog.beginGuard();
+        dialog.m_cancelled=std::make_shared<std::atomic_bool>(false);
+        dialog.setBusy(true);
+        dialog.m_watcher.setFuture(promise.future());
+        auto worker=QtConcurrent::run([&promise] {
+            promise.setProgressValueAndText(42,QStringLiteral("Stitching channel cavity…"));
+        });
+        worker.waitForFinished();
+        auto *bar=dialog.findChild<QProgressBar *>("channelBurnProgress");
+        QTRY_COMPARE(bar->value(),42);
+        QTRY_COMPARE(dialog.m_status->text(),QString("Stitching channel cavity…"));
+        dialog.show();
+        dialog.grab().save(directory.filePath("progress-running.png"));
+        dialog.cancelBurn();
+        promise.setProgressValueAndText(95,QStringLiteral("Late worker update"));
+        QCoreApplication::processEvents();
+        QCOMPARE(bar->value(),42); QCOMPARE(bar->format(),QString("Stopping…"));
+        QVERIFY(dialog.m_status->text().contains("Stopping"));
+        promise.addResult(ChannelBurnDialog::Result{}); promise.finish();
+        QTRY_VERIFY(!dialog.m_busy);
+        QCOMPARE(bar->format(),QString("Cancelled")); QVERIFY(bar->value()<100);
+        dialog.m_watcher.progressValueChanged(100);
+        dialog.m_watcher.progressTextChanged(QStringLiteral("Stale update"));
+        QCOMPARE(bar->format(),QString("Cancelled")); QVERIFY(bar->value()<100);
+        QVERIFY(dialog.m_status->text().contains("cancelled"));
+        QCOMPARE(window->canvas()->undoStack()->count(),0);
+    }
+    void progressTracksSuccessAndFailureRetry()
+    {
+        ChannelBurnDialog dialog(window);
+        auto *bar=dialog.findChild<QProgressBar *>("channelBurnProgress");
+        QVERIFY(bar); QVERIFY(bar->isHidden()); QVERIFY(!bar->accessibleName().isEmpty());
+        dialog.m_maxCells->setValue(1); // Force a real worker failure.
+        dialog.startBurn();
+        QVERIFY(!bar->isHidden()); QCOMPARE(bar->maximum(),100); QCOMPARE(bar->value(),0);
+        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy,30000);
+        QVERIFY(bar->value()<100); QCOMPARE(bar->format(),QString("Failed"));
+        QVERIFY(!errors.isEmpty()); errors.clear();
+        dialog.m_maxCells->setValue(2000000);
+        QSignalSpy updates(bar,&QProgressBar::valueChanged);
+        dialog.startBurn();
+        QCOMPARE(bar->value(),0); QCOMPARE(bar->format(),QString("%p%"));
+        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy,30000);
+        QVERIFY2(errors.isEmpty(),qPrintable(errors.join('\n')));
+        QVERIFY(!updates.isEmpty()); QCOMPARE(bar->value(),100);
+        QCOMPARE(bar->format(),QString("Complete — %p%"));
+        QCoreApplication::processEvents(); // Late queued progress cannot undo completion.
+        QCOMPARE(bar->value(),100);
+        dialog.show();
+        dialog.grab().save(directory.filePath("progress-complete.png"));
+    }
     void initTestCase()
     {
         QCoreApplication::setOrganizationName("openswmm-test");
         QCoreApplication::setApplicationName("channel-burn-dialog-test");
         QVERIFY(directory.isValid());
+        directory.setAutoRemove(false);
         connect(&dismissMessages, &QTimer::timeout, this, [&] {
             for (auto *widget : QApplication::topLevelWidgets())
                 if (auto *box = qobject_cast<QMessageBox *>(widget)) {
@@ -106,6 +174,10 @@ private slots:
         dialog.startBurn();
         dialog.cancelBurn();
         QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy, 30000);
+        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->format(),QString("Cancelled"));
+        QVERIFY(dialog.findChild<QProgressBar *>("channelBurnProgress")->value()<100);
+        QCoreApplication::processEvents();
+        QVERIFY(dialog.m_status->text().contains("cancelled"));
         QCOMPARE(window->channelBurnSettings().options.channelCellSize, 10.0);
         QCOMPARE(window->channelBurnSettings().options.forceHalfWidth, 6.0);
         QCOMPARE(window->canvas()->undoStack()->count(), 0);
@@ -227,7 +299,7 @@ private slots:
             dialog.m_outputDirectory->setText(directory.filePath("raster"));
             dialog.show();
             QTest::qWait(20);
-            dialog.grab().save("/tmp/channelburn-dialog.png");
+            dialog.grab().save(directory.filePath("channelburn-dialog.png"));
         }
         const auto readFile = [](const QString &path) {
             QFile file(path);
@@ -254,6 +326,8 @@ private slots:
         QCOMPARE(burned->opacity(), old->opacity());
         QCOMPARE(burned->showEdges(), old->showEdges());
         QVERIFY(burned->ownsGeneratedTopology());
+        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->value(),100);
+        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->format(),QString("Complete — %p%"));
         const int burnedCells = burned->triangleCount();
         QVERIFY(swmm_link_index(window->modelLayer()->engine(), "AB") >= 0);
         QVERIFY(swmm_link_index(window->modelLayer()->engine(), "XY") >= 0);

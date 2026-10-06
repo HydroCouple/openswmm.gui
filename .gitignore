@@ -115,9 +115,9 @@ tests/perf-data/mesh/*.2dm
 tests/perf-data/mesh/*.inp
 
 # --- Agent artifacts & local testing output (not for the repo) ---
-# workplans/ is TRACKED as of 2026-09-01 (same decision as the engine repo's
-# plans/transport: the plan corpus was version-controlled nowhere).
-workplans/_scratch/
+# workplans/ is UNTRACKED as of 2026-09-17: the plan corpus was tracked from
+# 2026-09-01, then purged from history. Keep it local only.
+workplans/
 test_artifacts/
 tests/output/
 tests/scratch/
@@ -128,6 +128,7 @@ Testing/
 
 # Test-written outputs that land next to tracked fixtures
 tests/gui/data/output_simstatus2derr/
+tests/gui/data/profile_crown_out/
 tests/gui/data/typed_selection_fixture.oswp
 tests/gui/data/typed_selection_fixture.out
 tests/gui/data/typed_selection_fixture.rpt

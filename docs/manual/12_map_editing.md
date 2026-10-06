@@ -356,7 +356,6 @@ macro**: a single `Ctrl+Z` reverts the whole import. It reuses the ordinary
 add-object commands, so creation defaults apply and the mapped attributes are
 written afterwards — mapped values always win over a default.
 
-\videotodo{Importing a manhole shapefile as junctions and a pipe shapefile as conduits with endpoint snapping}
 
 ### Deleting
 

@@ -537,7 +537,6 @@ layer carries no SWMM object references.
 These layers are how observed series reach the calibration and comparison
 plots — see \ref manual_time_series_plots.
 
-\videotodo{Querying conduits by slope; selecting the matches and bulk-applying a roughness value}
 
 ## Tips and gotchas
 

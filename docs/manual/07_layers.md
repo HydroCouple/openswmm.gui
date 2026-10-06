@@ -371,7 +371,6 @@ the pooled tile handles — sees the georeferencing. Rendering reuses the raster
 tile pyramid, so large scanned maps behave like any other raster. The layer
 lands in the **Basemaps** category.
 
-\videotodo{Adding an XYZ basemap and a WMS service; then a georeferenced local raster}
 
 ### Add Delimited Data
 

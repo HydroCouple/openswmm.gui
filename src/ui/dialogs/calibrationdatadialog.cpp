@@ -11,6 +11,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLineEdit>
@@ -93,7 +94,7 @@ void CalibrationDataDialog::onBrowseClicked()
 {
     const int r = m_table->currentRow();
     if (r < 0) return;
-    const QString path = QFileDialog::getOpenFileName(this,
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("timeseries"), this,
         tr("Observed time-series file"), QString(),
         tr("CSV / TSV / TSF / DAT (*.csv *.tsv *.tsf *.dat);;All files (*)"));
     if (path.isEmpty()) return;

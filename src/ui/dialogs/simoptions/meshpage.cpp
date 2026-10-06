@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QGridLayout>
 #include <QLabel>
@@ -383,7 +384,7 @@ void MeshPage::onMeshImport()
         ? QDir::homePath()
         : QFileInfo(modelPath).absolutePath();
 
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("mesh"),
         this, tr("Import 2D Mesh"), startDir,
         tr("2D Mesh — SWMMVis or SMS 2DM (*.2dm);;All Files (*)"));
     if (path.isEmpty()) return;

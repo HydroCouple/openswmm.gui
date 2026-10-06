@@ -106,6 +106,19 @@ class TestStyleControls : public QObject
 {
     Q_OBJECT
 private slots:
+    void additionalScalarPresentationAndGisUnitGate() {
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<PanelVariableSource>());
+        auto *sub=layer.addResultSublayer(layer.resultVariables()[0].key());Swmm2DResultsStylePanel panel(&layer);
+        auto *presentation=panel.findChild<QComboBox *>("additionalResultPresentation");QVERIFY(presentation);
+        presentation->setCurrentIndex(1);QCOMPARE(sub->fillStyle()->presentation(),OpenSWMM::Render::ResultScalarStyle::Presentation::Contours);
+        auto *accessible=QAccessible::queryAccessibleInterface(presentation);QVERIFY(accessible);QVERIFY(!accessible->text(QAccessible::Name).isEmpty());
+        presentation->setCurrentIndex(2);QCOMPARE(sub->fillStyle()->presentation(),OpenSWMM::Render::ResultScalarStyle::Presentation::Labels);
+        QVERIFY(panel.findChild<QPushButton *>("additionalResultGisExport")->isEnabled());
+        sub->setVariableKey(layer.resultVariables()[1].key());panel.focusResult(sub->id());
+        auto *variable=panel.findChild<QComboBox *>("additionalResultVariable");variable->setCurrentIndex(variable->findData(layer.resultVariables()[1].key()));
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        QVERIFY(!panel.findChild<QPushButton *>("additionalResultGisExport")->isEnabled());
+    }
     void additionalResultsIndependentAndRemovable()
     {
         SWMM2DResultsLayer layer; layer.setSource(std::make_unique<PanelVariableSource>());

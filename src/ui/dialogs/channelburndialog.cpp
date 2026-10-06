@@ -14,6 +14,8 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <QPushButton>
+#include <QProgressBar>
+#include <QPromise>
 #include <QRegularExpression>
 #include <QCheckBox>
 #include <QComboBox>
@@ -142,6 +144,23 @@ ChannelBurnDialog::ChannelBurnDialog(SWMMVisProjectWindow *project,QWidget *pare
     statusScroll->setMinimumHeight(85);
     statusScroll->setMaximumHeight(170);
     outer->addWidget(statusScroll);
+    m_progress = new QProgressBar(this);
+    m_progress->setObjectName(QStringLiteral("channelBurnProgress"));
+    m_progress->setAccessibleName(tr("Channel burn progress"));
+    m_progress->setRange(0, 100);
+    m_progress->setValue(0);
+    m_progress->hide();
+    outer->addWidget(m_progress);
+    connect(&m_watcher, &QFutureWatcher<Result>::progressValueChanged, this, [this](int value) {
+        if (m_busy && m_cancelled && !m_cancelled->load())
+            m_progress->setValue(std::clamp(value, m_progress->value(), 95));
+    });
+    connect(&m_watcher, &QFutureWatcher<Result>::progressTextChanged, this, [this](const QString &stage) {
+        if (m_busy && m_cancelled && !m_cancelled->load()) {
+            m_status->setText(stage);
+            m_progress->setAccessibleDescription(stage);
+        }
+    });
     m_quality = new QTableWidget(6, 2, this);
     m_quality->setHorizontalHeaderLabels({tr("Before"), tr("After")});
     m_quality->setVerticalHeaderLabels({tr("Affected cells"), tr("Quads"), tr("Minimum angle"),
@@ -173,6 +192,13 @@ ChannelBurnDialog::~ChannelBurnDialog()
 void ChannelBurnDialog::setBusy(bool busy)
 {
     m_busy = busy;
+    if (busy) {
+        m_progress->setValue(0);
+        m_progress->setFormat(QStringLiteral("%p%"));
+        m_progress->setAccessibleDescription(tr("Preparing channel burn…"));
+        m_progress->show();
+        m_cancel->setText(tr("Cancel"));
+    }
     for (QWidget *control : QList<QWidget *>{static_cast<QWidget *>(m_selectionMode), m_query, m_ids,
                              m_cellSize, m_aspect, m_halfWidth, m_quads, m_removeFromModel,
                              m_maxIncision, m_tolerance, m_maxCells, m_exportRaster})
@@ -189,6 +215,8 @@ void ChannelBurnDialog::cancelBurn()
         m_cancelled->store(true);
         m_cancel->setEnabled(false);
         m_status->setText(tr("Stopping channel burn…"));
+        m_progress->setFormat(tr("Stopping…"));
+        m_progress->setAccessibleDescription(m_status->text());
         return;
     }
     reject();
@@ -509,13 +537,22 @@ void ChannelBurnDialog::startBurn()
         setBusy(true);
         m_status->setText(tr("Planning and stitching channel cells into the active mesh…"));
         m_watcher.setFuture(QtConcurrent::run([meshCopy = std::move(meshCopy), inputs = std::move(inputs),
-            cancelled, exportRaster, output = std::move(output)]() mutable {
+            cancelled, exportRaster, output = std::move(output)](QPromise<Result> &promise) mutable {
+            promise.setProgressRange(0, 100);
             Result result;
             try {
                 const auto stop = [cancelled] { return cancelled->load(); };
-                result.burn = mesh::burnChannelsIntoMesh(meshCopy, std::move(inputs), {}, stop);
+                const auto progress = [&](int percent, const QString &stage) {
+                    const int limit = exportRaster ? 80 : 95;
+                    promise.setProgressValueAndText(limit * std::clamp(percent, 0, 100) / 100,
+                        percent < 100 ? stage : QObject::tr("Preparing the channel burn result…"));
+                };
+                result.burn = mesh::burnChannelsIntoMesh(meshCopy, std::move(inputs), progress, stop);
                 if (result.burn.ok && exportRaster && !stop()) {
-                    result.output = mesh::prepareChannelBurnExport(result.burn, output, stop);
+                    result.output = mesh::prepareChannelBurnExport(result.burn, output, stop,
+                        [&](int percent, const QString &stage) {
+                            promise.setProgressValueAndText(80 + 15 * std::clamp(percent, 0, 100) / 100, stage);
+                        });
                     if (!result.output.ok) {
                         result.burn.ok = false;
                         result.burn.error = result.output.error;
@@ -528,50 +565,66 @@ void ChannelBurnDialog::startBurn()
                 result.burn.ok = false;
                 result.burn.error = QObject::tr("Channel burn failed while preparing the mesh.");
             }
-            return result;
+            if (result.burn.ok && !cancelled->load())
+                promise.setProgressValueAndText(95, QObject::tr("Applying the channel burn result…"));
+            promise.addResult(std::move(result));
         }));
     } catch (const std::exception &e) {
         if (m_cancelled) m_cancelled->store(true);
         clearGuard();
         setBusy(false);
-        QMessageBox::critical(this, tr("Channel burn could not start"), QString::fromUtf8(e.what()));
+        m_progress->setFormat(tr("Failed"));
+        m_status->setText(QString::fromUtf8(e.what()));
+        QMessageBox::critical(this, tr("Channel burn could not start"), m_status->text());
     } catch (...) {
         if (m_cancelled) m_cancelled->store(true);
         clearGuard();
         setBusy(false);
-        QMessageBox::critical(this, tr("Channel burn could not start"), tr("Could not prepare the channel inputs."));
+        m_progress->setFormat(tr("Failed"));
+        m_status->setText(tr("Could not prepare the channel inputs."));
+        QMessageBox::critical(this, tr("Channel burn could not start"), m_status->text());
     }
 
 }
 
 void ChannelBurnDialog::finishBurn()
 {
-    setBusy(false);
+    bool adopted = false;
+    const auto release = qScopeGuard([this, &adopted] {
+        setBusy(false);
+        if (adopted) m_apply->setEnabled(false);
+        m_progress->setAccessibleDescription(m_status->text());
+    });
     const bool stopped = m_cancelled && m_cancelled->load();
     m_cancelled.reset();
     const bool current = ownerIsCurrent();
     clearGuard();
     if (!current) {
+        m_progress->setFormat(tr("Discarded"));
         m_status->setText(tr("The project changed while the burn was running. The result was discarded."));
         return;
     }
     if (stopped) {
+        m_progress->setFormat(tr("Cancelled"));
         m_status->setText(tr("Channel burn cancelled; the mesh and network are unchanged."));
         return;
     }
-    bool adopted = false;
     try {
         auto job = m_watcher.result();
         auto &result = job.burn;
         if (result.cancelled) {
+            m_progress->setFormat(tr("Cancelled"));
             m_status->setText(tr("Channel burn cancelled; the mesh and network are unchanged."));
             return;
         }
         if (!result.ok) {
+            m_progress->setFormat(tr("Failed"));
             m_status->setText(result.error);
             QMessageBox::warning(this, tr("Channel Burn"), result.error);
             return;
         }
+        m_progress->setValue(95);
+        m_status->setText(tr("Applying the channel burn result…"));
         auto *canvas = m_project->canvas();
         if (!canvas->undoStack()) throw std::runtime_error("The undo stack is unavailable.");
         auto pending = std::make_unique<SWMM2DMeshLayer>(std::move(result.mesh), m_mesh->sourcePath(), nullptr, true);
@@ -590,6 +643,8 @@ void ChannelBurnDialog::finishBurn()
         pending.release(); // The command now owns detached layers, including failure paths.
         QString error;
         if (!adoption->prepare(result.surgery, &error)) {
+            m_progress->setFormat(tr("Failed"));
+            m_status->setText(error);
             QMessageBox::warning(this, tr("Channel Burn"), error);
             return;
         }
@@ -615,12 +670,17 @@ void ChannelBurnDialog::finishBurn()
         if (job.output.ok) status += tr("\nDEM copy and report will be published when you save the project: %1").arg(job.output.rasterPath);
         if (!job.output.warnings.isEmpty()) status += QStringLiteral("\n") + job.output.warnings.join(QStringLiteral("\n"));
         m_status->setText(status);
+        m_progress->setValue(100);
+        m_progress->setFormat(tr("Complete — %p%"));
         m_apply->setEnabled(false);
         m_cancel->setText(tr("Close"));
     } catch (const std::exception &e) {
-        QMessageBox::critical(this, adopted ? tr("Channel burn applied; display failed") : tr("Channel burn was not applied"), QString::fromUtf8(e.what()));
+        m_progress->setFormat(adopted ? tr("Applied; display failed") : tr("Failed"));
+        m_status->setText(QString::fromUtf8(e.what()));
+        QMessageBox::critical(this, adopted ? tr("Channel burn applied; display failed") : tr("Channel burn was not applied"), m_status->text());
     } catch (...) {
-        QMessageBox::critical(this, adopted ? tr("Channel burn applied; display failed") : tr("Channel burn was not applied"),
-            adopted ? tr("The burn is undoable. Reopen the project view to refresh the display.") : tr("Could not prepare the replacement mesh."));
+        m_progress->setFormat(adopted ? tr("Applied; display failed") : tr("Failed"));
+        m_status->setText(adopted ? tr("The burn is undoable. Reopen the project view to refresh the display.") : tr("Could not prepare the replacement mesh."));
+        QMessageBox::critical(this, adopted ? tr("Channel burn applied; display failed") : tr("Channel burn was not applied"), m_status->text());
     }
 }

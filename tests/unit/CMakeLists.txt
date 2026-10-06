@@ -349,6 +349,16 @@ add_swmmvis_unit_test(test_meshnodemapper
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
 )
 
+# Remap's read-only 2D-aquifer preview: node / seeping-conduit / subcatchment
+# shares inside the mesh (INFILTRATION_TO_2D_AQUIFER_AND_REMAP_PLAN Step 2).
+add_swmmvis_unit_test(test_meshgwpreview
+    test_meshgwpreview.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshgwpreview.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshgwpreview.cpp
+    ${PROJECT_SOURCE_DIR}/include/layers/meshspatialgrid.h
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+)
+
 # Mesh-edit persistence — layer edits pushed into the engine survive the
 # .inp write (vertex Z / conveyance / BC), with Manning's n + coupling kept.
 # Needs the real engine, so it is only built when the engine target exists.

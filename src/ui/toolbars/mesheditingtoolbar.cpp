@@ -717,6 +717,9 @@ void MeshEditingToolbar::rebuildMeshCombo()
     m_hover->setActiveMesh(m_activeMesh);
     refreshVertexEditor();
     refreshEdgeEditor();
+    // refreshEdgeEditor() returns early without a mesh — a mesh layer that
+    // just arrived (generation) or left must still flip Remap's state.
+    updateEnabledState();
 }
 
 void MeshEditingToolbar::onActiveMeshComboChanged(int index)
@@ -1393,6 +1396,51 @@ void MeshEditingToolbar::onRemapClicked()
                    .arg(r.unmatched.size() > head.size()
                             ? QStringLiteral(", …") : QString());
     }
+
+    // 2D aquifer preview — read-only; the engine resolves the same mapping
+    // at initialize (NODE_ENROLMENT / LINK_SEEPAGE AUTO).
+    if (const auto gwIn = m_gwPreviewSource ? m_gwPreviewSource()
+                                            : std::optional<mesh::GwPreviewInput>{}) {
+        const mesh::GwPreviewResult g =
+            mesh::previewGroundwaterMapping(m_activeMesh->mesh(), *gwIn);
+        auto listed = [this](const QStringList &ids) {
+            const QStringList head = ids.mid(0, 8);
+            return head.join(QStringLiteral(", "))
+                   + (ids.size() > head.size() ? QStringLiteral(", …") : QString());
+        };
+        auto pct = [](double part, double whole) {
+            return whole > 0.0 ? QString::number(100.0 * part / whole, 'f', 0)
+                               : QStringLiteral("0");
+        };
+        msg += tr("\n\n2D aquifer (preview — resolved by the engine at run start):");
+        msg += tr("\n• Nodes exchanging with the aquifer: %1; outside the mesh "
+                  "(legacy exfiltration, a system loss): %2")
+                   .arg(g.nodesInside).arg(g.nodesOutside.size());
+        if (!gwIn->seepingConduits.isEmpty())
+            msg += tr("\n• Seeping conduits recharging the aquifer: %1 (%2% of "
+                      "their length inside the mesh); entirely outside: %3%4")
+                       .arg(g.conduitsInside)
+                       .arg(pct(g.conduitLengthInside, g.conduitLengthTotal))
+                       .arg(g.conduitsOutside.size())
+                       .arg(g.conduitsOutside.isEmpty()
+                                ? QString() : QStringLiteral(" (") + listed(g.conduitsOutside) + ')');
+        if (!gwIn->subcatchments.isEmpty()) {
+            msg += tr("\n• Subcatchment geometric overlaps: %1 (%2% of "
+                      "their polygon area inside the mesh; recharge unavailable until reviewed coupling is qualified)")
+                       .arg(g.subcatchTo2D)
+                       .arg(pct(g.subcatchAreaInside, g.subcatchAreaTotal));
+            if (!g.subcatchLumped.isEmpty())
+                msg += tr("\n• Subcatchments kept on their lumped groundwater "
+                          "aquifer: %1").arg(g.subcatchLumped.size());
+            if (!g.subcatchOutside.isEmpty())
+                msg += tr("\n• Subcatchments outside the mesh (infiltration is a "
+                          "system loss): %1 (%2)")
+                           .arg(g.subcatchOutside.size()).arg(listed(g.subcatchOutside));
+            if (!g.subcatchNoPolygon.isEmpty())
+                msg += tr("\n• Subcatchments without a polygon (not mapped): %1 (%2)")
+                           .arg(g.subcatchNoPolygon.size()).arg(listed(g.subcatchNoPolygon));
+        }
+    }
     QMessageBox::information(this, tr("Remap 1D↔2D"), msg);
 }
 
@@ -1544,6 +1592,9 @@ void MeshEditingToolbar::updateEnabledState()
     const bool haveMesh = m_activeMesh != nullptr;
     m_actEditVertex->setEnabled(haveMesh);
     m_actEditEdge->setEnabled(haveMesh);
+    // Remap maps the model onto a mesh — nothing to do until one exists
+    // (generated or loaded).
+    if (m_actRemap) m_actRemap->setEnabled(haveMesh);
 
     const bool vertexMode = haveMesh && m_actEditVertex->isChecked();
     m_zSpin->setEnabled(vertexMode && !currentSelectedVertices().isEmpty());

@@ -679,8 +679,34 @@ public:
             if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
                 const auto *style = scalar->fillStyle();
                 const auto frame = layer_->resultFrame(style->attribute(), layer_->currentTimeIndex(),
-                    !style->scheme().useCustomRange()
-                    && style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun);
+                    !style->rangeScheme().useCustomRange()
+                    && style->rangeScheme().rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun);
+                using Presentation = OpenSWMM::Render::ResultScalarStyle::Presentation;
+                if (style->presentation() != Presentation::Fill) {
+                    const auto *lineStyle=style->contourStyle();
+                    const bool contours=style->presentation()==Presentation::Contours;
+                    const auto levels=contours?style->contourLevels(frame->minimum,frame->maximum,frame->samples):std::vector<double>();
+                    const auto geometry=layer_->resultScalarGeometry(frame,levels,!contours);
+                    p->save();p->setOpacity(scalar->opacity());p->setBrush(Qt::NoBrush);
+                    QPen pen(lineStyle->color());pen.setCosmetic(true);pen.setStyle(lineStyle->dashPattern());
+                    for(const auto &line:geometry->contours) {
+                        const auto index=std::lower_bound(levels.begin(),levels.end(),line.level)-levels.begin();
+                        pen.setWidthF(lineStyle->indexEvery()>0 && (index+1)%lineStyle->indexEvery()==0?lineStyle->indexWidthPx():lineStyle->lineWidthPx());
+                        p->setPen(pen);p->drawLine(line.a,line.b);
+                    }
+                    if(!contours || lineStyle->labels()) {
+                        QFont font;font.setPointSizeF(lineStyle->labelFontPt());font.setBold(true);
+                        const auto transform=p->worldTransform();
+                        const auto viewport=transform.mapRect(exposed.isNull()?layer_->m_sceneBBox:exposed);
+                        const auto placed=OpenSWMM::Render::placeResultScalarLabels(*geometry,transform,viewport,font,lineStyle->labelDecimals(),
+                            frame->descriptor.unitsKnown?frame->descriptor.units:QString(),contours);
+                        OpenSWMM::Render::LabelConfig config;config.font=font;config.fontSizePt=lineStyle->labelFontPt();config.color=lineStyle->color();
+                        config.haloEnabled=lineStyle->labelHalo();config.haloColor=QColor(255,255,255,230);
+                        p->setWorldMatrixEnabled(false);
+                        for(const auto &label:placed)OpenSWMM::Render::LabelPainter::drawLabel(*p,label.rect.topLeft(),label.text,config);
+                    }
+                    p->restore();continue;
+                }
                 const auto colors = scalar->cellColors(*frame);
                 const auto &map = layer_->triCellMap();
                 p->save(); p->setPen(Qt::NoPen);
@@ -1793,6 +1819,7 @@ bool SWMM2DResultsLayer::hasEdgeFluxData() const
 void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
 {
     ++source_revision_;
+    m_scalarGeometryCache.clear();
     source_ = std::move(source);
     current_time_idx_ = -1;
     requested_time_idx_ = -1;
@@ -2370,6 +2397,7 @@ void SWMM2DResultsLayer::closeSource()
     cancelSurfaceJobs_();
     requested_time_idx_ = -1;
     envelope_wanted_ = false;
+    m_scalarGeometryCache.clear();
     // Drop the source's underlying file handle.  unique_ptr destruction
     // runs HDF5Mesh2DSource::~HDF5Mesh2DSource → Mesh2DH5Reader::~Mesh2DH5Reader
     // → H5Fclose, releasing the file so the engine can truncate / rewrite.

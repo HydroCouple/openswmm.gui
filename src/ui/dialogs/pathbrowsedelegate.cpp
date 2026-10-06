@@ -8,6 +8,7 @@
 
 #include <QDir>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -71,7 +72,9 @@ QWidget *PathBrowseDelegate::createEditor(QWidget *parent,
                 ? tr("All Files (*)") : m_filter;
             const QString p = (m_mode == SaveFile)
                 ? QFileDialog::getSaveFileName(host, title, cur, filter)
-                : QFileDialog::getOpenFileName(host, title, cur, filter);
+                : openswmmvis::ui::FileOpenDialog::getOpenFileName(
+                    openswmmvis::ui::FileOpenDialog::typeForFilter(filter), host, title,
+                    m_anchor.isEmpty() ? cur : QDir(m_anchor).absoluteFilePath(cur), filter);
             if (p.isEmpty()) return;
             // Slice IO-11c — when a project anchor is set, store paths
             // that fall under the anchor in their relative form so the

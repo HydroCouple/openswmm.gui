@@ -89,6 +89,9 @@ def main() -> int:
         "workingTree": git_output("status", "--short"),
         "sourceDiffSha256": hashlib.sha256(git_output("diff", "--", "src", "include", "forms").encode()).hexdigest(),
         "platform": platform.platform(), "nativeDisplay": args.live,
+        "runtimeOverrides": {key: os.environ[key] for key in (
+            "OPENSWMM_QSG_MESH", "OPENSWMM_2D_BACKEND",
+            "OPENSWMM_2D_SYNC_SPAN", "QT_ACCESSIBILITY") if key in os.environ},
         "figures": [row["name"] for row in rows], "visualReview": "pending",
     }
     frameworks = app.parent.parent / "Frameworks"

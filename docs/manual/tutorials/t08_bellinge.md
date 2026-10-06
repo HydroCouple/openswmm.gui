@@ -155,7 +155,6 @@ roughly 9.59–11.16 °E, 54.94–55.68 °N — is far larger than the catchment
 
 \figtodo{t08_add_basemap_xyz.png, The Add Basemap dialog on the XYZ Tiles tab with the built-in providers}
 
-\videotodo{Adding an XYZ basemap and the SRTM DEM to the Bellinge project and checking the CRS}
 
 ### 4. Manage the Layers panel
 
@@ -277,7 +276,7 @@ the popup is showing it consumes **Enter**, **Return**, **Esc**, **Tab** and
 `[REPORT] CONTROLS YES` is set, so the status report lists every control action
 taken during the run — the fastest way to confirm a rule fired.
 
-\fig{t08_control_rules_editor.png, The Control Rules Editor with one of the five pump rules selected}
+\fig{t08_control_rules_editor.png, The Control Rules Editor with the pump-on rule selected among five pump and gate rules}
 
 ### 8. Run it
 

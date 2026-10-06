@@ -27,7 +27,10 @@
     "site": "examples/site_drainage/site_drainage_model.inp",
     "transport": "docs/manual/tutorials/models/transport_demo.inp",
     "street": "docs/manual/tutorials/models/street_inlet_junction.inp",
-    "fv": "examples/swashes_bump_shock/1d_fv.inp"
+    "fv": "examples/swashes_bump_shock/1d_fv.inp",
+    "slope": "docs/manual/tutorials/models/vfr_slope.inp",
+    "bowl": "docs/manual/tutorials/models/terrain_bowl.inp",
+    "plaza": "docs/manual/tutorials/models/coupled_plaza.inp"
   },
   "figures": [
     {
@@ -719,13 +722,13 @@
     {
       "name": "08_classification_editor.png",
       "action": "actionSetStyle",
-      "hostSelect": "Meshes/2d_complete_example.inp",
+      "hostSelect": "Meshes/terrain_bowl.inp",
       "page": "Symbology",
       "tab": "Elevation Bands",
       "size": "1200x820",
       "grab": "ClassificationEditor",
-      "_model": "docs/manual/tutorials/models/2d_complete_example.inp",
-      "_note": "Elevation Bands is classified by nature, so the method/classes/breaks controls are live at rest.",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Use the portable terrain-bowl input. Mesh style > Symbology > Elevation Bands shows the native classification editor with the verified 97\u2013100 m bed range. Verify all labels before publishing.",
       "lane": "offscreen"
     },
     {
@@ -817,10 +820,12 @@
       "name": "20_live_toggles.png",
       "widget": "ribbonGroupDisplay",
       "tab": "Results",
-      "hostSize": "2000x1000",
+      "hostSize": "1600x900",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "lane": "offscreen",
-      "tabIn": "compactToolbarTabBar"
+      "lane": "live",
+      "tabIn": "compactToolbarTabBar",
+      "maxWidth": 1400,
+      "_note": "Completed site-drainage run; Results/Analysis controls captured at 1600 px window width. Display group capture isolates Live 1D/2D toggles; unavailable 2D state is visible."
     },
     {
       "name": "a03_plugins_dialog.png",
@@ -854,11 +859,12 @@
       "action": "view.dock.attributeTable",
       "widget": "AttributeTablePanel",
       "page": "Conduits",
-      "column": "Max/Full Depth",
-      "hostSize": "2000x1000",
-      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
-      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
-      "lane": "offscreen"
+      "column": "Max Flow (Sim.) (CFS)",
+      "floatDock": true,
+      "size": "1500x450",
+      "lane": "live",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Prepare a completed drainage run with sibling OSWP/results. Select the named object; the section is authored geometry, not simulated water."
     },
     {
       "name": "08_2d_results_style_panel.png",
@@ -896,21 +902,23 @@
       "name": "21_results_ribbon_tab.png",
       "widget": "toolBarAnimation",
       "tab": "Results",
-      "hostSize": "2000x1000",
-      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
-      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
-      "lane": "offscreen",
-      "tabIn": "compactToolbarTabBar"
+      "hostSize": "1600x900",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Completed site-drainage run; Results/Analysis controls captured at 1600 px window width. Display group capture isolates Live 1D/2D toggles; unavailable 2D state is visible.",
+      "lane": "live",
+      "tabIn": "compactToolbarTabBar",
+      "maxWidth": 1400
     },
     {
       "name": "25_analysis_ribbon.png",
       "widget": "toolBarAnalysis",
       "tab": "Analysis",
-      "hostSize": "2000x1000",
-      "_model": "examples/bellinge_2d/BellingeSWMM_v021_nopervious.inp",
-      "_note": "Use a working copy of the repository Bellinge example with its external mesh, DEM and rain file. Generate the completed output required by the caption before capture.",
-      "lane": "offscreen",
-      "tabIn": "compactToolbarTabBar"
+      "hostSize": "1600x900",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Completed site-drainage run; Results/Analysis controls captured at 1600 px window width. Display group capture isolates Live 1D/2D toggles; unavailable 2D state is visible.",
+      "lane": "live",
+      "tabIn": "compactToolbarTabBar",
+      "maxWidth": 1400
     },
     {
       "name": "21_results_symbology_tab.png",
@@ -2205,6 +2213,292 @@
       "lane": "live",
       "_model": "docs/manual/tutorials/models/user_flags_example.inp",
       "_note": "C_MAIN stored real flag 1e-6 and string AM 00341; boolean/integer unset."
+    },
+    {
+      "name": "t06_vfr_slope_overview.png",
+      "window": true,
+      "size": "1600x1000",
+      "lane": "live",
+      "settleMs": 2500,
+      "hide": [
+        "dockWidgetLogs",
+        "dockWidgetSimulationStatus",
+        "dockWidgetAttributeTable",
+        "dockWidgetAnalysisToolBox"
+      ],
+      "show": [
+        "dockWidgetSWMMLayers"
+      ],
+      "prepareActions": [
+        "map.zoomExtent"
+      ],
+      "tab": "Home",
+      "tabIn": "compactToolbarTabBar",
+      "hostSelect": "Meshes/vfr_slope.inp",
+      "_model": "docs/manual/tutorials/models/vfr_slope.inp",
+      "_note": "Prepare the projected input without output layers for the terrain overview. Capture the actual rainfall visualization; total depth 20 mm, peak intensity 20 mm/hr and the final dry interval are visible."
+    },
+    {
+      "name": "t06_cell_closure_options.png",
+      "action": "model.simulationOptions",
+      "page": "2D Surface Routing",
+      "tab": "Wetting & Drying",
+      "size": "1050x600",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/vfr_slope.inp",
+      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 metre domain. Review rendered geometry before publishing."
+    },
+    {
+      "name": "t06_mesh_style_terrain.png",
+      "action": "actionSetStyle",
+      "hostSelect": "Meshes/vfr_slope.inp",
+      "page": "Symbology",
+      "tab": "Terrain Fill",
+      "size": "1200x650",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/vfr_slope.inp",
+      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 metre domain. Review rendered geometry before publishing."
+    },
+    {
+      "name": "t06_mass_balance.png",
+      "action": "analysis.report",
+      "activate": "2D Surface Routing Continuity",
+      "size": "1200x820",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/vfr_slope.inp",
+      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 metre domain. Review rendered geometry before publishing."
+    },
+    {
+      "name": "10_section_view_link.png",
+      "action": "view.dock.sectionView",
+      "widget": "dockWidgetSectionView",
+      "hostSelect": "C1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "floatDock": true,
+      "size": "1000x500",
+      "afterTypeClick": "Section",
+      "tab": "1:1",
+      "lane": "live",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Select the named object in a disposable drainage copy; inspect geometry and stated V:H ratio."
+    },
+    {
+      "name": "10_section_view_profile.png",
+      "action": "view.dock.sectionView",
+      "widget": "dockWidgetSectionView",
+      "hostSelect": "C1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "floatDock": true,
+      "size": "1000x500",
+      "afterTypeClick": "Profile",
+      "tab": "10:1",
+      "lane": "live",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Select the named object in a disposable drainage copy; inspect geometry and stated V:H ratio."
+    },
+    {
+      "name": "10_section_view_node.png",
+      "action": "view.dock.sectionView",
+      "widget": "dockWidgetSectionView",
+      "hostSelect": "J5",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "floatDock": true,
+      "size": "1000x500",
+      "lane": "live",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Select the named object in a disposable drainage copy; inspect geometry and stated V:H ratio."
+    },
+    {
+      "name": "02_ribbon_compact_modes.png",
+      "lane": "human",
+      "_note": "Composite of three native toolBarHome captures from the isolated review app. Hide docks; select Home; resize window to 1600x900, 1100x900, then 800x900. Capture each toolbar and compose at a common pixel scale without changing controls. See documentation_2026-10-02_round7/ribbon-capture.json and scripts/compose_manual_ribbon.py (requires Pillow; pass the capture directory)."
+    },
+    {
+      "name": "t03_mesh_style_panel.png",
+      "action": "actionSetStyle",
+      "hostSelect": "Meshes/terrain_bowl.inp",
+      "page": "Symbology",
+      "tab": "Terrain Fill",
+      "size": "1200x650",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Prepare the portable bowl with the selected engine. Open its sidecar with the matching terrain_bowl.2d.h5 association; EPSG:3857 must match model, canvas and output metadata. Native output autoload selects a peak frame. Record the visible cursor and verify against HDF5 time; do not describe this as a zero-time initial frame."
+    },
+    {
+      "name": "t03_sim_options_2d.png",
+      "action": "model.simulationOptions",
+      "page": "2D Surface Routing",
+      "tab": "Hydrodynamics",
+      "size": "1050x640",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Prepare the portable bowl with the selected engine. Open its sidecar with the matching terrain_bowl.2d.h5 association; EPSG:3857 must match model, canvas and output metadata. Native output autoload selects a peak frame. Record the visible cursor and verify against HDF5 time; do not describe this as a zero-time initial frame."
+    },
+    {
+      "name": "t03_mass_balance_2d.png",
+      "action": "analysis.report",
+      "activate": "2D Surface Routing Continuity",
+      "size": "1200x820",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Prepare the portable bowl with the selected engine. Open its sidecar with the matching terrain_bowl.2d.h5 association; EPSG:3857 must match model, canvas and output metadata. Native output autoload selects a peak frame. Record the visible cursor and verify against HDF5 time; do not describe this as a zero-time initial frame."
+    },
+    {
+      "name": "t03_project_open.png",
+      "window": true,
+      "size": "1600x1000",
+      "lane": "live",
+      "settleMs": 2500,
+      "hide": [
+        "dockWidgetLogs",
+        "dockWidgetSimulationStatus",
+        "dockWidgetAttributeTable",
+        "dockWidgetAnalysisToolBox"
+      ],
+      "show": [
+        "dockWidgetSWMMLayers"
+      ],
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Prepare the portable bowl with the selected engine. Open its sidecar with the matching terrain_bowl.2d.h5 association; EPSG:3857 must match model, canvas and output metadata. Native output autoload selects a peak frame. Record the visible cursor and verify against HDF5 time; do not describe this as a zero-time initial frame."
+    },
+    {
+      "name": "t03_results_style_panel.png",
+      "action": "actionSetStyle",
+      "hostSelect": "terrain_bowl surface results",
+      "page": "Symbology",
+      "tab": "Cell Depth Fill",
+      "size": "1200x610",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Completed projected bowl run, surface-only results view. Load matching HDF5 via sidecar; persist Cell Depth Fill visible, Depth Contours off, fixed user range 0\u20130.10 m. Scrub to frame 112 of 480 (00:56:30 model UTC; native clock may show local previous-day time). Peak screenshot shows fixed range and velocity image adds the actual Flow Velocity sublayer. Reviewable sidecar: round7/bowl-surface-view/terrain_bowl.oswp."
+    },
+    {
+      "name": "t03_animation_peak.png",
+      "window": true,
+      "size": "1600x1000",
+      "lane": "live",
+      "settleMs": 2500,
+      "hide": [
+        "dockWidgetLogs",
+        "dockWidgetSimulationStatus",
+        "dockWidgetAttributeTable",
+        "dockWidgetAnalysisToolBox"
+      ],
+      "show": [
+        "dockWidgetSWMMLayers"
+      ],
+      "prepareActions": [
+        "map.zoomExtent",
+        "view.showLegend"
+      ],
+      "tab": "Results",
+      "tabIn": "compactToolbarTabBar",
+      "check": [
+        "terrain_bowl surface results > Cell Depth Fill"
+      ],
+      "cursorNorm": 0.23382045929018788,
+      "hostSelect": "terrain_bowl surface results",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Completed projected bowl run, surface-only results view. Load matching HDF5 via sidecar; persist Cell Depth Fill visible, Depth Contours off, fixed user range 0\u20130.10 m. Scrub to frame 112 of 480 (00:56:30 model UTC; native clock may show local previous-day time). Peak screenshot shows fixed range and velocity image adds the actual Flow Velocity sublayer. Reviewable sidecar: round7/bowl-surface-view/terrain_bowl.oswp."
+    },
+    {
+      "name": "t03_velocity_vectors.png",
+      "window": true,
+      "size": "1600x1000",
+      "lane": "live",
+      "settleMs": 2500,
+      "hide": [
+        "dockWidgetLogs",
+        "dockWidgetSimulationStatus",
+        "dockWidgetAttributeTable",
+        "dockWidgetAnalysisToolBox"
+      ],
+      "show": [
+        "dockWidgetSWMMLayers"
+      ],
+      "prepareActions": [
+        "map.zoomExtent"
+      ],
+      "tab": "Results",
+      "tabIn": "compactToolbarTabBar",
+      "check": [
+        "terrain_bowl surface results > Cell Depth Fill",
+        "terrain_bowl surface results > Flow Velocity"
+      ],
+      "cursorNorm": 0.23382045929018788,
+      "hostSelect": "terrain_bowl surface results",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Completed projected bowl run, surface-only results view. Load matching HDF5 via sidecar; persist Cell Depth Fill visible, Depth Contours off, fixed user range 0\u20130.10 m. Scrub to frame 112 of 480 (00:56:30 model UTC; native clock may show local previous-day time). Peak screenshot shows fixed range and velocity image adds the actual Flow Velocity sublayer. Reviewable sidecar: round7/bowl-surface-view/terrain_bowl.oswp."
+    },
+    {
+      "name": "t06_rainfall_visualization.png",
+      "action": "actionRainfallVisualization",
+      "tab": "Overlay",
+      "size": "1400x820",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/vfr_slope.inp",
+      "_note": "Prepare the projected input without output layers for the terrain overview. Capture the actual rainfall visualization; total depth 20 mm, peak intensity 20 mm/hr and the final dry interval are visible."
+    },
+    {
+      "name": "t04_mass_balance_coupled.png",
+      "action": "analysis.report",
+      "activate": "2D Surface Routing Continuity",
+      "size": "1200x650",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/coupled_plaza.inp",
+      "_note": "Run the portable plaza with semi-implicit node continuity and both corrected 2D stepping paths. Check the 48/138.544/159.313/27.231 m\u00b3 surface ledger. The vertex table uses two couplings, indices 16 and 18. Separate report percentages and individual-node continuity issues are explained in T4."
+    },
+    {
+      "name": "t04_vertices_attribute_table.png",
+      "action": "view.dock.attributeTable",
+      "widget": "dockWidgetAttributeTable",
+      "page": "\u25b3 Mesh coupled_plaza.inp \u2014 Vertices",
+      "select": "16",
+      "floatDock": true,
+      "size": "1350x450",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/coupled_plaza.inp",
+      "_note": "Run the portable plaza with semi-implicit node continuity and both corrected 2D stepping paths. Check the 48/138.544/159.313/27.231 m\u00b3 surface ledger. The vertex table uses two couplings, indices 16 and 18. Separate report percentages and individual-node continuity issues are explained in T4."
+    },
+    {
+      "name": "t03_raster_style.png",
+      "action": "actionSetStyle",
+      "hostSelect": "Terrain bowl raster",
+      "page": "Symbology",
+      "size": "1200x740",
+      "lane": "live",
+      "afterTypeClick": "Enable relief shading",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Load terrain_bowl.asc with terrain_bowl.prj and terrain_bowl_domain.geojson; raster and model use EPSG:3857. Open the raster Symbology and enable relief shading. For Generate Mesh, select the raster and boundary polygon and enter a relative output path. This captures configuration, not a generated replacement mesh."
+    },
+    {
+      "name": "t03_mesh_generation_sources.png",
+      "action": "model.generateMesh",
+      "page": "Terrain bowl boundary",
+      "tab": "Terrain bowl raster",
+      "type": "terrain_bowl_generated.2dm",
+      "typeInto": "meshOutputPathEdit",
+      "size": "1400x900",
+      "maxWidth": 1400,
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/terrain_bowl.inp",
+      "_note": "Load terrain_bowl.asc with terrain_bowl.prj and terrain_bowl_domain.geojson; raster and model use EPSG:3857. Open the raster Symbology and enable relief shading. For Generate Mesh, select the raster and boundary polygon and enter a relative output path. This captures configuration, not a generated replacement mesh."
+    },
+    {
+      "name": "t07_water_age_sources.png",
+      "action": "actionEditWaterAgeSources",
+      "size": "1100x700",
+      "lane": "live",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "_note": "Prepare the portable transport fixture with all four component sidecars, run with the selected engine, then open Water Age Sources. Verify external inflow 0.5 h, initial network state 6 h and an empty per-node table before capture."
+    },
+    {
+      "name": "t07_initial_quality.png",
+      "action": "actionEditInitialQuality",
+      "lane": "live",
+      "size": "1100x520",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "_note": "Prepare a separate copy with all four sidecars. Add [INITIAL_QUALITY] NODE J1 TRACER 1.0 and LINK C1 DECAY 5.0. Execute it, open Initial Quality and verify both rows plus inline status. Keep apart from base solver-comparison outputs."
     },
     {
       "name": "11_query_exclusion_sorted.png",

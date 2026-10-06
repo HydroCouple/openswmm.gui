@@ -8,10 +8,12 @@
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
 #include <cmath>
+#include <algorithm>
 
 namespace mesh {
 ChannelBurnExportResult prepareChannelBurnExport(const ChannelMeshBurnResult &burn,
-    const ChannelBurnExportRequest &request, const std::function<bool()> &cancelled)
+    const ChannelBurnExportRequest &request, const std::function<bool()> &cancelled,
+    const std::function<void(int, const QString &)> &progress)
 {
     ChannelBurnExportResult result;
     auto fail = [&](const QString &message) { result.error = message; return result; };
@@ -20,6 +22,7 @@ ChannelBurnExportResult prepareChannelBurnExport(const ChannelMeshBurnResult &bu
         || !std::isfinite(request.meshZToSI) || request.meshZToSI <= 0)
         return fail(QObject::tr("A successful burn, a saved project, and valid DEM elevation units are required for raster output."));
     if (cancelled && cancelled()) return fail(QObject::tr("Cancelled."));
+    if (progress) progress(0, QObject::tr("Preparing the burned DEM export…"));
     GDALAllRegister();
     using Dataset = std::unique_ptr<GDALDataset, decltype(&GDALClose)>;
     Dataset source(static_cast<GDALDataset *>(GDALOpen(request.sourcePath.toUtf8().constData(), GA_ReadOnly)), GDALClose);
@@ -107,16 +110,22 @@ ChannelBurnExportResult prepareChannelBurnExport(const ChannelMeshBurnResult &bu
     raster.planNotes = burn.warnings;
     const QString report = artifacts->reserve(result.reportPath, QFileInfo(result.reportPath).fileName(), &result.error);
     if (raster.outputPath.isEmpty() || raster.overlayTilesPath.isEmpty() || report.isEmpty()) return result;
-    raster.progress = [&](int, const QString &) { return !cancelled || !cancelled(); };
+    raster.progress = [&](int percent, const QString &stage) {
+        if (cancelled && cancelled()) return false;
+        if (progress) progress(95 * std::clamp(percent, 0, 100) / 100, stage);
+        return true;
+    };
     BurnRasterStats stats;
     if (!writeBurnedRaster(raster, &stats, &result.error)) return result;
     result.warnings = stats.warnings;
     const QString units = QObject::tr("Mesh XY x %1 = metres; mesh elevations x %2 = metres; DEM elevations x %3 = metres. Report lengths use mesh XY units; slopes are mesh Z per mesh XY unit; incision statistics use DEM elevation units.")
         .arg(meshSrs.GetLinearUnits()).arg(request.meshZToSI).arg(request.rasterZToSI);
+    if (progress) progress(95, QObject::tr("Preparing the channel burn report…"));
     if (!writeBurnReport(report, raster, stats, units, &result.error) || !artifacts->seal(&result.error)) return result;
     if (cancelled && cancelled()) return fail(QObject::tr("Cancelled."));
     result.artifacts = std::move(artifacts);
     result.ok = true;
+    if (progress) progress(100, QObject::tr("DEM export prepared."));
     return result;
 }
 }

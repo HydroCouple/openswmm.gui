@@ -157,7 +157,6 @@ in the Simulation Status dock**. With nothing selected they act on the single
 in-flight run; with several running and no selection, a message box asks you to
 select one first. Both actions are disabled unless at least one run is active.
 
-\videotodo{Running a model — Execute; watching progress; pausing and stopping with partial results}
 
 ### Live results while the run is going
 

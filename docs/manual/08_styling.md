@@ -308,7 +308,6 @@ repaints immediately and the setting survives a project round-trip.
 
 \fig{08_2d_results_style_panel.png, The 2D results style panel on the Depth Isolines tab}
 
-\videotodo{Styling a model — graduated conduits by diameter; labelling junctions and colouring a 2D flood map}
 
 ### Legends
 

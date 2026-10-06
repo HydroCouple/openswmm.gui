@@ -175,6 +175,8 @@ a six-minute reversal test and a simulated resaturation animation.
 
 ## Related
 
+- \ref tutorial_lid_active_chain — chained facilities with active control and receiving-water backwater
+
 - \ref manual_data_objects — opening data-object editors
 - \ref manual_hydrology — conventional subcatchment LIDs
 - \ref manual_water_quality — pollutants and expression syntax

@@ -254,7 +254,6 @@ shorter route around the boundary.
 Press **Esc** once to drop a pending anchor; press it again to clear the
 selection.
 
-\videotodo{Selecting a whole 2D boundary run with Ctrl-click path picking}
 
 ### Selecting GIS features
 

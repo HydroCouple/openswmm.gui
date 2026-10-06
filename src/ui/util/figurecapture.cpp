@@ -378,6 +378,8 @@ bool FigureCapture::loadManifest(QString *error)
         spec.sortColumn  = o.value(QStringLiteral("sortColumn")).toString();
         for (const auto &value : o.value(QStringLiteral("check")).toArray())
             spec.check << value.toString();
+        for (const auto &value : o.value(QStringLiteral("uncheck")).toArray())
+            spec.uncheck << value.toString();
         spec.hostSelect  = o.value(QStringLiteral("hostSelect")).toString();
         spec.hostSelectIn = o.value(QStringLiteral("hostSelectIn")).toString();
         for (const auto &value : o.value(QStringLiteral("hostSelectMore")).toArray())
@@ -396,6 +398,13 @@ bool FigureCapture::loadManifest(QString *error)
         spec.editCell    = o.value(QStringLiteral("editCell")).toString();
         spec.grab        = o.value(QStringLiteral("grab")).toString();
         spec.maxWidth    = o.value(QStringLiteral("maxWidth")).toInt(0);
+        if (o.contains(QStringLiteral("cursorNorm"))) {
+            spec.cursorNorm = o.value(QStringLiteral("cursorNorm")).toDouble(-1);
+            if (spec.cursorNorm < 0 || spec.cursorNorm > 1) {
+                *error = QStringLiteral("cursorNorm must be between 0 and 1: %1").arg(spec.name);
+                return false;
+            }
+        }
         spec.size     = sizeFromString_(o.value(QStringLiteral("size")).toString());
         spec.hostSize = sizeFromString_(o.value(QStringLiteral("hostSize")).toString());
         spec.lane     = laneFromString_(o.value(QStringLiteral("lane")).toString());
@@ -743,6 +752,23 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
     }
 
+    if (spec.cursorNorm >= 0) {
+        bool sought = false;
+        for (QWidget *w : mHost->findChildren<QWidget *>()) {
+            if (w->isVisibleTo(mHost) && w->metaObject()->indexOfProperty("cursorNorm") >= 0) {
+                sought = w->setProperty("cursorNorm", spec.cursorNorm);
+                break;
+            }
+        }
+        if (!sought) {
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no visible animation scrubber for cursorNorm");
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+    }
+
     // A compound property (External Inflows, Cross Section, LID Usage) is
     // edited through a delegate-built "Edit…" button that only exists while
     // the cell is in edit mode. Open that editor so a later click can press
@@ -816,6 +842,15 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
             return;
         }
     }
+    for (const auto &item : spec.uncheck) {
+        if (!selectItem(target, item, false, QStringLiteral("uncheck"))) {
+            r.status = QStringLiteral("failed");
+            r.detail = QStringLiteral("no uncheckable row matching '%1'").arg(item);
+            dismissOpenedBy(spec);
+            finishSpec(r);
+            return;
+        }
+    }
 
     // Some figures live one button-press further in: the label expression
     // builder opens from the Labels tab, the ramp editor from a ramp picker.
@@ -871,6 +906,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         rest.clicks.clear();
         rest.prepareActions.clear();
         rest.check.clear();
+        rest.uncheck.clear();
         rest.page = spec.dialogPage;
         rest.dialogPage.clear();
         rest.tab.clear();
@@ -1337,9 +1373,10 @@ bool FigureCapture::selectItem(QWidget *target, const QString &which, bool appen
                                      | QItemSelectionModel::Rows);
             }
             view->scrollTo(idx);
-            if (operation == QLatin1String("check")) {
+            if (operation == QLatin1String("check") || operation == QLatin1String("uncheck")) {
+                const Qt::CheckState state = operation == QLatin1String("check") ? Qt::Checked : Qt::Unchecked;
                 if (!(idx.flags() & Qt::ItemIsUserCheckable)
-                    || !view->model()->setData(idx, Qt::Checked, Qt::CheckStateRole))
+                    || !view->model()->setData(idx, state, Qt::CheckStateRole))
                     return false;
             } else if (operation == QLatin1String("activate")) {
                 // The report navigator scrolls on clicked(), whereas ordinary

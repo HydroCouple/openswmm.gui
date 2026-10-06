@@ -40,7 +40,6 @@ undone with **Edit → Undo** (or the Undo/Redo buttons in the editor's own
 toolbar). They remember their window geometry, splitter positions and plot-style
 toggles between sessions.
 
-\videotodo{Creating a rainfall time series from a CSV file then referencing it from a rain gage}
 
 ## Step-by-step
 

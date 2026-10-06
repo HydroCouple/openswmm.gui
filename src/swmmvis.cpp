@@ -50,6 +50,7 @@
 #include <QUrl>
 #include <QGraphicsItem>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QDir>
 #include <QInputDialog>
 #include <QJsonDocument>
@@ -211,6 +212,9 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_nodes.h>   // node id enumeration for coupled-node dropdown
 #include <openswmm/engine/openswmm_spatial.h> // node coordinates for Auto-couple
+#include <openswmm/engine/openswmm_gw2d.h>    // Remap 2D-aquifer preview
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 
 #include <functional>
@@ -1219,6 +1223,70 @@ void SWMMVis::initializeMeshEditingToolBar()
         connect(dialog,&openswmmvis::ui::SurfaceOwnershipDialog::groundwaterEditorRequested,pw,[this,dialog]{dialog->close();if(auto* action=findChild<QAction*>("actionAssignGroundwater"))action->trigger();});
         dialog->show();
     });
+    // Remap's 2D-aquifer preview inputs — only when [2D_OPTIONS] GROUNDWATER
+    // is YES, or AUTO with [2D_AQUIFER] rows (the engine's own rule).
+    mMeshEditingToolbar->setGwPreviewSource(
+        [this]() -> std::optional<mesh::GwPreviewInput> {
+            auto *pw = activeProjectWindow();
+            if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine()) return std::nullopt;
+            SWMM_Engine e = pw->modelLayer()->engine();
+            char gw[32] = {};
+            const QString mode = swmm_options_get_ext(e, "GROUNDWATER", gw, sizeof(gw)) == 0
+                ? QString::fromUtf8(gw).trimmed().toUpper() : QStringLiteral("AUTO");
+            char configured[16]={};
+            swmm_gw2d_option_get(e,"CONFIGURED",configured,sizeof configured);
+            if (mode == QLatin1String("NO") || (mode != QLatin1String("YES") && QString::fromUtf8(configured)!=QLatin1String("YES")))
+                return std::nullopt;
+
+            mesh::GwPreviewInput in;
+            const int nNodes = swmm_node_count(e);
+            for (int i = 0; i < nNodes; ++i) {
+                const char *id = swmm_node_id(e, i);
+                double x = 0.0, y = 0.0;
+                if (!id || swmm_spatial_get_node_coord(e, i, &x, &y) != 0) continue;
+                in.nodes.append({ QString::fromUtf8(id), QPointF(x, y) });
+            }
+            char seep[32] = {};
+            const bool seepOn = !(swmm_gw2d_option_get(e, "LINK_SEEPAGE", seep, sizeof(seep)) == 0
+                                  && QString::fromUtf8(seep).trimmed().toUpper()
+                                         == QLatin1String("NONE"));
+            for (int j = 0; seepOn && j < swmm_link_count(e); ++j) {
+                int type = -1, n1 = -1, n2 = -1;
+                double rate = 0.0;
+                if (swmm_link_get_type(e, j, &type) != 0 || type != SWMM_LINK_CONDUIT) continue;
+                if (swmm_link_get_seep_rate(e, j, &rate) != 0 || rate <= 0.0) continue;
+                swmm_link_get_from_node(e, j, &n1);
+                swmm_link_get_to_node(e, j, &n2);
+                double x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+                if (swmm_spatial_get_node_coord(e, n1, &x1, &y1) != 0
+                    || swmm_spatial_get_node_coord(e, n2, &x2, &y2) != 0) continue;
+                mesh::GwPreviewInput::Conduit cd;
+                cd.id = QString::fromUtf8(swmm_link_id(e, j));
+                cd.path.append(QPointF(x1, y1));
+                int nvx = 0;
+                if (swmm_spatial_get_link_vertex_count(e, j, &nvx) == 0 && nvx > 0) {
+                    std::vector<double> vx(nvx), vy(nvx);
+                    if (swmm_spatial_get_link_vertices(e, j, vx.data(), vy.data(), nvx) == 0)
+                        for (int k = 0; k < nvx; ++k) cd.path.append(QPointF(vx[k], vy[k]));
+                }
+                cd.path.append(QPointF(x2, y2));
+                in.seepingConduits.append(cd);
+            }
+            for (int s = 0; s < swmm_subcatch_count(e); ++s) {
+                mesh::GwPreviewInput::Subcatch sc;
+                sc.id = QString::fromUtf8(swmm_subcatch_id(e, s));
+                int aq = -1;
+                sc.lumpedGw = swmm_subcatch_get_aquifer(e, s, &aq) == 0 && aq >= 0;
+                int np = 0;
+                if (!sc.lumpedGw && swmm_spatial_get_subcatch_polygon_count(e, s, &np) == 0 && np > 0) {
+                    std::vector<double> px(np), py(np);
+                    if (swmm_spatial_get_subcatch_polygon(e, s, px.data(), py.data(), np) == 0)
+                        for (int k = 0; k < np; ++k) sc.polygon.append(QPointF(px[k], py[k]));
+                }
+                in.subcatchments.append(sc);
+            }
+            return in;
+        });
     mMeshEditingToolbar->setCurveLister([this]() -> QStringList {
         auto *pw = activeProjectWindow();
         if (!pw || !pw->modelLayer()) return {};
@@ -5605,7 +5673,7 @@ void SWMMVis::onOpenProject(const QString &path)
         QString projects = kFilters->filterFor(openswmmvis::FilterKind::ProjectWrite);
         projects.chop(allFiles.size());
         const QString combined = inputs + QStringLiteral(";;") + projects + allFiles;
-        filePath = QFileDialog::getOpenFileName(
+        filePath = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("models"),
             this,
             tr("Open SWMM Model or Project"),
             mRecentFiles.isEmpty() ? QDir::homePath()
@@ -5615,6 +5683,8 @@ void SWMMVis::onOpenProject(const QString &path)
     if (filePath.isEmpty())
         return;
 
+    // Recent-file and explicit-path opens also seed the model picker history.
+    openswmmvis::ui::FileOpenDialog::rememberSelection(QStringLiteral("models"), {filePath});
     if (filePath.endsWith(QStringLiteral(".oswp"), Qt::CaseInsensitive))
         openProjectFile(filePath);
     else
@@ -8269,7 +8339,7 @@ void SWMMVis::onAddDelimitedData()
     }
     QPointer<MapCanvas> target(c);
     QPointer<SWMMVis> self(this);
-    const QStringList paths = QFileDialog::getOpenFileNames(
+    const QStringList paths = openswmmvis::ui::FileOpenDialog::getOpenFileNames(QStringLiteral("delimited"),
         this, tr("Add Delimited Data"),
         mRecentFiles.isEmpty() ? QDir::homePath()
                                : QFileInfo(mRecentFiles.first()).absolutePath(),
@@ -10403,7 +10473,7 @@ void SWMMVis::onAddVectorLayer()
 
     QPointer<MapCanvas> target(c);
     QPointer<SWMMVis> self(this);
-    const QStringList paths = QFileDialog::getOpenFileNames(
+    const QStringList paths = openswmmvis::ui::FileOpenDialog::getOpenFileNames(QStringLiteral("vector"),
         this, tr("Add Vector Layers"),
         mRecentFiles.isEmpty() ? QDir::homePath()
                                : QFileInfo(mRecentFiles.first()).absolutePath(),
@@ -10513,7 +10583,7 @@ void SWMMVis::onAddRasterLayer()
 
     QPointer<MapCanvas> target(c);
     QPointer<SWMMVis> self(this);
-    const QStringList paths = QFileDialog::getOpenFileNames(
+    const QStringList paths = openswmmvis::ui::FileOpenDialog::getOpenFileNames(QStringLiteral("raster"),
         this, tr("Add Raster Layers"),
         mRecentFiles.isEmpty() ? QDir::homePath()
                                : QFileInfo(mRecentFiles.first()).absolutePath(),
@@ -10580,7 +10650,7 @@ void SWMMVis::onAddSWMMResultsLayer()
     auto *kFilters = openswmmvis::FileFilterRegistry::instance();
     QPointer<SWMMVisProjectWindow> target(pw);
     QPointer<SWMMVis> self(this);
-    const QStringList paths = QFileDialog::getOpenFileNames(
+    const QStringList paths = openswmmvis::ui::FileOpenDialog::getOpenFileNames(QStringLiteral("results-1d"),
         this, tr("Add SWMM Results"),
         mRecentFiles.isEmpty() ? QDir::homePath()
                                : QFileInfo(mRecentFiles.first()).absolutePath(),
@@ -10659,7 +10729,7 @@ void SWMMVis::onAddMesh2DLayer()
         : mRecentFiles.isEmpty() ? QDir::homePath()
                                  : QFileInfo(mRecentFiles.first()).absolutePath();
 
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("mesh"),
         this, tr("Add 2D Mesh"), startDir,
         tr("2D Mesh — SWMMVis or SMS 2DM (*.2dm);;All Files (*)"));
     if (path.isEmpty()) return;
@@ -10702,7 +10772,7 @@ void SWMMVis::onAdd2DResultsLayer()
 
     QPointer<SWMMVisProjectWindow> target(pw);
     QPointer<SWMMVis> self(this);
-    const QStringList paths = QFileDialog::getOpenFileNames(
+    const QStringList paths = openswmmvis::ui::FileOpenDialog::getOpenFileNames(QStringLiteral("results-2d"),
         this, tr("Add 2D Results"), startDir,
         tr("SWMMVis 2D Results (*.h5);;All Files (*)"));
     if (!self || !target || paths.isEmpty()) return;

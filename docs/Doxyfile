@@ -1488,6 +1488,12 @@ HTML_EXTRA_FILES       = custom/js/doxygen-awesome-darkmode-toggle.js \
                          custom/js/doxygen-awesome-interactive-toc.js \
                          custom/js/doxygen-awesome-paragraph-link.js \
                          custom/js/doxygen-awesome-tabs.js \
+                         manual/tutorials/models/terrain_bowl.inp \
+                         manual/tutorials/models/terrain_bowl.asc \
+                         manual/tutorials/models/terrain_bowl.prj \
+                         manual/tutorials/models/terrain_bowl_domain.geojson \
+                         manual/tutorials/models/coupled_plaza.inp \
+                         manual/tutorials/models/vfr_slope.inp \
                          manual/tutorials/models/lid_active_chain/01_passive_free.inp \
                          manual/tutorials/models/lid_active_chain/02_passive_backwater.inp \
                          manual/tutorials/models/lid_active_chain/03_timed_hold.inp \
@@ -1495,6 +1501,13 @@ HTML_EXTRA_FILES       = custom/js/doxygen-awesome-darkmode-toggle.js \
                          manual/tutorials/models/lid_active_chain/05_repeat_storm.inp \
                          manual/tutorials/models/lid_active_chain/06_stuck_closed.inp \
                          manual/tutorials/models/lid_resaturation.inp \
+                         manual/tutorials/models/richards_01_passive_free.inp \
+                         manual/tutorials/models/richards_02_passive_backwater.inp \
+                         manual/tutorials/models/richards_03_timed_hold.inp \
+                         manual/tutorials/models/richards_04_head_guard.inp \
+                         manual/tutorials/models/richards_05_repeat_storm.inp \
+                         manual/tutorials/models/richards_06_stuck_closed.inp \
+                         manual/tutorials/models/lid_richards_resaturation.inp \
                          manual/images/t10_resaturation.gif \
                          manual/images/t10_network.gif \
                          manual/images/t10_hydraulic-control.gif \

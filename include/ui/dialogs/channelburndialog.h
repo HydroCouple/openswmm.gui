@@ -19,6 +19,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QProgressBar;
 class QSpinBox;
 class QTableWidget;
 
@@ -81,6 +82,7 @@ private:
     QWidget *m_exportOptions = nullptr;
     QTableWidget *m_quality = nullptr;
     QLabel *m_status = nullptr;
+    QProgressBar *m_progress = nullptr;
     QPushButton *m_apply = nullptr;
     QPushButton *m_cancel = nullptr;
 };

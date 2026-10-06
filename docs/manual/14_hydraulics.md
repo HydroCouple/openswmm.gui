@@ -209,6 +209,18 @@ partial openings. The setting specifies opening, not a linear fraction of
 discharge. This supports distinct drawdown, intermediate-release and
 emergency-overflow paths with downstream-head feedback.
 
+Choose **Richards 1D** in the LID editor to use the optional semi-discrete
+column. Enter residual water content, retention alpha/n, pore connectivity
+and positive specific storage for every porous material. The column owns
+complete pore/elastic water and local pressure; the node owns surface
+ponding. Each interface flux uses a signed total-head difference and both
+materials' conductivity. Different materials use half-cell resistances in
+series. Node HEAD/DEPTH then describes surface ponding, so review existing
+control thresholds. Check cell count, routing step and ODE tolerance.
+See \ref tutorial_lid_active_chain for reproducible examples.
+
+The following equations describe **Existing formulation (with backwater)**.
+
 For cell geometry G, retained fraction theta and porosity phi, total water
 is the retained sum `sum(theta * G)` plus mobile pore water
 `sum((phi - theta) * G * submerged_fraction)`. Reported node volume includes
@@ -224,7 +236,13 @@ The native routine handles F = 0 and supply limits. Actual ponded depth is
 advances infiltration history. All transfers use donor water and receiver
 space limits, with explicit substeps at most one second.
 
-A reversed link enters its physical port. The rising mobile table fills
+A reversed link enters its physical port. A cell intersected by the mobile
+table receives into mobile storage even when the inlet lies above that table;
+only wholly exposed cells fill retained pore capacity. Partially submerged
+cells continue draining retained excess; only fully submerged cells skip
+free drainage. These consistent rules prevent retained water from accumulating
+to porosity and producing a sudden head jump that a continuity check misses.
+The rising mobile table fills
 submerged pores and reconciles upper-zone infiltration deficit/wetness;
 reverse inflow does not increment surface infiltration F. Full resaturation
 clears the old front. Gradual recession tracks remaining moisture until
@@ -321,7 +339,6 @@ use this example to validate treatment removal, pollutant mass balance or
 initial-quality behavior. The captures verify displayed assignments; editing,
 saving and reopening these assignments still require separate verification.
 
-\videotodo{Adding a time-series inflow and a dry-weather-flow pattern to a junction}
 
 ### Link types and their properties
 
@@ -547,7 +564,6 @@ inlet junction's property rows are literally the same operation.
 
 \fig{14_inlet_usage_page.png, The Inlets page of the link compound editor}
 
-\videotodo{Splitting a street conduit into an inlet junction and wiring its capture node}
 
 ### Control rules editor
 

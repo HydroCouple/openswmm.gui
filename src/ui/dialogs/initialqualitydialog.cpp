@@ -18,6 +18,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -150,7 +151,7 @@ void InitialQualityDialog::buildUi()
     fileRow->addWidget(importBtn);
     vlay->addLayout(fileRow);
     connect(browseBtn, &QPushButton::clicked, this, [this]() {
-        const QString f = QFileDialog::getOpenFileName(
+        const QString f = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("initial-quality"),
             this, tr("Initial quality CSV"), m_fileEdit->text(),
             tr("CSV files (*.csv *.txt);;All files (*)"));
         if (!f.isEmpty()) m_fileEdit->setText(f);
@@ -419,7 +420,7 @@ void InitialQualityDialog::readFromEngine()
 
 void InitialQualityDialog::onImportCsv()
 {
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("initial-quality"),
         this, tr("Import initial quality rows"), QString(),
         tr("CSV files (*.csv *.txt);;All files (*)"));
     if (path.isEmpty()) return;
