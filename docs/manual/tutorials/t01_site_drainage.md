@@ -10,7 +10,6 @@ plot depths, flows, profiles and TSS concentrations. Finish by changing the
 routing method, the infiltration model, and adding an LID control, comparing
 each variant against the base run.
 
-\videotodo{Opening the site drainage model — checking local coordinates — running it and animating the result}
 
 ## Capabilities exercised
 
@@ -404,6 +403,12 @@ comparison plot's **Export Data…** (step 10).
    conduit inventory. **Export CSV…** writes the current table view; open the
    CSV and check its header, units and 11 conduit rows. For hydrograph samples,
    use the Comparison Plot's **Export Data…** instead.
+   In the reviewed drainage run, the full conduit CSV contains 33 columns and
+   eleven rows. Its **Max Flow (Sim.) (CFS)** values agree with the Links
+   statistics view to three decimals: C1 is 15.343 CFS and C11 is 71.153 CFS.
+   Keep the unit-labelled headers when importing the file elsewhere. This
+   verifies the full inventory export; filtered and hydrograph exports require
+   their own row/sample checks.
 2. Use **File → Save** (`Ctrl+S`). Keep the `.inp`, matching `.oswp`, `.rpt`
    and `.out` together in the working folder. The input holds the model;
    the sidecar holds GUI state and references to results. An image export

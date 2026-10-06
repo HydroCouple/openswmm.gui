@@ -34,6 +34,7 @@
 #include "selection/selectionmanager.h"
 #include "ui/dialogs/groundwaterassigndialog.h"
 #include <cmath>
+#include <algorithm>
 #include <memory>
 using namespace openswmmvis::assignment;
 using namespace openswmmvis::ui;
@@ -129,10 +130,16 @@ private slots:
  }
  void supportedSourcesAgreeAcrossUiRoutesAfterSaveAndRun(){
   const auto controlPath=output+"/control.inp";QVERIFY(writeFile(controlPath,deck));Ledgers control;QString error;QVERIFY2(simulate(controlPath,output+"/control",&control,&error),qPrintable(error));QCOMPARE(control.waterIn,0.);QCOMPARE(control.speciesIn,0.);QJsonObject evidence{{"control",json(control)}};Ledgers reference;
-  for(int route=0;route<3;++route){const QString name=QStringList{"manual_rectangle","feature_polygon","raster_rectangle"}[route];const QString dir=output+"/"+name;QVERIFY(QDir().mkpath(dir));const auto input=dir+"/input.inp";QVERIFY(writeFile(input,deck));Journey j;QVERIFY2(j.open(input,&error),qPrintable(error));
+  for(int route=0;route<4;++route){const QString name=QStringList{"manual_rectangle","feature_polygon","raster_rectangle","raster_density_rectangle"}[route];const QString dir=output+"/"+name;QVERIFY(QDir().mkpath(dir));const auto input=dir+"/input.inp";QVERIFY(writeFile(input,deck));Journey j;QVERIFY2(j.open(input,&error),qPrintable(error));
    GroundwaterAssignDialog dialog(&j.model,&j.mesh,&j.canvas,&j.selection,&j.units);if(route==1)j.selectPolygon();else j.selectRectangle();QCOMPARE(j.selection.selection(),j.expected());
-   auto*target=dialog.findChild<QComboBox*>("gwAssignmentTarget");QVERIFY(target);target->setCurrentIndex(target->findData("FLOW"));dialog.findChild<QDoubleSpinBox*>("gwAssignmentValue")->setValue(.001);dialog.findChild<QComboBox*>("gwAssignmentRoute")->setCurrentIndex(route);
+   auto*target=dialog.findChild<QComboBox*>("gwAssignmentTarget");QVERIFY(target);target->setCurrentIndex(target->findData("FLOW"));dialog.findChild<QDoubleSpinBox*>("gwAssignmentValue")->setValue(.001);dialog.findChild<QComboBox*>("gwAssignmentRoute")->setCurrentIndex(std::min(route,2));
    if(route){dialog.findChild<QLineEdit*>("gwAssignmentPath")->setText(route==1?vectorPath:rasterPath);if(route==1)dialog.findChild<QLineEdit*>("gwAssignmentField")->setText("flow");}
+   if(route==3){
+    auto*meaning=dialog.findChild<QComboBox*>("gwAssignmentRasterMeaning");QVERIFY(meaning);
+    auto*units=dialog.findChild<QComboBox*>("gwAssignmentDensityUnits");QVERIFY(units);
+    QVERIFY(meaning->findData("flux-density")>=0);meaning->setCurrentIndex(meaning->findData("flux-density"));
+    QVERIFY(units->findData("m/s")>=0);units->setCurrentIndex(units->findData("m/s"));
+   }
    QPushButton*addTerm=nullptr;for(auto*button:dialog.findChildren<QPushButton*>())if(button->text()==QStringLiteral("Add species term"))addTerm=button;QVERIFY(addTerm);addTerm->click();auto*terms=dialog.findChild<QTableWidget*>("gwAssignmentTerms");QVERIFY(terms);QCOMPARE(terms->rowCount(),1);auto*species=qobject_cast<QComboBox*>(terms->cellWidget(0,0));QVERIFY(species);QVERIFY(species->findData("TSS")>=0);species->setCurrentIndex(species->findData("TSS"));terms->item(0,2)->setText("100");
    GroundwaterTransportSnapshot before,after;QVERIFY2(readGroundwaterTransportSnapshot(j.model.engine(),&before,&error),qPrintable(error));QSignalSpy changed(&dialog,&GroundwaterAssignDialog::applied);QSignalSpy recipe(&dialog,&GroundwaterAssignDialog::recipeAccepted);
    dialog.findChild<QPushButton*>("gwAssignmentPreviewButton")->click();auto*apply=dialog.findChild<QPushButton*>("gwAssignmentApplyButton");QTRY_VERIFY_WITH_TIMEOUT(apply->isEnabled(),15000);QVERIFY2(readGroundwaterTransportSnapshot(j.model.engine(),&after,&error),qPrintable(error));QVERIFY(after==before);
@@ -144,13 +151,13 @@ private slots:
    QVERIFY(dialog.grab().save(dir+"/reviewed_preview.png"));
    if(route==2){if(auto*scroll=dialog.findChild<QScrollArea*>())scroll->ensureWidgetVisible(dialog.findChild<QLineEdit*>("gwAssignmentPath"));QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);QVERIFY(dialog.grab().save(dir+"/reviewed_preview_source.png"));}
    apply->click();QTRY_COMPARE_WITH_TIMEOUT(changed.count(),1,15000);QCOMPARE(recipe.count(),1);QCOMPARE(j.canvas.undoStack()->count(),1);QVERIFY(readGroundwaterTransportSnapshot(j.model.engine(),&after,&error));QCOMPARE(after.sources.size(),2);
-   for(const auto&r:after.sources){QCOMPARE(r.flow,.001);QCOMPARE(r.scale,1.);QCOMPARE(r.terms.size(),1);QCOMPARE(r.terms[0].species,QString("TSS"));QCOMPARE(r.terms[0].kind,QString("CONC"));QCOMPARE(r.terms[0].value,100.);}
+   for(const auto&r:after.sources){QCOMPARE(r.flow,route==3?(r.cell==0?.002:.004):.001);QCOMPARE(r.scale,1.);QCOMPARE(r.terms.size(),1);QCOMPARE(r.terms[0].species,QString("TSS"));QCOMPARE(r.terms[0].kind,QString("CONC"));QCOMPARE(r.terms[0].value,100.);}
    j.canvas.undoStack()->undo();GroundwaterTransportSnapshot undone;QVERIFY(readGroundwaterTransportSnapshot(j.model.engine(),&undone,&error));QVERIFY(undone==before);j.canvas.undoStack()->redo();QVERIFY(readGroundwaterTransportSnapshot(j.model.engine(),&undone,&error));QVERIFY(undone==after);
    const QString saved=dir+"/saved.inp";QCOMPARE(swmm_model_write(j.model.engine(),saved.toUtf8().constData()),SWMM_OK);QVERIFY(writeFile(dir+"/assignment_recipe.json",QJsonDocument(recipe.at(0).at(0).toJsonObject()).toJson()));
    {Engine reopened;QVERIFY(reopened.value);QCOMPARE(swmm_engine_open(reopened.value,saved.toUtf8().constData(),(dir+"/readback.rpt").toUtf8().constData(),nullptr,nullptr),SWMM_OK);GroundwaterTransportSnapshot restored;QVERIFY2(readGroundwaterTransportSnapshot(reopened.value,&restored,&error),qPrintable(error));QCOMPARE(restored.sources,after.sources);}
    Ledgers result;QVERIFY2(simulate(saved,dir+"/run",&result,&error),qPrintable(error));evidence[name]=json(result);QVERIFY(writeFile(output+"/ledger_comparison.json",QJsonDocument(evidence).toJson()));
-   QVERIFY2(std::abs(result.waterIn-.6)<1e-7,qPrintable(QString("water source ledger %1").arg(result.waterIn,0,'g',17)));QVERIFY2(std::abs(result.speciesIn-60.)<1e-6,qPrintable(QString("species source ledger %1").arg(result.speciesIn,0,'g',17)));QCOMPARE(result.waterOut,0.);QCOMPARE(result.speciesOut,0.);QVERIFY(std::abs(result.waterResidual)<1e-6);QVERIFY(std::abs(result.speciesResidual)<1e-6);QVERIFY(result.waterStorage>control.waterStorage);QVERIFY(result.speciesStorage>control.speciesStorage);
-   if(route==0)reference=result;else{QVERIFY(std::abs(result.waterIn-reference.waterIn)<1e-10);QVERIFY(std::abs(result.speciesIn-reference.speciesIn)<1e-8);QVERIFY(std::abs(result.waterStorage-reference.waterStorage)<1e-8);QVERIFY(std::abs(result.speciesStorage-reference.speciesStorage)<1e-6);}
+   QVERIFY2(std::abs(result.waterIn-(route==3?1.8:.6))<1e-7,qPrintable(QString("water source ledger %1").arg(result.waterIn,0,'g',17)));QVERIFY2(std::abs(result.speciesIn-(route==3?180.:60.))<1e-6,qPrintable(QString("species source ledger %1").arg(result.speciesIn,0,'g',17)));QCOMPARE(result.waterOut,0.);QCOMPARE(result.speciesOut,0.);QVERIFY(std::abs(result.waterResidual)<1e-6);QVERIFY(std::abs(result.speciesResidual)<1e-6);QVERIFY(result.waterStorage>control.waterStorage);QVERIFY(result.speciesStorage>control.speciesStorage);
+   if(route==0)reference=result;else if(route<3){QVERIFY(std::abs(result.waterIn-reference.waterIn)<1e-10);QVERIFY(std::abs(result.speciesIn-reference.speciesIn)<1e-8);QVERIFY(std::abs(result.waterStorage-reference.waterStorage)<1e-8);QVERIFY(std::abs(result.speciesStorage-reference.speciesStorage)<1e-6);}
   }
  }
 };

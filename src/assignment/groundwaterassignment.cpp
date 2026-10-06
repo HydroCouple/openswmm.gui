@@ -96,18 +96,20 @@ bool readAquiferSnapshot(SWMM_Engine e,AquiferSnapshot*out,QString *error){
     result.options["ET_FORCING_REVIEW"]=groundwaterEtForcingStatus(e);
     *out=std::move(result);return true;
 }
-AquiferPreview previewAquiferAssignment(const AquiferRequest&r){
+AquiferPreview previewAquiferAssignment(const AquiferRequest&r,std::function<bool()> cancelled){
     AquiferPreview p;p.before=r.before;p.target=r.target;
     auto reject=[&](const QString&message){p.appended.clear();p.cells.clear();p.oldValues.clear();p.newValues.clear();p.error=message;return p;};
+    if(cancelled&&cancelled())return reject("Cancelled.");
     AquiferTarget target;bool found=false;
     for(const auto&t:aquiferTargets())if(t.key==r.target){target=t;found=true;break;}
     if(!found)return reject("Unknown aquifer target.");
     if(!target.supported)return reject(target.unavailableReason);
     if(r.cells.isEmpty()||r.cells.size()!=r.values.size()||r.cells.size()!=r.cellTags.size())return reject("Select cells and provide one value and tag per cell.");
     const AquiferRow *global=nullptr;QHash<QString,const AquiferRow*> tags;QHash<int,const AquiferRow*> cells;
-    for(const auto&row:r.before.rows){if(row.scope==0)global=&row;else if(row.scope==1)tags.insert(row.tag,&row);else if(row.scope==2)cells.insert(row.cell,&row);}
+    for(const auto&row:r.before.rows){if(cancelled&&cancelled())return reject("Cancelled.");if(row.scope==0)global=&row;else if(row.scope==1)tags.insert(row.tag,&row);else if(row.scope==2)cells.insert(row.cell,&row);}
     QSet<int> seen;
     for(int i=0;i<r.cells.size();++i){
+        if(cancelled&&cancelled())return reject("Cancelled.");
         const int cell=r.cells[i];const double v=r.values[i];
         if(cell<0||seen.contains(cell))return reject("Invalid or duplicate target cell.");seen.insert(cell);
         if(std::isnan(v)&&r.skipNoData){p.skippedCells.append(cell);continue;}

@@ -3,6 +3,7 @@
 #include "assignment/groundwaterassignment.h"
 #include "assignment/groundwatertransportassignment.h"
 #include "assignment/meshassignmentsampling.h"
+#include "assignment/rasterfluxintegration.h"
 #include <QDialog>
 #include <QPointer>
 #include <QFutureWatcher>
@@ -39,7 +40,8 @@ private:
  struct WorkResult {
     assignment::AquiferPreview preview;
     assignment::GroundwaterTransportPreview transport;
-    bool isTransport=false;
+    bool isTransport=false,isFlux=false;
+    assignment::RasterFluxResult flux;
     QVector<double> values;
     QMap<QString,QByteArray> fingerprints;
     QString error,summary;
@@ -77,6 +79,7 @@ private:
  bool m_havePreview=false,m_committing=false;
  QFutureWatcher<WorkResult>*m_watcher=nullptr;
  QComboBox *m_target=nullptr,*m_route=nullptr,*m_scopeChoice=nullptr,*m_source=nullptr,*m_sampling=nullptr;
+ QComboBox *m_densityUnits=nullptr,*m_coverage=nullptr;
  QComboBox *m_species=nullptr,*m_zone=nullptr,*m_distribution=nullptr,*m_flowSeries=nullptr;
  QLineEdit *m_sourceName=nullptr;
  QWidget *m_transportControls=nullptr,*m_sourceControls=nullptr;

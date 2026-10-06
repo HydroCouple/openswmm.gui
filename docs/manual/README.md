@@ -125,3 +125,8 @@ work. Source-discovered capability coverage is kept in the local
 `workplans/DOCUMENTATION_COVERAGE.json`, refreshed with `manual_coverage.py`.
 A source inventory or screenshot does not establish that an entire workflow
 has been executed and saved successfully.
+
+The initial screenshot milestone uses written procedures instead of unproduced
+video embeds. `media_dispositions.json` records each removed embed and its
+retained procedure. Required screenshots remain in the figure backlog; removing
+a video placeholder does not certify the associated workflow.

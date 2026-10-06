@@ -22,6 +22,7 @@
 #define OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 
 #include "io/mesh2dscalarframe.h"
+#include "render/resultscalargeometry.h"
 #include "io/mesh2dlivevariables.h"
 #include "io/mesh2dh5reader.h"       // openswmmvis::io::CoordinateReference
 #include "layers/openswmmvislayer.h"
@@ -638,6 +639,9 @@ public:
     bool removeResultSublayer(const QString &id);
     void prepareSublayersJsonLoad(const QJsonObject &) override;
 
+    std::shared_ptr<const OpenSWMM::Render::ResultScalarGeometry> resultScalarGeometry(
+        const std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> &frame,
+        const std::vector<double> &levels,bool labels) const;
     quint64 sourceRevision() const noexcept { return source_revision_; }
     IMesh2DSource* source() noexcept { return source_.get(); }
     const IMesh2DSource* source() const noexcept { return source_.get(); }
@@ -1265,6 +1269,14 @@ private:
     double                         max_velocity_         = 1.0;    // m/s, auto-grown
     bool                           max_velocity_user_set_ = false;
 
+    struct ScalarGeometryCache {
+        std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> frame;
+        std::vector<double> levels;
+        bool labels=false;
+        quint64 geometry=0;
+        std::shared_ptr<const OpenSWMM::Render::ResultScalarGeometry> output;
+    };
+    mutable QVector<ScalarGeometryCache> m_scalarGeometryCache;
     SWMM2DResultsGraphicsItem*     graphics_item_    = nullptr;
     SWMM2DVelocityArrowsItem*      arrows_item_      = nullptr;
 

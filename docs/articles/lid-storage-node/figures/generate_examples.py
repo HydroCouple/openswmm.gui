@@ -1,7 +1,11 @@
 """Generate the self-contained T10 decks. Run from any directory."""
 from pathlib import Path
+import argparse
 ROOT = Path(__file__).resolve().parents[4]
 DEST = ROOT / 'docs/manual/tutorials/models/lid_active_chain'
+p=argparse.ArgumentParser();p.add_argument('--richards',action='store_true');p.add_argument('--cells',type=int,default=8);p.add_argument('--atol',type=float,default=1e-7);p.add_argument('--rtol',type=float,default=1e-5);p.add_argument('--destination',type=Path);a=p.parse_args()
+if a.richards:DEST=ROOT/'docs/manual/tutorials/models/lid_richards_chain'
+if a.destination:DEST=a.destination
 DEST.mkdir(parents=True, exist_ok=True)
 BASE = '''[TITLE]
 Chained storage-node LIDs: {case}
@@ -149,5 +153,10 @@ AND ORIFICE V_BR SETTING = 0
 PRIORITY 10''', HIGH, REPEAT),
 }
 for name, (controls, tailwater, pulse) in CASES.items():
-    (DEST / f'{name}.inp').write_text(BASE.format(case=name, controls=controls, tailwater=tailwater, pulse=pulse))
+    deck=BASE.format(case=name, controls=controls, tailwater=tailwater, pulse=pulse)
+    if a.richards:
+        rows=f'[LID_RICHARDS]\n; Explicit illustrative properties; alpha and Ss are inverse metres in US and SI.\nTrain OPTIONS {a.cells} {a.atol:g} {a.rtol:g} 30\nTrain 2 .03 4 1.8 .5 .0001\nTrain 3 .01 20 2.5 .5 .0001\n'
+        deck=deck.replace('[LID_NODES]',rows+'[LID_NODES]').replace('Chained storage-node LIDs:','Richards 1D chained storage-node LIDs:')
+        deck=deck.replace('IF NODE B HEAD > 1.25','IF NODE B HEAD > 2.25').replace('IF NODE B HEAD > 1.05','IF NODE B HEAD > 2.05').replace('AND NODE B HEAD < 1.05','AND NODE B HEAD < 2.05')
+    (DEST / f'{name}.inp').write_text(deck)
 print(f'Generated {len(CASES)} decks in {DEST}')

@@ -71,7 +71,8 @@ struct AquiferPreview {
     QVector<double> oldValues,newValues;
     QString target,error;
 };
-AquiferPreview previewAquiferAssignment(const AquiferRequest &);
+// A true cancellation callback discards all actionable rows; engine state is untouched.
+AquiferPreview previewAquiferAssignment(const AquiferRequest &, std::function<bool()> cancelled={});
 // Append-only transaction: original authored records remain byte-for-byte in
 // engine storage. Undo removes only a verified, unchanged appended suffix.
 // The optional hook injects a failure before a numbered write for regression.

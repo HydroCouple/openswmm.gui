@@ -68,7 +68,8 @@ struct GroundwaterTransportPreview {
     QVector<int> cells,skippedCells;
     QString error;
 };
-GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTransportRequest &);
+// A true cancellation callback returns an error with after == before.
+GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTransportRequest &, std::function<bool()> cancelled={});
 struct GroundwaterTransportResult {
     bool success=false,changed=false,rollbackComplete=true;
     QString error;

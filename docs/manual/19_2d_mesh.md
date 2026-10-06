@@ -31,7 +31,6 @@ the `.inp` — inline, or into a sibling `.2dm` file referenced by
 The **Mesh 2D** ribbon tab and its actions are contextual — they appear when
 the project has a 2D mesh. None of these commands carry a default shortcut.
 
-\videotodo{From a DTM raster to a generated coupled mesh with boundary conditions}
 
 ## Step-by-step
 
@@ -570,9 +569,11 @@ For a consistent spatial workflow, choose **Model → Assign Groundwater…**:
    a mesh tag, explicit 1-based cell numbers or a polygon in mesh coordinates.
 2. Choose an aquifer property, initial water state, **Initial species
    concentration — SAT / UNSAT**, or **Add injection / extraction sources**.
-3. Choose **Manual constant**, **Feature layer** or **Raster**. Spatial inputs
-   sample cell centroids. Supply the vector numeric field or raster band and
-   any explicit scale/offset. Source and mesh coordinate systems must be known.
+3. Choose **Manual constant**, **Feature layer** or **Raster**. Property and
+   per-cell flow inputs sample cell centroids. For raster water flux density,
+   choose the conservative meaning and explicitly select m/s, mm/h, m/day or
+   in/h. Supply the numeric field or raster band and any scale/offset. Source
+   and mesh coordinate systems must be known.
 4. Choose **Preview**, inspect values, units and totals, then **Apply reviewed
    values**. Preview does not edit the model. A changed selection, model or
    source file invalidates the reviewed batch. Apply creates one undo operation.
@@ -581,9 +582,23 @@ Property and initial-state inputs do not create a continuing flow. Source flow
 is signed **m³/s**: positive values inject, negative values extract available
 water and its in-situ dissolved quality. A manual constant or named time series
 can represent each cell's flow or a total distributed by selected cell area.
-Feature/raster flow values are **per-cell rates**; raster flux density is not
-integrated over cell area. Spatial region-total and time-series assignments
-are refused rather than interpreted implicitly.
+Feature/raster **per-cell rate** values retain that meaning. Raster **flux
+density** instead integrates each original pixel's overlap with each cell and
+converts the area to m², producing per-cell m³/s. Preview reports valid and
+uncovered area and total flow. Complete coverage is the default; the explicit
+valid-area policy excludes NoData/outside portions without renormalizing the
+remaining flow. Cells with no valid coverage also require the explicit
+preserve-NoData choice.
+
+Conservative density integration requires equivalent projected raster and mesh
+CRSs and convex triangle/quad cells. Declared projected foot units and rotated
+rasters are supported. Geographic/different projections are refused; prepare the
+raster in the mesh CRS first and review the resampling method. Opposite-sign
+nonzero densities within one cell are refused: netting injection and extraction
+would lose their separate species exchange. Use separate same-sign assignments
+when both processes must act on the same cell. Distinct positive and negative
+cells remain supported. Spatial region-total and time-series assignments are
+refused rather than interpreted implicitly.
 
 Source **CONC** terms use each species' native concentration units. Pollutant
 **MASS** uses native mass/s; unresolved species mass dimensions are refused.

@@ -37,6 +37,16 @@ bool openFixture(Engine &engine,const QString &name)
 class TestGroundwaterTransportAssignment:public QObject {
     Q_OBJECT
 private slots:
+    void cancellationLeavesNoActionablePreview_data() {
+        QTest::addColumn<bool>("source");QTest::newRow("initial-quality")<<false;QTest::newRow("sources")<<true;
+    }
+    void cancellationLeavesNoActionablePreview() {
+        QFETCH(bool,source);auto r=request();if(source)r.target=GroundwaterTransportTarget::Source;
+        int polls=0;const auto p=previewGroundwaterTransport(r,[&]{return ++polls==4;});
+        QCOMPARE(p.error,QString("Cancelled."));QVERIFY(p.cells.isEmpty());QVERIFY(p.after==r.before);
+        polls=0;const auto valid=previewGroundwaterTransport(r,[&]{++polls;return false;});
+        QVERIFY2(valid.error.isEmpty(),qPrintable(valid.error));QVERIFY(polls>=4);QCOMPARE(valid.cells.size(),2);
+    }
     void regionTotalPreservesFlowAndMassButNotConcentrationScaling()
     {
         auto r=request(); r.target=GroundwaterTransportTarget::Source;

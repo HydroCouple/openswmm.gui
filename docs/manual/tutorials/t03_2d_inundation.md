@@ -1,94 +1,76 @@
 @page tutorial_2d_inundation T3 — From a DTM to an Animated 2D Inundation Map
 
-## Example availability
-
-The Snoopy Lagoon files described below are historical demo assets and are not tracked in this repository. This walkthrough requires that separate bundle, a GDAL-readable terrain raster and newly generated results. A fresh checkout cannot reproduce it as written. Start with the tracked 2D boundary example in \ref tutorial_2d_boundaries for an available model; the Snoopy terrain and mesh still need to be prepared before these steps can be verified.
+Download the portable inputs: [terrain_bowl.inp](terrain_bowl.inp), [terrain_bowl.asc](terrain_bowl.asc), [terrain_bowl.prj](terrain_bowl.prj), [terrain_bowl_domain.geojson](terrain_bowl_domain.geojson).
 
 ## Goal
 
-Take the Snoopy Lagoon demo — a parabolic bowl that fills under a short storm
-and drains through a single coupled junction — and turn it into an animated
-inundation map. You will open the project, look at the terrain and the mesh,
-style both, load or produce 2D results, animate depth, pull a time series out
-of one cell, cut a profile across the bowl, and read the 2D side of the mass
-balance. Along the way you will see how the mesh would be built from scratch
-with the mesh generator.
+Use the repository's synthetic terrain bowl to inspect a raster and an inline
+mesh, run a coupled surface/drain model, style depth, compare cell time series,
+and read the mass-balance report. The terrain is a teaching surface, not a
+surveyed site. The original Snoopy Lagoon bundle has been replaced with inputs
+that can be regenerated from a fresh checkout.
 
-\videotodo{Opening the Snoopy Lagoon project — styling the mesh — animating 2D depth across the bowl}
+## Files and geometry
 
-## Capabilities exercised
+Copy these files from `docs/manual/tutorials/models/` into a working folder:
 
-`.oswp` projects · raster layers · the 2D mesh layer and its style panel ·
-mesh attribute tables · the mesh generator · Simulation Options →
-2D Surface Routing · `Add 2D Results…` · results playback · the 2D results
-style panel · 2D cell time series · 2D mesh profiles · the 2D continuity
-ledger.
+| File | Purpose |
+|---|---|
+| `terrain_bowl.inp` | Complete model, including 81 vertices, 128 triangles and the coupling map |
+| `terrain_bowl.asc` | GDAL-readable ESRI ASCII terrain grid, 240 × 240 one-metre cells |
+| `terrain_bowl.prj` | Raster coordinate-system companion; keep beside the ASCII grid |
+| `terrain_bowl_domain.geojson` | Projected square boundary for generating an alternative mesh |
 
-## Files
+The mesh covers a 200 × 200 m square. Its bed is
+`97 + 3 × min((x² + y²)/10000, 1)` metres: the centre is 97 m and the
+perimeter is 100 m. Vertex 40 at (0, 0) couples to `J1`, with Cd 0.65 and
+exchange area 0.5 m². `J1` has invert 96.5 m and maximum depth 0.5 m;
+its rim matches the centre vertex. Four 0.6 m pipes lead to free outfall
+`OUT1` at (130, 0), invert 95.5 m. Flow units are CMS; coordinates and bed
+elevations are metres. The boundaries are walls. Both the model and terrain use
+EPSG:3857 for consistent display of this synthetic geometry near the origin;
+the coordinates do not identify a real site. Keep `terrain_bowl.prj` beside the
+ASCII grid.
 
-| File | What it is |
-| ---- | ---------- |
-| `examples/demo_snoopy_lagoon/snoopy.oswp` | The SWMMVis project — **open this one** |
-| `examples/demo_snoopy_lagoon/snoopy.inp` | The SWMM input file |
-| `examples/demo_snoopy_lagoon/snoopy.2dm` | The external mesh — 81 vertices, 128 triangles |
-| `examples/demo_snoopy_lagoon/snoopy_dtm.npz` | A synthetic DTM grid as a NumPy archive |
-| `examples/demo_snoopy_lagoon/snoopy.2d.h5` | Historical 2D results — 474 steps over 4 hours, 128 cells |
-| `examples/demo_snoopy_lagoon/snoopy.rpt` | Historical report from a **1D-only** run |
-| `examples/demo_snoopy_lagoon/gen_demo.py` | The generator that produced the geometry |
+One rain gage applies 20 mm/h directly to the mesh for an hour, then zero.
+There are no subcatchments, infiltration or evaporation. The four-hour run
+reports every 30 seconds. Do not add the same surface area as a rain-fed
+subcatchment: that would count its rainfall twice.
 
-The terrain is a parabolic bowl 100 m in radius, deepest at the centre at
-z = 97.0 m and rising to z = 100.0 m at the rim. Junction `J1` sits at the
-centre with an invert of 96.5 m and a max depth of 0.6 m; a chain of four
-0.6 m circular conduits `C1`–`C4` runs 130 m east to the free outfall `OUT1`
-at 95.5 m. Flow units are `CMS`, map units are metres, routing is `DYNWAVE`,
-and the run is four hours with a 30-second report step.
+To regenerate both files, run `python3 scripts/generate_manual_terrain_examples.py`
+from the repository root. To make disposable copies and run them with a selected
+engine, use `scripts/prepare_manual_fixtures.py --case bowl --output <new-folder>
+--engine <OpenSWMM-executable>`.
 
-Two facts about this example matter before you start.
-
-**The mesh is attached through the project, not the `.inp`.** The historical
-`snoopy.inp` contains **no `[2D_*]` sections and no `[2D_MESH_FILE]`
-reference**. What ties `snoopy.2dm` to the model is the `meshLayers` entry in
-`snoopy.oswp`. If you open the `.inp` on its own you get a bare 1D network;
-if you open the `.oswp` you get the mesh layer as well. That is also why the
-historical `snoopy.rpt` is an all-zero **1D-only** report — with no rain gage
-attached to any subcatchment (there are none) and no 2D mesh reachable from
-the `.inp`, the engine had nothing to route.
-
-**The DTM is a `.npz`, not a raster SWMMVis can open.** `snoopy_dtm.npz` is a
-NumPy archive holding `x` (341 values), `y` (241 values) and a
-241 × 341 float32 `z` grid spanning x = −120…220 m, y = −120…120 m at 1 m
-spacing, with elevations from 97.0 to 100.0 m. **Add Raster Data** goes
-through GDAL, whose filter list covers GeoTIFF, ESRI ASCII grid, Erdas
-Imagine, SRTM, USGS DEM, ENVI, NetCDF, HDF5 and friends — but not `.npz`. To
-follow the raster steps below, convert it once, for example with `rasterio` or
-`gdal_translate` after writing an intermediate ASCII grid, and keep the result
-as `snoopy_dtm.tif`. (`gen_demo.py` was originally written to emit a GeoTIFF;
-the historical artefact is the `.npz`.)
+The native settings, report, fixed-range depth map and velocity overlay have
+been checked against these inputs. The raster and boundary are verified to load from a saved working sidecar.
+Manual import, mesh generation, cell picking, playback
+controls and profile sequence still need an interactive walkthrough. The map
+capture selects a known output frame through the real timeline control.
 
 ## Steps
 
-### 1. Open the project
+### 1. Open the model
 
 **File → Open…** (`Ctrl+O`) → **Open SWMM Model or Project** →
-`examples/demo_snoopy_lagoon/snoopy.oswp`.
+`terrain_bowl.inp`.
 
 The 1D network — five nodes in a line running east from the bowl centre —
-draws on the canvas, and the **Layers** panel gains a mesh layer sourced from
-`snoopy.2dm`. Because a mesh layer is on the canvas, the contextual
+draws on the canvas, and the **Layers** panel gains a mesh layer built from the inline
+vertices and triangles. Because a mesh layer is on the canvas, the contextual
 **Mesh 2D** ribbon tab appears, with the groups **Mesh**, **Cell Data**,
 **Groundwater (2D)**, **Vertices**, **Edges**, **2D Results**, **Profile**
 and **Coupling**.
 
-\figtodo{t03_project_open.png, The Snoopy Lagoon project with the mesh layer and the 1D network}
+\fig{t03_project_open.png, The portable terrain bowl model with the mesh layer and the 1D network}
 
 ### 2. Add the DTM as a raster layer and style it
 
-Once you have a GDAL-readable copy of the terrain (see above):
+The supplied `terrain_bowl.asc` can be opened directly:
 
 1. **File → Import → Add Raster Data** (ribbon **Home → Import → Raster
    Data**) opens **Add Raster Layer**. The first filter entry is
-   **All supported (…)**; **GeoTIFF / COG (\*.tif \*.tiff)** is the one you
-   want here.
+   **All supported (…)**; choose the ASCII-grid filter for `terrain_bowl.asc`.
 2. Right-click the new layer in the **Layers** panel → **Properties…** to open
    *layer name — Layer Properties*, and go to the **Symbology** tab. Its **Layer
    type** on the **Information** tab reads **Raster / DEM**.
@@ -110,7 +92,7 @@ terrain-friendly ramp such as **terrain**, or switch to **Classified** with
 elevation bands, then enable relief shading with a **Z factor:** of 5 or more.
 A 3 m bowl over 200 m is a very gentle dish; without exaggeration it looks flat.
 
-\figtodo{t03_raster_style.png, The raster symbology editor with an auto-stretched ramp and hillshade enabled}
+\fig{t03_raster_style.png, The loaded terrain raster symbology with its 97–100 metre range and relief shading enabled}
 
 The **Terrain** ribbon tab appears once a raster is loaded, with an
 **Active Terrain** group (a combo listing `(none)` and every raster), a
@@ -148,7 +130,7 @@ Colour by **Manning's n** to confirm the whole bowl is 0.035.
 
 Turn on **Coupled Nodes** to see the single coupled vertex at the bowl centre.
 
-\figtodo{t03_mesh_style_panel.png, The mesh style panel on the Terrain Fill tab}
+\fig{t03_mesh_style_panel.png, The mesh style panel on the Terrain Fill tab}
 
 \figtodo{t03_mesh_elevation.png, The mesh coloured by bed elevation with hillshade and the wireframe visible}
 
@@ -166,10 +148,9 @@ straight to Vertices.
 | **Edges** | `Edge`, `Boundary`, `Length (map units)`, `Conveyance`, `Stage`, `Bed Slope`, `Flow`, `Time Series`, `Rating Curve`, `Group` |
 | **Cells** | `Index`, `Area (map units²)`, `Centroid X`, `Centroid Y`, `Tag`, then one column per cell parameter — `Manning's n`, `Initial Depth`, `Infiltration Method` and the rest |
 
-Sort **Vertices** by `Elevation` and the deepest row — index 0 at (0, 0),
-z = 97.0 m — is the one carrying `Coupled Node` = `J1`, `Coupling Cd` = 0.65
-and `Coupling Area` = 1.0. The vertices sit on five rings at radii 0, 25, 50,
-75 and 100 m.
+Sort **Vertices** by `Elevation`. The lowest vertex is index 40 at (0, 0),
+z = 97 m, coupled to `J1`. The vertices form a regular 9 × 9 grid at 25 m
+spacing; each square is split into two triangles.
 
 The toolbar has **Show selected only**, **Zoom to selected**, **Copy
 (Ctrl+C)**, **Export CSV…**, a **Selection:** mode group (**Replace**,
@@ -192,24 +173,24 @@ On **Sources**:
 
 | Control | Note |
 | ------- | ---- |
-| **DTM raster:** | `(none — use junction rim elevations)` or any loaded raster — pick the converted DTM |
+| **DTM raster:** | `(none — use junction rim elevations)` or any loaded raster — pick `terrain_bowl.asc` |
 | **DTM vertical unit:** | read-only, derived from the raster |
 | **Mesh vertical unit:** | **Match flow units (auto-convert)**, **Metres (m)** or **Feet (ft)** |
 | **Z conversion (×):** | a manual scale on top of that |
 | **Domain:** | read-only — always the model extent |
 | **Boundary polygon:** | `(none)`, **Use SWMM subcatchment polygons**, or any loaded polygon layer |
 | **Constraining points / lines** | checkable lists of point and line layers, each with a **use Z** option |
-| **Junctions / outfalls / storage → Steiner vertices** | forces a mesh vertex at each node — this is what put vertex 0 exactly on `J1` |
+| **Junctions / outfalls / storage → Steiner vertices** | forces mesh vertices at the nodes when generating an alternative mesh |
 | **Conduits → constraint segments**, **Subcatchments → triangle regions** | the 1D-geometry influence group |
 | **Map model nodes to the mesh after generation** | the 1D ↔ 2D coupling checkbox |
 | **Method:** | **Inverse distance weighting (IDW)** or **Natural neighbour**, used only when there is no DTM |
 
-There is **no "draw a boundary polygon" tool and no "bowl" preset** — the
-domain is always the model extent, and the only way to restrict it is to load
-a polygon layer and choose it in **Boundary polygon:**. For this demo the
-bowl's own rim is the natural boundary, so digitise a 100 m circle as a
-shapefile or GeoPackage polygon, load it with **File → Import → Add Vector
-Data**, and select it there.
+The existing mesh is already inline in the input. To generate an alternative,
+import `terrain_bowl_domain.geojson` with **Home → Import → Vector Data**,
+then choose **Terrain bowl boundary** in the boundary combo (the imported layer
+name may differ until renamed). The polygon spans (-100, -100) to (100, 100).
+You can also create the same polygon with the **Features** ribbon. The generator will produce a different triangulation; do not
+expect its indices or numerical result to match the supplied grid.
 
 **Quality** carries **Max triangle area:**, **Min angle:**, **Size
 gradation:**, **Max Steiner points:** and the **Minimum Cell Size** group
@@ -217,10 +198,10 @@ gradation:**, **Max Steiner points:** and the **Minimum Cell Size** group
 (**Roughness (Manning's n):** = 0.035 here, **Initial depth:**) and a
 region-defaults table.
 
-The footer chooses **Output:** — **External .2dm** (what this example uses) or
+The footer chooses **Output:** — **External .2dm** (what an external-mesh alternative uses) or
 **Inline in .inp** — with a **Mesh file:** path, then **Generate**.
 
-\figtodo{t03_mesh_generation_sources.png, The Generate 2D Mesh dialog on the Sources tab with a DTM selected}
+\fig{t03_mesh_generation_sources.png, The Generate 2D Mesh Sources tab with the bowl raster and explicit square boundary selected}
 
 After generation, the **Mesh 2D → Coupling** group's **Auto-couple** button
 couples mesh vertices to coincident SWMM nodes, and **Remap 1D↔2D** clears
@@ -237,13 +218,9 @@ appear once the vertex is coupled.
 **Modules** group has a **2D Surface Routing** checkbox; the **2D Surface
 Routing** category in the left-hand list is greyed until it is ticked.
 
-On the **Mesh** page you will see the search directory, the list of `.2dm`
-files found beside the project, and **Set Active**, **Remove**, **Import…**
-and **Refresh**. Because `snoopy.inp` has no mesh reference, the summary line
-reads *Active mesh reference: &lt;none — generate a 2D mesh first&gt;*.
-Selecting `snoopy.2dm` and pressing **Set Active** writes the
-`[2D_MESH_FILE]` block into the `.inp`, which is what makes the mesh visible
-to the engine as well as to the canvas.
+This input already contains the mesh and `[2D_OPTIONS]`; no external `.2dm`
+selection is required. The **Mesh** page is useful when choosing an external
+mesh for a different model. Leave this tutorial's inline mesh unchanged.
 
 The **2D Surface Routing** page maps one-to-one onto `[2D_OPTIONS]`. Its five
 tabs are **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
@@ -272,33 +249,24 @@ and **Performance & Output**; the groups below sit on them in that order:
 | Output | **Write 2D results to output (REPORT_2D)** | `REPORT_2D` |
 | | **2D results file:** with **Browse…** | `OUTPUT_FILE` |
 
-**Rainfall mode:** is the control that matters most for this demo. `snoopy.inp`
-has **no subcatchments** — `GAGE1` feeds nothing in 1D. The bowl fills only
+**Rainfall mode:** is the control that matters most for this demo. `terrain_bowl.inp`
+has **no subcatchments** — `RAIN` feeds nothing in 1D. The bowl fills only
 because rain falls directly on the mesh, which is what `RAINFALL_MODE` decides.
 With **None (no direct rainfall)** nothing happens at all.
 
-\figtodo{t03_sim_options_2d.png, The 2D Surface Routing page of Simulation Options}
+\fig{t03_sim_options_2d.png, The 2D Surface Routing page of Simulation Options}
 
-### 7. Run, or load the historical results
+### 7. Run and retain the outputs
 
-**Analysis → Execute** (`Ctrl+R`) runs the model. If 2D Surface Routing is
-enabled but no mesh resolves from the `.inp`, SWMMVis stops with the
-**2D mesh not found** dialog — *The simulation will run as 1D-only … Continue
-with a 1D-only run?* — which is precisely the state a freshly opened
-`snoopy.inp` is in until you press **Set Active** on the Mesh page. When 2D is
-enabled and a mesh does resolve but `[2D_OPTIONS]` has no `OUTPUT_FILE`,
-SWMMVis defaults it to `<model>.2d.h5` so the run leaves something scrubbable
-on disk.
+**Analysis → Execute** (`Ctrl+R`) runs the model. Confirm **2D Surface Routing**
+is enabled and **Performance & Output → Write 2D results** is checked. The input
+sets `OUTPUT_FILE terrain_bowl.2d.h5`. Keep the `.inp`, `.rpt`, `.out` and `.2d.h5`
+together. The checked run contains 480 frames on 128 cells, from 00:00:30 to
+04:00:00.
 
-To skip the run entirely, load the results that ship with the example:
-**File → Import → Add 2D Results…** (ribbon **Home → Import → 2D Results**)
-opens the **Add 2D Results** dialog with the filter
-`OpenSWMM 2D Results (*.h5)`. Pick `snoopy.2d.h5`. A 2D results layer joins
-the **Layers** panel, and the **Mesh 2D** tab's **2D Results** group becomes
-usable.
-
-The historical `snoopy.2d.h5` holds **474 time steps over the full four
-hours** on **128 cells**.
+To reload the surface results, use **Home → Import → 2D Results** and choose
+`terrain_bowl.2d.h5` in **Add 2D Results**. Import results from this same geometry;
+matching filenames alone does not establish compatibility.
 
 \figtodo{t03_add_2d_results.png, The Add 2D Results file dialog}
 
@@ -308,7 +276,7 @@ Everything below is on the **Results** ribbon tab.
 
 1. **Set Style** opens the 2D results style panel. Its tabs are **Cell Depth
    Fill**, **Smooth Depth Fill**, **Depth Contours**, **Depth Isolines**,
-   **Flow Velocity**, **Mesh Edges** and **Mesh Vertices**.
+   **Flow Velocity**, **Mesh Edges**, **Mesh Vertices** and **Additional Results**.
 2. Tick **Show cell depth fill** (or **Show smooth depth fill** for a
    marching-triangle interpolation instead of flat cells). The **Attribute:**
    combo on both offers exactly **Depth** and **Elevation** — there is no
@@ -318,38 +286,47 @@ Everything below is on the **Results** ribbon tab.
    locks the ramp to the whole run's extremes, **Per-frame auto-stretch**
    rescales every frame, and **Fixed (user range)** lets you type **Min:** and
    **Max:**. On this dataset the maximum depth anywhere at any time is
-   **0.018 m** — 18 mm — so an automatic 0–1 m ramp shows nothing. Use a fixed
-   user range of 0 to 0.02 m.
+   **0.0956 m** — about 96 mm — so an automatic 0–1 m ramp shows nothing. Use a fixed
+   user range of 0 to 0.10 m.
+Disable **Depth Contours** when using **Cell Depth Fill**, so a second fill
+   does not obscure the selected ramp. The native screenshots use a fixed user
+   range of 0–0.10 m. If an automatic legend says **Range unavailable**, choose
+   that explicit range before interpreting the colours.
 4. The classification's automatic range runs from the run's dry depth up to
    its maximum depth; the dry depth itself is shown read-only on the layer's
    **Metadata** tab as **Dry depth**, beside **Vertices**, **Cells
    (triangles)**, **Time steps**, **Time range** and **Velocity flux**.
 5. **Show Legend** puts the ramp on the canvas.
 6. In the **Timeline** group, scrub with the slider, set **Window:** (minutes)
-   for the look-back band, read or type the time in the `MM/dd/yyyy hh:mm`
+   for the look-back band, read the cursor time in the `MM/dd/yyyy hh:mm`
    box, choose a **Speed:** (0.25× … 8×) and leave **Cycle** ticked.
 7. **Play**. The **Display** group's **Live 2D** and **Live 1D** checkboxes
    control whether a *running* simulation streams into the canvas; for a
    loaded `.h5` they are irrelevant.
 
-The bowl wets from the rim inward as the 30-minute pulse falls, reaches its
-maximum around **00:08**, and drains through `J1` for the rest of the run;
-at the peak **127 of the 128 cells** carry more than a millimetre of water.
+Rain wets the entire mesh, then gravity moves water toward the centre drain.
+The checked run reaches its largest cell depth, about 0.0956 m, at 00:56:30.
+The native date display uses this machine's local timezone: the capture shows
+12/31/2023 19:56 for 01/01/2024 00:56 UTC model time. Compare output frame
+indices and report times when checking the same state on another machine.
+After four hours, 77 cells still exceed 1 mm depth. Flat-cell closure leaves
+thin films on the sloping bed; do not interpret every coloured cell as a
+continuous, level pool.
 
 On the **Flow Velocity** tab, tick **Show velocity vectors** to overlay
 arrows, sized by **Length scaling:** (**Linear**, **Square root** or
 **Logarithmic**), **Scale:** (px per m/s), **Min length:**, **Max length:**,
 **Head size:** and **Shaft width:**, coloured by magnitude or a single colour,
-and thinned with **Spacing:** and **Dry depth cutoff:** — the last is the only
-dry-depth control in the styling UI, and it suppresses arrows below the depth
-you set. On an 18 mm dataset set it to a millimetre or less or you will see no
+and thinned with **Spacing:** and **Dry depth cutoff:** — the vector cutoff suppresses arrows below the depth you set. The shared
+**Water visibility** controls above the tabs separately control model dry depth
+and thin-film visibility without changing the computed results. For this shallow dataset set it to a millimetre or less or you will see no
 arrows at all.
 
-\figtodo{t03_results_style_panel.png, The 2D results style panel on the Cell Depth Fill tab}
+\fig{t03_results_style_panel.png, The 2D results style panel on the Cell Depth Fill tab}
 
-\figtodo{t03_animation_peak.png, The bowl at maximum inundation with the depth ramp and legend}
+\fig{t03_animation_peak.png, The bowl at maximum inundation with the depth ramp and legend}
 
-\figtodo{t03_velocity_vectors.png, Velocity vectors over the draining bowl}
+\fig{t03_velocity_vectors.png, Velocity vectors over the draining bowl}
 
 ### 9. A time series from one cell
 
@@ -368,8 +345,8 @@ Entries the results file cannot supply are disabled with a tooltip.
 
 The series opens in the **Comparison Plot**, the same window the 1D time
 series use — there is no separate cell-time-series window. Pick a rim cell and
-a centre cell and plot both depths together: the rim wets first and dries
-first, the centre lags and holds water longest.
+a centre cell and plot both depths together: compare their timing and residual depths rather than assuming a particular
+wetting order. Both receive the same direct rainfall.
 
 \figtodo{t03_cell_timeseries.png, Depth time series for a rim cell and a centre cell in the Comparison Plot}
 
@@ -414,28 +391,36 @@ A 2D run adds these blocks to the ordinary 1D ones:
 | `2D Solver Statistics` | `Internal Steps`, `Face-Kernel Evals`, `Avg Internal Step (s)`, `Last Internal Step (s)`, active-cell percentages and per-tier LTS occupancy |
 | `1D <-> 2D Exchange Reconcil.` | `1D -> 2D Spill`, `2D -> 1D Drain`, `Net 1D -> 2D`, and `Flow Continuity w/ Exchange Internal (%)` |
 
-For this model the interesting rows are `Rainfall Inflow` — every drop that
-enters the system, since there are no subcatchments — and
-`2D -> 1D Drain Outflow`, the water leaving the bowl through the coupled
-vertex into `J1`. In the historical `snoopy.2d.h5` the coupling flux at the
-centre cell peaks at about **−0.0024 m³/s** (negative meaning 2D draining into
-1D), which is what that ledger row integrates.
+The checked October 2 run gives:
 
-The historical `snoopy.rpt` has **none of these blocks** — it is a 1D-only run
-with every row zero, `Rainfall/Runoff ........ NO`, and a 0.000 % continuity
-error. `snoopy_fresh.rpt` beside it is the same run reported in SI units, with
-one extra line: `WARNING 02: maximum depth increased for Node J1.` The Report
-Viewer shows a banner when continuity exceeds 10 %.
+| Check | Reference value |
+|---|---:|
+| Rainfall inflow | 800.000 m³ |
+| Drain from 2D to 1D | 726.063 m³ |
+| Final surface storage | 73.937 m³ |
+| 2D continuity error | −0.000% at report precision |
+| Ordinary 1D continuity error | 0.002% |
+| Internal 2D steps | 14,400 |
 
-\figtodo{t03_mass_balance_2d.png, The Report Viewer on the 2D Surface Routing Continuity block}
+`800 − 726.063 = 73.937` closes the surface ledger. The output depth times
+cell area independently gives about 73.937 m³ at the final frame. The report
+also warns that the exchange area exceeds the largest connected pipe area;
+this is a deliberately generous central drain, not a calibrated inlet.
+
+The current report's **Flow Continuity w/ Exchange Internal (%)** is unreliable
+for this rain-fed surface case: it produces a very large negative percentage.
+Use the ordinary 1D ledger and the explicit 2D volume equation above; do not
+quote that reconciliation percentage as the combined system's conservation.
+
+\fig{t03_mass_balance_2d.png, The Report Viewer on the 2D Surface Routing Continuity block}
 
 ## What to look for
 
-- **Fixed classification ranges.** With an 18 mm maximum, a per-frame stretch
+- **Fixed classification ranges.** With a 96 mm maximum, a per-frame stretch
   turns numerical noise into a flood. Fix the range once and leave it.
 - **Where the water is deepest.** The bowl centre holds water longest because
   it is the only outlet, and the outlet is a 0.6 m pipe through a junction
-  whose max depth is 0.6 m.
+  whose max depth is 0.5 m.
 - **The coupled vertex.** Turn on the **Coupled Nodes** tab in the mesh style
   panel: exactly one vertex should be marked. Every drop that leaves the
   surface goes through it.
@@ -466,17 +451,16 @@ three values and re-run:
 
 Regenerate the mesh with a tighter **Max triangle area:** or a smaller
 **Minimum cell size:** on the **Quality** tab of **Generate 2D Mesh**. Finer
-cells resolve the rim's wetting front better and raise the peak depth, at a
-quadratic cost in cells and a linear one in time steps. Compare the same cell
+cells change the terrain approximation and computation cost; peak depth may
+increase or decrease. Compare the same cell
 location's depth series across the two runs in one Comparison Plot.
 
 ### CFL number
 
 **Simulation Options → 2D Surface Routing → Hydrodynamics → CFL number:**
 governs the explicit
-marcher's stability. Lower it (0.5, 0.3) and the run slows but the 2D
-continuity error should shrink; raise it and watch the error grow and
-eventually the depth field go ragged. `2D Solver Statistics` in the report
+marcher's stability. Try 0.5 and 0.3 and compare runtime, depths and continuity. A smaller CFL
+number does not guarantee a smaller mass-balance error. `2D Solver Statistics` in the report
 tells you what it cost — `Internal Steps` and `Avg Internal Step (s)`.
 
 Related knobs on the same page: **Max timestep:**, **Movement threshold:**

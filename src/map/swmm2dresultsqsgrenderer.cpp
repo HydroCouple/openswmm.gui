@@ -29,6 +29,7 @@
 #include "render/sublayers/velocityvectorsublayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
 #include <QSet>
+#include <QSGOpacityNode>
 
 #include <QFont>
 #include <QFontMetricsF>
@@ -235,9 +236,16 @@ void appendThickSegColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
     out.push_back(v(bx+nx,by+ny)); out.push_back(v(bx-nx,by-ny)); out.push_back(v(ax-nx,ay-ny));
 }
 
+struct ScalarResultNodes : QSGNode {
+    QSGGeometryNode *fill=makeColoredNode();
+    QSGGeometryNode *lines=makeFlatNode(Qt::black);
+    QSGOpacityNode *labels=new QSGOpacityNode;
+    ScalarResultNodes(){appendChildNode(fill);appendChildNode(lines);appendChildNode(labels);}
+    void clearLabels(){while(auto *node=labels->firstChild()){labels->removeChildNode(node);delete node;}}
+};
 struct ResultsRootNode : QSGTransformNode
 {
-    QHash<QString, QSGGeometryNode *> resultScalarNodes;
+    QHash<QString, ScalarResultNodes *> resultScalarNodes;
     QSGGeometryNode *cellFillNode   = nullptr;
     QSGGeometryNode *smoothFillNode = nullptr;
     QSGGeometryNode *bandNode       = nullptr;
@@ -573,7 +581,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         uploadColoredVerts(cellFillNode, empty_c);
         uploadColoredVerts(smoothFillNode, empty_c);
         uploadColoredVerts(bandNode, empty_c);
-        for (auto *node : root->resultScalarNodes) uploadColoredVerts(node, empty_c);
+        for (auto *node : root->resultScalarNodes) {uploadColoredVerts(node->fill, empty_c);uploadFlatVerts(node->lines,empty_p);node->clearLabels();}
         uploadFlatVerts(isoNode, empty_p);
         uploadFlatVerts(isoIndexNode, empty_p);
         while (auto *c = isoLabels->firstChild()) {
@@ -593,7 +601,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             if (!qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) continue;
             currentResultIds.insert(sub->id());
             if (!root->resultScalarNodes.contains(sub->id()))
-                root->resultScalarNodes.insert(sub->id(), makeColoredNode());
+                root->resultScalarNodes.insert(sub->id(), new ScalarResultNodes);
         }
         for (auto it = root->resultScalarNodes.begin(); it != root->resultScalarNodes.end();) {
             if (currentResultIds.contains(it.key())) { ++it; continue; }
@@ -1289,15 +1297,50 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 auto *sub = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base);
                 if (!sub) continue;
                 std::vector<QSGGeometry::ColoredPoint2D> vertices;
+                std::vector<QSGGeometry::Point2D> scalarLines;
+                auto *nodes=root->resultScalarNodes.value(sub->id());nodes->clearLabels();nodes->labels->setOpacity(sub->opacity());
                 std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> presented;
                 if (sub->isVisible() && sub->opacity() > 0) {
-                    const auto &scheme = sub->fillStyle()->scheme();
+                    const auto &scheme = sub->fillStyle()->rangeScheme();
                     const bool wholeRun = !scheme.useCustomRange()
                         && scheme.rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun;
                     const auto scalarFrame = m_layer->resultFrame(sub->variableKey(), frame.key.time, wholeRun);
-                    const auto colors = scalarFrame ? sub->cellColors(*scalarFrame) : QVector<QColor>();
-                    if (!colors.isEmpty()) presented = scalarFrame;
-                    vertices.reserve(visibleCells.size() * 3);
+                    using Presentation=OpenSWMM::Render::ResultScalarStyle::Presentation;
+                    const bool fill=sub->fillStyle()->presentation()==Presentation::Fill;
+                    const auto colors = fill && scalarFrame ? sub->cellColors(*scalarFrame) : QVector<QColor>();
+                    if (scalarFrame && scalarFrame->error.isEmpty()) presented = scalarFrame;
+                    if(!fill && presented) {
+                        const auto *style=sub->fillStyle()->contourStyle();
+                        const bool contours=sub->fillStyle()->presentation()==Presentation::Contours;
+                        const auto levels=contours?sub->fillStyle()->contourLevels(scalarFrame->minimum,scalarFrame->maximum,scalarFrame->samples):std::vector<double>();
+                        const auto geometry=m_layer->resultScalarGeometry(scalarFrame,levels,!contours);
+                        QColor color=style->color();color.setAlphaF(color.alphaF()*sub->opacity());setFlatColor(nodes->lines,color);
+                        const QTransform toScreen(width()/m_extent.width(),0,0,height()/m_extent.height(),
+                            -m_extent.xMin()*width()/m_extent.width(),m_extent.yMax()*height()/m_extent.height());
+                        const auto fromScreen=toScreen.inverted();
+                        for(const auto &line:geometry->contours) {
+                            const auto index=std::lower_bound(levels.begin(),levels.end(),line.level)-levels.begin();
+                            const double lineWidth=style->indexEvery()>0 && (index+1)%style->indexEvery()==0?style->indexWidthPx():style->lineWidthPx();
+                            const auto a=toScreen.map(line.a),b=toScreen.map(line.b);const double length=QLineF(a,b).length();
+                            if(length<=0 || style->dashPattern()==Qt::NoPen)continue;
+                            QPen pen;pen.setStyle(style->dashPattern());const auto dash=pen.dashPattern();
+                            auto segment=[&](double start,double finish){const auto x=fromScreen.map(a+(b-a)*(start/length)),y=fromScreen.map(a+(b-a)*(finish/length));
+                                appendThickSeg(scalarLines,float(x.x()-ox),float(x.y()-oy),float(y.x()-ox),float(y.y()-oy),float(lineWidth*.5*invView));};
+                            if(dash.isEmpty())segment(0,length);
+                            else {double at=0;int part=0;while(at<length){const double next=std::min(length,at+std::max(.1,double(dash[part%dash.size()])*std::max(.1,lineWidth)));if(part%2==0)segment(at,next);at=next;++part;}}
+                        }
+                        if(window() && (!contours || style->labels())) {
+                            QFont font;font.setBold(true);font.setPointSizeF(style->labelFontPt());
+                            const auto labels=OpenSWMM::Render::placeResultScalarLabels(*geometry,toScreen,QRectF(0,0,width(),height()),font,style->labelDecimals(),
+                                scalarFrame->descriptor.unitsKnown?scalarFrame->descriptor.units:QString(),contours);
+                            const double dpr=window()->devicePixelRatio();
+                            for(const auto &label:labels){const auto image=rasteriseLabel(label.text,style->color(),style->labelFontPt(),style->labelHalo(),dpr);
+                                auto *texture=window()->createTextureFromImage(image,QQuickWindow::TextureHasAlphaChannel);if(!texture)continue;
+                                auto *node=new QSGSimpleTextureNode;node->setTexture(texture);node->setOwnsTexture(true);node->setFiltering(QSGTexture::Linear);
+                                node->setRect(fromScreen.mapRect(label.rect).translated(-ox,-oy));nodes->labels->appendChildNode(node);}
+                        }
+                    }
+                    if(fill)vertices.reserve(visibleCells.size() * 3);
                     for (int triangle : visibleCells) {
                         const int cell = cellOfTri(triangle);
                         if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0) continue;
@@ -1315,7 +1358,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                         }
                     }
                 }
-                uploadColoredVerts(root->resultScalarNodes.value(sub->id()), vertices);
+                uploadColoredVerts(nodes->fill, vertices);uploadFlatVerts(nodes->lines,scalarLines);
                 sub->publishPresentedFrame(std::move(presented));
                 if (statsOn && !vertices.empty())
                     stats.addPass(sub->id(), qint64(vertices.size()),

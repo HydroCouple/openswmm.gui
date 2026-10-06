@@ -194,7 +194,6 @@ instead. Re-exporting the results with a current engine fixes it.
 
 \figtodo{06_2d_results_alignment.png, A 2D results layer correctly aligned over the mesh and the 1D network}
 
-\videotodo{Assigning a CRS to a model with none; adding a basemap and re-rendering into Web Mercator}
 
 ### Recovering from a misaligned basemap
 

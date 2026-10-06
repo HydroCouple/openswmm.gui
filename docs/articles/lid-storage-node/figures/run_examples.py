@@ -2,7 +2,7 @@
 Example: python run_examples.py --library /absolute/path/libopenswmm.engine.dylib
 Sampled CSVs at 30 seconds; reported continuity and component volumes use engine totals.
 """
-import argparse, ctypes as c, csv, hashlib, json, math, re
+import argparse, ctypes as c, csv, hashlib, json, math, re, time
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 DECKS = ROOT / 'docs/manual/tutorials/models/lid_active_chain'
@@ -11,9 +11,11 @@ p = argparse.ArgumentParser()
 p.add_argument('--library', type=Path, required=True)
 p.add_argument('--steps', nargs='+', type=float, default=[.1, .05, .025])
 p.add_argument('--cases', nargs='+')
+p.add_argument('--decks', type=Path, default=DECKS)
+p.add_argument('--formulation', choices=['existing','richards'], default='existing')
 p.add_argument('--output', type=Path, default=OUT)
 p.add_argument('--append', action='store_true', help='Merge these runs into a same-library summary.')
-a = p.parse_args(); OUT=a.output; OUT.mkdir(parents=True,exist_ok=True)
+a = p.parse_args(); DECKS=a.decks; OUT=a.output; OUT.mkdir(parents=True,exist_ok=True)
 lib = c.CDLL(str(a.library.resolve())); H=c.c_void_p; D=c.POINTER(c.c_double)
 def fn(name, args, result=c.c_int):
     f=getattr(lib,name); f.argtypes=args; f.restype=result; return f
@@ -27,6 +29,8 @@ wc=fn('swmm_get_warning_count',[H]); warn=fn('swmm_get_warning_at',[H,c.c_int],c
 getters={n:fn('swmm_'+n,[H,c.c_int,D]) for n in ['node_get_head','node_get_volume','link_get_flow','link_get_target_setting','get_routing_total','link_get_stat_vol_flow']}
 flowerr=fn('swmm_get_routing_continuity_error',[H,D]); qualerr=fn('swmm_get_quality_continuity_error',[H,c.c_int,D])
 link_quality=fn('swmm_link_get_quality',[H,c.c_int,c.c_int,D])
+profile_count=fn('swmm_lid_node_state_count',[H,c.c_int])
+richards_state=fn('swmm_lid_richards_state_get',[H,c.c_int,c.c_int,D,D,D])
 profile=fn('swmm_lid_node_state_get',[H,c.c_int,c.c_int,c.POINTER(c.c_int),D,D,D])
 # Names are declared in fixed order in generated decks: nodes A/B/R/FA/FB; links V_AB/V_BR/W_A/W_B.
 def checked(code,h):
@@ -37,11 +41,13 @@ summary=[]
 library_hash=hashlib.sha256(a.library.read_bytes()).hexdigest()
 if a.append and (OUT/'summary.json').exists():
     previous=json.loads((OUT/'summary.json').read_text())
+    assert previous.get('formulation','existing')==a.formulation, 'Do not combine formulations.'
     assert previous['library_sha256']==library_hash, 'Do not combine runs from different binaries.'
     summary=previous['runs']
 for source in sorted(DECKS.glob('*.inp')):
     if a.cases and source.stem not in a.cases: continue
     for dt in a.steps:
+        started=time.perf_counter()
         label=f'{source.stem}_dt{dt:g}'
         inp=OUT/f'{label}.inp'; inp.write_text(source.read_text().replace('ROUTING_STEP 0.5',f'ROUTING_STEP {dt:g}'))
         rpt=OUT/f'{label}.rpt'; binary=OUT/f'{label}.out'
@@ -65,12 +71,21 @@ for source in sorted(DECKS.glob('*.inp')):
                     checked(profile(h,i,0,c.byref(layer),c.byref(bottom),c.byref(top),c.byref(moisture)),h)
                     assert layer.value==1
                     row[f'ponding_{node}']=(top.value-bottom.value)*moisture.value/.9
+                    if a.formulation=='richards':
+                        row[f'ponding_{node}']=max(0,row[f'head_{node}']-(2.3 if node=='A' else 2.0))
+                        for cell in range(1,profile_count(h,i)):
+                            checked(profile(h,i,cell,c.byref(layer),c.byref(bottom),c.byref(top),c.byref(moisture)),h)
+                            pressure=c.c_double();head=c.c_double();water=c.c_double()
+                            checked(richards_state(h,i,cell,c.byref(pressure),c.byref(head),c.byref(water)),h)
+                            row[f'{node}_theta_{cell}']=moisture.value
+                            row[f'{node}_pressure_{cell}']=pressure.value
+                            row[f'{node}_water_{cell}']=water.value
                 rows.append(row)
             checked(end(h),h); checked(report(h),h)
             warnings=[warn(h,i).decode() for i in range(wc(h))]
             if warnings: print('WARNINGS', warnings[:5], 'count', len(warnings),flush=True)
             totals={key:get(getters['get_routing_total'],h,code) for key,code in [('inflow_ft3',4),('outflow_ft3',6),('flood_ft3',5),('initial_ft3',9),('final_ft3',10)]}
-            entry={'case':source.stem,'step_seconds':dt,'warnings':warnings,'flow_error_percent':100*get(flowerr,h),'reactive_error_percent':100*get(qualerr,h,0),'tracer_error_percent':100*get(qualerr,h,1),**totals}
+            entry={'case':source.stem,'step_seconds':dt,'input_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'runtime_seconds':time.perf_counter()-started,'warnings':warnings,'flow_error_percent':100*get(flowerr,h),'reactive_error_percent':100*get(qualerr,h,0),'tracer_error_percent':100*get(qualerr,h,1),**totals}
             text=rpt.read_text(encoding='latin1'); rpt.write_text('\n'.join(line.rstrip() for line in text.splitlines())+'\n',encoding='latin1'); quality=text.split('Quality Routing Continuity',1)[1].split('Continuity Error',1)[0]
             for label2,key in [('External Inflow','mass_in_lbs'),('External Outflow','mass_out_lbs'),('Mass Reacted','mass_reacted_lbs'),('Flooding Loss','mass_flood_lbs'),('Initial Stored Mass','mass_initial_lbs'),('Final Stored Mass','mass_final_lbs')]:
                 m=re.search(re.escape(label2)+r'\s*\.+\s*([\d.Ee+-]+)\s+([\d.Ee+-]+)',quality)
@@ -95,12 +110,14 @@ for source in sorted(DECKS.glob('*.inp')):
             with (OUT/f'{source.stem}_dt{dt:g}.csv').open('w') as f:
                 w=csv.DictWriter(f,fieldnames=rows[0],lineterminator='\n'); w.writeheader(); w.writerows(rows)
             print(label, 'accepted',entry['accepted'],'errors',*[round(entry[k],4) for k in ['flow_error_percent','reactive_error_percent','tracer_error_percent']],'peak',round(entry['peak_receiving_cfs'],4),'reacted',round(entry['reacted_percent'],2),'backflow',round(entry['reverse_AB_ft3_sampled'],1),round(entry['reverse_BR_ft3_sampled'],1),flush=True)
+            checkpoint={'library_filename':a.library.name,'library_sha256':library_hash,'sample_seconds':30,'formulation':a.formulation,'decks':str(DECKS),'acceptance_error_percent':.5,'runs':summary}
+            (OUT/'summary.json').write_text(json.dumps(checkpoint,indent=2)+'\n')
         finally:
             close(h); destroy(h)
         # Runtime binary and expanded decks are reproducible intermediates, keep evidence compact.
         binary.unlink(missing_ok=True); inp.unlink(missing_ok=True)
 summary.sort(key=lambda r:(r['case'],-r['step_seconds']))
-provenance={'library_filename':a.library.name,'library_sha256':library_hash,'sample_seconds':30,'acceptance_error_percent':.5,'runs':summary}
+provenance={'library_filename':a.library.name,'library_sha256':library_hash,'sample_seconds':30,'formulation':a.formulation,'decks':str(DECKS),'acceptance_error_percent':.5,'runs':summary}
 (OUT/'summary.json').write_text(json.dumps(provenance,indent=2)+'\n')
 if not all(e['accepted'] for e in summary):
     raise SystemExit('Acceptance failure; inspect summary.json before publishing.')

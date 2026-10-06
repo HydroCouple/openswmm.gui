@@ -20,6 +20,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFontDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -76,7 +77,7 @@ TraceAnalysisDialog *TraceAnalysisDialog::showFor(SWMMVisProjectWindow *p, bool 
     output = output ? output : p->activeResultsLayer();
     if (!output)
     {
-        const auto path = QFileDialog::getOpenFileName(p, tr("Choose completed output"), {},
+        const auto path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("results-1d"), p, tr("Choose completed output"), {},
                                                        tr("SWMM output (*.out)"));
         if (path.isEmpty())
             return d;

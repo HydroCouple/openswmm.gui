@@ -58,7 +58,6 @@ opens, so the controls always reflect the current model rather than a snapshot.
 Options the running engine does not support are disabled with a tooltip saying
 why — a legacy SWMM 5.x engine, or a 6.x build that predates a given solver.
 
-\videotodo{Setting up a dynamic-wave run — dates; time steps; solver tolerances and threads}
 
 ## Step-by-step
 
@@ -431,7 +430,7 @@ bar (see \ref manual_crs).
 
 ### Mesh
 
-\fig{18_mesh_page.png, The Mesh page listing candidate .2dm files next to the project}
+\fig{18_mesh_page.png, The Mesh page with the terrain-bowl input’s embedded inline mesh selected; external .2dm files appear in the same list when present}
 
 This page picks which 2D mesh configuration the engine reads. It lists every
 `*.2dm` file sitting next to the project `.inp`, plus a synthetic

@@ -182,13 +182,13 @@ def hydraulic_frame(frame):
     return p
 
 
-def treatment():
+def treatment(richards=False):
     p = [text(36, 48, 'Treatment follows pollutant mass and exposure time.', 32, weight='bold'),
-         text(36, 84, 'Retained cells carry their own mass; mobile water uses one mixed reactor per LID node.', 23, 'muted'),
+         text(36, 84, ('Richards: porous cells carry their own mass; surface ponding is a separate reservoir.' if richards else 'Retained cells carry their own mass; mobile water uses one mixed reactor per LID node.'), 23, 'muted'),
          rect(28, 112, 1144, 259, rx=14)]
     for x, w, label, eq, note, c in [
-        (52, 300, 'RETAINED CELL', 'Cᵣ = Mᵣ / Vᵣ', 'Cell-specific decay kᵣ', 'teal'),
-        (441, 329, 'SHARED MOBILE REACTOR', 'Cₘ = Mₘ / Vₘ', 'Volume-weighted layer decay', 'blue'),
+        (52, 300, ('POROUS CELL' if richards else 'RETAINED CELL'), 'Cᵣ = Mᵣ / Vᵣ', ('Layer-specific decay kᵢ' if richards else 'Cell-specific decay kᵣ'), 'teal'),
+        (441, 329, ('SURFACE RESERVOIR' if richards else 'SHARED MOBILE REACTOR'), 'Cₘ = Mₘ / Vₘ', ('No porous-layer decay' if richards else 'Volume-weighted layer decay'), 'blue'),
         (860, 287, 'PHYSICAL LAYER EXIT', 'C_exit = (1 − r) C', 'Optional expression follows', 'amber')]:
         p += [rect(x, 139, w, 156, '#eaf1f4', 10), text(x+16, 169, label, 17, c, 'bold'),
               text(x+16, 216, eq, 28, c), text(x+16, 259, note, 18, 'muted')]
@@ -222,10 +222,10 @@ def treatment():
           text(805, 475, 'M(t) = M₀ exp(−kt)', 26, 'teal'),
           text(805, 514, 'Hold longer → more reaction', 21, 'muted'),
           text(805, 541, 'Half-life = 8.3 h', 20, 'teal', 'bold'),
-          text(805, 576, 'SATURATED MOBILE WATER', 18, 'blue', 'bold'),
-          text(805, 610, 'kₘ = k_bg + Σ kᵢ Vₘ,ᵢ / Vₘ', 22, 'blue'),
-          text(805, 638, 'Ponded surface water adds volume', 19, 'muted'),
-          text(805, 666, 'without the porous-layer decay rate.', 19, 'muted'),
+          text(805, 576, ('RICHARDS POROUS CELLS' if richards else 'SATURATED MOBILE WATER'), 18, 'blue', 'bold'),
+          text(805, 610, ('kᵢ = k_bg + k_layer' if richards else 'kₘ = k_bg + Σ kᵢ Vₘ,ᵢ / Vₘ'), 22, 'blue'),
+          text(805, 638, ('Each cell keeps its own inventory' if richards else 'Ponded surface water adds volume'), 19, 'muted'),
+          text(805, 666, ('even when fully saturated.' if richards else 'without the porous-layer decay rate.'), 19, 'muted'),
           text(805, 715, 'Exit removal acts once per authored', 19, 'muted'),
           text(805, 743, 'layer; internal cell interfaces do not', 19, 'muted'),
           text(805, 771, 'repeat its percentage removal.', 19, 'muted')]
@@ -378,11 +378,11 @@ def main():
     save('hydraulic-control-static', hydraulic_frame(16+15))
     FRAMES.mkdir(parents=True, exist_ok=True)
     frames = [save(f'frame-{i:03d}', hydraulic_frame(i), directory=FRAMES) for i in range(64)]
-    subprocess.run(['magick', '-delay', '16', *map(str, frames), '-loop', '0',
+    subprocess.run(['magick', '-delay', '24', *map(str, frames), '-loop', '0',
                     '-layers', 'Optimize', str(ASSETS/'hydraulic-control.gif')], check=True)
     save('resaturation-static', resaturation_frame(37))
     cycle_frames = [save(f'cycle-{i:03d}', resaturation_frame(i), directory=FRAMES) for i in range(64)]
-    subprocess.run(['magick', '-delay', '16', *map(str, cycle_frames), '-loop', '0', '-layers', 'Optimize', str(ASSETS/'resaturation.gif')], check=True)
+    subprocess.run(['magick', '-delay', '24', *map(str, cycle_frames), '-loop', '0', '-layers', 'Optimize', str(ASSETS/'resaturation.gif')], check=True)
     manual=ASSETS.parents[2]/'manual/images'
     for stem in ['water-stores','interlayer-flux','richards-approximation','treatment-formulation','hydraulic-control-static','resaturation-static']:
         shutil.copy2(ASSETS/(stem+'.png'),manual/('t10_'+stem+'.png'))
@@ -391,7 +391,7 @@ def main():
     assert math.isclose(.20*1000, 200)
     assert math.isclose(.40*1000*.70, 280)
     assert math.isclose(100*(1-math.exp(-2*6/24)), 39.3469340287, abs_tol=1e-8)
-    print('Created six formulation figures and two 10.24-second GIFs with static alternatives.')
+    print('Created six formulation figures and two 15.36-second GIFs with static alternatives.')
 
 
 if __name__ == '__main__':

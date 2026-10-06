@@ -70,6 +70,7 @@ struct FigureSpec {
     QString    select;              //!< item to select in the target's list ("first", or its text)
     QString    activate;            //!< select an item and emit its view's clicked signal
     QStringList check;              //!< check named rows before pressing a dialog button
+    QStringList uncheck;            //!< uncheck named layer rows before capture
     QString    sortColumn;          //!< sort a table by this header, ascending
     QString    hostSelect;          //!< item to select in the MAIN WINDOW before \a action fires
     QString    hostSelectIn;        //!< scope \a hostSelect to this panel (objectName or class)
@@ -82,6 +83,7 @@ struct FigureSpec {
     FigureLane lane        = FigureLane::Offscreen;
     int        settleMs    = 0;     //!< extra settle before the grab (0 = default)
     int        maxWidth    = 0;     //!< clamp THIS figure's width (0 = the manifest default)
+    double     cursorNorm  = -1;    //!< seek the visible animation scrubber to [0,1]; -1 leaves it alone
 };
 
 /*! \brief Result of attempting one row; serialised into run.json. */

@@ -345,11 +345,15 @@ a percent slope is unreadable at true aspect. Both choices persist across
 selections, and whatever ratio is in force is stated on the drawing — `1:1`
 reads *true scale (V:H 1:1)*.
 
-\figtodo{10_section_view_link.png, The Section View showing a conduit cross-section at the 1:1 default}
+The blue fill in these previews represents the authored cross-section geometry;
+it is not a simulated water level. C1 is a trapezoidal open channel 3 ft deep
+and 35 ft wide at the crown. Its longitudinal preview runs from J1 to J5.
 
-\figtodo{10_section_view_profile.png, The same conduit as a profile at the 10:1 default — the exaggeration stated under the drawing}
+\fig{10_section_view_link.png, The Section View showing a conduit cross-section at the 1:1 default}
 
-\figtodo{10_section_view_node.png, The Section View showing a node profile with four connecting links}
+\fig{10_section_view_profile.png, The same conduit as a profile at the 10:1 default — the exaggeration stated under the drawing}
+
+\fig{10_section_view_node.png, The Section View showing junction J5 and its three connecting links}
 
 ### How edits propagate
 
@@ -366,7 +370,6 @@ explicit rather than incidental:
 - Property edits and cell edits are pushed onto the same canvas undo stack as
   map edits, so `Ctrl+Z` steps back through everything in one history.
 
-\videotodo{Editing a conduit's cross-section and watching the map; Section View and Attribute Table update together}
 
 ## Tips and gotchas
 

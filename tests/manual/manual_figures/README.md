@@ -68,6 +68,14 @@ Whole-window recipes use `page` to activate the actual project and
 `prepareActions: ["map.zoomExtent"]` to fit the network. Scope ribbon tabs with
 `tabIn: "compactToolbarTabBar"` to avoid matching similarly named dock tabs.
 `hostSelectMore` adds selected objects, for example two profile endpoints.
+`cursorNorm` (0–1) moves the visible native timeline scrubber through its
+public property. Verify the displayed clock against the output timestamp;
+auto-loaded 2D output can start at a peak frame, not time zero. A normalized
+position is meaningful only for that fixture's output span. The bowl capture
+uses frame 112 of 480 (00:56:30 UTC); the native clock displays local time.
+`uncheck` is the counterpart of `check` for checkable view rows. Its current
+build/runtime verification is pending; do not assume an older binary supports
+it. Neither field synthesizes map pointer events.
 `dialogPage` selects a tab in a child dialog opened by `click`. `hide` and `show`
 configure named docks in this isolated session. `floatDock: true` detaches a
 dock before applying `size`, so neighboring panels cannot squeeze a table

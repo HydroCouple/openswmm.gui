@@ -2,6 +2,8 @@
 from pathlib import Path
 import json, re
 HERE=Path(__file__).resolve().parent; ROOT=HERE.parents[3]; ARTICLE=HERE.parent
+if 'A semi-discrete Richards column' in (ARTICLE/'article.md').read_text():
+    raise SystemExit('This finalizer is for the historical gravity model. Use finalize_richards_text.py for the current article.')
 s=json.loads((ARTICLE/'results/summary.json').read_text())
 cases=sorted({r['case'] for r in s['runs']})
 runs=[min((r for r in s['runs'] if r['case']==case),key=lambda r:r['step_seconds']) for case in cases]

@@ -196,17 +196,18 @@ bool readGroundwaterTransportSnapshot(SWMM_Engine e,GroundwaterTransportSnapshot
     }
     *out=std::move(result);return true;
 }
-GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTransportRequest &r)
+GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTransportRequest &r,std::function<bool()> cancelled)
 {
     GroundwaterTransportPreview p;p.before=r.before;p.after=r.before;p.target=r.target;
     auto reject=[&](const QString &error){p.after=p.before;p.cells.clear();p.error=error;return p;};
+    if(cancelled&&cancelled())return reject("Cancelled.");
     if(r.cells.isEmpty()||r.cells.size()!=r.values.size())return reject("Select cells and provide one value per cell.");
     if(r.target!=GroundwaterTransportTarget::InitialQuality&&r.target!=GroundwaterTransportTarget::Source)return reject("Unknown groundwater transport target.");
     if(r.target==GroundwaterTransportTarget::InitialQuality&&(!r.before.qualityFile.isEmpty()))return reject("Initial-quality rows are linked to a FILE source. Edit that source before assigning cell values.");
     const auto *metadata=species(r.before,r.species);
     if(r.target==GroundwaterTransportTarget::InitialQuality){if(r.zone!=0&&r.zone!=1)return reject("Choose the saturated or unsaturated zone.");if(!metadata||metadata->nativeConcUnits.isEmpty())return reject("Choose an enabled species with declared concentration units.");}
     QSet<int> seen;QVector<int> valid;
-    for(int i=0;i<r.cells.size();++i){if(r.cells[i]<0||r.cells[i]>=r.before.cellCount||seen.contains(r.cells[i]))return reject("A target cell is out of range or repeated.");seen.insert(r.cells[i]);
+    for(int i=0;i<r.cells.size();++i){if(cancelled&&cancelled())return reject("Cancelled.");if(r.cells[i]<0||r.cells[i]>=r.before.cellCount||seen.contains(r.cells[i]))return reject("A target cell is out of range or repeated.");seen.insert(r.cells[i]);
         if(std::isnan(r.values[i])&&r.skipNoData){p.skippedCells.append(r.cells[i]);continue;}
         if(!std::isfinite(r.values[i]))return reject("A target value is nonfinite. Select an explicit NoData policy.");
         if(r.before.activeCells.size()!=r.before.cellCount||!r.before.activeCells[r.cells[i]])return reject("A selected cell has no active authored aquifer. Define aquifer properties before assigning transport.");
@@ -215,11 +216,11 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
     if(valid.isEmpty())return reject("No target cells have usable source values.");
     if(r.target==GroundwaterTransportTarget::InitialQuality){
         QHash<int,int> targetRows;
-        for(int i=0;i<p.after.quality.size();++i){const auto &row=p.after.quality[i];
+        for(int i=0;i<p.after.quality.size();++i){if(cancelled&&cancelled())return reject("Cancelled.");const auto &row=p.after.quality[i];
             if(row.scope==2&&row.zone==r.zone&&row.layer==-1&&row.species==r.species)
                 targetRows[row.cell]=targetRows.contains(row.cell)?-2:i;
         }
-        for(int i:valid){if(r.values[i]<0&&!metadata->signedConcentration)return reject("This species does not accept negative initial concentrations.");
+        for(int i:valid){if(cancelled&&cancelled())return reject("Cancelled.");if(r.values[i]<0&&!metadata->signedConcentration)return reject("This species does not accept negative initial concentrations.");
             GroundwaterQualityRow row;row.scope=2;row.cell=r.cells[i];row.zone=r.zone;row.layer=-1;row.species=r.species;row.value=r.values[i];
             const int match=targetRows.value(row.cell,-1);
             if(match==-2)return reject("Duplicate authored initial-quality keys must be resolved before assignment.");
@@ -232,7 +233,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         if(r.distribution!=GroundwaterSourceDistribution::PerCell&&r.distribution!=GroundwaterSourceDistribution::RegionTotal)return reject("Unknown source distribution.");
         const bool total=r.distribution==GroundwaterSourceDistribution::RegionTotal;double area=0;
         if(total){if(r.areaWeights.size()!=r.cells.size())return reject("Region-total sources require one positive cell area per selection.");
-            for(int i:valid){if(!std::isfinite(r.areaWeights[i])||r.areaWeights[i]<=0||r.values[i]!=r.values[valid.front()])return reject("Region-total sources require a single total flow and positive finite cell areas.");area+=r.areaWeights[i];}
+            for(int i:valid){if(cancelled&&cancelled())return reject("Cancelled.");if(!std::isfinite(r.areaWeights[i])||r.areaWeights[i]<=0||r.values[i]!=r.values[valid.front()])return reject("Region-total sources require a single total flow and positive finite cell areas.");area+=r.areaWeights[i];}
             if(!std::isfinite(area)||area<=0)return reject("The selected total area is not finite and positive.");
         }
         GroundwaterSourceRow common;common.name=r.sourceName;common.cell=r.cells[valid.front()];common.flow=r.values[valid.front()];common.series=r.flowSeries;common.terms=r.terms;
@@ -241,8 +242,9 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         bool massNonzero=false;
         for(const auto &term:r.terms)if(term.kind=="MASS"&&(term.series.isEmpty()?term.value!=0:seriesNonzero(term.series)))massNonzero=true;
         const bool flowSeriesNonzero=!r.flowSeries.isEmpty()&&seriesNonzero(r.flowSeries);
-        QSet<QString> names;for(const auto &row:p.before.sources)names.insert(row.name);
+        QSet<QString> names;for(const auto &row:p.before.sources){if(cancelled&&cancelled())return reject("Cancelled.");names.insert(row.name);}
         for(int i:valid){
+            if(cancelled&&cancelled())return reject("Cancelled.");
             if(!massNonzero&&(r.flowSeries.isEmpty()?r.values[i]==0:!flowSeriesNonzero))continue;GroundwaterSourceRow row;row.cell=r.cells[i];row.flow=r.values[i];row.scale=total?r.areaWeights[i]/area:1;row.series=r.flowSeries;row.terms=r.terms;
             const QString base=r.sourceName+"_cell_"+QString::number(row.cell+1);row.name=base;int suffix=2;while(names.contains(row.name))row.name=base+"_"+QString::number(suffix++);names.insert(row.name);
             p.after.sources.append(row);p.cells.append(row.cell);

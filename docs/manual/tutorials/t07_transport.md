@@ -148,7 +148,14 @@ in a node's or link's Properties panel (the cell shows a summary plus an
 page. The attribute table also carries one **Init. \<pollutant\>** column per
 pollutant, plus **Init. Water Age (hr)** and **Init. Temperature (°C)**.
 
-\figtodo{t07_initial_quality.png, The Initial Quality dialog with a node row and a link row}
+The shipped input has no `[INITIAL_QUALITY]` overrides. To reproduce the
+populated example below, save a separate copy and add **Node / J1 / TRACER /
+1.0** and **Link / C1 / DECAY / 5.0**, in mg/L. The same variant was run
+successfully and the dialog read back both rows. These values override the
+global initial concentrations; they do not replace the continuously supplied
+inflow concentrations. Keep this variant separate from the solver comparison.
+
+\fig{t07_initial_quality.png, A separate transport copy with J1 tracer initially 1 mg/L and C1 decaying constituent initially 5 mg/L}
 
 ### 4. Water age sources
 
@@ -174,11 +181,13 @@ EXTERNAL_INFLOW   GLOBAL   0.5
 INITIAL_STATE     GLOBAL   6.0
 ```
 
-The pipe starts full of six-hour-old water; the inflow arrives already half an
-hour old. Over the run you should watch the old water flush out and the profile
-settle toward travel time plus 0.5 h.
+The component assigns 6 h to initial network water and 0.5 h to external
+inflow. The shipped junctions start with zero depth, so this is not a
+pre-filled six-hour-old pipe. The recorded downstream age approaches the
+source age plus network residence time; do not expect the initial-state value
+to appear in the first output record.
 
-\figtodo{t07_water_age_sources.png, The Water Age Sources dialog with global ages and one per-node override}
+\fig{t07_water_age_sources.png, The Water Age Sources dialog loaded from the example: external inflow 0.5 h and initial network state 6 h; no per-node overrides}
 
 ### 5. Heat configuration
 
@@ -417,12 +426,18 @@ Add all four for `J1` through `J5` and look for:
   ARD, the physical dispersion from the `.ard` file.
 - **`DECAY`** doing the same but with a declining plateau, the legacy first-order
   `Kdecay`.
-- **`CL2`** (the reaction species) decaying faster as the day warms — the
-  Arrhenius term.
-- **Water age** starting at 6 h everywhere, flushing out from `J1` downward, and
-  settling at 0.5 h plus the cumulative travel time.
-- **Temperature** relaxing from the 12 °C initial state toward the 18 °C inflow,
-  modulated by the surface and radiative exchange.
+- **`CL2`** is configured in the reaction component, but is **not a column
+  in this build's standard `.out` file**. Do not expect it in the plot picker
+  or infer its decay from the `DECAY` pollutant. The report marks one network
+  MSX species active; that establishes configuration and execution scope,
+  not an exported chlorine concentration trace.
+- **Water age** approaching the 0.5 h source age plus downstream residence
+  time. The 6 h initial condition may be flushed before the first five-minute
+  record; its presence in the input does not imply a visible 6 h plot value.
+- **Temperature** approaching the 18 °C inflow. Eulerian ARD records
+  13.692 °C at `J5` in the first period; Legacy and Lagrangian already record
+  approximately 18 °C. The configured 12 °C initial state is not a zero-time
+  output record.
 
 Species are keyed **by name**, never by index, so reordering pollutants cannot
 silently repoint a saved series. A run that lacks a species you saved gives one
@@ -447,23 +462,22 @@ them). To pair series explicitly, use **Configure 1v1 Comparisons**, which
 offers **Add**, **vs**, **Remove Selected** and **Reset to Auto**. The
 animation cursor toggle is **Ctrl+Shift+C**.
 
-What you should see at `J5`:
+The shipped six-hour example was executed with all three solvers using the
+same component files. Each `.out` contains 72 five-minute records and exactly
+four species: `TRACER`, `DECAY`, `__WATER_AGE__` and `__TEMPERATURE__`.
+At `J5`, the first recorded tracer concentrations are 9.998, 7.580 and
+10.000 mg/L for Legacy, Eulerian ARD and Lagrangian respectively; all finish
+at 10.000 mg/L. Final water ages are about 0.582, 0.580 and 0.579 h.
+The standard output does not contain `CL2` under **any** of these solvers.
 
-- **Legacy** treats each link as a completely mixed reactor, so the tracer front
-  is heavily smeared and arrives early.
-- **Eulerian ARD** resolves the front on a transport mesh sized by `TARGET_DX`,
-  with the sharpness set by **Scalar scheme** and `LIMITER`. `MUSCL` with
-  `VANLEER` is a good default; `UPWIND` is more diffusive;
-  `QUICKEST_ULTIMATE` is sharper.
-- **Lagrangian** tracks segments, so the front is sharpest of all, with
-  `MAX_SEGMENTS_PER_LINK` capping the resolution and `DISPERSION RWPT` adding
-  random-walk spreading when you want it.
-
-Two caveats before you draw conclusions. The reactions component does **not**
-run under `QUALITY_SOLVER LAGRANGIAN` today, so `CL2` is absent from the LARD
-run. And no shipped engine test fixture combines heat, water age, ARD *and*
-reactions in a single deck — this tutorial's model assembles a combination that
-is new ground, so check the report warnings on every run.
+This example verifies the output columns and downstream response, but its
+five-minute reporting interval is too coarse to rank front sharpness. To
+study arrival and numerical spreading, make a separate copy, shorten
+**Report step**, and use a time-varying tracer pulse instead of the constant
+baseline. Hold hydraulics, inflow, dispersion and output interval fixed while
+comparing solvers. Do not interpret a larger first recorded concentration as
+proof of greater accuracy. GUI multi-run loading and comparison export still
+require verification for this example.
 
 \figtodo{t07_solver_comparison.png, A comparison plot of the tracer front at J5 under the legacy; ARD and Lagrangian solvers}
 
@@ -486,7 +500,6 @@ starts uniformly old and washes young from the head down.
 
 \figtodo{t07_map_by_water_age.png, The node symbols graduated by water age mid-flush}
 
-\videotodo{Building the transport model — pollutants; reaction system; water age; heat; and comparing the three quality solvers}
 
 ## What to look for
 
@@ -497,7 +510,7 @@ starts uniformly old and washes young from the head down.
   attribute table column and the plot unit all say so.
 - The reaction species `CL2` never appears in `[POLLUTANTS]`. Reaction species
   and pollutants are separate namespaces, and a name collision is refused.
-- With `SHORTWAVE GLOBAL COMPUTED`, the diurnal shape of `CL2`'s decay follows
+- With `SHORTWAVE GLOBAL COMPUTED`, the configured `CL2` decay depends on
   the solar term, not the air temperature directly.
 - `TARGET_DX` is ignored (with a warning) under `FLOW_ROUTING FV`.
 
@@ -517,7 +530,7 @@ starts uniformly old and washes young from the head down.
   first — a disinfection-by-product proxy, for example.
 - **Switch `OUTFALL_BACKFLOW_QUALITY`** to *Fresh (zero concentration and age)*
   and look at what re-enters the system on a backflow event.
-- **Turn heat off** and re-run. `CL2` now decays at the fixed
+- **Turn heat off** and re-run. The reaction configuration then uses the fixed
   `[REACTION_OPTIONS] TEMPERATURE 20` rate — a flat comparison baseline.
 
 ## Related

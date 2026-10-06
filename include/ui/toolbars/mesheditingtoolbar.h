@@ -23,6 +23,8 @@
 #ifndef OPENSWMMVIS_UI_TOOLBARS_MESHEDITINGTOOLBAR_H
 #define OPENSWMMVIS_UI_TOOLBARS_MESHEDITINGTOOLBAR_H
 
+#include "mesh/meshgwpreview.h"
+
 #include <QPair>
 #include <QPointF>
 #include <QPointer>
@@ -30,6 +32,7 @@
 #include <QVector>
 
 #include <functional>
+#include <optional>
 
 namespace openswmmvis::ui { class RibbonGroup; }
 
@@ -102,7 +105,11 @@ public:
      *  same CRS as the mesh vertices) for the Auto-couple action. */
     using NodeLocatorFn = std::function<QVector<QPair<QString, QPointF>>()>;
     void setNodeLocator(NodeLocatorFn fn) { m_nodeLocator = std::move(fn); }
+    /*! \brief Model inputs for Remap's 2D-aquifer preview; std::nullopt
+     *  when the project's 2D groundwater is not enabled. */
+    using GwPreviewSourceFn = std::function<std::optional<mesh::GwPreviewInput>()>;
     void setSurfaceOwnershipReview(std::function<void()> fn) { m_surfaceOwnershipReview=std::move(fn); }
+    void setGwPreviewSource(GwPreviewSourceFn fn) { m_gwPreviewSource = std::move(fn); }
     void refreshBCNameLists();    // re-query listers + repopulate combos
     void refreshNodeList();       // re-query node lister + repopulate the combo
 
@@ -340,6 +347,7 @@ private:
     ListerFn       m_curveLister;
     ListerFn       m_nodeLister;
     NodeLocatorFn  m_nodeLocator;
+    GwPreviewSourceFn m_gwPreviewSource;
     std::function<void()> m_surfaceOwnershipReview;
 };
 

@@ -16,29 +16,32 @@ failure. Assess flow attenuation and cumulative pollutant fate at every exit.
 
 ## Files
 
-These six self-contained native INP files are in
-`docs/manual/tutorials/models/lid_active_chain/`. Copy them into a working
-folder. Each contains all time series; no rainfall or external data file is required.
+The uniquely named download copies are in `docs/manual/tutorials/models/`
+as `richards_*.inp`; source decks are in `lid_richards_chain/`. Copy the
+downloads into a working folder. Each contains all time series; no rainfall or external data file is required.
 
 | Download | Experiment |
 |---|---|
-| [01_passive_free.inp](01_passive_free.inp) | Open valves and low receiving stage |
-| [02_passive_backwater.inp](02_passive_backwater.inp) | Open valves and high downstream stage |
-| [03_timed_hold.inp](03_timed_hold.inp) | Hold A until 6 h and B until 8 h |
-| [04_head_guard.inp](04_head_guard.inp) | Timed hold plus downstream-head guards |
-| [05_repeat_storm.inp](05_repeat_storm.inp) | Guarded system with a second larger pulse |
-| [06_stuck_closed.inp](06_stuck_closed.inp) | Both valves remain closed during both storms |
+| [richards_01_passive_free.inp](richards_01_passive_free.inp) | Open valves and low receiving stage |
+| [richards_02_passive_backwater.inp](richards_02_passive_backwater.inp) | Open valves and high downstream stage |
+| [richards_03_timed_hold.inp](richards_03_timed_hold.inp) | Hold A until 6 h and B until 8 h |
+| [richards_04_head_guard.inp](richards_04_head_guard.inp) | Timed hold plus downstream-head guards |
+| [richards_05_repeat_storm.inp](richards_05_repeat_storm.inp) | Guarded system with a second larger pulse |
+| [richards_06_stuck_closed.inp](richards_06_stuck_closed.inp) | Both valves remain closed during both storms |
 
 These are synthetic tests with hypothetical treatment kinetics. They are not
 calibrated design recommendations. They require an engine containing the
-storage-node LID legacy-hydrology adaptation and pollutant-balance corrections described in the article's
-validation notes. Use Dynamic Wave and `QUALITY_SOLVER LEGACY`.
+optional Richards 1D implementation and pollutant-balance corrections.
+The original gravity/front decks remain in `models/lid_active_chain/`; their
+previous result matrix is preserved separately in the article's validation
+package. Do not compare either formulation without identifying its material
+parameters and initial state. Use Dynamic Wave and `QUALITY_SOLVER LEGACY`.
 
 ## Steps
 
 ### 1. Open the baseline and inspect the network
 
-Open **01_passive_free.inp**. A and B are 1,000 ft² constant-footprint storage
+Open **richards_01_passive_free.inp**. A and B are 1,000 ft² constant-footprint storage
 nodes, with inverts 0.30 ft and 0 ft and maximum depths of 2.50 ft. V_AB connects
 A to B; V_BR connects B to receiving outfall R. W_A and W_B connect surface
 overflows to separate outfalls FA and FB. Do not omit these overflow exits
@@ -64,6 +67,25 @@ Select A, then B, in the Object Browser. Set **LID Control** to **Train** and
 | 3 AGGREGATE | Thickness 12 in; porosity 0.40; conductivity 100 in/h |
 | BOTTOM boundary | Seepage 0; clogging 0 |
 
+Select **Richards 1D** in **Flow model**. Under **Physical properties**,
+enter the following additional material properties for both porous layers.
+Alpha and specific storage use inverse metres even in this US-unit project.
+
+| Property | MEDIA | AGGREGATE |
+|---|---|---|
+| Residual water content | 0.03 | 0.01 |
+| Retention alpha (1/m) | 4 | 20 |
+| Retention n | 1.8 | 2.5 |
+| Pore connectivity l | 0.5 | 0.5 |
+| Specific storage (1/m) | 0.0001 | 0.0001 |
+
+Expand **Numerical settings**: use **8 numerical cells per porous layer**,
+absolute water-content tolerance **1e-7**, relative tolerance **1e-5**, and
+maximum internal step **30 s**. Field capacity, conductivity slope and
+Green–Ampt suction are retained for the existing model; they do not specify
+the Richards retention/conductivity law. These retention properties are
+illustrative, not calibrated defaults.
+
 Select each porous layer and open **Pollutant treatment**. **Add pollutant**
 REACTIVE, set **Removal (%) = 0**, **Decay (1/day) = 2**, and leave
 **Expression** empty. TRACER has no treatment row. Use **Apply layers and
@@ -80,6 +102,10 @@ Train SURFACE 6 .1
 Train MEDIA 12 .45 .20 .08 5 3 3
 Train AGGREGATE 12 .40 100
 Train BOTTOM 0 0
+[LID_RICHARDS]
+Train OPTIONS 8 1e-7 1e-5 30
+Train 2 .03 4 1.8 .5 .0001
+Train 3 .01 20 2.5 .5 .0001
 [LID_NODES]
 A Train 10
 B Train 10
@@ -88,74 +114,42 @@ Train 2 REACTIVE 0 2 -
 Train 3 REACTIVE 0 2 -
 ```
 
-### Physical interpretation of the layered control
+### Physical interpretation of Richards mode
 
-Retained water occupies part of each cell’s pore volume. Connected mobile
-water fills the remaining pores below the node water table. The reported
-inventory includes both stores; an internal drainage transfer removes and
-adds the same water volume once.
+For porous cell geometric volume G, pressure head psi and specific storage
+Ss, complete water volume is `W = G * (theta(psi) + Ss * max(psi, 0))`.
+Van Genuchten retention bounds theta by porosity; positive pressure adds
+elastic storage. The porous column owns this water. The network node owns
+surface ponding only; no saturated water is duplicated in a shared reactor.
 
-\fig{t10_water-stores.png, Retained moisture and connected mobile storage in one layered facility}
+The conservative semi-discrete equations are
+`dW_i/dt = Q_(i-1/2) - Q_(i+1/2) - E_i`, with downward-positive face flow
+`Q_f = A_f * K_f * (H_upper - H_lower) / distance` and `H = z + psi`.
+Equal cells of one material use arithmetic conductivity; different-material
+interfaces use both half-cell resistances in series. Matric-head differences
+can augment, oppose or reverse gravity flow. Richards mode has no
+field-capacity cutoff or Green–Ampt front history.
 
-MEDIA drainage uses legacy SWMM's exponential conductivity law with a
-field-capacity cutoff. For downward-positive `xi`, Darcy–Buckingham gives
-`q = K(theta) * (1 - dpsi/dxi)`; this kernel omits the matric-head gradient:
+Adaptive implicit Euler (BDF1) integrates the spatial equations, accepting
+two half steps after an error estimate. Routing and column updates are
+split across the routing interval. Check routing-step, cell-count and
+ODE-tolerance sensitivity, not only continuity. The article validation
+reports measured differences rather than asserting universal convergence.
 
-```text
-q_i = Ks_i * exp(-slope_i * (porosity_i - theta_i))
-      if theta_i > field_capacity_i; otherwise zero
-Q_i = area_i * q_i
-accepted_volume = min(Q_i * substep,
-                      max(0, (theta_i - field_capacity_i) * G_i),
-                      max(0, (porosity_receiver - theta_receiver) * G_receiver))
-```
+\fig{t10_water-stores.png, Richards water ownership and complete cell storage}
 
-**Conductivity slope** is dimensionless, not a power exponent. A zero slope
-means constant Ks above field capacity. Ks = 10 mm/h, theta = 0.30,
-porosity = 0.45 and slope = 10 give 2.23 mm/h. AGGREGATE drains at its
-specified conductivity, with zero field capacity and the same volume bounds.
-The receiving-space bound applies above the mobile water table; a receiver
-intersected by that table routes to mobile storage. Submerged donors skip
-free drainage. All cells use a common pre-update state, explicit substeps
-at most one second and equal donor/receiver transfers.
+\fig{t10_interlayer-flux.png, Total-head gradients and different-material interface resistance}
 
-SURFACE → first MEDIA entry reuses modified Green–Ampt. Its ponded capacity
-for an existing downward front is:
+\fig{t10_richards-approximation.png, Existing gravity/front model versus the optional semi-discrete Richards column}
 
-```text
-f_cap = Ks * (1 + (suction + ponded_depth) * moisture_deficit / F)
-ponded_depth = theta_surface * thickness_surface / surface_void_fraction
-F_new = F_old + accepted_infiltration_volume / surface_area
-```
+For quality, porous cells each carry their own pollutant inventory even
+when saturated. Accepted directional transfers move donor concentration
+times volume, bounded by resident mass. Layer decay is first order at
+2/day, giving an 8.3-h half-life; longer exposure gives more reaction by
+assumption. Fixed removal is applied once at an authored-layer exit, not
+at each internal numerical face. Surface overflow bypasses buried treatment.
 
-The native routine handles F = 0, integrated infiltration and supply-limited
-transitions. Rejected potential flux does not advance F or upper-zone wetness.
-Recovery cannot make the history drier than actual cell moisture. Suction and
-conductivity keep the authored in/mm and in/h or mm/h units. Green–Ampt applies
-only when MEDIA directly follows SURFACE; surface-to-aggregate entry uses the
-aggregate conductivity. Additional MEDIA layers use the drainage law above.
-
-\fig{t10_interlayer-flux.png, Donor-based gravity flux and conservative limits compared with matric-gradient transport}
-
-[Tu, Wadzuk and Traver (2020), Sections 2.1–2.3](https://doi.org/10.1371/journal.pone.0235528)
-retain gravity and matric-gradient transport, with van Genuchten relations,
-bidirectional connections and equal-matric-head conversion between different
-textures. The present kernel omits that gradient term and adds a field-capacity
-cutoff. Its network backflow is not upward capillary redistribution. More
-cells do not restore the missing process. The approximation may suit coarse,
-relatively uniform media dominated by gravity drainage, but contrasting textures,
-capillary barriers and detailed root-zone moisture require additional assessment.
-The paper's HYDRUS comparisons do not validate this simpler kernel.
-
-\fig{t10_richards-approximation.png, What is retained and simplified from the Richards-equation formulation}
-
-The assigned `Decay (1/day) = 2` has a half-life of `ln(2)/2` days, or
-**8.3 hours**. Greater reaction with longer exposure follows directly from
-this assumption; these tests examine how hydraulics change that exposure
-and the mass leaving or remaining in the system. Fixed removal acts at a
-physical authored-layer exit and is not repeated at every media cell.
-
-\fig{t10_treatment-formulation.png, Pollutant compartments and the assumed first-order exposure-time response}
+\fig{t10_treatment-formulation.png, Cell mass inventories and the assumed exposure-time response}
 
 ### 3. Inspect the connections and receiving boundary
 
@@ -190,7 +184,7 @@ W_A 1 BOTTOM
 W_B 1 BOTTOM
 ```
 
-Open **02_passive_backwater.inp**. R's Tailwater time series is zero until
+Open **richards_02_passive_backwater.inp**. R's Tailwater time series is zero until
 3 h, rises linearly to 1.60 ft at 4 h, stays there until 7 h, then falls to
 zero at 9 h. The deck explicitly uses `OUTFALL_BACKFLOW_QUALITY ZERO`:
 returning boundary water is clean. With held-concentration backflow, imported
@@ -198,9 +192,9 @@ pollutant must also be counted in the mass balance.
 
 ### 4. Compare timed detention and head-aware rules
 
-Open **03_timed_hold.inp**, then **Model → Data Objects → Control Rules…**.
+Open **richards_03_timed_hold.inp**, then **Model → Data Objects → Control Rules…**.
 Inspect the two rules that keep V_AB closed until 6 h and V_BR until 8 h.
-Open **04_head_guard.inp** to inspect the complete guarded rule set.
+Open **richards_04_head_guard.inp** to inspect the complete guarded rule set.
 
 A representative downstream-head rule is:
 
@@ -223,23 +217,24 @@ THEN ORIFICE V_BR SETTING = 1
 PRIORITY 5
 ```
 
-The reopening band avoids rapid switching at a single threshold. HEAD is an
+The receiving-boundary guard uses R HEAD = 1.25/1.05 ft. V_AB's guard
+uses B HEAD = 2.25/2.05 ft, above its 2.0-ft media top. These are surface
+ponding thresholds in Richards mode, not the old mobile-water-table
+thresholds. The reopening band avoids rapid switching at a single threshold. HEAD is an
 absolute hydraulic elevation; DEPTH is relative to the selected node's
 invert. The relief rule opens only when downstream head is low. It does not
-replace an emergency overflow. Node HEAD and DEPTH track the mobile water table; perched surface ponding can be higher and supplies the local overflow-port head. Use the supplied full deck to reproduce all
+replace an emergency overflow. In Richards mode node HEAD and DEPTH describe surface ponding. Buried
+links use local cell pressure; inspect the live cell profile for those heads. Use the supplied full deck to reproduce all
 rules and priorities. Save a separate copy when editing.
 
 ### 5. Run and compare results
 
-In **Model → Simulation Options…**, set **Routing step** to **0.025 s**
+In **Model → Simulation Options…**, set **Routing step** to **1.25 s**
 on the Time Steps page and set **Variable step factor** to **0** in
-Routing & Hydraulics → Solver (`VARIABLE_STEP 0`) for a controlled comparison. The supplied decks retain
-a 0.5-s initial step; the figure runner overrides it. The second-storm
-validation includes smaller steps and reports their measured differences.
-Save edited decks separately. Run each file separately. Inspect A/B depth and volume, R head, actual valve
-settings, signed flows in V_AB and V_BR, W_A/W_B flows and pollutant
-concentrations. Negative link flow indicates reversal. Use comparison plots
-as described in \ref manual_time_series_plots.
+Routing & Hydraulics → Solver (`VARIABLE_STEP 0`) for a controlled comparison. The download copies use 1.25 s for the first four strategies and stuck-closed
+case, and 0.625 s for the second storm. The source decks retain a 0.5-s
+authored step; the figure runner overrides it. The completed routing and
+cell/tolerance checks, and the second-storm 1.25-s failure, are disclosed below.
 
 \fig{t10_release-hydrograph.png, Receiving-outlet flow shifts with backwater and detention control}
 
@@ -259,71 +254,81 @@ These animations show the same sampled runs. The mass-fate bars are final
 time. Static versions of both figures appear above.
 
 <!-- START RESULTS_TABLE -->
-| First-storm strategy | V_BR peak (cfs) | Tracer 50% export (h) | Reacted by 24 h |
+| Richards first-storm strategy (1.25 s, 8 cells/material) | Sampled V_BR peak (cfs) | Tracer 50% export (h) | Reacted by 24 h |
 |---|---|---|---|
-| Passive / free outlet | 0.0368 | 4.83 | 34.4% |
-| Passive / backwater | 0.0389 | 10.18 | 43.6% |
-| Timed hold | 0.0345 | 10.05 | 42.7% |
-| Hold + head guard | 0.0345 | 10.05 | 42.7% |
+| Passive / free outlet | 0.0038 | 14.88 | 46.3% |
+| Passive / backwater | 0.0155 | 19.27 | 47.8% |
+| Timed hold | 0.0074 | 20.82 | 48.3% |
+| Hold + head guard | 0.0074 | 20.82 | 48.3% |
 <!-- END RESULTS_TABLE -->
 
 
 ### 6. Add the second storm and failure test
 
-**05_repeat_storm.inp** adds a 0–0.45–0 cfs pulse at 9–10–11 h.
-**06_stuck_closed.inp** holds both orifices closed for all 24 hours. Examine
+**richards_05_repeat_storm.inp** adds a 0–0.45–0 cfs pulse at 9–10–11 h.
+**richards_06_stuck_closed.inp** holds both orifices closed for all 24 hours. Examine
 surface bypass, any flooding and the mass left at the end. Compare every
 exit to the environment, not only V_BR. Do not credit retained pollutant as
-treated pollutant. Examine the remaining capacity before the second pulse. At its finest 0.00625-second
-step the guarded two-storm run conveys approximately 1,189 ft³ through the
-emergency weirs; the stuck-closed run conveys approximately 2,007 ft³
+treated pollutant. Examine the remaining capacity before the second pulse. At the illustrated 0.625-second
+step the guarded two-storm run conveys approximately 1,743 ft³ through the
+emergency weirs; the stuck-closed run conveys approximately 2,016 ft³
 through the weirs. Neither case has a flooding loss in the corrected runs.
 These volumes use cumulative engine accounting rather than snapshot sums.
 
-### 7. Examine resaturation and a subsequent storm
+### 7. Examine backwater redistribution and a subsequent storm
 
-Open the supplementary [lid_resaturation.inp](lid_resaturation.inp), available
-at `docs/manual/tutorials/models/lid_resaturation.inp`. It is a separate
-six-minute, 10 ft² facility, with 6 in SURFACE, 12 in MEDIA and 6 in
-AGGREGATE; media Ks = 2 in/h, conductivity slope = 10 and initial saturation
-0%. A reversible 0.30-ft side orifice joins S to outfall O. O's stage rises
-to 2 ft at 20 s, remains high through 100 s, and falls to zero at 120 s.
-Surface inflow is 0.02 cfs at minutes 3–4 and carries 10 mg/L of TRACER;
-reverse boundary water is clean. Bottom seepage and decay are zero.
+Open [lid_richards_resaturation.inp](lid_richards_resaturation.inp). This
+separate six-minute, 10 ft² fixture has 6 in SURFACE, 12 in MEDIA and 6 in
+AGGREGATE; media Ks is 24 in/h, initial saturation 10%, and the Richards
+retention properties are the same as the chain. A reversible 0.30-ft side
+orifice joins S to O. O rises to 2 ft at 20 s, holds through 100 s and
+returns to zero at 120 s. Surface supply is 0.02 cfs at minutes 3–4; it
+carries 10 mg/L TRACER. Reverse boundary water is clean. The bottom is sealed.
 
-Inspect signed D flow and S depth. Set the report interval to 1 s if you
-want finer plotted detail. The supplied interval is 1 s already; use a
-0.1-s routing step. Negative flow wets the facility from its port; full
-media submergence fills all pores. After recession, formerly submerged
-cells retain field-capacity moisture. The next pulse uses that wetter state.
+Use routing steps 0.1 and 0.05 s and a 1-s report interval. Inspect signed
+D flow and the live section's cell moisture and pressure. Reverse inflow
+changes the basal cell inventory, and signed Richards fluxes redistribute
+water vertically. The later pulse meets that evolved profile. This fixture
+does not force complete saturation of every media cell.
 
-![Reverse inflow, resaturation, recession and subsequent infiltration](t10_resaturation.gif)
+![Native Richards pressure and moisture profiles during backwater and a later pulse](t10_resaturation.gif)
 
-\fig{t10_resaturation-static.png, Simulated resaturation and subsequent infiltration in the six-minute test}
+\fig{t10_resaturation-static.png, Sampled Richards cell states in the six-minute fixture}
 
-The infiltration history's finite upper zone counts retained moisture plus
-submerged pores. Backwater/accepted media-port wetting decreases its deficit
-without adding to cumulative surface infiltration F. Full media submergence
-clears the old front; gradual recession tracks remaining moisture until
-accepted surface infiltration starts a new approximate front. An empty surface above a backwater-wetted upper zone
-cannot trigger artificial dry recovery. This adaptation does not resolve
-upward capillary flux or interacting wetting fronts.
+Richards hotstart extension 11 preserves complete porous-cell water and
+material/discretization identity. Use a fresh run after incompatible edits.
+Runtime aquifer-bed exchange, water age, heat and MSX are not yet supported
+with Richards nodes; the supplied fixtures use closed bottoms and standard
+pollutant routing.
 
-Native V10 hotstarts retain this history and retained pollutant mass.
-Compatible pre-V10 files reconstruct infiltration history and warn that
-exact continuation is unavailable. Use a fresh run when comparing changes
-in conductivity, suction or geometry; these can invalidate saved history.
+<!-- START VALIDATION -->
+The six examples were run with Richards explicitly enabled. The first four illustrated strategies use eight cells per porous material and a common 1.25-second fixed routing step; the second-storm figure uses 0.625 s and the stuck-closed case 1.25 s. The publication package contains 14 checkpointed complete case/numerics combinations, including finer routing, 4/16-cell and tighter ODE-tolerance checks. All these completed runs passed the 0.5% water/tracer/reactive continuity criterion without engine warnings; maximum reported error was 5.03e-11%. **The two-storm case failed at 1.25 s with a Richards adaptive-step-limit error; it is retained as a failed check, not counted as a pass.** The pressure-profile fixture passed at 0.1 and 0.05 s. **These are not numerically converged performance predictions:** routing-step and cell-count changes materially affect outlet peaks, reverse volumes and treatment exposure. The recorded Richards publication verification passed 9 kernel tests and 49 of 50 LID-node integration tests; the US/SI storage-equivalence fixture remains failing. The older 241-test/20-run evidence applies to the previous gravity/front implementation, not Richards.
+
+| Guarded Richards case at 1.25 s | Sampled V_BR peak (cfs) | Reacted by 24 h | Emergency bypass (ft³) |
+|---|---|---|---|
+| 4 cells per porous material | 0.0120 | 39.87% | 555.4 |
+| 8 cells per porous material | 0.0074 | 48.33% | 449.4 |
+| 16 cells per porous material | 0.0014 | 53.97% | 394.3 |
+
+The grid dependence is large enough that these runs cannot establish a robust ranking of control strategies. The guarded case’s tighter ODE tolerance changes reacted fraction by 0.000 percentage points; this does not resolve the distinct cell-size/routing coupling sensitivity. Further numerical verification and measured retention properties are needed before design use. The 02_passive_backwater peak changes from 0.0155 to 0.0199 cfs at 0.625 s. The 04_head_guard peak changes from 0.0074 to 0.0115 cfs at 0.625 s.
+<!-- END VALIDATION -->
+
+<!-- START PARTITION_VALIDATION -->
+Independent testing identified another problem in the earlier gravity/front model: an inlet above the reported water table could keep filling a partially submerged cell as retained moisture, while that cell stopped free drainage as soon as its bottom was submerged. At porosity, its remaining mobile capacity collapsed and its water inventory was abruptly reclassified. Water was conserved, but the resulting head and hydrograph were wrong. The reproduced free-outlet case rose 0.993 ft in 30 seconds while total water fell from about 517 to 514 ft³; the backwater case rose 0.631 ft at about hour 2.675. **The correction keeps partially submerged cells draining retained excess and routes incoming water to mobile storage when the receiving cell intersects the water table**, even if its inlet is above that table. Only fully submerged cells skip free drainage. This is the reduced model’s cell-level coupling approximation, not a resolved local Richards pressure field. After correction, the largest 30-second rise in B is about 0.0031 ft in both examples, and the free-outlet case no longer has the artificial reversal into A. All six legacy examples passed water/tracer/reactive balances at 0.5 and 0.25 s (12 completed runs); the current LID-node suite passes 52 of 53 tests, including three new regressions for partial-cell drainage, inlet ownership and per-step routed-head continuity. The previously reported Richards US/SI fixture still fails. These results replace the affected legacy performance comparison; the Richards figures retain their separately identified run provenance. **Continuity is necessary, but head continuity and a physically consistent storage partition must also be checked.**
+<!-- END PARTITION_VALIDATION -->
 
 ## What to look for
 
 - Downstream head can reverse flow and change available detention in both LIDs.
-- Timed holding delays tracer export relative to the free-outlet case. Here its receiving-outlet peak is lower, but emergency bypass is larger.
-- Timed and guarded holding give the same result in this first-storm test: the additional guard rules do not change its valve schedule. Test other stages and storms before claiming a control benefit.
+- Timed holding changes tracer export and mass fate; it does not guarantee a lower peak.
+  These runs remain sensitive to routing step and cell count.
+- Timed and guarded results are identical at the illustrated resolution;
+  inspect accepted settings and test other events before claiming a guard benefit.
 - Passive backwater can produce more calculated reaction than the controller;
   treatment alone is insufficient to rank alternatives.
 - A stuck closed valve still permits emergency overflow and leaves an inventory.
-- MEDIA's five internal cells do not imply five repeated removal events.
-  Saturated mobile water remains a shared storage reactor.
+- Eight cells per porous material do not imply eight repeated removal events.
+  Richards cells own their individual water and mass even when saturated.
 
 ## Variations
 

@@ -107,9 +107,16 @@ model plus whatever sidecar sits beside it. See \ref manual_file_formats.
 
 ### Opening, saving and closing
 
+File-open and import dialogs remember separate folders for each file category,
+including vectors, rasters, meshes, results and time series. These locations
+persist between launches. If a remembered folder disappears, the picker uses
+its project/current-path default or your home folder. Cancelling a picker keeps
+the remembered location. Multiple-file selection remains available for dataset
+imports.
+
 | Command | Behaviour |
 |---|---|
-| **Open** | The file dialog lists every readable input format contributed by the engine's input plugins (`.inp`, `.gpkg`, …) plus `.oswp`. It starts in the folder of your most recent file. A `.oswp` restores the session; anything else is opened as a single model with its sidecar applied opportunistically |
+| **Open** | The file dialog lists every readable input format contributed by the engine's input plugins (`.inp`, `.gpkg`, …) plus `.oswp`. It starts in the last model/project folder you selected, when that folder still exists. A `.oswp` restores the session; anything else is opened as a single model with its sidecar applied opportunistically |
 | **Open Recent ▸** | Up to 20 entries, most recent first, labelled by file name with the full path on the tooltip. **Clear Recent Files** empties the list — it appears both at the bottom of this submenu and on the Welcome page |
 | **Save** | Rewrites the model to its current path, then the sidecar. An untitled project falls through to Save As |
 | **Save As…** | One dialog; the target format comes from the file-type dropdown: `.oswp` (project), `.inp`, `.gpkg`, or any other writable format a plugin contributes. The chosen filter is remembered per project |
@@ -379,7 +386,6 @@ show up in the log next to the save-success line instead of inside the saved fil
 
 \figtodo{03_portability_warnings.png, Message Logs showing a portability pre-flight warning after a Save As}
 
-\videotodo{Saving a project — Save As to a new folder; reading the portability pre-flight warnings and confirming the sidecar and 2D mesh travelled with it}
 
 ### User flags
 

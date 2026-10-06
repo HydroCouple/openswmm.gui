@@ -37,6 +37,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QLoggingCategory>
 #include <QFrame>
@@ -1546,7 +1547,7 @@ void TimeseriesEditorDialog::onBrowseExternalFile_()
     if (m_providers.isEmpty() || !m_providers.first()) return;
     auto *p = m_providers.first().data();
 
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("timeseries"),
         this, tr("Choose timeseries file"),
         p->filePath().isEmpty() ? QString() : QFileInfo(p->filePath()).absolutePath(),
         tr("Timeseries (*.csv *.tsv *.tsf *.dat *.txt);;All files (*)"));

@@ -73,6 +73,8 @@ I want all files used in the testing to be written to locations where a user is 
 
 I want to always follow preconfigured work plans when they exist and are saved in markdown documents based on previous conversations and not implement whole new strategies that have not been vetted.
 
+Markdown plans, handoffs and agent instructions are always saved in the project's `workplans/` (or `plans/`) folder — never only in chat, outputs or temporary locations.
+
 
 ## 5.1. UI Implementation Guide
 

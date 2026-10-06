@@ -379,6 +379,35 @@ add_swmmvis_gui_test(test_profileplot_axis_edges
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
+# Profile plots — crown line must stay visible when it coincides with (or
+# rises above) the ground rim: conduit crowns bound the y-extent and the
+# vertical padding keeps top-edge features off the clip edge / axis frame.
+add_swmmvis_gui_test(test_profileplot_crown_visibility
+    test_profileplot_crown_visibility.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profilebuilder.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profilebuilder.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+target_compile_definitions(test_profileplot_crown_visibility PRIVATE
+    SWMMVIS_PCROWN_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/gui/data/profile_crown_out")
+
 # Layer-metadata plan — mesh edge-count identity (2·E = 3·T + B). Value types.
 add_swmmvis_gui_test(test_meshedgecount
     test_meshedgecount.cpp
@@ -1993,6 +2022,15 @@ add_swmmvis_gui_test(test_aboutdialog
 )
 
 # Slice IO-10 — relative-path picker widget unit test.
+add_swmmvis_gui_test(test_fileopendialog
+    test_fileopendialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/util/fileopendialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/relativepathpicker.h
+)
+set_property(TEST test_fileopendialog APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_FILE_OPEN_TEST_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/file_open_directories_2026-10-04/tests")
+
 add_swmmvis_gui_test(test_relativepathpicker
     test_relativepathpicker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
@@ -3833,9 +3871,26 @@ add_swmmvis_gui_test(test_livegroundwatervariables
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_livegroundwatervariables)
 
+add_swmmvis_gui_test(test_resultscalargeometry
+    test_resultscalargeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/resultscalargeometry.cpp)
+add_swmmvis_gui_test(test_resultvariableexportdialog
+    test_resultvariableexportdialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_resultvariableexportdialog)
+
+add_swmmvis_gui_test(test_mesh2dvariablegisexport
+    test_mesh2dvariablegisexport.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_mesh2dvariablegisexport)
+
 add_swmmvis_gui_test(test_resultscalarsublayer
     test_resultscalarsublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/resultscalarsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/isolinesublayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/isolinesublayer.h
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/scalarfillsublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
     ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
@@ -3941,6 +3996,13 @@ add_swmmvis_gui_test(test_profilesectionstore
 add_swmmvis_gui_test(test_groundwaterassignment
     ../unit/test_groundwaterassignment.cpp
     ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+add_swmmvis_gui_test(test_rasterfluxintegration
+    ../unit/test_rasterfluxintegration.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/rasterfluxintegration.cpp)
+target_link_libraries(test_rasterfluxintegration PRIVATE GDAL::GDAL)
+set_property(TEST test_rasterfluxintegration APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_RASTER_FLUX_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_36_followthrough/raster_flux")
+
 add_swmmvis_gui_test(test_groundwaterassignmentsampling
     ../unit/test_groundwaterassignmentsampling.cpp
     ${CMAKE_SOURCE_DIR}/src/assignment/meshassignmentsampling.cpp
@@ -3998,6 +4060,14 @@ add_swmmvis_gui_test(test_phase35_projectpersistence
 swmmvis_link_full_app_deps(test_phase35_projectpersistence)
 target_compile_definitions(test_phase35_projectpersistence PRIVATE
     PHASE35_TEST_OUTPUT="${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_35_profiles_forcing/project")
+
+# Valid connected large meshes; default is a small regression. Larger runs are opt-in.
+add_swmmvis_gui_test(test_groundwater_large_model
+    test_groundwater_large_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+set_property(TEST test_groundwater_large_model APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_LARGE_GW_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/phase_36_followthrough/large_model")
 
 add_swmmvis_gui_test(test_groundwatertransportassignment
     test_groundwatertransportassignment.cpp

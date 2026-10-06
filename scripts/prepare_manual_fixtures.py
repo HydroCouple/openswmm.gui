@@ -12,6 +12,9 @@ import subprocess
 ROOT = Path(__file__).resolve().parent.parent
 MODEL_DIR = 'docs/manual/tutorials/models/'
 CASES = {
+    'bowl': [MODEL_DIR + 'terrain_bowl.inp', MODEL_DIR + 'terrain_bowl.asc', MODEL_DIR + 'terrain_bowl.prj', MODEL_DIR + 'terrain_bowl_domain.geojson'],
+    'plaza': [MODEL_DIR + 'coupled_plaza.inp'],
+    'slope': [MODEL_DIR + 'vfr_slope.inp'],
     'dataobjects': [MODEL_DIR + 'data_objects_example.inp'],
     'flags': [MODEL_DIR + 'user_flags_example.inp'],
     'node': [MODEL_DIR + 'node_editor_example.inp'],
@@ -19,6 +22,9 @@ CASES = {
     'site': ['examples/site_drainage/site_drainage_model.inp'],
     'street': [MODEL_DIR + 'street_inlet_junction.inp'],
     'twod': [MODEL_DIR + '2d_complete_example.inp'],
+    'bellinge': ['examples/bellinge_2d/' + name for name in (
+        'BellingeSWMM_v021_nopervious.inp', 'BellingeSWMM_v021_nopervious.2dm',
+        'rg_bellinge_Jun2010_Aug2021.dat', 'output_SRTMGL1.tif', 'output_SRTMGL1.tif.aux.xml')],
     'transport': [MODEL_DIR + 'transport_demo.' + ext for ext in ('inp', 'ard', 'rxn', 'age', 'heat')],
     'fv': ['examples/swashes_bump_shock/1d_fv.inp'],
 }

@@ -55,10 +55,17 @@ LegendSymbolItem swatch(const QString &id, const QString &key, const QString &la
 
 ResultScalarStyle::ResultScalarStyle(QObject *parent) : ScalarFillStyle(parent)
 {
+    m_contourStyle = new IsolineStyle(this);
+    connect(m_contourStyle,&SublayerStyle::styleChanged,this,[this]{setDirty();});
     setAttribute(QString());
     auto initialScheme = scheme();
     initialScheme.setRangeMode(RangeMode::PerFrameAutoStretch);
     setScheme(initialScheme);
+}
+void ResultScalarStyle::setPresentation(Presentation value)
+{
+    if(value!=Presentation::Fill&&value!=Presentation::Contours&&value!=Presentation::Labels)return;
+    if(m_presentation!=value){m_presentation=value;setDirty();}
 }
 void ResultScalarStyle::setMissingColor(const QColor &color)
 { if (color.isValid() && color != m_missing) { m_missing = color; setDirty(); } }
@@ -69,6 +76,8 @@ void ResultScalarStyle::setNotApplicableColor(const QColor &color)
 QJsonObject ResultScalarStyle::toJson() const
 {
     auto json = ScalarFillStyle::toJson();
+    json.insert("presentation",int(m_presentation));
+    json.insert("contourStyle",m_contourStyle->toJson());
     json.insert(QStringLiteral("missingColor"), m_missing.name(QColor::HexArgb));
     json.insert(QStringLiteral("waterlessColor"), m_waterless.name(QColor::HexArgb));
     json.insert(QStringLiteral("notApplicableColor"), m_notApplicable.name(QColor::HexArgb));
@@ -79,6 +88,8 @@ void ResultScalarStyle::fromJson(const QJsonObject &json)
     {
         const QSignalBlocker blocker(this);
         ScalarFillStyle::fromJson(json);
+        setPresentation(Presentation(json.value("presentation").toInt(0)));
+        if(json.value("contourStyle").isObject())m_contourStyle->fromJson(json.value("contourStyle").toObject());
         setMissingColor(QColor(json.value(QStringLiteral("missingColor")).toString()));
         setWaterlessColor(QColor(json.value(QStringLiteral("waterlessColor")).toString()));
         setNotApplicableColor(QColor(json.value(QStringLiteral("notApplicableColor")).toString()));
@@ -104,7 +115,9 @@ QString ResultScalarSublayer::displayName() const
 {
     if (m_descriptor.key() != variableKey() || m_descriptor.label.isEmpty())
         return tr("Unavailable result: %1").arg(variableKey());
-    return tr("%1 [%2]").arg(m_descriptor.label, unitsLabel(m_descriptor));
+    const QString suffix=m_style->presentation()==ResultScalarStyle::Presentation::Contours?tr(" — contours")
+        :m_style->presentation()==ResultScalarStyle::Presentation::Labels?tr(" — labels"):QString();
+    return tr("%1 [%2]%3").arg(m_descriptor.label, unitsLabel(m_descriptor),suffix);
 }
 void ResultScalarSublayer::setDescriptor(const openswmmvis::io::Mesh2DResultVariable &descriptor)
 {
@@ -172,6 +185,17 @@ QList<LegendSymbolItem> ResultScalarSublayer::legendSymbolItems(const Mesh2DScal
     const bool matching = !variableKey().isEmpty() && frame.descriptor.key() == variableKey() && frame.error.isEmpty();
     const QString classificationError = scheme.validationError(range.minimum, range.maximum);
     const QString units = unitsLabel(matching ? frame.descriptor : m_descriptor);
+    if(matching&&m_style->presentation()!=ResultScalarStyle::Presentation::Fill) {
+        LegendSymbolItem item;item.sublayerId=m_id;
+        item.label=m_style->presentation()==ResultScalarStyle::Presentation::Contours
+            ?tr("%1 contours [%2] — display interpolation").arg(frame.descriptor.label,units)
+            :tr("%1 cell values [%2]").arg(frame.descriptor.label,units);
+        SymbolLayer line;line.kind=SymbolLayerKind::SimpleLine;
+        SymbolProps::writeColor(line.props,QStringLiteral("color"),m_style->contourStyle()->color());
+        line.props.insert(QStringLiteral("width"),m_style->contourStyle()->lineWidthPx());
+        item.symbol.layers.append(line);item.symbol.opacity=m_opacity;result.append(item);
+        return result;
+    }
     if (matching && classificationError.isEmpty()
         && std::isfinite(effective.first) && std::isfinite(effective.second)) {
         if (m_style->classified()) {

@@ -89,7 +89,6 @@ context menu or property editor focuses that gage.
 
 \fig{25_rainfall_visualization.png, The Rainfall Visualization window on the Overlay tab with the gage summary table}
 
-\videotodo{Comparing rain gages — switching to cumulative depth and spotting a gage with a broken rain file}
 
 ### 2D cell, edge and vertex time series
 

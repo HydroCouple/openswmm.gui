@@ -48,6 +48,7 @@
 #include <QUndoCommand>
 #include <QUndoStack>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFormLayout>
 #include <QMessageBox>
 #include <QGroupBox>
@@ -1226,7 +1227,7 @@ void LayerStyleDialog::onExportStyle()
 void LayerStyleDialog::onImportStyle()
 {
     if (!m_layer) return;
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("styles"),
         this, tr("Import style"), QString(),
         tr("Style files (*.swmm-style.json *.json *.qml);;All files (*)"));
     if (path.isEmpty() || !m_layer || m_sessionFinished) return;

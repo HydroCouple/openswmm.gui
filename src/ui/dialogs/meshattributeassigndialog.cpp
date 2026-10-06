@@ -31,6 +31,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -609,7 +610,7 @@ void MeshAttributeAssignDialog::onTargetChanged() { updateButtons(); }
 
 void MeshAttributeAssignDialog::onBrowseRaster()
 {
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("raster"),
         this, tr("Select Raster"), QString(),
         tr("Raster files (*.tif *.tiff *.asc *.img *.vrt *.nc);;All files (*)"));
     if (path.isEmpty()) return;
@@ -893,7 +894,7 @@ void MeshAttributeAssignDialog::applyLookupTable(const mesh::InfilLookupTable &t
 
 void MeshAttributeAssignDialog::onLoadLookupCsv()
 {
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("infiltration-lookup"),
         this, tr("Load Infiltration Lookup Table"), QString(),
         tr("CSV files (*.csv);;All files (*)"));
     if (path.isEmpty()) return;

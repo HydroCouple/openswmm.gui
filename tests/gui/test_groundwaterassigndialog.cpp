@@ -5,6 +5,9 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
+#include "map/spatialreferencesystem.h"
+#include <gdal_priv.h>
+#include <ogr_spatialref.h>
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
 #include "core/unitsystem.h"
@@ -41,6 +44,16 @@ struct Fixture{
  }
  void select(){selection.select({mesh::MeshObjectRef::cell(mesh.sourcePath(),0),mesh::MeshObjectRef::cell(mesh.sourcePath(),1)},SelectionManager::Replace);}
 };
+QString fluxRaster(Fixture&f,bool noData=false){
+ GDALAllRegister();const QString path=QFileInfo(f.model.modelFilePath()).absoluteDir().filePath("density.tif");
+ auto*ds=GetGDALDriverManager()->GetDriverByName("GTiff")->Create(path.toUtf8().constData(),4,2,1,GDT_Float64,nullptr);if(!ds)return {};
+ double gt[]={0,1,0,0,0,1};ds->SetGeoTransform(gt);OGRSpatialReference crs;crs.importFromEPSG(32618);char*wkt=nullptr;crs.exportToWkt(&wkt);ds->SetProjection(wkt);CPLFree(wkt);
+ QVector<double> values(8,.001);if(noData)values[0]=-9999;auto*b=ds->GetRasterBand(1);b->SetNoDataValue(-9999);const bool ok=b->RasterIO(GF_Write,0,0,4,2,values.data(),4,2,GDT_Float64,0,0)==CE_None;GDALClose(ds);return ok?path:QString();
+}
+void configureFlux(GroundwaterAssignDialog&dialog,const QString&path){
+ auto*target=dialog.findChild<QComboBox*>("gwAssignmentTarget");target->setCurrentIndex(target->findData("FLOW"));dialog.findChild<QComboBox*>("gwAssignmentRoute")->setCurrentIndex(2);
+ auto*sampling=dialog.findChild<QComboBox*>("gwAssignmentRasterMeaning");if(sampling)sampling->setCurrentIndex(sampling->findData("flux-density"));auto*unit=dialog.findChild<QComboBox*>("gwAssignmentDensityUnits");if(unit)unit->setCurrentIndex(unit->findData("m/s"));dialog.findChild<QLineEdit*>("gwAssignmentPath")->setText(path);
+}
 }
 class TestGroundwaterAssignDialog:public QObject{
  Q_OBJECT
@@ -99,6 +112,41 @@ private slots:
   int count=0;QCOMPARE(swmm_infil2d_get_authored_rows(f.model.engine(),nullptr,0,&count),SWMM_OK);QCOMPARE(count,1);QCOMPARE(f.canvas.undoStack()->count(),0);
  }
 
+ void conservativeRasterControlsAreExplicitAndAccessible(){Fixture f;QVERIFY(f.open());GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);
+  auto*sampling=dialog.findChild<QComboBox*>("gwAssignmentRasterMeaning");QVERIFY(sampling);
+  auto*units=dialog.findChild<QComboBox*>("gwAssignmentDensityUnits");QVERIFY(units);
+  auto*coverage=dialog.findChild<QComboBox*>("gwAssignmentCoverage");QVERIFY(coverage);
+  QCOMPARE(sampling->currentData().toString(),QString("cell-rate"));QVERIFY(!sampling->isEnabled());
+  auto*target=dialog.findChild<QComboBox*>("gwAssignmentTarget");target->setCurrentIndex(target->findData("FLOW"));
+  dialog.findChild<QComboBox*>("gwAssignmentRoute")->setCurrentIndex(2);QVERIFY(sampling->isEnabled());
+  sampling->setCurrentIndex(sampling->findData("flux-density"));QVERIFY(units->isEnabled());QVERIFY(coverage->isEnabled());
+  QVERIFY(units->currentData().toString().isEmpty());QCOMPARE(coverage->currentData().toString(),QString("complete"));
+  for(auto*editor:{sampling,units,coverage}){QVERIFY(!editor->accessibleName().isEmpty());auto*a=QAccessible::queryAccessibleInterface(editor);QVERIFY(a);QVERIFY(!a->text(QAccessible::Description).isEmpty());bool buddy=false;for(auto*caption:dialog.findChildren<QLabel*>())buddy|=caption->buddy()==editor;QVERIFY(buddy);}
+ }
+ void conservativeRasterRequiresDeclaredDensityUnits(){Fixture f;QVERIFY(f.open());f.select();GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);
+  auto*target=dialog.findChild<QComboBox*>("gwAssignmentTarget");target->setCurrentIndex(target->findData("FLOW"));dialog.findChild<QComboBox*>("gwAssignmentRoute")->setCurrentIndex(2);
+  auto*sampling=dialog.findChild<QComboBox*>("gwAssignmentRasterMeaning");QVERIFY(sampling);sampling->setCurrentIndex(sampling->findData("flux-density"));
+  dialog.findChild<QPushButton*>("gwAssignmentPreviewButton")->click();QVERIFY(dialog.findChild<QLabel*>("gwAssignmentStatus")->text().contains("density units",Qt::CaseInsensitive));QVERIFY(!dialog.findChild<QPushButton*>("gwAssignmentApplyButton")->isEnabled());QCOMPARE(f.canvas.undoStack()->count(),0);
+ }
+ void conservativeRasterPreviewApplyUndoAndAudit(){Fixture f;QVERIFY(f.open());f.mesh.setSRS(new SpatialReferenceSystem(QStringLiteral("EPSG"),32618),true);f.select();const QString path=fluxRaster(f);QVERIFY(!path.isEmpty());GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);configureFlux(dialog,path);
+  GroundwaterTransportSnapshot before,now;QString error;QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&before,&error));QSignalSpy recipes(&dialog,&GroundwaterAssignDialog::recipeAccepted);
+  auto*preview=dialog.findChild<QPushButton*>("gwAssignmentPreviewButton");auto*apply=dialog.findChild<QPushButton*>("gwAssignmentApplyButton");preview->click();QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(),10000);QVERIFY2(apply->isEnabled(),qPrintable(dialog.findChild<QLabel*>("gwAssignmentStatus")->text()));QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);
+  QVERIFY(dialog.findChild<QLabel*>("gwAssignmentStatus")->text().contains("6 m² valid"));apply->click();QTRY_COMPARE(recipes.count(),1);QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now.sources.size(),2);QCOMPARE(now.sources[0].scale,1.);QCOMPARE(now.sources[1].scale,1.);QVERIFY(qAbs(now.sources[0].flow-.002)<1e-14);QVERIFY(qAbs(now.sources[1].flow-.004)<1e-14);
+  const auto recipe=recipes.at(0).at(0).toJsonObject();QCOMPARE(recipe.value("sampling").toString(),QString("pixel-cell-area-integral"));QCOMPARE(recipe.value("densityUnits").toString(),QString("m/s"));QCOMPARE(recipe.value("coveragePolicy").toString(),QString("complete"));QCOMPARE(recipe.value("validAreaM2").toDouble(),6.);QCOMPARE(recipe.value("uncoveredAreaM2").toDouble(),0.);QVERIFY(qAbs(recipe.value("integratedFlowM3PerS").toDouble()-.006)<1e-14);
+  const auto accepted=now;f.canvas.undoStack()->undo();QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);f.canvas.undoStack()->redo();QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,accepted);
+ }
+ void conservativePartialCoverageRequiresDeliberatePolicy(){Fixture f;QVERIFY(f.open());f.mesh.setSRS(new SpatialReferenceSystem(QStringLiteral("EPSG"),32618),true);f.select();GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);configureFlux(dialog,fluxRaster(f,true));
+  GroundwaterTransportSnapshot before,now;QString error;QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&before,&error));auto*preview=dialog.findChild<QPushButton*>("gwAssignmentPreviewButton");auto*apply=dialog.findChild<QPushButton*>("gwAssignmentApplyButton");preview->click();QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(),10000);QVERIFY(!apply->isEnabled());QVERIFY(dialog.findChild<QLabel*>("gwAssignmentStatus")->text().contains("coverage"));QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);
+  auto*coverage=dialog.findChild<QComboBox*>("gwAssignmentCoverage");QVERIFY(coverage);coverage->setCurrentIndex(coverage->findData("valid-area"));preview->click();QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(),10000);QVERIFY2(apply->isEnabled(),qPrintable(dialog.findChild<QLabel*>("gwAssignmentStatus")->text()));QSignalSpy recipes(&dialog,&GroundwaterAssignDialog::recipeAccepted);apply->click();QTRY_COMPARE(recipes.count(),1);QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QVERIFY(qAbs(now.sources[0].flow-.0015)<1e-14);QVERIFY(qAbs(now.sources[1].flow-.004)<1e-14);QCOMPARE(recipes.at(0).at(0).toJsonObject().value("uncoveredAreaM2").toDouble(),.5);
+ }
+ void conservativeRasterOppositeSignsRefuseBeforeWrites_data(){QTest::addColumn<double>("withdrawal");QTest::newRow("balanced-zero-net")<<-.003;QTest::newRow("unequal-net")<<-.001;}
+ void conservativeRasterOppositeSignsRefuseBeforeWrites(){QFETCH(double,withdrawal);Fixture f;QVERIFY(f.open());f.mesh.setSRS(new SpatialReferenceSystem(QStringLiteral("EPSG"),32618),true);f.select();const QString path=fluxRaster(f);auto*ds=static_cast<GDALDataset*>(GDALOpen(path.toUtf8().constData(),GA_Update));QVERIFY(ds);QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,1,1,&withdrawal,1,1,GDT_Float64,0,0),CE_None);GDALClose(ds);
+  GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);configureFlux(dialog,path);GroundwaterTransportSnapshot before,now;QString error;QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&before,&error));QSignalSpy applied(&dialog,&GroundwaterAssignDialog::applied);auto*preview=dialog.findChild<QPushButton*>("gwAssignmentPreviewButton");preview->click();QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(),10000);QVERIFY(dialog.findChild<QLabel*>("gwAssignmentStatus")->text().contains("both injection and extraction"));QVERIFY(!dialog.findChild<QPushButton*>("gwAssignmentApplyButton")->isEnabled());QCOMPARE(applied.count(),0);QCOMPARE(f.canvas.undoStack()->count(),0);QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);
+ }
+ void conservativeRasterCancelAndChangedSourceDoNotWrite(){Fixture f;QVERIFY(f.open());f.mesh.setSRS(new SpatialReferenceSystem(QStringLiteral("EPSG"),32618),true);f.select();const QString path=fluxRaster(f);GroundwaterAssignDialog dialog(&f.model,&f.mesh,&f.canvas,&f.selection,&f.units);configureFlux(dialog,path);GroundwaterTransportSnapshot before,now;QString error;QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&before,&error));
+  auto*preview=dialog.findChild<QPushButton*>("gwAssignmentPreviewButton");auto*apply=dialog.findChild<QPushButton*>("gwAssignmentApplyButton");QSignalSpy applied(&dialog,&GroundwaterAssignDialog::applied);preview->click();dialog.reject();QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(),10000);QVERIFY(!apply->isEnabled());QCOMPARE(applied.count(),0);QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);
+  preview->click();QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(),10000);QVERIFY2(apply->isEnabled(),qPrintable(dialog.findChild<QLabel*>("gwAssignmentStatus")->text()));auto*ds=static_cast<GDALDataset*>(GDALOpen(path.toUtf8().constData(),GA_Update));QVERIFY(ds);QCOMPARE(ds->GetRasterBand(1)->Fill(.002),CE_None);GDALClose(ds);apply->click();QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(),10000);QVERIFY(!apply->isEnabled());QCOMPARE(applied.count(),0);QVERIFY(readGroundwaterTransportSnapshot(f.model.engine(),&now,&error));QCOMPARE(now,before);QCOMPARE(f.canvas.undoStack()->count(),0);
+ }
  void legacyGroundwaterTargetsPointToSupportedAssignment(){
   int found=0;for(const auto&spec:mesh::cellParamSpecs())if(spec.key.startsWith("gw.")){
    ++found;QVERIFY(!spec.enabled);QVERIFY(spec.tooltip.contains("Model"));QVERIFY(spec.tooltip.contains("Assign Groundwater"));QVERIFY(!spec.tooltip.contains("not yet available"));

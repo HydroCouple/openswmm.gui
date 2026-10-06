@@ -3,6 +3,7 @@
 
 #include "io/mesh2dscalarframe.h"
 #include "render/sublayers/scalarfillsublayer.h"
+#include "render/sublayers/isolinesublayer.h"
 #include <memory>
 
 namespace OpenSWMM::Render {
@@ -11,6 +12,11 @@ namespace OpenSWMM::Render {
 class ResultScalarStyle : public ScalarFillStyle
 {
     Q_OBJECT
+public:
+    enum class Presentation { Fill, Contours, Labels };
+    Q_ENUM(Presentation)
+private:
+    Q_PROPERTY(OpenSWMM::Render::ResultScalarStyle::Presentation presentation READ presentation WRITE setPresentation NOTIFY styleChanged)
     Q_PROPERTY(QColor missingColor READ missingColor WRITE setMissingColor NOTIFY styleChanged)
     Q_PROPERTY(QColor waterlessColor READ waterlessColor WRITE setWaterlessColor NOTIFY styleChanged)
     Q_PROPERTY(QColor notApplicableColor READ notApplicableColor WRITE setNotApplicableColor NOTIFY styleChanged)
@@ -19,6 +25,14 @@ class ResultScalarStyle : public ScalarFillStyle
     Q_CLASSINFO("group:notApplicableColor", "Data availability")
 public:
     explicit ResultScalarStyle(QObject *parent = nullptr);
+    Presentation presentation() const { return m_presentation; }
+    void setPresentation(Presentation value);
+    IsolineStyle *contourStyle() const { return m_contourStyle; }
+    const ClassificationScheme &rangeScheme() const {return m_presentation==Presentation::Contours?m_contourStyle->scheme():scheme();}
+    std::vector<double> contourLevels(double minimum,double maximum,const QVector<double> &samples) const {
+        const auto range=m_contourStyle->scheme().effectiveRange(minimum,maximum);
+        return m_contourStyle->levelsForRange(range.first,range.second,samples);
+    }
     QColor missingColor() const { return m_missing; }
     QColor waterlessColor() const { return m_waterless; }
     QColor notApplicableColor() const { return m_notApplicable; }
@@ -28,6 +42,8 @@ public:
     QJsonObject toJson() const override;
     void fromJson(const QJsonObject &json) override;
 private:
+    Presentation m_presentation = Presentation::Fill;
+    IsolineStyle *m_contourStyle = nullptr;
     QColor m_missing{145, 145, 145, 150};
     QColor m_waterless{230, 230, 230, 90};
     QColor m_notApplicable{Qt::transparent};

@@ -25,6 +25,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include "ui/util/fileopendialog.h"
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -370,7 +371,7 @@ public:
         QObject::connect(browse, &QToolButton::clicked, m_edit,
                          [this, nameFilter]() {
             const QString start = m_edit->text().trimmed();
-            const QString path = QFileDialog::getOpenFileName(
+            const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(openswmmvis::ui::FileOpenDialog::typeForFilter(nameFilter),
                 window(), QObject::tr("Choose data file"),
                 start.isEmpty() ? QString() : QFileInfo(start).absolutePath(),
                 nameFilter);

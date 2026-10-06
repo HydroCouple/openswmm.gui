@@ -278,6 +278,9 @@ set(
         include/io/mesh2dscalarframe.h
         include/io/mesh2dresultvariable.h
         include/io/mesh2dlivevariables.h
+        include/io/mesh2dvariablegisexport.h
+        include/ui/dialogs/resultvariableexportdialog.h
+        include/render/resultscalargeometry.h
         include/render/sublayers/scalarfillsublayer.h
         # Mesh styling restructure — BC indicators + coupled-node markers as
         # first-class sublayers.
@@ -340,6 +343,7 @@ set(
         include/render/qsg2dasyncresult.h
         # QSG-2D-1M Phase 7/8 — async contour worker + GPU ramp LUT math.
         include/render/contourjob.h
+        include/render/resultscalargeometry.h
         include/render/scalarramplut.h
         include/map/scalarfillmaterial.h
 
@@ -360,6 +364,7 @@ set(
         include/assignment/groundwaterassignment.h
         include/assignment/raingageassignment.h
         include/assignment/meshassignmentsampling.h
+        include/assignment/rasterfluxintegration.h
         include/project/profilesectionstore.h
         include/plot/profilesectionseries.h
         include/plot/meshprofiletrackswidget.h
@@ -686,6 +691,7 @@ set(
         # ── UI utilities ─────────────────────────────────────────────────────
         include/ui/util/externalcolumnfile.h
         include/ui/util/externalcolumnfilecore.h
+        include/ui/util/fileopendialog.h
         include/ui/util/figurecapture.h
 
         # ── UI panels ────────────────────────────────────────────────────────
@@ -1085,6 +1091,7 @@ set(
         src/render/meshrenderchunkindex.cpp
         # QSG-2D-1M Phase 7 — thread-safe async contour worker.
         src/render/contourjob.cpp
+        src/render/resultscalargeometry.cpp
         # QSG-2D-1M Phase 8 — GPU scalar-fill material (ramp LUT texture).
         src/map/scalarfillmaterial.cpp
         # Slice Z.14-paint — runtime clip-path resolver impl.
@@ -1131,6 +1138,7 @@ set(
         src/assignment/groundwaterassignment.cpp
         src/assignment/raingageassignment.cpp
         src/assignment/meshassignmentsampling.cpp
+        src/assignment/rasterfluxintegration.cpp
         src/project/profilesectionstore.cpp
         src/plot/profilesectionseries.cpp
         src/io/profilesectionio.cpp
@@ -1266,6 +1274,9 @@ set(
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
         src/io/mesh2dlivevariables.cpp
+        src/io/mesh2dvariablegisexport.cpp
+        src/ui/dialogs/resultvariableexportdialog.cpp
+        src/render/resultscalargeometry.cpp
         src/io/mesh2dresultsexport.cpp
         src/io/rptparser.cpp
         src/io/timeseriesparse.cpp
@@ -1426,6 +1437,7 @@ set(
         src/mesh/sms2dmreader.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp
+        src/mesh/meshgwpreview.cpp
         src/mesh/meshobjectref.cpp
         src/mesh/naturalnbinterpolator.cpp
         src/plugins/filefilterregistry.cpp

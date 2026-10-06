@@ -198,7 +198,6 @@ Selected controls worth knowing:
 profile window — plot the same attributes in the comparison plot and export from
 there.
 
-\videotodo{Tracing a profile between two manholes — picking a route; animating the HGL and adding attribute tracks}
 
 ### 2D mesh profile
 

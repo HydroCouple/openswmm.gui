@@ -5,6 +5,7 @@
 #include <QGraphicsScene>
 #include <QPainter>
 #include <QSGGeometryNode>
+#include <QSGOpacityNode>
 #include "map/swmm2dresultsqsgrenderer.h"
 #include <QJsonArray>
 #include <QDir>
@@ -49,6 +50,24 @@ public:
 class TestResultVariables : public QObject {
  Q_OBJECT
 private slots:
+    void nativeScalarContoursAndLabelsUseBothRenderPaths() {
+        class Renderer:public SWMM2DResultsQSGRenderer {public:QSGNode *sync(){return updatePaintNode(nullptr,nullptr);}};
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<VariableSource>());layer.setVisible(true);layer.setCurrentTimeIndex(1);
+        for(auto *s:layer.sublayers())s->setVisible(false);
+        auto *sub=layer.addResultSublayer(layer.resultVariables()[0].key());sub->fillStyle()->setPresentation(ResultScalarStyle::Presentation::Contours);
+        auto *style=sub->fillStyle()->contourStyle();style->setColor(Qt::red);style->setLineWidthPx(3);style->setLevelMode(IsolineStyle::LevelMode::FixedInterval);style->setLevelInterval(2);
+        const auto frame=layer.resultFrame(sub->variableKey(),1);const auto levels=sub->fillStyle()->contourLevels(frame->minimum,frame->maximum,frame->samples);
+        const auto g=layer.resultScalarGeometry(frame,levels,false);QVERIFY(g->error.isEmpty());QVERIFY(!g->contours.empty());QCOMPARE(layer.resultScalarGeometry(frame,levels,false).get(),g.get());
+        QGraphicsScene scene;layer.populateScene(&scene,MapExtent(0,0,1,1),nullptr);QImage image(400,400,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
+        {QPainter painter(&image);scene.render(&painter,QRectF(0,0,400,400),QRectF(0,-1,1,1));}
+        int painted=0;for(int y=0;y<400;++y)for(int x=0;x<400;++x)painted+=image.pixelColor(x,y).alpha()>0;QVERIFY(painted>0);QVERIFY(painted<80000);
+        sub->setOpacity(.5);
+        Renderer renderer;renderer.setWidth(400);renderer.setHeight(400);renderer.setMapExtent(MapExtent(0,0,1,1));renderer.setLayer(&layer);std::unique_ptr<QSGNode> root(renderer.sync());QVERIFY(root);
+        int vertices=0;bool correctOpacity=false;QVector<QSGNode*> nodes{root.get()};for(qsizetype i=0;i<nodes.size();++i){auto *n=nodes[i];for(auto *c=n->firstChild();c;c=c->nextSibling())nodes.append(c);if(n->type()==QSGNode::OpacityNodeType)correctOpacity=correctOpacity||qAbs(static_cast<QSGOpacityNode*>(n)->opacity()-.5)<1e-6;if(n->type()==QSGNode::GeometryNodeType){auto *geometry=static_cast<QSGGeometryNode*>(n)->geometry();if(geometry&&geometry->attributeCount()==1)vertices+=geometry->vertexCount();}}
+        QVERIFY(vertices>0);QVERIFY(correctOpacity);QVERIFY(sub->presentedFrame());
+        sub->fillStyle()->setPresentation(ResultScalarStyle::Presentation::Labels);image.fill(Qt::transparent);{QPainter painter(&image);scene.render(&painter,QRectF(0,0,400,400),QRectF(0,-1,1,1));}
+        painted=0;for(int y=0;y<400;++y)for(int x=0;x<400;++x)painted+=image.pixelColor(x,y).alpha()>0;QVERIFY(painted>0);layer.depopulateScene(&scene);
+    }
     void hdf5SpeciesRoundTripRendersNativeValuesAndExportsCsv() {
         const QString root=qEnvironmentVariable("SWMMVIS_RESULTS_TEST_OUTPUT",
             QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath(
@@ -200,7 +219,9 @@ private slots:
         bool colorsMatch=true;
         auto coloredVertices=[&] {
             int count=0;
-            for (auto *child=root->firstChild(); child; child=child->nextSibling()) {
+            QVector<QSGNode*> pending{root.get()};
+            for (qsizetype n=0;n<pending.size();++n) {auto *child=pending[n];
+                for(auto *nested=child->firstChild();nested;nested=nested->nextSibling())pending.append(nested);
                 if (child->type()!=QSGNode::GeometryNodeType) continue;
                 auto *g=static_cast<QSGGeometryNode*>(child)->geometry();
                 if (!g || g->attributeCount()!=2) continue;
@@ -236,7 +257,9 @@ private slots:
         QSignalSpy ready(&renderer,&SWMM2DResultsQSGRenderer::contentReady);
         std::unique_ptr<QSGNode> root(renderer.sync()); QVERIFY(root);
         auto firstColor=[&]() {
-            for(auto *child=root->firstChild();child;child=child->nextSibling()) {
+            QVector<QSGNode*> pending{root.get()};
+            for(qsizetype n=0;n<pending.size();++n){auto *child=pending[n];
+                for(auto *nested=child->firstChild();nested;nested=nested->nextSibling())pending.append(nested);
                 if(child->type()!=QSGNode::GeometryNodeType)continue;
                 auto *g=static_cast<QSGGeometryNode*>(child)->geometry();
                 if(!g || g->attributeCount()!=2 || !g->vertexCount())continue;

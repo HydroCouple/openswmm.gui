@@ -130,7 +130,7 @@ widgets rather than buttons — **Results Layers**, **Timeline**, the Terrain gr
 never collapse. The **Command Palette** launcher sits at the right end of the tab
 strip.
 
-\figtodo{02_ribbon_compact_modes.png, The same ribbon row at three window widths showing Full; Compact and Collapsed groups}
+\fig{02_ribbon_compact_modes.png, The same ribbon row at three window widths showing Full; Compact and Collapsed groups}
 
 #### Mesh Editing toolbar
 
@@ -432,7 +432,6 @@ unavailable.
 
 \fig{02_command_palette.png, The Command Palette filtered to a few matching commands}
 
-\videotodo{A tour of the window — switching ribbon tabs; revealing the contextual Mesh 2D tab; rearranging docks and finding a command with the Command Palette}
 
 ### Keyboard shortcuts
 
