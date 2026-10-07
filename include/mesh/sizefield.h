@@ -4,10 +4,10 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Graded element sizing for Triangle refinement
+ * Graded element sizing for Delaunay refinement
  * (MESH_MINSIZE_ENFORCEMENT_V2_AND_GRADING_PLAN_2026-09-01.md Track B).
  *
- * WHY THIS EXISTS.  With a uniform `-a<maxArea>` cap the WHOLE domain is
+ * WHY THIS EXISTS.  With a uniform maximum-area cap the WHOLE domain is
  * refined to the cap, however far a cell sits from anything that needs
  * resolution — on a large domain most of the output vertices buy nothing.
  * This field grades the target size with distance from constrained
@@ -25,7 +25,7 @@
  *
  * The outer domain ring is deliberately NOT a seed: it is usually a
  * watershed clip, not a hydraulic feature, and seeding it would pin fine
- * cells along the whole perimeter.  Triangle still refines near the
+ * cells along the whole perimeter.  The mesher still refines near the
  * boundary wherever the boundary's own local feature size demands it.
  *
  * Mechanics: a uniform background grid over the domain bbox holds the
@@ -102,7 +102,7 @@ struct SizeFieldOptions
  *
  * Build once per generation, then install
  * `hook.targetAreaAt = [&f](double x, double y){ return f.targetAreaAt(x,y); }`.
- * The field must outlive the triangulate() call that samples it.
+ * The field must outlive the mesh generation call that samples it.
  */
 class SizeField
 {

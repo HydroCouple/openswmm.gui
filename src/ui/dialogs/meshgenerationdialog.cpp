@@ -392,8 +392,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // for interior rings: RDP on a serpentine/concave boundary can
             // make the exterior self-intersect, and a self-intersecting
             // OUTER ring becomes crossing constrained segments in the PSLG
-            // (Triangle abort, or a flooded exterior carve). Fall back to
-            // the unsimplified ring — GEOS/OGR output is valid by
+            // (constraint recovery failure, or a flooded exterior carve).
+            // Fall back to the unsimplified ring — GEOS/OGR output is valid by
             // construction; only RDP can break it.
             const QVector<QPointF> rawExt = ringToMesh(ext);
             // A conditioned boundary is already simplified with its holes in
@@ -641,13 +641,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
         // Strip intermediate vertices that lie outside the domain POLYGON.
         // An unconstrained intermediate vertex outside the domain would
-        // make the PSLG non-planar and abort Triangle; endpoint filtering
-        // below is the primary guard, this strips runaway interior vertices.
+        // make the PSLG non-planar and prevent constraint recovery. Endpoint
+        // filtering below is the primary guard; this strips runaway interior vertices.
         // The test must be against the ring, not its bounding box: on a
         // non-rectangular (e.g. DEM-footprint) domain a link whose middle
         // bulges outside the polygon while staying inside the bbox would
-        // otherwise carry segments that cross the boundary ring — the exact
-        // "non-planar PSLG" Triangle aborts on.
+        // otherwise carry segments that cross the boundary ring and prevent
+        // constraint recovery.
         auto clipIntermediateToDomain = [&](const QVector<QPointF> &path) {
             if (path.size() <= 2) return path;
             QVector<QPointF> r;
@@ -672,7 +672,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             nodeXY.reserve(in.candidateNodes.size());
             for (int c = 0; c < in.candidateNodes.size(); ++c)
             {
-                // Skip nodes outside the meshing domain — Triangle ignores
+                // Skip nodes outside the meshing domain — the mesher ignores
                 // them anyway but filtering early shrinks the PSLG.
                 if (!inDomain(in.candidateNodes[c].xy)) continue;
                 nodeIdx.append(c);
@@ -743,7 +743,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (path.size() < 2) continue;
                 // Both endpoints must be inside the domain polygon — a link
                 // crossing the boundary without a vertex at the crossing
-                // makes the PSLG non-planar and aborts Triangle.
+                // makes the PSLG non-planar and prevents constraint recovery.
                 if (!inDomain(path.first()) || !inDomain(path.last())) continue;
                 mesh::ConstraintSegment cs;
                 cs.path = std::move(path); cs.marker = nextMarker; cs.tag = link.first;
@@ -821,7 +821,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     g.setDomains(in.domains);
 
     // Interior rings → constraint segments (hole boundary edges) + a seed
-    // point that tells Triangle to leave the region unmeshed.  Rings arrive
+    // point that tells the mesher to leave the region unmeshed.  Rings arrive
     // RAW from the boundary ingestion above; simplification, validation (on
     // the small simplified ring — see pslgprep.h), densification, and the
     // interior seed are computed in parallel chunks — or come straight from
@@ -876,7 +876,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     {
         // Invalid rings would break the PSLG (self-intersecting or
         // degenerate) — skip them so a bad hole produces a logged skip
-        // rather than a generic Triangle abort failing the whole mesh.
+        // rather than a generic constraint recovery failure failing the whole mesh.
         if (!bprep.holeValid[k]) continue;
 
         // Boundary edges of the hole must exist in the PSLG…
@@ -885,7 +885,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         cs.marker = 0;
         g.addConstraintSegment(cs);
 
-        // …plus a seed point strictly inside the ring so Triangle carves
+        // …plus a seed point strictly inside the ring so the mesher carves
         // it.  interiorPoint() is robust for non-convex rings; a vertex
         // centroid could fall outside the ring (or in another region),
         // silently leaving the hole unmeshed or removing the wrong area.
@@ -1045,7 +1045,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     // ── DTM (optional) — open once, shared for all elevation sampling ──
     // The DEM drives three steps: feature z-interpolation, terrain
-    // thinning / grid sampling, and post-Triangle vertex elevation fill.
+    // thinning / grid sampling, and post-mesh vertex elevation fill.
     // A single DTMRaster instance covers all three so the file is only
     // opened once and the same bilinear sampler is used throughout.
     //
@@ -1105,7 +1105,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     // elevCache — keeps exact z values for every point we place as a
     // Steiner vertex.  Keyed by quantised mesh-CRS (x,y) at 1e7 precision.
-    // The post-Triangle elevation loop consults this first so those vertices
+    // The post-mesh elevation loop consults this first so those vertices
     // are never re-sampled.
     QHash<QPair<qint64,qint64>, double> elevCache;
 
@@ -1535,7 +1535,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // constrained features and lets the permitted area grow with distance at
     // the user's Lipschitz slope — strictly fewer cells than the uniform cap,
     // with the slope itself the smooth-transition guarantee.  Built from the
-    // CONDITIONED geometry so the field grades away from what Triangle will
+    // CONDITIONED geometry so the field grades away from what the mesher will
     // actually see.  Must outlive generate(): the hook samples it per
     // candidate triangle.
     mesh::SizeField sizeField;
@@ -1754,7 +1754,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     // ── Elevation fill for all mesh vertices ─────────────────────────
     // Vertices that were PSLG Steiner points (features + terrain) already
-    // have their exact z in elevCache.  Only Triangle-inserted refinement
+    // have their exact z in elevCache.  Only mesher-inserted refinement
     // vertices need a fresh value — either by DTM sample (preferred) or
     // by inverse-distance interpolation from the seed points.
     //
@@ -1777,7 +1777,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         const int nv = result.vertices.size();
 
         // Pass 1 — resolve elevCache hits (PSLG Steiner vertices); collect
-        // the misses (Triangle-inserted refinement vertices) for batching.
+        // the misses (mesher-inserted refinement vertices) for batching.
         QVector<int>    missIdx;
         QVector<double> missX, missY;
         for (int i = 0; i < nv; ++i)
@@ -1969,7 +1969,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
 
     // ── Fill vertices with no DEM coverage ───────────────────────────────
-    // Triangle-inserted refinement vertices are re-sampled from the raster in
+    // Mesher-inserted refinement vertices are re-sampled from the raster in
     // Pass 2 above, and sampleMany() returns NaN by contract for NoData, for
     // points outside the DEM footprint, and on a RasterIO failure. That NaN
     // used to be written straight into MeshVertex::z, from where it reached
@@ -2005,7 +2005,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // centre — an umbrella weighting, and cheaper than deduping.
             // Offsets are qsizetype: 6 x nTriangles overflows int at ~358 M
             // triangles. Vertex indices come pre-validated by MeshGenerator
-            // (checked against Triangle's own point count at copy-out), but
+            // (checked against the generated vertex count at copy-out), but
             // this is a heap WRITE on the nodata-only path, so guard anyway.
             // A quad (patch cell) contributes its four ring edges, not a
             // diagonal — the same neighbourhood the engine's median dual uses.
@@ -2647,7 +2647,7 @@ void MeshGenerationDialog::buildUi()
         m_boundaryLayerCombo->setToolTip(tr(
             "Polygon layer whose features define the meshing boundary.  "
             "Interior rings (holes) in those polygons are respected — "
-            "Triangle leaves those regions unmeshed.  When (none), the mesh "
+            "The mesher leaves those regions unmeshed.  When (none), the mesh "
             "domain falls back to the SWMM model bounding rectangle + 5%."));
         boundaryRow->addWidget(m_boundaryLayerCombo, 1);
         lay->addLayout(boundaryRow);
@@ -3810,7 +3810,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
 
     // ── Mesh CRS — initialised first so every source can reproject to it ──
     // All PSLG inputs (domain polygons, hole rings, constraint segments,
-    // Steiner points) must be in the same CRS before Triangle runs.
+    // Steiner points) must be in the same CRS before triangulation runs.
     // The SWMM model's native CRS is the authoritative mesh CRS; everything
     // else is transformed to it.  The WKT is also forwarded to the worker
     // so it can reproject mesh vertices to the DTM's CRS before sampling.
@@ -4250,9 +4250,8 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // consistent, and avoids any index-mapping assumption between
     // categoryCount(CatSubcatchments) and cachedSubcatchVertices(i).
     // The bounding-box centroid is a reliable interior point for all
-    // but highly concave subcatchments; Triangle propagates the region
-    // attribute to every triangle whose circumcenter is reachable from
-    // the seed, so a small positional error is acceptable.  The region
+    // but highly concave subcatchments; the mesher propagates the region
+    // attribute by flood fill from the seed, bounded by constraints. The region
     // attribute (marker) is assigned by the worker, after node/link
     // markers, preserving the original numbering.
     out->includeSubcatch = m_includeSubcatch->isChecked();

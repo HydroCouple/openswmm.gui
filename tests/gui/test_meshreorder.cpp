@@ -23,7 +23,7 @@ using mesh::MeshVertex;
 namespace {
 
 /*! Structured N×N grid of squares split into two triangles each, with the
- *  triangle order SHUFFLED (seeded) to imitate Triangle's spatially random
+ *  triangle order SHUFFLED (seeded) to exercise spatially scattered
  *  refinement order.  Vertex (i,j) index = j*(N+1)+i; z = x + 100*y so every
  *  vertex is uniquely identifiable by coordinates. */
 MeshResult scrambledGrid(int N)
@@ -52,7 +52,7 @@ MeshResult scrambledGrid(int N)
             m.triangles.append(b);
         }
     // Deterministic shuffle of the triangle order AND the vertex numbering —
-    // Triangle's refinement output is spatially near-random in both.
+    // Exercise scattered refinement output in both arrays.
     QRandomGenerator rng(424242u);
     for (int i = m.triangles.size() - 1; i > 0; --i)
         m.triangles.swapItemsAt(i, int(rng.bounded(quint32(i + 1))));

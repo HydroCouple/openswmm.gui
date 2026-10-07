@@ -8,8 +8,8 @@
  * (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §4.4f) — no external
  * library:
  *
- *  1. TEMPLATE PAIRING. meshquadpoints recorded, for every lattice square it
- *     placed, the four vertex ids (a QuadTemplate). After Triangle runs, the
+ *  1. TEMPLATE PAIRING. The caller supplies four vertex ids for each lattice
+ *     square (a QuadTemplate). After triangulation, the
  *     two triangles whose vertex sets lie inside a template's four vertices
  *     (either diagonal) are looked up by sorted vertex triple and merged.
  *     Templates are visited best-score first; one whose triangles are already
@@ -38,9 +38,8 @@
 
 namespace mesh {
 
-/*! \brief Four vertex ids in cyclic (CCW) order. Before the PSLG is built these
- *  are meshquadpoints' combined indices; MeshGenerator maps them to Triangle
- *  output vertex ids before pairing. */
+/*! \brief Four vertex ids in cyclic (CCW) order, indexed into the generated
+ *  mesh passed to pairTrianglesIntoQuads(). */
 struct QuadTemplate
 {
     int v[4] = {-1, -1, -1, -1};

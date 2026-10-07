@@ -5,8 +5,8 @@
  * \license GPL-3.0-or-later
  *
  * Slice AU — value types for the 2D mesh generator. Pure value types
- * with no Qt-meta, no Triangle includes — safe to depend on from
- * dialog / writer / layer code without dragging Triangle in.
+ * with no Qt-meta or meshing-kernel includes — safe to depend on from
+ * dialog / writer / layer code without pulling in the triangulation kernel.
  */
 #ifndef OPENSWMMVIS_MESH_MESHRESULT_H
 #define OPENSWMMVIS_MESH_MESHRESULT_H
@@ -27,7 +27,7 @@ struct MeshVertex
 {
     QPointF xy;            ///< Map units (project CRS).
     double  z       = 0.0; ///< Sampled DTM elevation (set by DTMSampler; 0 until then).
-    int     marker  = 0;   ///< Triangle's input/output point marker (carries our tag id).
+    int     marker  = 0;   ///< Input/output point marker (carries our tag id).
     QString tag;           ///< Descriptive label ([2D_VERTICES] TAG column); empty if none.
     QString coupledNode;   ///< Coupled SWMM node id ([2D_VERTEX_NODE_MAP]); empty if uncoupled.
     double  couplingCd   = 0.65; ///< [2D_VERTEX_NODE_MAP] CD column (engine default).

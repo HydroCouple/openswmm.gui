@@ -99,7 +99,7 @@ Generation** stops it cleanly at the next stage boundary.
 
 | Control | What it does |
 | --- | --- |
-| **Boundary polygon** | The polygon layer whose features define the meshing boundary. Interior rings become holes that Triangle leaves unmeshed. **(none)** falls back to the SWMM model bounding rectangle plus 5%; **Use SWMM subcatchment polygons** dissolves the subcatchments into the boundary |
+| **Boundary polygon** | The polygon layer whose features define the meshing boundary. Interior rings become holes that the mesher leaves unmeshed. **(none)** falls back to the SWMM model bounding rectangle plus 5%; **Use SWMM subcatchment polygons** dissolves the subcatchments into the boundary |
 | **Constraining points** | A checkable list of point layers; every feature becomes a Steiner point. Layers with 3D geometry also offer **use feature Z** |
 | **Constraining lines** | A checkable list of line layers; every feature becomes a constraint segment, so the mesh has edges along it. Breaklines, walls, kerbs and road centrelines belong here |
 
@@ -119,7 +119,7 @@ coupling itself is authored after generation.
 
 | Control | What it does |
 | --- | --- |
-| **Map model nodes to the mesh after generation** | Runs the node→mesh mapper once Triangle finishes. Independent of the junctions-as-Steiner box, and re-runnable later from the toolbar's **Remap 1D↔2D** |
+| **Map model nodes to the mesh after generation** | Runs the node→mesh mapper once mesh generation finishes. Independent of the junctions-as-Steiner box, and re-runnable later from the toolbar's **Remap 1D↔2D** |
 
 **Elevation interpolation (no DTM)** — the whole group is disabled while a DTM
 is selected.
@@ -130,7 +130,7 @@ is selected.
 | **NN variant** | **Sibson (area-stealing)** or **Laplace (edge-ratio)**; natural neighbour falls back to IDW outside the seed convex hull |
 | **IDW power** | Shepard exponent |
 
-\fig{19_generate_mesh_quality.png, The Quality tab with the Triangle quality and minimum cell size groups}
+\fig{19_generate_mesh_quality.png, The Quality tab with the triangle quality and minimum cell size groups}
 
 **Quality tab — Resolution and terrain accuracy**
 

@@ -70,7 +70,7 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
     if (pts.size() != z.size())
         return setErr(QStringLiteral("seed point / value count mismatch"));
 
-    // ── Snap-dedupe coincident points (Triangle aborts on duplicates) ────
+    // ── Snap-dedupe coincident points before Delaunay insertion ────
     // Same 1e-7 quantisation as the pipeline's keyOf().  Keep first z per key.
     QHash<QPair<qint64, qint64>, int> seen;
     seen.reserve(pts.size());
