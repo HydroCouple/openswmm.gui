@@ -67,3 +67,38 @@ __recovery/
 
 # Boss dependency manager vendor folder https://github.com/HashLoad/boss
 modules/
+
+# Local plans and generated verification output (history cleanup 2026-10-07)
+/workplans/
+/plans/
+/docs/plans/
+/docs/*PLAN*.md
+/docs/*HANDOFF*.md
+/docs/gui-baseline/
+/verification/
+/test_artifacts/
+/tests/output/
+/tests/scratch/
+/tests/verification/**/*.png
+/tests/verification/**/*.log
+/tests/verification/**/*.json
+/tests/verification/**/*.xml
+/tests/verification/**/*.html
+/tests/verification/**/*.csv
+/tests/verification/**/*.txt
+/tests/verification/**/*.h5
+/tests/verification/**/*.inp
+/tests/verification/**/README.md
+/tests/gui/data/*_out/
+/tests/gui/data/*_output/
+/tests/gui/data/*_artifacts/
+/tests/gui/data/*.log
+/tests/gui/data/*.png
+/tests/gui/data/*.patch
+/tests/gui/data/mesh_savedirty_*.inp
+/tests/gui/data/mesh_savedirty_*.oswp
+/tests/gui/data/offset_authored*_out.inp
+/tests/gui/data/raingage_coords_out.inp
+/tests/gui/data/userflags_roundtrip_out.inp
+/tests/gui/data/simopts_roundtrip_*_before.inp
+/tests/gui/data/simopts_roundtrip_*_after.inp
