@@ -177,7 +177,7 @@ void snapAndDedupe(QVector<mesh::SteinerPoint> &pts, double snapEps);
 struct PreparedRing
 {
     QVector<QPointF> ring;   ///< simplified + densified boundary (mesh CRS)
-    QPointF          seed;   ///< interior seed point for Triangle's hole carve
+    QPointF          seed;   ///< interior seed point for the hole carve
     bool             valid = false;  ///< false → degenerate or self-intersecting
 };
 

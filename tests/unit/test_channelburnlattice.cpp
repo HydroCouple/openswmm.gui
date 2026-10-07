@@ -265,7 +265,7 @@ TEST(ChannelBurnLattice, SmallTranslatedCorridorKeepsItsWinding)
 TEST(ChannelBurnLattice, AHairpinIsReportedRatherThanEmittedFolded)
 {
     // Radius well inside the corridor half-width: the inner offset row must
-    // fold. The gate is that this is REPORTED, not handed to Triangle.
+    // fold. The gate is that this is REPORTED, not handed to the mesher.
     const BurnProfile p = curved(1.5);
     ASSERT_TRUE(p.isValid());
     QString err;

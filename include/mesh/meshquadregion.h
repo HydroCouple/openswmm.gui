@@ -6,15 +6,15 @@
  *
  * PSLG quad regions (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md §3,
  * §4.1): closed polygons inside the meshing domain where quadrilateral cells
- * are prioritised. Everything outside a region stays Triangle's triangles;
+ * are prioritised. Everything outside a region stays triangulated;
  * the interface conforms because the region ring is a constraint loop in the
  * same CDT.
  *
  * This header holds the data model plus the pure-geometry helpers
  * (validation, auto-classification, ring resampling). How a region is turned
- * into cells lives in MeshGenerator::generate() (Free regions: meshcrossfield
- * → meshquadpoints → Triangle → meshquadmatch → meshquadcleanup; Mapped /
- * Submapped regions: meshpatch::makeMappedPatch / meshsubmap).
+ * into cells lives in MeshGenerator::generate(): supported four-sided regions
+ * become structured patches, stitched into the surrounding constrained
+ * Delaunay triangulation.
  */
 #ifndef OPENSWMMVIS_MESH_MESHQUADREGION_H
 #define OPENSWMMVIS_MESH_MESHQUADREGION_H

@@ -199,7 +199,7 @@ struct RingPolygon
 
 /*!
  * \brief A point guaranteed strictly interior to a simple ring — robust for
- *        non-convex rings — suitable as a Triangle hole/region seed.
+ *        non-convex rings — suitable as a triangulation hole/region seed.
  * \details Scans a horizontal line through the ring's vertical midpoint and
  *          returns the midpoint of the widest interior span (even-odd rule).
  *          Falls back to the vertex centroid only for degenerate input.

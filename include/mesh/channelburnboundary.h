@@ -12,7 +12,7 @@
  * DROPS it: `meshgenerationdialog.cpp` strips a polyline's intermediate
  * vertices that fall outside the domain and then skips the whole feature when
  * either ENDPOINT is outside, because a segment crossing the boundary makes the
- * PSLG non-planar and aborts Triangle. So there is no clip to reuse, and §7 is
+ * PSLG non-planar and prevents constraint recovery. So there is no clip to reuse, and §7 is
  * a real routine rather than a wiring job.
  *
  * WHAT IT PRODUCES.  The crossing itself, as a normalized position along the

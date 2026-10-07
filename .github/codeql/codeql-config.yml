@@ -8,7 +8,7 @@ queries:
 
 paths-ignore:
   # ── Vendored third-party ──────────────────────────────────────────────
-  # Triangle mesh generator (Jonathan Shewchuk). Frozen upstream code; any
+  # Public-domain geometric predicates (Jonathan Shewchuk). Upstream code;
   # findings here would have to be carried as patches rather than fixed.
   - vendor/**
 

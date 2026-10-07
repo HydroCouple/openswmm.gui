@@ -4,9 +4,8 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Slice AU — QtTest coverage for MeshGenerator. The wrapper shells out
- * to vendored Shewchuk Triangle (vendor/triangle/), so the tests are
- * really integration smoke tests: they confirm the input/output round
+ * Slice AU — QtTest coverage for MeshGenerator and its in-tree constrained
+ * Delaunay kernel. These integration tests confirm the input/output round
  * trip including marker-based tag preservation that the
  * `[2D_VERTEX_NODE_MAP]` / `[2D_TRIANGLE_NODE_MAP]` writer depends on.
  */
@@ -72,12 +71,10 @@ private slots:
         QVERIFY(r.vertices.size() >= 4);
     }
 
-    /*! A non-finite input coordinate must be rejected before Triangle runs.
-     *  NaN compares false against everything, so it survives duplicate and
-     *  degeneracy screening untouched; a vertex with both coordinates NaN
-     *  then SIGSEGVs inside Triangle's initial Delaunay merge (mergehulls →
-     *  counterclockwise), which setjmp cannot catch. DTM NoData and failed
-     *  reprojections are the realistic sources. */
+    /*! A non-finite input coordinate must be rejected before triangulation.
+     *  NaN compares false against everything, so duplicate and degeneracy
+     *  screening cannot establish valid geometry. DTM NoData and failed
+     *  reprojections are realistic sources. */
     void nonFiniteCoordinates_failCleanly()
     {
         const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -109,8 +106,8 @@ private slots:
             QVERIFY(r.errorMsg.contains("finite"));
         }
 
-        // (c) A single NaN component still counts — it silently drops the
-        //     vertex inside Triangle rather than crashing, which is worse.
+        // (c) A single NaN component still counts — reject the coordinate
+        //     rather than silently dropping a required vertex.
         {
             MeshGenerator g;
             QPolygonF dom;
@@ -266,7 +263,7 @@ private slots:
         dom << QPointF(0,0) << QPointF(100,0) << QPointF(100,100) << QPointF(0,100);
         g.setDomain(dom);
 
-        // Steiner exactly at the (0,0) corner — must not crash Triangle.
+        // Steiner exactly at the (0,0) corner — must not fail triangulation.
         SteinerPoint sp;
         sp.xy = QPointF(0, 0);
         sp.marker = 99;
@@ -284,7 +281,7 @@ private slots:
     }
 
     /*! A non-convex (L-shaped) hole is carved out: the hole boundary is added
-     *  as a constraint and a seed strictly INSIDE the ring tells Triangle to
+     *  as a constraint and a seed strictly INSIDE the ring tells the mesher to
      *  leave the region unmeshed. No output triangle centroid may fall in the
      *  hole. Guards the old vertex-centroid-seed bug: for this ring the vertex
      *  centroid lies OUTSIDE the hole, so the old code could carve the wrong
@@ -352,7 +349,7 @@ private slots:
     /*! A polygon whose vertices quantise down to 2 distinct points (thin
      *  dissolve sliver) must fail cleanly. The old vertex-count closure gate
      *  over-counted the first vertex, so such a ring emitted the degenerate
-     *  reversed pair (a,b),(b,a) as a "closed ring" into Triangle's PSLG. */
+     *  reversed pair (a,b),(b,a) as a "closed ring" into the PSLG. */
     void collapsedTwoVertexRing_failsCleanly()
     {
         MeshGenerator g;

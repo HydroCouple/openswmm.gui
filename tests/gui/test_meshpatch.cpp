@@ -7,9 +7,8 @@
  * G3 — QtTest coverage for structured quad patches
  * (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md §3.2): transfinite and
  * swept generators, validation of folded input, and end-to-end stitching
- * into a Triangle domain through MeshGenerator::addPatch (links Triangle,
- * so the stitching assertions are integration smoke tests like
- * test_meshgenerator.cpp).
+ * into a constrained Delaunay domain through MeshGenerator::addPatch.
+ * The stitching assertions exercise the in-tree triangulation kernel.
  */
 #include <QtTest>
 #include <QPolygonF>

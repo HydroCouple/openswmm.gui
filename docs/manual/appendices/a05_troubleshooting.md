@@ -266,8 +266,9 @@ Or, more bluntly, *No CRS is set for the model.*
 | *MeshGenerator: domain is empty.* | no boundary polygon and no model extent |
 | *…no usable boundary polygons (every supplied polygon had < 3 vertices after vertex deduplication).* | degenerate boundary layer |
 | *…all domain boundary segments were degenerate (zero-length after vertex deduplication).* | coincident boundary vertices |
-| *Triangle fatal error — check PSLG for degenerate geometry (duplicate/coincident vertices, crossing or zero-length constraint segments, boundary not forming a closed ring).* | the usual self-intersection case |
-| *Triangle produced 0 triangles — domain may be self-intersecting or constraint segments may cross.* | same, detected later |
+| *MeshGenerator: cdt: constraint crosses another constraint* | constraint segments cross without a shared vertex |
+| *MeshGenerator: cdt: constraint recovery stalled* | constrained edges could not be recovered; check for degenerate or crossing geometry |
+| *MeshGenerator: no cells were produced — the domain may be smaller than the cell size.* | reduce the requested cell size or check the domain geometry |
 
 Non-finite coordinates are rejected explicitly — a NaN coordinate is invisible
 to duplicate and degeneracy screening, so it is caught up front.

@@ -25,7 +25,7 @@
  * strings would do to the very region they are meant to build.  `addPatch`
  * takes a caller-built lattice directly: the boundary becomes a PSLG
  * constraint, the interior a hole, the quads are stitched in afterwards, and
- * Triangle's `Y` switch protects the outline from being split.  100 % quads,
+ * the CDT's fixed constraints protect the outline from being split.  100 % quads,
  * no pairing heuristic, no new region mode.
  *
  * PER-CELL ROUGHNESS.  The stitch copies each quad whole, filling only an
@@ -155,7 +155,7 @@ private:
  *
  * Every cell is emitted CCW and convexity-checked by `mesh::validate`, so a
  * corridor that folds on a hairpin bend is REPORTED rather than handed to
- * Triangle as a bad patch. Cells carry `channel:<id>` (or `:left` / `:chan` /
+ * the mesher as a bad patch. Cells carry `channel:<id>` (or `:left` / `:chan` /
  * `:right` with `roughnessFromTransect`) and, where the transect supplied them,
  * per-cell Manning's n.
  */
@@ -174,7 +174,7 @@ private:
                                                          QHash<int, QString> *markerToTag = nullptr);
 
 /*! \brief The lattice's vertices as exact-z Steiner points (`hasZ = true`), so
- *         the post-Triangle elevation fill never re-samples them. */
+ *         the post-mesh elevation fill never re-samples them. */
 [[nodiscard]] QVector<SteinerPoint> corridorPoints(const BurnLattice &lat, int marker);
 
 /*!

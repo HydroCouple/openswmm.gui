@@ -571,7 +571,7 @@ PatchMesh corridorPatchGeometry(const BurnLattice &lat, QString *err)
     }
 
     // Boundary loop: down the left edge, across the tail, up the right edge,
-    // back across the head — the ring Triangle will hold as constraints.
+    // back across the head — the ring the mesher will hold as constraints.
     auto pushSeg = [&pm](int a, int b) { if (a != b) pm.boundarySegments.append(qMakePair(a, b)); };
     for (int i = 0; i + 1 < lat.nAlong;  ++i) pushSeg(lat.at(i, 0), lat.at(i + 1, 0));
     for (int k = 0; k + 1 < lat.nAcross; ++k)

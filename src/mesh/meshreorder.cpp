@@ -80,7 +80,7 @@ void reorderMeshHilbert(MeshResult *m)
         key[t] = hilbertXY2D(kOrder, qx, qy);
     }
 
-    // stable_sort keeps equal-key triangles in Triangle's output order, so
+    // stable_sort keeps equal-key triangles in the generated order, so
     // the permutation is deterministic. Triangles sort before quads: the
     // engine's cell order is [2D_TRIANGLES] then [2D_QUADS], so a mixed mesh
     // is Hilbert-ordered within each class and never interleaved.

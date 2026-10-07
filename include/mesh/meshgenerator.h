@@ -10,7 +10,7 @@
  * with aligned quad strips only where features ask for them — four-sided
  * quad regions, corridors, streets between facing break lines, conduits.
  * Tags propagate from input → output through point and segment markers and
- * region seeds, as they did with Triangle.
+ * region seeds.
  *
  * The MeshGenerator deals only in geometry. Mapping SWMM 1D objects
  * (junctions, conduits, subcatchments) onto inputs is the caller's
@@ -61,9 +61,9 @@ struct SteinerPoint
     bool    hasZ   = false;    ///< If true, z is exact — skip DTM re-sampling in post-mesh step.
 };
 
-/*! \brief A region attribute — an interior seed point with a value Triangle propagates
- *         into the triangle-attribute output array. We use it to tag triangles with
- *         a numeric id that maps back to subcatchment names etc.
+/*! \brief A region attribute — an interior seed point whose value propagates
+ *         through the constrained Delaunay region flood fill. We use it to tag
+ *         triangles with a numeric id that maps back to subcatchment names etc.
  */
 struct RegionMarker
 {
