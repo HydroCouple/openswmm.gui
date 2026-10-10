@@ -12,6 +12,7 @@
 #include <qpropertyitemdelegate.h>
 
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -26,8 +27,35 @@
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTreeView>
 #include <QVBoxLayout>
+
+namespace {
+class AnnotationPropertyDelegate : public QPropertyItemDelegate
+{
+public:
+    using QPropertyItemDelegate::QPropertyItemDelegate;
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override
+    {
+        auto *editor = QPropertyItemDelegate::createEditor(parent, option, index);
+        if (!editor) return nullptr;
+        // The property delegate wraps spin boxes in another widget. Focus
+        // leaving the child does not reliably commit that wrapper before
+        // Apply, so keep the draft in sync with each numeric value change.
+        auto *delegate = const_cast<AnnotationPropertyDelegate *>(this);
+        if (auto *spin = editor->findChild<QSpinBox *>())
+            connect(spin, &QSpinBox::valueChanged, editor,
+                    [delegate, editor] { emit delegate->commitData(editor); });
+        if (auto *spin = editor->findChild<QDoubleSpinBox *>())
+            connect(spin, &QDoubleSpinBox::valueChanged, editor,
+                    [delegate, editor] { emit delegate->commitData(editor); });
+        return editor;
+    }
+};
+}
 
 AnnotationStyleDialog::AnnotationStyleDialog(AnnotationTextItem *item,
                                              QWidget *parent, MapCanvas *canvas)
@@ -171,7 +199,7 @@ void AnnotationStyleDialog::buildUi()
         // QFont → QFontDialog, bool → checkbox editor, etc. Without it the
         // tree falls back to plain text editors and the user can't drive a
         // colour picker from the row.
-        m_tree->setItemDelegate(new QPropertyItemDelegate(this));
+        m_tree->setItemDelegate(new AnnotationPropertyDelegate(this));
         m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
         m_tree->header()->setStretchLastSection(true);
         m_tree->header()->resizeSection(0, 250);
@@ -209,6 +237,10 @@ void AnnotationStyleDialog::buildUi()
 
 void AnnotationStyleDialog::accept()
 {
+    // Typed spin-box text is parsed on focus loss by default. Apply may run
+    // without moving focus (for example the default-button shortcut).
+    for (auto *spin : m_tree->findChildren<QAbstractSpinBox *>())
+        if (spin->isVisibleTo(m_tree)) spin->interpretText();
     if (m_item->text().trimmed().isEmpty() && m_item->expression().trimmed().isEmpty()) return;
     if (m_target && m_canvas && m_target->featureReference() != m_item->featureReference()) {
         auto *layer = qobject_cast<OpenSWMMVisAnnotationLayer *>(m_target->parent());
