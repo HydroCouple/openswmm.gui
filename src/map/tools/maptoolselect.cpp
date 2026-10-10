@@ -7,6 +7,8 @@
  */
 
 #include "map/tools/maptoolselect.h"
+#include "map/tools/maptooladdtext.h"
+#include "layers/annotationlayer.h"
 #include "core/preferencesmanager.h"
 #include "map/mapcanvas.h"
 #include "swmmvisprojectwindow.h"
@@ -103,6 +105,12 @@ QString groundwaterSourcesNote(SWMM_Engine eng, const QList<int> &nodeIdxs)
 OpenSWMMVisMapToolSelect::OpenSWMMVisMapToolSelect(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("Select"), canvas, parent)
 {
+    m_textEditor = new OpenSWMMVisMapToolAddText(canvas, nullptr, this);
+    if (auto *project = canvas ? qobject_cast<SWMMVisProjectWindow *>(canvas->parent()) : nullptr) {
+        connect(project, &SWMMVisProjectWindow::editSessionChanged, this, [this](bool active) {
+            if (!active && m_textGesture) m_textEditor->deactivate();
+        });
+    }
     // Slice V wiring — the hard-coded `m_pixelTol` / `m_dragThreshPx`
     // stay as fall-backs, but live usage prefers the PreferencesManager
     // value so Tools → Preferences takes effect without a restart.
@@ -154,13 +162,42 @@ void OpenSWMMVisMapToolSelect::activate()
 
 void OpenSWMMVisMapToolSelect::deactivate()
 {
+    m_textEditor->deactivate();
+    m_textGesture = false;
     m_dragging = false;
     clearEditMode();
     OpenSWMMVisMapTool::deactivate();
 }
 
+OpenSWMMVisAnnotationLayer *OpenSWMMVisMapToolSelect::editableTextLayerAt(const QPointF &pixel) const
+{
+    if (!m_canvas) return nullptr;
+    const auto *project = qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent());
+    if (!project || !project->isEditSessionActive()) return nullptr;
+    // Match painting order: text in the highest visible layer gets the click.
+    const auto layers = m_canvas->layers();
+    for (auto it = layers.crbegin(); it != layers.crend(); ++it) {
+        auto *text = qobject_cast<OpenSWMMVisAnnotationLayer *>(*it);
+        if (text && text->annotationAtPixel(pixel)) return text;
+    }
+    return nullptr;
+}
+
 void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::LeftButton) {
+        m_textEditor->deactivate();
+        m_textGesture = false;
+        if (auto *text = editableTextLayerAt(event->position())) {
+            clearEditMode();
+            m_dragging = false;
+            m_textGesture = true;
+            m_textEditor->setLayer(text);
+            m_textEditor->mousePressEvent(event);
+            event->accept();
+            return;
+        }
+    }
     // ── Edit sub-mode intercept ───────────────────────────────────────────
     if (m_editKind != EditKind::None)
     {
@@ -420,6 +457,11 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_textGesture) {
+        m_textEditor->mouseMoveEvent(event);
+        event->accept();
+        return;
+    }
     // ── Edit sub-mode drag ────────────────────────────────────────────────
     if (m_editDragging && m_editDragHandle >= 0
         && m_editDragHandle < m_editHandles.size())
@@ -538,6 +580,10 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
     if (!m_canvas) return;
 
     // Show a size-all cursor when hovering over an edit handle.
+    if (editableTextLayerAt(event->position())) {
+        m_canvas->setCursor(Qt::PointingHandCursor);
+        return;
+    }
     if (m_editKind != EditKind::None)
     {
         if (hitTestEditHandle(event->pos()) >= 0)
@@ -569,6 +615,13 @@ void OpenSWMMVisMapToolSelect::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton)
         return;
+
+    if (m_textGesture) {
+        m_textGesture = false;
+        m_textEditor->mouseReleaseEvent(event);
+        event->accept();
+        return;
+    }
 
     // ── Complete edit rubber-band selection ───────────────────────────────
     if (m_editRubberbanding)
@@ -631,6 +684,12 @@ void OpenSWMMVisMapToolSelect::mouseReleaseEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolSelect::keyPressEvent(QKeyEvent *event)
 {
+    if (m_textGesture) {
+        if (event->key() == Qt::Key_Escape) m_textEditor->deactivate();
+        // Consume the remaining gesture after cancellation, including release.
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Escape && m_editKind != EditKind::None)
     {
         // Cancel any in-flight drag, then exit edit mode.
@@ -1807,6 +1866,10 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton || !m_canvas) return;
+    if (editableTextLayerAt(event->position())) {
+        event->accept();
+        return;
+    }
 
     // Vertex editing requires an active edit session — without it, a
     // double-click is treated as a plain select with no edit side-effect.

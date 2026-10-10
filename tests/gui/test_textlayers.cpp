@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QComboBox>
 #include <QPlainTextEdit>
+#include <QLineEdit>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QFile>
@@ -17,6 +18,7 @@
 #include "map/mapundostack.h"
 #include "map/textlayercommands.h"
 #include "map/tools/maptooladdtext.h"
+#include "map/tools/maptoolselect.h"
 #include "map/spatialreferencesystem.h"
 #include "project/projectserializer.h"
 #include "swmmvisprojectwindow.h"
@@ -35,6 +37,13 @@ class TestTextLayers : public QObject
     QImage render(const QList<OpenSWMMVisLayer *> &layers, const MapExtent &extent = MapExtent(0,0,100,100), const QSize &size = QSize(800,600)) {
         QImage image(size, QImage::Format_ARGB32_Premultiplied); image.fill(Qt::white); QPainter p(&image);
         OpenSWMMVisAnnotationLayer::paintLayers(p,layers,extent,nullptr,size); return image;
+    }
+    static void mouse(MapCanvas *canvas, QEvent::Type type, const QPointF &pixel) {
+        const bool move = type == QEvent::MouseMove;
+        QMouseEvent event(type, pixel, pixel, move ? Qt::NoButton : Qt::LeftButton,
+                          type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton,
+                          Qt::NoModifier);
+        QApplication::sendEvent(canvas, &event);
     }
 private slots:
     void initTestCase() { QVERIFY(QDir().mkpath(output())); }
@@ -206,6 +215,91 @@ private slots:
         dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(item->featureReference(),ref); // Opening/applying must not bind to the first remaining feature.
         canvas.takeLayer(canvas.layers().indexOf(&model),false);
+    }
+    void selectClickEditing_data() {
+        QTest::addColumn<bool>("generated");
+        QTest::newRow("custom text") << false;
+        QTest::newRow("generated label") << true;
+    }
+    void selectClickEditing() {
+        QFETCH(bool, generated);
+        SWMMVisProjectWindow project(nullptr);
+        auto *canvas = project.canvas(); canvas->resize(800,600); canvas->setExtent(MapExtent(0,0,100,100),false);
+        auto *lower = project.ensureAnnotationLayer();
+        const auto lowerId = add(*lower,"Label",{50,50})->id();
+        auto *upper = new OpenSWMMVisAnnotationLayer("Upper text"); upper->setParent(canvas); canvas->addLayer(upper,false);
+        auto *item = add(*upper,"Label",{50,50}); const auto id = item->id();
+        if (generated) {
+            const auto path = output()+"/click_features.geojson"; QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(R"({"type":"FeatureCollection","features":[{"type":"Feature","id":1,"properties":{"name":"Label"},"geometry":{"type":"Point","coordinates":[50,50]}}]})"); file.close();
+            auto *gis = new GISVectorLayer(path); gis->setParent(canvas); canvas->addLayer(gis,false);
+            const auto features = AnnotationFeatures::enumerate(gis); QCOMPARE(features.size(),1);
+            item->setFeatureReference(features.first().reference); item->setExpression("{name}");
+        }
+        const auto reference = item->featureReference();
+        project.activateSelectTool();
+        auto *select = canvas->activeTool();
+        const auto refresh = [&] { render(canvas->layers(),canvas->extent(),canvas->size()); };
+        refresh(); const auto pixel = upper->renderedBounds(id).center(); QVERIFY(!upper->renderedBounds(id).isEmpty());
+        bool opened = false;
+        bool apply = false;
+        QTimer closeEditor;
+        connect(&closeEditor, &QTimer::timeout, this, [&] {
+            auto *dialog = qobject_cast<AnnotationStyleDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            opened = true;
+            dialog->findChild<QPlainTextEdit *>("annotationText")->setPlainText("Edited on map");
+            dialog->findChild<QLineEdit *>("annotationExpression")->clear();
+            if (apply) dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+            else dialog->reject();
+        });
+        closeEditor.start(0);
+        const auto click = [&] {
+            mouse(canvas,QEvent::MouseButtonPress,pixel); mouse(canvas,QEvent::MouseButtonRelease,pixel);
+        };
+        click(); QVERIFY(!opened); QCOMPARE(upper->annotation(id)->text(),QString("Label"));
+        canvas->undoStack()->clear();
+        project.setEditSessionActive(true);
+        click(); QVERIFY(opened); QCOMPARE(upper->annotation(id)->text(),QString("Label")); QCOMPARE(canvas->undoStack()->count(),0);
+        opened = false; apply = true;
+        click(); QVERIFY(opened); QCOMPARE(upper->annotation(id)->text(),QString("Edited on map"));
+        QCOMPARE(upper->annotation(id)->featureReference(),reference); QVERIFY(upper->annotation(id)->expression().isEmpty());
+        QCOMPARE(lower->annotation(lowerId)->text(),QString("Label")); QCOMPARE(canvas->activeTool(),select);
+        QCOMPARE(canvas->undoStack()->count(),1); QVERIFY(project.hasChanges());
+        canvas->undoStack()->undo(); QCOMPARE(upper->annotation(id)->text(),QString("Label"));
+        QCOMPARE(upper->annotation(id)->expression(),generated ? QString("{name}") : QString());
+        canvas->undoStack()->redo(); QCOMPARE(upper->annotation(id)->text(),QString("Edited on map"));
+        upper->setVisible(false); refresh(); opened = false;
+        click(); QVERIFY(opened); QCOMPARE(lower->annotation(lowerId)->text(),QString("Edited on map"));
+        lower->setOpacity(0); refresh(); opened = false;
+        click(); QVERIFY(!opened);
+    }
+    void selectDragAndCancel() {
+        SWMMVisProjectWindow project(nullptr);
+        auto *canvas = project.canvas(); canvas->resize(800,600); canvas->setExtent(MapExtent(0,0,100,100),false);
+        auto *layer = project.ensureAnnotationLayer(); const auto id = add(*layer,"Drag me",{50,50})->id();
+        project.activateSelectTool(); project.setEditSessionActive(true);
+        auto *select = canvas->activeTool();
+        render(canvas->layers(),canvas->extent(),canvas->size());
+        const auto start = layer->renderedBounds(id).center(), end = start+QPointF(70,30);
+        const auto beginDrag = [&] {
+            render(canvas->layers(),canvas->extent(),canvas->size());
+            mouse(canvas,QEvent::MouseButtonPress,start); mouse(canvas,QEvent::MouseMove,end);
+            QCOMPARE(layer->annotation(id)->offset(),QPointF(70,30));
+        };
+        beginDrag(); mouse(canvas,QEvent::MouseButtonRelease,end);
+        QVERIFY(layer->annotation(id)->pinned()); QCOMPARE(canvas->undoStack()->count(),1);
+        canvas->undoStack()->undo(); QVERIFY(!layer->annotation(id)->pinned()); QCOMPARE(layer->annotation(id)->offset(),QPointF());
+        canvas->undoStack()->redo(); QCOMPARE(layer->annotation(id)->offset(),QPointF(70,30));
+        canvas->undoStack()->undo(); canvas->undoStack()->clear();
+        beginDrag();
+        QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier); QApplication::sendEvent(canvas,&escape);
+        mouse(canvas,QEvent::MouseButtonRelease,end);
+        QCOMPARE(layer->annotation(id)->offset(),QPointF()); QCOMPARE(canvas->undoStack()->count(),0); QCOMPARE(canvas->activeTool(),select);
+        beginDrag(); project.setEditSessionActive(false); mouse(canvas,QEvent::MouseButtonRelease,end);
+        QCOMPARE(layer->annotation(id)->offset(),QPointF()); QCOMPARE(canvas->undoStack()->count(),0);
+        project.setEditSessionActive(true); beginDrag(); project.activatePanTool();
+        QCOMPARE(layer->annotation(id)->offset(),QPointF()); QCOMPARE(canvas->undoStack()->count(),0);
     }
     void managerAndMapEditing() {
         MapCanvas canvas; canvas.resize(800,600); canvas.setExtent(MapExtent(0,0,100,100),false);

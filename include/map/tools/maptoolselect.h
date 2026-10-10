@@ -23,6 +23,8 @@
 class OpenSWMMVisLayer;
 class SWMMModelLayer;
 class FeatureLayer;
+class OpenSWMMVisAnnotationLayer;
+class OpenSWMMVisMapToolAddText;
 
 /*!
  * \class OpenSWMMVisMapToolSelect
@@ -126,6 +128,10 @@ signals:
     void rainfallVisualizationRequested(const SWMMObjectRef &ref);
 
 private:
+    OpenSWMMVisAnnotationLayer *editableTextLayerAt(const QPointF &pixel) const;
+    OpenSWMMVisMapToolAddText *m_textEditor = nullptr;
+    bool m_textGesture = false;
+
     void selectAtPoint(const QPoint &pixel, Qt::KeyboardModifiers mods);
     void selectInRect(const QRect &pixelRect, Qt::KeyboardModifiers mods);
 

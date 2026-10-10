@@ -428,7 +428,8 @@ between them, and use the Layers dock to control their visibility, opacity and
 order. Empty text layers are saved, along with their settings, in the project.
 Older projects with a single Annotations list load into one text layer.
 
-Choose **Edit on map** to add, edit or drag text in the selected layer. Generated
+With **Edit Existing** on, use **Select** to click and edit text or drag it in any
+visible text layer. Choose **Edit on map** to add text to the selected layer. Generated
 labels can display feature names or attribute expressions and use callout lines
 that follow their features. Automatic placement considers visible text layers
 together; pinned text keeps its position. See \ref manual_map_editing.

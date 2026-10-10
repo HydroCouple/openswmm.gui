@@ -49,7 +49,8 @@ project opens.
   no side effect. You can still create new objects, and still delete a
   selection.
 - **On** — double-clicking an object drops editing handles onto it, so
-  positions and vertices can be dragged.
+  positions and vertices can be dragged. With **Select** active, click text
+  in any visible text layer to edit it, or drag the text to move it.
 
 The state follows the project across tab switches. In the action catalog this
 is the `RequiresEditSession` idea; the add-object actions instead carry
@@ -258,8 +259,14 @@ in the Properties panel or the Rain Gages attribute table.
 
 ### Text layers and callouts
 
-Open **Model → Text Layers**, choose a layer or create one, then choose
-**Edit on map**. This enables the edit session for the chosen text layer.
+To edit existing text, turn on **Edit Existing** and use **Select**. Click text
+in any visible text layer to open its editor, or drag it to move and pin it.
+This works for custom text and generated labels without opening the manager.
+**Escape** cancels a text drag; turning off **Edit Existing** also cancels an
+unfinished drag. Edits and moves support undo/redo.
+
+To add text, open **Model → Text Layers**, choose a layer or create one, then
+choose **Edit on map**. This enables the text tool for the chosen layer.
 
 - Click empty map to add text. Click existing text to edit it.
 - Drag text to move it; dragging pins its placement. **Unpin** in the manager
