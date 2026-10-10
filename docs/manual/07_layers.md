@@ -420,13 +420,18 @@ coupled nodes for a mesh; depth fills, contour bands, isolines and velocity
 vectors for results. Each is independently visible, reorderable and styleable
 (see \ref manual_styling).
 
-### The annotation layer
+### Text layers
 
-Text placed with **Model → Add Text** goes into an **Annotations** layer, created
-lazily on the first placement (or on project restore) so projects with no
-annotations keep a tidy tree. Positions are stored in the layer's CRS and
-reprojected to the canvas CRS on every rebuild, so annotations stay pinned to
-their map location. See \ref manual_map_editing.
+**Model → Text Layers** manages named layers containing custom text and labels
+generated from SWMM or GIS features. Create or rename layers, move selected text
+between them, and use the Layers dock to control their visibility, opacity and
+order. Empty text layers are saved, along with their settings, in the project.
+Older projects with a single Annotations list load into one text layer.
+
+Choose **Edit on map** to add, edit or drag text in the selected layer. Generated
+labels can display feature names or attribute expressions and use callout lines
+that follow their features. Automatic placement considers visible text layers
+together; pinned text keeps its position. See \ref manual_map_editing.
 
 ## Tips and gotchas
 

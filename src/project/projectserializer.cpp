@@ -733,21 +733,14 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         }
     }
 
-    // Text annotations — flatten every annotation layer into a single array.
-    // The MVP creates one lazy layer per project, so there's typically zero
-    // or one entry to serialize; the loop tolerates future multi-layer
-    // configurations without schema changes.
     if (auto *canvas = pw->canvas()) {
-        QJsonArray annArr;
-        for (OpenSWMMVisLayer *l : canvas->layers()) {
-            auto *al = qobject_cast<OpenSWMMVisAnnotationLayer *>(l);
-            if (!al) continue;
-            const QJsonArray a = al->toJson();
-            for (const QJsonValue &v : a) annArr.append(v);
-        }
-        if (!annArr.isEmpty())
-            obj[kAnnotations] = annArr;
+        QJsonArray textLayers;
+        for (auto *layer : canvas->layers())
+            if (auto *text = qobject_cast<OpenSWMMVisAnnotationLayer *>(layer))
+                textLayers.append(text->layerJson());
+        obj["textLayers"] = textLayers; // Includes empty layers and their settings.
     }
+    if (pw->modelLayer()) obj["modelLayerId"] = pw->modelLayer()->layerId();
 
     return obj;
 }
@@ -1159,16 +1152,19 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         }
     }
 
-    // Text annotations — restore each into a freshly-created annotation
-    // layer (lazy creation in the project window). Missing key ⇒ no layer
-    // is added, keeping the layer tree empty for projects that never used
-    // annotations.
-    if (sessionObj.contains(kAnnotations)) {
-        const QJsonArray annArr = sessionObj.value(kAnnotations).toArray();
-        if (!annArr.isEmpty()) {
-            if (auto *al = pw->ensureAnnotationLayer())
-                al->fromJson(annArr);
+    if (pw->modelLayer())
+        pw->modelLayer()->restoreLayerId(sessionObj.value("modelLayerId").toString());
+    if (sessionObj.contains("textLayers")) {
+        for (const auto &value : sessionObj.value("textLayers").toArray()) {
+            if (!value.isObject()) continue;
+            auto *layer = new OpenSWMMVisAnnotationLayer;
+            layer->setParent(pw->canvas());
+            layer->restoreLayer(value.toObject());
+            pw->canvas()->addLayer(layer, false);
         }
+    } else if (sessionObj.contains(kAnnotations)) {
+        const auto items = sessionObj.value(kAnnotations).toArray();
+        if (!items.isEmpty()) pw->ensureAnnotationLayer()->fromJson(items);
     }
 
     return true;
@@ -1518,6 +1514,9 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         }
     }
 
+    if (canvas && !sessionObj.contains("textLayers") && sessionObj.contains(kAnnotations) && canvas->canvasSRS())
+        pw->ensureAnnotationLayer()->setSRS(new SpatialReferenceSystem(*canvas->canvasSRS()), true);
+
     // --- Basemap layers (schema v3+) ---------------------------------------
     if (ver >= 3 && canvas) {
         const QJsonArray basemapsArr = root.value(kBasemaps).toArray();
@@ -1729,6 +1728,7 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
         obj[kGisOpacity]   = v->opacity();
         obj[kGisLayerName] = v->ogrLayerName();   // OGR sublayer (may be empty)
     }
+    if (!obj.isEmpty()) obj["id"] = layer->layerId();
     return obj;
 }
 
@@ -1763,7 +1763,8 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
 
     // Restore name/visibility/opacity as soon as the async open finishes, then
     // add the layer to the canvas — mirroring the File ▸ Add Layer flow.
-    auto applyCommon = [name, visible, opacity](OpenSWMMVisLayer *l) {
+    auto applyCommon = [name, visible, opacity, id = obj.value("id").toString()](OpenSWMMVisLayer *l) {
+        l->restoreLayerId(id);
         if (!name.isEmpty()) l->setName(name);
         l->setVisible(visible);
         l->setOpacity(opacity);

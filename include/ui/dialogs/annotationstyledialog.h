@@ -21,7 +21,8 @@ class AnnotationTextItem;
 class QDialogButtonBox;
 class QPropertyModel;
 class QTreeView;
-class QLineEdit;
+class QPlainTextEdit;
+class MapCanvas;
 
 class AnnotationStyleDialog : public QDialog
 {
@@ -29,7 +30,7 @@ class AnnotationStyleDialog : public QDialog
 public:
     /*! \param item   The annotation being edited. Must outlive the dialog. */
     explicit AnnotationStyleDialog(AnnotationTextItem *item,
-                                   QWidget *parent = nullptr);
+                                   QWidget *parent = nullptr, MapCanvas *canvas = nullptr);
     ~AnnotationStyleDialog() override;
 
     /*! When true, the dialog title reads "Edit Text Annotation" and the OK
@@ -39,9 +40,12 @@ public:
 
 private:
     void buildUi();
+    void accept() override;
+    AnnotationTextItem *m_target = nullptr;
+    MapCanvas *m_canvas = nullptr;
 
     AnnotationTextItem *m_item   = nullptr;
-    QLineEdit          *m_text   = nullptr;   ///< Quick-access editor for the most-edited field.
+    QPlainTextEdit     *m_text   = nullptr;   ///< Quick-access editor for the most-edited field.
     QTreeView          *m_tree   = nullptr;
     QPropertyModel     *m_model  = nullptr;
     QDialogButtonBox   *m_btns   = nullptr;

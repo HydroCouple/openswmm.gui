@@ -168,6 +168,8 @@ public:
      * \brief Returns the layer's immutable unique identifier (UUID).
      */
     [[nodiscard]] QString layerId() const;
+    // Project restoration only, before references to this layer are rebound.
+    void restoreLayerId(const QString &id) { if (!id.isEmpty()) m_layerId = id; }
 
     /*!
      * \brief Returns the user-visible name of this layer.

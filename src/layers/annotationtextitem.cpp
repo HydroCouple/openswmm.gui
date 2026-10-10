@@ -58,6 +58,12 @@ QJsonObject AnnotationTextItem::toJson() const
     o["bgOutlineWidth"]  = m_bgOutlineWidth;
     o["bgPadding"]       = m_bgPadding;
     o["bgCornerRadius"]  = m_bgCornerRadius;
+    o["feature"] = m_featureReference;
+    o["expression"] = m_expression;
+    o["callout"] = m_calloutEnabled;
+    o["offsetX"] = m_offset.x();
+    o["offsetY"] = m_offset.y();
+    o["pinned"] = m_pinned;
     return o;
 }
 
@@ -90,7 +96,49 @@ void AnnotationTextItem::fromJson(const QJsonObject &o)
     m_bgOutlineWidth = o.value("bgOutlineWidth").toDouble(m_bgOutlineWidth);
     m_bgPadding      = o.value("bgPadding").toDouble(m_bgPadding);
     m_bgCornerRadius = o.value("bgCornerRadius").toDouble(m_bgCornerRadius);
+    m_featureReference = o.value("feature").toObject();
+    m_expression = o.value("expression").toString();
+    m_calloutEnabled = o.value("callout").toBool();
+    m_offset = QPointF(o.value("offsetX").toDouble(), o.value("offsetY").toDouble());
+    m_pinned = o.value("pinned").toBool();
 
+    emit positionChanged();
+    emit textChanged(m_text);
+    emit changed();
+}
+
+void AnnotationTextItem::setFeatureReference(const QJsonObject &ref)
+{
+    if (m_featureReference == ref) return;
+    m_featureReference = ref;
+    emit changed();
+}
+
+void AnnotationTextItem::setExpression(const QString &expression)
+{
+    if (m_expression == expression) return;
+    m_expression = expression;
+    emit changed();
+}
+
+void AnnotationTextItem::setCalloutEnabled(bool enabled)
+{
+    if (m_calloutEnabled == enabled) return;
+    m_calloutEnabled = enabled;
+    emit changed();
+}
+
+void AnnotationTextItem::setOffset(const QPointF &offset)
+{
+    if (m_offset == offset) return;
+    m_offset = offset;
+    emit changed();
+}
+
+void AnnotationTextItem::setPinned(bool pinned)
+{
+    if (m_pinned == pinned) return;
+    m_pinned = pinned;
     emit changed();
 }
 

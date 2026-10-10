@@ -429,6 +429,7 @@ set(
         include/layers/tabulardatalayer.h
         include/layers/xyztilelayer.h
         include/layers/annotationtextitem.h
+        include/layers/annotationfeatures.h
         include/layers/annotationlayer.h
 
         # ── Map / GIS ────────────────────────────────────────────────────────
@@ -964,6 +965,7 @@ set(
         include/ui/dialogs/tabularresultsdialog.h
         include/ui/dialogs/scatterplotdialog.h
         include/ui/dialogs/customreportdialog.h
+        include/ui/dialogs/textlayersdialog.h
         include/ui/dialogs/annotationstyledialog.h
         include/ui/dialogs/calibrationdatadialog.h
         include/ui/dialogs/profilepathpickerdialog.h
@@ -1199,6 +1201,7 @@ set(
         src/layers/tabulardatalayer.cpp
         src/layers/xyztilelayer.cpp
         src/layers/annotationtextitem.cpp
+        src/layers/annotationfeatures.cpp
         src/layers/annotationlayer.cpp
 
         # Map / GIS
@@ -1672,6 +1675,7 @@ set(
         src/ui/dialogs/tabularresultsdialog.cpp
         src/ui/dialogs/scatterplotdialog.cpp
         src/ui/dialogs/customreportdialog.cpp
+        src/ui/dialogs/textlayersdialog.cpp
         src/ui/dialogs/annotationstyledialog.cpp
         src/ui/dialogs/calibrationdatadialog.cpp
         src/ui/dialogs/profilepathpickerdialog.cpp

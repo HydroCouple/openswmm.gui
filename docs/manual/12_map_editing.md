@@ -27,7 +27,7 @@ Everything lives on the **Model** menu and the **Model** ribbon tab.
 | **Pump** / **Orifice** / **Weir** / **Outlet** | **Model → Add Link → …** | Model ▸ Links |
 | **Subcatchment** | **Model → Add Subcatchment** | Model ▸ Subcatchments |
 | **Rain Gage** | **Model → Add Rain Gauge** | Model ▸ Rain Gages |
-| **Add Text** | **Model → Add Text** | Model ▸ Annotation |
+| **Text Layers** | **Model → Text Layers** | Model ▸ Annotation |
 | **Import Feature Layer…** | **Model → Import Feature Layer…** | Model ▸ Setup |
 | **Assign Rain Gages…** | **Model → Assign Rain Gages…** | Model ▸ Tools |
 | **Undo** / **Redo** | **Edit → Undo / Redo** | Home ▸ History |
@@ -256,38 +256,47 @@ name and the creation defaults for gages. Configure the rainfall source — inli
 time series, or a rain file with its format, station id, column and interval —
 in the Properties panel or the Rain Gages attribute table.
 
-### Text annotations
+### Text layers and callouts
 
-**Add Text** places labels on the map. They live on their own **Annotations**
-layer, created the first time you use the tool.
+Open **Model → Text Layers**, choose a layer or create one, then choose
+**Edit on map**. This enables the edit session for the chosen text layer.
 
-- Click **empty map** → the **Add Text Annotation** dialog opens with the
-  defaults.
-- Click an **existing annotation** → the same dialog opens seeded with that
-  item's current style, for an in-place edit.
-- Cancel leaves the layer untouched.
+- Click empty map to add text. Click existing text to edit it.
+- Drag text to move it; dragging pins its placement. **Unpin** in the manager
+  allows automatic placement again. **Escape** leaves the text tool. Turning
+  off **Edit Existing** also leaves text editing.
+- **Apply** accepts an edit; **Cancel** leaves the original untouched.
+  Text additions, edits, moves, deletions and layout changes support undo/redo.
+- Use the manager to select one or more items, delete them, or move them into
+  another text layer. Layer visibility and opacity are controlled in the Layers
+  dock; hidden layers do not participate in placement or picking.
 
-The dialog has a quick **Text:** field at the top — the one attribute you always
-change — over a property tree carrying everything else:
+**Generate labels** creates labels linked to existing SWMM or GIS features.
+Choose the source layer, optionally a SWMM category, and an expression such as
+`{name}` or `{name}: {invertElev}`. The attribute picker inserts source field
+names. Names and attribute values are read from the referenced feature when
+rendering. Generate again to add labels for new features; existing labels and
+custom edits are kept. **Turn off labels drawn by the source layer** prevents
+duplicate labels; it is enabled by default and is included in the generation
+undo step.
 
-| Group | Properties |
-|---|---|
-| Placement | `x`, `y` (layer CRS), rotation in degrees |
-| Type | font, fill colour |
-| Outline | enabled, colour, width |
-| Halo | enabled, colour, radius |
-| Background | enabled, fill colour, outline colour, outline width, padding, corner radius |
+The text editor supports multiple lines, font and text color, optional halos,
+glyph outlines, backgrounds and rotation. **Halos on/off** in the manager
+applies to selected text, or all text if nothing is selected. Clear the **Live
+label** expression to use custom text while keeping the feature connection.
+Select a feature and enable **Connect callout line to feature** to draw a leader
+from its live location to the text. A removed feature is never silently replaced
+by another: its generated label is hidden until it can be resolved again;
+custom text keeps its saved fallback position without a leader.
 
-Colour rows open a colour picker, the font row a font dialog, booleans are
-checkboxes. Positions are stored in the layer's CRS and reprojected to the
-canvas CRS on every redraw, so an annotation stays pinned to its map location
-when the project is reprojected.
-
-Placing an annotation is undoable. There is no drag-to-move and no delete
-action for an annotation in this build — reposition one by editing its `x` / `y`
-rows, and remove a newly placed one with `Ctrl+Z`.
-
-\figtodo{12_annotation_style_dialog.png, The Add Text Annotation dialog with the halo and background groups expanded}
+**Automatically avoid overlaps** places unpinned text around its anchor while
+considering all visible text layers and labeled feature anchors. Halos,
+backgrounds, multiline text and rotation are included in collision bounds.
+Manual positions take priority. If nearby positions are all occupied, unplaced
+text is hidden at that view; zoom in or unpin/reposition text to make room.
+Placement does not rewrite saved coordinates. Text stays a constant screen size
+as the map zooms, and custom coordinates are reprojected from the text layer's
+stored CRS.
 
 ### Object-creation defaults
 

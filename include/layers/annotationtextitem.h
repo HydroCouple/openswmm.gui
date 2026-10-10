@@ -18,6 +18,7 @@
 #include <QFont>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointF>
 #include <QString>
 #include <QUuid>
 
@@ -125,6 +126,18 @@ public:
     [[nodiscard]] double backgroundPadding()      const { return m_bgPadding; }
     [[nodiscard]] double backgroundCornerRadius() const { return m_bgCornerRadius; }
 
+    // A typed, persistent feature reference. Empty source means free text.
+    QJsonObject featureReference() const { return m_featureReference; }
+    void setFeatureReference(const QJsonObject &ref);
+    QString expression() const { return m_expression; }
+    void setExpression(const QString &expression);
+    bool calloutEnabled() const { return m_calloutEnabled; }
+    void setCalloutEnabled(bool enabled);
+    QPointF offset() const { return m_offset; }
+    void setOffset(const QPointF &offset);
+    bool pinned() const { return m_pinned; }
+    void setPinned(bool pinned);
+
     /*! Serialize to a project-file JSON entry. */
     [[nodiscard]] QJsonObject toJson() const;
 
@@ -185,6 +198,11 @@ signals:
     void changed();
 
 private:
+    QJsonObject m_featureReference;
+    QString m_expression;
+    bool m_calloutEnabled = false;
+    QPointF m_offset;
+    bool m_pinned = false;
     QString m_id;              ///< Stable per-item identifier (UUID).
     QString m_text = QStringLiteral("Text");
     double  m_x = 0.0;

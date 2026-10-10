@@ -4136,3 +4136,11 @@ add_swmmvis_gui_test(test_channelburndialog
 swmmvis_link_full_app_deps(test_channelburndialog)
 target_compile_definitions(test_channelburndialog PRIVATE
     CHANNEL_BURN_FIXTURE="${CMAKE_SOURCE_DIR}/examples/channel_burn_boundary/channel_burn_boundary.inp")
+
+# Text layer persistence, typed feature references, screen-space collision
+# placement, cancel/undo, and the layer manager/map tool.
+add_swmmvis_gui_test(test_textlayers
+    test_textlayers.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_textlayers)

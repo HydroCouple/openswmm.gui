@@ -1,3 +1,4 @@
+#include "ui/dialogs/textlayersdialog.h"
 #include "map/mapundostack.h"
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -184,6 +185,13 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         }
     });
     connect(mCanvas, &MapCanvas::layerAdded, this, [this](OpenSWMMVisLayer *layer) {
+        if (auto *text = qobject_cast<OpenSWMMVisAnnotationLayer *>(layer)) {
+            connect(text, &OpenSWMMVisAnnotationLayer::annotationsChanged, this, [this] { setHasChanges(true); });
+            connect(text, &OpenSWMMVisLayer::nameChanged, this, [this] { setHasChanges(true); });
+            connect(text, &OpenSWMMVisLayer::visibilityChanged, this, [this] { setHasChanges(true); });
+            connect(text, &OpenSWMMVisLayer::opacityChanged, this, [this] { setHasChanges(true); });
+            setHasChanges(true);
+        }
         if (auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer*>(layer)) {
             connect(trace->traceStyle(), &OpenSWMM::Render::SublayerStyle::styleChanged,
                     this, [this] { setHasChanges(true); });
@@ -194,6 +202,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     });
     connect(mCanvas, &MapCanvas::layerRemoved, this,
             [this](OpenSWMMVisLayer *layer) {
+        if (qobject_cast<OpenSWMMVisAnnotationLayer *>(layer)) setHasChanges(true);
         if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
             mStatsRegistry->unregisterLayer(rl);
         }
@@ -2529,21 +2538,34 @@ void SWMMVisProjectWindow::activateAddGageTool()        { mCanvas->setActiveTool
 void SWMMVisProjectWindow::activateAddSubcatchmentTool(){ mCanvas->setActiveTool(mAddSubcatchTool); }
 void SWMMVisProjectWindow::activateAddTextTool()
 {
-    ensureAnnotationLayer();
-    if (!mAddTextTool)
+    TextLayersDialog dlg(mCanvas, ensureAnnotationLayer(), this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    mAnnotationLayer = dlg.selectedLayer();
+    if (!mAnnotationLayer) return;
+    mAnnotationLayer->setVisible(true);
+    setEditSessionActive(true);
+    if (!mAddTextTool) {
         mAddTextTool = new OpenSWMMVisMapToolAddText(mCanvas, mAnnotationLayer, this);
+        connect(this, &SWMMVisProjectWindow::editSessionChanged, this, [this](bool active) {
+            if (!active && mCanvas->activeTool() == mAddTextTool) mCanvas->setActiveTool(mSelectTool);
+        });
+    }
+    mAddTextTool->setLayer(mAnnotationLayer);
     mCanvas->setActiveTool(mAddTextTool);
 }
 
 OpenSWMMVisAnnotationLayer *SWMMVisProjectWindow::ensureAnnotationLayer()
 {
-    if (mAnnotationLayer)
-        return mAnnotationLayer;
-    mAnnotationLayer = new OpenSWMMVisAnnotationLayer(tr("Annotations"), nullptr);
-    // pushUndo=false: the layer creation isn't itself an undoable user
-    // action; it's a side-effect of the first AddAnnotationCommand, which
-    // is what shows up in the undo stack.
-    mCanvas->addLayer(mAnnotationLayer, /*pushUndo=*/false);
+    if (mAnnotationLayer && mCanvas->layers().contains(mAnnotationLayer)) return mAnnotationLayer;
+    for (auto *base : mCanvas->layers())
+        if (auto *layer = qobject_cast<OpenSWMMVisAnnotationLayer *>(base)) {
+            mAnnotationLayer = layer; return layer;
+        }
+    mAnnotationLayer = new OpenSWMMVisAnnotationLayer(tr("Text"));
+    mAnnotationLayer->setParent(mCanvas);
+    if (mCanvas->canvasSRS())
+        mAnnotationLayer->setSRS(new SpatialReferenceSystem(*mCanvas->canvasSRS()), true);
+    mCanvas->addLayer(mAnnotationLayer, false);
     return mAnnotationLayer;
 }
 
