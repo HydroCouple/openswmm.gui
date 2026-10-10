@@ -125,6 +125,7 @@ void TestInpMeshReader::externalMeshPath_data()
     QTest::addColumn<bool>("absolute");
     QTest::newRow("plain") << QStringLiteral("mesh.2dm") << false << false;
     QTest::newRow("saved-spaces") << QStringLiteral("My Model.2dm") << false << false;
+    QTest::newRow("unquoted-repeated-spaces") << QStringLiteral("My  Model.2dm") << false << false;
     QTest::newRow("quoted") << QStringLiteral("mesh.2dm") << true << false;
     QTest::newRow("quoted-spaces") << QStringLiteral("My  Model.2dm") << true << false;
     QTest::newRow("quoted-semicolon") << QStringLiteral("My; Model.2dm") << true << false;

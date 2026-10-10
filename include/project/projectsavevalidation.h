@@ -148,19 +148,9 @@ public:
                     const auto ref = config.match(withoutComment(text));
                     if (ref.hasMatch()) {
                         const QString token = unquote(ref.captured(1));
-                        // The current engine tokenizes key="value" arguments
-                        // at whitespace even inside those quotes. Do not hide
-                        // a final reference that would fail on ordinary Open.
-                        if (token.contains(QRegularExpression(QStringLiteral("\\s"))))
-                            return fail(QStringLiteral("Component configuration reference cannot be reopened by the current engine because it contains whitespace: %1").arg(token));
                         const QString mapped = resource(token, ProjectSaveOutputs::Component);
                         if (mapped.isEmpty()) return fail(resourceError);
-                        // A relative stage token avoids introducing the same
-                        // limitation solely because the project folder itself
-                        // contains spaces; the input remains its true sibling.
                         const QString relative = QFileInfo(model).absoluteDir().relativeFilePath(mapped);
-                        if (relative.contains(QRegularExpression(QStringLiteral("\\s"))))
-                            return fail(QStringLiteral("Cannot safely map component configuration %1 for validation.").arg(token));
                         text.replace(ref.capturedStart(1), ref.capturedLength(1), QStringLiteral("\"%1\"").arg(relative));
                         line = text.toUtf8();
                     }

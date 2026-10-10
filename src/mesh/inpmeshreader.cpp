@@ -94,7 +94,7 @@ QStringList tokenize(const QString &raw)
 }
 
 // File references have different rules from numeric mesh rows: the engine
-// rejoins unquoted path tokens and preserves whitespace/comments inside quotes.
+// preserves the raw path tail and whitespace/comments inside quotes.
 QString meshFileReference(const QString &raw)
 {
     QString line = raw;
@@ -114,7 +114,7 @@ QString meshFileReference(const QString &raw)
     if (path.size() >= 2 && path.front() == QLatin1Char('"')
         && path.back() == QLatin1Char('"'))
         return path.mid(1, path.size() - 2);
-    return path.simplified();
+    return path;
 }
 
 /*! GG0a — parse `METHOD [P1..P5] [DEST]` starting at \p first into \p row.
