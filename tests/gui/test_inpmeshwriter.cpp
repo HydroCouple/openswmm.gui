@@ -379,25 +379,53 @@ private slots:
         QVERIFY(inpText.contains("FILE  project.2dm"));
     }
 
+    void writeExternal_spacesReloadMesh_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<int>("mode");
+        for (const QString &name : {QStringLiteral("My Model"), QStringLiteral("My  Model"),
+                                   QStringLiteral("My; Model")}) {
+            for (int mode = 0; mode < 3; ++mode)
+                QTest::newRow(qPrintable(name + QString::number(mode))) << name << mode;
+        }
+    }
+
     void writeExternal_spacesReloadMesh()
     {
+        QFETCH(QString, name);
+        QFETCH(int, mode);
         ReviewableTestDir dir;
         QVERIFY(dir.isValid());
-        const QString inpPath = dir.filePath("My Model.inp");
+        const QString inpPath = dir.filePath(name + ".inp");
+        const QString folder = dir.filePath("Mesh  Folder");
+        QVERIFY(QDir().mkpath(folder));
+        const QString meshPath = QDir(folder).filePath(name + ".2dm");
         QFile inp(inpPath);
         QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
         inp.write(sampleInpText().toUtf8());
         inp.close();
 
+        // A collapsed reference must not succeed by loading a different mesh.
+        const QString decoyFolder = dir.filePath("Mesh Folder");
+        QVERIFY(QDir().mkpath(decoyFolder));
+        QFile decoy(QDir(decoyFolder).filePath("My Model.2dm"));
+        QVERIFY(decoy.open(QIODevice::WriteOnly));
+        decoy.write("[2D_VERTICES]\n0 0 99\n1 0 99\n0 1 99\n[2D_TRIANGLES]\n0 1 2\n");
+        decoy.close();
         QString err;
-        QVERIFY2(InpMeshWriter::writeExternal(inpPath, {}, sampleMesh(),
+        QVERIFY2(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
             sampleCoupling(), 0.035, &err), qPrintable(err));
+        if (mode == 1)
+            QVERIFY2(InpMeshWriter::writeMeshFileRef(inpPath, meshPath, &err), qPrintable(err));
+        if (mode == 2)
+            QVERIFY2(InpMeshWriter::writePreparedMeshFileRef(inpPath, meshPath, meshPath, &err), qPrintable(err));
         const auto loaded = InpMeshReader::read(inpPath);
         QVERIFY2(loaded.errorMsg.isEmpty(), qPrintable(loaded.errorMsg));
         QVERIFY(loaded.hasMesh);
         QVERIFY(loaded.isExternal);
-        QCOMPARE(QFileInfo(loaded.sourcePath).fileName(), QStringLiteral("My Model.2dm"));
+        QCOMPARE(QFileInfo(loaded.sourcePath).absoluteFilePath(), QFileInfo(meshPath).absoluteFilePath());
         QCOMPARE(loaded.mesh.vertices.size(), sampleMesh().vertices.size());
+        QCOMPARE(loaded.mesh.vertices[0].z, sampleMesh().vertices[0].z);
         QCOMPARE(loaded.mesh.triangles.size(), sampleMesh().triangles.size());
     }
 

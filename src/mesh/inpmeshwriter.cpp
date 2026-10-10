@@ -681,7 +681,11 @@ QString meshRefToken(const QString &inpPath, const QString &meshPath)
         QDir::cleanPath(QFileInfo(meshPath).absoluteFilePath());
     const QString rel = inpDir.relativeFilePath(meshAbs);
     // Cross-volume (different drive / UNC share): Qt returns the absolute path.
-    return QFileInfo(rel).isRelative() ? rel : meshAbs;
+    const QString token = QFileInfo(rel).isRelative() ? rel : meshAbs;
+    for (const QChar c : token)
+        if (c.isSpace() || c == QLatin1Char(';') || c == QLatin1Char(','))
+            return QLatin1Char('"') + token + QLatin1Char('"');
+    return token;
 }
 
 bool atomicWrite(const QString &path, const QString &text, QString *errorOut)

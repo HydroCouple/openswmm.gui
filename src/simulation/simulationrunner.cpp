@@ -281,7 +281,12 @@ QStringList optionTokens(const QString &line)
             if (i < line.size() && line[i] == ',') ++i;
         } else {
             const int start = i;
-            while (i < line.size() && !line[i].isSpace() && !comma(i)) ++i;
+            bool inQuote = false;
+            while (i < line.size()) {
+                if (line[i] == '"') inQuote = !inQuote;
+                else if (!inQuote && (line[i].isSpace() || comma(i))) break;
+                ++i;
+            }
             tokens.append(line.mid(start, i - start));
             if (i < line.size() && comma(i)) ++i;
         }
@@ -332,14 +337,26 @@ RunFileReferences knownRunReferences(const QString &inp)
         } else if ((section == "TEMPERATURE" || section == "2D_MESH_FILE"
                     || section.contains("INITIAL_QUALITY"))
                    && tokens.size() >= 2 && tokens[0].compare("FILE", Qt::CaseInsensitive) == 0) {
-            // The engine's external-mesh handler also accepts unquoted paths
-            // with spaces by joining every token after FILE.
-            addInput(section == "2D_MESH_FILE" ? tokens.mid(1).join(' ') : tokens[1]);
+            QString reference = tokens[1];
+            if (section == "2D_MESH_FILE") {
+                reference = tokens.mid(1).join(' ');
+                // Match the engine's raw-tail handling of unquoted FILE paths.
+                if (line.size() > 4 && line[4].isSpace()) {
+                    const QString tail = line.mid(4).trimmed();
+                    if (!tail.startsWith('"') && !tail.startsWith(',')) reference = tail;
+                }
+            }
+            addInput(reference);
         } else if (section == "PLUGINS") {
             addInput(tokens[0]);
         } else if (section == "PROCESS_COMPONENTS") {
-            for (const auto &token : tokens)
-                if (token.startsWith("config=", Qt::CaseInsensitive)) addInput(token.mid(7));
+            for (const auto &token : tokens) {
+                if (!token.startsWith("config=", Qt::CaseInsensitive)) continue;
+                QString value = token.mid(7);
+                if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+                    value = value.mid(1, value.size() - 2);
+                addInput(value);
+            }
         }
     }
     // This intentionally covers declared built-in references, not arbitrary

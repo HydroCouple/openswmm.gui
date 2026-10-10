@@ -178,16 +178,30 @@ private slots:
         QCOMPARE(read(stage), bytes); QCOMPARE(read(output), QByteArray("output sentinel"));
         QCOMPARE(read(detailed), QByteArray("detail sentinel"));
     }
-    void whitespaceInPublishedComponentTokenIsNotDisguised() {
-        const QString dir = caseDir("unsupported_component_token");
+    void componentPathWithSpacesCanBePublished_data() {
+        QTest::addColumn<QString>("name");
+        QTest::newRow("spaces") << QStringLiteral("reaction config.rxn");
+        QTest::newRow("repeated-spaces") << QStringLiteral("reaction  config.rxn");
+        QTest::newRow("semicolon") << QStringLiteral("reaction; config.rxn");
+    }
+    void componentPathWithSpacesCanBePublished() {
+        QFETCH(QString, name);
+        const QString dir = caseDir(QStringLiteral("component path ") + QTest::currentDataTag());
+        const QString final = dir + "/model.inp";
         ProjectSaveOutputs out;
-        const QString stage = out.stage(dir + "/model.inp", ProjectSaveOutputs::Model);
-        const QString config = out.stage(dir + "/reaction config.rxn", ProjectSaveOutputs::Component);
-        QVERIFY(write(stage, deck() + "[PROCESS_COMPONENTS]\norg.hydrocouple.openswmm.reactions config=\"reaction config.rxn\"\n"));
+        const QString stage = out.stage(final, ProjectSaveOutputs::Model);
+        const QString config = out.stage(dir + "/Config  Folder/" + name, ProjectSaveOutputs::Component);
+        QVERIFY(write(stage, deck() + "[PROCESS_COMPONENTS]\norg.hydrocouple.openswmm.reactions config=\"Config  Folder/"
+            + name.toUtf8() + "\"\n"));
         QVERIFY(write(config, "[REACTION_SPECIES]\nBULK A MG\n"));
         QString err;
-        QVERIFY(!ProjectSaveValidation::validate(out, nullptr, &err, nullptr));
-        QVERIFY2(err.contains("whitespace") && err.contains("reaction config.rxn"), qPrintable(err));
+        QVERIFY2(ProjectSaveValidation::validate(out, nullptr, &err, nullptr), qPrintable(err));
+        QVERIFY2(out.publish(), qPrintable(out.error()));
+        const auto destroy = [](void *engine) { swmm_engine_close(engine); swmm_engine_destroy(engine); };
+        std::unique_ptr<void, decltype(destroy)> reopened(swmm_engine_create(), destroy);
+        QVERIFY(reopened);
+        const int result = swmm_engine_open(reopened.get(), final.toUtf8().constData(), nullptr, nullptr, nullptr);
+        QVERIFY2(result == 0, swmm_get_last_error_msg(reopened.get()));
     }
     void emptyUntitledAuthoringModelCanBeSaved() {
         const QString dir = caseDir("empty_untitled");

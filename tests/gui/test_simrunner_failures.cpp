@@ -169,9 +169,11 @@ private slots:
         QTest::newRow("hotstart-input") << QByteArray("[FILES]\nUSE HOTSTART \"source data.dat\"\n");
         QTest::newRow("climate") << QByteArray("[TEMPERATURE]\nFILE \"source data.dat\"\n");
         QTest::newRow("mesh") << QByteArray("[2D_MESH_FILE]\nFILE \"source data.dat\"\n");
+        QTest::newRow("mesh-spaced-csv") << QByteArray("[2D_MESH_FILE]\nFILE , \"source data.dat\"\n");
         QTest::newRow("mesh-unquoted-space") << QByteArray("[2D_MESH_FILE]\nFILE source data.dat\n");
         QTest::newRow("groundwater-quality") << QByteArray("[2D_GW_INITIAL_QUALITY]\nFILE \"source data.dat\"\n");
         QTest::newRow("plugin-library") << QByteArray("[PLUGINS]\n\"source data.dat\"\n");
+        QTest::newRow("component-config-inner-quotes") << QByteArray("[PROCESS_COMPONENTS]\nHEAT config=\"source data.dat\"\n");
         QTest::newRow("component-config") << QByteArray("[PROCESS_COMPONENTS]\nHEAT \"config=source data.dat\"\n");
     }
 
@@ -182,6 +184,18 @@ private slots:
         QVERIFY(!inp.isEmpty()); const QDir directory = QFileInfo(inp).absoluteDir();
         QString error;
         QVERIFY(!SimulationRunner::validateRunPaths(inp, directory.filePath("safe.rpt"), directory.filePath("source data.dat"), {}, {}, &error));
+        QVERIFY(error.contains("protected input"));
+    }
+
+    void repeatedSpacesInMeshInputAreProtected()
+    {
+        const QString inp = writeDeck("mesh_repeated_spaces", (QByteArray(kMinimal1D)
+            + "\n[2D_MESH_FILE]\nFILE Mesh  Folder/source  data.2dm ; comment\n").constData());
+        QVERIFY(!inp.isEmpty());
+        const QDir directory = QFileInfo(inp).absoluteDir();
+        QString error;
+        QVERIFY(!SimulationRunner::validateRunPaths(inp, directory.filePath("safe.rpt"),
+            directory.filePath("Mesh  Folder/source  data.2dm"), {}, {}, &error));
         QVERIFY(error.contains("protected input"));
     }
 
