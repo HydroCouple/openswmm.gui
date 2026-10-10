@@ -1,3 +1,4 @@
+#include "layers/annotationlayer.h"
 /*!
  * \file   mapcanvas.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
@@ -2263,6 +2264,8 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             }
         } // close `} else {` for qsgActive path
     }
+
+    OpenSWMMVisAnnotationLayer::paintLayers(p, m_layers, m_extent, m_canvasSRS, size());
 
     // ---- Layer 2c: profile overlays (above the QSG flood-map mesh) --------
     // Drawn here — after the QSG frame is composited — so traced profile

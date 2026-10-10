@@ -195,7 +195,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionAddOutlet",             QT_TR_NOOP("Outlet")},
         {"actionAddSubcatchment",       QT_TR_NOOP("Subcatchment")},
         {"actionRainGauge",             QT_TR_NOOP("Rain\nGauge")},
-        {"actionAddText",               QT_TR_NOOP("Text")},
+        {"actionAddText",               QT_TR_NOOP("Text\nLayers")},
         {"actionSolarRadiation",        QT_TR_NOOP("Solar\nRadiation")},
         {"actionNewTimeSeries",         QT_TR_NOOP("Time\nSeries")},
         {"actionNewCurve",              QT_TR_NOOP("Curve")},
@@ -303,6 +303,10 @@ void SWMMVis::initializeCompactToolbar()
               "actionAddWeir", "actionAddOutlet"});
     addGroup(mToolBarModel, tr("Subcatchments"), {"actionAddSubcatchment"});
     addGroup(mToolBarModel, tr("Rain Gages"),    {"actionRainGauge"});
+    if (ui->actionAddText) {
+        ui->actionAddText->setText(tr("Text Layers…"));
+        ui->actionAddText->setToolTip(tr("Manage text layers, generate labels and edit text on the map"));
+    }
     addGroup(mToolBarModel, tr("Annotation"),    {"actionAddText"});
     {
         auto *group = new RibbonGroup(tr("Climate"), this);

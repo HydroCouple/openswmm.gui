@@ -14,6 +14,9 @@
 #define OPENSWMMVIS_MAP_TOOLS_MAPTOOLADDTEXT_H
 
 #include "map/tools/maptool.h"
+#include <QPointer>
+#include <QJsonObject>
+#include <QPointF>
 
 class OpenSWMMVisAnnotationLayer;
 
@@ -29,14 +32,23 @@ public:
 
     [[nodiscard]] QCursor cursor() const override;
 
+    void setLayer(OpenSWMMVisAnnotationLayer *layer);
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void deactivate() override;
 
 signals:
     /*! Emitted after a new annotation is placed. The new item's id is in `id`. */
     void annotationAdded(const QString &id);
 
 private:
-    OpenSWMMVisAnnotationLayer *m_layer = nullptr;
+    QPointer<OpenSWMMVisAnnotationLayer> m_layer;
+    QString m_pressedId;
+    QPointF m_pressPixel, m_startOffset;
+    QJsonObject m_before;
+    bool m_dragged = false;
 };
 
 #endif // OPENSWMMVIS_MAP_TOOLS_MAPTOOLADDTEXT_H

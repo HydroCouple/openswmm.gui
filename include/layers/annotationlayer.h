@@ -1,106 +1,55 @@
 /*!
- * \file   annotationlayer.h
+ * \file annotationlayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Layer holding user-placed text annotations.
- *
- * Mirrors GISVectorLayer's populate / depopulate / refresh pattern: the data
- * model (AnnotationTextItem*'s) is persistent across scene rebuilds; the
- * QGraphicsItem instances are throwaway, recreated on canvas CRS change.
- *
- * Positions are stored in the layer's CRS (typically inherited from the SWMM
- * model layer). On populate, each position is reprojected to canvas CRS so
- * the annotation stays pinned to its map location.
  */
 #ifndef OPENSWMMVIS_LAYERS_ANNOTATIONLAYER_H
 #define OPENSWMMVIS_LAYERS_ANNOTATIONLAYER_H
-
 #include "layers/openswmmvislayer.h"
-
 #include <QHash>
 #include <QJsonArray>
-#include <QString>
-#include <QVector>
-
+#include <QTransform>
 class AnnotationTextItem;
-class AnnotationGraphicsItem;
 
+// Persistent text model. The canvas paints all text layers together, above
+// the CPU/GPU map, to share collision placement and screen-space picking.
 class OpenSWMMVisAnnotationLayer : public OpenSWMMVisLayer
 {
     Q_OBJECT
 public:
-    explicit OpenSWMMVisAnnotationLayer(const QString &name = QStringLiteral("Annotations"),
-                                        OpenSWMMVisWorkspace *parent = nullptr);
-    ~OpenSWMMVisAnnotationLayer() override;
-
-    // ----- Annotation management -----------------------------------------
-
-    /*! Append an existing item; takes QObject parent ownership. Returns true on
-     *  success (item not null and not already in the layer). Emits
-     *  repaintRequested() so the canvas updates. */
+    explicit OpenSWMMVisAnnotationLayer(const QString &name = QStringLiteral("Text"),
+                                       OpenSWMMVisWorkspace *parent = nullptr);
     bool addAnnotation(AnnotationTextItem *item);
-
-    /*! Remove and delete the annotation with this id. Returns true if found. */
     bool removeAnnotation(const QString &id);
-
-    /*! Detach the annotation with this id from the layer without deleting.
-     *  Caller takes ownership. Used by undo commands. */
     AnnotationTextItem *takeAnnotation(const QString &id);
-
-    /*! Look up an annotation by id; null if absent. */
-    [[nodiscard]] AnnotationTextItem *annotation(const QString &id) const;
-
-    /*! Snapshot of all annotations. Order is insertion order. */
-    [[nodiscard]] QVector<AnnotationTextItem *> annotations() const { return m_items; }
-
-    /*! Hit-test: returns the topmost annotation whose rendered bounds contain
-     *  the given scene-space point, or null if none. Used by the Add Text
-     *  tool to distinguish "create new" from "edit existing". */
-    [[nodiscard]] AnnotationTextItem *annotationAtScenePos(const QPointF &scenePos) const;
-
-    // ----- Persistence ----------------------------------------------------
-
-    [[nodiscard]] QJsonArray toJson() const;
-    void fromJson(const QJsonArray &arr);
-
-    // ----- OpenSWMMVisLayer overrides -------------------------------------
-
-    [[nodiscard]] QString sourceDescription() const override { return tr("(in-memory)"); }
-    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override
-    { return {{ tr("Annotations"), QString::number(m_items.size()) }}; }
-
-    void populateScene(QGraphicsScene *scene,
-                       const MapExtent &canvasExtent,
-                       const SpatialReferenceSystem *canvasSRS) override;
-    void depopulateScene(QGraphicsScene *scene) override;
-    void refreshScene(QGraphicsScene *scene,
-                      const MapExtent &canvasExtent,
-                      const SpatialReferenceSystem *canvasSRS) override;
-    void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
-
-private slots:
-    /*! Re-position the graphics item for a single annotation (cheap, no
-     *  scene rebuild). Connected to AnnotationTextItem::positionChanged
-     *  when the item is added. */
-    void onItemPositionChanged();
-
-    /*! Trigger a repaint of one item's graphics representation. */
-    void onItemChanged();
-
+    AnnotationTextItem *annotation(const QString &id) const;
+    QVector<AnnotationTextItem *> annotations() const { return m_items; }
+    AnnotationTextItem *annotationAtScenePos(const QPointF &scenePos) const;
+    AnnotationTextItem *annotationAtPixel(const QPointF &pixel) const;
+    QRectF renderedBounds(const QString &id) const { return m_bounds.value(id); }
+    QPointF renderedOffset(const QString &id) const { return m_offsets.value(id); }
+    bool autoLayout() const { return m_autoLayout; }
+    void setAutoLayout(bool enabled);
+    QJsonArray toJson() const;
+    void fromJson(const QJsonArray &items);
+    QJsonObject layerJson() const;
+    void restoreLayer(const QJsonObject &object);
+    QString sourceDescription() const override { return tr("(in-memory)"); }
+    QVector<QPair<QString, QString>> extendedMetadata() const override
+    { return {{tr("Text items"), QString::number(m_items.size())}}; }
+    void populateScene(QGraphicsScene *, const MapExtent &, const SpatialReferenceSystem *) override {}
+    void depopulateScene(QGraphicsScene *) override { m_bounds.clear(); m_offsets.clear(); }
+    void refreshScene(QGraphicsScene *, const MapExtent &, const SpatialReferenceSystem *) override {}
+    static void paintLayers(QPainter &p, const QList<OpenSWMMVisLayer *> &layers,
+                            const MapExtent &extent, const SpatialReferenceSystem *srs,
+                            const QSize &viewport);
+signals:
+    void annotationsChanged();
 private:
-    /*! Reproject a (x, y) in this layer's CRS to canvas-CRS scene coords. */
-    QPointF toCanvas(double x, double y) const;
-
-    /*! Build / rebuild a graphics item for this annotation and insert at
-     *  the correct scene position. Removes any existing graphics item for
-     *  this id first. No-op when no scene is currently bound. */
-    void buildGraphicsItem(AnnotationTextItem *item);
-
-    QVector<AnnotationTextItem *>                m_items;       ///< owned (QObject parent = this)
-    QHash<QString, AnnotationGraphicsItem *>     m_graphics;    ///< id → scene item (owned by scene when populated)
-    QGraphicsScene                              *m_scene = nullptr;
-    const SpatialReferenceSystem                *m_canvasSRS = nullptr;
+    QVector<AnnotationTextItem *> m_items;
+    QHash<QString, QRectF> m_bounds;
+    QHash<QString, QPointF> m_offsets;
+    QTransform m_sceneToPixel;
+    bool m_autoLayout = false;
 };
-
-#endif // OPENSWMMVIS_LAYERS_ANNOTATIONLAYER_H
+#endif
