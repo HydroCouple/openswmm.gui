@@ -2,6 +2,8 @@
 #include <QComboBox>
 #include <QPlainTextEdit>
 #include <QLineEdit>
+#include <QSpinBox>
+#include <QTreeView>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QFile>
@@ -105,6 +107,56 @@ private slots:
         item->setHaloEnabled(false); auto plain=render({&a}); QVERIFY(plain!=first);
         QVERIFY(first.save(output()+"/halo_on.png")); QVERIFY(plain.save(output()+"/halo_off.png"));
         a.setOpacity(0); render({&a}); QVERIFY(!a.annotationAtPixel(r.center()));
+    }
+    void fontSizeThroughEditor_data() {
+        QTest::addColumn<int>("input");
+        QTest::addColumn<bool>("apply");
+        QTest::newRow("type then apply") << 0 << true;
+        QTest::newRow("step then apply") << 1 << true;
+        QTest::newRow("apply without focus change") << 2 << true;
+        QTest::newRow("type then cancel") << 0 << false;
+    }
+    void fontSizeThroughEditor() {
+        QFETCH(int, input); QFETCH(bool, apply);
+        OpenSWMMVisAnnotationLayer layer;
+        auto *item = add(layer,"Font size",{30,50}); const auto id = item->id();
+        const auto before = layer.layerJson();
+        const auto small = render({&layer}); const auto smallBounds = layer.renderedBounds(id);
+        AnnotationStyleDialog dialog(item); dialog.setEditMode(true); dialog.show(); QApplication::processEvents();
+        auto *tree = dialog.findChild<QTreeView *>(); QVERIFY(tree);
+        const auto matches = tree->model()->match(tree->model()->index(0,0),Qt::DisplayRole,
+                                                 "Point Size",1,Qt::MatchExactly|Qt::MatchRecursive);
+        QVERIFY(!matches.isEmpty());
+        const auto sizeIndex = matches.first().siblingAtColumn(1);
+        tree->scrollTo(sizeIndex); tree->setCurrentIndex(sizeIndex);
+        QApplication::processEvents();
+        auto *size = tree->findChild<QSpinBox *>(); QVERIFY(size);
+        size->setFocus();
+        if (input == 1) for (int i=0;i<18;++i) QTest::keyClick(size,Qt::Key_Up);
+        else { size->selectAll(); QTest::keyClicks(size,"28"); }
+        QCOMPARE(size->cleanText(),QString("28"));
+        QCOMPARE(item->font().pointSize(),10); // Changes remain staged until Apply.
+        if (apply) QVERIFY(dialog.grab().save(output()+"/font_size_editor.png"));
+        auto *button = dialog.findChild<QDialogButtonBox *>()->button(apply ? QDialogButtonBox::Ok : QDialogButtonBox::Cancel);
+        if (input == 2) button->click();
+        else QTest::mouseClick(button,Qt::LeftButton);
+        if (!apply) {
+            QCOMPARE(dialog.result(),int(QDialog::Rejected)); QCOMPARE(layer.layerJson(),before);
+            QCOMPARE(render({&layer}),small);
+            return;
+        }
+        QCOMPARE(dialog.result(),int(QDialog::Accepted));
+        QCOMPARE(item->font().pointSize(),28);
+        const auto large = render({&layer}); const auto largeBounds = layer.renderedBounds(id);
+        QVERIFY(largeBounds.width() > smallBounds.width()*2);
+        QVERIFY(largeBounds.height() > smallBounds.height()*2);
+        QVERIFY(large != small);
+        QVERIFY(small.save(output()+"/font_size_before.png")); QVERIFY(large.save(output()+"/font_size_after.png"));
+        QUndoStack stack; stack.push(new EditTextLayerCommand(&layer,before,layer.layerJson(),"Font size"));
+        stack.undo(); QCOMPARE(layer.annotation(id)->font().pointSize(),10); QCOMPARE(render({&layer}),small);
+        stack.redo(); QCOMPARE(layer.annotation(id)->font().pointSize(),28); QCOMPARE(render({&layer}),large);
+        OpenSWMMVisAnnotationLayer restored; restored.restoreLayer(layer.layerJson());
+        QCOMPARE(restored.annotation(id)->font().pointSize(),28); QCOMPARE(render({&restored}),large);
     }
     void stagedEditsAndUndo() {
         OpenSWMMVisAnnotationLayer layer;
