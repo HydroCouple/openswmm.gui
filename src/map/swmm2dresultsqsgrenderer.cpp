@@ -16,6 +16,7 @@
  */
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "map/flowstreaknode.h"
+#include "map/flowparticlenode.h"
 #include <QCoreApplication>
 #include "render/classificationcolorsampler.h"
 
@@ -31,6 +32,7 @@
 #include "render/sublayers/velocityvectorsublayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
 #include <QSet>
+#include <QJsonDocument>
 #include <QSGOpacityNode>
 
 #include <QFont>
@@ -247,6 +249,8 @@ struct ScalarResultNodes : QSGNode {
 };
 struct ResultsRootNode : QSGTransformNode
 {
+    QSGNode *flowNode = nullptr;
+    FlowParticleNode *particleNode = nullptr;
     FlowStreakNode *streakNode = nullptr;
     QHash<QString, ScalarResultNodes *> resultScalarNodes;
     QSGGeometryNode *cellFillNode   = nullptr;
@@ -543,8 +547,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         // deleted) — every domain is stale regardless of pending notes.
         m_dirty.noteLayerChanged();
         root            = new ResultsRootNode();
+        root->flowNode = new QSGNode();root->appendChildNode(root->flowNode);
+        root->particleNode = new FlowParticleNode();root->flowNode->appendChildNode(root->particleNode);
         root->streakNode = new FlowStreakNode();
-        root->appendChildNode(root->streakNode);
+        root->flowNode->appendChildNode(root->streakNode);
         cellFillNode    = root->cellFillNode   = makeColoredNode();
         smoothFillNode  = root->smoothFillNode = makeColoredNode();
         bandNode        = root->bandNode       = makeColoredNode();
@@ -609,11 +615,27 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     m_layer->setHydraulicView(viewRect,logicalScale);
     auto syncStreaks = [&]() {
         auto *sub=m_layer->flowStreakSublayer();
+        const auto *style=sub->streakStyle();
+        if(style->continuousParticles()) {
+            root->streakNode->sync({},*style,0,0,{},1);
+            const auto frame=m_layer->flowParticles(viewRect,logicalScale,m_lastRenderedFrame);
+            if(!frame && m_layer->flowStreaksEnabled())return; // keep the complete matching presentation
+            FlowParticleAppearance appearance;appearance.anchor={m_anchorX,m_anchorY};
+            appearance.color=style->color();appearance.opacity=sub->opacity();
+            appearance.fade=style->fade();appearance.taper=style->taper();
+            appearance.revision=qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));
+            if(style->colorByMagnitude())appearance.colorForSpeed=[style](double v){return style->colorForSpeed(v);};
+            root->particleNode->sync(frame,m_layer->flowParticleInterpolation(),logicalScale,
+                style->trailDurationSeconds(),style->widthPx(),style->headWidthPx(),style->lifetimeFadeSeconds(),0,appearance);
+            return;
+        }
+        root->particleNode->sync({},1,1);
         const auto batch=m_layer->presentedFlowStreaks(viewRect,logicalScale,m_lastRenderedFrame);
         root->streakNode->sync(batch,*sub->streakStyle(),m_layer->flowStreakSeconds(),
             sub->opacity(),QPointF(m_anchorX,m_anchorY),logicalScale,m_layer->flowStreakDisplaySeconds());
     };
     auto clearAll = [&]() {
+        root->particleNode->sync({},1,1);
         root->streakNode->sync({},*m_layer->flowStreakSublayer()->streakStyle(),0,0,{},1);
         clearPresentedFrames();
         const std::vector<QSGGeometry::ColoredPoint2D> empty_c;
@@ -721,7 +743,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             } else if (id == QLatin1String("results2d.meshVertices")) {
                 addNodeMarkers();
             } else if (id == QLatin1String("results2d.flowStreaks")) {
-                appendNode(root->streakNode); addedStreaks=true;
+                appendNode(root->flowNode); addedStreaks=true;
             } else if (id == QLatin1String("results2d.velocity")) {
                 addVelocity();
             }
@@ -737,7 +759,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         addIso();
         addNodeMarkers();
         addVelocity();
-        if(!addedStreaks) appendNode(root->streakNode);
+        if(!addedStreaks) appendNode(root->flowNode);
 
         appendNode(hiFillNode);
         appendNode(hiEdgeNode);
@@ -1054,7 +1076,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             // Capture the same live field before it is superseded. Waiting
             // until this contour is presented can otherwise leave no matching
             // velocity data when the producer is ahead of the display.
-            m_layer->flowStreaks(viewRect,logicalScale,key.frameRev);
+            if(m_layer->flowStreakSublayer()->streakStyle()->continuousParticles())
+                m_layer->flowParticles(viewRect,logicalScale,key.frameRev,false);
+            else m_layer->flowStreaks(viewRect,logicalScale,key.frameRev);
             auto compute = [frame, input = std::move(input)]() -> std::shared_ptr<const ContourFrame> {
                 frame->contours = computeContourJob(input);
                 return frame;
@@ -1090,7 +1114,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         if(!geomChanged && m_lastRenderedFrame!=m_contourFrame->key.frameRev
            && m_contourFrame->key.frameRev==m_layer->frameRevision()
            && m_layer->flowStreaksEnabled()
-           && !m_layer->flowStreaks(viewRect,logicalScale,m_contourFrame->key.frameRev)
+           && (m_layer->flowStreakSublayer()->streakStyle()->continuousParticles()
+               ?!m_layer->flowParticles(viewRect,logicalScale,m_contourFrame->key.frameRev,false)
+               :!m_layer->flowStreaks(viewRect,logicalScale,m_contourFrame->key.frameRev))
            && m_layer->flowStreakBusy()) {
             m_dirty.noteStyleChanged();applyTransform();syncStreaks();return root;
         }

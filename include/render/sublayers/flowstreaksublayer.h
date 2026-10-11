@@ -30,6 +30,8 @@ class FlowStreakStyle : public SublayerStyle {
     Q_PROPERTY(double dryDepthCutoff READ dryDepthCutoff WRITE setDryDepthCutoff NOTIFY styleChanged)
     Q_CLASSINFO("group:dryDepthCutoff","Wet support")
     Q_PROPERTY(bool animated READ animated WRITE setAnimated NOTIFY styleChanged)
+    Q_PROPERTY(bool continuousParticles READ continuousParticles WRITE setContinuousParticles NOTIFY styleChanged)
+    Q_CLASSINFO("group:continuousParticles","Motion")
     Q_CLASSINFO("group:animated","Motion")
     Q_PROPERTY(double speedMultiplier READ speedMultiplier WRITE setSpeedMultiplier NOTIFY styleChanged)
     Q_CLASSINFO("group:speedMultiplier","Motion")
@@ -70,6 +72,8 @@ public:
     double dryDepthCutoff() const { return m_dryDepthCutoff; }
     void setDryDepthCutoff(double value);
     bool animated() const { return m_animated; }
+    bool continuousParticles() const { return m_continuousParticles; }
+    void setContinuousParticles(bool value);
     void setAnimated(bool value);
     double speedMultiplier() const { return m_speedMultiplier; }
     void setSpeedMultiplier(double value);
@@ -104,6 +108,7 @@ private:
     double m_pathLengthPx = 350.0;
     double m_dryDepthCutoff = 0.001;
     bool m_animated = true;
+    bool m_continuousParticles = false; // opt-in until native/large-mesh visual gates
     double m_speedMultiplier = 2.0;
     int m_animationTimestepMs = 16;
     double m_minimumLifetimeSeconds = 8.0;

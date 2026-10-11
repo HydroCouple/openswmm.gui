@@ -75,6 +75,7 @@ class RuleList;   // Slice B.5b — see ruleList() override below.
 #include "render/sublayers/velocityvectorsublayer.h"
 #include "render/sublayers/flowstreaksublayer.h"
 #include "render/flowstreakcache.h"
+#include "render/flowparticlecontroller.h"
 
 // ---------------------------------------------------------------------------
 // IMesh2DSource — data-source abstraction shared by live + replay modes
@@ -1374,6 +1375,13 @@ private:
     OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
     OpenSWMM::Render::FlowStreakSublayer *m_flowStreakSublayer = nullptr;
     OpenSWMM::Render::FlowStreakCache *m_flowCache = nullptr;
+    OpenSWMM::Render::FlowParticleController *m_particles = nullptr;
+    std::shared_ptr<OpenSWMM::Render::FlowStreakMesh> m_particleMesh;
+    quint64 m_particleEpoch=~quint64(0),m_particleRevision=~quint64(0);
+    double m_particleCutoff=-1,m_particleScale=0;
+    int m_particleTime=-1;
+    QRectF m_particleView;
+    QString m_particleLimit;
     std::shared_ptr<OpenSWMM::Render::FlowStreakMesh> m_flowMesh;
     quint64 m_flowGeomRevision = ~quint64(0);
     QRectF m_flowCoverage;
@@ -1452,6 +1460,11 @@ public:
     [[nodiscard]] OpenSWMM::Render::VelocityVectorSublayer *
         velocityVectorSublayer() const { return m_velocityVectorSublayer; }
     OpenSWMM::Render::FlowStreakSublayer *flowStreakSublayer() const { return m_flowStreakSublayer; }
+    std::shared_ptr<const OpenSWMM::Render::FlowParticleNativeInput> captureFlowParticleInput(
+        const QRectF &view,double pixelsPerSceneUnit);
+    std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> flowParticles(
+        const QRectF &view,double pixelsPerSceneUnit,quint64 displayedRevision,bool presented=true);
+    double flowParticleInterpolation() const { return m_particles->interpolation(); }
     std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> flowStreaks(
         const QRectF &view, double pixelsPerSceneUnit, quint64 displayedRevision);
     std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> presentedFlowStreaks(
@@ -1462,7 +1475,8 @@ public:
     double flowStreakSeconds() const { return m_flowSeconds; }
     double flowStreakDisplaySeconds() const;
     int flowStreakBuildCount() const { return m_flowCache->builds(); }
-    bool flowStreakBusy() const { return m_flowCache->busy(); }
+    bool flowStreakBusy() const { return m_flowStreakSublayer->streakStyle()->continuousParticles()
+        ?m_particles->busy():m_flowCache->busy(); }
     QString flowStreakStatus() const;
     bool flowStreaksEnabled() const;
 Q_SIGNALS:

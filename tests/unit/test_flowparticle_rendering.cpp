@@ -41,6 +41,18 @@ private slots:
         QCOMPARE(node.geometry()->vertexCount(),0);
         frame=bend();node.sync(frame,1,0);QCOMPARE(node.geometry()->vertexCount(),0);
     }
+    void projectedCoordinatesAndStyleUpdatesRemainAccurate() {
+        FlowParticleNode node;auto frame=bend();FlowParticleAppearance appearance;
+        appearance.anchor={1e7,-2e7};appearance.color=QColor(20,40,80,128);
+        for(auto &s:frame->particles.front().history)s.position+=appearance.anchor;
+        node.sync(frame,1,1,4,4,4,0,0,appearance);
+        const auto *v=static_cast<const float*>(node.geometry()->vertexData());
+        QCOMPARE(v[0],20.f);QCOMPARE(v[1],60.f);
+        QVERIFY(std::abs(v[10]-20/255.f)<1e-6);QVERIFY(std::abs(v[13]-128/255.f)<1e-6);
+        const int uploads=node.uploads();appearance.opacity=.4;appearance.fade=false;appearance.taper=false;
+        node.sync(frame,.5,1,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads);
+        appearance.color=Qt::red;node.sync(frame,1,1,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads+1);
+    }
     void nativeJoinedBrightnessAndInterpolatedHead() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Run with a native window to verify joined ribbons");
         QQuickWindow window;window.setFlags(window.flags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);

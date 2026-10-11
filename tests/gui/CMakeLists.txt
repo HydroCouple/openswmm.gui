@@ -4167,4 +4167,6 @@ qt_add_shaders(test_flowstreaks "flowstreak_test_shaders"
         ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.vert
         ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.frag
         ${CMAKE_SOURCE_DIR}/resources/shaders/flowstreak.vert
-        ${CMAKE_SOURCE_DIR}/resources/shaders/flowstreak.frag)
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowstreak.frag
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.vert
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.frag)

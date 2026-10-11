@@ -935,6 +935,7 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         });
     };
     boolean("animated",tr("Animate flow at selected time"));
+    boolean("continuousParticles",tr("Continuous particles (preview)"));
     boolean("fade",tr("Fade streaks smoothly")); boolean("taper",tr("Taper trail tails"));
     boolean("colorByMagnitude",tr("Colour by velocity magnitude"));
     auto number = [&](const char *key,const QString &label,double lo,double hi,int decimals,const QString &suffix) {
@@ -959,19 +960,32 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
     trailLength->setToolTip(tr("Legacy pixel length estimated from each path's average speed. Local velocity changes can still change its visible length."));
     auto updateTrailMode=[st,trailMode,trailDuration,trailLength] {
         QSignalBlocker block(trailMode);trailMode->setCurrentIndex(st->velocityScaledTrail()?0:1);
-        trailDuration->setEnabled(st->velocityScaledTrail());trailLength->setEnabled(!st->velocityScaledTrail());
+        trailMode->setEnabled(!st->continuousParticles());
+        trailDuration->setEnabled(st->continuousParticles() || st->velocityScaledTrail());
+        trailLength->setEnabled(!st->continuousParticles() && !st->velocityScaledTrail());
+        trailDuration->setToolTip(st->continuousParticles()
+            ?tr("Recorded history in animation seconds. Movement speed changes the spatial length of the trail.")
+            :tr("Visible tail in seconds of flow travel; independent of animation speed."));
     };
     connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,trailMode,updateTrailMode);updateTrailMode();
     number("spacingPx",tr("Spacing:"),8,200,1,tr(" px"));
     number("pathLengthPx",tr("Base path length:"),16,512,1,tr(" px"));
     page->findChild<QDoubleSpinBox*>("pathLengthPx")->setToolTip(tr("Paths extend beyond this length when needed for particle lifetime, within the rendering budget."));
+    auto *basePath=page->findChild<QDoubleSpinBox*>("pathLengthPx");
+    auto updatePreview=[st,basePath,help] {
+        basePath->setEnabled(!st->continuousParticles());
+        help->setText(st->continuousParticles()
+            ?tr("Continuous particles retain their trajectories as saved or live results update. New velocities blend over a short transition. Regional data limits pause particles. This preview uses the current map presentation; large-mesh performance is still being validated.")
+            :tr("Live rendering uses cached paths and updates as results arrive. Animation can continue at the selected time; it illustrates flow, not particle travel time."));
+    };
+    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,help,updatePreview);updatePreview();
     number("speedMultiplier",tr("Visual speed multiplier:"),0,1000,1,QString());
     number("minimumLifetimeSeconds",tr("Minimum particle lifetime:"),.1,120,1,tr(" s"));
     number("maximumLifetimeSeconds",tr("Maximum particle lifetime:"),.1,120,1,tr(" s"));
     number("lifetimeFadeSeconds",tr("Birth/death fade duration:"),0,10,1,tr(" s"));
     for(const char *key:{"minimumLifetimeSeconds","maximumLifetimeSeconds"})
         page->findChild<QDoubleSpinBox*>(key)->setToolTip(tr("A new randomized lifetime is chosen for each birth, in animation seconds. Dry areas, barriers, view coverage and tracing limits may end a particle earlier. Changing motion speed does not change its scheduled lifetime."));
-    number("animationTimestepMs",tr("Particle timestep:"),8,1000,0,tr(" ms"));
+    number("animationTimestepMs",tr("Animation update interval:"),8,1000,0,tr(" ms"));
     auto *timestep=page->findChild<QDoubleSpinBox*>("animationTimestepMs");
     timestep->setSingleStep(1);
     timestep->setToolTip(tr("Requested interval between particle animation updates: try 16 ms for smoother motion or 33 ms for fewer updates. Motion speed and the hydraulic solver timestep are unchanged. The canvas uses the fastest visible layer setting; actual updates depend on rendering time."));

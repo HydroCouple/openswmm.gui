@@ -1,5 +1,6 @@
 // GPL-3.0-or-later
 #include "render/flowparticles.h"
+#include "render/flowparticlefields.h"
 #include <QTest>
 #include <QDir>
 #include <QFile>
@@ -148,6 +149,20 @@ private slots:
         system.setSettings(s);system.setField(field(2,2,{0,0}));system.spawn({.13,.42});system.advance(2);
         const auto &p=system.particles().front();QCOMPARE(p.position,QPointF(.13,.42));QCOMPARE(p.stop,FlowParticleStop::Lifetime);
     }
+    void multiCellExactVertexConflictCannotLoopAcrossWorkSlices() {
+        auto mesh=std::make_shared<FlowStreakMesh>();mesh->vertices={{0,0},{1,0},{-.5,.866},{-.5,-.866}};
+        mesh->triangles={{0,1,2},{0,2,3},{0,3,1}};mesh->grid.rebuild({{-.5,0,1.5,.866},{-.5,-.866,.5,1.732},{-.5,-.866,1.5,.866}});
+        std::atomic_bool cancel=false;mesh->prepare(cancel);
+        auto snapshot=std::make_shared<FlowParticleSnapshot>();snapshot->mesh=mesh;snapshot->geometry=1;
+        for(QPointF v:{QPointF(-1,0),QPointF(.5,-1),QPointF(.5,1)}) {
+            FlowParticleField f;f.velocity={v,v,v};snapshot->fields.push_back(f);
+        }
+        FlowParticleSystem system;system.setField(snapshot);QVERIFY(system.spawn({0,0}));
+        auto work=system.advance(1,1);int slices=0;
+        while(work.pending && ++slices<1000)work=system.advance(0,1);
+        QVERIFY(slices<1000);QCOMPARE(system.particles().front().stop,FlowParticleStop::VectorConflict);
+        QCOMPARE(system.particles().front().position,QPointF(0,0));
+    }
     void independentBirthLifetimesEvenWhenSeedAndIdIncreaseTogether() {
         FlowParticleSystem system;system.setField(field(2,2,{0,0}));
         std::array<int,4> bins{};
@@ -183,6 +198,124 @@ private slots:
         retired.setSettings(s);retired.setField(field(2,2,{0,0}));retired.spawn({.13,.42});retired.advance(1./60);
         QCOMPARE(retired.particles().front().stop,FlowParticleStop::Lifetime);
         work=retired.advance(10,3);QCOMPARE(work.ticks,3);QVERIFY(work.pending);
+    }
+    void temporalVelocityBlendPreservesIdentityAndMatchesIntegral() {
+        auto initial=field(20,2,{2,0});FlowParticleSystem system;system.setSettings(longLife());
+        system.setField(initial);const auto id=system.spawn({.13,.42});system.advance(.1);
+        const auto position=system.particles().front().position;const auto history=system.particles().front().history;
+        auto next=std::make_shared<FlowParticleSnapshot>(*initial);next->revision=2;
+        for(auto &f:next->fields)for(auto &v:f.velocity)v={4,0};
+        QVERIFY(system.setField(next,.5));system.advance(.5);
+        const auto &p=system.particles().front();QCOMPARE(p.id,id);
+        QVERIFY(std::abs(p.position.x()-position.x()-1.5)<1e-8);
+        for(size_t i=0;i<history.size();++i)QCOMPARE(p.history[i].position,history[i].position);
+        // A replacement during a transition starts at its current blend.
+        system.setField(initial,1);system.advance(.25);
+        const auto before=system.particles().front().position;
+        system.setField(next,1);system.advance(1./60);
+        const double moved=system.particles().front().position.x()-before.x();
+        QVERIFY(moved>3.49/60 && moved<3.52/60);
+    }
+    void batchBirthsPublishOneCoherentFrame() {
+        FlowParticleSystem system;system.setField(field(20,2));const auto before=system.frame();
+        for(int i=0;i<64;++i)QVERIFY(system.spawn({.13+.01*i,.42},i,false));
+        QCOMPARE(system.frame(),before);system.advance(0);
+        QCOMPARE(system.frame()->births,quint64(64));QCOMPARE(system.frame()->particles.size(),size_t(64));
+        QCOMPARE(system.frame()->clock,0.);
+    }
+    void temporalReversalIntegratesContinuouslyThroughStagnation() {
+        auto initial=field(20,2,{2,0});FlowParticleSystem system;system.setSettings(longLife());system.setField(initial);
+        const auto id=system.spawn({10.13,.42});const auto start=system.particles().front().position;
+        auto reverse=std::make_shared<FlowParticleSnapshot>(*initial);
+        for(auto &f:reverse->fields)for(auto &v:f.velocity)v={-2,0};
+        system.setField(reverse,.5);system.advance(.5);const auto &p=system.particles().front();
+        QCOMPARE(p.id,id);QCOMPARE(p.stop,FlowParticleStop::None);QVERIFY(std::abs(p.position.x()-start.x())<1e-8);
+        system.advance(.1);QVERIFY(std::abs(system.particles().front().position.x()-start.x()+.2)<1e-8);
+    }
+    void depthChangesDuringReversalDoNotInventClosedFaces() {
+        auto initial=field(1,1);auto next=std::make_shared<FlowParticleSnapshot>(*initial);
+        for(int i=0;i<2;++i) {
+            auto &a=initial->fields[size_t(i)],&b=next->fields[size_t(i)];
+            a.velocityDepth=i?.01:100.;b.velocityDepth=i?100.:.01;
+            for(int k=0;k<3;++k) {a.velocity[k]={2/a.velocityDepth,0};b.velocity[k]={-2/b.velocityDepth,0};}
+            const auto &tri=initial->mesh->triangles[size_t(i)];a.exits=b.exits=0;
+            for(int e=0;e<3;++e) {
+                const auto edge=initial->mesh->vertices[tri[(e+2)%3]]-initial->mesh->vertices[tri[(e+1)%3]];
+                a.outwardFlux[e]=2*edge.y();b.outwardFlux[e]=-a.outwardFlux[e];
+                if(a.outwardFlux[e]>0)a.exits|=1<<e;if(b.outwardFlux[e]>0)b.exits|=1<<e;
+            }
+        }
+        FlowParticleSystem system;system.setSettings(longLife());system.setField(initial);
+        const auto id=system.spawn({.499,.5});QVERIFY(id);system.setField(next,.5);system.advance(.1);
+        QCOMPARE(system.particles().front().id,id);QCOMPARE(system.particles().front().stop,FlowParticleStop::None);
+        QVERIFY(system.particles().front().crossings>=1);
+    }
+    void dryUpdateHidesObsoleteHistoryWithoutReplacingRecordedPath() {
+        auto initial=field(20,2,{2,0});FlowParticleSystem system;system.setSettings(longLife());
+        system.setField(initial);const auto id=system.spawn({.13,.42});system.advance(.2);
+        const auto history=system.particles().front().history;
+        auto dry=std::make_shared<FlowParticleSnapshot>(*initial);dry->revision=2;
+        for(auto &f:dry->fields) {f.depth={0,0,0};f.available=false;} // depth packet arrived before flux
+        system.setField(dry,1);QVERIFY(system.frame()->particles.front().history.empty());
+        QCOMPARE(system.particles().front().history.size(),history.size());
+        system.advance(1./60);QCOMPARE(system.particles().front().id,id);
+        QCOMPARE(system.particles().front().stop,FlowParticleStop::Dry);
+    }
+    void regionalReplacementAndMissingFacesWaitWithoutDeath() {
+        auto initial=field(20,2,{2,0});auto mesh=std::make_shared<FlowStreakMesh>(*initial->mesh);
+        for(int i=0;i<int(mesh->triangles.size());++i)mesh->sourceTriangles.push_back(i);
+        initial->mesh=mesh;FlowParticleSystem system;system.setSettings(longLife());system.setField(initial);
+        const auto id=system.spawn({.13,.42});system.advance(.1);
+        auto absent=std::make_shared<FlowParticleSnapshot>(*initial);
+        auto absentMesh=std::make_shared<FlowStreakMesh>(*mesh);
+        for(int &i:absentMesh->sourceTriangles)i+=1000;absent->mesh=absentMesh;
+        system.setField(absent);system.advance(.1);
+        // Same coordinates are still resident in this synthetic replacement;
+        // lookup recovers the cell even when IDs differ.
+        QCOMPARE(system.particles().front().id,id);QCOMPARE(system.frame()->deaths,quint64(0));
+        auto cropped=std::make_shared<FlowParticleSnapshot>(*initial);
+        auto croppedMesh=std::make_shared<FlowStreakMesh>(*mesh);
+        for(auto &n:croppedMesh->neighbors)n={-1,-1,-1};cropped->mesh=croppedMesh;
+        for(auto &f:cropped->fields)f.residentEdges=0;
+        system.setField(cropped);system.advance(1);QVERIFY(system.particles().front().waitingForData);
+        const auto position=system.particles().front().position;const auto age=system.particles().front().age;
+        system.advance(.1);QCOMPARE(system.particles().front().position,position);QCOMPARE(system.particles().front().age,age);
+        system.setField(initial);system.advance(.1);QCOMPARE(system.particles().front().id,id);
+        QVERIFY(system.particles().front().position.x()>position.x());QCOMPARE(system.frame()->deaths,quint64(0));
+    }
+    void nativeReconstructionPreservesFaceFluxAndCoordinateTransform() {
+        auto reference=field(2,2);auto mesh=std::make_shared<FlowStreakMesh>(*reference->mesh);
+        FlowParticleNativeInput in;in.mesh=mesh;in.geometry=1;in.triangles.resize(mesh->triangles.size());
+        for(size_t i=0;i<in.triangles.size();++i) {
+            auto &t=in.triangles[i];t.available=true;t.meanDepth=2;t.depth={2,2,2};
+            const auto &ids=mesh->triangles[i];
+            for(int k=0;k<3;++k)t.metres[k]=mesh->vertices[ids[k]];
+            for(int e=0;e<3;++e) {
+                const auto edge=t.metres[(e+2)%3]-t.metres[(e+1)%3];
+                t.flux[e]=2*(3*edge.y()-edge.x()); // discharge (6,2), CCW outward
+            }
+        }
+        // Projected feet, Y reversal, and a large origin: displacements alone
+        // must scale; SI colour magnitudes must stay in metres per second.
+        for(auto &p:mesh->vertices)p={1e7+p.x()/0.3048,-2e7-p.y()/0.3048};
+        std::atomic_bool cancelled=false;const auto result=buildFlowParticleField(in,cancelled);QVERIFY(result);
+        for(const auto &f:result->fields)for(int k=0;k<3;++k) {
+            QVERIFY(std::abs(f.velocity[k].x()-3/0.3048)<1e-7);
+            QVERIFY(std::abs(f.velocity[k].y()+1/0.3048)<1e-7);
+            QVERIFY(std::abs(f.speed[k]-std::sqrt(10))<1e-6);
+        }
+        // Divergent native flux has an affine RT0 field. Tangential smoothing
+        // must not change the integrated normal discharge at any edge point.
+        for(size_t i=0;i<in.triangles.size();++i)in.triangles[i].flux[0]+=.1;
+        for(auto &p:mesh->vertices)p={(p.x()-1e7)*0.3048,(-p.y()-2e7)*0.3048};
+        const auto divergent=buildFlowParticleField(in,cancelled);QVERIFY(divergent);
+        for(size_t i=0;i<in.triangles.size();++i)for(int e=0;e<3;++e)for(double fraction:{.1,.5,.9}) {
+            const auto &t=in.triangles[i];const auto &f=divergent->fields[i];
+            const auto edge=t.metres[(e+2)%3]-t.metres[(e+1)%3];
+            const auto v=f.velocity[(e+1)%3]*(1-fraction)+f.velocity[(e+2)%3]*fraction
+                +f.edgeCorrection[e]*(4*fraction*(1-fraction));
+            QVERIFY(std::abs(2*(v.x()*edge.y()-v.y()*edge.x())-t.flux[e])<1e-7);
+        }
     }
 };
 QTEST_GUILESS_MAIN(FlowParticlesTest)

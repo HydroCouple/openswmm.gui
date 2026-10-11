@@ -816,6 +816,7 @@ target_link_libraries(test_flowstreakpaths PRIVATE Qt6::Concurrent Qt6::Gui)
 
 add_swmmvis_unit_test(test_flowparticles
     test_flowparticles.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticlefields.cpp
     ${PROJECT_SOURCE_DIR}/src/render/flowparticles.cpp
     ${PROJECT_SOURCE_DIR}/src/render/flowstreakpaths.cpp
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp)
