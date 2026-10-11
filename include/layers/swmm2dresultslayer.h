@@ -163,6 +163,14 @@ public:
     /*! \brief Fetch per-triangle depth at \p timeIdx. Resizes \p depths to triangleCount(). */
     virtual bool readDepthsAt(int timeIdx, std::vector<float>& depths) = 0;
 
+    // Call on the source's owning thread. Native adapters gather both arrays
+    // atomically into an immutable compact snapshot. Legacy adapters can decline;
+    // the layer then retains its full-domain path.
+    virtual bool supportsHydraulicCells() const { return false; }
+    virtual std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+        readHydraulicCellsAt(int, const std::vector<int>&) { return {}; }
+
+
     /*! \brief One cell's depth at \p timeIdx. The default copies the whole
      *  frame through \ref readDepthsAt; a source holding frames in memory
      *  overrides it in O(1) so per-cell time series (comparison plots) do not
@@ -478,6 +486,10 @@ public:
                    std::vector<double>& vz,
                    std::vector<std::array<int, 4>>& cells) override;
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
+    bool supportsHydraulicCells() const override { return true; }
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+        readHydraulicCellsAt(int timeIdx, const std::vector<int>& cells) override;
+
     QDateTime simTimeAt(int timeIdx) const override;
 
     bool readEdgeFluxAt(int timeIdx, std::vector<float>& flux) override;
@@ -558,6 +570,8 @@ public:
 
     bool open(const QString& path);
     const QString& path() const noexcept { return path_; }
+    bool readDepthAt(int timeIdx, int cell, float& out) override;
+
     QString sourcePath() const override { return path_; }
 
     // IMesh2DSource
@@ -574,6 +588,10 @@ public:
                    std::vector<double>& vz,
                    std::vector<std::array<int, 4>>& cells) override;
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
+    bool supportsHydraulicCells() const override { return true; }
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+        readHydraulicCellsAt(int timeIdx, const std::vector<int>& cells) override;
+
     QDateTime simTimeAt(int timeIdx) const override;
 
     bool readEdgeFluxAt(int timeIdx, std::vector<float>& flux) override;
@@ -644,6 +662,15 @@ public:
     std::shared_ptr<const OpenSWMM::Render::ResultScalarGeometry> resultScalarGeometry(
         const std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> &frame,
         const std::vector<double> &levels,bool labels) const;
+    // Display-only regional fitting; analysis continues to use full-domain fields.
+    // Large/unsupported views retain the full-domain path. The padded coverage
+    // includes a 16-edge reconstruction halo and is reused across nearby pans.
+    void setHydraulicView(const QRectF& view, double scale);
+    size_t hydraulicRegionCellCount() const;
+    int regionalSurfaceFallbackCount() const { return regional_fallbacks_; }
+    double regionalSurfaceError() const { return regional_error_; }
+    bool regionalHydraulicsPublished() const { return bool(published_region_); }
+
     quint64 sourceRevision() const noexcept { return source_revision_; }
     IMesh2DSource* source() noexcept { return source_.get(); }
     const IMesh2DSource* source() const noexcept { return source_.get(); }
@@ -956,10 +983,12 @@ public:
     // shared with the layer; callers must discard this on geometry changes.
     struct VelocityField {
         std::vector<float> depths, vx, vy;
+        std::vector<int> cells, vertices; // empty for the legacy full-domain field
     };
     [[nodiscard]] VelocityField captureVelocityField() const;
     [[nodiscard]] bool velocityAtScene(const QPointF& scenePt,
         float& outVx, float& outVy, const VelocityField& field) const;
+    [[nodiscard]] QVector<double> currentDepthSamples(bool includeDry = false) const;
     // Fixed classifications use one temporal peak mean-depth sample per cell.
     [[nodiscard]] QVector<double> depthClassificationSamples(
         const OpenSWMM::Render::ClassificationScheme& scheme) const;
@@ -1168,12 +1197,37 @@ private:
     // Fitted-surface worker (async mode): one worker thread, one pending
     // request, one publish point on the GUI thread. The worker reads only the
     // per-geometry members above and its own copies of the frame inputs.
+    struct SurfaceJob;
+    struct SurfaceRegion {
+        static constexpr size_t maxCells = 50000;
+        QRectF coverage;
+        std::vector<int> cells, vertices, coreCells;
+        std::shared_ptr<const SurfaceRegion> checkRegion;
+        std::vector<VertexDepthReconstruct::CellSplit> splits;
+        CellWaterGeometry::SmoothTopology topology;
+    };
+    std::vector<std::array<int,4>> surfaceNeighbors_; // globally validated manifold neighbors
+    std::shared_ptr<const SurfaceRegion> surface_region_, published_region_;
+    quint64 surface_region_revision_ = 0;
+    QRectF hydraulic_view_;
+    int regional_fallbacks_ = 0;
+    double regional_error_ = 0;
+    void publishRegionalSurface_(const SurfaceJob& job);
+    void readSurfaceJob_(SurfaceJob& job);
+    std::shared_ptr<const SurfaceJob> analysisSurface_() const;
+    mutable std::shared_ptr<const SurfaceJob> analysis_surface_;
+
     struct SurfaceKey {
-        quint64 sourceRev = 0, geomRev = 0, policyRev = 0;
+        quint64 sourceRev = 0, geomRev = 0, policyRev = 0, regionRev = 0;
         int generation = 0, frame = -1, tickRev = 0;
         bool operator==(const SurfaceKey&) const = default;
     };
     struct SurfaceJob {
+        std::shared_ptr<const SurfaceRegion> region;
+        QString inputPath; // worker-owned HDF5 reader; live inputs are captured on the GUI thread
+        std::vector<CellWaterGeometry::CornerDepths> reference;
+        bool acceptable = true;
+        double regionalError = 0;
         SurfaceKey key;
         quint64 seq = 0, epoch = 0;   // request order; cancellation epoch
         bool forEnvelope = false, live = false;
@@ -1203,6 +1257,7 @@ private:
 
     std::vector<std::shared_ptr<const SurfaceJob>> surface_cache_;   // oldest first
     size_t surface_cache_bytes_ = 0, max_surface_cache_bytes_ = size_t(128) << 20;
+    std::shared_ptr<SurfaceJob> active_surface_;
     std::shared_ptr<SurfaceJob> pending_surface_;        // latest request not yet fitted
     std::shared_ptr<const SurfaceJob> envelope_newest_;  // newest frame; never frozen
     SurfaceKey published_key_, requested_key_;

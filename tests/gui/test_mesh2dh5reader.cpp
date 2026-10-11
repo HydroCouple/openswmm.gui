@@ -16,6 +16,9 @@
 #include <QtTest/QtTest>
 #include <QFileInfo>
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 
 #include <hdf5.h>
 
@@ -28,6 +31,15 @@
 using openswmmvis::io::Mesh2DH5Reader;
 
 namespace {
+
+// Test-only filter after decompression counts actual chunk decodes. It leaves
+// bytes untouched; generated diagnostic files are read by this registered test.
+size_t decodedChunks=0,decodedBytes=0;
+size_t countDecodedChunks(unsigned flags,size_t,const unsigned*,size_t bytes,size_t*,void**)
+{
+    if(flags&H5Z_FLAG_REVERSE) {++decodedChunks;decodedBytes+=bytes;}
+    return bytes;
+}
 
 // VS-vertex — fixture node heads (z + depth at the vertex), [n_time, n_vert].
 // t=0 dry (head == ground), t=1 shallow, t=2 peak. Vertex z = {10,10,11,11}.
@@ -998,6 +1010,120 @@ private slots:
 
         QVERIFY(r.readVertexSignedDepthsAt(2, d));
         QCOMPARE(d[3], float(kNodeSignedDepths[8 + 3]));
+    }
+
+    void regionalChunkReadBudget()
+    {
+        const bool large=qEnvironmentVariableIsSet("HYDRAULIC_IO_6M");
+        const int cells=large?6000000:65536;
+        const H5Z_class2_t filter={H5Z_CLASS_T_VERS,H5Z_filter_t(32024),1,1,
+            "regional test decode counter",nullptr,nullptr,countDecodedChunks};
+        QVERIFY(H5Zregister(&filter)>=0);
+        QDir().mkpath("tests/verification/flow_streaks");QJsonArray measurements;
+        for(int chunkCells:{1024,cells}) {
+            const QString path=QString("tests/verification/flow_streaks/hydraulics-%1-chunk-%2.h5").arg(cells).arg(chunkCells);
+            hid_t file=H5Fcreate(path.toUtf8().constData(),H5F_ACC_TRUNC,H5P_DEFAULT,H5P_DEFAULT);QVERIFY(file>=0);
+            hsize_t timeDim=1;hid_t space=H5Screate_simple(1,&timeDim,nullptr);
+            hid_t ds=H5Dcreate2(file,"time",H5T_NATIVE_DOUBLE,space,H5P_DEFAULT,H5P_DEFAULT,H5P_DEFAULT);
+            const double time=0;QVERIFY(H5Dwrite(ds,H5T_NATIVE_DOUBLE,H5S_ALL,H5S_ALL,H5P_DEFAULT,&time)>=0);H5Dclose(ds);H5Sclose(space);
+            hsize_t geometryDims[]={hsize_t(cells),3};space=H5Screate_simple(2,geometryDims,nullptr);
+            ds=H5Dcreate2(file,"Mesh2_face_nodes",H5T_NATIVE_INT,space,H5P_DEFAULT,H5P_DEFAULT,H5P_DEFAULT);H5Dclose(ds);H5Sclose(space);
+            for(bool edge:{false,true}) {
+                const int width=edge?3:1,rank=edge?3:2;
+                hsize_t dims[]={1,hsize_t(cells),3},chunks[]={1,hsize_t(chunkCells),3};
+                space=H5Screate_simple(rank,dims,nullptr);hid_t props=H5Pcreate(H5P_DATASET_CREATE);
+                QVERIFY(H5Pset_chunk(props,rank,chunks)>=0);
+                QVERIFY(H5Pset_filter(props,H5Z_filter_t(32024),H5Z_FLAG_MANDATORY,0,nullptr)>=0);
+                QVERIFY(H5Pset_deflate(props,1)>=0);
+                ds=H5Dcreate2(file,edge?"Mesh2_edge_flux":"Mesh2_face_depth",H5T_NATIVE_FLOAT,space,H5P_DEFAULT,props,H5P_DEFAULT);
+                std::vector<float> row(size_t(cells)*width);
+                for(size_t i=0;i<row.size();++i)row[i]=float(i%97)*.01f;
+                const hsize_t written=chunkCells==1024?hsize_t(cells-1024):hsize_t(cells);
+                const hsize_t offsets[]={0,0,0},counts[]={1,written,3},memoryCount=written*width;
+                QVERIFY(H5Sselect_hyperslab(space,H5S_SELECT_SET,offsets,nullptr,counts,nullptr)>=0);
+                const hid_t memory=H5Screate_simple(1,&memoryCount,nullptr);
+                QVERIFY(H5Dwrite(ds,H5T_NATIVE_FLOAT,memory,space,H5P_DEFAULT,row.data())>=0);
+                H5Sclose(memory);H5Dclose(ds);H5Pclose(props);H5Sclose(space);
+            }
+            H5Fclose(file);
+            for(bool scattered:{false,true}) {
+                std::vector<int> ids;
+                for(int i=0;i<16;++i)ids.push_back(scattered?i*(cells/16):2000+i);
+                decodedChunks=decodedBytes=0;Mesh2DH5Reader reader;QVERIFY(reader.open(path));
+                std::vector<float>d,f;openswmmvis::io::Mesh2DSubsetReadStats stats;QElapsedTimer timer;timer.start();
+                QVERIFY2(reader.readHydraulicCellsAt(0,ids,d,f,&stats),qPrintable(reader.lastError()));
+                const double ms=timer.nsecsElapsed()/1e6;
+                QCOMPARE(d.size(),ids.size());QCOMPARE(f.size(),4*ids.size());
+                for(size_t i=0;i<ids.size();++i) {
+                    QCOMPARE(d[i],float(ids[i]%97)*.01f);
+                    for(int e=0;e<3;++e)QCOMPARE(f[4*i+e],float((3*ids[i]+e)%97)*.01f);
+                    QCOMPARE(f[4*i+3],0.f);
+                }
+                QCOMPARE(decodedChunks,stats.touchedChunks);QCOMPARE(decodedBytes,stats.touchedChunkBytes);
+                QCOMPARE(decodedChunks,size_t(chunkCells==cells || !scattered?2:32));
+                measurements.append(QJsonObject{{"nativeCells",cells},{"chunkCells",chunkCells},{"scattered",scattered},
+                    {"selectedCells",int(ids.size())},{"readMs",ms},{"decodedChunks",double(decodedChunks)},
+                    {"decodedBytes",double(decodedBytes)},{"snapshotBytes",double((d.size()+f.size())*sizeof(float)+ids.size()*sizeof(int))}});
+            }
+            if(chunkCells==1024) {
+                Mesh2DH5Reader reader;QVERIFY(reader.open(path));std::vector<float>d,f;
+                QVERIFY(reader.readHydraulicCellsAt(0,{cells-1},d,f));QVERIFY(std::isnan(d[0]));
+                for(int e=0;e<3;++e)QVERIFY(std::isnan(f[size_t(e)]));QCOMPARE(f[3],0.f);
+            }
+        }
+        QFile report(QString("tests/verification/flow_streaks/hydraulic-io-%1.json").arg(cells));
+        QVERIFY(report.open(QIODevice::WriteOnly));report.write(QJsonDocument(measurements).toJson());
+        QVERIFY(H5Zunregister(H5Z_filter_t(32024))>=0);
+    }
+
+    void regionalDepthMetadata()
+    {
+        const QString path="tests/verification/flow_streaks/regional-metadata.h5";
+        QDir().mkpath(QFileInfo(path).absolutePath());QFile::remove(path);QVERIFY(QFile::copy(fixturePath_,path));
+        hid_t file=H5Fopen(path.toUtf8().constData(),H5F_ACC_RDWR,H5P_DEFAULT);
+        hid_t ds=H5Dopen2(file,"Mesh2_face_depth",H5P_DEFAULT),space=H5Screate(H5S_SCALAR);
+        for(const auto& entry:std::vector<std::pair<const char*,double>>{{"_FillValue",0},{"scale_factor",2},{"add_offset",1}}) {
+            hid_t attr=H5Acreate2(ds,entry.first,H5T_NATIVE_DOUBLE,space,H5P_DEFAULT,H5P_DEFAULT);
+            QVERIFY(H5Awrite(attr,H5T_NATIVE_DOUBLE,&entry.second)>=0);H5Aclose(attr);
+        }
+        H5Sclose(space);H5Dclose(ds);H5Fclose(file);
+        Mesh2DH5Reader reader;QVERIFY(reader.open(path));
+        for(int t=0;t<reader.timeCount();++t) {
+            std::vector<float> full,d,f;QVERIFY(reader.readDepthsAt(t,full));QVERIFY(reader.readHydraulicCellsAt(t,{0,1},d,f));
+            for(size_t i=0;i<d.size();++i) {
+                if(std::isnan(full[i])) QVERIFY(std::isnan(d[i]));else QCOMPARE(d[i],full[i]);
+            }
+        }
+        std::vector<float>d,f;std::vector<int> ids(openswmmvis::io::Mesh2DHydraulicFrame::maxCells+1,0);
+        QVERIFY(!reader.readHydraulicCellsAt(0,ids,d,f));
+    }
+
+    void regionalHydraulicsMatchFullRows()
+    {
+        for(const auto& path:{fixturePath_,fixtureMixedPath_}) {
+            Mesh2DH5Reader reader;QVERIFY(reader.open(path));
+            for(int t=0;t<reader.timeCount();++t) {
+                std::vector<float> depths,flux;
+                QVERIFY(reader.readDepthsAt(t,depths));
+                const bool hasFlux=reader.readEdgeFluxAt(t,flux);
+                for(int c=0;c<reader.cellCount();++c) {
+                    std::vector<float> d,f;openswmmvis::io::Mesh2DSubsetReadStats stats;
+                    QVERIFY2(reader.readHydraulicCellsAt(t,{c},d,f,&stats),qPrintable(reader.lastError()));
+                    QCOMPARE(d,std::vector<float>{depths[size_t(c)]});
+                    if(hasFlux) QCOMPARE(f,std::vector<float>(flux.begin()+4*c,flux.begin()+4*c+4));
+                    else QVERIFY(f.empty());
+                    float single=0;QVERIFY(reader.readDepthAt(t,c,single));QCOMPARE(single,d[0]);
+                    QVERIFY(stats.selectedValues<=5);
+                }
+            }
+            for(const std::vector<int>& ids:std::vector<std::vector<int>>{{-1},{reader.cellCount()},{0,0},{1,0}}) {
+                std::vector<float>d{42},f{42};QVERIFY(!reader.readHydraulicCellsAt(0,ids,d,f));
+                QVERIFY(d.empty());QVERIFY(f.empty());
+            }
+            std::vector<float>d{42},f{42};QVERIFY(reader.readHydraulicCellsAt(0,{},d,f));
+            QVERIFY(d.empty());QVERIFY(f.empty());
+            QVERIFY(!reader.readHydraulicCellsAt(reader.timeCount(),{0},d,f));
+        }
     }
 
     void vertexSignedDepthsAbsentReturnsFalse()

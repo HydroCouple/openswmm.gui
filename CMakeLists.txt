@@ -1283,6 +1283,7 @@ set(
         src/layers/swmm2dmeshlayer.cpp
         src/layers/swmm2dresultslayer.cpp
         src/layers/swmm2dflowstreaks.cpp
+        src/layers/swmm2dregionalsurface.cpp
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
         src/io/mesh2dlivevariables.cpp

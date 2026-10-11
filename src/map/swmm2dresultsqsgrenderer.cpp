@@ -334,6 +334,8 @@ struct SWMM2DResultsQSGRenderer::ContourFrame {
     std::shared_ptr<const std::vector<std::array<float, 3>>> scalars;
     // Only dynamic attributes are retained; geometry stays shared by revision.
     std::vector<std::array<float, 4>> cellValues; // depth, vx, vy, speed per display tri
+    std::vector<int> triangles; // sorted global IDs; all fields use compact local indices
+    QVector<double> depthSamples;
     SWMM2DResultsLayer::VelocityField velocity;
     double maxVelocity = 0;
     bool hasVelocity = false;
@@ -595,6 +597,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     const double requestedDpr=property("canvasDevicePixelRatio").toDouble();
     const double dpr=requestedDpr>0?requestedDpr:1.;
     const double logicalScale=double(sx_r)/dpr;
+    m_layer->setHydraulicView(viewRect,logicalScale);
     auto syncStreaks = [&]() {
         auto *sub=m_layer->flowStreakSublayer();
         const auto batch=m_layer->flowStreaks(viewRect,logicalScale,m_lastRenderedFrame);
@@ -955,7 +958,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         // Far it's one build per LOD epoch, not per pan frame.
         std::vector<int> visibleCells;
         if (rebuildFills || rebuildVel || rebuildMarkers) {
-            visibleCells.reserve(size_t(nTri));
             for (int cid : chunkQ.fullyInside)
                 for (int t : m_chunks.chunks()[cid].cellIds)
                     visibleCells.push_back(t);
@@ -975,6 +977,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             if (statsOn) stats.visibleCells = qint64(visibleCells.size());
         }
 
+        std::sort(visibleCells.begin(),visibleCells.end());
         ContourJobKey key;
         key.time = m_layer->currentTimeIndex();
         key.frameRev = m_layer->frameRevision();
@@ -999,33 +1002,42 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                              && (compatible || nTri >= kAsyncContourThreshold);
         if ((!m_contourFrame || !(m_contourFrame->key == key))
             && (!background || !m_contourBusy)) {
-            if (!m_contourPositions) {
-                auto positions = std::make_shared<std::vector<ContourJobInput::TriPos>>(nTri);
-                for (int i = 0; i < nTri; ++i) {
-                    const auto& t = tris[i];
+            if (!m_contourPositions || m_contourTriangles!=visibleCells) {
+                auto positions = std::make_shared<std::vector<ContourJobInput::TriPos>>(visibleCells.size());
+                for (size_t i = 0; i < visibleCells.size(); ++i) {
+                    const auto& t = tris[visibleCells[i]];
                     (*positions)[i] = {float(t.a.x()-ox), float(t.a.y()-oy),
                         float(t.b.x()-ox), float(t.b.y()-oy),
                         float(t.c.x()-ox), float(t.c.y()-oy)};
                 }
                 m_contourPositions = std::move(positions);
+                m_contourTriangles = visibleCells;
             }
             auto frame = std::make_shared<ContourFrame>();
             frame->key = key;
-            auto scalars = std::make_shared<std::vector<std::array<float,3>>>(nTri);
-            frame->cellValues.resize(nTri);
-            for (int i = 0; i < nTri; ++i) {
-                const auto& t = tris[i];
+            frame->triangles=visibleCells;
+            auto scalars = std::make_shared<std::vector<std::array<float,3>>>(visibleCells.size());
+            frame->cellValues.resize(visibleCells.size());
+            for (size_t i = 0; i < visibleCells.size(); ++i) {
+                const auto& t = tris[visibleCells[i]];
                 (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
                 frame->cellValues[i] = {t.depth, t.vx, t.vy, t.vmag};
             }
             frame->scalars = scalars;
+            const OpenSWMM::Render::ScalarFillStyle* fillStyles[]={
+                cellSub && cellSub->isVisible()?cellSub->fillStyle():nullptr,
+                smoothSub && smoothSub->isVisible()?smoothSub->fillStyle():nullptr};
+            for(const auto* style:fillStyles)
+                if(style && style->classified()
+                    && style->scheme().rangeMode()==OpenSWMM::Render::RangeMode::PerFrameAutoStretch) {
+                    frame->depthSamples=m_layer->currentDepthSamples(true);
+                    break;
+                }
             if (key.velocity) frame->velocity = m_layer->captureVelocityField();
             frame->maxVelocity = m_layer->maxVelocity();
             frame->hasVelocity = m_layer->hasVelocityData();
             ContourJobInput input;
             input.positions = m_contourPositions;
-            input.triangleIndices = std::make_shared<const std::vector<size_t>>(
-                visibleCells.begin(), visibleCells.end());
             input.scalars = std::move(scalars);
             input.bandLevels = smoothBands ? key.bandLevels : std::vector<double>{};
             input.isoLevels = key.isoLevels;
@@ -1076,8 +1088,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         maxDepth = frame.key.maxDepth;
         auto frameTri = [&](int i) {
             auto t = tris[i];
-            const auto& d = (*frame.scalars)[i];
-            const auto& c = frame.cellValues[i];
+            const auto at=std::lower_bound(frame.triangles.begin(),frame.triangles.end(),i);
+            if(at==frame.triangles.end() || *at!=i) {
+                t.depth=t.dv0=t.dv1=t.dv2=std::numeric_limits<float>::quiet_NaN();
+                t.vx=t.vy=t.vmag=0;return t;
+            }
+            const size_t local=size_t(at-frame.triangles.begin());
+            const auto& d = (*frame.scalars)[local];
+            const auto& c = frame.cellValues[local];
             t.dv0=d[0]; t.dv1=d[1]; t.dv2=d[2];
             t.depth=c[0]; t.vx=c[1]; t.vy=c[2]; t.vmag=c[3];
             return t;
@@ -1216,15 +1234,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             std::vector<double> levels;
             int bandCount = 1;
             if (classified) {
-                auto samples = m_layer->depthClassificationSamples(style->scheme());
-                if (style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::PerFrameAutoStretch) {
-                    samples.clear();
-                    for (int i = 0; i < nTri; ++i) {
-                        if (i > 0 && cellOfTri(i) == cellOfTri(i-1)) continue;
-                        const auto d = frame.cellValues[i][0];
-                        if (std::isfinite(d) && d >= dryDepth) samples.push_back(d);
-                    }
-                }
+                const auto samples=style->scheme().rangeMode()==OpenSWMM::Render::RangeMode::PerFrameAutoStretch
+                    ? frame.depthSamples : m_layer->depthClassificationSamples(style->scheme());
                 const QVector<double> edges =
                     style->scheme().levelEdges(vMin, vMax, samples);
                 levels.assign(edges.cbegin(), edges.cend());
