@@ -24,6 +24,7 @@ public:
         setFlag(RequiresFullMatrix,true);
     }
     float phase=0,opacity=1,fade=1,taper=1;
+    float width=1.5,headWidth=1.5;
     QSGMaterialType *type() const override {static QSGMaterialType t;return &t;}
     int compare(const QSGMaterial *other) const override {
         if(this==other)return 0;return std::less<const QSGMaterial*>{}(this,other)?-1:1;
@@ -39,7 +40,8 @@ public:
     bool updateUniformData(RenderState &state,QSGMaterial *m,QSGMaterial *) override {
         auto *material=static_cast<Material*>(m);auto *buf=state.uniformData();
         if(state.isMatrixDirty())std::memcpy(buf->data(),state.combinedMatrix().constData(),64);
-        const float values[]={state.opacity()*material->opacity,material->phase,material->fade,material->taper};
+        const float values[]={state.opacity()*material->opacity,material->phase,material->fade,material->taper,
+                              material->width,material->headWidth};
         std::memcpy(buf->data()+64,values,sizeof(values));return true;
     }
 };
@@ -54,9 +56,11 @@ void FlowStreakNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowStreakBatc
 {
     auto *mat=static_cast<Material*>(material());
     mat->phase=float(phase);mat->opacity=float(opacity);mat->fade=style.fade();mat->taper=style.taper();
+    mat->width=float(style.widthPx());mat->headWidth=float(style.headWidthPx());
     markDirty(DirtyMaterial);
     auto json=style.toJson();json.remove("animated");json.remove("speedMultiplier");
     json.remove("fade");json.remove("taper");
+    json.remove("widthPx");json.remove("headWidthPx");
     if(batch==m_batch && json==m_style && anchor==m_anchor && scale==m_scale) return;
     m_batch=batch;m_style=json;m_anchor=anchor;m_scale=scale;
     int count=0;if(batch) for(const auto &p:batch->paths)count+=int(p.points.size()-1)*6;
@@ -67,7 +71,7 @@ void FlowStreakNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowStreakBatc
         for(size_t i=1;i<path.points.size();++i) {
             const auto &a=path.points[i-1],&b=path.points[i];const QPointF d=b.position-a.position;
             const double len=std::hypot(d.x(),d.y());
-            const QPointF n=len>0?QPointF(-d.y(),d.x())*(0.5*style.widthPx()/(scale*len)):QPointF();
+            const QPointF n=len>0?QPointF(-d.y(),d.x())*(0.5/(scale*len)):QPointF();
             auto make=[&](const auto &p,double side) {
                 const QColor c=style.colorForSpeed(p.speed);const auto q=p.position-anchor;
                 return Vertex{float(q.x()),float(q.y()),float(n.x()*side),float(n.y()*side),

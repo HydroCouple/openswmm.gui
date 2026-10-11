@@ -17,6 +17,18 @@ void FlowStreakStyle::setWidthPx(double value) {
     if(!std::isfinite(value)) return; value=std::clamp(value,double(0.1),double(12));
     if(m_widthPx==value) return; m_widthPx=value; setDirty();
 }
+void FlowStreakStyle::setHeadWidthPx(double value) {
+    if(!std::isfinite(value)) return; value=std::clamp(value,double(0.1),double(12));
+    if(m_headWidthPx==value) return; m_headWidthPx=value; setDirty();
+}
+double FlowStreakStyle::widthAtFraction(double tailToHead) const {
+    // Match flowstreak.vert: blend the independent head width over the leading
+    // quarter, retaining the original taper everywhere when both widths match.
+    const double a=std::clamp(tailToHead,0.,1.);
+    const double h=std::clamp((a-.75)*4,0.,1.);
+    return m_widthPx*(m_taper?std::max(.15,a):1.)
+        +(m_headWidthPx-m_widthPx)*h*h*(3-2*h);
+}
 void FlowStreakStyle::setTrailLengthPx(double value) {
     if(!std::isfinite(value)) return; value=std::clamp(value,double(1),double(200));
     if(m_trailLengthPx==value) return; m_trailLengthPx=value; setDirty();
@@ -63,6 +75,7 @@ QJsonObject FlowStreakStyle::toJson() const {
     QJsonObject j{{"schemaVersion",1},{"classification",m_scheme.toJson()}};
     j["color"]=m_color.name(QColor::HexArgb);
     j["widthPx"]=m_widthPx;
+    j["headWidthPx"]=m_headWidthPx;
     j["trailLengthPx"]=m_trailLengthPx;
     j["fade"]=m_fade;
     j["taper"]=m_taper;
@@ -78,6 +91,8 @@ void FlowStreakStyle::fromJson(const QJsonObject &j) {
     { const QSignalBlocker blocker(this);
       if(j.contains("color")) setColor(QColor(j["color"].toString()));
       if(j.contains("widthPx")) setWidthPx(j["widthPx"].toDouble(m_widthPx));
+      if(j.contains("headWidthPx")) setHeadWidthPx(j["headWidthPx"].toDouble(m_headWidthPx));
+      else if(j.contains("widthPx")) setHeadWidthPx(m_widthPx); // legacy styles used one width
       if(j.contains("trailLengthPx")) setTrailLengthPx(j["trailLengthPx"].toDouble(m_trailLengthPx));
       if(j.contains("fade")) setFade(j["fade"].toBool(m_fade));
       if(j.contains("taper")) setTaper(j["taper"].toBool(m_taper));
