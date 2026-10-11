@@ -59,7 +59,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     setObjectName(QStringLiteral("toolBarMeshEditing"));
     setMovable(true);
     // Default style for action-based buttons; Edit Vertex / Edit Edge are
-    // forced icon-only by leaving their QAction text empty (only tooltip).
+    // forced icon-only while retaining their action labels for menus.
     setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
     // Iteration 3 — the controls live inside captioned ribbon groups on
@@ -114,10 +114,9 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_barMesh->addWidget(m_hoverLabel);
 
     // ── Vertex group: [icon-only toggle] [info label] [Z spin] ─────────
-    // Icon-only: pass empty QString for the action text so the toolbar
-    // shows just the SVG glyph. Tooltip carries the description.
+    // The shared action has menu text; only its toolbar button is icon-only.
     m_actEditVertex = new QAction(
-        QIcon(QStringLiteral(":/swmmvis/SelectTriNode")), QString(), this);
+        QIcon(QStringLiteral(":/swmmvis/SelectTriNode")), tr("Select Vertex"), this);
     // Step G — objectName ties this action into SWMMVisProjectWindow::
     // toolActionKeys() so the canvas active-tool sync visually unchecks
     // it when the user picks the general-purpose Select / 2D-cells /
@@ -128,6 +127,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "Select Vertex — click a mesh vertex to select it, then edit\n"
         "its elevation in the Z spinbox to the right. Esc clears."));
     m_barVertices->addAction(m_actEditVertex);
+    qobject_cast<QToolButton *>(m_barVertices->widgetForAction(m_actEditVertex))->setToolButtonStyle(Qt::ToolButtonIconOnly);
 
     m_vertexInfoLbl = new QLabel(tr("Vertex: (none)"), this);
     m_vertexInfoLbl->setMinimumWidth(160);
@@ -262,7 +262,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
 
     // ── Edge group: [icon-only toggle] [info label] [BC combo] [param] [browse] ──
     m_actEditEdge = new QAction(
-        QIcon(QStringLiteral(":/swmmvis/SelectTriEdge")), QString(), this);
+        QIcon(QStringLiteral(":/swmmvis/SelectTriEdge")), tr("Select Edge"), this);
     // Step G — paired with actionMeshSelectVertex / actionPick2DCells /
     // ui->actionSelect via SWMMVisProjectWindow::toolActionKeys() so the
     // active-tool sync keeps the four-way radio in step.
@@ -273,6 +273,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "multiple, then assign a boundary condition. Ctrl/⌘-click two\n"
         "boundary edges to add the whole run between them. Esc clears."));
     m_barEdges->addAction(m_actEditEdge);
+    qobject_cast<QToolButton *>(m_barEdges->widgetForAction(m_actEditEdge))->setToolButtonStyle(Qt::ToolButtonIconOnly);
 
     m_editGroup = new QActionGroup(this);
     m_editGroup->setExclusive(true);

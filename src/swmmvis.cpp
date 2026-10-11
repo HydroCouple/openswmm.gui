@@ -199,6 +199,7 @@
 #include "selection/selectionops.h"
 
 #include <QApplication>   // focusWidget() — Ctrl+C dispatch in onCopyActiveView
+#include <QFocusEvent>
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
@@ -4642,8 +4643,18 @@ void SWMMVis::initializeMenus()
         connect(ui->actionStyleManager, &QAction::triggered, this, [this]() {
             OpenSWMMVisLayer *target =
                 mLayerTreePanel ? mLayerTreePanel->selectedLayer() : nullptr;
-            openswmmvis::ui::StyleManagerDialog dlg(target, this);
-            dlg.exec();
+            auto *dlg = findChild<openswmmvis::ui::StyleManagerDialog *>(QStringLiteral("StyleManagerDialog"));
+            if (!dlg) {
+                dlg = new openswmmvis::ui::StyleManagerDialog(target, this);
+                dlg->setAttribute(Qt::WA_DeleteOnClose);
+                if (mLayerTreePanel)
+                    connect(mLayerTreePanel, &LayerTreePanel::layerSelected,
+                            dlg, &openswmmvis::ui::StyleManagerDialog::setLayer);
+            }
+            dlg->setLayer(target);
+            dlg->show();
+            dlg->raise();
+            dlg->activateWindow();
         });
     }
 
@@ -5208,6 +5219,26 @@ void SWMMVis::closeEvent(QCloseEvent *event)
 
 bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
 {
+    if (event->type() == QEvent::FocusIn || event->type() == QEvent::MouseButtonPress) {
+        auto *widget = qobject_cast<QWidget *>(watched);
+        bool owned = false, chrome = false, floatingDock = false;
+        for (QWidget *ancestor = widget; ancestor; ancestor = ancestor->parentWidget()) {
+            if (ancestor == this) { owned = true; break; }
+            chrome |= qobject_cast<QMenu *>(ancestor) || qobject_cast<QMenuBar *>(ancestor)
+                || qobject_cast<QToolBar *>(ancestor);
+            if (auto *dock = qobject_cast<QDockWidget *>(ancestor)) floatingDock |= dock->isFloating();
+        }
+        const auto reason = event->type() == QEvent::FocusIn
+            ? static_cast<QFocusEvent *>(event)->reason() : Qt::MouseFocusReason;
+        // Activating the main menu can restore its previous map focus before
+        // the menu opens. Keep the floating table as the Copy target through
+        // that automatic activation; entering a floating dock or clicking
+        // content selects a new target, even if that widget already has focus.
+        if (widget && owned && !chrome
+            && (reason != Qt::ActiveWindowFocusReason || floatingDock || !m_copyFocusWidget)
+            && reason != Qt::PopupFocusReason && reason != Qt::MenuBarFocusReason)
+            m_copyFocusWidget = widget;
+    }
     // Welcome tab close: accept the close, let Qt hide the sub-window
     // (WA_DeleteOnClose is false so nothing is destroyed). QMdiArea's
     // TabbedView hides the corresponding tab when the sub becomes
@@ -5767,7 +5798,9 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
                 // first surviving project window, or null = "all closed".
                 if (window != mActiveProjectWindow) return;
                 SWMMVisProjectWindow *other = nullptr;
-                for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
+                auto windows = ui->mdiAreaCentral->subWindowList(QMdiArea::ActivationHistoryOrder);
+                std::reverse(windows.begin(), windows.end());
+                for (QMdiSubWindow *sw : windows) {
                     auto *cand = qobject_cast<SWMMVisProjectWindow *>(sw);
                     if (cand && cand != window && !cand->isClosing()) {
                         other = cand;
@@ -5775,6 +5808,13 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
                     }
                 }
                 onActiveSubWindowChanged(other);
+                QPointer<SWMMVisProjectWindow> survivor(other);
+                QTimer::singleShot(0, this, [this, survivor] {
+                    if (survivor && !survivor->isClosing()) {
+                        survivor->showMaximized();
+                        ui->mdiAreaCentral->setActiveSubWindow(survivor);
+                    }
+                });
             });
 
     // Same treatment when the user removes the output layer itself — the
@@ -8825,7 +8865,9 @@ void SWMMVis::onCopyActiveView()
     // register its own Ctrl+C — a second registration alongside this
     // window-context action makes Qt's shortcut map alternate between the two
     // handlers (ambiguous activation).
-    for (QWidget *w = QApplication::focusWidget(); w; w = w->parentWidget())
+    QWidget *copyFocus = m_copyFocusWidget && m_copyFocusWidget->isVisible()
+        ? m_copyFocusWidget.data() : QApplication::focusWidget();
+    for (QWidget *w = copyFocus; w; w = w->parentWidget())
     {
         if (auto *panel = qobject_cast<AttributeTablePanel *>(w))
         {
@@ -8840,7 +8882,7 @@ void SWMMVis::onCopyActiveView()
     if (auto *logCopy = findChild<QAction *>(QStringLiteral("actionCopyLogRows")))
     {
         auto *logView = qobject_cast<QWidget *>(logCopy->parent());
-        for (QWidget *w = QApplication::focusWidget(); logView && w; w = w->parentWidget())
+        for (QWidget *w = copyFocus; logView && w; w = w->parentWidget())
         {
             if (w == logView)
             {
@@ -10306,7 +10348,8 @@ void SWMMVis::onCRSButtonClicked()
     if (picker.exec() != QDialog::Accepted)
         return;
 
-    SpatialReferenceSystem *newSRS = picker.selectedSRS();
+    std::unique_ptr<SpatialReferenceSystem> selectedSRS(picker.selectedSRS());
+    SpatialReferenceSystem *newSRS = selectedSRS.get();
     if (!newSRS)
         return;
 
@@ -10318,25 +10361,46 @@ void SWMMVis::onCRSButtonClicked()
 
     if (!hasModel)
     {
-        c->setCanvasSRS(newSRS, true);
+        c->setCanvasSRS(selectedSRS.release(), true);
+        return;
+    }
+
+    const auto assignCRS = [&] {
+        const QString authority = newSRS->toAuthority();
+        const QByteArray crs = (authority.isEmpty() || authority == QStringLiteral("Local"))
+            ? newSRS->toWkt().toUtf8() : authority.toUtf8();
+        if (swmm_spatial_set_crs(layer->engine(), crs.constData()) != SWMM_OK) {
+            QMessageBox::warning(this, tr("Assign CRS"), tr("The model rejected the selected CRS."));
+            return;
+        }
+        layer->setSRS(new SpatialReferenceSystem(*newSRS, layer), true);
+        c->setCanvasSRS(new SpatialReferenceSystem(*newSRS, c), true);
+        layer->reloadGeometry();
+        c->invalidate(MapCanvas::Raster | MapCanvas::Scene, QStringLiteral("crs-assign"));
+        c->zoomToFullExtent(false);
+        pw->setHasChanges(true);
+    };
+    if (layer->cachedNodeCount() == 0 && layer->cachedLinkCount() == 0
+        && layer->cachedSubcatchCount() == 0 && layer->cachedGageCount() == 0) {
+        assignCRS();
         return;
     }
 
     // Same CRS as current → no-op.
-    if (currentSRS && newSRS->toAuthority() == currentSRS->toAuthority()
+    if (currentSRS && layer->srs()
+        && layer->srs()->toAuthority() == newSRS->toAuthority()
+        && newSRS->toAuthority() == currentSRS->toAuthority()
         && !currentSRS->toAuthority().isEmpty()
         && currentSRS->toAuthority() != QStringLiteral("Local"))
     {
         // Still rebind in case the user picked the same authority deliberately.
-        c->setCanvasSRS(newSRS, true);
+        c->setCanvasSRS(selectedSRS.release(), true);
         return;
     }
 
-    // Prompt: Reproject vs Re-render vs Cancel.
+    // Assignment is also available when the CRS metadata needs correction.
     SpatialReferenceSystem *modelSRS = layer->srs();
-    const bool sourceIsLocal = !modelSRS
-        || modelSRS->toAuthority() == QStringLiteral("Local")
-        || modelSRS->toAuthority().isEmpty();
+    const bool sourceIsLocal = !modelSRS || modelSRS->isLocal();
 
     CRSChangeDialog dlg(modelSRS ? modelSRS->toAuthority() : QStringLiteral("(none)"),
                         newSRS->toAuthority(), sourceIsLocal, this);
@@ -10347,11 +10411,16 @@ void SWMMVis::onCRSButtonClicked()
     {
         case CRSChangeDialog::RenderOnly:
             // No mutation — canvas does on-the-fly reprojection.
-            c->setCanvasSRS(newSRS, true);
+            c->setCanvasSRS(selectedSRS.release(), true);
+            break;
+
+        case CRSChangeDialog::Assign:
+            assignCRS();
             break;
 
         case CRSChangeDialog::Reproject:
         {
+            if (!modelSRS || sourceIsLocal) return;
             CRSReproject::Stats stats;
             QString err;
             const bool ok = CRSReproject::reprojectModel(
@@ -10398,6 +10467,10 @@ void SWMMVis::onCRSButtonClicked()
 
 void SWMMVis::onAddBasemapLayer()
 {
+    if (!activeCanvas()) {
+        QMessageBox::information(this, tr("Add layer"), tr("Open a project first to add layers."));
+        return;
+    }
     AddBasemapDialog dlg(this);
     dlg.setInitialTab(AddBasemapDialog::LocalFile); // this button is its only entry
                           // point; the service tabs have their own actions.
@@ -10413,6 +10486,10 @@ void SWMMVis::onAddBasemapLayer()
 
 void SWMMVis::onAddWMSLayer()
 {
+    if (!activeCanvas()) {
+        QMessageBox::information(this, tr("Add layer"), tr("Open a project first to add layers."));
+        return;
+    }
     AddBasemapDialog dlg(this);
     dlg.setInitialTab(AddBasemapDialog::WmsWmts);
     if (dlg.exec() != QDialog::Accepted) return;
@@ -10427,6 +10504,10 @@ void SWMMVis::onAddWMSLayer()
 
 void SWMMVis::onAddWFSLayer()
 {
+    if (!activeCanvas()) {
+        QMessageBox::information(this, tr("Add layer"), tr("Open a project first to add layers."));
+        return;
+    }
     AddBasemapDialog dlg(this);
     dlg.setInitialTab(AddBasemapDialog::Wfs);
 

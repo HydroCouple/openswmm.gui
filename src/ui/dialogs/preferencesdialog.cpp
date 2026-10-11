@@ -5,6 +5,8 @@
  */
 
 #include "ui/dialogs/preferencesdialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
+#include "ui/dialogs/dialoglayoutwatcher.h"
 
 #include "plot/numberformat.h"
 
@@ -41,6 +43,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QFileDialog>
 #include <QListWidget>
 #include <QPushButton>
 #include <QRadioButton>
@@ -152,6 +155,22 @@ QWidget *PreferencesDialog::buildGeneralPage()
         "status-bar Auto-Length switch."));
     f->addRow(m_autoLengthBox);
 
+    auto *directoryRow = new QWidget(page);
+    auto *directoryLayout = new QHBoxLayout(directoryRow);
+    directoryLayout->setContentsMargins(0, 0, 0, 0);
+    m_projectOpenDirectoryEdit = new QLineEdit(directoryRow);
+    m_projectOpenDirectoryEdit->setObjectName(QStringLiteral("projectOpenDirectory"));
+    m_projectOpenDirectoryEdit->setPlaceholderText(tr("Use the last project folder"));
+    auto *browse = new QPushButton(tr("Browse…"), directoryRow);
+    directoryLayout->addWidget(m_projectOpenDirectoryEdit, 1);
+    directoryLayout->addWidget(browse);
+    connect(browse, &QPushButton::clicked, this, [this] {
+        const QString directory = QFileDialog::getExistingDirectory(this, tr("Project Open folder"),
+            m_projectOpenDirectoryEdit->text());
+        if (!directory.isEmpty()) m_projectOpenDirectoryEdit->setText(directory);
+    });
+    f->addRow(tr("Project &Open folder"), directoryRow);
+
     m_defaultEngineCombo = new QComboBox(page);
     m_defaultEngineCombo->addItem(
         tr("SWMMVis %1 (refactored)").arg(QLatin1String(SWMM_VERSION_FULL)),
@@ -243,6 +262,12 @@ QWidget *PreferencesDialog::buildGeneralPage()
     m_profileEndWidthSpin->setSuffix(tr(" px"));
     f->addRow(tr("Profile end halo &width"), m_profileEndWidthSpin);
 
+    for (auto *control : page->findChildren<QWidget *>()) {
+        const QString tip = control->toolTip();
+        if (tip.size() > 120 && !tip.startsWith(QLatin1Char('<')))
+            control->setToolTip(QStringLiteral("<qt><table width=\"360\"><tr><td>%1</td></tr></table></qt>")
+                                    .arg(tip.toHtmlEscaped()));
+    }
     return page;
 }
 
@@ -1537,6 +1562,10 @@ void PreferencesDialog::openAtCategory(const QString &label)
 {
     if (!m_categoryList)
         return;
+    if (!property(openswmmvis::ui::kLayoutRestoredOnceProp).toBool()) {
+        openswmmvis::ui::restoreDialogLayout(this);
+        setProperty(openswmmvis::ui::kLayoutRestoredOnceProp, true);
+    }
     for (int row = 0; row < m_categoryList->count(); ++row) {
         if (m_categoryList->item(row)->text() == label) {
             m_categoryList->setCurrentRow(row);
@@ -1548,6 +1577,7 @@ void PreferencesDialog::openAtCategory(const QString &label)
 void PreferencesDialog::readFromManager()
 {
     auto *p = PreferencesManager::instance();
+    m_projectOpenDirectoryEdit->setText(p->projectOpenDirectory());
 
     {
         using openswmmvis::ui::ThemeManager;
@@ -1822,6 +1852,7 @@ void PreferencesDialog::writeToManager()
 
     LicenseAgreementDialog::setShowOnStartup(m_showLicenseOnStartupBox->isChecked());
     p->setAutoLengthEnabled(m_autoLengthBox->isChecked());
+    p->setProjectOpenDirectory(m_projectOpenDirectoryEdit->text());
     p->setDefaultEngineMode(m_defaultEngineCombo->currentData().toString());
     p->setProfileMaxPaths(m_profileMaxPathsSpin->value());
 
@@ -2033,6 +2064,7 @@ void PreferencesDialog::onAccept()
 
 void PreferencesDialog::onResetToDefaults()
 {
+    m_projectOpenDirectoryEdit->clear();
     // Defaults mirror the `k…` constants in preferencesmanager.cpp — not
     // shared via a header because the dialog also wants to show them as
     // live values after a reset-click. Keep in sync if you change the

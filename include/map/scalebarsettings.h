@@ -84,6 +84,7 @@ public:
      *        to the label.
      */
     [[nodiscard]] double roundedMetres(double metres) const;
+    [[nodiscard]] double niceMetres(double maximumMetres, bool rawUnits = false) const;
 
 signals:
     void changed();

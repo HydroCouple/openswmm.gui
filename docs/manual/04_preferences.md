@@ -71,6 +71,7 @@ on the next keypress.
 |---|---|
 | **Show license agreement on startup** | Re-arms the startup License Agreement dialog. *(The tooltip on this control says "MIT license"; the dialog it controls actually presents the GNU GPL v3 notice.)* |
 | **Auto-length conduits on edit** | Default for the status-bar **Auto-Length** switch: conduit lengths recompute from geometry whenever their endpoints move |
+| **Project Open folder** | Preferred directory for File → Open. An existing configured folder takes precedence over the remembered model folder; clear it to use the last model/project directory. Other import dialogs retain their own directories |
 | **Default engine mode** | Which engine a newly opened project starts on — *OpenSWMM 6.0.0-alpha.4 (refactored)* or *SWMM 5.3.0 (legacy)*. The status-bar picker still overrides per project |
 | **Max profile candidate paths** | How many candidate paths the profile tool enumerates between two picked nodes before truncating. Results are sorted shortest first; raising this exposes longer detours through loops. Enumeration is worst-case exponential — very high values can briefly freeze the UI on heavily meshed networks |
 | **Profile endpoint halo radius** | Screen-pixel radius of the start/end halo drawn while picking a profile. Constant regardless of zoom |
@@ -187,8 +188,13 @@ OpenSWMM 6.
 The property values given to each object the moment you draw it. Two complete
 sets are edited in one session — **US customary (CFS, ft, ac)** and **SI metric
 (CMS, m, ha)** — chosen with the **Unit system:** combo at the top. Applying
-writes **both** sets; a project picks the set that matches its own unit system, and
-US is used when no project is open.
+writes **both** sets; newly drawn objects use the set that matches the project's
+unit system.
+
+The **Unit system** selector remembers the last set you edited. US and SI
+defaults remain independent. This selector does not change current-project
+flow units; use the status bar for that, or **Simulation Defaults → Flow units**
+to choose the units for future projects.
 
 The page is a four-tab form:
 

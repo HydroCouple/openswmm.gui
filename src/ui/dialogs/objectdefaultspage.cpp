@@ -407,11 +407,11 @@ void ObjectDefaultsPage::loadFrom(PreferencesManager *p)
 
     const bool projectSi =
         UnitSystem::instance() && UnitSystem::instance()->isSI();
-    m_showingSi = projectSi;
+    m_showingSi = p->objectDefaultsEditingSI(projectSi);
     // Keep the combo in sync without re-triggering the switch handler's
     // commit of stale widget contents.
     const QSignalBlocker block(m_unitSystemCombo);
-    m_unitSystemCombo->setCurrentIndex(projectSi ? 1 : 0);
+    m_unitSystemCombo->setCurrentIndex(m_showingSi ? 1 : 0);
     populateWidgets(m_showingSi ? m_si : m_us);
 }
 
@@ -420,6 +420,7 @@ void ObjectDefaultsPage::applyTo(PreferencesManager *p)
     commitWidgets(m_showingSi ? m_si : m_us);
     p->setObjectDefaults(m_us, /*si=*/false);
     p->setObjectDefaults(m_si, /*si=*/true);
+    p->setObjectDefaultsEditingSI(m_showingSi);
 }
 
 void ObjectDefaultsPage::resetToSeeds()

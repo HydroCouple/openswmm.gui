@@ -591,7 +591,7 @@ void AddBasemapDialog::refreshXYZCombo()
         m_xyzCombo->addItem(b.name);
     const QStringList saved = BasemapConnectionStore::instance()->xyzConnectionNames();
     for (const QString &n : saved)
-        m_xyzCombo->addItem(n);
+        if (m_xyzCombo->findText(n) < 0) m_xyzCombo->addItem(n);
     m_xyzCombo->blockSignals(false);
 }
 
@@ -773,7 +773,12 @@ void AddBasemapDialog::onXYZConnectionSelected(const QString &name)
     if (name.isEmpty() || name.startsWith("—")) {
         m_xyzName->clear(); m_xyzUrl->clear(); m_xyzHeaders->clear(); return;
     }
-    // Check builtins first
+    // Saved edits override a name-identical built-in preset.
+    if (BasemapConnectionStore::instance()->xyzConnectionNames().contains(name)) {
+        populateXYZ(BasemapConnectionStore::instance()->loadXYZ(name),
+                    BasemapConnectionStore::instance()->loadXYZAuth(name));
+        return;
+    }
     for (const XYZConnection &b : XYZConnection::builtins()) {
         if (b.name == name) { populateXYZ(b, {}); return; }
     }

@@ -24,6 +24,10 @@ class FileOpenDialog
 public:
     static QString startDirectory(const QString &type, const QString &fallback = {})
     {
+        if (type == QStringLiteral("models")) {
+            const QString preferred = QSettings().value(QStringLiteral("SWMMVis/Preferences/General/ProjectOpenDirectory")).toString();
+            if (!preferred.isEmpty() && QFileInfo(preferred).isDir()) return preferred;
+        }
         const QString saved = QSettings().value(settingKey(type)).toString();
         if (!saved.isEmpty() && QFileInfo(saved).isDir())
             return saved;

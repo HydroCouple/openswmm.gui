@@ -331,3 +331,10 @@ triggered.
 - \ref manual_selection — selection modes and the modifier keys behind them
 - \ref manual_map_navigation — the canvas and its tools
 - \ref manual_2d_mesh — the contextual Mesh 2D commands
+
+### Map zoom shortcuts
+
+**Ctrl++** and **Ctrl+-** (Command on macOS) select the Zoom In and Zoom Out
+map tools. Click the map to perform the zoom. With the canvas focused, bare
+**+** and **-** immediately zoom one step. These actions are separately
+rebindable in Preferences → Keyboard.

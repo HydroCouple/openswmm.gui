@@ -86,6 +86,7 @@ private:
     QWidget *buildKeyboardPage();
 
     QListWidget    *m_categoryList = nullptr;
+    QLineEdit      *m_projectOpenDirectoryEdit = nullptr;
     QStackedWidget *m_pages        = nullptr;
 
     // Object Defaults page is self-contained (see objectdefaultspage.h);

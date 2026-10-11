@@ -29,6 +29,9 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QMatrix4x4>
+#include <QPainterPath>
+#include <QPolygonF>
+#include <QHash>
 #include <QSGFlatColorMaterial>
 #include <QSGGeometry>
 #include <QSGGeometryNode>
@@ -625,6 +628,63 @@ void appendNodeGlyphTrianglesColored(std::vector<QSGGeometry::ColoredPoint2D> &o
         return p;
     };
     appendMarkerShapeImpl(out, sx, sy, r, shape, v);
+}
+
+// Cache each glyph's exterior contour once, excluding triangle-fan spokes.
+// Emit a triangle strip around that contour so outline width stays cosmetic
+// on Metal/D3D as well as OpenGL (native wide lines are not portable).
+void appendMarkerOutlineColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
+                                float x, float y, float radius, float width,
+                                OpenSWMM::Render::MarkerShape shape, QColor color)
+{
+    if (width <= 0.0f || !color.isValid() || color.alpha() == 0) return;
+    static QHash<int, QList<QPolygonF>> contours;
+    const int key = int(shape);
+    if (!contours.contains(key)) {
+        std::vector<QSGGeometry::Point2D> triangles;
+        appendNodeGlyphTriangles(triangles, 0, 0, 1, shape);
+        QPainterPath path;
+        path.setFillRule(Qt::WindingFill);
+        for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
+            QPolygonF triangle;
+            for (size_t j = i; j < i + 3; ++j) triangle << QPointF(std::round(triangles[j].x * 1e5) / 1e5, std::round(triangles[j].y * 1e5) / 1e5);
+            path.addPolygon(triangle);
+            path.closeSubpath();
+        }
+        contours.insert(key, path.simplified().toSubpathPolygons());
+    }
+    const uchar alpha = uchar(color.alpha());
+    const auto vertex = [&](QPointF point) {
+        QSGGeometry::ColoredPoint2D v;
+        v.x = float(point.x()); v.y = float(point.y());
+        v.r = premul(uchar(color.red()), alpha);
+        v.g = premul(uchar(color.green()), alpha);
+        v.b = premul(uchar(color.blue()), alpha); v.a = alpha;
+        return v;
+    };
+    for (const auto &polygon : contours[key]) {
+        if (polygon.size() < 3) continue;
+        const int count = polygon.size() - (polygon.first() == polygon.last() ? 1 : 0);
+        if (count < 3) continue;
+        const auto normal = [](QPointF edge) {
+            const double length = std::hypot(edge.x(), edge.y());
+            return length > 0.0 ? QPointF(-edge.y(), edge.x()) / length : QPointF();
+        };
+        const auto offset = [&](int i) {
+            const QPointF prev = normal(polygon[i] - polygon[(i + count - 1) % count]);
+            const QPointF next = normal(polygon[(i + 1) % count] - polygon[i]);
+            const double denominator = 1.0 + QPointF::dotProduct(prev, next);
+            return (prev + next) * (0.5 * width / std::max(0.25, denominator));
+        };
+        for (int i = 0; i < count; ++i) {
+            const int j = (i + 1) % count;
+            const QPointF a = QPointF(x, y) + polygon[i] * radius;
+            const QPointF b = QPointF(x, y) + polygon[j] * radius;
+            const QPointF da = offset(i), db = offset(j);
+            out.push_back(vertex(a + da)); out.push_back(vertex(b + db)); out.push_back(vertex(b - db));
+            out.push_back(vertex(a + da)); out.push_back(vertex(b - db)); out.push_back(vertex(a - da));
+        }
+    }
 }
 
 void uploadVerts(QSGGeometryNode *node, const std::vector<QSGGeometry::Point2D> &verts)
@@ -1441,6 +1501,21 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 }
                 appendNodeGlyphTrianglesColored(*bucket,fx,fy,r,shape,
                     premul(cR,cA),premul(cG,cA),premul(cB,cA),cA);
+                const SWMMElementSymbol *symbol = &m_layer->m_junctionSym;
+                if (nt == 1) symbol = &m_layer->m_outfallSym;
+                else if (nt == 2) symbol = &m_layer->m_storageSym;
+                else if (nt == 3) symbol = &m_layer->m_dividerSym;
+                else if (isIJ) symbol = &m_layer->m_inletJunctionSym;
+                else if (isVJ) symbol = &m_layer->m_virtualJunctionSym;
+                QColor outline = symbol->outlineColor;
+                float outlineWidth = float(symbol->outlineWidth);
+                if (size_t(i) < nSel.size() && nSel[i]) {
+                    const QPen selection = PreferencesManager::instance()->selectionPen(QStringLiteral("node"));
+                    outline = selection.color(); outlineWidth = float(selection.widthF());
+                } else {
+                    outline.setAlphaF(outline.alphaF() * m_layer->categoryOpacity(cat));
+                }
+                appendMarkerOutlineColored(*bucket, fx, fy, r, outlineWidth * invView, shape, outline);
                 // Virtual-junction dotted ring — small dots encircling the
                 // glyph with a gap (CPU-parity with SWMMLayerItem's cosmetic
                 // DotLine ellipse; triangles are all this path can draw).
@@ -1516,6 +1591,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                             premul(uchar(c.red()),ga),
                             premul(uchar(c.green()),ga),
                             premul(uchar(c.blue()),ga),ga);
+                        QColor outline = m_layer->rainGageSymbol().outlineColor;
+                        outline.setAlphaF(outline.alphaF() * gKop);
+                        appendMarkerOutlineColored(base, fx, fy, r,
+                            float(m_layer->rainGageSymbol().outlineWidth) * invView, gShape, outline);
                     }
                     if (size_t(i)<gSel.size()&&gSel[i])
                         appendGageTriangles(sel,fx,fy,r,gShape);  // §QSG-3 — same size as base

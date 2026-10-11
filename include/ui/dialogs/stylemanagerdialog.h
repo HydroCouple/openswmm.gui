@@ -28,6 +28,7 @@
 
 #include <QDialog>
 #include <QString>
+#include <QPointer>
 
 class OpenSWMMVisLayer;
 class QDialogButtonBox;
@@ -49,6 +50,8 @@ public:
     explicit StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
                                 QWidget *parent = nullptr);
     ~StyleManagerDialog() override;
+
+    void setLayer(OpenSWMMVisLayer *layer);
 
 private slots:
     void onSelectionChanged();
@@ -75,7 +78,7 @@ private:
      *  selected row, or empty if no selection. */
     [[nodiscard]] QString currentFilePath() const;
 
-    OpenSWMMVisLayer *m_layer       = nullptr;
+    QPointer<OpenSWMMVisLayer> m_layer;
     QString           m_libraryDir;
 
     // Left pane — library list + folder shortcut.

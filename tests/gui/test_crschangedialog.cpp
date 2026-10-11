@@ -2,8 +2,8 @@
  * \file   test_crschangedialog.cpp
  * \brief  Slice C QtTest: CRSChangeDialog choice / disable semantics.
  *
- * Phase 0.7 contract: the dialog presents three outcomes (Reproject,
- * RenderOnly, Cancel) and disables Re-render when the source CRS is Local.
+ * Assignment keeps coordinates intact. A Local source permits assignment
+ * only, because it has no geographic transform.
  */
 
 #include "ui/dialogs/crschangedialog.h"
@@ -26,7 +26,8 @@ private slots:
     void clickingApplyWithReprojectChosen();
     void clickingApplyWithRenderOnlyChosen();
     void clickingCancelKeepsCancel();
-    void localSourceDisablesRenderOnly();
+    void clickingApplyWithAssignChosen();
+    void localSourceAllowsOnlyAssignment();
     void summaryStringsAppearInLabel();
 };
 
@@ -70,10 +71,10 @@ void TestCRSChangeDialog::clickingApplyWithRenderOnlyChosen()
 {
     CRSChangeDialog dlg(QStringLiteral("EPSG:4326"),
                         QStringLiteral("EPSG:3857"));
-    // Pick the second radio.
+    // Pick the display-only radio.
     auto radios = dlg.findChildren<QRadioButton *>();
-    QCOMPARE(radios.size(), 2);
-    radios[1]->setChecked(true);
+    QCOMPARE(radios.size(), 3);
+    radios[2]->setChecked(true);
     applyButton(&dlg)->click();
     QCOMPARE(dlg.choice(), CRSChangeDialog::RenderOnly);
 }
@@ -87,18 +88,29 @@ void TestCRSChangeDialog::clickingCancelKeepsCancel()
     QCOMPARE(dlg.result(), int(QDialog::Rejected));
 }
 
-void TestCRSChangeDialog::localSourceDisablesRenderOnly()
+void TestCRSChangeDialog::localSourceAllowsOnlyAssignment()
 {
     CRSChangeDialog dlg(QStringLiteral("Local"),
                         QStringLiteral("EPSG:3857"),
                         /*sourceIsLocal*/ true);
     auto radios = dlg.findChildren<QRadioButton *>();
-    QCOMPARE(radios.size(), 2);
-    QVERIFY( radios[0]->isEnabled());   // Reproject still on
-    QVERIFY(!radios[1]->isEnabled());   // Re-render disabled
-    QVERIFY( radios[0]->isChecked());   // Reproject preselected
+    QCOMPARE(radios.size(), 3);
+    QVERIFY(radios[0]->isEnabled());
+    QVERIFY(!radios[1]->isEnabled());
+    QVERIFY(!radios[2]->isEnabled());
+    QVERIFY(radios[0]->isChecked());
     applyButton(&dlg)->click();
-    QCOMPARE(dlg.choice(), CRSChangeDialog::Reproject);
+    QCOMPARE(dlg.choice(), CRSChangeDialog::Assign);
+}
+
+void TestCRSChangeDialog::clickingApplyWithAssignChosen()
+{
+    CRSChangeDialog dlg(QStringLiteral("EPSG:6595"), QStringLiteral("EPSG:4326"));
+    auto radios = dlg.findChildren<QRadioButton *>();
+    QCOMPARE(radios.size(), 3);
+    radios[0]->setChecked(true);
+    applyButton(&dlg)->click();
+    QCOMPARE(dlg.choice(), CRSChangeDialog::Assign);
 }
 
 void TestCRSChangeDialog::summaryStringsAppearInLabel()

@@ -57,6 +57,12 @@ tabbed together, so a saved workspace may have a different arrangement.
 | **6. Bottom panels** | Message Logs; Attribute Table and Simulation Status | Read messages; edit/query tables; inspect simulation progress |
 | **7. Status bar** | Engine; flow units; offset mode; coordinates; scale and CRS | Check the active project's units and coordinate context |
 
+**View → Layer Styling Dock** opens the live style editor. Its dock position
+can differ from the screenshot because the application remembers your workspace.
+The mesh editing controls are on the contextual **Mesh 2D** ribbon tab, shown
+when the active project has a mesh; terrain controls are on **Terrain**, shown
+when the active project has a raster. Import a mesh or raster to reveal them.
+
 On macOS the **menu bar** is at the top of the display, outside the captured
 application client area. On Windows and Linux it normally belongs to the window.
 The **Terrain** and **Mesh 2D** tabs appear when the project has the corresponding
@@ -229,7 +235,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | Item | What it does | Chapter |
 |---|---|---|
 | **Add Node ▸** | Add Junction · Add Virtual Junction · Add Inlet Junction (street conduits only) · Add Outfall · Add Flow Divider · Add Storage. Every node tool places freely on empty canvas; clicking a conduit inserts the node there by splitting it (outfalls excepted) | \ref manual_map_editing |
-| **Add Link ▸** | Add Pipe · Add Pump · Add Orifice · Add Weir · Add Outlet | \ref manual_map_editing |
+| **Add Link ▸** | Add Conduit · Add Pump · Add Orifice · Add Weir · Add Outlet | \ref manual_map_editing |
 | **Add Subcatchment** | Draws a subcatchment polygon | \ref manual_hydrology |
 | **Add Rain Gauge** | Places a rain gage | \ref manual_hydrology |
 | **Climate ▸** | Temperature · Evaporation · Wind · Snow · Solar Radiation — all five open the tabbed Climatology dialog on the matching tab (Solar Radiation opens the Evaporation tab, since solar feeds Hargreaves ET) | \ref manual_climate |

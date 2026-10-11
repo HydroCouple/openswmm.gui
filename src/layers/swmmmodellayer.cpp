@@ -532,6 +532,38 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_gageSym.size            = 10.0;
     m_gageSym.markerShape     = Marker::Diamond;   // matches legacy CPU dispatch
 
+    auto *renderPrefs = PreferencesManager::instance();
+    const std::array<QString, 4> linkTypes = {QStringLiteral("Conduit"), QStringLiteral("Pump"),
+                                            QStringLiteral("Orifice"), QStringLiteral("Weir")};
+    std::array<QPen, 4> inheritedPens;
+    const std::array<SWMMElementSymbol *, 4> linkSymbols = {&m_conduitSym, &m_pumpSym, &m_orificeSym, &m_weirSym};
+    for (size_t i = 0; i < linkTypes.size(); ++i) {
+        inheritedPens[i] = renderPrefs->linkPen(linkTypes[i]);
+        linkSymbols[i]->fillColor = inheritedPens[i].color();
+        linkSymbols[i]->size = inheritedPens[i].widthF();
+    }
+    connect(renderPrefs, &PreferencesManager::preferenceChanged, this,
+            [this, renderPrefs, linkTypes, inheritedPens](const QString &group, const QString &key) mutable {
+        if (group != QStringLiteral("Rendering") || !key.startsWith(QStringLiteral("LinkPen/"))) return;
+        for (size_t i = 0; i < linkTypes.size(); ++i) {
+            if (key != QStringLiteral("LinkPen/") + linkTypes[i]) continue;
+            const QPen next = renderPrefs->linkPen(linkTypes[i]);
+            const std::array<SWMMElementSymbol *, 4> symbols = {&m_conduitSym, &m_pumpSym, &m_orificeSym, &m_weirSym};
+            auto symbol = *symbols[i];
+            bool changed = false;
+            if (symbol.fillColor == inheritedPens[i].color()) { symbol.fillColor = next.color(); changed = true; }
+            if (qFuzzyCompare(symbol.size, inheritedPens[i].widthF())) { symbol.size = next.widthF(); changed = true; }
+            inheritedPens[i] = next;
+            if (!changed) continue;
+            switch (i) {
+            case 0: setConduitSymbol(symbol); break;
+            case 1: setPumpSymbol(symbol); break;
+            case 2: setOrificeSymbol(symbol); break;
+            case 3: setWeirSymbol(symbol); break;
+            }
+        }
+    });
+
     // Slice BI Phase 8.13.6.5 — initialise renderer so renderer() never
     // returns nullptr. Placeholder SingleSymbolRenderer is unused by the
     // current paint loop (which still reads m_*Sym directly); the paint
@@ -612,21 +644,18 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
 
 void SWMMModelLayer::invalidateDerivedStyleCaches()
 {
-    // Graduated renderers with an independent size attribute normalise
-    // against a sampled value range — a data edit can move that range, so
-    // drop it and rebuild the kind's override cache (which re-derives the
-    // range via classifyGraduatedIfNeeded). Classification breaks are left
-    // alone: they follow the existing "editor clears breaks to re-classify"
-    // contract, and clearing them here would discard user intent.
+    // Re-evaluate feature styles after attribute edits, including User Flags.
+    // Independent graduated size ranges are derived again; user-authored
+    // classification breaks remain intact.
     for (int i = 0; i < NumCategories; ++i) {
         const auto c = static_cast<Category>(i);
         auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
             kindRenderer(c));
-        if (!g || !g->sizeAxisIndependent())
-            continue;
-        g->setSizeValueRange(0.0, 0.0);   // invalid → re-derived on rebuild
+        if (g && g->sizeAxisIndependent())
+            g->setSizeValueRange(0.0, 0.0);
         rebuildKindFeatureColors(c);
     }
+    emit repaintRequested();
 }
 
 SWMMModelLayer::~SWMMModelLayer()
@@ -3206,6 +3235,21 @@ SWMMModelLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     default:
         break;
     }
+    if (auto *flags = const_cast<SWMMModelLayer *>(this)->ensureUserFlagsModel()) {
+        using FlagType = openswmmvis::ui::UserFlagsModel::FlagType;
+        for (const auto &def : flags->defs()) {
+            AttributeField field;
+            field.name = QStringLiteral("uf:") + def.name;
+            field.displayName = tr("User flag: %1").arg(def.name);
+            switch (def.type) {
+            case FlagType::Boolean: field.type = QMetaType::Bool; break;
+            case FlagType::Integer: field.type = QMetaType::LongLong; break;
+            case FlagType::Real: field.type = QMetaType::Double; break;
+            case FlagType::String: field.type = QMetaType::QString; break;
+            }
+            out.append(field);
+        }
+    }
     return out;
 }
 
@@ -3363,7 +3407,7 @@ void SWMMModelLayer::classifyGraduatedIfNeeded(
         QVector<double> samples;
         samples.reserve(n);
         for (int i = 0; i < n; ++i) {
-            const QVariant v = identifyByName(objectNameAt(c, i)).value(attr);
+            const QVariant v = identifyByName(objectNameAt(c, i), kindBitForCategory(c)).value(attr);
             bool ok = false;
             const double dv = v.toDouble(&ok);
             if (ok && std::isfinite(dv)) samples.push_back(dv);
@@ -3475,7 +3519,7 @@ void SWMMModelLayer::rebuildKindFeatureColors(Category c)
         if (soa < 0 || soa >= soaSize) continue;
 
         const QString name = objectNameAt(c, i);
-        const QVariantMap attrs = identifyByName(name);
+        const QVariantMap attrs = identifyByName(name, kindBitForCategory(c));
 
         FeatureRef ref;
         ref.layerId      = QStringLiteral("swmm_model");
@@ -3675,6 +3719,24 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name,
 {
     QVariantMap m;
     if (name.isEmpty()) return m;
+    const auto addFlags = [&](const QString &type) {
+        auto *flags = const_cast<SWMMModelLayer *>(this)->ensureUserFlagsModel();
+        if (!flags) return;
+        using FlagType = openswmmvis::ui::UserFlagsModel::FlagType;
+        for (const auto &def : flags->defs()) {
+            bool found = false;
+            const QString value = flags->value(type, name, def.name, &found);
+            if (!found) continue;
+            QVariant typed = value;
+            switch (def.type) {
+            case FlagType::Boolean: typed = value.compare(QStringLiteral("YES"), Qt::CaseInsensitive) == 0; break;
+            case FlagType::Integer: typed = value.toLongLong(); break;
+            case FlagType::Real: typed = value.toDouble(); break;
+            case FlagType::String: break;
+            }
+            m.insert(QStringLiteral("uf:") + def.name, typed);
+        }
+    };
 
     // Hash lookups, not scans. These four used to be linear searches, which
     // made every caller that iterates a category quadratic — restoring a
@@ -3771,6 +3833,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name,
                     m[QStringLiteral("tag")] = QString::fromUtf8(tag);
             }
         }
+        addFlags(QStringLiteral("NODE"));
         return m;
     }
     if (int i = findLink(); i >= 0)
@@ -3813,6 +3876,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name,
                     m[QStringLiteral("tag")] = QString::fromUtf8(tag);
             }
         }
+        addFlags(QStringLiteral("LINK"));
         return m;
     }
     if (int i = findCatch(); i >= 0)
@@ -3844,6 +3908,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name,
                     m[QStringLiteral("tag")] = QString::fromUtf8(tag);
             }
         }
+        addFlags(QStringLiteral("SUBCATCHMENT"));
         return m;
     }
     if (int i = findGage(); i >= 0)
@@ -3853,6 +3918,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name,
         m[QStringLiteral("Name")] = g.name;
         m[QStringLiteral("X")]    = g.x;
         m[QStringLiteral("Y")]    = g.y;
+        addFlags(QStringLiteral("GAGE"));
         return m;
     }
     return m;
@@ -7315,6 +7381,9 @@ openswmmvis::ui::UserFlagsModel *SWMMModelLayer::ensureUserFlagsModel()
         if (m_userFlagsModel) m_userFlagsModel->deleteLater();
         m_userFlagsModel = new UserFlagsModel(eng, this);
         m_userFlagsModelEngineHandle = eng;
+        connect(m_userFlagsModel, &UserFlagsModel::defsChanged, this, [this] { emit modelEdited(); });
+        connect(m_userFlagsModel, &UserFlagsModel::valueChanged, this,
+                [this](const QString &, const QString &, const QString &) { emit modelEdited(); });
     }
     return m_userFlagsModel;
 }

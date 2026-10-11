@@ -193,10 +193,19 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     m_saveBtn ->setEnabled(haveLayer && m_layer->ruleList() != nullptr);
 
     refreshLibrary();
-    onSelectionChanged();
+    setLayer(activeLayer);
 }
 
 StyleManagerDialog::~StyleManagerDialog() = default;
+
+void StyleManagerDialog::setLayer(OpenSWMMVisLayer *layer)
+{
+    if (m_layer) disconnect(m_layer, &QObject::destroyed, this, nullptr);
+    m_layer = layer;
+    if (layer) connect(layer, &QObject::destroyed, this, [this] { setLayer(nullptr); });
+    m_saveBtn->setEnabled(layer && layer->ruleList());
+    onSelectionChanged();
+}
 
 // ---------------------------------------------------------------------------
 

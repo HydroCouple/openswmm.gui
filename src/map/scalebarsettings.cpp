@@ -154,3 +154,23 @@ double ScaleBarSettings::roundedMetres(double metres) const
     }
     return metres;
 }
+
+double ScaleBarSettings::niceMetres(double maximumMetres, bool rawUnits) const
+{
+    if (!std::isfinite(maximumMetres) || maximumMetres <= 0.0) return 0.0;
+    double unitMetres = 1.0;
+    if (!rawUnits) {
+        switch (m_units) {
+        case Feet: unitMetres = 0.3048; break;
+        case Miles: unitMetres = 1609.344; break;
+        case Kilometers: unitMetres = 1000.0; break;
+        case Auto: if (maximumMetres >= 1000.0) unitMetres = 1000.0; break;
+        case Meters: break;
+        }
+    }
+    const double value = maximumMetres / unitMetres;
+    const double magnitude = std::pow(10.0, std::floor(std::log10(value)));
+    const double mantissa = value / magnitude;
+    const double nice = mantissa < 2.0 ? 1.0 : mantissa < 5.0 ? 2.0 : 5.0;
+    return nice * magnitude * unitMetres;
+}

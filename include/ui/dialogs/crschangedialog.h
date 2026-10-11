@@ -34,13 +34,14 @@ public:
         Cancel     = 0,
         Reproject  = 1,  ///< Permanently rewrite stored coordinates via OGR transform.
         RenderOnly = 2,  ///< Keep stored coordinates; only the canvas display CRS changes.
+        Assign     = 3,  ///< Declare the CRS of existing coordinates without transforming them.
     };
 
     /*!
      * \param oldAuth   Authority of the model's current CRS (e.g. "EPSG:6595").
      * \param newAuth   Authority of the newly-selected CRS.
-     * \param sourceIsLocal If true, recommend Reproject — re-render needs a real
-     *                      source CRS to build a transform.
+     * \param sourceIsLocal If true, only assignment is available; a transform
+     *                      requires a known source CRS.
      */
     explicit CRSChangeDialog(const QString &oldAuth,
                              const QString &newAuth,
@@ -56,6 +57,7 @@ private:
     Choice            m_choice          = Cancel;
     QRadioButton     *m_radioReproject  = nullptr;
     QRadioButton     *m_radioRenderOnly = nullptr;
+    QRadioButton     *m_radioAssign     = nullptr;
     QDialogButtonBox *m_buttonBox       = nullptr;
 };
 
