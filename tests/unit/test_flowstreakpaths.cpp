@@ -10,7 +10,11 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSysInfo>
 #include <limits>
+#ifdef Q_OS_UNIX
+#include <sys/resource.h>
+#endif
 using namespace OpenSWMM::Render;
 
 static FlowStreakInput square()
@@ -23,6 +27,45 @@ static FlowStreakInput square()
     for(auto &f:in.fields) {f.vx=2;f.speed=2;f.depth={1,1,1};f.exits=7;}
     in.coverage={0,0,10,10};in.spacing=1;in.step=.25;in.maxLength=8;
     return in;
+}
+static std::shared_ptr<FlowStreakMesh> regularMesh(int cols,int rows,QPointF origin={})
+{
+    auto mesh=std::make_shared<FlowStreakMesh>();
+    mesh->vertices.reserve((cols+1)*(rows+1));mesh->triangles.reserve(size_t(cols)*rows*2);
+    for(int y=0;y<=rows;++y)for(int x=0;x<=cols;++x)mesh->vertices.append(origin+QPointF(x,y));
+    auto id=[cols](int x,int y){return y*(cols+1)+x;};
+    QVector<QRectF> boxes;boxes.reserve(cols*rows*2);
+    for(int y=0;y<rows;++y)for(int x=0;x<cols;++x) {
+        mesh->triangles.push_back({id(x,y),id(x+1,y),id(x+1,y+1)});
+        mesh->triangles.push_back({id(x,y),id(x+1,y+1),id(x,y+1)});
+        boxes.append(QRectF(origin+QPointF(x,y),QSizeF(1,1)));boxes.append(boxes.back());
+    }
+    mesh->grid.rebuild(boxes);
+    return mesh;
+}
+static FlowStreakInput regionInput(const std::shared_ptr<FlowStreakMesh> &mesh,QRectF coverage)
+{
+    FlowStreakInput in;in.mesh=mesh;in.coverage=coverage;in.spacing=2;in.step=.5;in.maxLength=8;
+    in.fields.resize(mesh->triangles.size());in.triangles.reserve(in.fields.size());
+    for(size_t i=0;i<in.fields.size();++i) {
+        in.triangles.push_back(int(i));auto &f=in.fields[i];
+        f.vx=2;f.speed=2;f.depth={1,1,1};f.exits=7;
+    }
+    return in;
+}
+static double peakResidentBytes()
+{
+#ifdef Q_OS_UNIX
+    rusage usage{};
+    if(getrusage(RUSAGE_SELF,&usage)==0) {
+#ifdef Q_OS_MACOS
+        return double(usage.ru_maxrss);
+#else
+        return double(usage.ru_maxrss)*1024;
+#endif
+    }
+#endif
+    return 0;
 }
 class FlowStreakPathsTest:public QObject {
     Q_OBJECT
@@ -129,6 +172,110 @@ private slots:
         QVERIFY(unrelatedEvent);QCOMPARE(cache.builds(),builds);
         cache.request("cancel",[]{return square();});cache.clear();
         cache.waitForDone();QVERIFY(!cache.lookup("cancel"));
+    }
+    void regionalPathsMatchWholeMesh() {
+        const QPointF origin(7000000,-4000000);
+        auto source=regularMesh(100,100,origin);
+        const QRectF coverage(origin+QPointF(43,44),QSizeF(12,10));
+        auto local=FlowStreakMesh::captureRegion(source->vertices,source->triangles,source->grid,coverage);
+        QVERIFY(local);QVERIFY(local->triangles.size()<source->triangles.size()/2);
+        QVERIFY(local->vertices.size()<source->vertices.size()/2);QVERIFY(local->grid.seen.empty());
+        for(size_t i=0;i<local->triangles.size();++i) for(int k=0;k<3;++k)
+            QCOMPARE(local->vertices[local->triangles[i][k]],
+                     source->vertices[source->triangles[size_t(local->sourceTriangles[i])][k]]);
+        std::atomic_bool cancel=false;
+        const auto expected=buildFlowStreakPaths(regionInput(source,coverage),cancel);
+        const auto actual=buildFlowStreakPaths(regionInput(local,coverage),cancel);
+        QVERIFY(!actual.paths.empty());QCOMPARE(actual.paths.size(),expected.paths.size());
+        for(size_t i=0;i<actual.paths.size();++i) {
+            QCOMPARE(actual.paths[i].points.size(),expected.paths[i].points.size());
+            for(size_t j=0;j<actual.paths[i].points.size();++j) {
+                QCOMPARE(actual.paths[i].points[j].position,expected.paths[i].points[j].position);
+                QCOMPARE(actual.paths[i].points[j].seconds,expected.paths[i].points[j].seconds);
+            }
+        }
+        // Captures own their regional data: source replacement cannot alter
+        // coordinates or the point index while the worker is tracing paths.
+        source->vertices.fill({-100,-100});source->triangles.clear();source->grid.clear();
+        QCOMPARE(buildFlowStreakPaths(regionInput(local,coverage),cancel).pointCount(),actual.pointCount());
+    }
+    void regionalCaptureRetainsDryNonManifoldFace() {
+        auto source=square();
+        // The third face is dry and mostly outside the requested region.
+        // Its shared diagonal must still prevent the two wet faces joining.
+        source.mesh->vertices.append({-100,100});
+        source.mesh->triangles.push_back({0,2,4});
+        source.mesh->grid.rebuild({{0,0,10,10},{0,0,10,10},{-100,0,110,100}});
+        const QRectF coverage(4,4,2,2);
+        auto mesh=FlowStreakMesh::captureRegion(source.mesh->vertices,source.mesh->triangles,
+                                               source.mesh->grid,coverage);
+        QVERIFY(mesh);QCOMPARE(mesh->sourceTriangles,(std::vector<int>{0,1,2}));
+        auto in=regionInput(mesh,coverage);in.triangles.resize(2);in.fields.resize(2);
+        std::atomic_bool cancel=false;mesh->prepare(cancel);
+        QCOMPARE(mesh->neighbors[0][1],-1);QCOMPARE(mesh->neighbors[1][2],-1);
+    }
+    void regionalCaptureLimitAndRecovery() {
+        auto source=regularMesh(400,400);
+        QVERIFY(!FlowStreakMesh::captureRegion(source->vertices,source->triangles,source->grid,{0,0,400,400}));
+        auto mesh=FlowStreakMesh::captureRegion(source->vertices,source->triangles,source->grid,{190,190,20,20});
+        QVERIFY(mesh);QVERIFY(mesh->triangles.size()<10000);
+        FlowStreakCache cache;
+        cache.request("overview",[]{return FlowStreakInput{};});
+        QVERIFY(!cache.busy());QVERIFY(cache.status().contains("This view"));
+        cache.request("zoom",[&]{return regionInput(mesh,{190,190,20,20});});
+        cache.waitForDone();QVERIFY(cache.lookup("zoom"));
+        QVERIFY(!cache.lookup("zoom")->paths.empty());
+    }
+    void regionalScaleBenchmark() {
+        if(!qEnvironmentVariableIsSet("FLOW_STREAK_SCALE_6M"))
+            QSKIP("Optional 6M native triangles / 6M quads (12M display triangles) benchmark");
+        QJsonArray cases;
+        struct Case {int cols,rows;bool quads;};
+        for(const auto c:{Case{100,100,false},Case{895,895,false},Case{2000,1500,false},Case{3000,2000,true}}) {
+            QElapsedTimer clock;clock.start();auto source=regularMesh(c.cols,c.rows);
+            const double fixtureMs=clock.nsecsElapsed()/1e6;
+            const int displayTriangles=int(source->triangles.size());
+            const QRectF coverage(c.cols*.5-25,c.rows*.5-25,50,50);
+            QJsonArray runs;
+            for(int run=0;run<3;++run) {
+                clock.restart();auto mesh=FlowStreakMesh::captureRegion(source->vertices,source->triangles,source->grid,coverage);
+                const double captureMs=clock.nsecsElapsed()/1e6;
+                QVERIFY(mesh);QVERIFY(mesh->triangles.size()<20000);
+                QVERIFY(mesh->bytes()<(size_t(4)<<20));
+                clock.restart();auto in=regionInput(mesh,coverage);
+                const double fieldsMs=clock.nsecsElapsed()/1e6;
+                QVERIFY(FlowStreakCache::fitsBudget(mesh->bytes(),in.fields.size()));
+                std::atomic_bool cancel=false;clock.restart();const auto batch=buildFlowStreakPaths(in,cancel);
+                const double coldMs=clock.nsecsElapsed()/1e6;
+                QVERIFY(!batch.paths.empty());QVERIFY(batch.pointCount()<=in.maxPoints);
+                clock.restart();const auto warm=buildFlowStreakPaths(in,cancel);
+                const double warmMs=clock.nsecsElapsed()/1e6;QCOMPARE(warm.pointCount(),batch.pointCount());
+                runs.append(QJsonObject{{"captureMs",captureMs},{"fieldsMs",fieldsMs},{"coldPathMs",coldMs},
+                    {"warmPathMs",warmMs},{"regionalTriangles",int(mesh->triangles.size())},
+                    {"regionalMeshPeakBytes",double(mesh->bytes())},{"fieldBytes",double(in.fields.capacity()*sizeof(FlowStreakField))},
+                    {"pathBytes",double(batch.bytes())},{"paths",int(batch.paths.size())},{"points",batch.pointCount()}});
+            }
+            QJsonArray coverageRuns;
+            for(double fraction:{.01,.1,1.}) {
+                const double side=std::sqrt(fraction);
+                const QRectF view(c.cols*(1-side)/2,c.rows*(1-side)/2,c.cols*side,c.rows*side);
+                clock.restart();auto mesh=FlowStreakMesh::captureRegion(source->vertices,source->triangles,source->grid,view);
+                const double ms=clock.nsecsElapsed()/1e6;
+                if(fraction==1. && displayTriangles>FlowStreakMesh::maxRegionTriangles) QVERIFY(!mesh);
+                coverageRuns.append(QJsonObject{{"areaFraction",fraction},{"captureMs",ms},{"accepted",bool(mesh)},
+                    {"regionalTriangles",mesh?int(mesh->triangles.size()):0}});
+            }
+            cases.append(QJsonObject{{"nativeCells",c.quads?displayTriangles/2:displayTriangles},
+                {"cellType",c.quads?"quads split for display":"triangles"},{"displayTriangles",displayTriangles},
+                {"fixtureMs",fixtureMs},{"processLifetimePeakResidentBytes",peakResidentBytes()},
+                {"legacyTopologyEstimateBytes",double(displayTriangles)*60},
+                {"legacyTopologyAloneFitsBudget",FlowStreakCache::fitsBudget(size_t(displayTriangles)*60,0)},
+                {"fixedViewRuns",runs},{"coverageRuns",coverageRuns}});
+        }
+        QDir().mkpath("workplans/artifacts/flow_streaks");
+        QFile f("workplans/artifacts/flow_streaks/regional-scale-6m.json");QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(QJsonDocument(QJsonObject{{"qt",qVersion()},{"host",QSysInfo::prettyProductName()},
+            {"architecture",QSysInfo::currentCpuArchitecture()},{"cases",cases}}).toJson());
     }
     void scaleBenchmark() {
         if(!qEnvironmentVariableIsSet("FLOW_STREAK_SCALE")) QSKIP("Optional 20k/160k/1.6M triangle benchmark");

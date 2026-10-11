@@ -48,9 +48,11 @@ void FlowStreakCache::request(const QByteArray &key,std::function<FlowStreakInpu
     const auto mesh=job->input.mesh;
     const size_t otherMesh=m_active && m_active->input.mesh && m_active->input.mesh!=mesh
         ? m_active->input.mesh->bytes():0;
-    if(!mesh || !fitsBudget(mesh->bytes()+otherMesh,job->input.fields.capacity())) {
+    const size_t fields=std::max(job->input.fields.capacity(),
+                                m_active?m_active->input.fields.capacity():size_t(0));
+    if(!mesh || !fitsBudget(mesh->bytes()+otherMesh,fields)) {
         m_rejectedKey=key;
-        m_status=tr("Flow preparation exceeds its memory budget; zoom in or use a smaller mesh");
+        m_status=tr("This view exceeds the flow preparation limit; zoom in to show a smaller region");
         emit ready();
         return;
     }

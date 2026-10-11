@@ -70,7 +70,7 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
         return {};
     }
     // A source/CRS replacement cancels the old worker. Let it release its
-    // topology before allocating another whole-mesh adjacency snapshot.
+    // regional snapshot before allocating replacement geometry.
     if(!m_flowMesh && m_flowCache->busy()) return {};
     if(!m_flowCoverage.contains(visible) || m_flowScale!=bucket) {
         m_flowScale=bucket;
@@ -95,7 +95,12 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
         FlowStreakInput in;in.coverage=m_flowCoverage;in.seedBudgetArea=m_flowSeedArea;
         in.spacing=style->spacingPx()/bucket;in.maxLength=style->pathLengthPx()/bucket;
         in.step=6./bucket;in.cutoff=style->dryDepthCutoff();
-        const auto ids=m_triGrid.query(m_flowCoverage);
+        if(!m_flowMesh || !m_flowMesh->coverage.contains(m_flowCoverage)) {
+            auto mesh=FlowStreakMesh::captureRegion(m_sceneVerts,tris_,m_triGrid,m_flowCoverage);
+            if(!mesh) return in;
+            m_flowMesh=std::move(mesh);
+        }
+        const auto &ids=m_flowMesh->sourceTriangles;
         // Dry/stagnant cells cannot seed or carry a path. Keep their topology
         // (so boundaries remain conservative), but do not duplicate their
         // fields in active/pending snapshots for a large model overview.
@@ -106,22 +111,14 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
                 && std::max({t.dv0,t.dv1,t.dv2})>in.cutoff;
         };
         const size_t fieldCount=size_t(std::count_if(ids.begin(),ids.end(),flowing));
-        // Check the peak before copying topology or allocating field snapshots.
-        const size_t meshBytes=size_t(m_sceneVerts.capacity())*sizeof(QPointF)
-            +tris_.size()*60+size_t(m_triGrid.cellOffsets.capacity()+m_triGrid.cellIndices.capacity())*sizeof(int)
-            +m_triGrid.seen.capacity()*sizeof(quint32);
-        if(!FlowStreakCache::fitsBudget(meshBytes,fieldCount)) return in;
-        if(!m_flowMesh) {
-            m_flowMesh=std::make_shared<FlowStreakMesh>();
-            m_flowMesh->vertices=m_sceneVerts;m_flowMesh->triangles=tris_;
-            m_flowMesh->grid=m_triGrid;m_flowMesh->grid.seen.clear();
-        }
+        if(!FlowStreakCache::fitsBudget(m_flowMesh->bytes(),fieldCount)) return in;
         in.mesh=m_flowMesh;
         in.triangles.reserve(fieldCount);
-        for(int i:ids) if(flowing(i)) in.triangles.push_back(i);
-        std::sort(in.triangles.begin(),in.triangles.end());
+        for(int local=0;local<int(ids.size());++local)
+            if(flowing(ids[size_t(local)])) in.triangles.push_back(local);
         in.fields.reserve(in.triangles.size());
-        for(int i:in.triangles) {
+        for(int local:in.triangles) {
+            const int i=ids[size_t(local)];
             const auto &t=m_sceneTris[i];const auto &vi=tris_[size_t(i)];
             FlowStreakField f;f.depth={t.dv0,t.dv1,t.dv2};f.speed=t.vmag;
             // Map an SI displacement through the same affine triangle map
@@ -159,7 +156,13 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
 void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
 {
     const double scale=std::hypot(p->worldTransform().m11(),p->worldTransform().m12());
-    const auto batch=flowStreaks(view.isValid()?view:m_sceneBBox,scale,frame_revision_);
+    // QGraphicsScene::render can expose the whole item during its first
+    // fallback paint. Respect the actual painter clip before requesting a
+    // region, including during image capture and the handoff to QSG.
+    QRectF coverage=view.isValid()?view:m_sceneBBox;
+    if(p->hasClipping()) coverage=coverage.intersected(p->clipBoundingRect());
+    if(!coverage.isValid()) return;
+    const auto batch=flowStreaks(coverage,scale,frame_revision_);
     if(!batch) return;
     const auto *style=m_flowStreakSublayer->streakStyle();
     p->save();p->setOpacity(p->opacity()*m_flowStreakSublayer->opacity());

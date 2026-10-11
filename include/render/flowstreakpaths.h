@@ -14,6 +14,15 @@ namespace OpenSWMM::Render {
 // Immutable input from the displayed mesh. The private adjacency is prepared
 // once by the serial flow worker; no worker accesses the owning layer.
 struct FlowStreakMesh {
+    // Capture is bounded before copying geometry. This is a regional working
+    // limit, independent of the size of the source mesh.
+    static constexpr int maxRegionTriangles = 250000;
+    static std::shared_ptr<FlowStreakMesh> captureRegion(
+        const QVector<QPointF> &vertices,
+        const std::vector<std::array<int,3>> &triangles,
+        const MeshSpatialGrid &grid, const QRectF &coverage);
+    QRectF coverage;
+    std::vector<int> sourceTriangles; // local -> global, ascending, includes dry cells
     QVector<QPointF> vertices;
     std::vector<std::array<int,3>> triangles;
     MeshSpatialGrid grid;
@@ -31,7 +40,7 @@ struct FlowStreakField {
 
 struct FlowStreakInput {
     std::shared_ptr<FlowStreakMesh> mesh;
-    std::vector<int> triangles; // ascending global ids, coverage + halo
+    std::vector<int> triangles; // ascending mesh-local ids, coverage + halo
     std::vector<FlowStreakField> fields;
     QRectF coverage;
     double spacing = 1; // scene units
