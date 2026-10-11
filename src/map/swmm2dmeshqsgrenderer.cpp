@@ -329,9 +329,22 @@ void SWMM2DMeshQSGRenderer::clearLabelTextureCache()
 void SWMM2DMeshQSGRenderer::setLayer(SWMM2DMeshLayer *layer)
 {
     if (m_layer == layer) return;
-    if (m_layer) QObject::disconnect(m_layer, nullptr, this, nullptr);
+    if (m_layer) {
+        QObject::disconnect(m_layer, nullptr, this, nullptr);
+        for (auto *sub : m_layer->sublayers())
+            QObject::disconnect(sub, nullptr, this, nullptr);
+    }
     m_layer = layer;
     if (m_layer) {
+        // An edge style edit and selection change can arrive in one frame.
+        // Keep Style explicit so resolving the selection cannot swallow it.
+        for (auto *sub : m_layer->sublayers()) {
+            if (sub != m_layer->meshEdgeSublayer() && sub != m_layer->meshBcSublayer()) continue;
+            connect(sub, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
+                m_dirty.noteStyleChanged();
+                noteContentChanged();
+            });
+        }
         // Catch-all invalidation (style edits, selection setters, geometry
         // reloads all funnel here). updatePaintNode classifies it into the
         // narrowest dirty domain by diffing snapshots (geometry revision,
@@ -708,9 +721,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         const float  kLitMin      = float(hillSpec.shadowFloor);
         const bool   useSlopeWidth  = edgeSpec.useSlopeDrivenWidth;
         const float  kSlopeBreak    = float(edgeSpec.slopeBreak);
-        const float  edgeMute       = active ? 1.0f : 0.714f;
-        const float  kThinHW        = float(edgeSpec.width) * edgeMute * invView;
-        const float  kWideHW        = float(edgeSpec.wideWidthPx) * edgeMute * invView;
+        // appendThickSeg expects a half-width; style widths are full screen
+        // pixels, including on inactive meshes (QPainter/results parity).
+        const float  kThinHW        = 0.5f * float(edgeSpec.width) * invView;
+        const float  kWideHW        = 0.5f * float(edgeSpec.wideWidthPx) * invView;
         const QColor kEdgeColorThin = edgeSpec.color;
         const QColor kEdgeColorWide = edgeSpec.wideColor;
 
@@ -1257,7 +1271,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             float kBcHW[kBcOverlayCount + 1] = {};
             for (int t = 1; t <= kBcOverlayCount; ++t)
                 kBcHW[t] = float(bcStyle ? bcStyle->bcWidthForType(t) : 2.4)
-                           * edgeMute * invView;
+                           * 0.5f * invView;
 
             std::vector<QSGGeometry::Point2D> thinSegs, wideSegs;
             std::vector<QSGGeometry::Point2D> bcSegs[kBcOverlayCount];

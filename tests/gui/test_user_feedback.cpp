@@ -5,6 +5,11 @@
 #include "layers/swmmresultslayer.h"
 #include <openswmm/engine/openswmm_engine.h>
 #include "layers/swmm2dmeshlayer.h"
+#include "layers/swmm2dresultslayer.h"
+#include "render/sublayers/meshedgesublayer.h"
+#include "render/sublayers/meshbcsublayer.h"
+#include "render/sublayers/meshfillsublayer.h"
+#include "render/sublayers/meshnodesublayer.h"
 #include "map/mapcanvas.h"
 #include "map/scalebarsettings.h"
 #include "map/swmmlayerqsgrenderer.h"
@@ -57,6 +62,8 @@
 #include <QSettings>
 #include <QPersistentModelIndex>
 #include <QSGGeometryNode>
+#include <QSGFlatColorMaterial>
+#include <QSGTransformNode>
 #include <QStackedWidget>
 #include <QTest>
 #include <QTreeWidget>
@@ -82,6 +89,89 @@ class FeedbackRenderer : public SWMMLayerQSGRenderer {
 public:
     using SWMMLayerQSGRenderer::updatePaintNode;
 };
+class FeedbackMeshRenderer : public SWMM2DMeshQSGRenderer {
+public:
+    using SWMM2DMeshQSGRenderer::updatePaintNode;
+};
+class FeedbackMeshResultsRenderer : public SWMM2DResultsQSGRenderer {
+public:
+    using SWMM2DResultsQSGRenderer::updatePaintNode;
+};
+class FeedbackMeshSource : public IMesh2DSource {
+public:
+    int vertexCount() const override { return 4; }
+    int triangleCount() const override { return 2; }
+    int timeCount() const override { return 2; }
+    bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y,
+                          std::vector<double> &z, std::vector<std::array<int,3>> &cells) override {
+        x={0,1,0,1}; y={0,0,1,1}; z={0,0,0,0}; cells={{0,1,3},{0,3,2}};
+        return true;
+    }
+    bool readDepthsAt(int t, std::vector<float> &depths) override {
+        if (t<0 || t>=timeCount()) return false;
+        depths={1,1}; return true;
+    }
+    QDateTime simTimeAt(int t) const override {
+        return QDateTime(QDate(2026,1,1),QTime()).addSecs(t*60);
+    }
+    openswmmvis::io::CoordinateReference coordinateReference() const override {
+        openswmmvis::io::CoordinateReference ref;
+        ref.metresPerModelUnit=1;ref.storedUnits="m";ref.declared=true;return ref;
+    }
+};
+mesh::MeshResult edgeFixture() {
+    mesh::MeshResult mesh;
+    for (const QPointF &point : {QPointF(0,0), QPointF(1,0), QPointF(0,1), QPointF(1,1)}) {
+        mesh::MeshVertex vertex; vertex.xy=point; vertex.z=.5*point.x()+.25*point.y();
+        mesh.vertices.append(vertex);
+    }
+    mesh::MeshTriangle first; first.v0=0; first.v1=1; first.v2=3;
+    mesh::MeshTriangle second; second.v0=0; second.v1=3; second.v2=2;
+    mesh.triangles={first,second}; mesh.ok=true;
+    return mesh;
+}
+void isolateMeshEdges(SWMM2DMeshLayer &layer) {
+    layer.setActiveMesh(true);
+    layer.setEdgeZoomMinCellPx(0);
+    layer.meshFillSublayer()->setVisible(false);
+    layer.meshNodeSublayer()->setVisible(false);
+    layer.meshBcSublayer()->setVisible(false);
+    layer.meshEdgeSublayer()->edgeStyle()->setUseSlopeDrivenWidth(false);
+}
+QImage renderMeshEdges(QGraphicsScene &scene) {
+    QImage image(360,360,QImage::Format_ARGB32_Premultiplied); image.fill(Qt::white);
+    QPainter painter(&image);
+    scene.render(&painter,QRectF(0,0,360,360),QRectF(-.1,-1.1,1.2,1.2));
+    return image;
+}
+int bottomEdgeWidth(const QImage &image, QColor color) {
+    int pixels=0;
+    for (int y=310;y<350;++y) if (image.pixelColor(180,y)==color) ++pixels;
+    return pixels;
+}
+QSGGeometryNode *meshEdgePass(QSGNode *root, int index) {
+    QSGNode *node=root ? root->firstChild() : nullptr;
+    while (node && index-- > 0) node=node->nextSibling();
+    return node && node->type()==QSGNode::GeometryNodeType
+        ? static_cast<QSGGeometryNode *>(node) : nullptr;
+}
+QSGGeometryNode *populatedFlatNode(QSGNode *root) {
+    if (!root) return nullptr;
+    if (root->type()==QSGNode::GeometryNodeType) {
+        auto *node=static_cast<QSGGeometryNode *>(root);
+        if (node->geometry()->vertexCount()>0 && dynamic_cast<QSGFlatColorMaterial *>(node->material()))
+            return node;
+    }
+    for (auto *child=root->firstChild();child;child=child->nextSibling())
+        if (auto *node=populatedFlatNode(child)) return node;
+    return nullptr;
+}
+qreal meshStrokeWidth(QSGTransformNode *root, QSGGeometryNode *node) {
+    if (!node || node->geometry()->vertexCount()<6) return 0;
+    const auto *points=node->geometry()->vertexDataAsPoint2D();
+    return root->matrix().mapVector(QVector3D(points[0].x-points[2].x,
+                                             points[0].y-points[2].y,0)).length();
+}
 bool hasVertexColor(QSGNode *root, QColor color) {
     if (!root) return false;
     if (root->type()==QSGNode::GeometryNodeType) {
@@ -103,6 +193,10 @@ QString artifactPath(const QString &name) {
 }
 QString fixture() {
     return artifactPath("model.inp");
+}
+QString meshEdgeArtifact(const QString &name) {
+    return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
+        .absoluteFilePath("../../../workplans/artifacts/mesh-edge-rendering/"+name);
 }
 }
 
@@ -402,6 +496,150 @@ private slots:
         symbol.outlineWidth=0; layer->setJunctionSymbol(symbol);
         root.reset(renderer.updatePaintNode(root.release(),nullptr));
         QVERIFY(!hasVertexColor(root.get(),symbol.outlineColor));
+    }
+    void cpuMeshEdgesApplyLiveColorAndWidth_data() {
+        QTest::addColumn<bool>("active");
+        QTest::newRow("active") << true;
+        QTest::newRow("inactive") << false;
+    }
+    void cpuMeshEdgesApplyLiveColorAndWidth() {
+        QFETCH(bool,active);
+        SWMM2DMeshLayer layer(edgeFixture(),{}); isolateMeshEdges(layer); layer.setActiveMesh(active);
+        QGraphicsScene scene; layer.populateScene(&scene,layer.extent(),nullptr);
+        auto *style=layer.meshEdgeSublayer()->edgeStyle();
+        const QColor red(220,20,30), blue(20,60,220);
+        style->setColor(red); style->setLineWidthPx(4);
+        const QImage first=renderMeshEdges(scene);
+        QVERIFY(QDir().mkpath(QFileInfo(meshEdgeArtifact("red-4px.png")).absolutePath()));
+        QVERIFY(first.save(meshEdgeArtifact(active ? "active-red-4px.png" : "inactive-red-4px.png")));
+        QVERIFY(qAbs(bottomEdgeWidth(first,red)-4)<=1);
+        style->setColor(blue); style->setLineWidthPx(8);
+        const QImage second=renderMeshEdges(scene);
+        QVERIFY(second.save(meshEdgeArtifact(active ? "active-blue-8px.png" : "inactive-blue-8px.png")));
+        QVERIFY(qAbs(bottomEdgeWidth(second,blue)-8)<=1);
+        QVERIFY(first!=second);
+        layer.depopulateScene(&scene);
+    }
+    void cpuMeshSlopeAndWallStylesApplyLive() {
+        SWMM2DMeshLayer layer(edgeFixture(),{}); isolateMeshEdges(layer);
+        QGraphicsScene scene; layer.populateScene(&scene,layer.extent(),nullptr);
+        auto *style=layer.meshEdgeSublayer()->edgeStyle();
+        const QColor thin(20,60,220), wide(240,110,20), wall(30,180,60);
+        style->setColor(thin); style->setLineWidthPx(4);
+        style->setWideColor(wide); style->setWideWidthPx(8);
+        style->setSlopeBreak(.7); style->setUseSlopeDrivenWidth(true);
+        const QImage slope=renderMeshEdges(scene);
+        QVERIFY(slope.save(meshEdgeArtifact("slope-wide-8px.png")));
+        QVERIFY(qAbs(bottomEdgeWidth(slope,wide)-8)<=1);
+        style->setUseSlopeDrivenWidth(false);
+        QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene),thin)-4)<=1);
+        layer.meshBcSublayer()->setVisible(true);
+        layer.meshBcSublayer()->bcStyle()->setWallColor(wall);
+        QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene),wall)-4)<=1);
+        layer.meshBcSublayer()->bcStyle()->setWallVisible(false);
+        QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene),thin)-4)<=1);
+        layer.depopulateScene(&scene);
+    }
+    void gpuMeshEdgesApplyLiveColorAndPixelWidth_data() {
+        QTest::addColumn<bool>("active"); QTest::addColumn<int>("viewSize");
+        QTest::newRow("active-360") << true << 360;
+        QTest::newRow("active-720") << true << 720;
+        QTest::newRow("inactive-360") << false << 360;
+        QTest::newRow("inactive-720") << false << 720;
+    }
+    void gpuMeshEdgesApplyLiveColorAndPixelWidth() {
+        QFETCH(bool,active); QFETCH(int,viewSize);
+        SWMM2DMeshLayer layer(edgeFixture(),{}); isolateMeshEdges(layer); layer.setActiveMesh(active);
+        FeedbackMeshRenderer renderer; renderer.setWidth(viewSize); renderer.setHeight(viewSize);
+        renderer.setLayer(&layer); renderer.setMapExtent(MapExtent(-.1,-.1,1.1,1.1));
+        auto *style=layer.meshEdgeSublayer()->edgeStyle();
+        const QColor red(220,20,30), blue(20,60,220);
+        style->setColor(red); style->setLineWidthPx(4);
+        std::unique_ptr<QSGTransformNode> root(static_cast<QSGTransformNode *>(renderer.updatePaintNode(nullptr,nullptr)));
+        auto *thin=meshEdgePass(root.get(),2); QVERIFY(thin);
+        QCOMPARE(static_cast<QSGFlatColorMaterial *>(thin->material())->color(),red);
+        QVERIFY(qAbs(meshStrokeWidth(root.get(),thin)-4)<.01);
+        style->setColor(blue); style->setLineWidthPx(8);
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(),nullptr)));
+        thin=meshEdgePass(root.get(),2); QVERIFY(thin);
+        QCOMPARE(static_cast<QSGFlatColorMaterial *>(thin->material())->color(),blue);
+        QVERIFY(qAbs(meshStrokeWidth(root.get(),thin)-8)<.01);
+        style->setUseSlopeDrivenWidth(true); style->setSlopeBreak(.7);
+        style->setWideWidthPx(12); style->setWideColor(red);
+        // A simultaneous selection edit must not swallow the style update.
+        layer.setHighlightedEdges({0});
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(),nullptr)));
+        auto *wide=meshEdgePass(root.get(),3); QVERIFY(wide);
+        QCOMPARE(static_cast<QSGFlatColorMaterial *>(wide->material())->color(),red);
+        QVERIFY(qAbs(meshStrokeWidth(root.get(),wide)-12)<.01);
+        renderer.setLayer(nullptr);
+        const auto detachedRevision=renderer.contentRevision();
+        style->setColor(blue);
+        QCOMPARE(renderer.contentRevision(),detachedRevision);
+    }
+    void meshBoundaryPreferencesApplyLiveColorAndWidth() {
+        auto *prefs=PreferencesManager::instance();
+        const QColor oldColor=prefs->meshBcColor(1); const double oldWidth=prefs->meshBcWidthPx(1);
+        const auto restore=qScopeGuard([&]{prefs->setMeshBcColor(1,oldColor);prefs->setMeshBcWidthPx(1,oldWidth);});
+        SWMM2DMeshLayer layer(edgeFixture(),{}); isolateMeshEdges(layer); layer.setActiveMesh(false);
+        mesh::MeshEdgeBC bc; bc.type=mesh::MeshBCTypes::Type::NormalFlow; bc.slope=.01;
+        QVERIFY(layer.applyMeshEdgeBC(0,2,bc)); layer.meshBcSublayer()->setVisible(true);
+        auto *style=layer.meshBcSublayer()->bcStyle();
+        style->setWallVisible(false);
+        QGraphicsScene scene; layer.populateScene(&scene,layer.extent(),nullptr);
+        FeedbackMeshRenderer renderer; renderer.setWidth(360);renderer.setHeight(360);
+        renderer.setLayer(&layer);renderer.setMapExtent(MapExtent(-.1,-.1,1.1,1.1));
+        const QColor purple(160,30,190); prefs->setMeshBcColor(1,purple);prefs->setMeshBcWidthPx(1,6);
+        QCOMPARE(style->bcColorForType(1),purple); QCOMPARE(style->bcWidthForType(1),6.);
+        QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene),purple)-6)<=1);
+        std::unique_ptr<QSGTransformNode> root(static_cast<QSGTransformNode *>(renderer.updatePaintNode(nullptr,nullptr)));
+        auto *normal=meshEdgePass(root.get(),4); QVERIFY(normal);
+        QCOMPARE(static_cast<QSGFlatColorMaterial *>(normal->material())->color(),purple);
+        QVERIFY(qAbs(meshStrokeWidth(root.get(),normal)-6)<.01);
+        const QColor orange(240,110,20); style->setCustomized(true);
+        style->setBcColor(1,orange);style->setBcWidth(1,12);
+        QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene),orange)-12)<=1);
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(),nullptr)));
+        normal=meshEdgePass(root.get(),4); QVERIFY(normal);
+        QCOMPARE(static_cast<QSGFlatColorMaterial *>(normal->material())->color(),orange);
+        QVERIFY(qAbs(meshStrokeWidth(root.get(),normal)-12)<.01);
+        prefs->setMeshBcColor(1,purple);prefs->setMeshBcWidthPx(1,2);
+        QCOMPARE(style->bcColorForType(1),orange); QCOMPARE(style->bcWidthForType(1),12.);
+        layer.depopulateScene(&scene);
+    }
+    void meshResultsEdgesUpdateDuringSelectionAndAnimation_data() {
+        QTest::addColumn<bool>("animate");
+        QTest::newRow("selection") << false;
+        QTest::newRow("animation") << true;
+    }
+    void meshResultsEdgesUpdateDuringSelectionAndAnimation() {
+        QFETCH(bool,animate);
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FeedbackMeshSource>());layer.setCurrentTimeIndex(0);
+        for (auto *sub:layer.sublayers()) sub->setVisible(false);
+        layer.meshEdgeSublayer()->setVisible(true);
+        auto *style=layer.meshEdgeSublayer()->edgeStyle();
+        const QColor red(220,20,30),blue(20,60,220);
+        style->setColor(red);style->setLineWidthPx(4);
+        QGraphicsScene scene;layer.populateScene(&scene,layer.extent(),nullptr);
+        QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene),red)-4)<=1);
+        FeedbackMeshResultsRenderer renderer;renderer.setWidth(360);renderer.setHeight(360);
+        renderer.setLayer(&layer);renderer.setMapExtent(MapExtent(-.1,-.1,1.1,1.1));
+        std::unique_ptr<QSGTransformNode> root(static_cast<QSGTransformNode *>(renderer.updatePaintNode(nullptr,nullptr)));
+        auto *edge=populatedFlatNode(root.get());QVERIFY(edge);
+        QCOMPARE(static_cast<QSGFlatColorMaterial *>(edge->material())->color(),red);
+        QVERIFY(qAbs(meshStrokeWidth(root.get(),edge)-4)<.01);
+        style->setColor(blue);style->setLineWidthPx(8);
+        QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene),blue)-8)<=1);
+        if (animate) layer.setCurrentTimeIndex(1); else layer.highlightCells({0});
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(),nullptr)));
+        QCOMPARE(static_cast<QSGFlatColorMaterial *>(edge->material())->color(),blue);
+        QVERIFY(qAbs(meshStrokeWidth(root.get(),edge)-8)<.01);
+        renderer.setLayer(nullptr);
+        const auto detachedRevision=renderer.contentRevision();
+        style->setColor(red);
+        QCOMPARE(renderer.contentRevision(),detachedRevision);
+        layer.depopulateScene(&scene);
     }
 };
 

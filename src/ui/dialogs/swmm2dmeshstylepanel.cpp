@@ -409,6 +409,13 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
         symForm->addRow(tr("S&how edges at:"), edgeZoom);
         lay->addWidget(symBox);
 
+        auto *colourNote = new QLabel(tr(
+            "While Boundary Conditions is shown, its Wall / interior edges "
+            "colour overrides these colours. Turn that row off to use the "
+            "Mesh Edges colours."), page);
+        colourNote->setWordWrap(true);
+        lay->addWidget(colourNote);
+
         auto *slopeBox  = new QGroupBox(tr("Slope emphasis"), page);
         auto *slopeForm = new QFormLayout(slopeBox);
         auto *useSlope = new QCheckBox(tr("Widen steep edges"), slopeBox);
