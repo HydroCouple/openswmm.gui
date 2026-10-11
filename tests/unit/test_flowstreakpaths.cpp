@@ -1,0 +1,171 @@
+// GPL-3.0-or-later
+#include "render/flowstreakpaths.h"
+#include "render/flowstreakcache.h"
+#include "mesh/meshcellgeom.h"
+#include <QTest>
+#include <QTimer>
+#include <QSignalSpy>
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <limits>
+using namespace OpenSWMM::Render;
+
+static FlowStreakInput square()
+{
+    FlowStreakInput in;in.mesh=std::make_shared<FlowStreakMesh>();
+    in.mesh->vertices={{0,0},{10,0},{10,10},{0,10}};
+    in.mesh->triangles={{0,1,2},{0,2,3}};
+    in.mesh->grid.rebuild({QRectF(0,0,10,10),QRectF(0,0,10,10)});
+    in.triangles={0,1};in.fields.resize(2);
+    for(auto &f:in.fields) {f.vx=2;f.speed=2;f.depth={1,1,1};f.exits=7;}
+    in.coverage={0,0,10,10};in.spacing=1;in.step=.25;in.maxLength=8;
+    return in;
+}
+class FlowStreakPathsTest:public QObject {
+    Q_OBJECT
+private slots:
+    void velocityUnits() {
+        for(int nv:{3,4}) for(double depth:{.25,1.,2.}) for(double speed:{-2.,2.}) {
+            float len[4]={1,1,1,1},nx[4]={1,0,-1,0},ny[4]={0,1,0,-1},flux[4];
+            if(nv==3) {nx[1]=-.6;ny[1]=.8;nx[2]=-.6;ny[2]=-.8;}
+            for(int e=0;e<nv;++e)flux[e]=float(depth*speed*nx[e]*len[e]);
+            double u=0,v=0;
+            QVERIFY(mesh::cellVelocity(0,nv,flux,len,nx,ny,depth,.001,u,v));
+            QVERIFY(std::abs(u-speed)<1e-6);QVERIFY(std::abs(v)<1e-6);
+            QVERIFY(!mesh::cellVelocity(0,nv,flux,len,nx,ny,0,0,u,v));QCOMPARE(u,0.);
+            QVERIFY(!mesh::cellVelocity(0,nv,flux,len,nx,ny,std::numeric_limits<double>::quiet_NaN(),0,u,v));
+        }
+    }
+    void uniformAdvectionAndDeterminism() {
+        auto in=square();std::atomic_bool cancel=false;
+        const auto a=buildFlowStreakPaths(in,cancel),b=buildFlowStreakPaths(in,cancel);
+        QVERIFY(a.paths.size()>20);QCOMPARE(a.paths.size(),b.paths.size());
+        for(size_t i=0;i<a.paths.size();++i) {
+            const auto &p=a.paths[i];QCOMPARE(p.points.size(),b.paths[i].points.size());
+            for(size_t j=0;j<p.points.size();++j) {
+                const auto &pt=p.points[j];QCOMPARE(pt.position,b.paths[i].points[j].position);
+                QVERIFY(std::abs(pt.position.y()-p.points[0].position.y())<1e-8);
+                QVERIFY(std::abs(pt.position.x()-p.points[0].position.x()-2*pt.seconds)<1e-5);
+                QVERIFY(in.coverage.contains(pt.position));
+            }
+        }
+    }
+    void exactShorelineAndMissingData() {
+        auto in=square();std::atomic_bool cancel=false;
+        in.fields[0].depth={1,-1,-1};in.fields[1].depth={1,-1,1};
+        auto batch=buildFlowStreakPaths(in,cancel);QVERIFY(!batch.paths.empty());
+        for(const auto &p:batch.paths)for(const auto &pt:p.points)QVERIFY(pt.position.x()<=5+1e-8);
+        for(auto &f:in.fields)f.depth.fill(std::numeric_limits<float>::quiet_NaN());
+        QVERIFY(buildFlowStreakPaths(in,cancel).paths.empty());
+    }
+    void blockedEdgesAndDisconnectedMesh() {
+        auto in=square();std::atomic_bool cancel=false;
+        for(auto &f:in.fields)f.exits=0;
+        auto batch=buildFlowStreakPaths(in,cancel);QVERIFY(!batch.paths.empty());
+        for(const auto &p:batch.paths) {
+            const bool above=p.points.front().position.y()>p.points.front().position.x();
+            for(const auto &pt:p.points)if(above)QVERIFY(pt.position.y()+1e-8>=pt.position.x());
+        }
+        in.mesh->triangles.push_back({0,2,3});in.mesh->neighbors.clear();in.mesh->prepare(cancel);
+        QCOMPARE(in.mesh->neighbors[0][1],-1); // non-manifold diagonal must not connect
+    }
+    void budgetAndCancellation() {
+        auto in=square();in.maxPoints=100;in.maxPaths=5;std::atomic_bool cancel=false;
+        auto b=buildFlowStreakPaths(in,cancel);QVERIFY(b.pointCount()<=100);QVERIFY(b.paths.size()<=5);
+        cancel=true;QVERIFY(buildFlowStreakPaths(in,cancel).paths.empty());
+        QVERIFY(FlowStreakCache::fitsBudget(1u<<20,10000));
+        QVERIFY(!FlowStreakCache::fitsBudget(192u<<20,1));
+        QVERIFY(!FlowStreakCache::fitsBudget(1u<<20,10000000));
+        cancel=false;in.maxPaths=0;QVERIFY(buildFlowStreakPaths(in,cancel).paths.empty());
+    }
+    void seedOverlapAndLargeOrigin() {
+        auto in=square();std::atomic_bool cancel=false;
+        in.seedBudgetArea=100;in.maxPaths=30;
+        const auto full=buildFlowStreakPaths(in,cancel);
+        in.coverage={0,0,8,10};const auto clipped=buildFlowStreakPaths(in,cancel);
+        int matched=0;
+        for(const auto &a:clipped.paths)for(const auto &b:full.paths)
+            if(a.points.front().position==b.points.front().position) {++matched;QCOMPARE(a.offset,b.offset);break;}
+        QCOMPARE(matched,int(clipped.paths.size()));
+        const QPointF origin(7000000,-4000000);
+        for(auto &v:in.mesh->vertices)v+=origin;
+        in.mesh->grid.rebuild({QRectF(origin,QSizeF(10,10)),QRectF(origin,QSizeF(10,10))});
+        in.coverage.translate(origin);const auto big=buildFlowStreakPaths(in,cancel);
+        QVERIFY(!big.paths.empty());
+        for(const auto &p:big.paths)for(const auto &v:p.points)
+            QVERIFY(std::abs(v.position.x()-p.points.front().position.x()-2*v.seconds)<1e-5);
+    }
+    void phaseHasNoWrappingConnector() {
+        QCOMPARE(flowStreakOpacity(9,10,2,0,0,true),0.);
+        QCOMPARE(flowStreakOpacity(0,10,2,0,1,true),.5);
+        QCOMPARE(flowStreakOpacity(5,10,2,0,1,false),0.);
+        QCOMPARE(flowStreakOpacity(0,10,2,0,13,true),.5);
+    }
+    void workerCacheCoalescingAndInvalidation() {
+        FlowStreakCache cache;int captures=0;
+        auto capture=[&]{++captures;return square();};
+        cache.request("first",capture);cache.request("first",capture);QCOMPARE(captures,1);
+        for(int i=0;i<20;++i) cache.request(QByteArray::number(i),capture);
+        QTRY_VERIFY_WITH_TIMEOUT(!cache.busy(),5000);
+        QVERIFY(cache.lookup("19"));QVERIFY(cache.builds()<=2);
+        const int before=cache.builds();cache.request("19",capture);QCOMPARE(cache.builds(),before);
+        QVERIFY(cache.cachedBytes()<(32u<<20));cache.clear();QVERIFY(!cache.lookup("19"));
+        cache.request("cancel",capture);cache.clear();QTRY_VERIFY_WITH_TIMEOUT(!cache.busy(),5000);
+        QVERIFY(!cache.lookup("cancel"));
+    }
+    void captureWaitSettlesOnlyWorkerEvents() {
+        FlowStreakCache cache;
+        bool unrelatedEvent=false;
+        QTimer::singleShot(0,this,[&]{unrelatedEvent=true;});
+        cache.request("old",[]{return square();});
+        cache.request("capture",[]{return square();});
+        cache.waitForDone();
+        QVERIFY(!cache.busy());QVERIFY(cache.lookup("capture"));
+        QVERIFY(!unrelatedEvent);
+        const int builds=cache.builds();QCoreApplication::processEvents();
+        QVERIFY(unrelatedEvent);QCOMPARE(cache.builds(),builds);
+        cache.request("cancel",[]{return square();});cache.clear();
+        cache.waitForDone();QVERIFY(!cache.lookup("cancel"));
+    }
+    void scaleBenchmark() {
+        if(!qEnvironmentVariableIsSet("FLOW_STREAK_SCALE")) QSKIP("Optional 20k/160k/1.6M triangle benchmark");
+        QJsonArray cases;
+        for(int n:{100,283,895}) {
+            QElapsedTimer clock;clock.start();
+            FlowStreakInput in;in.mesh=std::make_shared<FlowStreakMesh>();auto &mesh=*in.mesh;
+            for(int y=0;y<=n;++y)for(int x=0;x<=n;++x)mesh.vertices.append(QPointF(x,y));
+            auto id=[n](int x,int y){return y*(n+1)+x;};
+            QVector<QRectF> boxes;
+            for(int y=0;y<n;++y)for(int x=0;x<n;++x) {
+                mesh.triangles.push_back({id(x,y),id(x+1,y),id(x+1,y+1)});
+                mesh.triangles.push_back({id(x,y),id(x+1,y+1),id(x,y+1)});
+                boxes.append(QRectF(x,y,1,1));boxes.append(QRectF(x,y,1,1));
+            }
+            mesh.grid.rebuild(boxes);boxes.clear();boxes.squeeze();
+            const double snapshotMs=clock.nsecsElapsed()/1e6;
+            in.coverage=QRectF(n*.45,n*.45,n*.1,n*.1);in.spacing=n/300.;in.step=n/2000.;in.maxLength=n*.016;
+            const auto ids=mesh.grid.query(in.coverage);in.triangles.assign(ids.begin(),ids.end());
+            std::sort(in.triangles.begin(),in.triangles.end());
+            in.fields.resize(in.triangles.size());for(auto &f:in.fields){f.vx=2;f.speed=2;f.depth={1,1,1};f.exits=7;}
+            QVERIFY(FlowStreakCache::fitsBudget(mesh.bytes(),in.fields.size()));
+            QJsonArray runs;std::atomic_bool cancel=false;
+            for(int i=0;i<3;++i) {
+                clock.restart();auto batch=buildFlowStreakPaths(in,cancel);
+                const double elapsed=clock.nsecsElapsed()/1e6;
+                QVERIFY(!batch.paths.empty());QVERIFY(batch.pointCount()<=in.maxPoints);
+                runs.append(QJsonObject{{"ms",elapsed},{"points",batch.pointCount()},{"paths",int(batch.paths.size())},
+                    {"pathBytes",double(batch.bytes())}});
+            }
+            cases.append(QJsonObject{{"triangles",int(mesh.triangles.size())},{"coveredTriangles",int(in.fields.size())},
+                {"snapshotMs",snapshotMs},{"meshPeakBytes",double(mesh.bytes())},{"runs",runs},
+                {"overviewFitsBudget",FlowStreakCache::fitsBudget(mesh.bytes(),mesh.triangles.size())}});
+        }
+        QDir().mkpath("workplans/artifacts/flow_streaks");QFile f("workplans/artifacts/flow_streaks/path-scale.json");
+        QVERIFY(f.open(QIODevice::WriteOnly));f.write(QJsonDocument(cases).toJson());
+    }
+};
+QTEST_GUILESS_MAIN(FlowStreakPathsTest)
+#include "test_flowstreakpaths.moc"

@@ -13,6 +13,7 @@
 #include "map/scalebarsettings.h"
 
 #include <QHash>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QList>
 #include <QPointer>
@@ -346,6 +347,11 @@ public:
     void refresh();
     void refreshLayerItems();
 
+    // Current displayed hydraulic state and phase, with flow/contour workers
+    // settled before the image is returned. A failure never exports a
+    // silently incomplete streak layer.
+    QPixmap captureMap(QString *error = nullptr);
+
     // ----- Pan state (suppresses tile reloads during drag) ----------------
 
     void beginPan();
@@ -479,6 +485,8 @@ private:
 
     // ----- Refresh timer --------------------------------------------------
     QTimer                 *m_refreshTimer   = nullptr;
+    QTimer                 *m_flowTimer = nullptr;
+    QElapsedTimer m_flowClock;
 
     // ----- Phase 0.9 — per-channel dirty / debounce -----------------------
     /// Per-channel debounce timers; null until first invalidate() arms them.

@@ -720,7 +720,8 @@ public:
                     p->setBrush(colors[cell]); p->drawConvexPolygon(pts,3);
                 }
                 p->restore();
-            } else if (sub == bandSub) paintBandPass();
+            } else if (sub == layer_->flowStreakSublayer()) layer_->paintFlowStreaks(p, exposed);
+            else if (sub == bandSub) paintBandPass();
             else if (sub == isolineSub) paintIsolinePass();
             else if (sub == layer_->meshEdgeSublayer()) paintEdgePass();
             else if (sub == layer_->meshNodeSublayer()) paintNodePass();
@@ -1392,12 +1393,12 @@ bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float>& v
         const double depth = t.depths[c];
         if (depth < dry_depth_) continue;
         double qx = 0.0, qy = 0.0;
-        if (!mesh::rt0CellDischarge(static_cast<int>(c), cellVertexCount(cells_[c]),
+        if (!mesh::cellVelocity(static_cast<int>(c), cellVertexCount(cells_[c]),
                                     t.flux.data(), edge_length_.data(),
-                                    edge_nx_.data(), edge_ny_.data(), qx, qy))
+                                    edge_nx_.data(), edge_ny_.data(), depth, dry_depth_, qx, qy))
             continue;
-        vx[c] = static_cast<float>(qx / depth);
-        vy[c] = static_cast<float>(qy / depth);
+        vx[c] = static_cast<float>(qx);
+        vy[c] = static_cast<float>(qy);
     }
     return true;
 }
@@ -1726,6 +1727,11 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireMeshRepaint(m_smoothDepthFillSublayer);
     wireMeshRepaint(m_isolineSublayer);
     wireArrowRepaint(m_velocityVectorSublayer);
+    m_flowStreakSublayer = new OpenSWMM::Render::FlowStreakSublayer(this);
+    m_flowCache = new OpenSWMM::Render::FlowStreakCache(this);
+    wireMeshRepaint(m_flowStreakSublayer);
+    connect(m_flowCache, &OpenSWMM::Render::FlowStreakCache::ready,
+            this, &SWMM2DResultsLayer::flowStreaksChanged);
     surface_pool_.setMaxThreadCount(1);
 }
 
@@ -1760,6 +1766,7 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DResultsLayer::sublayers() const
             m_isolineSublayer,
             m_meshNodeSublayer,
             m_velocityVectorSublayer,
+            m_flowStreakSublayer,
         };
         for (auto *s : defaults)
             if (s) m_sublayerOrder.append(s);
@@ -3655,9 +3662,9 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
         if (depth < dryEps || !cellHasSurface(c)) continue;
 
         double vx_model = 0.0, vy_model = 0.0;
-        if (!mesh::rt0CellDischarge(c, cellVertexCount(cells_[size_t(c)]),
+        if (!mesh::cellVelocity(c, cellVertexCount(cells_[size_t(c)]),
                                     current_flux_.data(), edge_length_.data(),
-                                    edge_nx_.data(), edge_ny_.data(),
+                                    edge_nx_.data(), edge_ny_.data(), depth, dryEps,
                                     vx_model, vy_model))
             continue;
 
@@ -3996,6 +4003,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
 
     // Velocity arrows — visible only when the feed has data. Delegates to
     // the sublayer so the rows match the painted colour bands exactly.
+    if (m_flowStreakSublayer->isVisible()) out.append(m_flowStreakSublayer->legendSymbolItems());
     if (velocityVectorsVisible() && have_velocity_) {
         if (m_velocityVectorSublayer) {
             out.append(m_velocityVectorSublayer->legendSymbolItems());
@@ -4348,6 +4356,7 @@ SWMM2DResultsLayer::styleSubjects()
     add(m_contourBandSublayer,      sect);
     add(m_isolineSublayer,          sect);
     add(m_velocityVectorSublayer,   sect);
+    add(m_flowStreakSublayer,       sect);
     for (auto *sub : sublayers())
         if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) add(sub, sect);
 

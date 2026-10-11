@@ -5601,7 +5601,12 @@ void SWMMVis::onExportMap()
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == QStringLiteral("png"))
     {
-        const QPixmap pm = pw->canvas()->grab();
+        QString error;
+        const QPixmap pm = pw->canvas()->captureMap(&error);
+        if (pm.isNull()) {
+            QMessageBox::warning(this, tr("Export Map"), error);
+            return;
+        }
         if (!pm.save(path, "PNG"))
         {
             QMessageBox::critical(this, tr("Export Map failed"),
@@ -8851,7 +8856,13 @@ void SWMMVis::onCopyActiveView()
         onLogMessage(tr("Copy: no active map view."), OpenSWMMVisLogMessage::Warning);
         return;
     }
-    QGuiApplication::clipboard()->setPixmap(pw->canvas()->grab());
+    QString error;
+    const QPixmap image = pw->canvas()->captureMap(&error);
+    if (image.isNull()) {
+        onLogMessage(error, OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    QGuiApplication::clipboard()->setPixmap(image);
     onLogMessage(tr("Copied map view to clipboard."));
 }
 
@@ -8867,7 +8878,12 @@ void SWMMVis::onPrintActiveView()
     QPrintDialog dlg(&printer, this);
     if (dlg.exec() != QDialog::Accepted) return;
 
-    const QPixmap pm = pw->canvas()->grab();
+    QString error;
+    const QPixmap pm = pw->canvas()->captureMap(&error);
+    if (pm.isNull()) {
+        QMessageBox::warning(this, tr("Print"), error);
+        return;
+    }
     QPainter painter(&printer);
     const QRect vp = painter.viewport();
     const QPixmap scaled = pm.scaled(vp.size(), Qt::KeepAspectRatio,

@@ -73,6 +73,8 @@ class RuleList;   // Slice B.5b — see ruleList() override below.
 #include "render/sublayers/meshnodesublayer.h"
 #include "render/sublayers/scalarfillsublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
+#include "render/sublayers/flowstreaksublayer.h"
+#include "render/flowstreakcache.h"
 
 // ---------------------------------------------------------------------------
 // IMesh2DSource — data-source abstraction shared by live + replay modes
@@ -203,7 +205,7 @@ public:
      * \param flux  Resized to \c mesh::edgeSlotCount(triangleCount()), indexed
      *              \c mesh::edgeSlot(cell, localEdge) (stride mesh::kEdgeStride;
      *              slot 3 of a triangle is padding).
-     *              Units m² s⁻¹; positive flows outward through the edge's
+     *              Units m³ s⁻¹; positive flows outward through the edge's
      *              outward normal.
      * \returns true on success. Default implementation returns false so callers
      *          can probe whether the source supports flux data without an error.
@@ -1220,7 +1222,7 @@ private:
     std::vector<float>             vvy_;          ///< per-vertex velocity y (scene units)
 
     // CF.2 — per-tick flux + time-invariant edge geometry pulled once from the source.
-    std::vector<float>             current_flux_;     ///< [mesh::edgeSlot(cell, e)], m^2/s.
+    std::vector<float>             current_flux_;     ///< [mesh::edgeSlot(cell, e)], m^3/s.
     std::vector<float>             edge_length_;      ///< [mesh::edgeSlot(cell, e)], m.
     std::vector<float>             edge_nx_;          ///< [mesh::edgeSlot(cell, e)], dimensionless.
     std::vector<float>             edge_ny_;          ///< [mesh::edgeSlot(cell, e)], dimensionless.
@@ -1315,6 +1317,22 @@ private:
     OpenSWMM::Render::SmoothDepthFillSublayer *m_smoothDepthFillSublayer = nullptr;
     OpenSWMM::Render::IsolineSublayer         *m_isolineSublayer        = nullptr;
     OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
+    OpenSWMM::Render::FlowStreakSublayer *m_flowStreakSublayer = nullptr;
+    OpenSWMM::Render::FlowStreakCache *m_flowCache = nullptr;
+    std::shared_ptr<OpenSWMM::Render::FlowStreakMesh> m_flowMesh;
+    quint64 m_flowGeomRevision = ~quint64(0);
+    QRectF m_flowCoverage;
+    double m_flowScale = 0, m_flowSeconds = 0, m_flowSeedArea = 0;
+    QByteArray m_flowKey;
+    struct FlowFrameKey {
+        quint64 revision;
+        QByteArray key;
+        QJsonObject settings;
+        QRectF coverage;
+        double scale;
+    };
+    std::vector<FlowFrameKey> m_flowFrameKeys;
+
 
     // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
     // from the default order in sublayers(); reordered via moveSublayer();
@@ -1371,6 +1389,21 @@ public:
         isolineSublayer() const { return m_isolineSublayer; }
     [[nodiscard]] OpenSWMM::Render::VelocityVectorSublayer *
         velocityVectorSublayer() const { return m_velocityVectorSublayer; }
+    OpenSWMM::Render::FlowStreakSublayer *flowStreakSublayer() const { return m_flowStreakSublayer; }
+    std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> flowStreaks(
+        const QRectF &view, double pixelsPerSceneUnit, quint64 displayedRevision);
+    void paintFlowStreaks(QPainter *, const QRectF &view);
+    bool prepareFlowStreaksForCapture(const QRectF &view, double pixelsPerSceneUnit);
+    void advanceFlowStreaks(double seconds);
+    double flowStreakSeconds() const { return m_flowSeconds; }
+    int flowStreakBuildCount() const { return m_flowCache->builds(); }
+    bool flowStreakBusy() const { return m_flowCache->busy(); }
+    QString flowStreakStatus() const;
+    bool flowStreaksEnabled() const;
+Q_SIGNALS:
+    void flowStreaksChanged(); // paths/phase only; never hydraulic invalidation
+public:
+
 
     /*! Slice U-6 — surface the 5 sublayer style bags as styleable subjects
      *  for the unified LayerStyleDialog. */

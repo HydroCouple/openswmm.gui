@@ -1,0 +1,181 @@
+// GPL-3.0-or-later
+#include "render/flowstreakpaths.h"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace OpenSWMM::Render {
+namespace {
+double cross(QPointF a, QPointF b) { return a.x()*b.y()-a.y()*b.x(); }
+double length(QPointF p) { return std::hypot(p.x(),p.y()); }
+std::array<double,3> weights(const FlowStreakMesh &mesh, int cell, QPointF p)
+{
+    const auto &t=mesh.triangles[size_t(cell)];
+    const auto a=mesh.vertices[t[0]], b=mesh.vertices[t[1]], c=mesh.vertices[t[2]];
+    const double det=cross(b-a,c-a);
+    if (!std::isfinite(det) || std::abs(det)<1e-20) return {-1,-1,-1};
+    const double v=cross(p-a,c-a)/det, w=cross(b-a,p-a)/det;
+    return {1-v-w,v,w};
+}
+bool inside(const std::array<double,3> &w)
+{ return w[0]>=-1e-9 && w[1]>=-1e-9 && w[2]>=-1e-9; }
+double depth(const FlowStreakField &f, const std::array<double,3> &w)
+{ return w[0]*f.depth[0]+w[1]*f.depth[1]+w[2]*f.depth[2]; }
+quint64 seedHash(qint64 x,qint64 y)
+{
+    quint64 h=quint64(x)*0x9e3779b97f4a7c15ULL ^ quint64(y)*0xbf58476d1ce4e5b9ULL;
+    h=(h^(h>>30))*0xbf58476d1ce4e5b9ULL;
+    h=(h^(h>>27))*0x94d049bb133111ebULL;
+    return h^(h>>31);
+}
+}
+
+void FlowStreakMesh::prepare(const std::atomic_bool &cancelled)
+{
+    if (neighbors.size()==triangles.size()) return;
+    struct Edge { int lo,hi,side; };
+    std::vector<Edge> edges; edges.reserve(triangles.size()*3);
+    for (int i=0;i<int(triangles.size());++i) {
+        if ((i%4096)==0 && cancelled.load()) return;
+        for(int e=0;e<3;++e) {
+            int a=triangles[size_t(i)][(e+1)%3],b=triangles[size_t(i)][(e+2)%3];
+            edges.push_back({std::min(a,b),std::max(a,b),i*3+e});
+        }
+    }
+    std::sort(edges.begin(),edges.end(),[](auto a,auto b) {
+        return a.lo<b.lo || (a.lo==b.lo && a.hi<b.hi);
+    });
+    if(cancelled.load()) return;
+    neighbors.assign(triangles.size(),{-1,-1,-1});
+    for(size_t i=0;i<edges.size();) {
+        size_t end=i+1;
+        while(end<edges.size() && edges[end].lo==edges[i].lo && edges[end].hi==edges[i].hi) ++end;
+        if(end==i+2 && edges[i].lo!=edges[i].hi) {
+            const int a=edges[i].side,b=edges[i+1].side;
+            neighbors[size_t(a/3)][a%3]=b/3; neighbors[size_t(b/3)][b%3]=a/3;
+        }
+        i=end;
+    }
+}
+size_t FlowStreakMesh::bytes() const
+{
+    return size_t(vertices.capacity())*sizeof(QPointF)
+        + triangles.capacity()*sizeof(triangles[0])
+        // Never inspect worker-owned neighbors on the UI thread. Account for
+        // their eventual allocation and the temporary edge-sort buffer.
+        + triangles.size()*(sizeof(std::array<int,3>)+3*3*sizeof(int))
+        + size_t(grid.cellOffsets.capacity()+grid.cellIndices.capacity())*sizeof(int)
+        + grid.seen.capacity()*sizeof(quint32);
+}
+size_t FlowStreakBatch::bytes() const
+{
+    size_t n=paths.capacity()*sizeof(FlowStreakPath);
+    for(const auto &p:paths) n+=p.points.capacity()*sizeof(FlowStreakPoint);
+    return n;
+}
+int FlowStreakBatch::pointCount() const
+{ int n=0; for(const auto &p:paths) n+=int(p.points.size()); return n; }
+
+FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &in,const std::atomic_bool &cancelled)
+{
+    FlowStreakBatch out;
+    if(!in.mesh || !std::isfinite(in.spacing) || !std::isfinite(in.step)
+       || !std::isfinite(in.maxLength) || in.spacing<=0 || in.step<=0 || in.maxLength<=0
+       || in.maxPaths<=0 || in.maxPoints<2
+       || !in.coverage.isValid() || in.fields.size()!=in.triangles.size()) return out;
+    auto &mesh=*in.mesh; mesh.prepare(cancelled);
+    if(cancelled.load() || mesh.neighbors.size()!=mesh.triangles.size()) return out;
+    auto field=[&](int tri)->const FlowStreakField* {
+        auto it=std::lower_bound(in.triangles.begin(),in.triangles.end(),tri);
+        if(it==in.triangles.end() || *it!=tri) return nullptr;
+        const auto &f=in.fields[size_t(it-in.triangles.begin())];
+        return std::isfinite(f.vx) && std::isfinite(f.vy) && std::isfinite(f.speed)
+            && f.speed>1e-8 ? &f : nullptr;
+    };
+    // World-anchored seeds. Density is bounded before visiting grid points.
+    const double spacing=std::max(in.spacing,std::sqrt(std::max(in.seedBudgetArea,in.coverage.width()*in.coverage.height())
+                                      /std::max(1,in.maxPaths)));
+    const double sx=std::floor(in.coverage.left()/spacing), sy=std::floor(in.coverage.top()/spacing);
+    if(!std::isfinite(sx) || !std::isfinite(sy) || std::abs(sx)>9e15 || std::abs(sy)>9e15) return out;
+    const int cols=std::min(4096,int(std::ceil(in.coverage.width()/spacing))+2);
+    const int rows=std::min(4096,int(std::ceil(in.coverage.height()/spacing))+2);
+    int points=0;
+    for(int y=0;y<rows && int(out.paths.size())<in.maxPaths;++y) {
+        for(int x=0;x<cols && int(out.paths.size())<in.maxPaths;++x) {
+            if(cancelled.load() || points>=in.maxPoints) return out;
+            const auto h=seedHash(qint64(sx)+x,qint64(sy)+y);
+            QPointF p((sx+x+0.15+0.7*double(h&65535)/65535)*spacing,
+                      (sy+y+0.15+0.7*double((h>>16)&65535)/65535)*spacing);
+            if(!in.coverage.contains(p)) continue;
+            int tri=-1; const int *b=nullptr,*e=nullptr;
+            mesh.grid.candidatesAtPoint(p.x(),p.y(),b,e);
+            for(auto i=b;i!=e;++i) {
+                const auto *f=field(*i);
+                if(f && inside(weights(mesh,*i,p)) && depth(*f,weights(mesh,*i,p))>in.cutoff) {tri=*i;break;}
+            }
+            if(tri<0) continue;
+            FlowStreakPath path; path.offset=float(double(h>>32)/4294967296.);
+            double time=0.;
+            path.points.push_back({p,0,field(tri)->speed});
+            // Piecewise constant native-cell velocity: trace each affine
+            // triangle exactly to an edge/shoreline, rather than stepping
+            // across a thin dry gap. Quad diagonals are ordinary internal edges.
+            for(int step=0;step<128 && points+int(path.points.size())<in.maxPoints;++step) {
+                const auto *f=field(tri); if(!f) break;
+                const QPointF v(f->vx,f->vy); const double speed=length(v);
+                if(!std::isfinite(speed) || speed<=1e-12) break;
+                const auto w=weights(mesh,tri,p), ahead=weights(mesh,tri,p+v);
+                if(!inside(w) || !(depth(*f,w)>in.cutoff)) break;
+                double dt=std::min(in.step,in.maxLength-path.length)/speed;
+                if(dt<=1e-12) break;
+                int edge=-1;
+                for(int k=0;k<3;++k) {
+                    const double dw=ahead[k]-w[k];
+                    if(dw < -1e-14) {
+                        const double crossing=std::max(0.,-w[k]/dw);
+                        if(crossing<=dt) {dt=crossing;edge=k;}
+                    }
+                }
+                bool shoreline=false;
+                const double dh=depth(*f,ahead)-depth(*f,w);
+                if(dh<0) {
+                    const double crossing=(in.cutoff-depth(*f,w))/dh;
+                    if(crossing<=dt) {dt=std::max(0.,crossing);shoreline=true;edge=-1;}
+                }
+                const QPointF next=p+v*dt;
+                if(!in.coverage.contains(next)) break;
+                if(dt>1e-12) {
+                    path.length+=length(next-p);time+=dt;p=next;
+                    path.points.push_back({p,float(time),f->speed});
+                }
+                if(shoreline || path.length>=in.maxLength) break;
+                if(edge>=0) {
+                    if(!(f->exits & (1<<edge))) break;
+                    const int neighbor=mesh.neighbors[size_t(tri)][edge];
+                    const auto *nf=field(neighbor);
+                    if(!nf || !(depth(*nf,weights(mesh,neighbor,p))>in.cutoff)) break;
+                    // The neighbor must point into itself at this crossing.
+                    const QPointF nv(nf->vx,nf->vy);
+                    const auto nw=weights(mesh,neighbor,p), na=weights(mesh,neighbor,p+nv);
+                    bool enters=true;
+                    for(int k=0;k<3;++k) if(nw[k]<1e-8 && na[k]-nw[k]<=0) enters=false;
+                    if(!enters) break;
+                    tri=neighbor;
+                }
+            }
+            if(path.points.size()>1 && path.length>in.step*0.2) {
+                points+=int(path.points.size());out.paths.push_back(std::move(path));
+            }
+        }
+    }
+    return out;
+}
+
+double flowStreakOpacity(double t,double duration,double tail,double offset,double elapsed,bool fade)
+{
+    if(!(tail>0) || !(duration>0)) return 0;
+    const double head=std::fmod(std::max(0.,elapsed)+offset*(duration+tail),duration+tail);
+    const double age=head-t;
+    return age>=0 && age<tail ? (fade ? 1-age/tail : 1.) : 0.;
+}
+} // namespace OpenSWMM::Render

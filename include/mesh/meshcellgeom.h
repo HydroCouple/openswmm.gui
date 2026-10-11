@@ -98,6 +98,20 @@ inline bool rt0CellDischarge(int cell, int nv,
     return true;
 }
 
+/*! Velocity in SI m/s from outward volumetric edge flux. Never substitute
+ * specific discharge for velocity, or divide by a dry/non-finite depth. */
+inline bool cellVelocity(int cell, int nv, const float *flux, const float *length,
+                         const float *nx, const float *ny, double depth,
+                         double dryDepth, double &vx, double &vy) noexcept
+{
+    vx = vy = 0.;
+    if (!std::isfinite(depth) || depth <= 0. || depth < dryDepth) return false;
+    double qx = 0., qy = 0.;
+    if (!rt0CellDischarge(cell, nv, flux, length, nx, ny, qx, qy)) return false;
+    vx = qx / depth; vy = qy / depth;
+    return std::isfinite(vx) && std::isfinite(vy);
+}
+
 /*! \brief Per-cell derived geometry shared by every consumer. */
 struct CellGeom
 {

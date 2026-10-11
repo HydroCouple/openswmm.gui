@@ -156,6 +156,25 @@ MapCanvas::MapCanvas(QWidget *parent)
     m_refreshTimer->setSingleShot(true);
     m_refreshTimer->setInterval(50);
     connect(m_refreshTimer, &QTimer::timeout, this, &MapCanvas::refreshLayerItems);
+    m_flowTimer = new QTimer(this);
+    m_flowTimer->setInterval(33);
+    m_flowTimer->setTimerType(Qt::PreciseTimer);
+    connect(m_flowTimer, &QTimer::timeout, this, [this] {
+        if (!isVisible() || window()->isMinimized()) { m_flowTimer->stop(); return; }
+        const double elapsed = m_flowClock.restart() / 1000.;
+        bool active = false;
+        for (auto *layer : std::as_const(m_layers)) {
+            auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
+            if (!flow || !flow->flowStreaksEnabled()) continue;
+            if (!flow->m_sceneBBox.intersects(QRectF(m_extent.xMin(),-m_extent.yMax(),
+                                                    m_extent.width(),m_extent.height()))) continue;
+            const auto *style = flow->flowStreakSublayer()->streakStyle();
+            if (!style->animated() || style->speedMultiplier() <= 0) continue;
+            active = true;
+            flow->advanceFlowStreaks(elapsed);
+        }
+        if (!active) m_flowTimer->stop();
+    });
 
     applyExtentToOverlay();
 
@@ -199,6 +218,7 @@ MapCanvas::MapCanvas(QWidget *parent)
     // lastWindowClosed never fires after the main window closes — the app
     // lingers in the Dock with no windows. Opt it out of the quit check.
     m_qsgWidget->setAttribute(Qt::WA_QuitOnClose, false);
+    m_qsgWidget->resize(1,1); // first paint assigns the actual canvas size
     m_qsgWidget->setClearColor(Qt::transparent);
     m_qsgWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
     // Force MSAA on the QQuickWidget's offscreen FBO. main.cpp already
@@ -618,6 +638,15 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
 
     connect(layer, &OpenSWMMVisLayer::repaintRequested,
             this, &MapCanvas::onLayerRepaintRequested);
+    if (auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer)) {
+        disconnect(flow, &SWMM2DResultsLayer::flowStreaksChanged, this, nullptr);
+        connect(flow, &SWMM2DResultsLayer::flowStreaksChanged, this, [this, flow] {
+            if (!m_layers.contains(flow)) return;
+            if (!flow->qsgOwnsRendering()) m_sceneDirty = true;
+            // Phase-only presentation: no scene refresh, result read or fit.
+            update();
+        });
+    }
 
     // On-the-fly reprojection: when a layer's OWN CRS changes (user
     // reassigned it because the .inp was missing a CRS, or picked a
@@ -1671,6 +1700,45 @@ void MapCanvas::renderSceneBuffer()
 // behavior. Callers should migrate to invalidate(channels) over time.
 // ---------------------------------------------------------------------------
 
+QPixmap MapCanvas::captureMap(QString *error)
+{
+    if (error) error->clear();
+    const QRectF view(m_extent.xMin(), -m_extent.yMax(), m_extent.width(), m_extent.height());
+    if (!view.isValid() || width() <= 0 || height() <= 0) {
+        if (error) *error = tr("The map has no valid view to capture.");
+        return {};
+    }
+    refreshLayerItems();
+    // Freeze the published frame and animation phase by dispatching only
+    // worker-watcher events, never the application event loop. An older
+    // contour job can finish first, followed by the requested capture frame.
+    for (int pass = 0; pass < 3; ++pass) {
+        for (auto *layer : std::as_const(m_layers)) {
+            auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
+            if (flow && !flow->prepareFlowStreaksForCapture(view, width()/view.width())) {
+                if (error) *error = flow->flowStreakStatus();
+                return {};
+            }
+        }
+        m_sceneDirty = true;
+        m_qsgFrameDirty = true;
+        const QPixmap image = grab();
+        bool ready = true;
+        for (auto *layer : std::as_const(m_layers)) {
+            auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
+            if (!flow || !flow->flowStreaksEnabled() || !view.intersects(flow->m_sceneBBox)) continue;
+            if (flow->flowStreakBusy()) ready = false;
+            if (flow->qsgOwnsRendering() && m_qsg2DRenderer
+                && (!m_qsg2DRenderer->captureReady()
+                    || m_qsg2DRenderer->displayedFrameRevision() != flow->frameRevision())) ready = false;
+        }
+        if (ready) return image;
+        if (m_qsg2DRenderer) m_qsg2DRenderer->finishPendingCapture();
+    }
+    if (error) *error = tr("The flow display is still preparing. Please retry the capture.");
+    return {};
+}
+
 void MapCanvas::refresh()
 {
     if (!m_refreshTimer->isActive())
@@ -2134,7 +2202,8 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             const bool layerChanged   = (firstSwmm != m_qsgCachedLayer)
                                         || (want2D != m_qsgCached2DLayer)
                                         || (wantMesh != m_qsgCachedMeshLayer);
-            const bool sizeChanged    = (size()    != m_qsgCachedSize);
+            const bool sizeChanged    = (size() != m_qsgCachedSize)
+                || !qFuzzyCompare(m_qsgFrameCache.devicePixelRatio(),devicePixelRatioF());
             // Content-revision guard. m_qsgFrameDirty is cleared by the grab
             // below, so a renderer that learns of a change *after* the canvas
             // consumed the flag would otherwise never be regrabbed — its
@@ -2160,11 +2229,15 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                        int(own2D), want2D ? want2D->currentTimeIndex() : -999);
             if (m_qsgFrameDirty || layerChanged || sizeChanged
                 || contentChanged || m_qsgFrameCache.isNull()) {
+                const qreal qsgDpr = devicePixelRatioF();
+                const qreal backingDpr = m_qsgWidget->quickWindow()->effectiveDevicePixelRatio();
+                const qreal overlayScale = qsgDpr / (backingDpr > 0 ? backingDpr : qreal(1));
                 if (m_qsgRenderer) {
                     m_qsgRenderer->setLayer(firstSwmm);
                     m_qsgRenderer->setMapExtent(m_extent);
                 }
                 if (m_qsg2DRenderer) {
+                    m_qsg2DRenderer->setProperty("canvasDevicePixelRatio",overlayScale);
                     m_qsg2DRenderer->setLayer(want2D);
                     m_qsg2DRenderer->setMapExtent(m_extent);
                 }
@@ -2173,23 +2246,14 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                     m_qsgMeshRenderer->setMapExtent(m_extent);
                 }
 
-                // Render at DEVICE-pixel resolution so MSAA samples are
-                // taken at 1:1 with screen pixels. WA_DontShowOnScreen
-                // leaves the QQuickWidget's effectiveDevicePixelRatio at
-                // 1.0 even after setScreen(), so without this resize the
-                // FBO is rasterised at logical resolution (e.g. 800×600
-                // on a Retina canvas) and the subsequent drawImage(0,0)
-                // pixel-doubles the result into the device-pixel
-                // m_frameBuffer — exactly the "jagged even with MSAA"
-                // symptom. Resizing to logical × dpr gives the FBO the
-                // device resolution, and tagging the grabbed image's
-                // DPR lets QPainter draw it back at the correct logical
-                // extent below.
-                const qreal qsgDpr = devicePixelRatioF();
-                const QSize wantedDev(qRound(width()  * qsgDpr),
-                                      qRound(height() * qsgDpr));
-                if (m_qsgWidget->size() != wantedDev)
-                    m_qsgWidget->resize(wantedDev);
+                // Match device pixels exactly once. Some hidden QQuickWidget
+                // windows report DPR=1; others inherit the screen/Qt scale.
+                // Always multiplying by the canvas DPR makes those latter
+                // windows allocate DPR-squared textures on HiDPI screens.
+                const QSize wantedOverlay(qRound(width()  * overlayScale),
+                                          qRound(height() * overlayScale));
+                if (m_qsgWidget->size() != wantedOverlay)
+                    m_qsgWidget->resize(wantedOverlay);
 
                 // Synchronous render: updatePaintNode() executes here so the
                 // selection overlay reflects the latest flag arrays.
@@ -2313,6 +2377,19 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
 
     if (m_terrainZ.has_value())
         renderTerrainLabel(p);
+
+    bool animateFlow = false;
+    for (auto *layer : std::as_const(m_layers)) {
+        auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
+        if (flow && flow->flowStreaksEnabled()
+            && flow->m_sceneBBox.intersects(QRectF(m_extent.xMin(),-m_extent.yMax(),
+                                                  m_extent.width(),m_extent.height()))) {
+            const auto *style = flow->flowStreakSublayer()->streakStyle();
+            animateFlow |= style->animated() && style->speedMultiplier() > 0;
+        }
+    }
+    if (animateFlow && !m_flowTimer->isActive()) { m_flowClock.start(); m_flowTimer->start(); }
+    if (!animateFlow) m_flowTimer->stop();
 
     p.end(); // finalise m_frameBuffer before blitting
 
