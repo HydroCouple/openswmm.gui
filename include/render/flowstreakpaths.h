@@ -63,6 +63,7 @@ struct FlowStreakInput {
     QRectF coverage;
     double spacing = 1; // scene units
     double maxLength = 1;
+    double minDuration = 0; // extend beyond base length to support visual lifetime
     double step = 1;
     double cutoff = 0;
     double seedBudgetArea = 0; // unclipped padded view area: stable spacing while panning at mesh edges
@@ -77,7 +78,10 @@ struct FlowStreakPath {
     float offset = 0; // deterministic phase in [0,1)
     quint64 seed = 0; // stable identity across hydraulic frames
     float appearedAt = -1; // presentation clock; negative means fully visible
-    float restartFraction = 0; // extra idle fraction after the entire tail leaves
+    // A presentation anchor preserves a particle's head and remaining life
+    // across compatible hydraulic frames. Phase ticks change uniforms only.
+    float lifeClock = 0, lifePhase = 0, lifeHead = 0, lifeAge = 0, lifeRemaining = 0;
+    quint32 lifeGeneration = 0;
 };
 struct FlowStreakBatch {
     std::vector<FlowStreakPath> paths;
@@ -92,7 +96,7 @@ struct FlowStreakBatch {
 class FlowStreakTracer {
 public:
     FlowStreakTracer(const FlowStreakInput &, FlowStreakSampler);
-    bool advance(); // at most one seed and 128 native steps; true when complete
+    bool advance(); // at most one seed and 512 native steps; true when complete
     FlowStreakBatch take() {
         if(sampler.stats) {out.candidateTests=sampler.stats->candidateTests;out.limited|=sampler.stats->limited;}
         return std::move(out);
@@ -107,23 +111,31 @@ private:
 
 FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &input,
                                     const std::atomic_bool &cancelled);
-// Shared by the painter and shader verification: no wrapped end-to-start line.
-double flowStreakOpacity(double pointTime, double duration, double tail,
-                         double offset, double elapsed, bool fade, double restartFraction = 0);
-double flowStreakHead(double duration, double tail, double offset, double elapsed,
-                      double restartFraction = 0);
+struct FlowStreakMotion {
+    double head = 0, age = 0, remaining = 0;
+    quint32 generation = 0;
+};
+// Shared with the shader: bounded, deterministic random lifetimes in elapsed
+// seconds, independent of redraw cadence and visual speed. No wrapped line.
+float flowStreakLifetimeSeed(quint64 seed);
+double flowStreakLifetime(float seed,quint32 generation,double minimum,double maximum);
+FlowStreakMotion flowStreakMotion(const FlowStreakPath &,double tail,double phase,double clock,
+                                 double minimum,double maximum,double speed);
+double flowStreakOpacity(double pointTime,double tail,const FlowStreakMotion &,bool fade,double fadeSeconds);
 double flowStreakAppearance(double appearedAt, double elapsed);
 // One bounded presentation copy. Only phase/appearance metadata changes;
 // every rendered position still comes from the newly validated wet paths.
 class FlowStreakPlayback {
 public:
     std::shared_ptr<const FlowStreakBatch> present(std::shared_ptr<const FlowStreakBatch>,
-        double phase, double clock, double trailPx, double scale, bool fadeNew);
+        double phase, double clock, double trailPx, double scale, bool fadeNew,
+        double minimum=8,double maximum=16,double speed=2);
     std::shared_ptr<const FlowStreakBatch> current() const { return m_current; }
     void clear() { m_raw.reset();m_current.reset(); }
 private:
     std::shared_ptr<const FlowStreakBatch> m_raw,m_current;
     double m_trail=0,m_scale=0;
+    double m_minimum=8,m_maximum=16,m_speed=2;
     bool m_fadeNew=false;
 };
 

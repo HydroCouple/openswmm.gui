@@ -80,7 +80,8 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::presentedFlowStreaks(
     const auto *style=m_flowStreakSublayer->streakStyle();
     m_flowPresentedRevision=revision;m_flowPresentedScale=scale;m_flowPresentedCoverage=view;
     return m_flowPlayback.present(raw,m_flowSeconds,m_flowDisplaySeconds,style->trailLengthPx(),scale,
-                                 style->fade() && style->animated() && style->speedMultiplier()>0);
+                                 style->fade() && style->animated() && style->speedMultiplier()>0,
+                                 style->minimumLifetimeSeconds(),style->maximumLifetimeSeconds(),style->speedMultiplier());
 }
 
 std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
@@ -133,6 +134,7 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
     m_flowCache->request(m_flowKey,[this,style,bucket] {
         FlowStreakInput in;in.coverage=m_flowCoverage;in.seedBudgetArea=m_flowSeedArea;
         in.spacing=style->spacingPx()/bucket;in.maxLength=style->pathLengthPx()/bucket;
+        in.minDuration=style->maximumLifetimeSeconds()*style->speedMultiplier();
         in.step=6./bucket;in.cutoff=style->dryDepthCutoff();
         if(!m_flowMesh || !m_flowMesh->coverage.contains(m_flowCoverage)
            || (m_flowMesh->triangles.empty() && m_flowMesh->coverage!=m_flowCoverage)) {
@@ -288,7 +290,9 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
     for(const auto &path:batch->paths) {
         const double duration=path.points.back().seconds;
         const double tail=duration*std::min(1.,style->trailLengthPx()/(path.length*scale));
-        const double head=flowStreakHead(duration,tail,path.offset,m_flowSeconds,path.restartFraction);
+        const auto motion=flowStreakMotion(path,tail,m_flowSeconds,m_flowDisplaySeconds,
+            style->minimumLifetimeSeconds(),style->maximumLifetimeSeconds(),style->speedMultiplier());
+        const double head=motion.head;
         const double appearance=style->fade()?flowStreakAppearance(path.appearedAt,flowStreakDisplaySeconds()):1.;
         for(size_t i=1;i<path.points.size();++i) {
             const auto &a=path.points[i-1],&b=path.points[i];
@@ -307,7 +311,7 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
             QLinearGradient gradient(first,last);
             for(double f:{0.,.25,.5,.75,1.}) {
                 const double t=begin+f*(end-begin);
-                const double alpha=style->fade()?flowStreakOpacity(t,duration,tail,path.offset,m_flowSeconds,true,path.restartFraction):1.;
+                const double alpha=flowStreakOpacity(t,tail,motion,style->fade(),style->lifetimeFadeSeconds());
                 QColor c=color;c.setAlphaF(c.alphaF()*alpha*appearance);gradient.setColorAt(f,c);
             }
             p->setBrush(gradient);p->drawPolygon(QPolygonF{first-na,first+na,last+nb,last-nb});

@@ -156,6 +156,7 @@ FlowStreakTracer::FlowStreakTracer(const FlowStreakInput &in,FlowStreakSampler s
     // Do not retain/copy regional fields in the cursor. The regional sampler
     // borrows its immutable worker input; the overview has no field snapshot.
     settings.coverage=in.coverage;settings.step=in.step;settings.maxLength=in.maxLength;
+    settings.minDuration=std::isfinite(in.minDuration)?std::max(0.,in.minDuration):0;
     settings.cutoff=in.cutoff;settings.maxPaths=std::min(2000,in.maxPaths);
     settings.maxPoints=std::min(64000,in.maxPoints);
     if(!sampler.locate || !sampler.cell || !std::isfinite(in.spacing) || !std::isfinite(in.step)
@@ -195,12 +196,9 @@ bool FlowStreakTracer::advance()
     };
     if(!usable(sample.field)) return false;
     FlowStreakPath path;path.seed=h;path.offset=float(double(h>>32)/4294967296.);
-    // Independent of position/phase, stable across frames and cache rebuilds.
-    // Vary recycling without altering the velocity or shortening the trail.
-    path.restartFraction=float(.15*randomUnit(h,0x94d049bb133111ebULL));
     double time=0.;path.points.push_back({p,0,sample.field.speed});
     int step=0;
-    for(;step<128 && points+int(path.points.size())<in.maxPoints;++step) {
+    for(;step<512 && points+int(path.points.size())<in.maxPoints;++step) {
         if(out.cellVisits>=256000) {out.limited=true;break;}
         ++out.cellVisits;
         const auto &f=sample.field;
@@ -208,7 +206,8 @@ bool FlowStreakTracer::advance()
         if(!std::isfinite(speed) || speed<=1e-12) break;
         const auto w=weights(sample,p),ahead=weights(sample,p+v);
         if(!inside(w) || !(depth(f,w)>in.cutoff)) break;
-        double dt=std::min(in.step,in.maxLength-path.length)/speed;
+        double dt=in.step/speed;
+        if(time>=in.minDuration) dt=std::min(dt,(in.maxLength-path.length)/speed);
         if(dt<=1e-12) break;
         int edge=-1;
         for(int k=0;k<3;++k) {
@@ -230,7 +229,7 @@ bool FlowStreakTracer::advance()
             path.length+=length(next-p);time+=dt;p=next;
             path.points.push_back({p,float(time),f.speed});
         }
-        if(shoreline || path.length>=in.maxLength) break;
+        if(shoreline || (path.length>=in.maxLength && time>=in.minDuration)) break;
         if(edge>=0) {
             if(!(f.exits & (1<<edge))) break;
             FlowStreakSample neighbor;
@@ -244,7 +243,7 @@ bool FlowStreakTracer::advance()
             sample=neighbor;
         }
     }
-    if(step==128 || points+int(path.points.size())>=in.maxPoints)out.limited=true;
+    if(step==512 || points+int(path.points.size())>=in.maxPoints)out.limited=true;
     if(path.points.size()>1 && path.length>in.step*0.2) {
         points+=int(path.points.size());out.paths.push_back(std::move(path));
     }
@@ -276,10 +275,44 @@ FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &in,const std::atomic
     return cancelled.load()?FlowStreakBatch{}:trace.take();
 }
 
-double flowStreakHead(double duration,double tail,double offset,double elapsed,double restartFraction)
+float flowStreakLifetimeSeed(quint64 seed)
+{ return float(mixHash(seed^0x94d049bb133111ebULL)>>40); }
+double flowStreakLifetime(float seed,quint32 generation,double minimum,double maximum)
 {
-    const double cycle=(duration+tail)*(1+restartFraction);
-    return std::fmod(std::max(0.,elapsed)+offset*cycle,cycle);
+    // Pair complementary random durations. Each pair has a known total,
+    // allowing any elapsed time (including a long suspended frame) to be
+    // evaluated in constant work on CPU and GPU, without uploading geometry.
+    // Integer operations stay below 2^24 so the shader can reproduce them
+    // exactly with floats, including the application's older GLSL targets.
+    const quint32 pair=generation/2, key=quint32(seed);
+    quint32 h=((key%65536)*109+(pair%65536)*73+(key/65536)*239)%65536;
+    h=(h*251+((pair/65536)%256)*199)%65536;
+    const double first=minimum+(maximum-minimum)*double(h)/65536.;
+    return generation%2?minimum+maximum-first:first;
+}
+FlowStreakMotion flowStreakMotion(const FlowStreakPath &path,double tail,double phase,double clock,
+                                 double minimum,double maximum,double speed)
+{
+    const double support=(path.points.back().seconds+tail)/std::max(speed,1e-6);
+    maximum=std::max(1e-6,std::min(maximum,support));minimum=std::min(minimum,maximum);
+    const double delta=std::max(0.,clock-path.lifeClock);
+    if(delta<path.lifeRemaining)
+        return {path.lifeHead+phase-path.lifePhase,path.lifeAge+delta,path.lifeRemaining-delta,path.lifeGeneration};
+    double elapsed=delta-path.lifeRemaining;
+    quint32 generation=path.lifeGeneration+1;
+    const float seed=flowStreakLifetimeSeed(path.seed);
+    if(generation%2) {
+        const double duration=flowStreakLifetime(seed,generation,minimum,maximum);
+        if(elapsed<duration) return {phase-path.lifePhase-(delta-elapsed)*speed,elapsed,duration-elapsed,generation};
+        elapsed-=duration;++generation;
+    }
+    const double pair=minimum+maximum;
+    generation+=quint32(std::floor(elapsed/pair))*2;
+    elapsed=std::fmod(elapsed,pair);
+    const double first=flowStreakLifetime(seed,generation,minimum,maximum);
+    double duration=first;
+    if(elapsed>=first) {elapsed-=first;++generation;duration=pair-first;}
+    return {phase-path.lifePhase-(delta-elapsed)*speed,elapsed,duration-elapsed,generation};
 }
 static double softRamp(double value)
 {
@@ -289,24 +322,23 @@ double flowStreakAppearance(double appearedAt,double elapsed)
 {
     return appearedAt<0?1:softRamp((elapsed-appearedAt)/.25);
 }
-double flowStreakOpacity(double t,double duration,double tail,double offset,double elapsed,bool fade,double restartFraction)
+double flowStreakOpacity(double t,double tail,const FlowStreakMotion &motion,bool fade,double fadeSeconds)
 {
-    if(!(tail>0) || !(duration>0)) return 0;
-    const double head=flowStreakHead(duration,tail,offset,elapsed,restartFraction);
-    const double age=head-t;
+    if(!(tail>0)) return 0;
+    const double age=motion.head-t;
     if(age<0 || age>=tail) return 0;
     if(!fade) return 1;
-    // Match flowstreak.frag. Soften the moving head and the birth/death of
-    // each traversal, independently of rendering cadence or visual speed.
-    const double ramp=std::max(1e-6,std::min(duration*.15,tail*.25));
-    return (1-age/tail)*softRamp(age/std::max(1e-6,tail*.1))
-        *softRamp(head/ramp)*softRamp((duration+tail-head)/ramp);
+    const double lifetimeFade=fadeSeconds>0
+        ?softRamp(motion.age/fadeSeconds)*softRamp(motion.remaining/fadeSeconds):1;
+    return (1-age/tail)*softRamp(age/std::max(1e-6,tail*.1))*lifetimeFade;
 }
 std::shared_ptr<const FlowStreakBatch> FlowStreakPlayback::present(
-    std::shared_ptr<const FlowStreakBatch> raw,double phase,double clock,double trailPx,double scale,bool fadeNew)
+    std::shared_ptr<const FlowStreakBatch> raw,double phase,double clock,double trailPx,double scale,bool fadeNew,
+    double minimum,double maximum,double speed)
 {
     if(!raw) return {};
-    if(raw==m_raw && trailPx==m_trail && scale==m_scale) {
+    if(raw==m_raw && trailPx==m_trail && scale==m_scale
+       && minimum==m_minimum && maximum==m_maximum && speed==m_speed) {
         if(!fadeNew && m_fadeNew) {
             auto settled=std::make_shared<FlowStreakBatch>(*m_current);
             for(auto &p:settled->paths)p.appearedAt=-1;
@@ -314,15 +346,27 @@ std::shared_ptr<const FlowStreakBatch> FlowStreakPlayback::present(
         }
         m_fadeNew=fadeNew;return m_current;
     }
-    if(!m_current) {m_raw=raw;m_current=raw;m_trail=trailPx;m_scale=scale;m_fadeNew=fadeNew;return m_current;}
     std::unordered_map<quint64,const FlowStreakPath*> previous;
-    for(const auto &p:m_current->paths)previous.emplace(p.seed,&p);
+    if(m_current)for(const auto &p:m_current->paths)previous.emplace(p.seed,&p);
     auto next=std::make_shared<FlowStreakBatch>(*raw);
     const double tolerance2=4/(scale*scale);
     for(auto &p:next->paths) {
         // Spread newly published paths over 350 ms instead of fading a whole
         // hydraulic frame in together. Never reroll random values on ticks.
-        p.appearedAt=fadeNew?float(clock+.35*randomUnit(p.seed,0xbf58476d1ce4e5b9ULL)):-1;
+        p.appearedAt=fadeNew && m_current?float(clock+.35*randomUnit(p.seed,0xbf58476d1ce4e5b9ULL)):-1;
+        const double duration=p.points.back().seconds;
+        const double tail=duration*std::min(1.,trailPx/(p.length*scale));
+        const double support=(duration+tail)/std::max(speed,1e-6);
+        const double upper=std::max(1e-6,std::min(maximum,support)),lower=std::min(minimum,upper);
+        const double lifetime=flowStreakLifetime(flowStreakLifetimeSeed(p.seed),0,lower,upper);
+        p.lifeClock=float(clock);p.lifePhase=float(phase);p.lifeGeneration=0;
+        // Populate the entire two-life cycle, including both generations.
+        // Sampling only the first life would give the population a shared
+        // initial cohort and a periodic fluctuation in birth density.
+        double age=(lower+upper)*p.offset,currentLifetime=lifetime;
+        if(age>=lifetime) {age-=lifetime;p.lifeGeneration=1;currentLifetime=lower+upper-lifetime;}
+        p.lifeAge=float(age);p.lifeRemaining=float(currentLifetime-age);
+        p.lifeHead=float(speed>0?p.lifeAge*speed:duration*p.offset);
         const auto found=previous.find(p.seed);
         if(found==previous.end())continue;
         const auto &old=*found->second;
@@ -333,20 +377,15 @@ std::shared_ptr<const FlowStreakBatch> FlowStreakPlayback::present(
         if(p.points.size()<2 || old.points.size()<2)continue;
         const auto delta=p.points.front().position-old.points.front().position;
         if(QPointF::dotProduct(delta,delta)>tolerance2)continue;
-        const double duration=p.points.back().seconds,oldDuration=old.points.back().seconds;
-        const double tail=duration*std::min(1.,trailPx/(p.length*scale));
+        const double oldDuration=old.points.back().seconds;
         const double oldTail=oldDuration*std::min(1.,m_trail/(old.length*m_scale));
-        const double cycle=(duration+tail)*(1+p.restartFraction);
-        const double oldCycle=(oldDuration+oldTail)*(1+old.restartFraction);
-        const double oldHead=flowStreakHead(oldDuration,oldTail,old.offset,phase,old.restartFraction);
+        const auto motion=flowStreakMotion(old,oldTail,phase,clock,m_minimum,m_maximum,m_speed);
+        const double oldHead=motion.head;
         double head=-1;
         if(oldHead>oldDuration) {
             const auto end=p.points.back().position-old.points.back().position;
             if(QPointF::dotProduct(end,end)<=tolerance2) {
-                if(oldHead>=oldDuration+oldTail && oldCycle>oldDuration+oldTail)
-                    head=duration+tail+(oldHead-oldDuration-oldTail)
-                        *(cycle-duration-tail)/(oldCycle-oldDuration-oldTail);
-                else head=duration+(oldHead-oldDuration)*tail/oldTail;
+                head=duration+(oldHead-oldDuration)*tail/oldTail;
             }
         } else {
             QPointF point,direction;
@@ -366,9 +405,11 @@ std::shared_ptr<const FlowStreakBatch> FlowStreakPlayback::present(
             }
         }
         if(head<0)continue; // changed direction/support: fade the new valid path
-        double offset=std::fmod(head-phase,cycle)/cycle;if(offset<0)offset+=1;
-        p.offset=float(offset);p.appearedAt=fadeNew?old.appearedAt:-1;
+        p.lifeHead=float(head);p.lifeAge=float(motion.age);
+        p.lifeRemaining=float(std::min(motion.remaining,(duration+tail-head)/std::max(speed,1e-6)));
+        p.lifeGeneration=motion.generation;p.appearedAt=fadeNew?old.appearedAt:-1;
     }
-    m_raw=raw;m_current=std::move(next);m_trail=trailPx;m_scale=scale;m_fadeNew=fadeNew;return m_current;
+    m_raw=raw;m_current=std::move(next);m_trail=trailPx;m_scale=scale;m_fadeNew=fadeNew;
+    m_minimum=minimum;m_maximum=maximum;m_speed=speed;return m_current;
 }
 } // namespace OpenSWMM::Render
