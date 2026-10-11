@@ -1769,6 +1769,9 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireArrowRepaint(m_velocityVectorSublayer);
     m_flowStreakSublayer = new OpenSWMM::Render::FlowStreakSublayer(this);
     m_flowCache = new OpenSWMM::Render::FlowStreakCache(this);
+    m_particles = new OpenSWMM::Render::FlowParticleController(this);
+    connect(m_particles,&OpenSWMM::Render::FlowParticleController::ready,
+            this,&SWMM2DResultsLayer::flowStreaksChanged);
     wireMeshRepaint(m_flowStreakSublayer);
     connect(m_flowCache, &OpenSWMM::Render::FlowStreakCache::ready,
             this, &SWMM2DResultsLayer::flowStreaksChanged);

@@ -275,6 +275,8 @@ set(
         include/render/sublayers/flowstreaksublayer.h
         include/render/flowstreakpaths.h
         include/render/flowparticles.h
+        include/render/flowparticlefields.h
+        include/render/flowparticlecontroller.h
         include/render/flowstreakcache.h
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
@@ -1123,6 +1125,8 @@ set(
         src/render/sublayers/flowstreaksublayer.cpp
         src/render/flowstreakpaths.cpp
         src/render/flowparticles.cpp
+        src/render/flowparticlefields.cpp
+        src/render/flowparticlecontroller.cpp
         src/render/flowstreakcache.cpp
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp

@@ -61,6 +61,9 @@ void FlowStreakStyle::setDryDepthCutoff(double value) {
 void FlowStreakStyle::setAnimated(bool value) {
     if(m_animated==value) return; m_animated=value; setDirty();
 }
+void FlowStreakStyle::setContinuousParticles(bool value) {
+    if(m_continuousParticles==value)return;m_continuousParticles=value;setDirty();
+}
 void FlowStreakStyle::setSpeedMultiplier(double value) {
     if(!std::isfinite(value)) return; value=std::clamp(value,double(0),double(1000));
     if(m_speedMultiplier==value) return; m_speedMultiplier=value; setDirty();
@@ -97,7 +100,8 @@ QColor FlowStreakStyle::colorForSpeed(double speed) const {
     return m_scheme.colorForValue(speed,m_scheme.rangeMin(),m_scheme.rangeMax());
 }
 QJsonObject FlowStreakStyle::toJson() const {
-    QJsonObject j{{"schemaVersion",2},{"classification",m_scheme.toJson()}};
+    QJsonObject j{{"schemaVersion",3},{"classification",m_scheme.toJson()}};
+    j["continuousParticles"]=m_continuousParticles;
     j["color"]=m_color.name(QColor::HexArgb);
     j["widthPx"]=m_widthPx;
     j["headWidthPx"]=m_headWidthPx;
@@ -120,6 +124,7 @@ QJsonObject FlowStreakStyle::toJson() const {
 }
 void FlowStreakStyle::fromJson(const QJsonObject &j) {
     { const QSignalBlocker blocker(this);
+      setContinuousParticles(j["continuousParticles"].toBool(false));
       if(j.contains("color")) setColor(QColor(j["color"].toString()));
       if(j.contains("widthPx")) setWidthPx(j["widthPx"].toDouble(m_widthPx));
       if(j.contains("headWidthPx")) setHeadWidthPx(j["headWidthPx"].toDouble(m_headWidthPx));
