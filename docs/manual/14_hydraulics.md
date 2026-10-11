@@ -12,7 +12,7 @@ inflows and treatment to the nodes, and drive the whole thing with control rules
 | Task | Where |
 |---|---|
 | Add a node | **Model → Add Node → Add Junction / Add Virtual Junction / Add Inlet Junction / Add Outfall / Add Flow Divider / Add Storage** (ribbon **Model ▸ Nodes**) |
-| Add a link | **Model → Add Link → Add Pipe / Add Pump / Add Orifice / Add Weir / Add Outlet** (ribbon **Model ▸ Links**) |
+| Add a link | **Model → Add Link → Add Conduit / Add Pump / Add Orifice / Add Weir / Add Outlet** (ribbon **Model ▸ Links**) |
 | Edit a selected object | Properties panel (right dock) or the object's attribute table |
 | Cross-section / inlet usage | The **Cross Section** and **Inlets** property rows on a conduit → **Edit…** |
 | Inflows / DWF / RDII / Treatment | The matching property rows on a node → **Edit…** |

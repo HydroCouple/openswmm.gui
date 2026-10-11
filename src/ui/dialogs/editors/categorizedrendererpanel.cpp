@@ -64,6 +64,15 @@ namespace {
 using OpenSWMM::Render::CategorizedRenderer;
 using OpenSWMM::Render::IFeatureRenderer;
 
+QString attributeKey(const QComboBox *combo)
+{
+    const int row = combo->currentIndex();
+    if (row >= 0 && combo->currentText() == combo->itemText(row)
+        && combo->itemData(row).isValid())
+        return combo->itemData(row).toString();
+    return combo->currentText().trimmed();
+}
+
 /*! Render the "Colour" cell as a swatch + open QColorDialog on
  *  double-click.  Duplicated from the kindrendererpanel delegate so the
  *  two stay independent — they may grow apart as categorized gains
@@ -363,7 +372,7 @@ public:
         connect(m_attrCombo, &QComboBox::editTextChanged,
                 this, &CategorizedPanel::onAttributeChanged);
         connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-                this, [this](int) { onAttributeChanged(m_attrCombo->currentText()); });
+                this, [this](int) { onAttributeChanged(attributeKey(m_attrCombo)); });
 
         connect(m_sampleBtn, &QToolButton::clicked,
                 this, &CategorizedPanel::onSampleUniqueValues);
@@ -416,8 +425,10 @@ public:
             }
             const QString current = cz
                 ? cz->classifyAttribute()
-                : (m_attrCombo->count() > 0 ? m_attrCombo->itemText(0) : QString());
-            m_attrCombo->setCurrentText(current);
+                : attributeKey(m_attrCombo);
+            const int row = m_attrCombo->findData(current);
+            if (row >= 0) m_attrCombo->setCurrentIndex(row);
+            else m_attrCombo->setCurrentText(current);
         }
 
         rebuildTable();
@@ -487,9 +498,10 @@ private:
         m_suppress = false;
     }
 
-    void onAttributeChanged(const QString &attr)
+    void onAttributeChanged(const QString &)
     {
         if (m_suppress) return;
+        const QString attr = attributeKey(m_attrCombo);
         auto *cz = currentRenderer();
         if (!cz) return;
         if (cz->classifyAttribute() == attr) return;
@@ -508,7 +520,7 @@ private:
         if (!cz || (!m_modelLayer && !m_resultsLayer)) return;
         if (!m_ctx.category.has_value()) return;
 
-        const QString attr = m_attrCombo->currentText().trimmed();
+        const QString attr = attributeKey(m_attrCombo);
         if (attr.isEmpty()) return;
 
         // Always sample against the underlying model layer — even on
@@ -530,7 +542,7 @@ private:
         ordered.reserve(count);
         for (int row = 0; row < count; ++row) {
             const QString name = model->objectNameAt(cat, row);
-            const QVariantMap attrs = model->identifyByName(name);
+            const QVariantMap attrs = model->identifyByName(name, SWMMModelLayer::kindBitForCategory(cat));
             const QString v = attrs.value(attr).toString();
             // Treat empty values as "(none)" so categorized still
             // renders something — leaving them out would silently drop

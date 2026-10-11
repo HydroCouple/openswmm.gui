@@ -31,10 +31,12 @@
 
 #include <QAction>
 #include <QMenu>
+#include <QApplication>
 #include <QToolBar>
 
 void SWMMVis::registerActions()
 {
+    qApp->installEventFilter(this);
     // App-level Undo / Redo, routed to the ACTIVE project's map undo stack.
     // Created disabled; onActiveSubWindowChanged() rebinds enabled-state to
     // the focused project's stack (canUndo/canRedoChanged) on every tab
@@ -188,7 +190,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionAddFlowDivider",        QT_TR_NOOP("Flow\nDivider")},
         {"actionAddStorage",            QT_TR_NOOP("Storage")},
         {"actionAddLidNode",            QT_TR_NOOP("LID Node")},
-        {"actionAddPipe",               QT_TR_NOOP("Pipe")},
+        {"actionAddPipe",               QT_TR_NOOP("Conduit")},
         {"actionAddPump",               QT_TR_NOOP("Pump")},
         {"actionAddOrifice",            QT_TR_NOOP("Orifice")},
         {"actionAddWeir",               QT_TR_NOOP("Weir")},
@@ -468,6 +470,14 @@ void SWMMVis::initializeCompactToolbar()
 
 void SWMMVis::updateContextualTabs()
 {
+    const bool haveProject = activeProjectWindow() != nullptr;
+    for (const char *name : {"actionAddVectorData", "actionAddRasterData",
+                            "actionAddSWMMOutput", "actionAddMesh2D", "actionAdd2DResults",
+                            "actionAddWMSData", "actionAddWFSData", "actionAddBasemap",
+                            "actionAddDelimeteredData"}) {
+        if (auto *action = findChild<QAction *>(QLatin1String(name)))
+            action->setEnabled(haveProject);
+    }
     if (!mCompactToolbar)
         return;
 

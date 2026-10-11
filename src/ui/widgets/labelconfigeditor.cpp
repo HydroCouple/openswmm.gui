@@ -24,6 +24,23 @@
 #include <QToolButton>
 
 namespace openswmmvis::ui {
+namespace {
+QString fieldKey(const QComboBox *combo)
+{
+    const int row = combo->currentIndex();
+    if (row >= 0 && combo->currentText() == combo->itemText(row)
+        && combo->itemData(row).isValid())
+        return combo->itemData(row).toString();
+    return combo->currentText().trimmed();
+}
+
+void selectField(QComboBox *combo, const QString &key)
+{
+    const int row = combo->findData(key);
+    if (row >= 0) combo->setCurrentIndex(row);
+    else combo->setCurrentText(key);
+}
+}
 
 using OpenSWMM::Render::LabelConfig;
 
@@ -157,6 +174,11 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     m_bgPadSpin->setSuffix(QStringLiteral(" px"));
     m_bgPadSpin->setValue(2.0);
     bgRow->addWidget(m_bgPadSpin);
+    m_bgRadiusSpin = new QDoubleSpinBox(this);
+    m_bgRadiusSpin->setRange(0.0, 20.0);
+    m_bgRadiusSpin->setSuffix(tr(" px radius"));
+    m_bgRadiusSpin->setAccessibleName(tr("Background corner radius"));
+    bgRow->addWidget(m_bgRadiusSpin);
     bgRow->addStretch();
     form->addRow(QString(), bgRow);
 
@@ -199,6 +221,8 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
             [this](const QColor &) { emitChanged(); });
     connect(m_bgPadSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, changed);
+    connect(m_bgRadiusSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, changed);
 }
 
 void LabelConfigEditor::setConfig(const LabelConfig &cfg)
@@ -206,7 +230,7 @@ void LabelConfigEditor::setConfig(const LabelConfig &cfg)
     m_suppress = true;
     m_cfg = cfg;
     m_enabledChk->setChecked(cfg.enabled);
-    m_fieldCombo->setCurrentText(cfg.fieldName);
+    selectField(m_fieldCombo, cfg.fieldName);
     m_exprEdit->setText(cfg.expression);
     m_fontCombo->setCurrentFont(cfg.font);
     m_fontSizeSpin->setValue(cfg.fontSizePt);
@@ -223,15 +247,16 @@ void LabelConfigEditor::setConfig(const LabelConfig &cfg)
     m_bgChk->setChecked(cfg.backgroundEnabled);
     m_bgColorBtn->setColor(cfg.backgroundColor);
     m_bgPadSpin->setValue(cfg.backgroundPaddingPx);
-    m_priorityCombo->setCurrentText(cfg.priorityField);
+    m_bgRadiusSpin->setValue(cfg.backgroundRadiusPx);
+    selectField(m_priorityCombo, cfg.priorityField);
     m_suppress = false;
 }
 
 LabelConfig LabelConfigEditor::config() const
 {
-    LabelConfig cfg = m_cfg;   // preserve fields without controls (bg radius)
+    LabelConfig cfg = m_cfg;
     cfg.enabled    = m_enabledChk->isChecked();
-    cfg.fieldName  = m_fieldCombo->currentText().trimmed();
+    cfg.fieldName  = fieldKey(m_fieldCombo);
     cfg.expression = m_exprEdit->text();
     QFont f = m_fontCombo->currentFont();
     f.setBold(m_boldBtn->isChecked());
@@ -249,7 +274,8 @@ LabelConfig LabelConfigEditor::config() const
     cfg.backgroundEnabled   = m_bgChk->isChecked();
     cfg.backgroundColor     = m_bgColorBtn->color();
     cfg.backgroundPaddingPx = m_bgPadSpin->value();
-    cfg.priorityField       = m_priorityCombo->currentText().trimmed();
+    cfg.backgroundRadiusPx = m_bgRadiusSpin->value();
+    cfg.priorityField       = fieldKey(m_priorityCombo);
     return cfg;
 }
 
@@ -258,7 +284,7 @@ void LabelConfigEditor::populateFieldCombo(QComboBox *combo,
 {
     // Keep whatever the config put there — refilling must never silently
     // change the value, including a legacy name this layer no longer lists.
-    const QString keep = combo->currentText();
+    const QString keep = fieldKey(combo);
     QSignalBlocker block(combo);
     combo->clear();
     combo->addItem(QString());          // blank = "use the element name"
@@ -268,9 +294,7 @@ void LabelConfigEditor::populateFieldCombo(QComboBox *combo,
         combo->addItem(f.displayName.isEmpty() ? f.name : f.displayName,
                        f.name);
     }
-    const int row = combo->findData(keep);
-    if (row >= 0) combo->setCurrentIndex(row);
-    else          combo->setCurrentText(keep);
+    selectField(combo, keep);
 }
 
 void LabelConfigEditor::setAvailableFields(

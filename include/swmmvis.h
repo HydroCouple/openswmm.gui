@@ -994,6 +994,7 @@ private:
 
     OpenSWMMVisWorkspace *mProject              = nullptr;
     SWMMVisProjectWindow *mActiveProjectWindow  = nullptr;  // last-bound project; survives transient focus loss
+    QPointer<QWidget> m_copyFocusWidget;  // content focus retained while menus are active
 
     SWMMVisProjectWindow *activeProjectWindow() const;
     MapCanvas            *activeCanvas()        const;

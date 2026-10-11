@@ -86,22 +86,24 @@ release: pick from the database or use one of the two Local entries.
 
 Picking a different CRS while a model with geometry is open opens **Change
 Coordinate Reference System**, which states the *From* and *To* authorities and
-offers two choices:
+offers these choices:
 
 | Choice | What it does | When to pick it |
 |--------|--------------|-----------------|
+| **Assign CRS without changing coordinates** | Declares what CRS the existing numbers already use. The model and canvas adopt it, the geometry cache is rebuilt, and the project is marked dirty. | An unreferenced dataset whose coordinates are already in the chosen CRS. An empty project uses this automatically. |
 | **Reproject stored coordinates** | Transforms every node coordinate, link vertex and subcatchment polygon vertex through OGR from the old CRS to the new one, and writes the new CRS to the engine. The layer and the canvas both adopt it, the geometry cache is rebuilt, the view refits, and the project is marked dirty. | The new CRS is the *correct* one for the data and you genuinely want the model converted into it. |
 | **Re-render only (display in new CRS)** | Stored coordinates are untouched. Only the canvas CRS changes; the layer is reprojected for display. Nothing is written to the model. | The stored coordinates are correct and you only want a different view — e.g. Web Mercator to line up with online tiles. |
 
-**Cancel** leaves everything as it was. When the source CRS is Local the dialog
-recommends Reproject, because a re-render needs a real source CRS to build a
-transform from.
+**Cancel** leaves everything as it was. When the source CRS is Local, only
+**Assign CRS** is available: no geographic transform can be built from an
+unreferenced local grid. Assign a known source CRS first if the existing
+coordinates already use it; then choose a target CRS and reproject.
 
 Reprojection is best-effort and batched: a single object that fails to transform
 is logged and skipped, and the rest still get done. The Message Logs panel
 reports the counts — nodes, link vertices, polygon vertices.
 
-\figtodo{06_crs_change_dialog.png, The CRS change dialog offering Reproject stored coordinates or Re-render only}
+\figtodo{06_crs_change_dialog.png, The CRS change dialog offering Assign CRS, Reproject stored coordinates or Re-render only}
 
 ### What gets written to the `.inp`
 
@@ -206,8 +208,8 @@ CRS — usually a neighbouring UTM zone or state-plane zone. Symptoms:
   metres, or vice versa).
 
 The fix is to open the CRS picker, choose the *correct* CRS for the data, and
-pick **Re-render only** — your stored coordinates were fine, only their
-interpretation was wrong. If you don't know which CRS is correct, try the
+pick **Assign CRS without changing coordinates** — your stored coordinates
+were fine, only their interpretation was wrong. If you don't know which CRS is correct, try the
 plausible ones for the region; the one that lines up is the right one.
 
 Choose **Reproject** only when the *old* CRS was correct and you want the model

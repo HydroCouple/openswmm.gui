@@ -1169,6 +1169,11 @@ void SWMMLayerItem::paint(QPainter *painter,
         // Scale-window gate — resolve the owning canvas' scale denominator
         // by walking up from the paint widget (viewport → view → MapCanvas).
         double scaleDen = 0.0;
+        // QGraphicsScene::render paints into the canvas buffer with no widget.
+        if (scene()) {
+            if (auto *canvas = qobject_cast<MapCanvas *>(scene()->parent()))
+                scaleDen = canvas->scaleDenominator();
+        }
         for (const QWidget *w = widget; w; w = w->parentWidget()) {
             if (auto *canvas = qobject_cast<const MapCanvas *>(w)) {
                 scaleDen = canvas->scaleDenominator();

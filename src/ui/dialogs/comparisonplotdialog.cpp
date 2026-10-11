@@ -966,7 +966,19 @@ void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
             openswmmvis::plot::applySeriesStyle(spec.style, line);
             // Repaint the swatch row in the series tree so the legend label
             // there matches when legendOverride changed.
-            rebuildSeriesTree();
+            QSignalBlocker block(m_seriesTree);
+            for (int run = 0; run < m_seriesTree->topLevelItemCount(); ++run) {
+                auto *parent = m_seriesTree->topLevelItem(run);
+                for (int child = 0; child < parent->childCount(); ++child) {
+                    auto *item = parent->child(child);
+                    if (item->data(0, Qt::UserRole + 1).toInt() != seriesIndex) continue;
+                    item->setText(0, legendNameFor(spec));
+                    item->setCheckState(0, spec.style.showLine ? Qt::Checked : Qt::Unchecked);
+                    QPixmap swatch(12, 12);
+                    swatch.fill(spec.style.color);
+                    item->setData(0, Qt::DecorationRole, swatch);
+                }
+            }
             return;
         }
     }

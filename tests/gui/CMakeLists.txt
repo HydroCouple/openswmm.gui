@@ -2803,6 +2803,15 @@ function(swmmvis_link_full_app_deps TEST_NAME)
     endif()
 endfunction()
 
+add_swmmvis_gui_test(test_user_feedback
+    test_user_feedback.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_user_feedback)
+set_property(TEST test_user_feedback APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")
+
 # Phase 7 — the WFS service dialog and its layer. The first tests this
 # program has for any of its OGC services: WMS, WMTS and WCS have none.
 # Needs the full app sources because WFSLayer derives from GISVectorLayer,

@@ -98,6 +98,7 @@ private:
     QCheckBox      *m_bgChk        = nullptr;
     ColorButton    *m_bgColorBtn   = nullptr;
     QDoubleSpinBox *m_bgPadSpin    = nullptr;
+    QDoubleSpinBox *m_bgRadiusSpin = nullptr;
     QComboBox      *m_priorityCombo = nullptr;
     QLabel         *m_hintLabel    = nullptr;
 };

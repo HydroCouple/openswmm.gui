@@ -39,6 +39,11 @@ CRSChangeDialog::CRSChangeDialog(const QString &oldAuth,
     auto *group = new QGroupBox(tr("How should the change be applied?"), this);
     auto *gl = new QVBoxLayout(group);
 
+    m_radioAssign = new QRadioButton(tr("Assign CRS without changing coordinates"), group);
+    m_radioAssign->setToolTip(tr("Use when the stored coordinates already use the selected CRS. "
+                               "The numbers are kept unchanged; save to persist the CRS."));
+    gl->addWidget(m_radioAssign);
+
     m_radioReproject = new QRadioButton(
         tr("Reproject stored coordinates"), group);
     m_radioReproject->setToolTip(
@@ -67,15 +72,16 @@ CRSChangeDialog::CRSChangeDialog(const QString &oldAuth,
 
     if (sourceIsLocal)
     {
+        m_radioReproject->setEnabled(false);
         m_radioRenderOnly->setEnabled(false);
         renderDesc->setText(tr(
-            "    Disabled — source CRS is Local; no transform can be built. "
-            "Reproject and pick a real source first."));
-        m_radioReproject->setChecked(true);
+            "    A local grid has no geographic transform. Assign the CRS "
+            "that describes the existing coordinates first."));
+        m_radioAssign->setChecked(true);
     }
     else
     {
-        m_radioReproject->setChecked(true);   // default — safer of the two
+        m_radioReproject->setChecked(true);   // preserve the default for georeferenced data
     }
 
     layout->addWidget(group);
@@ -91,7 +97,9 @@ CRSChangeDialog::CRSChangeDialog(const QString &oldAuth,
 
 void CRSChangeDialog::onAccept()
 {
-    if (m_radioReproject->isChecked())
+    if (m_radioAssign->isChecked())
+        m_choice = Assign;
+    else if (m_radioReproject->isChecked())
         m_choice = Reproject;
     else if (m_radioRenderOnly->isChecked())
         m_choice = RenderOnly;

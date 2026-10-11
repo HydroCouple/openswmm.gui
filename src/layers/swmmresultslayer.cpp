@@ -43,6 +43,7 @@
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QSet>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QVariant>
@@ -1492,7 +1493,6 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         auto *sub = qobject_cast<FeatureSublayer *>(base);
         if (!sub || !sub->isVisible() || !sub->featureStyle()) continue;
         const QString attr = sub->featureStyle()->attribute();
-        if (attr.isEmpty()) continue;
         switch (sub->archetype()) {
             case FeatureSublayer::Archetype::Point:
                 collect(neededNodeVars,     warnMiss(nodeOutCodeForAttribute(attr, species), attr));
@@ -1505,6 +1505,24 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
             case FeatureSublayer::Archetype::Polygon:
                 collect(neededSubcatchVars, warnMiss(subcatchOutCodeForAttribute(attr, species), attr));
                 break;
+        }
+        const auto &subLabels = sub->featureStyle()->labelConfig();
+        const auto labels = subLabels.enabled ? subLabels : labelConfig();
+        if (labels.enabled) {
+            QStringList fields{labels.fieldName};
+            static const QRegularExpression token(QStringLiteral("\\{([^{}]+)\\}"));
+            auto matches = token.globalMatch(labels.expression);
+            while (matches.hasNext()) fields.append(matches.next().captured(1).trimmed());
+            for (const QString &field : fields) {
+                switch (sub->archetype()) {
+                case FeatureSublayer::Archetype::Point:
+                    collect(neededNodeVars, nodeOutCodeForAttribute(field, species)); break;
+                case FeatureSublayer::Archetype::Line:
+                    collect(neededLinkVars, linkOutCodeForAttribute(field, species)); break;
+                case FeatureSublayer::Archetype::Polygon:
+                    collect(neededSubcatchVars, subcatchOutCodeForAttribute(field, species)); break;
+                }
+            }
         }
     }
 
@@ -4194,7 +4212,11 @@ void SWMMResultsLayer::clearLabels()
 
 void SWMMResultsLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
 {
+    const auto previous = labelConfig();
+    const bool needsFields = cfg.enabled && (!previous.enabled
+        || previous.fieldName != cfg.fieldName || previous.expression != cfg.expression);
     OpenSWMMVisLayer::setLabelConfig(cfg);   // store + emit labelConfigChanged/repaint
+    if (m_handle && needsFields) fetchResultsForStep(m_currentStep);
     // A label-only change leaves the scene "Clean"; escalate so the next
     // refresh runs restyleScene → refreshLabels and the change is applied.
     escalateSceneDirty(SceneDirty::Values);
@@ -4214,20 +4236,21 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
     const quintptr ownerTag = reinterpret_cast<quintptr>(this);
     const qreal    opMul = opacity();
 
+    const QStringList species = speciesNames();
     // Resolve any result field's current value for one feature in a scope
     // (0=node, 1=link, 2=subcatch). Empty when no data / non-finite.
     auto fieldValueStr = [&](int scope, const QString &field, const QString &name) -> QString {
         const QVector<float> *vec = nullptr;
         if (scope == 0) {
-            const int oc = nodeOutCodeForAttribute(field);
+            const int oc = nodeOutCodeForAttribute(field, species);
             if (oc >= 0) { const auto it = m_nodeResultsByVar.constFind(oc);
                 if (it != m_nodeResultsByVar.constEnd()) vec = &it.value(); }
         } else if (scope == 1) {
-            const int oc = linkOutCodeForAttribute(field);
+            const int oc = linkOutCodeForAttribute(field, species);
             if (oc >= 0) { const auto it = m_linkResultsByVar.constFind(oc);
                 if (it != m_linkResultsByVar.constEnd()) vec = &it.value(); }
         } else {
-            const int oc = subcatchOutCodeForAttribute(field);
+            const int oc = subcatchOutCodeForAttribute(field, species);
             if (oc >= 0) { const auto it = m_subcatchResultsByVar.constFind(oc);
                 if (it != m_subcatchResultsByVar.constEnd()) vec = &it.value(); }
         }
@@ -4318,7 +4341,7 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
         const int scope = (sub->archetype() == FeatureSublayer::Archetype::Point)  ? 0
                         : (sub->archetype() == FeatureSublayer::Archetype::Line)   ? 1
                                                                                    : 2;
-        const QString attr = stylePtr->attribute();   // default-text fallback
+        const QString attr = lc.fieldName.isEmpty() ? stylePtr->attribute() : lc.fieldName;
         QString unit;
         if (lc.expression.isEmpty())
             for (const auto &f : availableAttributes(cat))
@@ -4347,12 +4370,17 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
             if (!lc.expression.isEmpty()) {
                 text = evalExpr(lc.expression, scope, name);
             } else {
-                // No expression → default "name: value unit".
-                text = name;
+                // An explicit field displays its value. With no field,
+                // retain the default "name: themed value unit" text.
                 const QString v = fieldValueStr(scope, attr, name);
-                if (!v.isEmpty()) {
-                    text += QStringLiteral(": ") + v;
-                    if (!unit.isEmpty()) text += QChar(' ') + unit;
+                if (!lc.fieldName.isEmpty()) {
+                    text = lc.fieldName == QLatin1String("name") ? name : v;
+                } else {
+                    text = name;
+                    if (!v.isEmpty()) {
+                        text += QStringLiteral(": ") + v;
+                        if (!unit.isEmpty()) text += QChar(' ') + unit;
+                    }
                 }
             }
             if (text.isEmpty()) { if (lbl) lbl->setVisible(false); continue; }

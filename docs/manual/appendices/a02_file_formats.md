@@ -91,7 +91,7 @@ The model CRS is written as `[OPTIONS] CRS`; the 2D HDF5 writer reads it.
 
 ### `.oswp` — the SWMMVis project
 
-Pretty-printed JSON, UTF-8, current schema version **4**. It sits beside the
+Pretty-printed JSON, UTF-8, current schema version **5**. It sits beside the
 `.inp` with the same basename and is written on every successful built-in
 `.inp` save.
 

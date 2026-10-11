@@ -154,6 +154,10 @@ want when you are hand-tuning breaks.
 | **Add** / **Remove** / **Clear** | Manual table editing. |
 | **Edit symbol…** | Opens a small dialog for the selected category's symbol: **Shape**, **Size**, **Line width** or **Outline width**, **Dash**. |
 
+Model attributes also include defined **User flag: NAME** fields. Select one
+in **Attribute**, then click **Sample unique values** to create its categories.
+Changes to flag values refresh the feature colours.
+
 #### Rule-based
 
 The rule editor puts an **Active Rule** combo and a rule list above the renderer
@@ -224,11 +228,19 @@ an empty string — which is exactly why the builder exists:
 - unknown tokens are called out as you type;
 - a live preview resolves the template against a sample feature.
 
-Example: `{name}: {depth} m`.
+For a model layer, choose a static field such as **max depth** (`maxDepth`),
+or enter `{name}: {maxDepth} m` in **Expression**. The expression overrides
+**Field**. `depth` belongs to a results layer and means the value at the current
+animation time; it is not a static model property. Select the results layer and
+use its field picker for dynamic depth labels. Use the units advertised for the
+chosen field; a literal `m` does not convert a value to metres.
 
 \fig{08_label_expression_dialog.png, The label expression builder with the field list; the template and the live preview}
 
 ### Style Manager
+
+The manager stays open while you select another layer in the Layers panel;
+Apply and Save Current target that selected layer.
 
 **Tools → Style Manager** browses a per-user library of saved styles — a folder
 of `.swmm-rule.json` files, one per saved rule list, created on first use.

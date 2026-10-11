@@ -409,6 +409,11 @@ public:
     [[nodiscard]] bool autoLengthEnabled() const;
     void setAutoLengthEnabled(bool enabled);
 
+    [[nodiscard]] QString projectOpenDirectory() const;
+    void setProjectOpenDirectory(const QString &directory);
+    [[nodiscard]] bool objectDefaultsEditingSI(bool fallback) const;
+    void setObjectDefaultsEditingSI(bool si);
+
     /*! Engine version string activated by default at startup / on File→New.
      *  One of SWMM_VERSION (refactored engine, default) or
      *  LEGACY_SWMM_VERSION (SWMM5 legacy engine). */

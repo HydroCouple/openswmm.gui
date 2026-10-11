@@ -3003,14 +3003,9 @@ void MapCanvas::renderScaleBar(QPainter &painter) const
         || (m_canvasSRS->isLocal()
             && m_canvasSRS->description() == QStringLiteral("Untitled (Local)"));
 
-    // Round to a "nice" bar length in metres
-    double barMetres  = maxLen * mpp;
-    double magnitude  = std::pow(10.0, std::floor(std::log10(barMetres)));
-    double nice       = barMetres / magnitude;
-    if      (nice < 2.0) nice = 1.0;
-    else if (nice < 5.0) nice = 2.0;
-    else                 nice = 5.0;
-    barMetres = nice * magnitude;
+    // Choose the 1/2/5 length in the display unit before converting to metres.
+    const double barMetres = m_scaleBarSettings->niceMetres(maxLen * mpp, rawCRS);
+    if (barMetres <= 0.0 || mpp <= 0.0) return;
 
     int barPixels = static_cast<int>(std::round(barMetres / mpp));
     if (barPixels < 2) barPixels = 2;

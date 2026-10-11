@@ -1516,10 +1516,10 @@
      <normaloff>:/swmmvis/Polyline</normaloff>:/swmmvis/Polyline</iconset>
    </property>
    <property name="text">
-    <string>Add Pipe</string>
+    <string>Add Conduit</string>
    </property>
    <property name="toolTip">
-    <string>Add Pipe</string>
+    <string>Add Conduit</string>
    </property>
    <property name="menuRole">
     <enum>QAction::TextHeuristicRole</enum>

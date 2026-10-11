@@ -1535,6 +1535,29 @@ QString PreferencesManager::defaultEngineMode() const
         QString()).toString();
 }
 
+QString PreferencesManager::projectOpenDirectory() const
+{
+    return m_settings.value(QStringLiteral("SWMMVis/Preferences/General/ProjectOpenDirectory")).toString();
+}
+
+void PreferencesManager::setProjectOpenDirectory(const QString &directory)
+{
+    const QString value = directory.trimmed();
+    if (value == projectOpenDirectory()) return;
+    m_settings.setValue(QStringLiteral("SWMMVis/Preferences/General/ProjectOpenDirectory"), value);
+    emit preferenceChanged(QStringLiteral("General"), QStringLiteral("ProjectOpenDirectory"));
+}
+
+bool PreferencesManager::objectDefaultsEditingSI(bool fallback) const
+{
+    return m_settings.value(QStringLiteral("SWMMVis/Preferences/ObjectDefaults/EditingSI"), fallback).toBool();
+}
+
+void PreferencesManager::setObjectDefaultsEditingSI(bool si)
+{
+    m_settings.setValue(QStringLiteral("SWMMVis/Preferences/ObjectDefaults/EditingSI"), si);
+}
+
 void PreferencesManager::setDefaultEngineMode(const QString &version)
 {
     if (version == defaultEngineMode()) return;
