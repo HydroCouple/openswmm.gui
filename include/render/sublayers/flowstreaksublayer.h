@@ -11,6 +11,8 @@ class FlowStreakStyle : public SublayerStyle {
     Q_CLASSINFO("group:color","Appearance")
     Q_PROPERTY(double widthPx READ widthPx WRITE setWidthPx NOTIFY styleChanged)
     Q_CLASSINFO("group:widthPx","Appearance")
+    Q_PROPERTY(double headWidthPx READ headWidthPx WRITE setHeadWidthPx NOTIFY styleChanged)
+    Q_CLASSINFO("group:headWidthPx","Appearance")
     Q_PROPERTY(double trailLengthPx READ trailLengthPx WRITE setTrailLengthPx NOTIFY styleChanged)
     Q_CLASSINFO("group:trailLengthPx","Appearance")
     Q_PROPERTY(bool fade READ fade WRITE setFade NOTIFY styleChanged)
@@ -35,6 +37,9 @@ public:
     void setColor(QColor value);
     double widthPx() const { return m_widthPx; }
     void setWidthPx(double value);
+    double headWidthPx() const { return m_headWidthPx; }
+    void setHeadWidthPx(double value);
+    double widthAtFraction(double tailToHead) const;
     double trailLengthPx() const { return m_trailLengthPx; }
     void setTrailLengthPx(double value);
     bool fade() const { return m_fade; }
@@ -64,6 +69,7 @@ private:
     ClassificationScheme m_scheme;
     QColor m_color = QColor(Qt::white);
     double m_widthPx = 1.5;
+    double m_headWidthPx = 1.5;
     double m_trailLengthPx = 80.0;
     bool m_fade = true;
     bool m_taper = true;

@@ -2,7 +2,7 @@
 layout(location=0) in vec4 vColor;
 layout(location=1) in vec4 vTime;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform buf { mat4 matrix; float opacity; float phase; float fade; float taper; };
+layout(std140,binding=0) uniform buf { mat4 matrix; float opacity; float phase; float fade; float taper; float width; float headWidth; };
 void main() {
     float head=mod(phase+vTime.w*(vTime.y+vTime.z),vTime.y+vTime.z);
     float age=head-vTime.x;

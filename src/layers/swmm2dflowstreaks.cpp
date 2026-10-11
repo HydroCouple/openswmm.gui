@@ -270,7 +270,7 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
             const double taper=flowStreakOpacity((a.seconds+b.seconds)*0.5,duration,tail,path.offset,m_flowSeconds,true);
             if(alpha<=0) continue;
             QColor color=style->colorForSpeed(b.speed);color.setAlphaF(color.alphaF()*alpha);
-            pen.setColor(color);pen.setWidthF(style->widthPx()*(style->taper()?std::max(0.15,taper):1.));
+            pen.setColor(color);pen.setWidthF(style->widthAtFraction(taper));
             p->setPen(pen);p->drawLine(a.position,b.position);
         }
     }p->restore();

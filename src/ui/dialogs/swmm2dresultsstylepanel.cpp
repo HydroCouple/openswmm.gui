@@ -945,7 +945,8 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
             QSignalBlocker block(box);box->setValue(st->property(key).toDouble());
         });
     };
-    number("widthPx",tr("Width:"),0.1,12,1,tr(" px"));
+    number("widthPx",tr("Trail width:"),0.1,12,1,tr(" px"));
+    number("headWidthPx",tr("Head width:"),0.1,12,1,tr(" px"));
     number("trailLengthPx",tr("Trail length:"),1,200,1,tr(" px"));
     number("spacingPx",tr("Spacing:"),8,200,1,tr(" px"));
     number("pathLengthPx",tr("Maximum path length:"),16,512,1,tr(" px"));

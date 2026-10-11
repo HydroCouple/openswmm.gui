@@ -26,6 +26,7 @@
 #include <QQuickWidget>
 #include <QQuickWindow>
 #include <cmath>
+#include <limits>
 using namespace OpenSWMM::Render;
 
 class FlowSource : public IMesh2DSource {
@@ -157,6 +158,24 @@ public:
 class TestRenderer:public SWMM2DResultsQSGRenderer {
 public:using SWMM2DResultsQSGRenderer::updatePaintNode;
 };
+class HeadWidthPreview:public QQuickItem {
+public:
+    FlowStreakStyle style;
+    std::shared_ptr<FlowStreakBatch> batch=std::make_shared<FlowStreakBatch>();
+    double phase=120;
+    explicit HeadWidthPreview(QQuickItem *parent):QQuickItem(parent) {
+        setFlag(ItemHasContents);setSize({256,80});
+        style.setWidthPx(2);style.setHeadWidthPx(2);style.setFade(false);style.setTaper(false);
+        FlowStreakPath path;path.length=200;
+        for(int i=0;i<=200;++i)path.points.push_back({QPointF(20+i,40),float(i),1});
+        batch->paths.push_back(std::move(path));
+    }
+protected:
+    QSGNode *updatePaintNode(QSGNode *old,UpdatePaintNodeData *) override {
+        auto *node=old?static_cast<FlowStreakNode*>(old):new FlowStreakNode;
+        node->sync(batch,style,phase,1,{},1);return node;
+    }
+};
 static FlowStreakNode *findFlow(QSGNode *n) {
     if(auto *f=dynamic_cast<FlowStreakNode*>(n))return f;
     for(auto *c=n?n->firstChild():nullptr;c;c=c->nextSibling())if(auto *f=findFlow(c))return f;
@@ -185,6 +204,7 @@ private slots:
         QCOMPARE(sub->id(),QString("results2d.flowStreaks"));QVERIFY(!sub->isVisible());
         QVERIFY(sub->streakStyle()->animated());QVERIFY(a.liveRenderEnabled());
         sub->setVisible(true);sub->setOpacity(.4);sub->streakStyle()->setWidthPx(3.5);
+        sub->streakStyle()->setHeadWidthPx(8);
         sub->streakStyle()->setColor(QColor(20,40,80,170));sub->streakStyle()->setSpeedMultiplier(12);
         // Explicit saved settings, including the previous defaults, must win
         // over the calmer defaults when an existing project is reopened.
@@ -203,6 +223,8 @@ private slots:
     void stylePanelSynchronizes() {
         SWMM2DResultsLayer layer;openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
         auto *width=panel.findChild<QDoubleSpinBox*>("widthPx");QVERIFY(width);
+        auto *head=panel.findChild<QDoubleSpinBox*>("headWidthPx");QVERIFY(head);
+        QCOMPARE(head->value(),1.5);
         auto *motion=panel.findChild<QCheckBox*>("animated");QVERIFY(motion);
         auto *style=layer.flowStreakSublayer()->streakStyle();
         for(const auto &setting:{qMakePair("speedMultiplier",2.),qMakePair("trailLengthPx",80.),
@@ -215,7 +237,34 @@ private slots:
         }
         width->setValue(4.5);QCOMPARE(style->widthPx(),4.5);
         style->setWidthPx(2.5);QCOMPARE(width->value(),2.5);
+        head->setValue(7);QCOMPARE(style->headWidthPx(),7.);QCOMPARE(style->widthPx(),2.5);
+        style->setHeadWidthPx(9);QCOMPARE(head->value(),9.);QCOMPARE(width->value(),2.5);
         motion->setChecked(false);QVERIFY(!style->animated());style->setAnimated(true);QVERIFY(motion->isChecked());
+    }
+    void headWidthPreservesLegacyStyles() {
+        FlowStreakStyle style;
+        const auto settings=style.pathSettings();
+        style.fromJson({{"widthPx",4.}}); // projects saved before independent heads
+        QCOMPARE(style.headWidthPx(),4.);
+        for(bool taper:{false,true}) {
+            style.setTaper(taper);
+            for(double a:{0.,.15,.5,.75,.875,1.})
+                QCOMPARE(style.widthAtFraction(a),4*(taper?std::max(.15,a):1.));
+            style.setHeadWidthPx(10);
+            QCOMPARE(style.widthAtFraction(1),10.);
+            QCOMPARE(style.widthAtFraction(.5),taper?2.:4.);
+            style.setHeadWidthPx(4);
+        }
+        style.fromJson({{"widthPx",3.},{"headWidthPx",8.}});
+        QCOMPARE(style.widthPx(),3.);QCOMPARE(style.headWidthPx(),8.);
+        style.setHeadWidthPx(-1);QCOMPARE(style.headWidthPx(),.1);
+        style.setHeadWidthPx(30);QCOMPARE(style.headWidthPx(),12.);
+        style.setHeadWidthPx(std::numeric_limits<double>::quiet_NaN());
+        style.setHeadWidthPx(std::numeric_limits<double>::infinity());QCOMPARE(style.headWidthPx(),12.);
+        // Even the narrowest head on the widest tapered trail stays positive.
+        style.setWidthPx(12);style.setHeadWidthPx(.1);style.setTaper(true);
+        for(int i=0;i<=100;++i)QVERIFY(style.widthAtFraction(i/100.)>0);
+        QCOMPARE(style.pathSettings(),settings);
     }
     void velocitiesHaveCorrectDepthConversion() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
@@ -657,6 +706,13 @@ private slots:
         for(int i=0;i<20;++i) {layer.advanceFlowStreaks(.033);root=renderer.updatePaintNode(root,nullptr);}
         QCOMPARE(flow->uploads(),uploads);QCOMPARE(flow->geometry()->vertexData(),data);
         QCOMPARE(renderer.displayedFrameRevision(),frame);
+        const int builds=layer.flowStreakBuildCount();
+        const auto batch=paths(layer);
+        layer.flowStreakSublayer()->streakStyle()->setHeadWidthPx(10);
+        layer.flowStreakSublayer()->streakStyle()->setWidthPx(2);
+        root=renderer.updatePaintNode(root,nullptr);
+        QCOMPARE(flow->uploads(),uploads);QCOMPARE(flow->geometry()->vertexData(),data);
+        QCOMPARE(paths(layer),batch);QCOMPARE(layer.flowStreakBuildCount(),builds);
         renderer.setProperty("canvasDevicePixelRatio",2.0);renderer.setSize({1600,1600});
         root=renderer.updatePaintNode(root,nullptr);
         QCOMPARE(flow->uploads(),uploads); // same logical-pixel density/width at 2x resolution
@@ -676,6 +732,15 @@ private slots:
         };
         const auto first=draw();QImage empty(first.size(),first.format());empty.fill(Qt::transparent);
         QVERIFY(first!=empty);QCOMPARE(draw(),first);
+        const int builds=layer.flowStreakBuildCount();
+        layer.flowStreakSublayer()->streakStyle()->setHeadWidthPx(10);
+        const auto wide=draw();QVERIFY(wide!=first);
+        auto alphaSum=[](const QImage &image) {
+            qint64 total=0;for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)total+=qAlpha(image.pixel(x,y));
+            return total;
+        };
+        QVERIFY(alphaSum(wide)>alphaSum(first));QCOMPARE(layer.flowStreakBuildCount(),builds);
+        layer.flowStreakSublayer()->streakStyle()->setHeadWidthPx(1.5);QCOMPARE(draw(),first);
         layer.advanceFlowStreaks(.1);QVERIFY(draw()!=first);
         layer.flowStreakSublayer()->setVisible(false);QCOMPARE(draw(),empty);
     }
@@ -770,6 +835,7 @@ private slots:
         layer->setProperty("snoopy_h5_path",QFileInfo(result).absoluteFilePath());
         auto *sub=layer->flowStreakSublayer();sub->setVisible(true);sub->setOpacity(.65);
         sub->streakStyle()->setColor(Qt::cyan);sub->streakStyle()->setWidthPx(2.7);
+        sub->streakStyle()->setHeadWidthPx(6.2);
         sub->streakStyle()->setSpacingPx(22);sub->streakStyle()->setAnimated(false);
         original.canvas()->addLayer(layer,false);
         QString error;QVERIFY2(ProjectSerializer::saveToFile(project,&original,&error),qPrintable(error));
@@ -785,6 +851,37 @@ private slots:
         QVERIFY(reopened->isVisible());QCOMPARE(reopened->opacity(),sub->opacity());
         QCOMPARE(reopened->streakStyle()->toJson(),sub->streakStyle()->toJson());
         for(auto *window:app.findChildren<SWMMVisProjectWindow*>())window->setHasChanges(false);
+    }
+    void nativeHeadWidth() {
+        if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE"))QSKIP("Run with a native window to verify shader head widths");
+        QQuickWindow window;window.setColor(Qt::black);window.resize(256,80);
+        auto *preview=new HeadWidthPreview(window.contentItem());window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto capture=[&] {preview->update();return window.grabWindow();};
+        auto thickness=[](const QImage &image,int logicalX) {
+            const double dpr=image.width()/256.;const int x=int((logicalX+.5)*dpr);
+            int pixels=0;for(int y=0;y<image.height();++y)if(qRed(image.pixel(x,y))>127)++pixels;
+            return pixels/dpr;
+        };
+        const auto thin=capture();QVERIFY(!thin.isNull());
+        QVERIFY(std::abs(thickness(thin,137)-2)<1.1);
+        preview->style.setHeadWidthPx(12);const auto wide=capture();
+        QVERIFY(thickness(wide,137)>10);
+        QCOMPARE(thickness(wide,70),thickness(thin,70)); // unchanged trailing body
+        preview->phase=150;const auto moved=capture();
+        QVERIFY(thickness(moved,167)>10);QVERIFY(thickness(moved,137)<3);
+        // The shader and painter share the same profile, including taper and narrow heads.
+        for(bool taper:{false,true})for(double head:{.1,2.,12.}) {
+            preview->style.setTaper(taper);preview->style.setHeadWidthPx(head);
+            const auto image=capture();
+            for(int x:{100,140,157,167}) {
+                const double fraction=1-(170-(x+.5))/80.;
+                QVERIFY(std::abs(thickness(image,x)-preview->style.widthAtFraction(fraction))<1.1);
+            }
+        }
+        QDir().mkpath("tests/verification/flow_streaks");
+        QVERIFY(thin.save("tests/verification/flow_streaks/head-width-2px.png"));
+        QVERIFY(wide.save("tests/verification/flow_streaks/head-width-12px.png"));
     }
     void nativePresentationBenchmark() {
         if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE")) QSKIP("Run FLOW_STREAK_NATIVE=1 with a native window for GPU/readback measurements");
