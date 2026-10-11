@@ -62,6 +62,20 @@ void FlowStreakStyle::setAnimationTimestepMs(int value) {
     value=std::clamp(value,8,1000);
     if(m_animationTimestepMs==value) return; m_animationTimestepMs=value; setDirty();
 }
+void FlowStreakStyle::setMinimumLifetimeSeconds(double value) {
+    if(!std::isfinite(value)) return;value=std::clamp(value,.1,120.);
+    if(m_minimumLifetimeSeconds==value) return;
+    m_minimumLifetimeSeconds=value;m_maximumLifetimeSeconds=std::max(value,m_maximumLifetimeSeconds);setDirty();
+}
+void FlowStreakStyle::setMaximumLifetimeSeconds(double value) {
+    if(!std::isfinite(value)) return;value=std::clamp(value,.1,120.);
+    if(m_maximumLifetimeSeconds==value) return;
+    m_maximumLifetimeSeconds=value;m_minimumLifetimeSeconds=std::min(value,m_minimumLifetimeSeconds);setDirty();
+}
+void FlowStreakStyle::setLifetimeFadeSeconds(double value) {
+    if(!std::isfinite(value)) return;value=std::clamp(value,0.,10.);
+    if(m_lifetimeFadeSeconds==value) return;m_lifetimeFadeSeconds=value;setDirty();
+}
 void FlowStreakStyle::setColorByMagnitude(bool value) {
     if(m_colorByMagnitude==value) return; m_colorByMagnitude=value; setDirty();
 }
@@ -89,6 +103,9 @@ QJsonObject FlowStreakStyle::toJson() const {
     j["animated"]=m_animated;
     j["speedMultiplier"]=m_speedMultiplier;
     j["animationTimestepMs"]=m_animationTimestepMs;
+    j["minimumLifetimeSeconds"]=m_minimumLifetimeSeconds;
+    j["maximumLifetimeSeconds"]=m_maximumLifetimeSeconds;
+    j["lifetimeFadeSeconds"]=m_lifetimeFadeSeconds;
     j["colorByMagnitude"]=m_colorByMagnitude;
     return j;
 }
@@ -107,12 +124,16 @@ void FlowStreakStyle::fromJson(const QJsonObject &j) {
       if(j.contains("animated")) setAnimated(j["animated"].toBool(m_animated));
       if(j.contains("speedMultiplier")) setSpeedMultiplier(j["speedMultiplier"].toDouble(m_speedMultiplier));
       if(j.contains("animationTimestepMs")) setAnimationTimestepMs(j["animationTimestepMs"].toInt(m_animationTimestepMs));
+      if(j.contains("minimumLifetimeSeconds")) setMinimumLifetimeSeconds(j["minimumLifetimeSeconds"].toDouble(m_minimumLifetimeSeconds));
+      if(j.contains("maximumLifetimeSeconds")) setMaximumLifetimeSeconds(j["maximumLifetimeSeconds"].toDouble(m_maximumLifetimeSeconds));
+      if(j.contains("lifetimeFadeSeconds")) setLifetimeFadeSeconds(j["lifetimeFadeSeconds"].toDouble(m_lifetimeFadeSeconds));
       if(j.contains("colorByMagnitude")) setColorByMagnitude(j["colorByMagnitude"].toBool(m_colorByMagnitude));
       if(j.contains("classification")) m_scheme.fromJson(j["classification"].toObject());
     } setDirty();
 }
 QJsonObject FlowStreakStyle::pathSettings() const {
-    return {{"spacing",m_spacingPx},{"length",m_pathLengthPx},{"cutoff",m_dryDepthCutoff}};
+    return {{"spacing",m_spacingPx},{"length",m_pathLengthPx},{"cutoff",m_dryDepthCutoff},
+            {"duration",m_maximumLifetimeSeconds*m_speedMultiplier}};
 }
 FlowStreakSublayer::FlowStreakSublayer(QObject *parent):ISublayer(parent),m_style(new FlowStreakStyle(this)) {
     connect(m_style,&SublayerStyle::styleChanged,this,&ISublayer::invalidated);

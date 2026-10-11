@@ -28,7 +28,7 @@ public:
     // worker output and the retained CPU/GPU draw buffers.
     static bool fitsBudget(size_t meshBytes, size_t fieldCount) {
         return meshBytes + 2*fieldCount*(sizeof(FlowStreakField)+sizeof(int))
-            + (96u<<20) <= (256u<<20);
+            + (112u<<20) <= (256u<<20);
     }
 signals:
     void ready();

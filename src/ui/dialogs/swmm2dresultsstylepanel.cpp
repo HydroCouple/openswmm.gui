@@ -949,8 +949,14 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
     number("headWidthPx",tr("Head width:"),0.1,12,1,tr(" px"));
     number("trailLengthPx",tr("Trail length:"),1,200,1,tr(" px"));
     number("spacingPx",tr("Spacing:"),8,200,1,tr(" px"));
-    number("pathLengthPx",tr("Maximum path length:"),16,512,1,tr(" px"));
+    number("pathLengthPx",tr("Base path length:"),16,512,1,tr(" px"));
+    page->findChild<QDoubleSpinBox*>("pathLengthPx")->setToolTip(tr("Paths extend beyond this length when needed for particle lifetime, within the rendering budget."));
     number("speedMultiplier",tr("Visual speed multiplier:"),0,1000,1,QString());
+    number("minimumLifetimeSeconds",tr("Minimum particle lifetime:"),.1,120,1,tr(" s"));
+    number("maximumLifetimeSeconds",tr("Maximum particle lifetime:"),.1,120,1,tr(" s"));
+    number("lifetimeFadeSeconds",tr("Birth/death fade duration:"),0,10,1,tr(" s"));
+    for(const char *key:{"minimumLifetimeSeconds","maximumLifetimeSeconds"})
+        page->findChild<QDoubleSpinBox*>(key)->setToolTip(tr("A new randomized lifetime is chosen for each birth, in animation seconds. Dry areas, barriers, view coverage and tracing limits may end a particle earlier. Changing motion speed does not change its scheduled lifetime."));
     number("animationTimestepMs",tr("Particle timestep:"),8,1000,0,tr(" ms"));
     auto *timestep=page->findChild<QDoubleSpinBox*>("animationTimestepMs");
     timestep->setSingleStep(1);

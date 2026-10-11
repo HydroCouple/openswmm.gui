@@ -31,6 +31,12 @@ class FlowStreakStyle : public SublayerStyle {
     Q_CLASSINFO("group:speedMultiplier","Motion")
     Q_PROPERTY(int animationTimestepMs READ animationTimestepMs WRITE setAnimationTimestepMs NOTIFY styleChanged)
     Q_CLASSINFO("group:animationTimestepMs","Motion")
+    Q_PROPERTY(double minimumLifetimeSeconds READ minimumLifetimeSeconds WRITE setMinimumLifetimeSeconds NOTIFY styleChanged)
+    Q_CLASSINFO("group:minimumLifetimeSeconds","Motion")
+    Q_PROPERTY(double maximumLifetimeSeconds READ maximumLifetimeSeconds WRITE setMaximumLifetimeSeconds NOTIFY styleChanged)
+    Q_CLASSINFO("group:maximumLifetimeSeconds","Motion")
+    Q_PROPERTY(double lifetimeFadeSeconds READ lifetimeFadeSeconds WRITE setLifetimeFadeSeconds NOTIFY styleChanged)
+    Q_CLASSINFO("group:lifetimeFadeSeconds","Motion")
     Q_PROPERTY(bool colorByMagnitude READ colorByMagnitude WRITE setColorByMagnitude NOTIFY styleChanged)
     Q_CLASSINFO("group:colorByMagnitude","Colour")
 public:
@@ -60,6 +66,12 @@ public:
     void setSpeedMultiplier(double value);
     int animationTimestepMs() const { return m_animationTimestepMs; }
     void setAnimationTimestepMs(int value);
+    double minimumLifetimeSeconds() const { return m_minimumLifetimeSeconds; }
+    void setMinimumLifetimeSeconds(double value);
+    double maximumLifetimeSeconds() const { return m_maximumLifetimeSeconds; }
+    void setMaximumLifetimeSeconds(double value);
+    double lifetimeFadeSeconds() const { return m_lifetimeFadeSeconds; }
+    void setLifetimeFadeSeconds(double value);
     bool colorByMagnitude() const { return m_colorByMagnitude; }
     void setColorByMagnitude(bool value);
     const ClassificationScheme &scheme() const { return m_scheme; }
@@ -83,6 +95,9 @@ private:
     bool m_animated = true;
     double m_speedMultiplier = 2.0;
     int m_animationTimestepMs = 16;
+    double m_minimumLifetimeSeconds = 8.0;
+    double m_maximumLifetimeSeconds = 16.0;
+    double m_lifetimeFadeSeconds = 0.5;
     bool m_colorByMagnitude = false;
 };
 class FlowStreakSublayer : public ISublayer {

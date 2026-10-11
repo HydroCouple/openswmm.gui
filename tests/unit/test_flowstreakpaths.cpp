@@ -114,7 +114,7 @@ private slots:
         QVERIFY(a.paths.size()>20);QCOMPARE(a.paths.size(),b.paths.size());
         for(size_t i=0;i<a.paths.size();++i) {
             const auto &p=a.paths[i];QCOMPARE(p.points.size(),b.paths[i].points.size());
-            QCOMPARE(p.offset,b.paths[i].offset);QCOMPARE(p.restartFraction,b.paths[i].restartFraction);
+            QCOMPARE(p.offset,b.paths[i].offset);
             for(size_t j=0;j<p.points.size();++j) {
                 const auto &pt=p.points[j];QCOMPARE(pt.position,b.paths[i].points[j].position);
                 QVERIFY(std::abs(pt.position.y()-p.points[0].position.y())<1e-8);
@@ -159,7 +159,7 @@ private slots:
         int matched=0;
         for(const auto &a:clipped.paths)for(const auto &b:full.paths)
             if(a.points.front().position==b.points.front().position) {
-                ++matched;QCOMPARE(a.offset,b.offset);QCOMPARE(a.restartFraction,b.restartFraction);break;
+                ++matched;QCOMPARE(a.offset,b.offset);break;
             }
         QCOMPARE(matched,int(clipped.paths.size()));
         const QPointF origin(7000000,-4000000);
@@ -170,47 +170,79 @@ private slots:
         for(const auto &p:big.paths)for(const auto &v:p.points)
             QVERIFY(std::abs(v.position.x()-p.points.front().position.x()-2*v.seconds)<1e-5);
     }
-    void phaseHasNoWrappingConnector() {
-        QCOMPARE(flowStreakOpacity(9,10,2,0,0,true),0.);
-        QCOMPARE(flowStreakOpacity(0,10,2,0,1,true),.5);
-        QCOMPARE(flowStreakOpacity(5,10,2,0,1,false),0.);
-        QCOMPARE(flowStreakOpacity(0,10,2,0,13,true),.5);
-    }
     void opacityHasSoftHeadAndLifetime() {
-        QCOMPARE(flowStreakOpacity(0,10,2,0,0,true),0.);
-        QVERIFY(flowStreakOpacity(0,10,2,0,.001,true)<.001);
-        QVERIFY(flowStreakOpacity(5,10,2,0,5.001,true)<.001);
-        QCOMPARE(flowStreakOpacity(5,10,2,0,5.001,false),1.);
-        // No brightness discontinuity at birth, a moving head, or cycle wrap.
-        for(double t:{0.,.5,5.,10.})for(int i=1;i<=2400;++i) {
-            const auto a=flowStreakOpacity(t,10,2,0,(i-1)*.01,true);
-            const auto b=flowStreakOpacity(t,10,2,0,i*.01,true);
-            QVERIFY(a>=0 && a<=1);QVERIFY(std::abs(a-b)<.08);
-        }
+        QCOMPARE(flowStreakOpacity(9,2,{0,0,12},true,.5),0.);
+        QCOMPARE(flowStreakOpacity(0,2,{1,1,11},true,.5),.5);
+        QCOMPARE(flowStreakOpacity(5,2,{1,1,11},false,.5),0.);
+        QCOMPARE(flowStreakOpacity(0,2,{0,0,12},true,.5),0.);
+        QVERIFY(flowStreakOpacity(5,2,{5.001,5.001,6.999},true,.5)<.001);
+        QCOMPARE(flowStreakOpacity(5,2,{5.001,5.001,6.999},false,.5),1.);
+        // Birth/death fades operate in seconds, separately from the tail fade.
+        QCOMPARE(flowStreakOpacity(0,2,{1,.25,10},true,.5),.25);
+        QCOMPARE(flowStreakOpacity(0,2,{1,10,.25},true,.5),.25);
+        QCOMPARE(flowStreakOpacity(0,2,{1,10,0},true,.5),0.);
+        QCOMPARE(flowStreakOpacity(0,2,{1,0,0},true,0),.5);
         QCOMPARE(flowStreakAppearance(-1,0),1.);
         QCOMPARE(flowStreakAppearance(2,2),0.);
         QCOMPARE(flowStreakAppearance(2,2.125),.5);
         QCOMPARE(flowStreakAppearance(2,2.25),1.);
     }
-    void recyclingIsStaggeredWithoutChangingTravel() {
-        std::atomic_bool cancel=false;const auto batch=buildFlowStreakPaths(square(),cancel);
+    void randomizedLifetimesAndCadence() {
         std::array<int,8> bins{};
-        for(const auto &p:batch.paths) {
-            QVERIFY(p.restartFraction>=0 && p.restartFraction<.15);
-            ++bins[std::min(7,int(p.restartFraction/.15*8))];
-            // Equal-duration paths with equal phases still recycle at different times.
-            // Motion and the full tail remain identical until they leave the path.
-            const double cycle=12*(1+double(p.restartFraction));
-            for(double elapsed:{.1,5.,10.,11.9}) {
-                QVERIFY(std::abs(flowStreakHead(10,2,0,elapsed,p.restartFraction)-elapsed)<1e-10);
-                QCOMPARE(flowStreakOpacity(9,10,2,0,elapsed,true,p.restartFraction),
-                         flowStreakOpacity(9,10,2,0,elapsed,true));
+        for(quint64 seed=0;seed<100;++seed) {
+            FlowStreakPath path;path.seed=seed;path.points={{{0,0},0,1},{{1000,0},1000,1}};
+            const float randomSeed=flowStreakLifetimeSeed(seed);
+            path.lifeRemaining=float(flowStreakLifetime(randomSeed,0,8,16));
+            ++bins[std::min(7,int((path.lifeRemaining-8)/1))];
+            double birth=0;
+            // Compare the constant-work schedule with sequential births over
+            // many cycles. New lifetimes vary; there is no idle restart gap.
+            for(quint32 generation=0;generation<100;++generation) {
+                const double lifetime=generation==0?path.lifeRemaining:flowStreakLifetime(randomSeed,generation,8,16);
+                QVERIFY(lifetime>=8 && lifetime<=16);
+                for(double fraction:{.001,.25,.75,.999})for(double speed:{.5,2.,10.}) {
+                    const double elapsed=birth+fraction*lifetime;
+                    const auto motion=flowStreakMotion(path,80,elapsed*speed,elapsed,8,16,speed);
+                    QCOMPARE(motion.generation,generation);
+                    QVERIFY(std::abs(motion.age-fraction*lifetime)<1e-8);
+                    QVERIFY(std::abs(motion.remaining-(1-fraction)*lifetime)<1e-8);
+                    QVERIFY(std::abs(motion.head-motion.age*speed)<1e-8);
+                }
+                birth+=lifetime;
             }
-            for(double t:{0.,5.,10.})
-                QCOMPARE(flowStreakOpacity(t,10,2,0,(12+cycle)/2,false,p.restartFraction),0.);
-            QVERIFY(std::abs(flowStreakHead(10,2,0,cycle+.1,p.restartFraction)-.1)<1e-10);
+            QVERIFY(flowStreakLifetime(randomSeed,0,8,16)!=flowStreakLifetime(randomSeed,2,8,16));
+            // Cadence changes only how often the same elapsed-time result is drawn.
+            FlowStreakMotion expected=flowStreakMotion(path,80,240.74,120.37,8,16,2);
+            for(int interval:{8,16,33,1000}) {
+                double clock=0;int milliseconds=120370;
+                while(milliseconds>0) {const int dt=std::min(milliseconds,interval);clock+=dt/1000.;milliseconds-=dt;}
+                const auto actual=flowStreakMotion(path,80,clock*2,clock,8,16,2);
+                QCOMPARE(actual.generation,expected.generation);
+                QVERIFY(std::abs(actual.age-expected.age)<1e-8);
+            }
         }
         for(int count:bins)QVERIFY(count>0);
+    }
+    void lifetimePathsExtendWithinBudgetAndRespectBarriers() {
+        auto in=square();in.spacing=2;in.maxLength=1;in.minDuration=3;
+        std::atomic_bool cancel=false;const auto extended=buildFlowStreakPaths(in,cancel);
+        bool longPath=false;
+        for(const auto &path:extended.paths) {
+            longPath|=path.length>=6;
+            QVERIFY(path.points.back().position.x()<=10);
+        }
+        QVERIFY(longPath);
+        const auto actualInput=sampledInput(in);FlowStreakTracer trace(actualInput,actualInput.sampler);
+        while(!trace.advance()) {}QCOMPARE(trace.take().pointCount(),extended.pointCount());
+        for(auto &f:in.fields)f.exits=0;
+        const auto blocked=buildFlowStreakPaths(in,cancel);
+        for(const auto &path:blocked.paths) {
+            const auto first=path.points.front().position,last=path.points.back().position;
+            if(first.y()>first.x())QVERIFY(last.x()<=last.y()+1e-8);
+        }
+        in.maxPoints=40;in.minDuration=1000;
+        const auto bounded=buildFlowStreakPaths(in,cancel);
+        QVERIFY(bounded.pointCount()<=40);QVERIFY(bounded.cellVisits<=256000);
     }
     void newAppearancesAreStaggeredAndNotPostponed() {
         std::atomic_bool cancel=false;
@@ -242,52 +274,77 @@ private slots:
             QCOMPARE(playback.present(changed,frame*.01+.001,1+frame*.01+.001,2,1,true),next);
         }
     }
-    void playbackPreservesHeadsWithoutOldGeometry() {
+    void playbackPreservesHeadsAndLifetimeWithoutOldGeometry() {
         auto make=[](float duration,quint64 seed=42) {
-            auto b=std::make_shared<FlowStreakBatch>();FlowStreakPath p;p.seed=seed;p.length=100;
+            auto b=std::make_shared<FlowStreakBatch>();FlowStreakPath p;p.seed=seed;p.length=100;p.offset=.25;
             for(int i=0;i<=10;++i)p.points.push_back({{i*10.,0},i*duration/10,100/duration});
             b->paths.push_back(p);return b;
         };
         FlowStreakPlayback playback;
-        const auto first=make(100);QCOMPARE(playback.present(first,47,0,20,1,true),first);
-        const auto faster=make(50);const auto next=playback.present(faster,47,1,20,1,true);
+        const auto raw=make(100);const auto first=playback.present(raw,0,0,20,1,true,12,12,1);
+        QCOMPARE(raw->paths.front().lifeRemaining,0.f); // immutable cache untouched
+        const auto faster=make(50);const auto next=playback.present(faster,1,1,20,1,true,12,12,1);
         const auto &p=next->paths.front();QCOMPARE(p.appearedAt,-1.f);
-        QVERIFY(std::abs(flowStreakHead(50,10,p.offset,47)*2-47)<1e-5);
-        QVERIFY(std::abs(flowStreakHead(50,10,p.offset,48)*2-49)<1e-5);
-        QCOMPARE(playback.present(faster,48,2,20,1,true),next); // no per-tick copy
-        QCOMPARE(faster->paths.front().offset,0.f); // immutable cache untouched
-        // A new dry boundary truncates the valid path before the old head.
-        auto shortened=make(10);shortened->paths.front().length=20;
-        for(auto &pt:shortened->paths.front().points)pt.position*=.2;
-        const auto cut=playback.present(shortened,48,2,20,1,true);
-        QVERIFY(cut->paths.front().appearedAt>=2 && cut->paths.front().appearedAt<2.35);
-        for(const auto &pt:cut->paths.front().points)QVERIFY(pt.position.x()<=20);
-        const auto settled=playback.present(shortened,48,2.1,20,1,false);
+        const auto motion=flowStreakMotion(p,10,1,1,12,12,1);
+        QVERIFY(std::abs(motion.head*2-7)<1e-5);QCOMPARE(motion.age,7.);QCOMPARE(motion.remaining,5.);
+        QVERIFY(std::abs(flowStreakMotion(p,10,2,2,12,12,1).head*2-9)<1e-5);
+        QCOMPARE(playback.present(faster,2,2,20,1,true,12,12,1),next); // no per-tick copy
+        // Editing visual speed preserves the current head and scheduled death.
+        const auto changedSpeed=playback.present(faster,2,2,20,1,true,12,12,3);
+        const auto moving=flowStreakMotion(changedSpeed->paths.front(),10,5,3,12,12,3);
+        QCOMPARE(moving.age,9.);QCOMPARE(moving.remaining,3.);
+        QVERIFY(std::abs(moving.head*2-15)<1e-5);
+        // A dry boundary truncates support before the old head.
+        auto shortened=make(2);shortened->paths.front().length=4;
+        for(auto &pt:shortened->paths.front().points)pt.position*=.04;
+        const auto cut=playback.present(shortened,5,3,20,1,true,12,12,3);
+        QVERIFY(cut->paths.front().appearedAt>=3 && cut->paths.front().appearedAt<3.35);
+        for(const auto &pt:cut->paths.front().points)QVERIFY(pt.position.x()<=4);
+        const auto settled=playback.present(shortened,5,3.1,20,1,false,12,12,3);
         QCOMPARE(settled->paths.front().appearedAt,-1.f);
-        QCOMPARE(playback.present(shortened,48,2.1,20,1,true),settled); // resume cannot fade backwards
-        const auto empty=std::make_shared<FlowStreakBatch>();
-        QVERIFY(playback.present(empty,48,2,20,1,true)->paths.empty());
-        const auto fresh=playback.present(first,48,3,20,1,true);
-        QVERIFY(fresh->paths.front().appearedAt>=3 && fresh->paths.front().appearedAt<3.35);
-        // Reverse direction must not inherit an old head from the opposite flow.
+        QCOMPARE(playback.present(shortened,5,3.1,20,1,true,12,12,3),settled);
+        QVERIFY(playback.present(std::make_shared<FlowStreakBatch>(),5,3,20,1,true)->paths.empty());
+        const auto fresh=playback.present(raw,6,4,20,1,true);
+        QVERIFY(fresh->paths.front().appearedAt>=4 && fresh->paths.front().appearedAt<4.35);
         auto reverse=make(100);for(auto &pt:reverse->paths.front().points)pt.position*=-1;
-        const auto reversed=playback.present(reverse,49,4,20,1,true);
-        QVERIFY(reversed->paths.front().appearedAt>=4 && reversed->paths.front().appearedAt<4.35);
-        playback.clear();QCOMPARE(playback.present(first,49,5,20,1,true),first);
-        auto other=make(100,123);
-        QCOMPARE(playback.present(other,49,5,20,1,false)->paths.front().appearedAt,-1.f);
-        // Preserve the remaining tail when the head has already left the path.
-        playback.clear();playback.present(first,110,0,20,1,true);
-        const auto draining=playback.present(faster,110,1,20,1,true);
-        QVERIFY(std::abs(flowStreakHead(50,10,draining->paths.front().offset,110)-55)<1e-5);
-        // Keep a recycling pause invisible when the hydraulic speed changes.
-        auto delayed=make(100);delayed->paths.front().restartFraction=.1f;
-        auto quicker=make(50);quicker->paths.front().restartFraction=.1f;
-        playback.clear();playback.present(delayed,126,0,20,1,true);
-        const auto waiting=playback.present(quicker,126,1,20,1,true);
-        const auto &w=waiting->paths.front();
-        QVERIFY(std::abs(flowStreakHead(50,10,w.offset,126,w.restartFraction)-63)<1e-5);
-        for(double t:{0.,25.,50.})QCOMPARE(flowStreakOpacity(t,50,10,w.offset,126,true,w.restartFraction),0.);
+        const auto reversed=playback.present(reverse,7,5,20,1,true);
+        QVERIFY(reversed->paths.front().appearedAt>=5 && reversed->paths.front().appearedAt<5.35);
+        playback.clear();QCOMPARE(playback.present(raw,7,5,20,1,true)->paths.front().appearedAt,-1.f);
+    }
+    void frameUpdatesDoNotResetRandomLifetime() {
+        auto raw=std::make_shared<FlowStreakBatch>();FlowStreakPath path;path.length=100;path.seed=123;
+        path.points={{{0,0},0,1},{{100,0},100,1}};raw->paths.push_back(path);
+        FlowStreakPlayback playback;auto batch=playback.present(raw,0,0,20,1,true,8,16,1);
+        const double firstLifetime=batch->paths.front().lifeRemaining;
+        for(int frame=1;frame<=400;++frame) {
+            const double clock=frame*.1;
+            const auto before=flowStreakMotion(batch->paths.front(),20,clock,clock,8,16,1);
+            raw=std::make_shared<FlowStreakBatch>(*raw); // replace the hydraulic frame
+            batch=playback.present(raw,clock,clock,20,1,true,8,16,1);
+            const auto after=flowStreakMotion(batch->paths.front(),20,clock,clock,8,16,1);
+            QCOMPARE(after.generation,before.generation);
+            QVERIFY(std::abs(after.head-before.head)<1e-4);
+            QVERIFY(std::abs(after.remaining-before.remaining)<1e-4);
+            if(clock<firstLifetime)QVERIFY(std::abs(clock+after.remaining-firstLifetime)<1e-4);
+        }
+    }
+    void initialPopulationCoversBothGenerations() {
+        auto raw=std::make_shared<FlowStreakBatch>();
+        for(int i=0;i<100;++i) {
+            FlowStreakPath p;p.seed=i;p.offset=(i+.5)/100.;p.length=100;
+            p.points={{{0,0},0,1},{{100,0},100,1}};raw->paths.push_back(p);
+        }
+        FlowStreakPlayback playback;const auto batch=playback.present(raw,0,0,20,1,true,8,16,1);
+        std::array<int,8> phases{};int later=0;
+        for(const auto &p:batch->paths) {
+            const double first=flowStreakLifetime(flowStreakLifetimeSeed(p.seed),0,8,16);
+            const double phase=p.lifeAge+(p.lifeGeneration?first:0);
+            ++phases[std::min(7,int(phase/3))];later+=p.lifeGeneration!=0;
+            QVERIFY(std::abs(phase-24*p.offset)<1e-5);
+            QVERIFY(p.lifeRemaining>0);QCOMPARE(p.lifeHead,p.lifeAge);
+        }
+        QVERIFY(later>20 && later<80);
+        for(int count:phases)QVERIFY(count>=12 && count<=13);
     }
     void workerCacheCoalescingAndInvalidation() {
         FlowStreakCache cache;int captures=0;

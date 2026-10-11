@@ -168,6 +168,7 @@ public:
         setFlag(ItemHasContents);setSize({256,80});
         style.setWidthPx(2);style.setHeadWidthPx(2);style.setFade(false);style.setTaper(false);
         FlowStreakPath path;path.length=200;
+        path.lifeRemaining=200;path.lifeAge=2;
         for(int i=0;i<=200;++i)path.points.push_back({QPointF(20+i,40),float(i),1});
         batch->paths.push_back(std::move(path));
     }
@@ -207,6 +208,9 @@ private slots:
         sub->setVisible(true);sub->setOpacity(.4);sub->streakStyle()->setWidthPx(3.5);
         sub->streakStyle()->setHeadWidthPx(8);
         sub->streakStyle()->setAnimationTimestepMs(33);
+        sub->streakStyle()->setMinimumLifetimeSeconds(20);
+        sub->streakStyle()->setMaximumLifetimeSeconds(30);
+        sub->streakStyle()->setLifetimeFadeSeconds(1.5);
         sub->streakStyle()->setColor(QColor(20,40,80,170));sub->streakStyle()->setSpeedMultiplier(12);
         // Explicit saved settings, including the previous defaults, must win
         // over the calmer defaults when an existing project is reopened.
@@ -230,7 +234,9 @@ private slots:
         auto *motion=panel.findChild<QCheckBox*>("animated");QVERIFY(motion);
         auto *style=layer.flowStreakSublayer()->streakStyle();
         for(const auto &setting:{qMakePair("speedMultiplier",2.),qMakePair("trailLengthPx",80.),
-                                 qMakePair("pathLengthPx",350.),qMakePair("animationTimestepMs",16.)}) {
+                                 qMakePair("pathLengthPx",350.),qMakePair("animationTimestepMs",16.),
+                                 qMakePair("minimumLifetimeSeconds",8.),qMakePair("maximumLifetimeSeconds",16.),
+                                 qMakePair("lifetimeFadeSeconds",.5)}) {
             auto *control=panel.findChild<QDoubleSpinBox*>(setting.first);QVERIFY(control);
             QCOMPARE(control->value(),setting.second);
         }
@@ -246,6 +252,11 @@ private slots:
         style->setAnimationTimestepMs(50);QCOMPARE(timestep->value(),50.);
         style->setAnimationTimestepMs(1);QCOMPARE(timestep->value(),8.);
         style->setAnimationTimestepMs(2000);QCOMPARE(timestep->value(),1000.);
+        auto *minimum=panel.findChild<QDoubleSpinBox*>("minimumLifetimeSeconds");
+        auto *maximum=panel.findChild<QDoubleSpinBox*>("maximumLifetimeSeconds");
+        minimum->setValue(20);QCOMPARE(style->minimumLifetimeSeconds(),20.);QCOMPARE(maximum->value(),20.);
+        maximum->setValue(10);QCOMPARE(style->maximumLifetimeSeconds(),10.);QCOMPARE(minimum->value(),10.);
+        style->setMaximumLifetimeSeconds(25);QCOMPARE(maximum->value(),25.);
         motion->setChecked(false);QVERIFY(!style->animated());style->setAnimated(true);QVERIFY(motion->isChecked());
     }
     void headWidthPreservesLegacyStyles() {
@@ -272,6 +283,25 @@ private slots:
         style.setWidthPx(12);style.setHeadWidthPx(.1);style.setTaper(true);
         for(int i=0;i<=100;++i)QVERIFY(style.widthAtFraction(i/100.)>0);
         QCOMPARE(style.pathSettings(),settings);
+    }
+    void lifetimeValidationAndLegacyStyles() {
+        FlowStreakStyle style;
+        style.fromJson({{"trailLengthPx",24.},{"speedMultiplier",12.}});
+        QCOMPARE(style.minimumLifetimeSeconds(),8.);QCOMPARE(style.maximumLifetimeSeconds(),16.);
+        QCOMPARE(style.lifetimeFadeSeconds(),.5);
+        const auto key=style.pathSettings();
+        style.setMinimumLifetimeSeconds(10);style.setLifetimeFadeSeconds(1.5);
+        QCOMPARE(style.pathSettings(),key); // appearance/lower lifetime do not retrace
+        style.setMaximumLifetimeSeconds(30);QVERIFY(style.pathSettings()!=key);
+        FlowStreakStyle reopened;reopened.fromJson(style.toJson());QCOMPARE(reopened.toJson(),style.toJson());
+        for(double invalid:{std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::infinity()}) {
+            style.setMinimumLifetimeSeconds(invalid);style.setMaximumLifetimeSeconds(invalid);style.setLifetimeFadeSeconds(invalid);
+            QCOMPARE(style.toJson(),reopened.toJson());
+        }
+        style.setMinimumLifetimeSeconds(200);QCOMPARE(style.minimumLifetimeSeconds(),120.);QCOMPARE(style.maximumLifetimeSeconds(),120.);
+        style.setMaximumLifetimeSeconds(-1);QCOMPARE(style.minimumLifetimeSeconds(),.1);QCOMPARE(style.maximumLifetimeSeconds(),.1);
+        style.setLifetimeFadeSeconds(20);QCOMPARE(style.lifetimeFadeSeconds(),10.);
+        style.setLifetimeFadeSeconds(-1);QCOMPARE(style.lifetimeFadeSeconds(),0.);
     }
     void velocitiesHaveCorrectDepthConversion() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
@@ -626,7 +656,11 @@ private slots:
         QJsonObject presentation;
         if(native) {
             layer.meshEdgeSublayer()->setVisible(false);layer.meshNodeSublayer()->setVisible(false);
-            MapCanvas canvas;canvas.resize(1920,1080);canvas.addLayer(&layer,false);
+            MapCanvas canvas;
+            // Native benchmark windows display results without accepting
+            // desktop gestures that would change the measured viewport.
+            canvas.setWindowFlags(canvas.windowFlags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
+            canvas.resize(1920,1080);canvas.addLayer(&layer,false);
             canvas.setExtent({view.left(),-view.bottom(),view.right(),-view.top()},false);canvas.show();
             qInfo()<<"Regional native view"<<canvas.extent().toRectF()<<"mesh"<<layer.m_sceneBBox
                    <<"pixels"<<canvas.size()<<canvas.devicePixelRatioF();
@@ -641,7 +675,8 @@ private slots:
             for(int run=0;run<3;++run) {
                 std::vector<double> ms;
                 for(int i=0;i<100;++i) {
-                    clock.restart();layer.advanceFlowStreaks(.033);canvas.repaint();
+                    clock.restart();layer.advanceFlowStreaks(.033);
+                    QVERIFY2(!canvas.captureMap(&error).isNull(),qPrintable(error));
                     ms.push_back(clock.nsecsElapsed()/1e6);QCoreApplication::processEvents();
                 }
                 std::sort(ms.begin(),ms.end());
@@ -652,7 +687,7 @@ private slots:
             QVERIFY(canvas.captureMap(&error).save("tests/verification/flow_streaks/regional-native-6m.png"));
             presentation={{"logicalWidth",canvas.width()},{"logicalHeight",canvas.height()},
                 {"devicePixelRatio",canvas.devicePixelRatioF()},{"coldCaptureMs",coldCaptureMs},
-                {"phasePathRebuilds",layer.flowStreakBuildCount()-before},{"runs",runs}};
+                {"phasePathRebuilds",layer.flowStreakBuildCount()-before},{"forcedCapture",true},{"runs",runs}};
         }
         if(large) {
             QDir().mkpath("workplans/artifacts/flow_streaks");
@@ -714,7 +749,11 @@ private slots:
             QJsonObject presentation;
             if(native && !quads) {
                 layer.meshEdgeSublayer()->setVisible(false);layer.meshNodeSublayer()->setVisible(false);
-                const auto box=layer.m_sceneBBox;MapCanvas canvas;canvas.resize(1920,1080);canvas.addLayer(&layer,false);
+                const auto box=layer.m_sceneBBox;MapCanvas canvas;
+                // Native benchmark windows display results without accepting
+                // desktop gestures that would change the measured viewport.
+                canvas.setWindowFlags(canvas.windowFlags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
+                canvas.resize(1920,1080);canvas.addLayer(&layer,false);
                 canvas.setExtent({box.left(),-box.bottom(),box.right(),-box.top()},false);canvas.show();
                 QString error;clock.restart();QVERIFY2(!canvas.captureMap(&error).isNull(),qPrintable(error));
                 const double captureMs=clock.nsecsElapsed()/1e6;QTest::qWait(1500);
@@ -724,14 +763,18 @@ private slots:
                 QTest::qWait(150);QVERIFY(layer.flowStreakSeconds()>phase);QJsonArray times;
                 for(int run=0;run<3;++run) {
                     std::vector<double> ms;
-                    for(int i=0;i<100;++i){clock.restart();layer.advanceFlowStreaks(.033);canvas.repaint();ms.push_back(clock.nsecsElapsed()/1e6);QCoreApplication::processEvents();}
+                    for(int i=0;i<100;++i) {
+                        clock.restart();layer.advanceFlowStreaks(.033);
+                        QVERIFY2(!canvas.captureMap(&error).isNull(),qPrintable(error));
+                        ms.push_back(clock.nsecsElapsed()/1e6);QCoreApplication::processEvents();
+                    }
                     std::sort(ms.begin(),ms.end());times.append(QJsonObject{{"medianMs",ms[50]},{"p95Ms",ms[95]},{"maxMs",ms.back()}});
                 }
                 QCOMPARE(layer.flowStreakBuildCount(),builds);
                 QDir().mkpath("tests/verification/flow_streaks");
                 QVERIFY(canvas.captureMap(&error).save("tests/verification/flow_streaks/overview-native-6m.png"));
                 presentation={{"width",canvas.width()},{"height",canvas.height()},{"dpr",canvas.devicePixelRatioF()},
-                    {"coldCaptureMs",captureMs},{"qsgOwnsRendering",layer.qsgOwnsRendering()},{"phaseRebuilds",layer.flowStreakBuildCount()-builds},{"runs",times}};
+                    {"coldCaptureMs",captureMs},{"qsgOwnsRendering",layer.qsgOwnsRendering()},{"phaseRebuilds",layer.flowStreakBuildCount()-builds},{"forcedCapture",true},{"runs",times}};
             }
             cases.append(QJsonObject{{"nativeCells",cells},{"displayTriangles",layer.m_sceneTris.size()},{"quads",quads},{"loadMs",loadMs},{"runs",runs},{"presentation",presentation}});
         }
@@ -746,7 +789,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT((root=renderer.updatePaintNode(root,nullptr),findFlow(root)->geometry()->vertexCount()>0),5000);
         auto *flow=findFlow(root);const int uploads=flow->uploads();auto *data=flow->geometry()->vertexData();
         const auto frame=renderer.displayedFrameRevision();
-        for(int i=0;i<20;++i) {layer.advanceFlowStreaks(.033);root=renderer.updatePaintNode(root,nullptr);}
+        for(int i=0;i<1200;++i) {layer.advanceFlowStreaks(.033);root=renderer.updatePaintNode(root,nullptr);}
         QCOMPARE(flow->uploads(),uploads);QCOMPARE(flow->geometry()->vertexData(),data);
         QCOMPARE(renderer.displayedFrameRevision(),frame);
         const int builds=layer.flowStreakBuildCount();
@@ -754,6 +797,7 @@ private slots:
         layer.flowStreakSublayer()->streakStyle()->setHeadWidthPx(10);
         layer.flowStreakSublayer()->streakStyle()->setWidthPx(2);
         layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(8);
+        layer.flowStreakSublayer()->streakStyle()->setLifetimeFadeSeconds(.8);
         root=renderer.updatePaintNode(root,nullptr);
         QCOMPARE(flow->uploads(),uploads);QCOMPARE(flow->geometry()->vertexData(),data);
         QCOMPARE(paths(layer),batch);QCOMPARE(layer.flowStreakBuildCount(),builds);
@@ -931,6 +975,9 @@ private slots:
         sub->streakStyle()->setColor(Qt::cyan);sub->streakStyle()->setWidthPx(2.7);
         sub->streakStyle()->setHeadWidthPx(6.2);
         sub->streakStyle()->setAnimationTimestepMs(50);
+        sub->streakStyle()->setMinimumLifetimeSeconds(10);
+        sub->streakStyle()->setMaximumLifetimeSeconds(25);
+        sub->streakStyle()->setLifetimeFadeSeconds(1.2);
         sub->streakStyle()->setSpacingPx(22);sub->streakStyle()->setAnimated(false);
         original.canvas()->addLayer(layer,false);
         QString error;QVERIFY2(ProjectSerializer::saveToFile(project,&original,&error),qPrintable(error));
@@ -989,9 +1036,14 @@ private slots:
         };
         preview->style.setWidthPx(4);preview->style.setHeadWidthPx(4);preview->style.setFade(true);
         const auto soft=capture();QVERIFY(!soft.isNull());
+        QVERIFY(soft.save("tests/verification/flow_streaks/lifetime-soft.png"));
         for(int x:{70,100,130,137,139}) {
-            const double expected=flowStreakOpacity(x+.5-20,200,80,0,120,true);
-            QVERIFY(std::abs(brightness(soft,x)-expected)<.025);
+            // Compare at the actual backing pixel centre on every DPR.
+            const double dpr=soft.width()/256.;
+            const double pointTime=(std::floor((x+.5)*dpr)+.5)/dpr-20;
+            const double expected=flowStreakOpacity(pointTime,80,{120,2,200},true,.5);
+            QVERIFY2(std::abs(brightness(soft,x)-expected)<.025,qPrintable(QString("x=%1 expected=%2 pixel=%3")
+                .arg(x).arg(expected).arg(brightness(soft,x))));
         }
         auto appearing=std::make_shared<FlowStreakBatch>(*preview->batch);
         appearing->paths.front().appearedAt=0;preview->batch=appearing;
@@ -1018,19 +1070,23 @@ private slots:
         if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE"))QSKIP("Run with a native window to verify staggered recycling");
         QQuickWindow window;window.setColor(Qt::black);window.resize(256,80);
         auto *preview=new HeadWidthPreview(window.contentItem());
-        auto &path=preview->batch->paths.front();path.restartFraction=.1f;path.offset=.27f;
-        path.appearedAt=.3f;preview->clock=.425;
+        auto &path=preview->batch->paths.front();path.seed=42;
+        path.lifePhase=0;path.lifeHead=0;path.lifeAge=0;path.lifeRemaining=8;
+        path.appearedAt=-1;preview->style.setSpeedMultiplier(10);
         preview->style.setWidthPx(4);preview->style.setHeadWidthPx(4);preview->style.setFade(true);
         window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
-        for(double phase:{0.,35.,120.,210.,225.,250.,320.}) {
-            preview->phase=phase;preview->update();const auto image=window.grabWindow();QVERIFY(!image.isNull());
+        for(double clock:{0.,.25,4.,7.75,8.,8.25,15.,24.,24.25,1000.}) {
+            preview->clock=clock;preview->phase=clock*10;preview->update();const auto image=window.grabWindow();QVERIFY(!image.isNull());
             const double dpr=image.width()/256.;
+            QVERIFY(image.save(QString("tests/verification/flow_streaks/lifetime-%1.png").arg(clock)));
+            const auto motion=flowStreakMotion(path,80,preview->phase,clock,8,16,10);
             for(int x=21;x<219;x+=3) {
-                const double expected=flowStreakOpacity(x+.5-20,200,80,path.offset,phase,true,path.restartFraction)
+                const double pointTime=(std::floor((x+.5)*dpr)+.5)/dpr-20;
+                const double expected=flowStreakOpacity(pointTime,80,motion,true,.5)
                     *flowStreakAppearance(path.appearedAt,preview->clock);
                 const double pixel=qRed(image.pixel(int((x+.5)*dpr),int(40.5*dpr)))/255.;
-                QVERIFY2(std::abs(pixel-expected)<.025,qPrintable(QString("phase=%1 x=%2 expected=%3 pixel=%4")
-                    .arg(phase).arg(x).arg(expected).arg(pixel)));
+                QVERIFY2(std::abs(pixel-expected)<.025,qPrintable(QString("clock=%1 x=%2 expected=%3 pixel=%4")
+                    .arg(clock).arg(x).arg(expected).arg(pixel)));
             }
         }
     }
@@ -1049,7 +1105,11 @@ private slots:
         }
         const auto box=layer.m_sceneBBox;
         const MapExtent overview(box.left(),-box.bottom(),box.right(),-box.top());
-        MapCanvas canvas;canvas.resize(1920,1080);canvas.addLayer(&layer,false);canvas.setExtent(overview,false);
+        MapCanvas canvas;
+        // Native benchmark windows display results without accepting
+        // desktop gestures that would change the measured viewport.
+        canvas.setWindowFlags(canvas.windowFlags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
+        canvas.resize(1920,1080);canvas.addLayer(&layer,false);canvas.setExtent(overview,false);
         layer.flowStreakSublayer()->setVisible(true);canvas.show();
         QString error;
         const double capturePhase=layer.flowStreakSeconds();
@@ -1083,7 +1143,8 @@ private slots:
         for(int run=0;run<3;++run) {
             std::vector<double> ms;
             for(int i=0;i<100;++i) {
-                QElapsedTimer timer;timer.start();layer.advanceFlowStreaks(.033);canvas.repaint();
+                QElapsedTimer timer;timer.start();layer.advanceFlowStreaks(.033);
+                QVERIFY2(!canvas.captureMap(&error).isNull(),qPrintable(error));
                 ms.push_back(timer.nsecsElapsed()/1e6);QCoreApplication::processEvents();
             }
             std::sort(ms.begin(),ms.end());
