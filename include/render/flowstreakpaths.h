@@ -77,6 +77,7 @@ struct FlowStreakPath {
     float offset = 0; // deterministic phase in [0,1)
     quint64 seed = 0; // stable identity across hydraulic frames
     float appearedAt = -1; // presentation clock; negative means fully visible
+    float restartFraction = 0; // extra idle fraction after the entire tail leaves
 };
 struct FlowStreakBatch {
     std::vector<FlowStreakPath> paths;
@@ -108,8 +109,9 @@ FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &input,
                                     const std::atomic_bool &cancelled);
 // Shared by the painter and shader verification: no wrapped end-to-start line.
 double flowStreakOpacity(double pointTime, double duration, double tail,
-                         double offset, double elapsed, bool fade);
-double flowStreakHead(double duration, double tail, double offset, double elapsed);
+                         double offset, double elapsed, bool fade, double restartFraction = 0);
+double flowStreakHead(double duration, double tail, double offset, double elapsed,
+                      double restartFraction = 0);
 double flowStreakAppearance(double appearedAt, double elapsed);
 // One bounded presentation copy. Only phase/appearance metadata changes;
 // every rendered position still comes from the newly validated wet paths.

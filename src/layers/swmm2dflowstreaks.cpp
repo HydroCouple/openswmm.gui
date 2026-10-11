@@ -288,7 +288,7 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
     for(const auto &path:batch->paths) {
         const double duration=path.points.back().seconds;
         const double tail=duration*std::min(1.,style->trailLengthPx()/(path.length*scale));
-        const double head=flowStreakHead(duration,tail,path.offset,m_flowSeconds);
+        const double head=flowStreakHead(duration,tail,path.offset,m_flowSeconds,path.restartFraction);
         const double appearance=style->fade()?flowStreakAppearance(path.appearedAt,flowStreakDisplaySeconds()):1.;
         for(size_t i=1;i<path.points.size();++i) {
             const auto &a=path.points[i-1],&b=path.points[i];
@@ -307,7 +307,7 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
             QLinearGradient gradient(first,last);
             for(double f:{0.,.25,.5,.75,1.}) {
                 const double t=begin+f*(end-begin);
-                const double alpha=style->fade()?flowStreakOpacity(t,duration,tail,path.offset,m_flowSeconds,true):1.;
+                const double alpha=style->fade()?flowStreakOpacity(t,duration,tail,path.offset,m_flowSeconds,true,path.restartFraction):1.;
                 QColor c=color;c.setAlphaF(c.alphaF()*alpha*appearance);gradient.setColorAt(f,c);
             }
             p->setBrush(gradient);p->drawPolygon(QPolygonF{first-na,first+na,last+nb,last-nb});

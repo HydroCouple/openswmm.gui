@@ -1014,6 +1014,26 @@ private slots:
         QVERIFY(soft.save("tests/verification/flow_streaks/soft-streak.png"));
         QVERIFY(half.save("tests/verification/flow_streaks/appearing-streak.png"));
     }
+    void nativeStaggeredRecycling() {
+        if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE"))QSKIP("Run with a native window to verify staggered recycling");
+        QQuickWindow window;window.setColor(Qt::black);window.resize(256,80);
+        auto *preview=new HeadWidthPreview(window.contentItem());
+        auto &path=preview->batch->paths.front();path.restartFraction=.1f;path.offset=.27f;
+        path.appearedAt=.3f;preview->clock=.425;
+        preview->style.setWidthPx(4);preview->style.setHeadWidthPx(4);preview->style.setFade(true);
+        window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+        for(double phase:{0.,35.,120.,210.,225.,250.,320.}) {
+            preview->phase=phase;preview->update();const auto image=window.grabWindow();QVERIFY(!image.isNull());
+            const double dpr=image.width()/256.;
+            for(int x=21;x<219;x+=3) {
+                const double expected=flowStreakOpacity(x+.5-20,200,80,path.offset,phase,true,path.restartFraction)
+                    *flowStreakAppearance(path.appearedAt,preview->clock);
+                const double pixel=qRed(image.pixel(int((x+.5)*dpr),int(40.5*dpr)))/255.;
+                QVERIFY2(std::abs(pixel-expected)<.025,qPrintable(QString("phase=%1 x=%2 expected=%3 pixel=%4")
+                    .arg(phase).arg(x).arg(expected).arg(pixel)));
+            }
+        }
+    }
     void nativePresentationBenchmark() {
         if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE")) QSKIP("Run FLOW_STREAK_NATIVE=1 with a native window for GPU/readback measurements");
         QDir().mkpath("tests/verification/flow_streaks");
