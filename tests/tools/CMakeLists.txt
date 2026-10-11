@@ -53,3 +53,20 @@ target_link_libraries(profile_attribute_tracks_verify PRIVATE
 if(TARGET openswmm_engine)
     target_link_libraries(profile_attribute_tracks_verify PRIVATE openswmm_engine)
 endif()
+
+# Continuous-particle replacement plan: visible composition prototype. This
+# keeps the existing map renderer intact until trajectory/visual review gates.
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickWidgets Concurrent)
+add_executable(flow_particle_prototype MACOSX_BUNDLE
+    flowparticleprototype.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/flowparticles.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/flowstreakpaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/flowparticlenode.cpp)
+target_include_directories(flow_particle_prototype PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(flow_particle_prototype PRIVATE Qt6::Widgets Qt6::Quick Qt6::QuickWidgets Qt6::Concurrent)
+target_compile_definitions(flow_particle_prototype PRIVATE
+    FLOW_PARTICLE_PROTOTYPE_OUTPUT="${CMAKE_SOURCE_DIR}/tests/verification/flow_particles/prototype-interactive")
+qt_add_shaders(flow_particle_prototype "flow_particle_prototype_shaders"
+    BATCHABLE PREFIX "/" BASE "${CMAKE_SOURCE_DIR}"
+    FILES ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.vert ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.frag)
