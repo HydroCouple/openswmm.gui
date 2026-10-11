@@ -947,7 +947,21 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
     };
     number("widthPx",tr("Trail width:"),0.1,12,1,tr(" px"));
     number("headWidthPx",tr("Head width:"),0.1,12,1,tr(" px"));
-    number("trailLengthPx",tr("Trail length:"),1,200,1,tr(" px"));
+    auto *trailMode=new QComboBox(page);trailMode->setObjectName(QStringLiteral("velocityScaledTrail"));
+    trailMode->addItems({tr("Velocity × duration"),tr("Pixel length (legacy)")});
+    trailMode->setCurrentIndex(st->velocityScaledTrail()?0:1);form->addRow(tr("Trail length mode:"),trailMode);
+    connect(trailMode,qOverload<int>(&QComboBox::currentIndexChanged),st,[st](int index){st->setVelocityScaledTrail(index==0);});
+    number("trailDurationSeconds",tr("Trail duration:"),.1,30,1,tr(" s"));
+    number("trailLengthPx",tr("Approximate trail length:"),1,200,1,tr(" px"));
+    auto *trailDuration=page->findChild<QDoubleSpinBox*>("trailDurationSeconds");
+    auto *trailLength=page->findChild<QDoubleSpinBox*>("trailLengthPx");
+    trailDuration->setToolTip(tr("The visible tail covers this many seconds of flow travel. Faster flow makes longer streaks; slow flow makes shorter marks. This is separate from particle lifetime. Visual speed changes movement without changing tail length. Wet boundaries and prepared path limits can shorten the tail."));
+    trailLength->setToolTip(tr("Legacy pixel length estimated from each path's average speed. Local velocity changes can still change its visible length."));
+    auto updateTrailMode=[st,trailMode,trailDuration,trailLength] {
+        QSignalBlocker block(trailMode);trailMode->setCurrentIndex(st->velocityScaledTrail()?0:1);
+        trailDuration->setEnabled(st->velocityScaledTrail());trailLength->setEnabled(!st->velocityScaledTrail());
+    };
+    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,trailMode,updateTrailMode);updateTrailMode();
     number("spacingPx",tr("Spacing:"),8,200,1,tr(" px"));
     number("pathLengthPx",tr("Base path length:"),16,512,1,tr(" px"));
     page->findChild<QDoubleSpinBox*>("pathLengthPx")->setToolTip(tr("Paths extend beyond this length when needed for particle lifetime, within the rendering budget."));

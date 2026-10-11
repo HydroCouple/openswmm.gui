@@ -17,6 +17,7 @@
 #include <QGraphicsScene>
 #include <QDoubleSpinBox>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -167,6 +168,7 @@ public:
     explicit HeadWidthPreview(QQuickItem *parent):QQuickItem(parent) {
         setFlag(ItemHasContents);setSize({256,80});
         style.setWidthPx(2);style.setHeadWidthPx(2);style.setFade(false);style.setTaper(false);
+        style.setVelocityScaledTrail(false); // existing head/fade fixtures use an 80 px tail
         FlowStreakPath path;path.length=200;
         path.lifeRemaining=200;path.lifeAge=2;
         for(int i=0;i<=200;++i)path.points.push_back({QPointF(20+i,40),float(i),1});
@@ -211,6 +213,7 @@ private slots:
         sub->streakStyle()->setMinimumLifetimeSeconds(20);
         sub->streakStyle()->setMaximumLifetimeSeconds(30);
         sub->streakStyle()->setLifetimeFadeSeconds(1.5);
+        sub->streakStyle()->setTrailDurationSeconds(3.5);
         sub->streakStyle()->setColor(QColor(20,40,80,170));sub->streakStyle()->setSpeedMultiplier(12);
         // Explicit saved settings, including the previous defaults, must win
         // over the calmer defaults when an existing project is reopened.
@@ -236,7 +239,7 @@ private slots:
         for(const auto &setting:{qMakePair("speedMultiplier",2.),qMakePair("trailLengthPx",80.),
                                  qMakePair("pathLengthPx",350.),qMakePair("animationTimestepMs",16.),
                                  qMakePair("minimumLifetimeSeconds",8.),qMakePair("maximumLifetimeSeconds",16.),
-                                 qMakePair("lifetimeFadeSeconds",.5)}) {
+                                 qMakePair("lifetimeFadeSeconds",.5),qMakePair("trailDurationSeconds",2.)}) {
             auto *control=panel.findChild<QDoubleSpinBox*>(setting.first);QVERIFY(control);
             QCOMPARE(control->value(),setting.second);
         }
@@ -253,6 +256,14 @@ private slots:
         style->setAnimationTimestepMs(1);QCOMPARE(timestep->value(),8.);
         style->setAnimationTimestepMs(2000);QCOMPARE(timestep->value(),1000.);
         auto *minimum=panel.findChild<QDoubleSpinBox*>("minimumLifetimeSeconds");
+        auto *trailMode=panel.findChild<QComboBox*>("velocityScaledTrail");QVERIFY(trailMode);
+        auto *trailDuration=panel.findChild<QDoubleSpinBox*>("trailDurationSeconds");
+        auto *trailPixels=panel.findChild<QDoubleSpinBox*>("trailLengthPx");
+        QCOMPARE(trailMode->currentIndex(),0);QVERIFY(trailDuration->isEnabled());QVERIFY(!trailPixels->isEnabled());
+        trailDuration->setValue(3.5);QCOMPARE(style->trailDurationSeconds(),3.5);
+        trailMode->setCurrentIndex(1);QVERIFY(!style->velocityScaledTrail());QVERIFY(!trailDuration->isEnabled());QVERIFY(trailPixels->isEnabled());
+        style->setVelocityScaledTrail(true);QCOMPARE(trailMode->currentIndex(),0);QVERIFY(trailDuration->isEnabled());
+        style->setTrailDurationSeconds(4.5);QCOMPARE(trailDuration->value(),4.5);
         auto *maximum=panel.findChild<QDoubleSpinBox*>("maximumLifetimeSeconds");
         minimum->setValue(20);QCOMPARE(style->minimumLifetimeSeconds(),20.);QCOMPARE(maximum->value(),20.);
         maximum->setValue(10);QCOMPARE(style->maximumLifetimeSeconds(),10.);QCOMPARE(minimum->value(),10.);
@@ -283,6 +294,21 @@ private slots:
         style.setWidthPx(12);style.setHeadWidthPx(.1);style.setTaper(true);
         for(int i=0;i<=100;++i)QVERIFY(style.widthAtFraction(i/100.)>0);
         QCOMPARE(style.pathSettings(),settings);
+    }
+    void trailDurationValidationAndLegacyStyles() {
+        FlowStreakStyle style;QVERIFY(style.velocityScaledTrail());QCOMPARE(style.activeTrailDurationSeconds(),2.);
+        const auto key=style.pathSettings();
+        style.setTrailDurationSeconds(5.5);QCOMPARE(style.pathSettings(),key);
+        FlowStreakStyle reopened;reopened.fromJson(style.toJson());QCOMPARE(reopened.toJson(),style.toJson());
+        for(double invalid:{std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::infinity()}) {
+            style.setTrailDurationSeconds(invalid);QCOMPARE(style.trailDurationSeconds(),5.5);
+        }
+        style.setTrailDurationSeconds(-1);QCOMPARE(style.trailDurationSeconds(),.1);
+        style.setTrailDurationSeconds(200);QCOMPARE(style.trailDurationSeconds(),30.);
+        style.fromJson({{"trailLengthPx",24.}});QVERIFY(!style.velocityScaledTrail());QCOMPARE(style.activeTrailDurationSeconds(),0.);
+        QCOMPARE(style.trailLengthPx(),24.);QCOMPARE(style.pathSettings(),key);
+        reopened.fromJson(style.toJson());QCOMPARE(reopened.toJson(),style.toJson());
+        style.setVelocityScaledTrail(true);QCOMPARE(style.activeTrailDurationSeconds(),30.);
     }
     void lifetimeValidationAndLegacyStyles() {
         FlowStreakStyle style;
@@ -804,6 +830,11 @@ private slots:
         renderer.setProperty("canvasDevicePixelRatio",2.0);renderer.setSize({1600,1600});
         root=renderer.updatePaintNode(root,nullptr);
         QCOMPARE(flow->uploads(),uploads); // same logical-pixel density/width at 2x resolution
+        layer.flowStreakSublayer()->streakStyle()->setTrailDurationSeconds(4);
+        root=renderer.updatePaintNode(root,nullptr);QCOMPARE(flow->uploads(),uploads+1);
+        QCOMPARE(paths(layer),batch);QCOMPARE(layer.flowStreakBuildCount(),builds);
+        for(int i=0;i<100;++i) {layer.advanceFlowStreaks(.033);root=renderer.updatePaintNode(root,nullptr);}
+        QCOMPARE(flow->uploads(),uploads+1); // duration edits do not add tick uploads
         QVERIFY(layer.moveSublayer(layer.sublayers().indexOf(layer.flowStreakSublayer()),0));
         root=renderer.updatePaintNode(root,nullptr);QCOMPARE(root->firstChild(),flow);
         layer.flowStreakSublayer()->setVisible(false);root=renderer.updatePaintNode(root,nullptr);
@@ -879,6 +910,8 @@ private slots:
         };
         QVERIFY(alphaSum(wide)>alphaSum(first));QCOMPARE(layer.flowStreakBuildCount(),builds);
         layer.flowStreakSublayer()->streakStyle()->setHeadWidthPx(1.5);QCOMPARE(draw(),first);
+        layer.flowStreakSublayer()->streakStyle()->setTrailDurationSeconds(4);
+        QVERIFY(alphaSum(draw())>alphaSum(first));QCOMPARE(layer.flowStreakBuildCount(),builds);
         layer.advanceFlowStreaks(.1);QVERIFY(draw()!=first);
         layer.flowStreakSublayer()->setVisible(false);QCOMPARE(draw(),empty);
     }
@@ -978,6 +1011,7 @@ private slots:
         sub->streakStyle()->setMinimumLifetimeSeconds(10);
         sub->streakStyle()->setMaximumLifetimeSeconds(25);
         sub->streakStyle()->setLifetimeFadeSeconds(1.2);
+        sub->streakStyle()->setTrailDurationSeconds(4.5);
         sub->streakStyle()->setSpacingPx(22);sub->streakStyle()->setAnimated(false);
         original.canvas()->addLayer(layer,false);
         QString error;QVERIFY2(ProjectSerializer::saveToFile(project,&original,&error),qPrintable(error));
@@ -993,6 +1027,52 @@ private slots:
         QVERIFY(reopened->isVisible());QCOMPARE(reopened->opacity(),sub->opacity());
         QCOMPARE(reopened->streakStyle()->toJson(),sub->streakStyle()->toJson());
         for(auto *window:app.findChildren<SWMMVisProjectWindow*>())window->setHasChanges(false);
+    }
+    void nativeVelocityDependentTails() {
+        if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE"))QSKIP("Run with a native window to verify temporal tail lengths");
+        QQuickWindow window;window.setColor(Qt::black);window.resize(256,80);
+        auto *preview=new HeadWidthPreview(window.contentItem());
+        preview->style.setVelocityScaledTrail(true);preview->style.setTrailDurationSeconds(2);
+        preview->style.setWidthPx(4);preview->style.setHeadWidthPx(4);
+        window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto capture=[&](double speed,bool varying=false) {
+            auto &path=preview->batch->paths.front();path.points.clear();
+            for(int i=0;i<=200;++i) {
+                const double seconds=varying?(i<=50?i/20.:2.5+(i-50)/60.):i/speed;
+                path.points.push_back({{20.+i,40},float(seconds),float(varying?(i<=50?20:60):speed)});
+            }
+            // Publish a new immutable batch so the node uploads changed timestamps.
+            preview->batch=std::make_shared<FlowStreakBatch>(*preview->batch);
+            preview->phase=varying?4:2.4;preview->update();return window.grabWindow();
+        };
+        auto bounds=[](const QImage &image) {
+            const double dpr=image.width()/256.;int first=image.width(),last=-1;
+            for(int x=0;x<image.width();++x)if(qRed(image.pixel(x,int(40.5*dpr)))>127) {first=std::min(first,x);last=x;}
+            return qMakePair(first/dpr,(last+1)/dpr);
+        };
+        const auto slow=capture(30),fast=capture(60);
+        const auto a=bounds(slow),b=bounds(fast);
+        QVERIFY(std::abs(a.second-a.first-60)<1.1);QVERIFY(std::abs(b.second-b.first-120)<1.1);
+        for(double speed:{.5,8.}) {
+            preview->style.setSpeedMultiplier(speed);preview->update();QCOMPARE(window.grabWindow(),fast);
+        }
+        preview->style.setTrailDurationSeconds(1);preview->update();const auto shorter=window.grabWindow();
+        const auto c=bounds(shorter);QVERIFY(std::abs(c.second-c.first-60)<1.1);
+        preview->style.setTrailDurationSeconds(2);const auto changed=capture(0,true);const auto d=bounds(changed);
+        // t=2 is x=60; t=4 is x=160: the two-speed tail spans 100 px.
+        QVERIFY(std::abs(d.first-60)<1.1);QVERIFY(std::abs(d.second-160)<1.1);
+        const double dpr=changed.width()/256.;
+        for(int x=21;x<219;++x) {
+            const double sceneX=(std::floor((x+.5)*dpr)+.5)/dpr-20;
+            const double t=sceneX<=50?sceneX/20:2.5+(sceneX-50)/60;
+            const double expected=flowStreakOpacity(t,2,{4,2,200},false,.5);
+            const double pixel=qRed(changed.pixel(int((x+.5)*dpr),int(40.5*dpr)))/255.;
+            QVERIFY(std::abs(pixel-expected)<.025);
+        }
+        QDir().mkpath("tests/verification/flow_streaks");
+        QVERIFY(slow.save("tests/verification/flow_streaks/temporal-tail-slow.png"));
+        QVERIFY(fast.save("tests/verification/flow_streaks/temporal-tail-fast.png"));
+        QVERIFY(changed.save("tests/verification/flow_streaks/temporal-tail-changing-speed.png"));
     }
     void nativeHeadWidth() {
         if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE"))QSKIP("Run with a native window to verify shader head widths");

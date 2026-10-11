@@ -77,7 +77,7 @@ void FlowStreakNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowStreakBatc
     geometry()->allocate(count);auto *v=static_cast<Vertex*>(geometry()->vertexData());
     if(batch && scale>0)for(const auto &path:batch->paths) {
         const float duration=path.points.back().seconds;
-        const float tail=duration*float(std::min(1.,style.trailLengthPx()/(path.length*scale)));
+        const float tail=float(OpenSWMM::Render::flowStreakTailSeconds(path,style.trailLengthPx(),scale,style.activeTrailDurationSeconds()));
         for(size_t i=1;i<path.points.size();++i) {
             const auto &a=path.points[i-1],&b=path.points[i];const QPointF d=b.position-a.position;
             const double len=std::hypot(d.x(),d.y());

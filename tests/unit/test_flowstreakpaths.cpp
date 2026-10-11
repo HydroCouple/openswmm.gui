@@ -328,6 +328,38 @@ private slots:
             if(clock<firstLifetime)QVERIFY(std::abs(clock+after.remaining-firstLifetime)<1e-4);
         }
     }
+    void temporalTailsFollowVelocityWithoutPixelNormalization() {
+        for(double speed:{.25,1.,4.}) {
+            FlowStreakPath path;path.length=100;
+            path.points={{{0,0},0,float(speed)},{{100,0},float(100/speed),float(speed)}};
+            for(double scale:{.25,1.,8.}) {
+                const double tail=flowStreakTailSeconds(path,80,scale,2);
+                QCOMPARE(tail,2.);
+                // In uniform flow the visible spatial interval is v * duration.
+                const FlowStreakMotion motion{10,5,20};
+                QCOMPARE(flowStreakOpacity(10-tail+.001,tail,motion,false,.5),1.);
+                QCOMPARE(flowStreakOpacity(10-tail,tail,motion,false,.5),0.);
+                QCOMPARE(speed*tail,2*speed);
+                QCOMPARE(flowStreakTailSeconds(path,80,scale),path.points.back().seconds*std::min(1.,80/(100*scale)));
+            }
+        }
+        // A time window crossing a velocity change follows both segments,
+        // rather than using the whole route's average velocity.
+        FlowStreakPath varying;varying.length=200;
+        varying.points={{{0,0},0,20},{{50,0},2.5,20},{{200,0},5,60}};
+        QCOMPARE(flowStreakTailSeconds(varying,80,4,2),2.);
+        FlowStreakPlayback playback;auto raw=std::make_shared<FlowStreakBatch>();
+        raw->paths.push_back(varying);
+        const auto first=playback.present(raw,0,0,80,4,true,8,16,1,2);
+        const auto old=flowStreakMotion(first->paths.front(),2,1,1,8,16,1);
+        const auto changed=playback.present(raw,1,1,80,4,true,8,16,1,4);
+        const auto now=flowStreakMotion(changed->paths.front(),4,1,1,8,16,1);
+        QCOMPARE(now.head,old.head);QCOMPARE(now.age,old.age);QCOMPARE(now.remaining,old.remaining);
+        QCOMPARE(playback.present(raw,2,2,80,4,true,8,16,1,4),changed);
+        // Short wet support still bounds the next generation's lifetime.
+        const auto end=flowStreakMotion(changed->paths.front(),4,100,100,8,16,1);
+        QVERIFY(end.age+end.remaining<=9.00001);
+    }
     void initialPopulationCoversBothGenerations() {
         auto raw=std::make_shared<FlowStreakBatch>();
         for(int i=0;i<100;++i) {
