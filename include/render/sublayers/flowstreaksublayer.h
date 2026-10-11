@@ -29,6 +29,8 @@ class FlowStreakStyle : public SublayerStyle {
     Q_CLASSINFO("group:animated","Motion")
     Q_PROPERTY(double speedMultiplier READ speedMultiplier WRITE setSpeedMultiplier NOTIFY styleChanged)
     Q_CLASSINFO("group:speedMultiplier","Motion")
+    Q_PROPERTY(int animationTimestepMs READ animationTimestepMs WRITE setAnimationTimestepMs NOTIFY styleChanged)
+    Q_CLASSINFO("group:animationTimestepMs","Motion")
     Q_PROPERTY(bool colorByMagnitude READ colorByMagnitude WRITE setColorByMagnitude NOTIFY styleChanged)
     Q_CLASSINFO("group:colorByMagnitude","Colour")
 public:
@@ -56,6 +58,8 @@ public:
     void setAnimated(bool value);
     double speedMultiplier() const { return m_speedMultiplier; }
     void setSpeedMultiplier(double value);
+    int animationTimestepMs() const { return m_animationTimestepMs; }
+    void setAnimationTimestepMs(int value);
     bool colorByMagnitude() const { return m_colorByMagnitude; }
     void setColorByMagnitude(bool value);
     const ClassificationScheme &scheme() const { return m_scheme; }
@@ -78,6 +82,7 @@ private:
     double m_dryDepthCutoff = 0.001;
     bool m_animated = true;
     double m_speedMultiplier = 2.0;
+    int m_animationTimestepMs = 16;
     bool m_colorByMagnitude = false;
 };
 class FlowStreakSublayer : public ISublayer {

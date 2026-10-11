@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <unordered_map>
 
 namespace OpenSWMM::Render {
 namespace {
@@ -190,7 +191,7 @@ bool FlowStreakTracer::advance()
         return std::isfinite(f.vx) && std::isfinite(f.vy) && std::isfinite(f.speed) && f.speed>1e-8;
     };
     if(!usable(sample.field)) return false;
-    FlowStreakPath path;path.offset=float(double(h>>32)/4294967296.);
+    FlowStreakPath path;path.seed=h;path.offset=float(double(h>>32)/4294967296.);
     double time=0.;path.points.push_back({p,0,sample.field.speed});
     int step=0;
     for(;step<128 && points+int(path.points.size())<in.maxPoints;++step) {
@@ -269,11 +270,87 @@ FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &in,const std::atomic
     return cancelled.load()?FlowStreakBatch{}:trace.take();
 }
 
+double flowStreakHead(double duration,double tail,double offset,double elapsed)
+{
+    return std::fmod(std::max(0.,elapsed)+offset*(duration+tail),duration+tail);
+}
+static double softRamp(double value)
+{
+    const double a=std::clamp(value,0.,1.);return a*a*(3-2*a);
+}
+double flowStreakAppearance(double appearedAt,double elapsed)
+{
+    return appearedAt<0?1:softRamp((elapsed-appearedAt)/.25);
+}
 double flowStreakOpacity(double t,double duration,double tail,double offset,double elapsed,bool fade)
 {
     if(!(tail>0) || !(duration>0)) return 0;
-    const double head=std::fmod(std::max(0.,elapsed)+offset*(duration+tail),duration+tail);
+    const double head=flowStreakHead(duration,tail,offset,elapsed);
     const double age=head-t;
-    return age>=0 && age<tail ? (fade ? 1-age/tail : 1.) : 0.;
+    if(age<0 || age>=tail) return 0;
+    if(!fade) return 1;
+    // Match flowstreak.frag. Soften the moving head and the birth/death of
+    // each traversal, independently of rendering cadence or visual speed.
+    const double ramp=std::max(1e-6,std::min(duration*.15,tail*.25));
+    return (1-age/tail)*softRamp(age/std::max(1e-6,tail*.1))
+        *softRamp(head/ramp)*softRamp((duration+tail-head)/ramp);
+}
+std::shared_ptr<const FlowStreakBatch> FlowStreakPlayback::present(
+    std::shared_ptr<const FlowStreakBatch> raw,double phase,double clock,double trailPx,double scale,bool fadeNew)
+{
+    if(!raw) return {};
+    if(raw==m_raw && trailPx==m_trail && scale==m_scale) {
+        if(!fadeNew && m_fadeNew) {
+            auto settled=std::make_shared<FlowStreakBatch>(*m_current);
+            for(auto &p:settled->paths)p.appearedAt=-1;
+            m_current=std::move(settled);
+        }
+        m_fadeNew=fadeNew;return m_current;
+    }
+    if(!m_current) {m_raw=raw;m_current=raw;m_trail=trailPx;m_scale=scale;m_fadeNew=fadeNew;return m_current;}
+    std::unordered_map<quint64,const FlowStreakPath*> previous;
+    for(const auto &p:m_current->paths)previous.emplace(p.seed,&p);
+    auto next=std::make_shared<FlowStreakBatch>(*raw);
+    const double tolerance2=4/(scale*scale);
+    for(auto &p:next->paths) {
+        p.appearedAt=fadeNew?float(clock):-1;
+        const auto found=previous.find(p.seed);
+        if(found==previous.end())continue;
+        const auto &old=*found->second;
+        if(p.points.size()<2 || old.points.size()<2)continue;
+        const auto delta=p.points.front().position-old.points.front().position;
+        if(QPointF::dotProduct(delta,delta)>tolerance2)continue;
+        const double duration=p.points.back().seconds,oldDuration=old.points.back().seconds;
+        const double tail=duration*std::min(1.,trailPx/(p.length*scale));
+        const double oldTail=oldDuration*std::min(1.,m_trail/(old.length*m_scale));
+        const double oldHead=flowStreakHead(oldDuration,oldTail,old.offset,phase);
+        double head=-1;
+        if(oldHead>oldDuration) {
+            const auto end=p.points.back().position-old.points.back().position;
+            if(QPointF::dotProduct(end,end)<=tolerance2)
+                head=duration+(oldHead-oldDuration)*tail/oldTail;
+        } else {
+            QPointF point,direction;
+            for(size_t i=1;i<old.points.size();++i)if(old.points[i].seconds>=oldHead) {
+                const auto &a=old.points[i-1],&b=old.points[i];
+                direction=b.position-a.position;
+                point=a.position+direction*((oldHead-a.seconds)/std::max(1e-12,double(b.seconds-a.seconds)));break;
+            }
+            double best=tolerance2;
+            for(size_t i=1;i<p.points.size();++i) {
+                const auto &a=p.points[i-1],&b=p.points[i];const auto d=b.position-a.position;
+                const double n=QPointF::dotProduct(d,d);
+                if(n<=0 || QPointF::dotProduct(d,direction)<=0)continue;
+                const double f=std::clamp(QPointF::dotProduct(point-a.position,d)/n,0.,1.);
+                const auto distance=a.position+d*f-point;const double e=QPointF::dotProduct(distance,distance);
+                if(e<=best) {best=e;head=a.seconds+f*(b.seconds-a.seconds);}
+            }
+        }
+        if(head<0)continue; // changed direction/support: fade the new valid path
+        const double cycle=duration+tail;
+        double offset=std::fmod(head-phase,cycle)/cycle;if(offset<0)offset+=1;
+        p.offset=float(offset);p.appearedAt=fadeNew?old.appearedAt:-1;
+    }
+    m_raw=raw;m_current=std::move(next);m_trail=trailPx;m_scale=scale;m_fadeNew=fadeNew;return m_current;
 }
 } // namespace OpenSWMM::Render

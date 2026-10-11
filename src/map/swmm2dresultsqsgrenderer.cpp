@@ -600,9 +600,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     m_layer->setHydraulicView(viewRect,logicalScale);
     auto syncStreaks = [&]() {
         auto *sub=m_layer->flowStreakSublayer();
-        const auto batch=m_layer->flowStreaks(viewRect,logicalScale,m_lastRenderedFrame);
+        const auto batch=m_layer->presentedFlowStreaks(viewRect,logicalScale,m_lastRenderedFrame);
         root->streakNode->sync(batch,*sub->streakStyle(),m_layer->flowStreakSeconds(),
-            sub->opacity(),QPointF(m_anchorX,m_anchorY),logicalScale);
+            sub->opacity(),QPointF(m_anchorX,m_anchorY),logicalScale,m_layer->flowStreakDisplaySeconds());
     };
     auto clearAll = [&]() {
         root->streakNode->sync({},*m_layer->flowStreakSublayer()->streakStyle(),0,0,{},1);
@@ -1071,6 +1071,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             m_dirty.noteStyleChanged(); // deferred passes must rebuild on completion
             applyTransform();
             syncStreaks(); return root;
+        }
+        // Publish water and streaks together. A temporary path-cache miss must
+        // not blank the old streaks while a matching new frame is preparing.
+        // Retention is only allowed for the same geometry and complete old
+        // presentation; dry/no-velocity and rejected requests still publish.
+        // A superseded overview job can be cancelled by a fast producer; do
+        // not hold the surface waiting for paths that can no longer arrive.
+        if(!geomChanged && m_lastRenderedFrame!=m_contourFrame->key.frameRev
+           && m_contourFrame->key.frameRev==m_layer->frameRevision()
+           && m_layer->flowStreaksEnabled()
+           && !m_layer->flowStreaks(viewRect,logicalScale,m_contourFrame->key.frameRev)
+           && m_layer->flowStreakBusy()) {
+            m_dirty.noteStyleChanged();applyTransform();syncStreaks();return root;
         }
         const auto& frame = *m_contourFrame;
         // A fast producer often synchronizes repeatedly without a newly

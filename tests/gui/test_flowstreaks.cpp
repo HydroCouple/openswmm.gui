@@ -13,6 +13,7 @@
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 #include <QTest>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QGraphicsScene>
 #include <QDoubleSpinBox>
 #include <QCheckBox>
@@ -162,7 +163,7 @@ class HeadWidthPreview:public QQuickItem {
 public:
     FlowStreakStyle style;
     std::shared_ptr<FlowStreakBatch> batch=std::make_shared<FlowStreakBatch>();
-    double phase=120;
+    double phase=120,clock=0;
     explicit HeadWidthPreview(QQuickItem *parent):QQuickItem(parent) {
         setFlag(ItemHasContents);setSize({256,80});
         style.setWidthPx(2);style.setHeadWidthPx(2);style.setFade(false);style.setTaper(false);
@@ -173,7 +174,7 @@ public:
 protected:
     QSGNode *updatePaintNode(QSGNode *old,UpdatePaintNodeData *) override {
         auto *node=old?static_cast<FlowStreakNode*>(old):new FlowStreakNode;
-        node->sync(batch,style,phase,1,{},1);return node;
+        node->sync(batch,style,phase,1,{},1,clock);return node;
     }
 };
 static FlowStreakNode *findFlow(QSGNode *n) {
@@ -205,6 +206,7 @@ private slots:
         QVERIFY(sub->streakStyle()->animated());QVERIFY(a.liveRenderEnabled());
         sub->setVisible(true);sub->setOpacity(.4);sub->streakStyle()->setWidthPx(3.5);
         sub->streakStyle()->setHeadWidthPx(8);
+        sub->streakStyle()->setAnimationTimestepMs(33);
         sub->streakStyle()->setColor(QColor(20,40,80,170));sub->streakStyle()->setSpeedMultiplier(12);
         // Explicit saved settings, including the previous defaults, must win
         // over the calmer defaults when an existing project is reopened.
@@ -228,7 +230,7 @@ private slots:
         auto *motion=panel.findChild<QCheckBox*>("animated");QVERIFY(motion);
         auto *style=layer.flowStreakSublayer()->streakStyle();
         for(const auto &setting:{qMakePair("speedMultiplier",2.),qMakePair("trailLengthPx",80.),
-                                 qMakePair("pathLengthPx",350.)}) {
+                                 qMakePair("pathLengthPx",350.),qMakePair("animationTimestepMs",16.)}) {
             auto *control=panel.findChild<QDoubleSpinBox*>(setting.first);QVERIFY(control);
             QCOMPARE(control->value(),setting.second);
         }
@@ -239,6 +241,11 @@ private slots:
         style->setWidthPx(2.5);QCOMPARE(width->value(),2.5);
         head->setValue(7);QCOMPARE(style->headWidthPx(),7.);QCOMPARE(style->widthPx(),2.5);
         style->setHeadWidthPx(9);QCOMPARE(head->value(),9.);QCOMPARE(width->value(),2.5);
+        auto *timestep=panel.findChild<QDoubleSpinBox*>("animationTimestepMs");QVERIFY(timestep);
+        timestep->setValue(33);QCOMPARE(style->animationTimestepMs(),33);
+        style->setAnimationTimestepMs(50);QCOMPARE(timestep->value(),50.);
+        style->setAnimationTimestepMs(1);QCOMPARE(timestep->value(),8.);
+        style->setAnimationTimestepMs(2000);QCOMPARE(timestep->value(),1000.);
         motion->setChecked(false);QVERIFY(!style->animated());style->setAnimated(true);QVERIFY(motion->isChecked());
     }
     void headWidthPreservesLegacyStyles() {
@@ -306,6 +313,42 @@ private slots:
         layer.setLiveRenderEnabled(false);QVERIFY(!paths(layer));layer.setLiveRenderEnabled(true);
         layer.setCurrentTimeIndex(1);QTRY_VERIFY_WITH_TIMEOUT(paths(layer)!=nullptr,5000);
         QVERIFY(layer.flowStreakBuildCount()>builds);
+    }
+    void animationSpeedIsIndependentOfTimestep() {
+        for(int interval:{8,16,33,1000}) {
+            SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();auto *raw=source.get();
+            layer.setSource(std::move(source));layer.flowStreakSublayer()->setVisible(true);
+            auto *style=layer.flowStreakSublayer()->streakStyle();style->setAnimationTimestepMs(interval);
+            QTRY_VERIFY_WITH_TIMEOUT(paths(layer)!=nullptr,5000);
+            const auto batch=paths(layer);const auto key=style->pathSettings();
+            const int reads=raw->reads,builds=layer.flowStreakBuildCount();
+            int remaining=1000;
+            while(remaining>0) {const int dt=std::min(remaining,interval);layer.advanceFlowStreaks(dt/1000.);remaining-=dt;}
+            QVERIFY(std::abs(layer.flowStreakSeconds()-2)<1e-10);
+            QVERIFY(std::abs(layer.flowStreakDisplaySeconds()-1)<1e-10);
+            QCOMPARE(paths(layer),batch);QCOMPARE(style->pathSettings(),key);
+            QCOMPARE(raw->reads,reads);QCOMPARE(layer.flowStreakBuildCount(),builds);
+        }
+    }
+    void playbackUsesMatchingWetRevision() {
+        SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();auto *raw=source.get();
+        source->live=true;layer.setSource(std::move(source));layer.flowStreakSublayer()->setVisible(true);
+        const auto box=layer.m_sceneBBox;const auto revision=layer.frameRevision();
+        auto present=[&](quint64 r){return layer.presentedFlowStreaks(box,8,r);};
+        QTRY_VERIFY_WITH_TIMEOUT(present(revision),5000);const auto first=present(revision);
+        layer.advanceFlowStreaks(.5);raw->speed=3;++raw->revision;layer.refreshCurrentFrame();
+        QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()>revision,5000);
+        QCOMPARE(present(revision),first);
+        const auto current=layer.frameRevision();
+        QTRY_VERIFY_WITH_TIMEOUT(present(current),5000);
+        const auto next=present(current);QVERIFY(next!=first);
+        QVERIFY(!next->paths.empty());QCOMPARE(present(current),next);
+        raw->depths.assign(3,0);++raw->revision;layer.refreshCurrentFrame();
+        QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()>current,5000);
+        const auto dry=present(layer.frameRevision());QVERIFY(!dry || dry->paths.empty());
+        layer.setSource(std::make_unique<FlowSource>());
+        QTRY_VERIFY_WITH_TIMEOUT(present(layer.frameRevision()),5000);
+        for(const auto &p:present(layer.frameRevision())->paths)QCOMPARE(p.appearedAt,-1.f);
     }
     void wetMaskAndSourceReplacement() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());layer.flowStreakSublayer()->setVisible(true);
@@ -710,6 +753,7 @@ private slots:
         const auto batch=paths(layer);
         layer.flowStreakSublayer()->streakStyle()->setHeadWidthPx(10);
         layer.flowStreakSublayer()->streakStyle()->setWidthPx(2);
+        layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(8);
         root=renderer.updatePaintNode(root,nullptr);
         QCOMPARE(flow->uploads(),uploads);QCOMPARE(flow->geometry()->vertexData(),data);
         QCOMPARE(paths(layer),batch);QCOMPARE(layer.flowStreakBuildCount(),builds);
@@ -720,6 +764,56 @@ private slots:
         root=renderer.updatePaintNode(root,nullptr);QCOMPARE(root->firstChild(),flow);
         layer.flowStreakSublayer()->setVisible(false);root=renderer.updatePaintNode(root,nullptr);
         QCOMPARE(flow->geometry()->vertexCount(),0);delete root;
+    }
+    void gpuPublishesWaterAndPathsTogether() {
+        SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();auto *raw=source.get();
+        source->live=true;layer.setSource(std::move(source));layer.flowStreakSublayer()->setVisible(true);
+        TestRenderer renderer;renderer.setSize({800,800});renderer.setLayer(&layer);renderer.setMapExtent({0,0,100,100});
+        QSGNode *root=renderer.updatePaintNode(nullptr,nullptr);QVERIFY(root);
+        QTRY_VERIFY_WITH_TIMEOUT((root=renderer.updatePaintNode(root,nullptr),findFlow(root)->geometry()->vertexCount()>0),5000);
+        const auto old=renderer.displayedFrameRevision();const int uploads=findFlow(root)->uploads();
+        raw->speed=3;++raw->revision;layer.refreshCurrentFrame();
+        QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()>old,5000);
+        root=renderer.updatePaintNode(root,nullptr);
+        QVERIFY(layer.flowStreakBusy());QCOMPARE(renderer.displayedFrameRevision(),old);
+        QCOMPARE(findFlow(root)->uploads(),uploads);QVERIFY(findFlow(root)->geometry()->vertexCount()>0);
+        QTRY_VERIFY_WITH_TIMEOUT((root=renderer.updatePaintNode(root,nullptr),renderer.displayedFrameRevision()==layer.frameRevision()),5000);
+        QVERIFY(findFlow(root)->geometry()->vertexCount()>0);
+        const auto wet=layer.frameRevision();raw->depths.assign(3,0);++raw->revision;layer.refreshCurrentFrame();
+        QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()>wet,5000);
+        root=renderer.updatePaintNode(root,nullptr);
+        QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+        QCOMPARE(findFlow(root)->geometry()->vertexCount(),0);delete root;
+    }
+    void cancelledOverviewDoesNotStallWater() {
+        const auto previous=qgetenv("OPENSWMM_FLOW_OVERVIEW");qputenv("OPENSWMM_FLOW_OVERVIEW","1");
+        const auto restore=qScopeGuard([&]{if(previous.isNull())qunsetenv("OPENSWMM_FLOW_OVERVIEW");else qputenv("OPENSWMM_FLOW_OVERVIEW",previous);});
+        SWMM2DResultsLayer layer;auto source=std::make_unique<GridFlowSource>(200,126);auto *raw=source.get();
+        // Publish source changes synchronously so no event-loop turn can
+        // accidentally finish the overview job before it is superseded.
+        source->live=false;
+        layer.setSource(std::move(source));layer.flowStreakSublayer()->setVisible(true);
+        layer.contourBandSublayer()->setVisible(true);
+        TestRenderer renderer;renderer.setSize({800,504});renderer.setLayer(&layer);renderer.setMapExtent({0,0,200,126});
+        std::unique_ptr<QSGNode> root(renderer.updatePaintNode(nullptr,nullptr));
+        QTRY_VERIFY_WITH_TIMEOUT((root.reset(renderer.updatePaintNode(root.release(),nullptr)),
+                                 findFlow(root.get())->geometry()->vertexCount()>0),10000);
+        const auto initial=renderer.displayedFrameRevision();
+        raw->speed=3;++raw->revision;layer.refreshCurrentFrame();
+        const auto intermediate=layer.frameRevision();QVERIFY(intermediate>initial);
+        root.reset(renderer.updatePaintNode(root.release(),nullptr));
+        renderer.finishPendingCapture(); // finish only the contour, not the queued overview tracer
+        QVERIFY(layer.flowStreakBusy());
+        raw->speed=4;++raw->revision;layer.refreshCurrentFrame();
+        QVERIFY(layer.frameRevision()>intermediate);
+        root.reset(renderer.updatePaintNode(root.release(),nullptr));
+        // The obsolete overview cannot complete, but its completed water may
+        // still be published while the latest matched presentation prepares.
+        QCOMPARE(renderer.displayedFrameRevision(),intermediate);
+        QCOMPARE(findFlow(root.get())->geometry()->vertexCount(),0);
+        QTRY_VERIFY_WITH_TIMEOUT((root.reset(renderer.updatePaintNode(root.release(),nullptr)),
+                                 renderer.displayedFrameRevision()==layer.frameRevision()
+                                 && findFlow(root.get())->geometry()->vertexCount()>0),10000);
     }
     void painterFallbackAnimatesAndHides() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
@@ -836,6 +930,7 @@ private slots:
         auto *sub=layer->flowStreakSublayer();sub->setVisible(true);sub->setOpacity(.65);
         sub->streakStyle()->setColor(Qt::cyan);sub->streakStyle()->setWidthPx(2.7);
         sub->streakStyle()->setHeadWidthPx(6.2);
+        sub->streakStyle()->setAnimationTimestepMs(50);
         sub->streakStyle()->setSpacingPx(22);sub->streakStyle()->setAnimated(false);
         original.canvas()->addLayer(layer,false);
         QString error;QVERIFY2(ProjectSerializer::saveToFile(project,&original,&error),qPrintable(error));
@@ -883,6 +978,42 @@ private slots:
         QVERIFY(thin.save("tests/verification/flow_streaks/head-width-2px.png"));
         QVERIFY(wide.save("tests/verification/flow_streaks/head-width-12px.png"));
     }
+    void nativeSoftFadesAndSubpixelCoverage() {
+        if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE"))QSKIP("Run with a native window to verify smooth fades and pixel coverage");
+        QQuickWindow window;window.setColor(Qt::black);window.resize(256,80);
+        auto *preview=new HeadWidthPreview(window.contentItem());window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto capture=[&] {preview->update();return window.grabWindow();};
+        auto brightness=[](const QImage &image,int x) {
+            const double dpr=image.width()/256.;return qRed(image.pixel(int((x+.5)*dpr),int(40.5*dpr)))/255.;
+        };
+        preview->style.setWidthPx(4);preview->style.setHeadWidthPx(4);preview->style.setFade(true);
+        const auto soft=capture();QVERIFY(!soft.isNull());
+        for(int x:{70,100,130,137,139}) {
+            const double expected=flowStreakOpacity(x+.5-20,200,80,0,120,true);
+            QVERIFY(std::abs(brightness(soft,x)-expected)<.025);
+        }
+        auto appearing=std::make_shared<FlowStreakBatch>(*preview->batch);
+        appearing->paths.front().appearedAt=0;preview->batch=appearing;
+        QCOMPARE(brightness(capture(),130),0.);
+        preview->clock=.125;const auto half=capture();
+        QVERIFY(std::abs(brightness(half,130)-brightness(soft,130)*.5)<.02);
+        preview->clock=.25;QCOMPARE(capture(),soft);
+        preview->style.setFade(false);
+        // Thin tails must not brighten/darken when crossing pixel centres.
+        for(double width:{.2,1.5}) {
+            preview->style.setWidthPx(width);preview->style.setHeadWidthPx(width);
+            for(double y:{0.,.25,.5,.75,1.}) {
+                preview->setY(y);const auto image=capture();const double dpr=image.width()/256.;
+                double sum=0;const int x=int(100.5*dpr);
+                for(int row=0;row<image.height();++row)sum+=qRed(image.pixel(x,row))/255.;
+                QVERIFY2(std::abs(sum/dpr-width)<.04,qPrintable(QString("width=%1 y=%2 coverage=%3").arg(width).arg(y).arg(sum/dpr)));
+            }
+        }
+        QDir().mkpath("tests/verification/flow_streaks");
+        QVERIFY(soft.save("tests/verification/flow_streaks/soft-streak.png"));
+        QVERIFY(half.save("tests/verification/flow_streaks/appearing-streak.png"));
+    }
     void nativePresentationBenchmark() {
         if(!qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE")) QSKIP("Run FLOW_STREAK_NATIVE=1 with a native window for GPU/readback measurements");
         QDir().mkpath("tests/verification/flow_streaks");
@@ -905,6 +1036,14 @@ private slots:
         QVERIFY2(!canvas.captureMap(&error).isNull(),qPrintable(error));
         QCOMPARE(layer.flowStreakSeconds(),capturePhase);
         QTest::qWait(1500);QTRY_VERIFY_WITH_TIMEOUT(!layer.flowStreakBusy(),10000);
+        auto *animationTimer=canvas.findChild<QTimer*>("flowAnimationTimer");QVERIFY(animationTimer);
+        QCOMPARE(animationTimer->interval(),16);
+        layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(33);canvas.repaint();
+        QCOMPARE(animationTimer->interval(),33);
+        layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(1000);canvas.repaint();
+        QCOMPARE(animationTimer->interval(),1000);
+        const double slowPhase=layer.flowStreakSeconds();QTest::qWait(40);QCOMPARE(layer.flowStreakSeconds(),slowPhase);
+        layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(16);canvas.repaint();
         const int builds=layer.flowStreakBuildCount();
         QVERIFY(builds>0);
         QVERIFY(layer.qsgOwnsRendering());

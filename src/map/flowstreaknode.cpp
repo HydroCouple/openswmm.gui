@@ -6,14 +6,15 @@
 #include <cmath>
 
 namespace {
-struct Vertex { float x,y,nx,ny,t,duration,tail,offset,r,g,b,a; };
+struct Vertex { float x,y,nx,ny,t,duration,tail,offset,r,g,b,a,side,appearedAt; };
 const QSGGeometry::AttributeSet &attributes() {
     static const QSGGeometry::Attribute attrs[]={
         QSGGeometry::Attribute::create(0,2,QSGGeometry::FloatType,true),
         QSGGeometry::Attribute::create(1,2,QSGGeometry::FloatType),
         QSGGeometry::Attribute::create(2,4,QSGGeometry::FloatType),
-        QSGGeometry::Attribute::create(3,4,QSGGeometry::FloatType)};
-    static const QSGGeometry::AttributeSet set={4,sizeof(Vertex),attrs};return set;
+        QSGGeometry::Attribute::create(3,4,QSGGeometry::FloatType),
+        QSGGeometry::Attribute::create(4,2,QSGGeometry::FloatType)};
+    static const QSGGeometry::AttributeSet set={5,sizeof(Vertex),attrs};return set;
 }
 class Material : public QSGMaterial {
 public:
@@ -24,7 +25,7 @@ public:
         setFlag(RequiresFullMatrix,true);
     }
     float phase=0,opacity=1,fade=1,taper=1;
-    float width=1.5,headWidth=1.5;
+    float width=1.5,headWidth=1.5,displaySeconds=0;
     QSGMaterialType *type() const override {static QSGMaterialType t;return &t;}
     int compare(const QSGMaterial *other) const override {
         if(this==other)return 0;return std::less<const QSGMaterial*>{}(this,other)?-1:1;
@@ -41,7 +42,7 @@ public:
         auto *material=static_cast<Material*>(m);auto *buf=state.uniformData();
         if(state.isMatrixDirty())std::memcpy(buf->data(),state.combinedMatrix().constData(),64);
         const float values[]={state.opacity()*material->opacity,material->phase,material->fade,material->taper,
-                              material->width,material->headWidth};
+                              material->width,material->headWidth,material->displaySeconds};
         std::memcpy(buf->data()+64,values,sizeof(values));return true;
     }
 };
@@ -52,15 +53,17 @@ FlowStreakNode::FlowStreakNode() {
     setGeometry(g);setFlag(OwnsGeometry);setMaterial(new Material);setFlag(OwnsMaterial);
 }
 void FlowStreakNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> batch,
-    const OpenSWMM::Render::FlowStreakStyle &style,double phase,double opacity,QPointF anchor,double scale)
+    const OpenSWMM::Render::FlowStreakStyle &style,double phase,double opacity,QPointF anchor,double scale,double displaySeconds)
 {
     auto *mat=static_cast<Material*>(material());
     mat->phase=float(phase);mat->opacity=float(opacity);mat->fade=style.fade();mat->taper=style.taper();
     mat->width=float(style.widthPx());mat->headWidth=float(style.headWidthPx());
+    mat->displaySeconds=float(displaySeconds);
     markDirty(DirtyMaterial);
     auto json=style.toJson();json.remove("animated");json.remove("speedMultiplier");
     json.remove("fade");json.remove("taper");
     json.remove("widthPx");json.remove("headWidthPx");
+    json.remove("animationTimestepMs");
     if(batch==m_batch && json==m_style && anchor==m_anchor && scale==m_scale) return;
     m_batch=batch;m_style=json;m_anchor=anchor;m_scale=scale;
     int count=0;if(batch) for(const auto &p:batch->paths)count+=int(p.points.size()-1)*6;
@@ -75,7 +78,8 @@ void FlowStreakNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowStreakBatc
             auto make=[&](const auto &p,double side) {
                 const QColor c=style.colorForSpeed(p.speed);const auto q=p.position-anchor;
                 return Vertex{float(q.x()),float(q.y()),float(n.x()*side),float(n.y()*side),
-                    p.seconds,duration,tail,path.offset,float(c.redF()),float(c.greenF()),float(c.blueF()),float(c.alphaF())};
+                    p.seconds,duration,tail,path.offset,float(c.redF()),float(c.greenF()),float(c.blueF()),float(c.alphaF()),
+                    float(side),path.appearedAt};
             };
             const auto al=make(a,-1),ar=make(a,1),bl=make(b,-1),br=make(b,1);
             *v++=al;*v++=ar;*v++=br;*v++=al;*v++=br;*v++=bl;

@@ -935,7 +935,7 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         });
     };
     boolean("animated",tr("Animate flow at selected time"));
-    boolean("fade",tr("Fade trail tails")); boolean("taper",tr("Taper trail tails"));
+    boolean("fade",tr("Fade streaks smoothly")); boolean("taper",tr("Taper trail tails"));
     boolean("colorByMagnitude",tr("Colour by velocity magnitude"));
     auto number = [&](const char *key,const QString &label,double lo,double hi,int decimals,const QString &suffix) {
         auto *box=makeDSpin(page,lo,hi,decimals==3?0.001:0.5,decimals,st->property(key).toDouble(),suffix);
@@ -951,6 +951,10 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
     number("spacingPx",tr("Spacing:"),8,200,1,tr(" px"));
     number("pathLengthPx",tr("Maximum path length:"),16,512,1,tr(" px"));
     number("speedMultiplier",tr("Visual speed multiplier:"),0,1000,1,QString());
+    number("animationTimestepMs",tr("Particle timestep:"),8,1000,0,tr(" ms"));
+    auto *timestep=page->findChild<QDoubleSpinBox*>("animationTimestepMs");
+    timestep->setSingleStep(1);
+    timestep->setToolTip(tr("Requested interval between particle animation updates: try 16 ms for smoother motion or 33 ms for fewer updates. Motion speed and the hydraulic solver timestep are unchanged. The canvas uses the fastest visible layer setting; actual updates depend on rendering time."));
     number("dryDepthCutoff",tr("Minimum wet depth:"),0,10,3,tr(" m"));
     auto *binding = new SublayerSchemeBinding(
         [st]{return st->scheme();},[st](const OpenSWMM::Render::ClassificationScheme &scheme){st->setScheme(scheme);},
