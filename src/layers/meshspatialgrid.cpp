@@ -167,9 +167,10 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
 // dedup so a bbox spanning multiple cells is only reported once.
 // ---------------------------------------------------------------------------
 
-QVector<int> MeshSpatialGrid::query(const QRectF &rect) const
+QVector<int> MeshSpatialGrid::query(const QRectF &rect, int maxResults, bool *complete) const
 {
     QVector<int> out;
+    if (complete) *complete = true;
     if (cellOffsets.isEmpty() || !usable(rect))
         return out;
 
@@ -201,8 +202,9 @@ QVector<int> MeshSpatialGrid::query(const QRectF &rect) const
     // theoretical maximum.
     const qint64 touchedCells = qint64(cx1 - cx0 + 1) * qint64(cy1 - cy0 + 1);
     const qint64 estimate     = touchedCells * qint64(avgPerCell);
-    out.reserve(int(std::min<qint64>(std::max<qint64>(64, estimate),
-                                     qint64(seen.size()))));
+    const auto limit = maxResults < 0 ? qint64(seen.size())
+                                     : std::min(qint64(maxResults), qint64(seen.size()));
+    out.reserve(int(std::min<qint64>(std::max<qint64>(64, estimate), limit)));
 
     for (int cy = cy0; cy <= cy1; ++cy) {
         for (int cx = cx0; cx <= cx1; ++cx) {
@@ -213,6 +215,10 @@ QVector<int> MeshSpatialGrid::query(const QRectF &rect) const
             for (int p = begin; p < end; ++p) {
                 const int idx = data[p];
                 if (seen[idx] != epoch) {
+                    if (out.size() == limit) {
+                        if (complete) *complete = false;
+                        return out;
+                    }
                     seen[idx] = epoch;
                     out.append(idx);
                 }

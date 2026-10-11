@@ -114,7 +114,10 @@ struct MeshSpatialGrid
      * exactly once) and returned in the same order they appear in the
      * cell sweep. Empty grid, empty query, or no-intersection all yield
      * an empty vector. */
-    [[nodiscard]] QVector<int> query(const QRectF &rect) const;
+    // A bounded query reports incomplete coverage instead of allocating an
+    // all-domain result. Existing callers retain the unlimited default.
+    [[nodiscard]] QVector<int> query(const QRectF &rect, int maxResults = -1,
+                                     bool *complete = nullptr) const;
 
     /*! \brief Candidate bbox indices for the single grid cell containing the
      *  point (x,y), returned as the CSR slice [*begin, *end) into cellIndices.

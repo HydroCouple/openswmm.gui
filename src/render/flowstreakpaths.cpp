@@ -30,6 +30,75 @@ quint64 seedHash(qint64 x,qint64 y)
 }
 }
 
+std::shared_ptr<FlowStreakMesh> FlowStreakMesh::captureRegion(
+    const QVector<QPointF> &sourceVertices,
+    const std::vector<std::array<int,3>> &sourceCells,
+    const MeshSpatialGrid &sourceGrid, const QRectF &coverage)
+{
+    if (!coverage.isValid() || sourceGrid.isEmpty()
+        || !std::isfinite(coverage.left()) || !std::isfinite(coverage.right())
+        || !std::isfinite(coverage.top()) || !std::isfinite(coverage.bottom())
+        || !coverage.intersects(sourceGrid.extent)) return {};
+    // Copy only the touched CSR cells of the existing point-location index.
+    // Count memberships first: even an overview or a pathological grid must
+    // not allocate/scan millions of candidate IDs before it can be declined.
+    const auto range = [](double p, double origin, double step, int count) {
+        return int(std::clamp(std::floor((p-origin)/step), 0., double(count-1)));
+    };
+    const int x0=range(coverage.left(),sourceGrid.extent.left(),sourceGrid.cellW,sourceGrid.cols);
+    const int x1=range(coverage.right(),sourceGrid.extent.left(),sourceGrid.cellW,sourceGrid.cols);
+    const int y0=range(coverage.top(),sourceGrid.extent.top(),sourceGrid.cellH,sourceGrid.rows);
+    const int y1=range(coverage.bottom(),sourceGrid.extent.top(),sourceGrid.cellH,sourceGrid.rows);
+    size_t memberships=0;
+    for(int y=y0;y<=y1;++y) {
+        memberships+=sourceGrid.cellOffsets[y*sourceGrid.cols+x1+1]
+                    -sourceGrid.cellOffsets[y*sourceGrid.cols+x0];
+        if(memberships>size_t(maxRegionTriangles)*4) return {};
+    }
+    bool complete=false;
+    auto ids=sourceGrid.query(coverage,maxRegionTriangles,&complete);
+    if(!complete) return {};
+    std::sort(ids.begin(),ids.end());
+    auto mesh=std::make_shared<FlowStreakMesh>();
+    mesh->coverage=coverage;
+    mesh->sourceTriangles.assign(ids.begin(),ids.end());
+    // Include every indexed triangle, even dry/stagnant cells. For any edge
+    // crossing inside coverage, all incident triangles share that point and
+    // occur in these grid cells. A third, dry incident face therefore still
+    // blocks a non-manifold edge when the worker builds local adjacency.
+    std::vector<int> vertexIds;vertexIds.reserve(ids.size()*3);
+    for(int id:ids) for(int vertex:sourceCells[size_t(id)]) vertexIds.push_back(vertex);
+    std::sort(vertexIds.begin(),vertexIds.end());
+    vertexIds.erase(std::unique(vertexIds.begin(),vertexIds.end()),vertexIds.end());
+    mesh->vertices.reserve(vertexIds.size());
+    for(int id:vertexIds) mesh->vertices.append(sourceVertices[id]);
+    mesh->triangles.reserve(ids.size());
+    for(int id:ids) {
+        auto tri=sourceCells[size_t(id)];
+        for(int &v:tri) v=int(std::lower_bound(vertexIds.begin(),vertexIds.end(),v)-vertexIds.begin());
+        mesh->triangles.push_back(tri);
+    }
+    auto &grid=mesh->grid;
+    grid.cellW=sourceGrid.cellW;grid.cellH=sourceGrid.cellH;
+    grid.cols=x1-x0+1;grid.rows=y1-y0+1;
+    grid.extent={sourceGrid.extent.left()+x0*grid.cellW,sourceGrid.extent.top()+y0*grid.cellH,
+                 grid.cols*grid.cellW,grid.rows*grid.cellH};
+    grid.cellOffsets.reserve(grid.cols*grid.rows+1);
+    grid.cellIndices.reserve(memberships);
+    grid.cellOffsets.append(0);
+    for(int y=y0;y<=y1;++y) for(int x=x0;x<=x1;++x) {
+        const int cell=y*sourceGrid.cols+x;
+        for(int p=sourceGrid.cellOffsets[cell];p<sourceGrid.cellOffsets[cell+1];++p) {
+            const int id=sourceGrid.cellIndices[p];
+            grid.cellIndices.append(int(std::lower_bound(ids.cbegin(),ids.cend(),id)-ids.cbegin()));
+        }
+        grid.cellOffsets.append(grid.cellIndices.size());
+    }
+    // The worker uses candidatesAtPoint(), which needs no per-triangle seen
+    // array. Never copy the source grid's whole-domain query scratch state.
+    return mesh;
+}
+
 void FlowStreakMesh::prepare(const std::atomic_bool &cancelled)
 {
     if (neighbors.size()==triangles.size()) return;
@@ -60,6 +129,7 @@ void FlowStreakMesh::prepare(const std::atomic_bool &cancelled)
 size_t FlowStreakMesh::bytes() const
 {
     return size_t(vertices.capacity())*sizeof(QPointF)
+        + sourceTriangles.capacity()*sizeof(int)
         + triangles.capacity()*sizeof(triangles[0])
         // Never inspect worker-owned neighbors on the UI thread. Account for
         // their eventual allocation and the temporary edge-sort buffer.

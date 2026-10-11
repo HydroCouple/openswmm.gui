@@ -85,6 +85,19 @@ TEST(MeshSpatialGrid, EmptyRebuildLeavesGridEmpty)
     EXPECT_TRUE(g.query(QRectF(0, 0, 10, 10)).isEmpty());
 }
 
+TEST(MeshSpatialGrid, BoundedQueryReportsTruncationAndRecovers)
+{
+    MeshSpatialGrid grid;grid.rebuild(makeGridOfSmallBoxes(100));
+    bool complete=true;
+    const auto truncated=grid.query({0,0,100,100},37,&complete);
+    EXPECT_FALSE(complete);EXPECT_EQ(truncated.size(),37);EXPECT_LE(truncated.capacity(),37);
+    const auto all=grid.query({0,0,100,100},10000,&complete);
+    EXPECT_TRUE(complete);EXPECT_EQ(all.size(),10000);
+    EXPECT_EQ(grid.query({0,0,100,100}),all);
+    EXPECT_TRUE(grid.query({0,0,100,100},0,&complete).isEmpty());EXPECT_FALSE(complete);
+    EXPECT_TRUE(grid.query({200,200,1,1},0,&complete).isEmpty());EXPECT_TRUE(complete);
+}
+
 // ---------------------------------------------------------------------------
 // 2. Single-bbox grid — the bbox should be returned by queries that overlap
 //    it, and not by queries that don't.
