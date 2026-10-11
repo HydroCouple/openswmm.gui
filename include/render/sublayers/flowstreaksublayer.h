@@ -64,14 +64,14 @@ private:
     ClassificationScheme m_scheme;
     QColor m_color = QColor(Qt::white);
     double m_widthPx = 1.5;
-    double m_trailLengthPx = 24.0;
+    double m_trailLengthPx = 80.0;
     bool m_fade = true;
     bool m_taper = true;
     double m_spacingPx = 30.0;
-    double m_pathLengthPx = 160.0;
+    double m_pathLengthPx = 350.0;
     double m_dryDepthCutoff = 0.001;
     bool m_animated = true;
-    double m_speedMultiplier = 10.0;
+    double m_speedMultiplier = 2.0;
     bool m_colorByMagnitude = false;
 };
 class FlowStreakSublayer : public ISublayer {
