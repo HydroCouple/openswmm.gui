@@ -173,6 +173,60 @@ private slots:
         QCOMPARE(flowStreakOpacity(5,10,2,0,1,false),0.);
         QCOMPARE(flowStreakOpacity(0,10,2,0,13,true),.5);
     }
+    void opacityHasSoftHeadAndLifetime() {
+        QCOMPARE(flowStreakOpacity(0,10,2,0,0,true),0.);
+        QVERIFY(flowStreakOpacity(0,10,2,0,.001,true)<.001);
+        QVERIFY(flowStreakOpacity(5,10,2,0,5.001,true)<.001);
+        QCOMPARE(flowStreakOpacity(5,10,2,0,5.001,false),1.);
+        // No brightness discontinuity at birth, a moving head, or cycle wrap.
+        for(double t:{0.,.5,5.,10.})for(int i=1;i<=2400;++i) {
+            const auto a=flowStreakOpacity(t,10,2,0,(i-1)*.01,true);
+            const auto b=flowStreakOpacity(t,10,2,0,i*.01,true);
+            QVERIFY(a>=0 && a<=1);QVERIFY(std::abs(a-b)<.08);
+        }
+        QCOMPARE(flowStreakAppearance(-1,0),1.);
+        QCOMPARE(flowStreakAppearance(2,2),0.);
+        QCOMPARE(flowStreakAppearance(2,2.125),.5);
+        QCOMPARE(flowStreakAppearance(2,2.25),1.);
+    }
+    void playbackPreservesHeadsWithoutOldGeometry() {
+        auto make=[](float duration,quint64 seed=42) {
+            auto b=std::make_shared<FlowStreakBatch>();FlowStreakPath p;p.seed=seed;p.length=100;
+            for(int i=0;i<=10;++i)p.points.push_back({{i*10.,0},i*duration/10,100/duration});
+            b->paths.push_back(p);return b;
+        };
+        FlowStreakPlayback playback;
+        const auto first=make(100);QCOMPARE(playback.present(first,47,0,20,1,true),first);
+        const auto faster=make(50);const auto next=playback.present(faster,47,1,20,1,true);
+        const auto &p=next->paths.front();QCOMPARE(p.appearedAt,-1.f);
+        QVERIFY(std::abs(flowStreakHead(50,10,p.offset,47)*2-47)<1e-5);
+        QVERIFY(std::abs(flowStreakHead(50,10,p.offset,48)*2-49)<1e-5);
+        QCOMPARE(playback.present(faster,48,2,20,1,true),next); // no per-tick copy
+        QCOMPARE(faster->paths.front().offset,0.f); // immutable cache untouched
+        // A new dry boundary truncates the valid path before the old head.
+        auto shortened=make(10);shortened->paths.front().length=20;
+        for(auto &pt:shortened->paths.front().points)pt.position*=.2;
+        const auto cut=playback.present(shortened,48,2,20,1,true);
+        QCOMPARE(cut->paths.front().appearedAt,2.f);
+        for(const auto &pt:cut->paths.front().points)QVERIFY(pt.position.x()<=20);
+        const auto settled=playback.present(shortened,48,2.1,20,1,false);
+        QCOMPARE(settled->paths.front().appearedAt,-1.f);
+        QCOMPARE(playback.present(shortened,48,2.1,20,1,true),settled); // resume cannot fade backwards
+        const auto empty=std::make_shared<FlowStreakBatch>();
+        QVERIFY(playback.present(empty,48,2,20,1,true)->paths.empty());
+        const auto fresh=playback.present(first,48,3,20,1,true);
+        QCOMPARE(fresh->paths.front().appearedAt,3.f);
+        // Reverse direction must not inherit an old head from the opposite flow.
+        auto reverse=make(100);for(auto &pt:reverse->paths.front().points)pt.position*=-1;
+        QCOMPARE(playback.present(reverse,49,4,20,1,true)->paths.front().appearedAt,4.f);
+        playback.clear();QCOMPARE(playback.present(first,49,5,20,1,true),first);
+        auto other=make(100,123);
+        QCOMPARE(playback.present(other,49,5,20,1,false)->paths.front().appearedAt,-1.f);
+        // Preserve the remaining tail when the head has already left the path.
+        playback.clear();playback.present(first,110,0,20,1,true);
+        const auto draining=playback.present(faster,110,1,20,1,true);
+        QVERIFY(std::abs(flowStreakHead(50,10,draining->paths.front().offset,110)-55)<1e-5);
+    }
     void workerCacheCoalescingAndInvalidation() {
         FlowStreakCache cache;int captures=0;
         auto capture=[&]{++captures;return square();};

@@ -3,7 +3,8 @@
 #include "mesh/meshcellgeom.h"
 #include <QJsonDocument>
 #include <QPainter>
-#include <QPen>
+#include <QLinearGradient>
+#include <QPolygonF>
 #include <algorithm>
 #include <cmath>
 
@@ -56,8 +57,30 @@ void SWMM2DResultsLayer::advanceFlowStreaks(double seconds)
     const auto *style=m_flowStreakSublayer->streakStyle();
     if(!flowStreaksEnabled() || !style->animated() || style->speedMultiplier()<=0) return;
     if(!std::isfinite(seconds) || seconds<=0) return;
-    m_flowSeconds+=std::min(seconds,0.1)*style->speedMultiplier();
+    m_flowSeconds+=seconds*style->speedMultiplier();
+    m_flowDisplaySeconds+=seconds;
     emit flowStreaksChanged();
+}
+double SWMM2DResultsLayer::flowStreakDisplaySeconds() const
+{
+    return m_flowDisplaySeconds;
+}
+std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::presentedFlowStreaks(
+    const QRectF &view,double scale,quint64 revision)
+{
+    const auto raw=flowStreaks(view,scale,revision);
+    if(!flowStreaksEnabled()) {m_flowPlayback.clear();return {};}
+    if(!raw) {
+        // Retain only the exact displayed hydraulic revision, never obsolete
+        // paths over a new wet/dry surface while its preparation is pending.
+        if(revision==m_flowPresentedRevision && scale==m_flowPresentedScale
+           && m_flowPresentedCoverage.contains(view))return m_flowPlayback.current();
+        return {};
+    }
+    const auto *style=m_flowStreakSublayer->streakStyle();
+    m_flowPresentedRevision=revision;m_flowPresentedScale=scale;m_flowPresentedCoverage=view;
+    return m_flowPlayback.present(raw,m_flowSeconds,m_flowDisplaySeconds,style->trailLengthPx(),scale,
+                                 style->fade() && style->animated() && style->speedMultiplier()>0);
 }
 
 std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
@@ -69,6 +92,7 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
         m_flowCache->clear();m_flowMesh.reset();
         m_flowGeomRevision=geomRevision();m_flowCoverage={};
         m_flowFrameKeys.clear();m_flowKey.clear();
+        m_flowPlayback.clear();m_flowPresentedRevision=~quint64(0);
     }
     // A complete contour frame may lag the layer: never attach newer flow
     // to that older water surface. An already prepared matching batch survives.
@@ -255,23 +279,38 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
     QRectF coverage=view.isValid()?view:m_sceneBBox;
     if(p->hasClipping()) coverage=coverage.intersected(p->clipBoundingRect());
     if(!coverage.isValid()) return;
-    const auto batch=flowStreaks(coverage,scale,frame_revision_);
+    const auto batch=presentedFlowStreaks(coverage,scale,frame_revision_);
     if(!batch) return;
     const auto *style=m_flowStreakSublayer->streakStyle();
     p->save();p->setOpacity(p->opacity()*m_flowStreakSublayer->opacity());
     p->setRenderHint(QPainter::Antialiasing,true);
-    QPen pen;pen.setCosmetic(true);pen.setCapStyle(Qt::FlatCap);
+    p->setPen(Qt::NoPen);
     for(const auto &path:batch->paths) {
         const double duration=path.points.back().seconds;
         const double tail=duration*std::min(1.,style->trailLengthPx()/(path.length*scale));
+        const double head=flowStreakHead(duration,tail,path.offset,m_flowSeconds);
+        const double appearance=style->fade()?flowStreakAppearance(path.appearedAt,flowStreakDisplaySeconds()):1.;
         for(size_t i=1;i<path.points.size();++i) {
             const auto &a=path.points[i-1],&b=path.points[i];
-            const double alpha=flowStreakOpacity((a.seconds+b.seconds)*0.5,duration,tail,path.offset,m_flowSeconds,style->fade());
-            const double taper=flowStreakOpacity((a.seconds+b.seconds)*0.5,duration,tail,path.offset,m_flowSeconds,true);
-            if(alpha<=0) continue;
-            QColor color=style->colorForSpeed(b.speed);color.setAlphaF(color.alphaF()*alpha);
-            pen.setColor(color);pen.setWidthF(style->widthAtFraction(taper));
-            p->setPen(pen);p->drawLine(a.position,b.position);
+            const double begin=std::max(double(a.seconds),head-tail),end=std::min(double(b.seconds),head);
+            if(end<=begin || b.seconds<=a.seconds)continue;
+            const QPointF d=b.position-a.position;const double length=std::hypot(d.x(),d.y());
+            if(length<=0)continue;
+            const auto position=[&](double t){return a.position+d*((t-a.seconds)/(b.seconds-a.seconds));};
+            const auto width=[&](double t){return style->widthAtFraction(1-(head-t)/tail);};
+            // Interpolate the same endpoint widths as the GPU's cached strip,
+            // then clip the moving head/tail within each segment continuously.
+            const double wa=width(a.seconds),wb=width(b.seconds);
+            const auto normal=[&](double t){return QPointF(-d.y(),d.x())*((wa+(wb-wa)*(t-a.seconds)/(b.seconds-a.seconds))*.5/(scale*length));};
+            const QPointF first=position(begin),last=position(end),na=normal(begin),nb=normal(end);
+            const QColor color=style->colorForSpeed(b.speed);
+            QLinearGradient gradient(first,last);
+            for(double f:{0.,.25,.5,.75,1.}) {
+                const double t=begin+f*(end-begin);
+                const double alpha=style->fade()?flowStreakOpacity(t,duration,tail,path.offset,m_flowSeconds,true):1.;
+                QColor c=color;c.setAlphaF(c.alphaF()*alpha*appearance);gradient.setColorAt(f,c);
+            }
+            p->setBrush(gradient);p->drawPolygon(QPolygonF{first-na,first+na,last+nb,last-nb});
         }
     }p->restore();
 }

@@ -58,6 +58,10 @@ void FlowStreakStyle::setSpeedMultiplier(double value) {
     if(!std::isfinite(value)) return; value=std::clamp(value,double(0),double(1000));
     if(m_speedMultiplier==value) return; m_speedMultiplier=value; setDirty();
 }
+void FlowStreakStyle::setAnimationTimestepMs(int value) {
+    value=std::clamp(value,8,1000);
+    if(m_animationTimestepMs==value) return; m_animationTimestepMs=value; setDirty();
+}
 void FlowStreakStyle::setColorByMagnitude(bool value) {
     if(m_colorByMagnitude==value) return; m_colorByMagnitude=value; setDirty();
 }
@@ -84,6 +88,7 @@ QJsonObject FlowStreakStyle::toJson() const {
     j["dryDepthCutoff"]=m_dryDepthCutoff;
     j["animated"]=m_animated;
     j["speedMultiplier"]=m_speedMultiplier;
+    j["animationTimestepMs"]=m_animationTimestepMs;
     j["colorByMagnitude"]=m_colorByMagnitude;
     return j;
 }
@@ -101,6 +106,7 @@ void FlowStreakStyle::fromJson(const QJsonObject &j) {
       if(j.contains("dryDepthCutoff")) setDryDepthCutoff(j["dryDepthCutoff"].toDouble(m_dryDepthCutoff));
       if(j.contains("animated")) setAnimated(j["animated"].toBool(m_animated));
       if(j.contains("speedMultiplier")) setSpeedMultiplier(j["speedMultiplier"].toDouble(m_speedMultiplier));
+      if(j.contains("animationTimestepMs")) setAnimationTimestepMs(j["animationTimestepMs"].toInt(m_animationTimestepMs));
       if(j.contains("colorByMagnitude")) setColorByMagnitude(j["colorByMagnitude"].toBool(m_colorByMagnitude));
       if(j.contains("classification")) m_scheme.fromJson(j["classification"].toObject());
     } setDirty();

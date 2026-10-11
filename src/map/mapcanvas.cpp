@@ -157,11 +157,13 @@ MapCanvas::MapCanvas(QWidget *parent)
     m_refreshTimer->setInterval(50);
     connect(m_refreshTimer, &QTimer::timeout, this, &MapCanvas::refreshLayerItems);
     m_flowTimer = new QTimer(this);
-    m_flowTimer->setInterval(33);
+    m_flowTimer->setObjectName(QStringLiteral("flowAnimationTimer"));
+    m_flowTimer->setInterval(16);
     m_flowTimer->setTimerType(Qt::PreciseTimer);
     connect(m_flowTimer, &QTimer::timeout, this, [this] {
         if (!isVisible() || window()->isMinimized()) { m_flowTimer->stop(); return; }
-        const double elapsed = m_flowClock.restart() / 1000.;
+        const double elapsed = m_flowClock.nsecsElapsed() / 1e9;
+        m_flowClock.restart();
         bool active = false;
         for (auto *layer : std::as_const(m_layers)) {
             auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
@@ -2379,15 +2381,20 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         renderTerrainLabel(p);
 
     bool animateFlow = false;
+    int flowInterval = 1000;
     for (auto *layer : std::as_const(m_layers)) {
         auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
         if (flow && flow->flowStreaksEnabled()
             && flow->m_sceneBBox.intersects(QRectF(m_extent.xMin(),-m_extent.yMax(),
                                                   m_extent.width(),m_extent.height()))) {
             const auto *style = flow->flowStreakSublayer()->streakStyle();
-            animateFlow |= style->animated() && style->speedMultiplier() > 0;
+            if (style->animated() && style->speedMultiplier() > 0) {
+                animateFlow = true;
+                flowInterval = std::min(flowInterval,style->animationTimestepMs());
+            }
         }
     }
+    if (animateFlow && m_flowTimer->interval()!=flowInterval) m_flowTimer->setInterval(flowInterval);
     if (animateFlow && !m_flowTimer->isActive()) { m_flowClock.start(); m_flowTimer->start(); }
     if (!animateFlow) m_flowTimer->stop();
 

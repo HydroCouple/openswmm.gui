@@ -1378,6 +1378,10 @@ private:
     quint64 m_flowGeomRevision = ~quint64(0);
     QRectF m_flowCoverage;
     double m_flowScale = 0, m_flowSeconds = 0, m_flowSeedArea = 0;
+    double m_flowDisplaySeconds = 0, m_flowPresentedScale = 0;
+    quint64 m_flowPresentedRevision = ~quint64(0);
+    QRectF m_flowPresentedCoverage;
+    OpenSWMM::Render::FlowStreakPlayback m_flowPlayback;
     QByteArray m_flowKey;
     struct FlowFrameKey {
         quint64 revision;
@@ -1450,10 +1454,13 @@ public:
     OpenSWMM::Render::FlowStreakSublayer *flowStreakSublayer() const { return m_flowStreakSublayer; }
     std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> flowStreaks(
         const QRectF &view, double pixelsPerSceneUnit, quint64 displayedRevision);
+    std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> presentedFlowStreaks(
+        const QRectF &view, double pixelsPerSceneUnit, quint64 displayedRevision);
     void paintFlowStreaks(QPainter *, const QRectF &view);
     bool prepareFlowStreaksForCapture(const QRectF &view, double pixelsPerSceneUnit);
     void advanceFlowStreaks(double seconds);
     double flowStreakSeconds() const { return m_flowSeconds; }
+    double flowStreakDisplaySeconds() const;
     int flowStreakBuildCount() const { return m_flowCache->builds(); }
     bool flowStreakBusy() const { return m_flowCache->busy(); }
     QString flowStreakStatus() const;

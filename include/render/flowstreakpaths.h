@@ -75,6 +75,8 @@ struct FlowStreakPath {
     std::vector<FlowStreakPoint> points;
     double length = 0;
     float offset = 0; // deterministic phase in [0,1)
+    quint64 seed = 0; // stable identity across hydraulic frames
+    float appearedAt = -1; // presentation clock; negative means fully visible
 };
 struct FlowStreakBatch {
     std::vector<FlowStreakPath> paths;
@@ -107,5 +109,20 @@ FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &input,
 // Shared by the painter and shader verification: no wrapped end-to-start line.
 double flowStreakOpacity(double pointTime, double duration, double tail,
                          double offset, double elapsed, bool fade);
+double flowStreakHead(double duration, double tail, double offset, double elapsed);
+double flowStreakAppearance(double appearedAt, double elapsed);
+// One bounded presentation copy. Only phase/appearance metadata changes;
+// every rendered position still comes from the newly validated wet paths.
+class FlowStreakPlayback {
+public:
+    std::shared_ptr<const FlowStreakBatch> present(std::shared_ptr<const FlowStreakBatch>,
+        double phase, double clock, double trailPx, double scale, bool fadeNew);
+    std::shared_ptr<const FlowStreakBatch> current() const { return m_current; }
+    void clear() { m_raw.reset();m_current.reset(); }
+private:
+    std::shared_ptr<const FlowStreakBatch> m_raw,m_current;
+    double m_trail=0,m_scale=0;
+    bool m_fadeNew=false;
+};
 
 } // namespace OpenSWMM::Render

@@ -9,7 +9,7 @@ public:
     FlowStreakNode();
     void sync(std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch>,
               const OpenSWMM::Render::FlowStreakStyle &, double phase,
-              double opacity, QPointF anchor, double pixelsPerSceneUnit);
+              double opacity, QPointF anchor, double pixelsPerSceneUnit, double displaySeconds=0);
     int uploads() const { return m_uploads; }
 private:
     std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> m_batch;
