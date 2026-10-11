@@ -457,7 +457,25 @@ public:
         // ---- Pass 2: edges (MeshEdgeSublayer) --------------------------------
         const float maxSlope = m_layer->m_maxSlope;
         const float invSlope = (maxSlope > 0.f) ? 1.0f / maxSlope : 0.0f;
-        constexpr float kSlopeBreak = 0.35f;
+        const auto *edgeStyle = edgeSub ? edgeSub->edgeStyle() : nullptr;
+        const bool useSlopeWidth = edgeStyle ? edgeStyle->useSlopeDrivenWidth() : true;
+        float slopeBreak = edgeStyle ? float(edgeStyle->slopeBreak()) : 0.35f;
+        QColor thinColor = edgeStyle ? edgeStyle->color() : QColor(0,0,0,130);
+        QColor wideColor = edgeStyle ? edgeStyle->wideColor() : QColor(0,0,0,210);
+        // Match the GPU path's existing two-tier slope classification.
+        if (edgeStyle) {
+            const auto &scheme = edgeStyle->scheme();
+            const bool customized = scheme.mode() ==
+                OpenSWMM::Render::ClassificationScheme::ClassMode::Classified
+                && (scheme.classCount() != 2
+                    || scheme.method() != OpenSWMM::Render::BinMethod::Manual);
+            if (customized && scheme.classCount() >= 2) {
+                const auto levels = scheme.levelEdges(0.0,1.0,{});
+                if (levels.size() >= 3) slopeBreak = float(levels[1]);
+                thinColor = scheme.colorForClass(0,scheme.classCount());
+                wideColor = scheme.colorForClass(scheme.classCount()-1,scheme.classCount());
+            }
+        }
 
         // BC state (Pass 2b parity with SWMM2DMeshQSGRenderer): the CPU
         // fallback previously ignored the Boundary Conditions sublayer
@@ -477,6 +495,16 @@ public:
         constexpr int kBcTypes = OpenSWMM::Render::MeshBcStyle::kBcTypeCount;
 
         if (edgesVisible && !useLod) {
+            // Wall colouring has the same precedence as in the GPU renderer.
+            if (slotsUsable && bcStyle->wallVisible())
+                thinColor = wideColor = bcStyle->wallColor();
+            QPen thinPen(withOpacity(thinColor,edgeOpacity));
+            thinPen.setWidthF(edgeStyle ? edgeStyle->lineWidthPx() : 0.35);
+            thinPen.setCosmetic(true);
+            if (edgeStyle) thinPen.setStyle(edgeStyle->dashPattern());
+            QPen widePen(thinPen);
+            widePen.setColor(withOpacity(wideColor,edgeOpacity));
+            widePen.setWidthF(edgeStyle ? edgeStyle->wideWidthPx() : 0.9);
             for (int i = 0; i < edgeCount; ++i) {
                 const int ei = useEdgeIdx ? visibleEdges[i] : i;
                 const SWMM2DMeshLayer::SceneEdge &e = edges[ei];
@@ -491,21 +519,8 @@ public:
                         continue;
                 }
 
-                const bool wide = hasElev && (e.slope * invSlope > kSlopeBreak);
-                const int  alpha = wide ? 210 : 130;
-                const qreal lw  = wide ? (active ? 0.9 : 0.6) : (active ? 0.35 : 0.25);
-
-                // Wall governs the mesh interior: recolour the wireframe
-                // with the Wall colour when the BC sublayer asks for it.
-                const QColor base = (slotsUsable && bcStyle->wallVisible())
-                                  ? bcStyle->wallColor()
-                                  : QColor(0, 0, 0, alpha);
-
-                // Use a cosmetic pen so width is in pixels regardless of zoom
-                QPen pen(withOpacity(base, edgeOpacity));
-                pen.setWidthF(lw);
-                pen.setCosmetic(true);
-                p->setPen(pen);
+                const bool wide = useSlopeWidth && hasElev && (e.slope * invSlope > slopeBreak);
+                p->setPen(wide ? widePen : thinPen);
                 p->setBrush(Qt::NoBrush);
                 p->drawLine(e.line);
             }

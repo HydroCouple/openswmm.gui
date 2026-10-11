@@ -299,6 +299,13 @@ sublayer.
 | **Boundary Conditions** | A per-type grid — one row per boundary-condition type with a visibility checkbox, **Colour** and **Width**. Types with no edges in the mesh are labelled *(none in mesh)*. The interior-edge row recolours the wireframe rather than drawing its own lines, so its width column reads *(wireframe width)*. The boundary ring stays visible at every zoom. |
 | **Coupled Nodes** | **Colour** and **Marker size** for the mesh vertices coupled to 1D SWMM nodes. |
 
+Mesh edge and boundary widths are the full stroke width in screen pixels,
+independent of zoom and whether the mesh is active. With **Widen steep edges**
+enabled, steep edges use **Wide width** and **Wide colour**. While the
+**Boundary Conditions** sublayer is shown, its **Wall / interior edges** colour
+overrides the wireframe colours; turn that row off to use the **Mesh Edges**
+colours. The wireframe widths still come from **Mesh Edges**.
+
 \fig{08_mesh_style_panel.png, The 2D mesh style panel on the Terrain Fill tab with the hillshade group}
 
 ### The 2D results style panel

@@ -378,13 +378,22 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
 {
     if (m_layer == layer) return;
     if (m_layer) {
-        for (auto *base : m_layer->sublayers())
+        for (auto *base : m_layer->sublayers()) {
+            QObject::disconnect(base, nullptr, this, nullptr);
             if (auto *sub = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base))
                 sub->publishPresentedFrame({});
+        }
         QObject::disconnect(m_layer, nullptr, this, nullptr);
     }
     m_layer = layer;
     if (m_layer) {
+        // Edge styling must refresh even in the same frame as selection or
+        // animation. Pure animation keeps its existing Data-only fast path.
+        if (auto *edges = m_layer->meshEdgeSublayer())
+            connect(edges, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
+                m_dirty.noteStyleChanged();
+                noteContentChanged();
+            });
         connect(m_layer, &SWMM2DResultsLayer::flowStreaksChanged, this, [this] { noteContentChanged(); emit contentReady(); });
         connect(m_layer, &SWMM2DResultsLayer::waterDisplayPolicyChanged,
                 this, &SWMM2DResultsQSGRenderer::forceRebuild);
