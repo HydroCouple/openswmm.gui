@@ -115,6 +115,9 @@ struct FlowStreakMotion {
     double head = 0, age = 0, remaining = 0;
     quint32 generation = 0;
 };
+// A positive duration is a fixed window of model flow time: spatial length
+// follows the local velocity. Zero retains the legacy mean-speed pixel fit.
+double flowStreakTailSeconds(const FlowStreakPath &,double trailPx,double scale,double duration=0);
 // Shared with the shader: bounded, deterministic random lifetimes in elapsed
 // seconds, independent of redraw cadence and visual speed. No wrapped line.
 float flowStreakLifetimeSeed(quint64 seed);
@@ -129,12 +132,12 @@ class FlowStreakPlayback {
 public:
     std::shared_ptr<const FlowStreakBatch> present(std::shared_ptr<const FlowStreakBatch>,
         double phase, double clock, double trailPx, double scale, bool fadeNew,
-        double minimum=8,double maximum=16,double speed=2);
+        double minimum=8,double maximum=16,double speed=2,double trailDuration=0);
     std::shared_ptr<const FlowStreakBatch> current() const { return m_current; }
     void clear() { m_raw.reset();m_current.reset(); }
 private:
     std::shared_ptr<const FlowStreakBatch> m_raw,m_current;
-    double m_trail=0,m_scale=0;
+    double m_trail=0,m_scale=0,m_trailDuration=0;
     double m_minimum=8,m_maximum=16,m_speed=2;
     bool m_fadeNew=false;
 };

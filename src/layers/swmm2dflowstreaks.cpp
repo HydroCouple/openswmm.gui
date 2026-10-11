@@ -81,7 +81,7 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::presentedFlowStreaks(
     m_flowPresentedRevision=revision;m_flowPresentedScale=scale;m_flowPresentedCoverage=view;
     return m_flowPlayback.present(raw,m_flowSeconds,m_flowDisplaySeconds,style->trailLengthPx(),scale,
                                  style->fade() && style->animated() && style->speedMultiplier()>0,
-                                 style->minimumLifetimeSeconds(),style->maximumLifetimeSeconds(),style->speedMultiplier());
+                                 style->minimumLifetimeSeconds(),style->maximumLifetimeSeconds(),style->speedMultiplier(),style->activeTrailDurationSeconds());
 }
 
 std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
@@ -288,8 +288,7 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
     p->setRenderHint(QPainter::Antialiasing,true);
     p->setPen(Qt::NoPen);
     for(const auto &path:batch->paths) {
-        const double duration=path.points.back().seconds;
-        const double tail=duration*std::min(1.,style->trailLengthPx()/(path.length*scale));
+        const double tail=flowStreakTailSeconds(path,style->trailLengthPx(),scale,style->activeTrailDurationSeconds());
         const auto motion=flowStreakMotion(path,tail,m_flowSeconds,m_flowDisplaySeconds,
             style->minimumLifetimeSeconds(),style->maximumLifetimeSeconds(),style->speedMultiplier());
         const double head=motion.head;

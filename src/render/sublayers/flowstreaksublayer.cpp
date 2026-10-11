@@ -33,6 +33,13 @@ void FlowStreakStyle::setTrailLengthPx(double value) {
     if(!std::isfinite(value)) return; value=std::clamp(value,double(1),double(200));
     if(m_trailLengthPx==value) return; m_trailLengthPx=value; setDirty();
 }
+void FlowStreakStyle::setVelocityScaledTrail(bool value) {
+    if(m_velocityScaledTrail==value) return;m_velocityScaledTrail=value;setDirty();
+}
+void FlowStreakStyle::setTrailDurationSeconds(double value) {
+    if(!std::isfinite(value)) return;value=std::clamp(value,.1,30.);
+    if(m_trailDurationSeconds==value) return;m_trailDurationSeconds=value;setDirty();
+}
 void FlowStreakStyle::setFade(bool value) {
     if(m_fade==value) return; m_fade=value; setDirty();
 }
@@ -90,11 +97,13 @@ QColor FlowStreakStyle::colorForSpeed(double speed) const {
     return m_scheme.colorForValue(speed,m_scheme.rangeMin(),m_scheme.rangeMax());
 }
 QJsonObject FlowStreakStyle::toJson() const {
-    QJsonObject j{{"schemaVersion",1},{"classification",m_scheme.toJson()}};
+    QJsonObject j{{"schemaVersion",2},{"classification",m_scheme.toJson()}};
     j["color"]=m_color.name(QColor::HexArgb);
     j["widthPx"]=m_widthPx;
     j["headWidthPx"]=m_headWidthPx;
     j["trailLengthPx"]=m_trailLengthPx;
+    j["velocityScaledTrail"]=m_velocityScaledTrail;
+    j["trailDurationSeconds"]=m_trailDurationSeconds;
     j["fade"]=m_fade;
     j["taper"]=m_taper;
     j["spacingPx"]=m_spacingPx;
@@ -116,6 +125,9 @@ void FlowStreakStyle::fromJson(const QJsonObject &j) {
       if(j.contains("headWidthPx")) setHeadWidthPx(j["headWidthPx"].toDouble(m_headWidthPx));
       else if(j.contains("widthPx")) setHeadWidthPx(m_widthPx); // legacy styles used one width
       if(j.contains("trailLengthPx")) setTrailLengthPx(j["trailLengthPx"].toDouble(m_trailLengthPx));
+      if(j.contains("velocityScaledTrail")) setVelocityScaledTrail(j["velocityScaledTrail"].toBool(m_velocityScaledTrail));
+      else if(j.contains("trailLengthPx") && !j.contains("trailDurationSeconds")) setVelocityScaledTrail(false); // preserve saved pixel styles
+      if(j.contains("trailDurationSeconds")) setTrailDurationSeconds(j["trailDurationSeconds"].toDouble(m_trailDurationSeconds));
       if(j.contains("fade")) setFade(j["fade"].toBool(m_fade));
       if(j.contains("taper")) setTaper(j["taper"].toBool(m_taper));
       if(j.contains("spacingPx")) setSpacingPx(j["spacingPx"].toDouble(m_spacingPx));

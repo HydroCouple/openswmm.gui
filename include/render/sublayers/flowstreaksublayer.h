@@ -15,6 +15,10 @@ class FlowStreakStyle : public SublayerStyle {
     Q_CLASSINFO("group:headWidthPx","Appearance")
     Q_PROPERTY(double trailLengthPx READ trailLengthPx WRITE setTrailLengthPx NOTIFY styleChanged)
     Q_CLASSINFO("group:trailLengthPx","Appearance")
+    Q_PROPERTY(bool velocityScaledTrail READ velocityScaledTrail WRITE setVelocityScaledTrail NOTIFY styleChanged)
+    Q_CLASSINFO("group:velocityScaledTrail","Appearance")
+    Q_PROPERTY(double trailDurationSeconds READ trailDurationSeconds WRITE setTrailDurationSeconds NOTIFY styleChanged)
+    Q_CLASSINFO("group:trailDurationSeconds","Appearance")
     Q_PROPERTY(bool fade READ fade WRITE setFade NOTIFY styleChanged)
     Q_CLASSINFO("group:fade","Appearance")
     Q_PROPERTY(bool taper READ taper WRITE setTaper NOTIFY styleChanged)
@@ -50,6 +54,11 @@ public:
     double widthAtFraction(double tailToHead) const;
     double trailLengthPx() const { return m_trailLengthPx; }
     void setTrailLengthPx(double value);
+    bool velocityScaledTrail() const { return m_velocityScaledTrail; }
+    void setVelocityScaledTrail(bool value);
+    double trailDurationSeconds() const { return m_trailDurationSeconds; }
+    void setTrailDurationSeconds(double value);
+    double activeTrailDurationSeconds() const { return m_velocityScaledTrail?m_trailDurationSeconds:0.; }
     bool fade() const { return m_fade; }
     void setFade(bool value);
     bool taper() const { return m_taper; }
@@ -87,6 +96,8 @@ private:
     double m_widthPx = 1.5;
     double m_headWidthPx = 1.5;
     double m_trailLengthPx = 80.0;
+    bool m_velocityScaledTrail = true;
+    double m_trailDurationSeconds = 2.0;
     bool m_fade = true;
     bool m_taper = true;
     double m_spacingPx = 30.0;
