@@ -233,6 +233,7 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     addTab(buildContourBandTab(tabs), tr("D&epth Contours"),  m_layer->contourBandSublayer());
     addTab(buildIsolineTab(tabs),     tr("De&pth Isolines"),  m_layer->isolineSublayer());
     addTab(buildVelocityTab(tabs),    tr("&Flow Velocity"),   m_layer->velocityVectorSublayer());
+    addTab(buildFlowStreakTab(tabs), tr("Flow &Streaks"), m_layer->flowStreakSublayer());
     // Issue 6 — Edges/Vertices were previously only editable via the generic
     // property grid; give them dedicated tabs so the edge colour/width (the
     // knobs behind the dark-edge artifact) and the vertex markers are tunable
@@ -908,6 +909,68 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
 }
 
 // ─── Mesh edges (Issue 6) ────────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent); auto *lay = new QVBoxLayout(page);
+    auto *sub = m_layer->flowStreakSublayer(); auto *st = sub->streakStyle();
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show flow streaks")));
+    auto *help = new QLabel(tr("Live rendering uses cached paths and updates as results arrive. "
+        "Animation can continue at the selected time; it illustrates flow, not particle travel time."),page);
+    help->setWordWrap(true); lay->addWidget(help);
+    auto *form = new QFormLayout; lay->addLayout(form);
+    auto *color = new ColorButton(page); color->setShowAlpha(true); color->setColor(st->color());
+    color->setEnabled(!st->colorByMagnitude());
+    color->setObjectName(QStringLiteral("flowStreakColor")); form->addRow(tr("Colour:"), color);
+    connect(color,&ColorButton::colorChanged,st,&OpenSWMM::Render::FlowStreakStyle::setColor);
+    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,color,[st,color] {
+        QSignalBlocker block(color); color->setColor(st->color());color->setEnabled(!st->colorByMagnitude());
+    });
+    auto boolean = [&](const char *key,const QString &label) {
+        auto *box = new QCheckBox(label,page);box->setObjectName(QString::fromLatin1(key));
+        box->setChecked(st->property(key).toBool()); form->addRow(box);
+        connect(box,&QCheckBox::toggled,st,[st,key](bool v){st->setProperty(key,v);});
+        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box] {
+            QSignalBlocker block(box);box->setChecked(st->property(key).toBool());
+        });
+    };
+    boolean("animated",tr("Animate flow at selected time"));
+    boolean("fade",tr("Fade trail tails")); boolean("taper",tr("Taper trail tails"));
+    boolean("colorByMagnitude",tr("Colour by velocity magnitude"));
+    auto number = [&](const char *key,const QString &label,double lo,double hi,int decimals,const QString &suffix) {
+        auto *box=makeDSpin(page,lo,hi,decimals==3?0.001:0.5,decimals,st->property(key).toDouble(),suffix);
+        box->setObjectName(QString::fromLatin1(key));form->addRow(label,box);
+        connect(box,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st,key](double v){st->setProperty(key,v);});
+        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box] {
+            QSignalBlocker block(box);box->setValue(st->property(key).toDouble());
+        });
+    };
+    number("widthPx",tr("Width:"),0.1,12,1,tr(" px"));
+    number("trailLengthPx",tr("Trail length:"),1,200,1,tr(" px"));
+    number("spacingPx",tr("Spacing:"),8,200,1,tr(" px"));
+    number("pathLengthPx",tr("Maximum path length:"),16,512,1,tr(" px"));
+    number("speedMultiplier",tr("Visual speed multiplier:"),0,1000,1,QString());
+    number("dryDepthCutoff",tr("Minimum wet depth:"),0,10,3,tr(" m"));
+    auto *binding = new SublayerSchemeBinding(
+        [st]{return st->scheme();},[st](const OpenSWMM::Render::ClassificationScheme &scheme){st->setScheme(scheme);},
+        []{return QVector<double>{};},[st]{return qMakePair(st->scheme().rangeMin(),st->scheme().rangeMax());},true,false);
+    auto *classification=new ClassificationEditor(binding,true,page);
+    classification->setEnabled(st->colorByMagnitude());lay->addWidget(classification);
+    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,classification,
+        [style=QPointer<OpenSWMM::Render::FlowStreakStyle>(st),classification,last=st->scheme().toJson()]() mutable {
+        if(!style) return;
+        const auto *st=style.data();
+        classification->setEnabled(st->colorByMagnitude());
+        const auto current=st->scheme().toJson();
+        if(current!=last) {last=current;classification->refresh();}
+    },Qt::QueuedConnection);
+    auto *status=new QLabel(page);status->setWordWrap(true);lay->addWidget(status);
+    auto updateStatus=[layer=m_layer,status] {if(layer) status->setText(layer->flowStreakStatus());};
+    connect(m_layer,&SWMM2DResultsLayer::flowStreaksChanged,status,updateStatus);updateStatus();
+    connect(sub,&OpenSWMM::Render::ISublayer::invalidated,status,updateStatus);
+    connect(m_layer,&SWMM2DResultsLayer::repaintRequested,status,updateStatus);
+    lay->addStretch();return page;
+}
 
 QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
 {

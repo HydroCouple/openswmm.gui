@@ -4144,3 +4144,18 @@ add_swmmvis_gui_test(test_textlayers
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_textlayers)
+
+add_swmmvis_gui_test(test_flowstreaks
+    test_flowstreaks.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
+swmmvis_link_full_app_deps(test_flowstreaks)
+qt_add_shaders(test_flowstreaks "flowstreak_test_shaders"
+    BATCHABLE
+    PREFIX "/" BASE "${CMAKE_SOURCE_DIR}"
+    FILES
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.vert
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.frag
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowstreak.vert
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowstreak.frag)

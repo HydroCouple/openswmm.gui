@@ -804,3 +804,12 @@ add_swmmvis_unit_test(test_channelburnmesh
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
 )
 target_link_libraries(test_channelburnmesh PRIVATE Qt6::Gui predicates_lib)
+
+add_swmmvis_unit_test(test_flowstreakpaths
+    test_flowstreakpaths.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowstreakpaths.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowstreakcache.cpp
+    ${PROJECT_SOURCE_DIR}/include/render/flowstreakcache.h
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp)
+set_target_properties(test_flowstreakpaths PROPERTIES AUTOMOC ON)
+target_link_libraries(test_flowstreakpaths PRIVATE Qt6::Concurrent Qt6::Gui)

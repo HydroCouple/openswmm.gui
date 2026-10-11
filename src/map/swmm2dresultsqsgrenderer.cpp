@@ -15,6 +15,8 @@
  * (MeshStaticGeometryBuffers), and OPENSWMM_RENDER_PERF=1 sync stats.
  */
 #include "map/swmm2dresultsqsgrenderer.h"
+#include "map/flowstreaknode.h"
+#include <QCoreApplication>
 #include "render/classificationcolorsampler.h"
 
 #include "contour/contourchain.h"
@@ -245,6 +247,7 @@ struct ScalarResultNodes : QSGNode {
 };
 struct ResultsRootNode : QSGTransformNode
 {
+    FlowStreakNode *streakNode = nullptr;
     QHash<QString, ScalarResultNodes *> resultScalarNodes;
     QSGGeometryNode *cellFillNode   = nullptr;
     QSGGeometryNode *smoothFillNode = nullptr;
@@ -380,6 +383,7 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
     }
     m_layer = layer;
     if (m_layer) {
+        connect(m_layer, &SWMM2DResultsLayer::flowStreaksChanged, this, [this] { noteContentChanged(); emit contentReady(); });
         connect(m_layer, &SWMM2DResultsLayer::waterDisplayPolicyChanged,
                 this, &SWMM2DResultsQSGRenderer::forceRebuild);
         // Ambiguous invalidation — style edits, sublayer toggles, etc.
@@ -425,6 +429,18 @@ void SWMM2DResultsQSGRenderer::setMapExtent(const MapExtent &extent)
     // rebuild at all. Pure pans and same-LOD zooms end up matrix-only.
     m_dirty.noteExtentChanged(zoomChanged);
     update();
+}
+
+void SWMM2DResultsQSGRenderer::finishPendingCapture()
+{
+    if (!m_contourBusy) return;
+    m_contourWatcher.waitForFinished();
+    QCoreApplication::sendPostedEvents(&m_contourWatcher);
+}
+
+bool SWMM2DResultsQSGRenderer::captureReady() const
+{
+    return !m_contourBusy && (!m_contourFrame || m_contourFrame->key == m_requestedContourKey);
 }
 
 void SWMM2DResultsQSGRenderer::forceRebuild()
@@ -516,6 +532,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         // deleted) — every domain is stale regardless of pending notes.
         m_dirty.noteLayerChanged();
         root            = new ResultsRootNode();
+        root->streakNode = new FlowStreakNode();
+        root->appendChildNode(root->streakNode);
         cellFillNode    = root->cellFillNode   = makeColoredNode();
         smoothFillNode  = root->smoothFillNode = makeColoredNode();
         bandNode        = root->bandNode       = makeColoredNode();
@@ -574,7 +592,17 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         if (root->matrix() != mat) root->setMatrix(mat);
     };
 
+    const double requestedDpr=property("canvasDevicePixelRatio").toDouble();
+    const double dpr=requestedDpr>0?requestedDpr:1.;
+    const double logicalScale=double(sx_r)/dpr;
+    auto syncStreaks = [&]() {
+        auto *sub=m_layer->flowStreakSublayer();
+        const auto batch=m_layer->flowStreaks(viewRect,logicalScale,m_lastRenderedFrame);
+        root->streakNode->sync(batch,*sub->streakStyle(),m_layer->flowStreakSeconds(),
+            sub->opacity(),QPointF(m_anchorX,m_anchorY),logicalScale);
+    };
     auto clearAll = [&]() {
+        root->streakNode->sync({},*m_layer->flowStreakSublayer()->streakStyle(),0,0,{},1);
         clearPresentedFrames();
         const std::vector<QSGGeometry::ColoredPoint2D> empty_c;
         const std::vector<QSGGeometry::Point2D>        empty_p;
@@ -623,6 +651,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         bool addedEdge = false;
         bool addedNodeMarkers = false;
         bool addedVelocity = false;
+        bool addedStreaks = false;
 
         auto addCell = [&]() {
             if (addedCell) return;
@@ -679,6 +708,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 addIso();
             } else if (id == QLatin1String("results2d.meshVertices")) {
                 addNodeMarkers();
+            } else if (id == QLatin1String("results2d.flowStreaks")) {
+                appendNode(root->streakNode); addedStreaks=true;
             } else if (id == QLatin1String("results2d.velocity")) {
                 addVelocity();
             }
@@ -694,6 +725,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         addIso();
         addNodeMarkers();
         addVelocity();
+        if(!addedStreaks) appendNode(root->streakNode);
 
         appendNode(hiFillNode);
         appendNode(hiEdgeNode);
@@ -719,7 +751,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             m_builtCoverage = QRectF();
             m_builtLodKey   = ~quint64(0);
             applyTransform();
-            return root;
+            syncStreaks(); return root;
         }
     }
 
@@ -998,6 +1030,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             input.bandLevels = smoothBands ? key.bandLevels : std::vector<double>{};
             input.isoLevels = key.isoLevels;
             input.minimumVisibleValue = dryDepth;
+            // Capture the same live field before it is superseded. Waiting
+            // until this contour is presented can otherwise leave no matching
+            // velocity data when the producer is ahead of the display.
+            m_layer->flowStreaks(viewRect,logicalScale,key.frameRev);
             auto compute = [frame, input = std::move(input)]() -> std::shared_ptr<const ContourFrame> {
                 frame->contours = computeContourJob(input);
                 return frame;
@@ -1022,7 +1058,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             m_builtCoverage = cullRect;
             m_dirty.noteStyleChanged(); // deferred passes must rebuild on completion
             applyTransform();
-            return root;
+            syncStreaks(); return root;
         }
         const auto& frame = *m_contourFrame;
         // A fast producer often synchronizes repeatedly without a newly
@@ -1031,7 +1067,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         if (background && compatible && frame.key.frameRev == m_lastRenderedFrame
             && !(bits & (D::Geometry | D::Style | D::Lod | D::Selection))) {
             applyTransform();
-            return root;
+            syncStreaks(); return root;
         }
         // Classify the displayed snapshot with its own automatic breaks.
         // Mixing current levels with older polygons assigns wrong colors.
@@ -1881,5 +1917,5 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
 
     applyTransform();
     if (statsOn) stats.logIfEnabled();
-    return root;
+    syncStreaks(); return root;
 }

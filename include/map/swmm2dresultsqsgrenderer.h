@@ -96,6 +96,10 @@ public:
     /*! Drop caches and mark content dirty — used by MapCanvas when the
      *  QSG/CPU ownership toggles so a stale frame is never composited. */
     void forceRebuild();
+    // Settle a contour requested by a capture paint without delivering live
+    // model packets or timer events. Normal rendering remains asynchronous.
+    void finishPendingCapture();
+    [[nodiscard]] bool captureReady() const;
 
     /*! Monotonic counter bumped every time an external change marks this
      *  renderer's content dirty. MapCanvas compares it against the value

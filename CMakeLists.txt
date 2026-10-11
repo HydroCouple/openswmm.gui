@@ -272,6 +272,9 @@ set(
         include/render/sublayers/meshedgesublayer.h
         include/render/sublayers/meshnodesublayer.h
         include/render/sublayers/velocityvectorsublayer.h
+        include/render/sublayers/flowstreaksublayer.h
+        include/render/flowstreakpaths.h
+        include/render/flowstreakcache.h
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
         include/render/sublayers/resultscalarsublayer.h
@@ -346,6 +349,7 @@ set(
         include/render/resultscalargeometry.h
         include/render/scalarramplut.h
         include/map/scalarfillmaterial.h
+        include/map/flowstreaknode.h
 
         # ── Plot ─────────────────────────────────────────────────────────────
         include/plot/profilerouter.h
@@ -1096,6 +1100,7 @@ set(
         src/render/resultscalargeometry.cpp
         # QSG-2D-1M Phase 8 — GPU scalar-fill material (ramp LUT texture).
         src/map/scalarfillmaterial.cpp
+        src/map/flowstreaknode.cpp
         # Slice Z.14-paint — runtime clip-path resolver impl.
         src/render/maskclipresolver.cpp
         # Slice Z.15-data — AuxiliaryStorageSpec impl.
@@ -1112,6 +1117,9 @@ set(
         src/render/sublayers/meshedgesublayer.cpp
         src/render/sublayers/meshnodesublayer.cpp
         src/render/sublayers/velocityvectorsublayer.cpp
+        src/render/sublayers/flowstreaksublayer.cpp
+        src/render/flowstreakpaths.cpp
+        src/render/flowstreakcache.cpp
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
         src/render/sublayers/resultscalarsublayer.cpp
@@ -1274,6 +1282,7 @@ set(
         # Plugins (engine plugin SDK bridge)
         src/layers/swmm2dmeshlayer.cpp
         src/layers/swmm2dresultslayer.cpp
+        src/layers/swmm2dflowstreaks.cpp
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
         src/io/mesh2dlivevariables.cpp
@@ -1750,10 +1759,13 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     # QSG-2D-1M Phase 8 — compile the scalar-fill material shaders to .qsb
     # (resource paths :/resources/shaders/scalarfill.{vert,frag}.qsb).
     qt_add_shaders(SWMMVis "swmmvis_scalarfill_shaders"
+        BATCHABLE
         PREFIX "/"
         FILES
             resources/shaders/scalarfill.vert
             resources/shaders/scalarfill.frag
+            resources/shaders/flowstreak.vert
+            resources/shaders/flowstreak.frag
     )
     qt_add_translation(QM_FILES ${TS_FILES})
 else()
