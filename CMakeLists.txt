@@ -274,6 +274,7 @@ set(
         include/render/sublayers/velocityvectorsublayer.h
         include/render/sublayers/flowstreaksublayer.h
         include/render/flowstreakpaths.h
+        include/render/flowparticles.h
         include/render/flowstreakcache.h
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
@@ -350,6 +351,7 @@ set(
         include/render/scalarramplut.h
         include/map/scalarfillmaterial.h
         include/map/flowstreaknode.h
+        include/map/flowparticlenode.h
 
         # ── Plot ─────────────────────────────────────────────────────────────
         include/plot/profilerouter.h
@@ -1101,6 +1103,7 @@ set(
         # QSG-2D-1M Phase 8 — GPU scalar-fill material (ramp LUT texture).
         src/map/scalarfillmaterial.cpp
         src/map/flowstreaknode.cpp
+        src/map/flowparticlenode.cpp
         # Slice Z.14-paint — runtime clip-path resolver impl.
         src/render/maskclipresolver.cpp
         # Slice Z.15-data — AuxiliaryStorageSpec impl.
@@ -1119,6 +1122,7 @@ set(
         src/render/sublayers/velocityvectorsublayer.cpp
         src/render/sublayers/flowstreaksublayer.cpp
         src/render/flowstreakpaths.cpp
+        src/render/flowparticles.cpp
         src/render/flowstreakcache.cpp
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
@@ -1767,6 +1771,8 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
             resources/shaders/scalarfill.frag
             resources/shaders/flowstreak.vert
             resources/shaders/flowstreak.frag
+            resources/shaders/flowparticle.vert
+            resources/shaders/flowparticle.frag
     )
     qt_add_translation(QM_FILES ${TS_FILES})
 else()

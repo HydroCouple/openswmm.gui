@@ -813,3 +813,24 @@ add_swmmvis_unit_test(test_flowstreakpaths
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp)
 set_target_properties(test_flowstreakpaths PROPERTIES AUTOMOC ON)
 target_link_libraries(test_flowstreakpaths PRIVATE Qt6::Concurrent Qt6::Gui)
+
+add_swmmvis_unit_test(test_flowparticles
+    test_flowparticles.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticles.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowstreakpaths.cpp
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp)
+set_target_properties(test_flowparticles PROPERTIES AUTOMOC ON)
+target_link_libraries(test_flowparticles PRIVATE Qt6::Gui)
+target_compile_definitions(test_flowparticles PRIVATE
+    FLOW_PARTICLE_TEST_OUTPUT="${PROJECT_SOURCE_DIR}/tests/verification/flow_particles")
+
+add_swmmvis_unit_test(test_flowparticle_rendering
+    test_flowparticle_rendering.cpp
+    ${PROJECT_SOURCE_DIR}/src/map/flowparticlenode.cpp)
+set_target_properties(test_flowparticle_rendering PROPERTIES AUTOMOC ON)
+target_link_libraries(test_flowparticle_rendering PRIVATE Qt6::Widgets Qt6::Quick)
+target_compile_definitions(test_flowparticle_rendering PRIVATE
+    FLOW_PARTICLE_TEST_OUTPUT="${PROJECT_SOURCE_DIR}/tests/verification/flow_particles")
+qt_add_shaders(test_flowparticle_rendering "flow_particle_rendering_shaders"
+    BATCHABLE PREFIX "/" BASE "${PROJECT_SOURCE_DIR}"
+    FILES ${PROJECT_SOURCE_DIR}/resources/shaders/flowparticle.vert ${PROJECT_SOURCE_DIR}/resources/shaders/flowparticle.frag)
