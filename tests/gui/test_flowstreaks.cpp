@@ -186,6 +186,10 @@ private slots:
         QVERIFY(sub->streakStyle()->animated());QVERIFY(a.liveRenderEnabled());
         sub->setVisible(true);sub->setOpacity(.4);sub->streakStyle()->setWidthPx(3.5);
         sub->streakStyle()->setColor(QColor(20,40,80,170));sub->streakStyle()->setSpeedMultiplier(12);
+        // Explicit saved settings, including the previous defaults, must win
+        // over the calmer defaults when an existing project is reopened.
+        sub->streakStyle()->setTrailLengthPx(24);sub->streakStyle()->setPathLengthPx(160);
+        sub->streakStyle()->setFade(false);sub->streakStyle()->setTaper(false);
         QVERIFY(a.moveSublayer(a.sublayers().indexOf(sub),0));
         const auto json=ISublayerHost::saveSublayersToJson(a);
         ISublayerHost::loadSublayersFromJson(b,json);
@@ -201,6 +205,14 @@ private slots:
         auto *width=panel.findChild<QDoubleSpinBox*>("widthPx");QVERIFY(width);
         auto *motion=panel.findChild<QCheckBox*>("animated");QVERIFY(motion);
         auto *style=layer.flowStreakSublayer()->streakStyle();
+        for(const auto &setting:{qMakePair("speedMultiplier",2.),qMakePair("trailLengthPx",80.),
+                                 qMakePair("pathLengthPx",350.)}) {
+            auto *control=panel.findChild<QDoubleSpinBox*>(setting.first);QVERIFY(control);
+            QCOMPARE(control->value(),setting.second);
+        }
+        for(const char *name:{"fade","taper"}) {
+            auto *control=panel.findChild<QCheckBox*>(name);QVERIFY(control);QVERIFY(control->isChecked());
+        }
         width->setValue(4.5);QCOMPARE(style->widthPx(),4.5);
         style->setWidthPx(2.5);QCOMPARE(width->value(),2.5);
         motion->setChecked(false);QVERIFY(!style->animated());style->setAnimated(true);QVERIFY(motion->isChecked());
@@ -328,6 +340,9 @@ private slots:
     {
         auto source=std::make_unique<GridFlowSource>();auto* raw=source.get();
         SWMM2DResultsLayer layer;layer.setSource(std::move(source));layer.setAsyncSurface(true);
+        // Keep this regional-fit fixture below its fixed cell budget, independent
+        // of the user-facing default path length.
+        layer.flowStreakSublayer()->streakStyle()->setPathLengthPx(160);
         layer.setLiveMinFitIntervalMs(0);
         const QRectF a(295,-205,10,10),b(95,-205,10,10);
         const auto reference=layer.m_sceneTris;
@@ -374,6 +389,7 @@ private slots:
         qputenv("OPENSWMM_REGIONAL_SURFACE","1");
         auto file=std::make_unique<HDF5Mesh2DSource>();QVERIFY(file->open(path));
         SWMM2DResultsLayer layer;layer.setSource(std::move(file));
+        layer.flowStreakSublayer()->streakStyle()->setPathLengthPx(160); // fixed accuracy-comparison footprint
         const auto full=layer.m_sceneTris;
         int center=-1;for(int i=0;i<full.size();++i) if(full[i].depth>.1 && full[i].vmag>.1) {center=i;break;}
         QVERIFY(center>=0);
@@ -475,6 +491,7 @@ private slots:
         SWMM2DResultsLayer layer;QElapsedTimer clock;clock.start();layer.setSource(std::move(source));
         const double loadMs=clock.nsecsElapsed()/1e6;
         layer.flowStreakSublayer()->setVisible(true);
+        layer.flowStreakSublayer()->streakStyle()->setPathLengthPx(160); // fixed regional benchmark footprint
         QVERIFY(layer.liveRenderEnabled());
         clock.restart();QVERIFY(!layer.flowStreaks(layer.m_sceneBBox,1,layer.frameRevision()));
         const double requestMs=clock.nsecsElapsed()/1e6;
