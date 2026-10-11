@@ -22,13 +22,16 @@ bool inside(const std::array<double,3> &w)
 { return w[0]>=-1e-9 && w[1]>=-1e-9 && w[2]>=-1e-9; }
 double depth(const FlowStreakField &f, const std::array<double,3> &w)
 { return w[0]*f.depth[0]+w[1]*f.depth[1]+w[2]*f.depth[2]; }
-quint64 seedHash(qint64 x,qint64 y)
+quint64 mixHash(quint64 h)
 {
-    quint64 h=quint64(x)*0x9e3779b97f4a7c15ULL ^ quint64(y)*0xbf58476d1ce4e5b9ULL;
     h=(h^(h>>30))*0xbf58476d1ce4e5b9ULL;
     h=(h^(h>>27))*0x94d049bb133111ebULL;
     return h^(h>>31);
 }
+quint64 seedHash(qint64 x,qint64 y)
+{ return mixHash(quint64(x)*0x9e3779b97f4a7c15ULL ^ quint64(y)*0xbf58476d1ce4e5b9ULL); }
+double randomUnit(quint64 seed,quint64 salt)
+{ return double(mixHash(seed^salt)>>40)/16777216.; }
 }
 
 std::shared_ptr<FlowStreakMesh> FlowStreakMesh::captureRegion(
@@ -192,6 +195,9 @@ bool FlowStreakTracer::advance()
     };
     if(!usable(sample.field)) return false;
     FlowStreakPath path;path.seed=h;path.offset=float(double(h>>32)/4294967296.);
+    // Independent of position/phase, stable across frames and cache rebuilds.
+    // Vary recycling without altering the velocity or shortening the trail.
+    path.restartFraction=float(.15*randomUnit(h,0x94d049bb133111ebULL));
     double time=0.;path.points.push_back({p,0,sample.field.speed});
     int step=0;
     for(;step<128 && points+int(path.points.size())<in.maxPoints;++step) {
@@ -270,9 +276,10 @@ FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &in,const std::atomic
     return cancelled.load()?FlowStreakBatch{}:trace.take();
 }
 
-double flowStreakHead(double duration,double tail,double offset,double elapsed)
+double flowStreakHead(double duration,double tail,double offset,double elapsed,double restartFraction)
 {
-    return std::fmod(std::max(0.,elapsed)+offset*(duration+tail),duration+tail);
+    const double cycle=(duration+tail)*(1+restartFraction);
+    return std::fmod(std::max(0.,elapsed)+offset*cycle,cycle);
 }
 static double softRamp(double value)
 {
@@ -282,10 +289,10 @@ double flowStreakAppearance(double appearedAt,double elapsed)
 {
     return appearedAt<0?1:softRamp((elapsed-appearedAt)/.25);
 }
-double flowStreakOpacity(double t,double duration,double tail,double offset,double elapsed,bool fade)
+double flowStreakOpacity(double t,double duration,double tail,double offset,double elapsed,bool fade,double restartFraction)
 {
     if(!(tail>0) || !(duration>0)) return 0;
-    const double head=flowStreakHead(duration,tail,offset,elapsed);
+    const double head=flowStreakHead(duration,tail,offset,elapsed,restartFraction);
     const double age=head-t;
     if(age<0 || age>=tail) return 0;
     if(!fade) return 1;
@@ -313,22 +320,34 @@ std::shared_ptr<const FlowStreakBatch> FlowStreakPlayback::present(
     auto next=std::make_shared<FlowStreakBatch>(*raw);
     const double tolerance2=4/(scale*scale);
     for(auto &p:next->paths) {
-        p.appearedAt=fadeNew?float(clock):-1;
+        // Spread newly published paths over 350 ms instead of fading a whole
+        // hydraulic frame in together. Never reroll random values on ticks.
+        p.appearedAt=fadeNew?float(clock+.35*randomUnit(p.seed,0xbf58476d1ce4e5b9ULL)):-1;
         const auto found=previous.find(p.seed);
         if(found==previous.end())continue;
         const auto &old=*found->second;
+        // Frequent hydraulic changes must not keep postponing a path that is
+        // already waiting to appear or partway through its 250 ms fade.
+        if(fadeNew && old.appearedAt>=0 && clock<old.appearedAt+.25)
+            p.appearedAt=old.appearedAt;
         if(p.points.size()<2 || old.points.size()<2)continue;
         const auto delta=p.points.front().position-old.points.front().position;
         if(QPointF::dotProduct(delta,delta)>tolerance2)continue;
         const double duration=p.points.back().seconds,oldDuration=old.points.back().seconds;
         const double tail=duration*std::min(1.,trailPx/(p.length*scale));
         const double oldTail=oldDuration*std::min(1.,m_trail/(old.length*m_scale));
-        const double oldHead=flowStreakHead(oldDuration,oldTail,old.offset,phase);
+        const double cycle=(duration+tail)*(1+p.restartFraction);
+        const double oldCycle=(oldDuration+oldTail)*(1+old.restartFraction);
+        const double oldHead=flowStreakHead(oldDuration,oldTail,old.offset,phase,old.restartFraction);
         double head=-1;
         if(oldHead>oldDuration) {
             const auto end=p.points.back().position-old.points.back().position;
-            if(QPointF::dotProduct(end,end)<=tolerance2)
-                head=duration+(oldHead-oldDuration)*tail/oldTail;
+            if(QPointF::dotProduct(end,end)<=tolerance2) {
+                if(oldHead>=oldDuration+oldTail && oldCycle>oldDuration+oldTail)
+                    head=duration+tail+(oldHead-oldDuration-oldTail)
+                        *(cycle-duration-tail)/(oldCycle-oldDuration-oldTail);
+                else head=duration+(oldHead-oldDuration)*tail/oldTail;
+            }
         } else {
             QPointF point,direction;
             for(size_t i=1;i<old.points.size();++i)if(old.points[i].seconds>=oldHead) {
@@ -347,7 +366,6 @@ std::shared_ptr<const FlowStreakBatch> FlowStreakPlayback::present(
             }
         }
         if(head<0)continue; // changed direction/support: fade the new valid path
-        const double cycle=duration+tail;
         double offset=std::fmod(head-phase,cycle)/cycle;if(offset<0)offset+=1;
         p.offset=float(offset);p.appearedAt=fadeNew?old.appearedAt:-1;
     }

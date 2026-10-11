@@ -6,14 +6,14 @@
 #include <cmath>
 
 namespace {
-struct Vertex { float x,y,nx,ny,t,duration,tail,offset,r,g,b,a,side,appearedAt; };
+struct Vertex { float x,y,nx,ny,t,duration,tail,offset,r,g,b,a,side,appearedAt,cycle; };
 const QSGGeometry::AttributeSet &attributes() {
     static const QSGGeometry::Attribute attrs[]={
         QSGGeometry::Attribute::create(0,2,QSGGeometry::FloatType,true),
         QSGGeometry::Attribute::create(1,2,QSGGeometry::FloatType),
         QSGGeometry::Attribute::create(2,4,QSGGeometry::FloatType),
         QSGGeometry::Attribute::create(3,4,QSGGeometry::FloatType),
-        QSGGeometry::Attribute::create(4,2,QSGGeometry::FloatType)};
+        QSGGeometry::Attribute::create(4,3,QSGGeometry::FloatType)};
     static const QSGGeometry::AttributeSet set={5,sizeof(Vertex),attrs};return set;
 }
 class Material : public QSGMaterial {
@@ -79,7 +79,7 @@ void FlowStreakNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowStreakBatc
                 const QColor c=style.colorForSpeed(p.speed);const auto q=p.position-anchor;
                 return Vertex{float(q.x()),float(q.y()),float(n.x()*side),float(n.y()*side),
                     p.seconds,duration,tail,path.offset,float(c.redF()),float(c.greenF()),float(c.blueF()),float(c.alphaF()),
-                    float(side),path.appearedAt};
+                    float(side),path.appearedAt,(duration+tail)*(1+path.restartFraction)};
             };
             const auto al=make(a,-1),ar=make(a,1),bl=make(b,-1),br=make(b,1);
             *v++=al;*v++=ar;*v++=br;*v++=al;*v++=br;*v++=bl;

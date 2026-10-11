@@ -114,6 +114,7 @@ private slots:
         QVERIFY(a.paths.size()>20);QCOMPARE(a.paths.size(),b.paths.size());
         for(size_t i=0;i<a.paths.size();++i) {
             const auto &p=a.paths[i];QCOMPARE(p.points.size(),b.paths[i].points.size());
+            QCOMPARE(p.offset,b.paths[i].offset);QCOMPARE(p.restartFraction,b.paths[i].restartFraction);
             for(size_t j=0;j<p.points.size();++j) {
                 const auto &pt=p.points[j];QCOMPARE(pt.position,b.paths[i].points[j].position);
                 QVERIFY(std::abs(pt.position.y()-p.points[0].position.y())<1e-8);
@@ -157,7 +158,9 @@ private slots:
         in.coverage={0,0,8,10};const auto clipped=buildFlowStreakPaths(in,cancel);
         int matched=0;
         for(const auto &a:clipped.paths)for(const auto &b:full.paths)
-            if(a.points.front().position==b.points.front().position) {++matched;QCOMPARE(a.offset,b.offset);break;}
+            if(a.points.front().position==b.points.front().position) {
+                ++matched;QCOMPARE(a.offset,b.offset);QCOMPARE(a.restartFraction,b.restartFraction);break;
+            }
         QCOMPARE(matched,int(clipped.paths.size()));
         const QPointF origin(7000000,-4000000);
         for(auto &v:in.mesh->vertices)v+=origin;
@@ -189,6 +192,56 @@ private slots:
         QCOMPARE(flowStreakAppearance(2,2.125),.5);
         QCOMPARE(flowStreakAppearance(2,2.25),1.);
     }
+    void recyclingIsStaggeredWithoutChangingTravel() {
+        std::atomic_bool cancel=false;const auto batch=buildFlowStreakPaths(square(),cancel);
+        std::array<int,8> bins{};
+        for(const auto &p:batch.paths) {
+            QVERIFY(p.restartFraction>=0 && p.restartFraction<.15);
+            ++bins[std::min(7,int(p.restartFraction/.15*8))];
+            // Equal-duration paths with equal phases still recycle at different times.
+            // Motion and the full tail remain identical until they leave the path.
+            const double cycle=12*(1+double(p.restartFraction));
+            for(double elapsed:{.1,5.,10.,11.9}) {
+                QVERIFY(std::abs(flowStreakHead(10,2,0,elapsed,p.restartFraction)-elapsed)<1e-10);
+                QCOMPARE(flowStreakOpacity(9,10,2,0,elapsed,true,p.restartFraction),
+                         flowStreakOpacity(9,10,2,0,elapsed,true));
+            }
+            for(double t:{0.,5.,10.})
+                QCOMPARE(flowStreakOpacity(t,10,2,0,(12+cycle)/2,false,p.restartFraction),0.);
+            QVERIFY(std::abs(flowStreakHead(10,2,0,cycle+.1,p.restartFraction)-.1)<1e-10);
+        }
+        for(int count:bins)QVERIFY(count>0);
+    }
+    void newAppearancesAreStaggeredAndNotPostponed() {
+        std::atomic_bool cancel=false;
+        const auto raw=std::make_shared<FlowStreakBatch>(buildFlowStreakPaths(square(),cancel));
+        FlowStreakPlayback playback,repeat;
+        for(auto *p:{&playback,&repeat})p->present(std::make_shared<FlowStreakBatch>(),0,0,2,1,true);
+        const auto first=playback.present(raw,0,1,2,1,true);
+        const auto same=repeat.present(raw,0,1,2,1,true);
+        std::array<int,7> bins{};
+        for(size_t i=0;i<first->paths.size();++i) {
+            const auto start=first->paths[i].appearedAt;
+            QVERIFY(start>=1 && start<1.35);++bins[std::min(6,int((start-1)/.05))];
+            QCOMPARE(start,same->paths[i].appearedAt);
+            QCOMPARE(raw->paths[i].appearedAt,-1.f);
+            QCOMPARE(flowStreakAppearance(start,1),0.);
+            QCOMPARE(flowStreakAppearance(start,1.6),1.);
+        }
+        for(int count:bins)QVERIFY(count>0);
+        // Force incompatible geometry on each update while paths are entering.
+        // Only new wet geometry is retained, without restarting every fade.
+        for(int frame=1;frame<=4;++frame) {
+            auto changed=std::make_shared<FlowStreakBatch>(*raw);
+            for(auto &p:changed->paths)for(auto &pt:p.points)pt.position+=QPointF(frame*10,0);
+            const auto next=playback.present(changed,frame*.01,1+frame*.01,2,1,true);
+            for(size_t i=0;i<next->paths.size();++i) {
+                QCOMPARE(next->paths[i].appearedAt,first->paths[i].appearedAt);
+                QCOMPARE(next->paths[i].points.front().position,changed->paths[i].points.front().position);
+            }
+            QCOMPARE(playback.present(changed,frame*.01+.001,1+frame*.01+.001,2,1,true),next);
+        }
+    }
     void playbackPreservesHeadsWithoutOldGeometry() {
         auto make=[](float duration,quint64 seed=42) {
             auto b=std::make_shared<FlowStreakBatch>();FlowStreakPath p;p.seed=seed;p.length=100;
@@ -207,7 +260,7 @@ private slots:
         auto shortened=make(10);shortened->paths.front().length=20;
         for(auto &pt:shortened->paths.front().points)pt.position*=.2;
         const auto cut=playback.present(shortened,48,2,20,1,true);
-        QCOMPARE(cut->paths.front().appearedAt,2.f);
+        QVERIFY(cut->paths.front().appearedAt>=2 && cut->paths.front().appearedAt<2.35);
         for(const auto &pt:cut->paths.front().points)QVERIFY(pt.position.x()<=20);
         const auto settled=playback.present(shortened,48,2.1,20,1,false);
         QCOMPARE(settled->paths.front().appearedAt,-1.f);
@@ -215,10 +268,11 @@ private slots:
         const auto empty=std::make_shared<FlowStreakBatch>();
         QVERIFY(playback.present(empty,48,2,20,1,true)->paths.empty());
         const auto fresh=playback.present(first,48,3,20,1,true);
-        QCOMPARE(fresh->paths.front().appearedAt,3.f);
+        QVERIFY(fresh->paths.front().appearedAt>=3 && fresh->paths.front().appearedAt<3.35);
         // Reverse direction must not inherit an old head from the opposite flow.
         auto reverse=make(100);for(auto &pt:reverse->paths.front().points)pt.position*=-1;
-        QCOMPARE(playback.present(reverse,49,4,20,1,true)->paths.front().appearedAt,4.f);
+        const auto reversed=playback.present(reverse,49,4,20,1,true);
+        QVERIFY(reversed->paths.front().appearedAt>=4 && reversed->paths.front().appearedAt<4.35);
         playback.clear();QCOMPARE(playback.present(first,49,5,20,1,true),first);
         auto other=make(100,123);
         QCOMPARE(playback.present(other,49,5,20,1,false)->paths.front().appearedAt,-1.f);
@@ -226,6 +280,14 @@ private slots:
         playback.clear();playback.present(first,110,0,20,1,true);
         const auto draining=playback.present(faster,110,1,20,1,true);
         QVERIFY(std::abs(flowStreakHead(50,10,draining->paths.front().offset,110)-55)<1e-5);
+        // Keep a recycling pause invisible when the hydraulic speed changes.
+        auto delayed=make(100);delayed->paths.front().restartFraction=.1f;
+        auto quicker=make(50);quicker->paths.front().restartFraction=.1f;
+        playback.clear();playback.present(delayed,126,0,20,1,true);
+        const auto waiting=playback.present(quicker,126,1,20,1,true);
+        const auto &w=waiting->paths.front();
+        QVERIFY(std::abs(flowStreakHead(50,10,w.offset,126,w.restartFraction)-63)<1e-5);
+        for(double t:{0.,25.,50.})QCOMPARE(flowStreakOpacity(t,50,10,w.offset,126,true,w.restartFraction),0.);
     }
     void workerCacheCoalescingAndInvalidation() {
         FlowStreakCache cache;int captures=0;
