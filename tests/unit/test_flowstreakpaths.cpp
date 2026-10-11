@@ -53,6 +53,32 @@ static FlowStreakInput regionInput(const std::shared_ptr<FlowStreakMesh> &mesh,Q
     }
     return in;
 }
+// Test adapter borrows the same immutable native mesh/fields as the worker.
+static FlowStreakInput sampledInput(const FlowStreakInput &source)
+{
+    std::atomic_bool cancel=false;source.mesh->prepare(cancel);
+    auto data=std::make_shared<FlowStreakInput>(source);
+    FlowStreakInput in=source;in.mesh.reset();in.triangles.clear();in.fields.clear();
+    in.sampler.valid=[]{return true;};
+    in.sampler.cell=[data](int i,FlowStreakSample &s) {
+        auto it=std::lower_bound(data->triangles.begin(),data->triangles.end(),i);
+        if(it==data->triangles.end() || *it!=i)return false;
+        s.id=i;s.field=data->fields[size_t(it-data->triangles.begin())];s.neighbors=data->mesh->neighbors[size_t(i)];
+        for(int k=0;k<3;++k)s.vertices[k]=data->mesh->vertices[data->mesh->triangles[size_t(i)][k]];
+        return true;
+    };
+    in.sampler.locate=[data,cell=in.sampler.cell](QPointF &p,FlowStreakSample &s) {
+        const int *b=nullptr,*e=nullptr;data->mesh->grid.candidatesAtPoint(p.x(),p.y(),b,e);
+        const auto cross=[](QPointF a,QPointF b){return a.x()*b.y()-a.y()*b.x();};
+        for(auto it=b;it!=e;++it)if(cell(*it,s)) {
+            const auto a=s.vertices[0],ab=s.vertices[1]-a,ac=s.vertices[2]-a;
+            const double v=cross(p-a,ac)/cross(ab,ac),w=cross(ab,p-a)/cross(ab,ac);
+            if(v>=-1e-9 && w>=-1e-9 && 1-v-w>=-1e-9 && s.field.speed>1e-8
+               && (1-v-w)*s.field.depth[0]+v*s.field.depth[1]+w*s.field.depth[2]>data->cutoff) return true;
+        }return false;
+    };
+    return in;
+}
 static double peakResidentBytes()
 {
 #ifdef Q_OS_UNIX
@@ -172,6 +198,64 @@ private slots:
         QVERIFY(unrelatedEvent);QCOMPARE(cache.builds(),builds);
         cache.request("cancel",[]{return square();});cache.clear();
         cache.waitForDone();QVERIFY(!cache.lookup("cancel"));
+    }
+    void sampledNativeParityAndBarriers() {
+        for(int scenario=0;scenario<5;++scenario) {
+            auto source=square();
+            if(scenario==1)for(auto &f:source.fields)f.exits=0;
+            if(scenario==2){source.fields[0].depth={1,-1,-1};source.fields[1].depth={1,-1,1};}
+            if(scenario==3){source.fields[0].vx=-2;source.fields[1].vx=2;}
+            if(scenario==4){source.mesh->triangles.push_back({0,2,3});source.mesh->neighbors.clear();}
+            std::atomic_bool cancel=false;const auto expected=buildFlowStreakPaths(source,cancel);
+            const auto input=sampledInput(source);FlowStreakTracer trace(input,input.sampler);
+            while(!trace.advance()) {}const auto actual=trace.take();
+            QCOMPARE(actual.paths.size(),expected.paths.size());QCOMPARE(actual.pointCount(),expected.pointCount());
+            for(size_t i=0;i<actual.paths.size();++i) {
+                QCOMPARE(actual.paths[i].offset,expected.paths[i].offset);
+                QCOMPARE(actual.paths[i].points.size(),expected.paths[i].points.size());
+                for(size_t j=0;j<actual.paths[i].points.size();++j) {
+                    QCOMPARE(actual.paths[i].points[j].position,expected.paths[i].points[j].position);
+                    QCOMPARE(actual.paths[i].points[j].seconds,expected.paths[i].points[j].seconds);
+                }
+            }
+        }
+    }
+    void overviewSlicesCoalesceAndDiscardStaleFrames() {
+        FlowStreakCache cache;bool current=true;
+        auto input=sampledInput(square());input.sampler.valid=[&]{return current;};
+        cache.request("stale",[&]{return input;});QVERIFY(cache.busy());
+        // The request itself performs no tracing, and a queued user action can
+        // run before completion. Changing the hydraulic frame cancels publication.
+        bool event=false;QTimer::singleShot(0,this,[&]{event=true;current=false;});
+        QTRY_VERIFY_WITH_TIMEOUT(!cache.busy(),5000);QVERIFY(event);QVERIFY(!cache.lookup("stale"));
+        current=true;cache.request("first",[&]{return input;});
+        cache.request("middle",[&]{return input;});cache.request("latest",[&]{return input;});
+        cache.waitForDone();QVERIFY(!cache.lookup("first"));QVERIFY(!cache.lookup("middle"));
+        QVERIFY(cache.lookup("latest"));QVERIFY(!cache.lookup("latest")->paths.empty());
+        event=false;QTimer::singleShot(0,this,[&]{event=true;});
+        cache.request("capture",[&]{return input;});cache.waitForDone();
+        QVERIFY(cache.lookup("capture"));QVERIFY(!event);
+        cache.request("cancel",[&]{return input;});cache.clear();cache.waitForDone();
+        QVERIFY(!cache.busy());QVERIFY(!cache.lookup("cancel"));QCoreApplication::processEvents();QVERIFY(event);
+    }
+    void overviewWorkCaps() {
+        auto in=sampledInput(square());in.coverage={0,0,1e8,.00001};in.spacing=.00001;
+        int queries=0;in.sampler.locate=[&](QPointF &,FlowStreakSample &){++queries;return false;};
+        FlowStreakTracer trace(in,in.sampler);while(!trace.advance()) {}auto batch=trace.take();
+        QVERIFY(batch.seedAttempts<=8192);QVERIFY(queries<=8192);QVERIFY(batch.paths.empty());
+        in=sampledInput(square());in.maxPoints=75;in.maxPaths=3;
+        FlowStreakTracer limited(in,in.sampler);while(!limited.advance()) {}batch=limited.take();
+        QVERIFY(batch.pointCount()<=75);QVERIFY(batch.paths.size()<=3);
+    }
+    void pointBudgetSpreadsSeedsAcrossView() {
+        auto in=sampledInput(square());in.spacing=.05;in.maxPaths=2000;in.maxPoints=1000;
+        FlowStreakTracer trace(in,in.sampler);while(!trace.advance()) {}const auto batch=trace.take();
+        QVERIFY(batch.limited);QVERIFY(batch.pointCount()<=1000);
+        bool upper=false,lower=false;
+        for(const auto &path:batch.paths) {
+            upper|=path.points.front().position.y()<3;lower|=path.points.front().position.y()>7;
+        }
+        QVERIFY(upper);QVERIFY(lower);
     }
     void regionalPathsMatchWholeMesh() {
         const QPointF origin(7000000,-4000000);

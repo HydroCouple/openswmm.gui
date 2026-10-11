@@ -4,6 +4,7 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QThreadPool>
+#include <QTimer>
 #include <functional>
 
 namespace OpenSWMM::Render {
@@ -33,11 +34,15 @@ signals:
     void ready();
 private:
     struct Job { QByteArray key; FlowStreakInput input; std::shared_ptr<std::atomic_bool> cancelled;
-                 std::shared_ptr<FlowStreakBatch> result; quint64 epoch=0; };
+                 std::shared_ptr<FlowStreakBatch> result; quint64 epoch=0;
+                 std::unique_ptr<FlowStreakTracer> trace; };
     struct Entry { QByteArray key; std::shared_ptr<const FlowStreakBatch> batch; };
     void start(std::shared_ptr<Job>);
+    void finish();
+    void advanceOverview();
     QThreadPool m_pool;
     QFutureWatcher<void> m_watcher;
+    QTimer m_overviewTimer;
     std::shared_ptr<Job> m_active,m_pending;
     std::vector<Entry> m_cache;
     quint64 m_epoch=0;

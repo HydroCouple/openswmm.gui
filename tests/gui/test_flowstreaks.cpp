@@ -121,6 +121,39 @@ public:
         return true;
     }
 };
+class QuadGridFlowSource : public GridFlowSource {
+public:
+    using GridFlowSource::GridFlowSource;
+    int triangleCount() const override {return cols*rows;}
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+    readHydraulicCellsAt(int t,const std::vector<int>& ids) override {
+        if(!openswmmvis::io::validHydraulicCells(ids,triangleCount())) return {};
+        ++regionalReads;auto out=std::make_shared<openswmmvis::io::Mesh2DHydraulicFrame>();
+        out->time=t;out->revision=revision;out->cells=ids;const float signs[4]={1,0,-1,0};
+        for(int c:ids) {
+            Q_UNUSED(c);const float d=depths.at(size_t(t));out->depths.push_back(d);
+            for(float sign:signs)out->flux.push_back(sign*d*speed);
+        }return out;
+    }
+    bool readCells(std::vector<double>&x,std::vector<double>&y,std::vector<double>&z,
+                   std::vector<std::array<int,4>>&cells) override {
+        x.resize(vertexCount());y.resize(vertexCount());z.assign(vertexCount(),0);
+        for(int r=0;r<=rows;++r)for(int c=0;c<=cols;++c){const int i=r*(cols+1)+c;x[i]=c;y[i]=r;}
+        for(int r=0;r<rows;++r)for(int c=0;c<cols;++c) {
+            const int a=r*(cols+1)+c;cells.push_back({a,a+1,a+cols+2,a+cols+1});
+        }return true;
+    }
+    bool readEdgeGeometry(std::vector<float>&len,std::vector<float>&nx,std::vector<float>&ny) override {
+        len.assign(size_t(triangleCount())*4,1);nx.resize(len.size());ny.resize(len.size());
+        const float a[4]={1,0,-1,0},b[4]={0,1,0,-1};
+        for(size_t i=0;i<len.size();++i){nx[i]=a[i%4];ny[i]=b[i%4];}return true;
+    }
+    bool readEdgeFluxAt(int t,std::vector<float>&flux) override {
+        const float sign[4]={1,0,-1,0};flux.resize(size_t(triangleCount())*4);
+        for(size_t i=0;i<flux.size();++i)flux[i]=sign[i%4]*depths.at(size_t(t))*speed;
+        return true;
+    }
+};
 class TestRenderer:public SWMM2DResultsQSGRenderer {
 public:using SWMM2DResultsQSGRenderer::updatePaintNode;
 };
@@ -370,7 +403,69 @@ private slots:
         qunsetenv("OPENSWMM_REGIONAL_SURFACE");
     }
 
-    void regionalLiveCaptureAfterOverviewLimit() {
+    void overviewNativeParityAndNarrowChannel() {
+        auto source=std::make_unique<GridFlowSource>(30,30);
+        SWMM2DResultsLayer layer;layer.setSource(std::move(source));layer.flowStreakSublayer()->setVisible(true);
+        const auto view=layer.m_sceneBBox;
+        QVERIFY(layer.prepareFlowStreaksForCapture(view,10));
+        const auto expected=layer.flowStreaks(view,10,layer.frameRevision());QVERIFY(expected);
+        // Force sampling on a separate identical layer; normal close views keep
+        // the regional worker. Native edges/quad diagonals share the same tracer.
+        qputenv("OPENSWMM_FLOW_OVERVIEW","1");
+        SWMM2DResultsLayer sampled;sampled.setSource(std::make_unique<GridFlowSource>(30,30));
+        sampled.flowStreakSublayer()->setVisible(true);
+        QVERIFY(sampled.prepareFlowStreaksForCapture(view,10));
+        const auto actual=sampled.flowStreaks(view,10,sampled.frameRevision());
+        QVERIFY(actual);QCOMPARE(actual->paths.size(),expected->paths.size());
+        for(size_t i=0;i<actual->paths.size();++i) {
+            QCOMPARE(actual->paths[i].points.size(),expected->paths[i].points.size());
+            for(size_t j=0;j<actual->paths[i].points.size();++j)
+                QCOMPARE(actual->paths[i].points[j].position,expected->paths[i].points[j].position);
+        }
+        // A one-cell-wide wet channel inside a dry domain must remain visible
+        // through native seed refinement and cannot leak into the dry banks.
+        for(auto &t:sampled.m_sceneTris) {
+            if((t.a.y()+t.b.y()+t.c.y())/3 < -15 || (t.a.y()+t.b.y()+t.c.y())/3 > -14)
+                t.dv0=t.dv1=t.dv2=-1;
+        }
+        sampled.flowStreakSublayer()->streakStyle()->setSpacingPx(80);
+        QVERIFY(sampled.prepareFlowStreaksForCapture(view,9));
+        const auto channel=sampled.flowStreaks(view,9,sampled.frameRevision());QVERIFY(channel && !channel->paths.empty());
+        for(const auto &path:channel->paths)for(const auto &pt:path.points)
+            QVERIFY(pt.position.y()>=-15-1e-8 && pt.position.y()<=-14+1e-8);
+        qunsetenv("OPENSWMM_FLOW_OVERVIEW");
+    }
+    void overviewQuadDiagonalParity() {
+        SWMM2DResultsLayer regional;regional.setSource(std::make_unique<QuadGridFlowSource>(30,30));
+        regional.flowStreakSublayer()->setVisible(true);const auto view=regional.m_sceneBBox;
+        QVERIFY(regional.prepareFlowStreaksForCapture(view,10));
+        const auto expected=regional.flowStreaks(view,10,regional.frameRevision());QVERIFY(expected);
+        qputenv("OPENSWMM_FLOW_OVERVIEW","1");
+        SWMM2DResultsLayer sampled;sampled.setSource(std::make_unique<QuadGridFlowSource>(30,30));
+        sampled.flowStreakSublayer()->setVisible(true);QVERIFY(sampled.prepareFlowStreaksForCapture(view,10));
+        const auto actual=sampled.flowStreaks(view,10,sampled.frameRevision());QVERIFY(actual);
+        QCOMPARE(actual->paths.size(),expected->paths.size());
+        for(size_t i=0;i<actual->paths.size();++i) {
+            QCOMPARE(actual->paths[i].points.size(),expected->paths[i].points.size());
+            for(size_t j=0;j<actual->paths[i].points.size();++j)
+                QCOMPARE(actual->paths[i].points[j].position,expected->paths[i].points[j].position);
+        }
+        qunsetenv("OPENSWMM_FLOW_OVERVIEW");
+    }
+    void overviewDiscardOnReplacement() {
+        qputenv("OPENSWMM_FLOW_OVERVIEW","1");
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<GridFlowSource>(80,80));
+        layer.flowStreakSublayer()->setVisible(true);
+        const auto view=layer.m_sceneBBox;const auto oldRevision=layer.frameRevision();
+        QVERIFY(!layer.flowStreaks(view,4,oldRevision));QVERIFY(layer.flowStreakBusy());
+        auto replacement=std::make_unique<GridFlowSource>(80,80);replacement->speed=-2;
+        layer.setSource(std::move(replacement));
+        QVERIFY(layer.prepareFlowStreaksForCapture(view,4));
+        const auto result=layer.flowStreaks(view,4,layer.frameRevision());QVERIFY(result && !result->paths.empty());
+        for(const auto &path:result->paths)QVERIFY(path.points.back().position.x()<path.points.front().position.x());
+        qunsetenv("OPENSWMM_FLOW_OVERVIEW");
+    }
+    void regionalLiveCaptureAfterOverview() {
         // Opt in to the same production-layer test with six million cells.
         // Normal CI uses 320k, enough to exercise the regional limit/recovery.
         const bool native=qEnvironmentVariableIsSet("FLOW_STREAK_NATIVE_6M");
@@ -382,8 +477,17 @@ private slots:
         layer.flowStreakSublayer()->setVisible(true);
         QVERIFY(layer.liveRenderEnabled());
         clock.restart();QVERIFY(!layer.flowStreaks(layer.m_sceneBBox,1,layer.frameRevision()));
-        const double rejectMs=clock.nsecsElapsed()/1e6;
-        QVERIFY(layer.flowStreakStatus().contains("This view"));QVERIFY(!layer.flowStreakBusy());
+        const double requestMs=clock.nsecsElapsed()/1e6;
+        QVERIFY(layer.flowStreakBusy());
+        QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        const double overviewMs=clock.nsecsElapsed()/1e6;
+        const auto overview=layer.flowStreaks(layer.m_sceneBBox,1,layer.frameRevision());
+        QVERIFY(overview && !overview->paths.empty());
+        QVERIFY(overview->candidateTests<=2000000);QVERIFY(overview->cellVisits<=256000);
+        QVERIFY(overview->pointCount()<=64000);QVERIFY(overview->paths.size()<=2000);
+        const int overviewBuilds=layer.flowStreakBuildCount(),overviewReads=raw->reads;
+        for(int i=0;i<100;++i) {layer.advanceFlowStreaks(.033);QCOMPARE(layer.flowStreaks(layer.m_sceneBBox,1,layer.frameRevision()),overview);}
+        QCOMPARE(layer.flowStreakBuildCount(),overviewBuilds);QCOMPARE(raw->reads,overviewReads);
         const QRectF view(raw->cols*.75,-raw->rows*.5,20,20);
         clock.restart();QVERIFY(layer.prepareFlowStreaksForCapture(view,8));
         const double prepareMs=clock.nsecsElapsed()/1e6;
@@ -445,10 +549,86 @@ private slots:
             QDir().mkpath("workplans/artifacts/flow_streaks");
             QFile file("workplans/artifacts/flow_streaks/regional-layer-6m.json");QVERIFY(file.open(QIODevice::WriteOnly));
             file.write(QJsonDocument(QJsonObject{{"nativeCells",cells},{"displayTriangles",layer.m_sceneTris.size()},
-                {"loadAndSurfaceMs",loadMs},{"overviewRejectionMs",rejectMs},{"coldRegionalPreparationMs",prepareMs},
+                {"loadAndSurfaceMs",loadMs},{"overviewRequestMs",requestMs},{"overviewPreparationMs",overviewMs},
+                {"overviewPaths",int(overview->paths.size())},{"overviewPoints",overview->pointCount()},
+                {"overviewCandidateTests",overview->candidateTests},{"overviewCellVisits",overview->cellVisits},{"coldRegionalPreparationMs",prepareMs},
                 {"liveFieldAndSurfaceUpdateMs",updateMs},{"regionalHydraulicCells",double(layer.hydraulicRegionCellCount())},{"phaseTicks",100},{"phasePathRebuilds",0},
                 {"paths",int(first->paths.size())},{"points",first->pointCount()},{"presentation",presentation}}).toJson());
         }
+    }
+    void overviewScaleBenchmark() {
+        const bool large=qEnvironmentVariableIsSet("FLOW_STREAK_OVERVIEW_6M");
+        const bool native=qEnvironmentVariableIsSet("FLOW_STREAK_OVERVIEW_NATIVE");
+        QJsonArray cases;
+        for(bool quads:{false,true}) {
+            std::unique_ptr<GridFlowSource> source;
+            if(quads)source=std::make_unique<QuadGridFlowSource>(large?3000:600,large?2000:500);
+            else source=std::make_unique<GridFlowSource>(large?2000:400,large?1500:400);
+            auto *raw=source.get();const int cells=source->triangleCount();
+            SWMM2DResultsLayer layer;QElapsedTimer clock;clock.start();layer.setSource(std::move(source));
+            const double loadMs=clock.nsecsElapsed()/1e6;
+            layer.flowStreakSublayer()->setVisible(true);QJsonArray runs;
+            const int sourceReads=raw->reads;
+            for(double fraction:{.01,.1,1.})for(int run=0;run<3;++run) {
+                const double side=std::sqrt(fraction);const auto box=layer.m_sceneBBox;
+                const QRectF view(box.center()-QPointF(box.width()*side/2,box.height()*side/2),
+                                  QSizeF(box.width()*side,box.height()*side));
+                const double scale=1920/view.width();
+                layer.flowStreakSublayer()->streakStyle()->setPathLengthPx(96+run);
+                clock.restart();layer.flowStreaks(view,scale,layer.frameRevision());
+                const double requestMs=clock.nsecsElapsed()/1e6;
+                QEventLoop loop;QTimer heartbeat;heartbeat.setInterval(1);double previous=requestMs,maxGap=0;
+                connect(&heartbeat,&QTimer::timeout,&loop,[&]{
+                    const double now=clock.nsecsElapsed()/1e6;maxGap=std::max(maxGap,now-previous);previous=now;
+                    if(!layer.flowStreakBusy() || now>30000)loop.quit();
+                });
+                if(layer.flowStreakBusy()){heartbeat.start();loop.exec();heartbeat.stop();}
+                const double elapsed=clock.nsecsElapsed()/1e6;
+                QVERIFY(!layer.flowStreakBusy());
+                const auto batch=layer.flowStreaks(view,scale,layer.frameRevision());
+                QVERIFY(batch && !batch->paths.empty());QVERIFY(batch->paths.size()<=2000);QVERIFY(batch->pointCount()<=64000);
+                QVERIFY(batch->candidateTests<=2000000);QVERIFY(batch->cellVisits<=256000);
+                QCOMPARE(raw->reads,sourceReads);QCOMPARE(raw->regionalReads,0);
+                for(const auto &path:batch->paths)for(const auto &pt:path.points) {
+                    QVERIFY2(std::abs(pt.position.y()-path.points.front().position.y())<1e-5,
+                        qPrintable(QString("quads=%1 fraction=%2 dy=%3").arg(quads).arg(fraction).arg(pt.position.y()-path.points.front().position.y(),0,'g',16)));
+                    QVERIFY(pt.position.x()>=path.points.front().position.x());
+                }
+                const int builds=layer.flowStreakBuildCount();
+                for(int i=0;i<100;++i){layer.advanceFlowStreaks(.033);QCOMPARE(layer.flowStreaks(view,scale,layer.frameRevision()),batch);}
+                QCOMPARE(layer.flowStreakBuildCount(),builds);
+                runs.append(QJsonObject{{"fraction",fraction},{"run",run},{"requestMs",requestMs},
+                    {"preparationMs",elapsed},{"maxEventGapMs",maxGap},{"paths",int(batch->paths.size())},
+                    {"points",batch->pointCount()},{"candidateTests",batch->candidateTests},{"cellVisits",batch->cellVisits},
+                    {"pathBytes",double(batch->bytes())},{"limited",batch->limited},{"phaseRebuilds",0}});
+            }
+            QJsonObject presentation;
+            if(native && !quads) {
+                layer.meshEdgeSublayer()->setVisible(false);layer.meshNodeSublayer()->setVisible(false);
+                const auto box=layer.m_sceneBBox;MapCanvas canvas;canvas.resize(1920,1080);canvas.addLayer(&layer,false);
+                canvas.setExtent({box.left(),-box.bottom(),box.right(),-box.top()},false);canvas.show();
+                QString error;clock.restart();QVERIFY2(!canvas.captureMap(&error).isNull(),qPrintable(error));
+                const double captureMs=clock.nsecsElapsed()/1e6;QTest::qWait(1500);
+                QTRY_VERIFY_WITH_TIMEOUT(!layer.flowStreakBusy(),30000);
+                QVERIFY(layer.qsgOwnsRendering());
+                const int builds=layer.flowStreakBuildCount();const double phase=layer.flowStreakSeconds();
+                QTest::qWait(150);QVERIFY(layer.flowStreakSeconds()>phase);QJsonArray times;
+                for(int run=0;run<3;++run) {
+                    std::vector<double> ms;
+                    for(int i=0;i<100;++i){clock.restart();layer.advanceFlowStreaks(.033);canvas.repaint();ms.push_back(clock.nsecsElapsed()/1e6);QCoreApplication::processEvents();}
+                    std::sort(ms.begin(),ms.end());times.append(QJsonObject{{"medianMs",ms[50]},{"p95Ms",ms[95]},{"maxMs",ms.back()}});
+                }
+                QCOMPARE(layer.flowStreakBuildCount(),builds);
+                QDir().mkpath("tests/verification/flow_streaks");
+                QVERIFY(canvas.captureMap(&error).save("tests/verification/flow_streaks/overview-native-6m.png"));
+                presentation={{"width",canvas.width()},{"height",canvas.height()},{"dpr",canvas.devicePixelRatioF()},
+                    {"coldCaptureMs",captureMs},{"qsgOwnsRendering",layer.qsgOwnsRendering()},{"phaseRebuilds",layer.flowStreakBuildCount()-builds},{"runs",times}};
+            }
+            cases.append(QJsonObject{{"nativeCells",cells},{"displayTriangles",layer.m_sceneTris.size()},{"quads",quads},{"loadMs",loadMs},{"runs",runs},{"presentation",presentation}});
+        }
+        QDir().mkpath("workplans/artifacts/flow_streaks");
+        QFile file(large?"workplans/artifacts/flow_streaks/overview-6m.json":"workplans/artifacts/flow_streaks/overview-ci.json");
+        QVERIFY(file.open(QIODevice::WriteOnly));file.write(QJsonDocument(cases).toJson());
     }
     void gpuPhaseKeepsGeometry() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());layer.flowStreakSublayer()->setVisible(true);

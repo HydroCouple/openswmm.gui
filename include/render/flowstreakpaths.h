@@ -6,6 +6,7 @@
 #include <QRectF>
 #include <array>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -38,8 +39,25 @@ struct FlowStreakField {
     unsigned char exits = 0; // allowed outward crossings, opposite each corner
 };
 
+struct FlowStreakSample {
+    int id = -1;
+    std::array<QPointF,3> vertices;
+    std::array<int,3> neighbors{{-1,-1,-1}};
+    FlowStreakField field;
+};
+// Overview queries borrow the displayed frame on its owning thread. They are
+// advanced in short slices, and must validate that frame before each slice.
+struct FlowStreakSampler {
+    struct Stats { int candidateTests=0; bool limited=false; };
+    std::shared_ptr<Stats> stats;
+    std::function<bool(QPointF &,FlowStreakSample &)> locate;
+    std::function<bool(int,FlowStreakSample &)> cell;
+    std::function<bool()> valid;
+};
+
 struct FlowStreakInput {
     std::shared_ptr<FlowStreakMesh> mesh;
+    FlowStreakSampler sampler;
     std::vector<int> triangles; // ascending mesh-local ids, coverage + halo
     std::vector<FlowStreakField> fields;
     QRectF coverage;
@@ -60,8 +78,28 @@ struct FlowStreakPath {
 };
 struct FlowStreakBatch {
     std::vector<FlowStreakPath> paths;
+    int seedAttempts = 0, cellVisits = 0, candidateTests = 0;
+    bool limited = false;
     size_t bytes() const;
     int pointCount() const;
+};
+
+// Both the immutable regional worker and the cooperative native overview use
+// the same edge-by-edge integration. No coarse vector can bridge a dry gap.
+class FlowStreakTracer {
+public:
+    FlowStreakTracer(const FlowStreakInput &, FlowStreakSampler);
+    bool advance(); // at most one seed and 128 native steps; true when complete
+    FlowStreakBatch take() {
+        if(sampler.stats) {out.candidateTests=sampler.stats->candidateTests;out.limited|=sampler.stats->limited;}
+        return std::move(out);
+    }
+private:
+    FlowStreakInput settings;
+    FlowStreakSampler sampler;
+    FlowStreakBatch out;
+    double spacing=0, sx=0, sy=0;
+    int cols=0, rows=0, seed=0, stride=1, points=0;
 };
 
 FlowStreakBatch buildFlowStreakPaths(const FlowStreakInput &input,

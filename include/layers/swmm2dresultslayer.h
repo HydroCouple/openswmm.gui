@@ -1387,6 +1387,9 @@ private:
         double scale;
     };
     std::vector<FlowFrameKey> m_flowFrameKeys;
+    OpenSWMM::Render::FlowStreakField flowField_(int triangle) const;
+    bool flowSample_(int triangle, OpenSWMM::Render::FlowStreakSample &) const;
+    OpenSWMM::Render::FlowStreakSampler flowSampler_(double cutoff, double spacing);
 
 
     // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded

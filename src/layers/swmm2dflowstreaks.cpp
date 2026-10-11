@@ -110,10 +110,19 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
         FlowStreakInput in;in.coverage=m_flowCoverage;in.seedBudgetArea=m_flowSeedArea;
         in.spacing=style->spacingPx()/bucket;in.maxLength=style->pathLengthPx()/bucket;
         in.step=6./bucket;in.cutoff=style->dryDepthCutoff();
-        if(!m_flowMesh || !m_flowMesh->coverage.contains(m_flowCoverage)) {
-            auto mesh=FlowStreakMesh::captureRegion(m_sceneVerts,tris_,m_triGrid,m_flowCoverage);
-            if(!mesh) return in;
+        if(!m_flowMesh || !m_flowMesh->coverage.contains(m_flowCoverage)
+           || (m_flowMesh->triangles.empty() && m_flowMesh->coverage!=m_flowCoverage)) {
+            auto mesh=qEnvironmentVariableIsSet("OPENSWMM_FLOW_OVERVIEW")?nullptr
+                :FlowStreakMesh::captureRegion(m_sceneVerts,tris_,m_triGrid,m_flowCoverage);
+            if(!mesh) {
+                // Remember the bounded region-query miss. Hydraulic updates
+                // reuse native overview sampling without enumerating it again.
+                mesh=std::make_shared<FlowStreakMesh>();mesh->coverage=m_flowCoverage;
+            }
             m_flowMesh=std::move(mesh);
+        }
+        if(m_flowMesh->triangles.empty()) {
+            in.sampler=flowSampler_(in.cutoff,in.spacing);return in;
         }
         const auto &ids=m_flowMesh->sourceTriangles;
         // Dry/stagnant cells cannot seed or carry a path. Keep their topology
@@ -133,39 +142,108 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
             if(flowing(ids[size_t(local)])) in.triangles.push_back(local);
         in.fields.reserve(in.triangles.size());
         for(int local:in.triangles) {
-            const int i=ids[size_t(local)];
-            const auto &t=m_sceneTris[i];const auto &vi=tris_[size_t(i)];
-            FlowStreakField f;f.depth={t.dv0,t.dv1,t.dv2};f.speed=t.vmag;
-            // Map an SI displacement through the same affine triangle map
-            // used by the displayed mesh (including feet, CRS and Y inversion).
-            const QPointF a(vx_[vi[0]],vy_[vi[0]]),b(vx_[vi[1]],vy_[vi[1]]),c(vx_[vi[2]],vy_[vi[2]]);
-            const QPointF ab=b-a,ac=c-a,v(t.vx,-t.vy);
-            const double det=ab.x()*ac.y()-ab.y()*ac.x();
-            if(std::isfinite(det) && std::abs(det)>1e-20) {
-                const double u=(v.x()*ac.y()-v.y()*ac.x())/det;
-                const double w=(ab.x()*v.y()-ab.y()*v.x())/det;
-                const QPointF sv=(t.b-t.a)*u+(t.c-t.a)*w;
-                f.vx=float(sv.x());f.vy=float(sv.y());
-            }
-            const int cell=triCell_[size_t(i)];const auto &cv=cells_[size_t(cell)];
-            const int nv=cv[3]>=0?4:3;
-            for(int e=0;e<3;++e) {
-                const int aId=vi[(e+1)%3],bId=vi[(e+2)%3];int slot=-1;
-                for(int k=0;k<nv;++k) {
-                    const int u=cv[(k+1)%nv],vId=cv[(k+2)%nv];
-                    if((u==aId && vId==bId)||(u==bId && vId==aId)) {slot=mesh::edgeSlot(cell,k);break;}
-                }
-                // A quad's display diagonal has no hydraulic boundary. A
-                // physical edge only permits outward-positive reported flow.
-                if(slot<0 || (size_t(slot)<current_flux_.size()
-                   && std::isfinite(current_flux_[size_t(slot)]) && current_flux_[size_t(slot)]>0))
-                    f.exits|=1<<e;
-            }
-            in.fields.push_back(f);
+            in.fields.push_back(flowField_(ids[size_t(local)]));
         }
         return in;
     });
     return m_flowCache->lookup(m_flowKey);
+}
+
+FlowStreakField SWMM2DResultsLayer::flowField_(int i) const
+{
+    const auto &t=m_sceneTris[i];const auto &vi=tris_[size_t(i)];
+    FlowStreakField f;f.depth={t.dv0,t.dv1,t.dv2};f.speed=t.vmag;
+    // Map an SI displacement through the same affine triangle map
+    // used by the displayed mesh (including feet, CRS and Y inversion).
+    const QPointF a(vx_[vi[0]],vy_[vi[0]]),b(vx_[vi[1]],vy_[vi[1]]),c(vx_[vi[2]],vy_[vi[2]]);
+    const QPointF ab=b-a,ac=c-a,v(t.vx,-t.vy);
+    const double det=ab.x()*ac.y()-ab.y()*ac.x();
+    if(std::isfinite(det) && std::abs(det)>1e-20) {
+        const double u=(v.x()*ac.y()-v.y()*ac.x())/det;
+        const double w=(ab.x()*v.y()-ab.y()*v.x())/det;
+        const QPointF sv=(t.b-t.a)*u+(t.c-t.a)*w;
+        f.vx=float(sv.x());f.vy=float(sv.y());
+    }
+    const int cell=triCell_[size_t(i)];const auto &cv=cells_[size_t(cell)];
+    const int nv=cv[3]>=0?4:3;
+    for(int e=0;e<3;++e) {
+        const int aId=vi[(e+1)%3],bId=vi[(e+2)%3];int slot=-1;
+        for(int k=0;k<nv;++k) {
+            const int u=cv[(k+1)%nv],vId=cv[(k+2)%nv];
+            if((u==aId && vId==bId)||(u==bId && vId==aId)) {slot=mesh::edgeSlot(cell,k);break;}
+        }
+        // A quad's display diagonal has no hydraulic boundary. A
+        // physical edge only permits outward-positive reported flow.
+        if(slot<0 || (size_t(slot)<current_flux_.size()
+           && std::isfinite(current_flux_[size_t(slot)]) && current_flux_[size_t(slot)]>0))
+            f.exits|=1<<e;
+    }
+    return f;
+}
+
+bool SWMM2DResultsLayer::flowSample_(int i,FlowStreakSample &s) const
+{
+    if(i<0 || i>=m_sceneTris.size()) return false;
+    s.id=i;s.field=flowField_(i);s.neighbors={-1,-1,-1};
+    const auto &tri=tris_[size_t(i)];
+    for(int k=0;k<3;++k)s.vertices[k]=m_sceneVerts[tri[k]];
+    const int cell=triCell_[size_t(i)];const auto &cv=cells_[size_t(cell)];
+    const int nv=cv[3]>=0?4:3;
+    // Use the already validated global topology. Cropping/sampling must never
+    // manufacture a manifold edge by missing a third (possibly dry) face.
+    if(surfaceNeighbors_.size()!=cells_.size()) return true;
+    for(int e=0;e<3;++e) {
+        const int a=tri[(e+1)%3],b=tri[(e+2)%3];int other=cell;
+        for(int k=0;k<nv;++k) if((cv[k]==a && cv[(k+1)%nv]==b) || (cv[k]==b && cv[(k+1)%nv]==a)) {
+            other=surfaceNeighbors_[size_t(cell)][k];break;
+        }
+        if(other<0) continue;
+        for(int t=cellTri0_[size_t(other)];t<cellTri0_[size_t(other)+1];++t) if(t!=i) {
+            const auto &v=tris_[size_t(t)];
+            if(std::find(v.begin(),v.end(),a)!=v.end() && std::find(v.begin(),v.end(),b)!=v.end()) {
+                s.neighbors[e]=t;break;
+            }
+        }
+    }
+    return true;
+}
+
+FlowStreakSampler SWMM2DResultsLayer::flowSampler_(double cutoff,double spacing)
+{
+    FlowStreakSampler sampler;sampler.stats=std::make_shared<FlowStreakSampler::Stats>();
+    const auto revision=frame_revision_,geometry=geomRevision();const auto key=m_flowKey;
+    sampler.valid=[this,revision,geometry,key] {
+        return frame_revision_==revision && geomRevision()==geometry && m_flowKey==key && flowStreaksEnabled();
+    };
+    sampler.cell=[this](int i,FlowStreakSample &s) {return flowSample_(i,s);};
+    sampler.locate=[this,cutoff,spacing,stats=sampler.stats](QPointF &p,FlowStreakSample &s) {
+        const int *begin=nullptr,*end=nullptr;m_triGrid.candidatesAtPoint(p.x(),p.y(),begin,end);
+        // Never scan a pathological index bucket or the full domain. An
+        // ambiguous/exhausted seed is omitted; native tracing never jumps it.
+        constexpr int perSeed=8192,total=2000000;
+        if(!begin || end-begin>perSeed || stats->candidateTests>=total) {stats->limited=true;return false;}
+        int nearby=-1;QPointF nearbyPoint;double best=spacing*spacing*.25;
+        for(const int *it=begin;it!=end;++it) {
+            if(stats->candidateTests>=total) {stats->limited=true;return false;}
+            ++stats->candidateTests;
+            const auto &t=m_sceneTris[*it];
+            if(!std::isfinite(t.vmag) || t.vmag<=1e-8 || !std::isfinite(t.dv0)
+               || !std::isfinite(t.dv1) || !std::isfinite(t.dv2)) continue;
+            const QPointF ab=t.b-t.a,ac=t.c-t.a,ap=p-t.a;
+            const double det=ab.x()*ac.y()-ab.y()*ac.x();if(std::abs(det)<1e-20) continue;
+            const double v=(ap.x()*ac.y()-ap.y()*ac.x())/det,w=(ab.x()*ap.y()-ab.y()*ap.x())/det;
+            if(v>=-1e-9 && w>=-1e-9 && 1-v-w>=-1e-9 && (1-v-w)*t.dv0+v*t.dv1+w*t.dv2>cutoff)
+                return flowSample_(*it,s);
+            // Native refinement for a narrow wet channel missed by a seed:
+            // relocate to an actual wet triangle, never an averaged vector.
+            if((double(t.dv0)+t.dv1+t.dv2)/3<=cutoff) continue;
+            const QPointF center=(t.a+t.b+t.c)/3.,d=center-p;const double d2=d.x()*d.x()+d.y()*d.y();
+            if(d2<best) {nearby=*it;nearbyPoint=center;best=d2;}
+        }
+        if(nearby<0) return false;
+        p=nearbyPoint;return flowSample_(nearby,s);
+    };
+    return sampler;
 }
 
 void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
