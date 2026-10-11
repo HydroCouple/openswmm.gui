@@ -64,6 +64,7 @@
 #ifndef OPENSWMMVIS_IO_MESH2DH5READER_H
 #define OPENSWMMVIS_IO_MESH2DH5READER_H
 
+#include "io/mesh2dhydraulicframe.h"
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -206,6 +207,14 @@ public:
      * \returns true on success.
      */
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) const;
+
+    // Sorted unique native IDs, bounded by Mesh2DHydraulicFrame::maxCells.
+    // Output is compact and cleared on failure. Optional flux stays empty if absent.
+    bool readHydraulicCellsAt(int timeIdx, const std::vector<int>& cells,
+        std::vector<float>& depths, std::vector<float>& flux,
+        Mesh2DSubsetReadStats* stats = nullptr) const;
+    bool readDepthAt(int timeIdx, int cell, float& depth) const;
+
 
     /*!
      * \brief Read one time slice of any per-face \c [nTime, nFace] dataset

@@ -204,6 +204,7 @@ private:
     bool m_contourBusy = false; // includes a queued finished signal
     std::shared_ptr<const std::vector<OpenSWMM::Render::ContourJobInput::TriPos>>
         m_contourPositions;
+    std::vector<int> m_contourTriangles;
 
     // ── Isoline-label texture cache ────────────────────────────────────
     // Keyed by "text|fontPt|halo|color" so style edits re-rasterise.

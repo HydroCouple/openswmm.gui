@@ -18,6 +18,20 @@ bool SWMM2DResultsLayer::flowStreaksEnabled() const
 
 bool SWMM2DResultsLayer::prepareFlowStreaksForCapture(const QRectF &view,double scale)
 {
+    setHydraulicView(view,scale);
+    // Settle the requested surface without dispatching hydraulic ticks or other
+    // application events. The queued duplicate completion is safely ignored.
+    const auto displayPending=[&] {
+        return pending_surface_ || (active_surface_ && !active_surface_->forEnvelope);
+    };
+    for(int attempt=0;attempt<3 && displayPending();++attempt) {
+        if(pending_surface_) pending_surface_->live=false;
+        scheduleFit_();
+        if(const auto job=active_surface_) {
+            surface_future_.waitForFinished();onSurfaceFinished_(job);
+        }
+    }
+    if(displayPending()) return false;
     if(!flowStreaksEnabled() || !view.intersects(m_sceneBBox)) return true;
     // A cancelled source/CRS job must release its mesh before a replacement
     // can be captured. No application events are dispatched while waiting.
@@ -78,9 +92,10 @@ std::shared_ptr<const FlowStreakBatch> SWMM2DResultsLayer::flowStreaks(
         m_flowSeedArea=(view.width()+2*pad)*(view.height()+2*pad);
         m_flowCoverage=view.adjusted(-pad,-pad,pad,pad).intersected(m_sceneBBox);
     }
-    const auto key=surfaceKey_(current_time_idx_);
+    const auto key=published_key_.frame>=0?published_key_:surfaceKey_(current_time_idx_);
     QJsonObject json=style->pathSettings();
     json["source"]=QString::number(key.sourceRev);json["geometry"]=QString::number(key.geomRev);
+    json["region"]=QString::number(key.regionRev);
     json["policy"]=QString::number(key.policyRev);json["generation"]=key.generation;
     json["frame"]=key.frame;json["tick"]=key.tickRev;json["scale"]=bucket;
     json["x"]=m_flowCoverage.x();json["y"]=m_flowCoverage.y();

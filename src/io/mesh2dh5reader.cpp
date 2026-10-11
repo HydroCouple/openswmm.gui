@@ -401,6 +401,87 @@ bool readCellSlice(hid_t file, const char* name, int cells, int rank,
     return true;
 }
 
+// One batched point selection avoids a full row and avoids quadratic unions
+// of thousands of disjoint hyperslabs for spatially scattered cell numbering.
+bool readHydraulicSubset(hid_t file, const char* name, int time, int cellCount,
+    const std::vector<int>& ids, bool edge, std::vector<float>& out,
+    Mesh2DSubsetReadStats* stats, QString& error)
+{
+    hid_t ds = -1;
+    H5E_BEGIN_TRY { ds = H5Dopen2(file, name, H5P_DEFAULT); } H5E_END_TRY;
+    DataSetGuard data(ds);
+    auto fail = [&] { out.clear(); error = QStringLiteral("Cannot read regional %1").arg(name); return false; };
+    if (ds < 0) return fail();
+    std::vector<hsize_t> dims;
+    const int rank = edge ? 3 : 2;
+    if (!datasetShape(ds, dims) || int(dims.size()) != rank
+        || dims[1] != hsize_t(cellCount) || time < 0 || hsize_t(time) >= dims[0]
+        || (edge && dims[2] != 3 && dims[2] != 4)) return fail();
+    const size_t width = edge ? size_t(dims[2]) : 1;
+    out.assign(ids.size()*(edge ? 4 : 1), 0);
+    if (ids.empty()) return true;
+    std::vector<hsize_t> coordinates;
+    coordinates.reserve(ids.size()*width*size_t(rank));
+    for (int cell : ids) for (size_t e = 0; e < width; ++e) {
+        coordinates.push_back(hsize_t(time)); coordinates.push_back(hsize_t(cell));
+        if (edge) coordinates.push_back(hsize_t(e));
+    }
+    DataSpaceGuard fileSpace(H5Dget_space(ds));
+    const hsize_t count = ids.size()*width;
+    DataSpaceGuard memory(H5Screate_simple(1, &count, nullptr));
+    std::vector<double> raw(size_t(count), 0);
+    if (fileSpace.id < 0 || memory.id < 0
+        || H5Sselect_elements(fileSpace.id,H5S_SELECT_SET,size_t(count),coordinates.data()) < 0
+        || H5Dread(ds,H5T_NATIVE_DOUBLE,memory.id,fileSpace.id,H5P_DEFAULT,raw.data()) < 0) return fail();
+    double fill=0,missing=0,scale=1,add=0;
+    const bool hasFill=readDoubleAttr(ds,"_FillValue",fill);
+    const bool hasMissing=readDoubleAttr(ds,"missing_value",missing);
+    const bool hasScale=readDoubleAttr(ds,"scale_factor",scale);
+    const bool hasOffset=readDoubleAttr(ds,"add_offset",add);
+    if ((H5Aexists(ds,"_FillValue")>0 && !hasFill)
+        || (H5Aexists(ds,"missing_value")>0 && !hasMissing)
+        || (H5Aexists(ds,"scale_factor")>0 && !hasScale)
+        || (H5Aexists(ds,"add_offset")>0 && !hasOffset)
+        || !std::isfinite(scale) || !std::isfinite(add)) return fail();
+    const float nan=std::numeric_limits<float>::quiet_NaN();
+    for (size_t c=0;c<ids.size();++c) for(size_t e=0;e<width;++e) {
+        const double v=raw[c*width+e],decoded=v*scale+add;
+        out[c*(edge?4:1)+e]=!std::isfinite(v) || !std::isfinite(decoded)
+            || std::abs(decoded)>std::numeric_limits<float>::max()
+            || (hasFill && v==fill) || (hasMissing && v==missing) ? nan : float(decoded);
+    }
+    if(stats) stats->selectedValues+=size_t(count);
+    PropertyGuard properties(H5Dget_create_plist(ds));
+    if(properties.id>=0 && H5Pget_layout(properties.id)==H5D_CHUNKED) {
+        std::vector<hsize_t> chunks(size_t(rank),0);
+        if(H5Pget_chunk(properties.id,rank,chunks.data())!=rank
+            || std::find(chunks.begin(),chunks.end(),0)!=chunks.end()) return fail();
+        DataTypeGuard type(H5Dget_type(ds));
+        size_t chunkBytes=H5Tget_size(type.id);
+        for(auto dim:chunks) chunkBytes*=size_t(dim);
+        hsize_t lastCellChunk=hsize_t(-1);
+        std::vector<bool> allocated(width,true);
+        for(size_t c=0;c<ids.size();++c) {
+            const hsize_t cellChunk=hsize_t(ids[c])/chunks[1]*chunks[1];
+            if(cellChunk!=lastCellChunk) {
+                lastCellChunk=cellChunk;
+                for(size_t e=0;e<width;) {
+                    hsize_t coord[3]={hsize_t(time)/chunks[0]*chunks[0],cellChunk,edge?hsize_t(e)/chunks[2]*chunks[2]:0};
+                    unsigned mask=0;haddr_t address=HADDR_UNDEF;hsize_t bytes=0;
+                    if(H5Dget_chunk_info_by_coord(ds,coord,&mask,&address,&bytes)<0) return fail();
+                    const size_t end=edge?std::min(width,e+size_t(chunks[2])):1;
+                    const bool reported=address!=HADDR_UNDEF && bytes>0;
+                    for(size_t k=e;k<end;++k) allocated[k]=reported;
+                    if(stats && reported) {++stats->touchedChunks;stats->touchedChunkBytes+=chunkBytes;}
+                    e=end;
+                }
+            }
+            for(size_t e=0;e<width;++e) if(!allocated[e]) out[c*(edge?4:1)+e]=nan;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -808,6 +889,35 @@ bool Mesh2DH5Reader::readDepthsAt(int timeIdx, std::vector<float>& depths) const
 {
     const Hdf5Lock lock(hdf5Mutex());
     return readFaceFieldAt("Mesh2_face_depth", timeIdx, depths);
+}
+
+bool Mesh2DH5Reader::readHydraulicCellsAt(int time, const std::vector<int>& cells,
+    std::vector<float>& depths, std::vector<float>& flux, Mesh2DSubsetReadStats* stats) const
+{
+    const Hdf5Lock lock(hdf5Mutex());
+    depths.clear();flux.clear();if(stats)*stats={};
+    if(file_id_<0 || time<0 || time>=timeCount()
+        || !validHydraulicCells(cells,triangleCount()))
+        return setError_(QStringLiteral("Invalid regional hydraulic selection"));
+    QString error;
+    if(!readHydraulicSubset(hid_t(file_id_),"Mesh2_face_depth",time,triangleCount(),cells,false,depths,stats,error))
+        return setError_(error);
+    if(H5Lexists(hid_t(file_id_),"Mesh2_edge_flux",H5P_DEFAULT)>0
+        && !readHydraulicSubset(hid_t(file_id_),"Mesh2_edge_flux",time,triangleCount(),cells,true,flux,stats,error)) {
+        depths.clear();flux.clear();return setError_(error);
+    }
+    return true;
+}
+
+bool Mesh2DH5Reader::readDepthAt(int time, int cell, float& depth) const
+{
+    const Hdf5Lock lock(hdf5Mutex());
+    depth=std::numeric_limits<float>::quiet_NaN();
+    if(file_id_<0 || time<0 || time>=timeCount() || cell<0 || cell>=triangleCount()) return false;
+    std::vector<float> values;QString error;
+    if(!readHydraulicSubset(hid_t(file_id_),"Mesh2_face_depth",time,triangleCount(),{cell},false,values,nullptr,error))
+        return setError_(error);
+    depth=values[0];return true;
 }
 
 QVector<Mesh2DResultVariable> Mesh2DH5Reader::faceVariables(QStringList* warnings) const

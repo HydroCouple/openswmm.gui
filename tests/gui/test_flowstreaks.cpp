@@ -72,7 +72,21 @@ public:
 class GridFlowSource : public FlowSource {
 public:
     GridFlowSource(int cols=400,int rows=400):cols(cols),rows(rows) {live=true;}
-    int cols,rows;
+    int cols,rows,regionalReads=0;
+    bool supportsHydraulicCells() const override {return true;}
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+    readHydraulicCellsAt(int t,const std::vector<int>& ids) override {
+        if(!openswmmvis::io::validHydraulicCells(ids,triangleCount())) return {};
+        ++regionalReads;
+        auto out=std::make_shared<openswmmvis::io::Mesh2DHydraulicFrame>();
+        out->time=t;out->revision=revision;out->cells=ids;
+        const float signs[8]={1,-1,0,0,0,-1,1,0};
+        for(int c:ids) {
+            const float d=depths.at(size_t(t));out->depths.push_back(d);
+            for(int e=0;e<4;++e)out->flux.push_back(signs[(4*c+e)%8]*d*speed*((c/2)%cols>=cols/2?2:1));
+        }
+        return out;
+    }
     int vertexCount() const override {return (cols+1)*(rows+1);}
     int triangleCount() const override {return cols*rows*2;}
     bool readMeshGeometry(std::vector<double>&x,std::vector<double>&y,std::vector<double>&z,
@@ -260,6 +274,102 @@ private slots:
         for(const auto &p:get(a)->paths)for(const auto &v:p.points)QVERIFY(std::abs(v.speed-2)<1e-5);
         raw->markFinished();QVERIFY(!raw->isLive());QVERIFY(get(a));
     }
+    void compactLiveHydraulicSnapshots()
+    {
+        FlowSource fixture;std::vector<double>x,y,z;std::vector<std::array<int,3>>tri;
+        fixture.readMeshGeometry(x,y,z,tri);EngineMesh2DSource live(x,y,z,tri);
+        std::vector<float> flux;fixture.readEdgeFluxAt(0,flux);
+        live.pushDepths({.25f,.5f},fixture.simTimeAt(0),0);live.pushFlux(flux,fixture.simTimeAt(0),0);
+        const auto first=live.readHydraulicCellsAt(0,{1});QVERIFY(first);
+        QCOMPARE(first->depths,std::vector<float>{.5f});QCOMPARE(first->flux,std::vector<float>(flux.begin()+4,flux.end()));
+        fixture.speed=-2;fixture.readEdgeFluxAt(0,flux);live.pushFlux(flux,fixture.simTimeAt(0),0);
+        const auto next=live.readHydraulicCellsAt(0,{1});QVERIFY(next);QVERIFY(first->revision!=next->revision);
+        QCOMPARE(first->depths,std::vector<float>{.5f});QCOMPARE(next->depths,std::vector<float>{.5f});
+        QCOMPARE(next->flux,std::vector<float>(flux.begin()+4,flux.end()));
+        QVERIFY(!live.readHydraulicCellsAt(0,{1,0}));QVERIFY(!live.readHydraulicCellsAt(0,{0,0}));
+        QVERIFY(!live.readHydraulicCellsAt(0,{2}));QVERIFY(!live.readHydraulicCellsAt(1,{0}));
+        QCOMPARE(first->bytes(),size_t(24));
+    }
+
+    void regionalSurfacePreservesAnalysisAndPan()
+    {
+        auto source=std::make_unique<GridFlowSource>();auto* raw=source.get();
+        SWMM2DResultsLayer layer;layer.setSource(std::move(source));layer.setAsyncSurface(true);
+        layer.setLiveMinFitIntervalMs(0);
+        const QRectF a(295,-205,10,10),b(95,-205,10,10);
+        const auto reference=layer.m_sceneTris;
+        layer.setHydraulicView(a,8);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        QVERIFY(layer.regionalHydraulicsPublished());QVERIFY(layer.hydraulicRegionCellCount()<50000);
+        const int reads=raw->reads;
+        for(int i:layer.m_triGrid.query(a)) {
+            const auto& t=layer.m_sceneTris[i];const auto& expected=reference[i];
+            QVERIFY(std::abs(t.dv0-expected.dv0)<1e-5);QVERIFY(std::abs(t.dv1-expected.dv1)<1e-5);
+            QVERIFY(std::abs(t.dv2-expected.dv2)<1e-5);QCOMPARE(t.vmag,expected.vmag);
+        }
+        layer.setHydraulicView(b,8);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        QCOMPARE(raw->reads,reads);QVERIFY(layer.regionalHydraulicsPublished());
+        const auto velocity=layer.captureVelocityField();QVERIFY(velocity.depths.size()<50000);
+        float vx=0,vy=0;QVERIFY(layer.velocityAtScene(b.center(),vx,vy,velocity));QVERIFY(std::abs(vx-2)<1e-5);
+        const auto oldRevision=layer.frameRevision();raw->depths[0]=.4f;raw->speed=-3;++raw->revision;
+        layer.refreshCurrentFrame();QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()>oldRevision,10000);
+        QCOMPARE(raw->reads,reads);QVERIFY(raw->regionalReads>=3);
+        // Replace pending work repeatedly while one fit is active. Only a
+        // coherent latest revision may become the final displayed region.
+        for(int tick=0;tick<8;++tick) {++raw->revision;raw->speed=-3-float(tick);layer.refreshCurrentFrame();}
+        QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        QCOMPARE(raw->reads,reads);
+        for(int i:layer.m_triGrid.query(b)) {QCOMPARE(layer.m_sceneTris[i].depth,.4f);QVERIFY(layer.m_sceneTris[i].vx<0);}
+        // Analysis outside the display region still reconstructs the full field.
+        QVERIFY(std::abs(layer.depthAtSceneInterp(a.center())-.4)<1e-5);
+        QVERIFY(raw->reads>reads);const int analysisReads=raw->reads;
+        QVERIFY(std::abs(layer.depthAtSceneInterp(a.center())-.4)<1e-5);QCOMPARE(raw->reads,analysisReads);
+        layer.setHydraulicView(a,8);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        QCOMPARE(raw->reads,analysisReads);
+        layer.setHydraulicView(layer.m_sceneBBox,1);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        QVERIFY(!layer.regionalHydraulicsPublished());QCOMPARE(layer.m_sceneTris[0].depth,.4f);
+        layer.setHydraulicView(a,8);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        layer.onCanvasCRSChanged(nullptr);
+        QVERIFY(!layer.regionalHydraulicsPublished());QCOMPARE(layer.m_sceneTris[0].depth,.4f);
+        layer.closeSource();layer.setSource(std::make_unique<FlowSource>());
+        QVERIFY(!layer.regionalHydraulicsPublished());
+    }
+
+    void regionalSavedSurfaceError()
+    {
+        const QString path=qEnvironmentVariable("FLOW_STREAK_RESULT");
+        if(path.isEmpty()) QSKIP("Set FLOW_STREAK_RESULT for saved regional/full reconstruction comparison");
+        qputenv("OPENSWMM_REGIONAL_SURFACE","1");
+        auto file=std::make_unique<HDF5Mesh2DSource>();QVERIFY(file->open(path));
+        SWMM2DResultsLayer layer;layer.setSource(std::move(file));
+        const auto full=layer.m_sceneTris;
+        int center=-1;for(int i=0;i<full.size();++i) if(full[i].depth>.1 && full[i].vmag>.1) {center=i;break;}
+        QVERIFY(center>=0);
+        const QRectF view(full[center].centroid-QPointF(15,15),QSizeF(30,30));
+        layer.setHydraulicView(view,8);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        // This complex wet neighborhood fails the regional error gate. Keep
+        // the full-domain surface rather than accepting a faster inaccurate fit.
+        QVERIFY(!layer.regionalHydraulicsPublished());
+        QCOMPARE(layer.regionalSurfaceFallbackCount(),1);
+        QVERIFY(layer.regionalSurfaceError()>.002);
+        double maxError=0,rms=0;int count=0,maskChanges=0;
+        for(int i:layer.m_triGrid.query(view)) {
+            const auto& a=full[i];const auto& b=layer.m_sceneTris[i];
+            const float before[]={a.dv0,a.dv1,a.dv2},after[]={b.dv0,b.dv1,b.dv2};
+            for(int k=0;k<3;++k) {
+                if(std::isfinite(before[k])!=std::isfinite(after[k])) {++maskChanges;continue;}
+                if(!std::isfinite(before[k])) continue;
+                const double error=std::abs(before[k]-after[k]);maxError=std::max(maxError,error);rms+=error*error;++count;
+            }
+        }
+        qInfo()<<"Regional saved surface fallback; rejected error"<<layer.regionalSurfaceError()<<"corners"<<count
+               <<"max error m"<<maxError<<"RMS m"<<std::sqrt(rms/std::max(1,count))<<"mask changes"<<maskChanges;
+        QVERIFY(count>0);QCOMPARE(maskChanges,0);QVERIFY(maxError<.002);
+        // Scientific profile query must return the full fit, not the approximation.
+        const auto& t=full[center];const double expected=(double(t.dv0)+t.dv1+t.dv2)/3;
+        QVERIFY(std::abs(layer.signedDepthAtDisplayTriangle(center,t.centroid)-expected)<1e-6);
+        qunsetenv("OPENSWMM_REGIONAL_SURFACE");
+    }
+
     void regionalLiveCaptureAfterOverviewLimit() {
         // Opt in to the same production-layer test with six million cells.
         // Normal CI uses 320k, enough to exercise the regional limit/recovery.
@@ -277,16 +387,19 @@ private slots:
         const QRectF view(raw->cols*.75,-raw->rows*.5,20,20);
         clock.restart();QVERIFY(layer.prepareFlowStreaksForCapture(view,8));
         const double prepareMs=clock.nsecsElapsed()/1e6;
+        QVERIFY(layer.regionalHydraulicsPublished());
+        const int fullReads=raw->reads;
         auto get=[&]{return layer.flowStreaks(view,8,layer.frameRevision());};
         auto first=get();QVERIFY(first && !first->paths.empty());
         for(const auto &p:first->paths)for(const auto &pt:p.points)QVERIFY(std::abs(pt.speed-4)<1e-5);
-        const int builds=layer.flowStreakBuildCount(),reads=raw->reads;
+        const int builds=layer.flowStreakBuildCount(),reads=raw->reads,subsetReads=raw->regionalReads;
         for(int i=0;i<100;++i){layer.advanceFlowStreaks(.033);QCOMPARE(get(),first);}
-        QCOMPARE(layer.flowStreakBuildCount(),builds);QCOMPARE(raw->reads,reads);
+        QCOMPARE(layer.flowStreakBuildCount(),builds);QCOMPARE(raw->reads,reads);QCOMPARE(raw->regionalReads,subsetReads);
         const auto revision=layer.frameRevision();raw->speed=-2;++raw->revision;
         clock.restart();layer.refreshCurrentFrame();
         QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()!=revision,30000);
         const double updateMs=clock.nsecsElapsed()/1e6;
+        QCOMPARE(raw->reads,fullReads);
         QVERIFY(layer.prepareFlowStreaksForCapture(view,8));QVERIFY(get()!=first);
         for(const auto &p:get()->paths)QVERIFY(p.points.back().position.x()<p.points.front().position.x());
         auto clippedPaint=[&](QRectF exposed) {
@@ -333,7 +446,7 @@ private slots:
             QFile file("workplans/artifacts/flow_streaks/regional-layer-6m.json");QVERIFY(file.open(QIODevice::WriteOnly));
             file.write(QJsonDocument(QJsonObject{{"nativeCells",cells},{"displayTriangles",layer.m_sceneTris.size()},
                 {"loadAndSurfaceMs",loadMs},{"overviewRejectionMs",rejectMs},{"coldRegionalPreparationMs",prepareMs},
-                {"liveFieldAndSurfaceUpdateMs",updateMs},{"phaseTicks",100},{"phasePathRebuilds",0},
+                {"liveFieldAndSurfaceUpdateMs",updateMs},{"regionalHydraulicCells",double(layer.hydraulicRegionCellCount())},{"phaseTicks",100},{"phasePathRebuilds",0},
                 {"paths",int(first->paths.size())},{"points",first->pointCount()},{"presentation",presentation}}).toJson());
         }
     }
@@ -369,6 +482,16 @@ private slots:
         layer.advanceFlowStreaks(.1);QVERIFY(draw()!=first);
         layer.flowStreakSublayer()->setVisible(false);QCOMPARE(draw(),empty);
     }
+    void captureDoesNotDrainAnalysisEnvelope() {
+        auto source=std::make_unique<FlowSource>();source->depths.assign(20,.25f);
+        SWMM2DResultsLayer layer;layer.setAsyncSurface(true);layer.setSource(std::move(source));
+        layer.flowStreakSublayer()->setVisible(true);layer.requestEnvelope();
+        QVERIFY(layer.surfaceBusy());const int fits=layer.surfaceFitCount();
+        QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,8));
+        QCOMPARE(layer.surfaceFitCount(),fits);
+        QVERIFY(layer.flowStreaks(layer.m_sceneBBox,8,layer.frameRevision()));
+    }
+
     void capturePreparesColdPathsAtNewScale() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
         layer.flowStreakSublayer()->setVisible(true);

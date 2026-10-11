@@ -274,7 +274,9 @@ public:
         const auto& tris = layer_->m_sceneTris;
         if (tris.isEmpty()) return;
 
-        const QRectF exposed  = option->exposedRect;
+        QRectF exposed = option->exposedRect;
+        if(p->hasClipping()) exposed=exposed.intersected(p->clipBoundingRect());
+        layer_->setHydraulicView(exposed,std::hypot(p->worldTransform().m11(),p->worldTransform().m12()));
         // Cell visibility is resolved before smoothing. Visible partial cells
         // reach their true zero-depth shoreline, independently of palette limits.
         const double dryDepth = 0.0;
@@ -1464,6 +1466,28 @@ QDateTime EngineMesh2DSource::simTimeAt(int i) const
     return history_[i].sim_time;
 }
 
+
+std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+EngineMesh2DSource::readHydraulicCellsAt(int time, const std::vector<int>& ids)
+{
+    using namespace openswmmvis::io;
+    if (time < 0 || time >= int(history_.size())
+        || !validHydraulicCells(ids, int(cells_.size()))) return {};
+    const auto& tick = history_[size_t(time)];
+    if (tick.depths.size() != cells_.size()) return {};
+    auto out = std::make_shared<Mesh2DHydraulicFrame>();
+    out->time = time; out->generation = generation_; out->revision = tick.revision;
+    out->cells = ids; out->depths.reserve(ids.size());
+    const bool flux = tick.flux.size() == cells_.size()*4;
+    if (flux) out->flux.reserve(ids.size()*4);
+    for (int cell : ids) {
+        out->depths.push_back(tick.depths[size_t(cell)]);
+        if (flux) out->flux.insert(out->flux.end(), tick.flux.begin()+4*size_t(cell),
+                                  tick.flux.begin()+4*size_t(cell)+4);
+    }
+    return out;
+}
+
 bool EngineMesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
 {
     const size_t n3 = size_t(mesh::edgeSlotCount(static_cast<int>(cells_.size())));
@@ -1561,6 +1585,22 @@ HDF5Mesh2DSource::coordinateReference() const
 bool HDF5Mesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
 {
     return reader_->readDepthsAt(timeIdx, depths);
+}
+
+
+bool HDF5Mesh2DSource::readDepthAt(int time, int cell, float& out)
+{
+    return reader_->readDepthAt(time, cell, out);
+}
+
+std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+HDF5Mesh2DSource::readHydraulicCellsAt(int time, const std::vector<int>& ids)
+{
+    auto out = std::make_shared<openswmmvis::io::Mesh2DHydraulicFrame>();
+    if (!reader_->readHydraulicCellsAt(time, ids, out->depths, out->flux)) return {};
+    out->time = time; out->generation = historyGeneration();
+    out->revision = frameContentRevision(time); out->cells = ids;
+    return out;
 }
 
 bool HDF5Mesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
@@ -1927,8 +1967,20 @@ void foldSurfaceMaximum(const std::vector<CellWaterGeometry::CornerDepths>& fiel
 }
 template<class Job> size_t surfaceJobBytes(const Job& job)
 {
-    return (job.depths.size() + job.flux.size()) * sizeof(float)
+    size_t bytes=(job.depths.size() + job.flux.size()) * sizeof(float)
          + (job.flow.size() + job.smooth.size()) * sizeof(CellWaterGeometry::CornerDepths);
+    // Charge shared region geometry per owner conservatively; the budget must
+    // also hold when a pan leaves older coverage alive in the frame cache.
+    if(job.region) bytes+=(job.region->cells.size()+job.region->vertices.size())*sizeof(int)
+        + job.region->splits.size()*sizeof(VertexDepthReconstruct::CellSplit)
+        + job.region->topology.edges.size()*sizeof(CellWaterGeometry::SmoothTopology::Edge);
+    bytes+=job.reference.size()*sizeof(CellWaterGeometry::CornerDepths);
+    if(job.region && job.region->checkRegion) {
+        const auto& check=*job.region->checkRegion;
+        bytes+=check.cells.size()*sizeof(int)+check.splits.size()*sizeof(VertexDepthReconstruct::CellSplit)
+            +check.topology.edges.size()*sizeof(CellWaterGeometry::SmoothTopology::Edge);
+    }
+    return bytes;
 }
 } // namespace
 
@@ -1938,6 +1990,7 @@ SWMM2DResultsLayer::SurfaceKey SWMM2DResultsLayer::surfaceKey_(int frame) const
     key.sourceRev = source_revision_;
     key.geomRev = m_geomRevision;
     key.policyRev = policy_revision_;
+    key.regionRev = surface_region_ ? surface_region_revision_ : 0;
     key.generation = source_ ? source_->historyGeneration() : 0;
     key.frame = frame;
     key.tickRev = source_ ? source_->frameContentRevision(frame) : 0;
@@ -2003,7 +2056,7 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
     requested_time_idx_ = t;
     const quint64 seq = ++request_seq_;
 
-    if (async_surface_ && !cells_.empty() && cellSplit_.size() == cells_.size()) {
+    if ((async_surface_ || surface_region_) && !cells_.empty() && cellSplit_.size() == cells_.size()) {
         const SurfaceKey key = surfaceKey_(t);
         requested_key_ = key;
         if (key == published_key_) {          // exactly this frame is on display
@@ -2016,11 +2069,12 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
         if (!ready) {
             auto job = std::make_shared<SurfaceJob>();
             job->key = key;
+            job->region = surface_region_;
             job->seq = seq;
             job->epoch = surface_epoch_;
             job->live = loading_live_;
             job->policy = waterVisibilityPolicy();
-            readSurfaceInputs_(t, job->depths, job->flux);
+            readSurfaceJob_(*job);
             // Nothing is displayed yet for this source and geometry: fit the
             // first frame here so the map never starts empty. Every later
             // frame is fitted by the worker.
@@ -2031,6 +2085,13 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
             }
             ++surface_fit_count_;
             fitSurface_(*job);
+            if(job->region) {
+                regional_error_=job->regionalError;
+                if(!job->acceptable) {
+                    ++regional_fallbacks_;surface_region_.reset();++surface_region_revision_;
+                    return loadFrame_(t);
+                }
+            }
             cacheSurface_(job);
             ready = std::move(job);
         }
@@ -2040,6 +2101,8 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
         return true;
     }
 
+    published_region_.reset();
+    analysis_surface_.reset();
     current_time_idx_ = t;
     readSurfaceInputs_(t, current_depths_, current_flux_);
 
@@ -2057,6 +2120,7 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
     applyCurrentFlux_();
     if (graphics_item_) graphics_item_->geometryChanged();
     if (arrows_item_)   arrows_item_->geometryChanged();
+    published_key_ = surfaceKey_(t);
     published_seq_ = seq;
     emit currentTimeChanged(t);
     emit currentDateTimeChanged(source_->simTimeAt(t));
@@ -2073,21 +2137,27 @@ void SWMM2DResultsLayer::publishSurface_(const SurfaceJob& job, quint64 seq)
 {
     const int t = job.key.frame;
     current_time_idx_ = t;
-    current_depths_ = job.depths;
-    current_flux_ = job.flux;
-    if (!max_depth_user_set_ && !current_depths_.empty()) {
-        const float peak = *std::max_element(current_depths_.begin(),
-                                              current_depths_.end());
-        if (std::isfinite(peak) && peak > max_depth_) max_depth_ = peak;
-    }
     ++frame_revision_;
-    cellSurfaces_.resize(cells_.size());
-    for (size_t c = 0; c < cells_.size(); ++c)
-        cellSurfaces_[c] = surfaceForDepth(int(c),current_depths_[c]);
-    cellFlowDepths_ = job.flow;
-    surfaceDepths_ = job.smooth;
-    fillSceneCorners_();
-    applyCurrentFlux_();
+    analysis_surface_.reset();
+    if(!job.flux.empty()) edge_flux_probe_=1;
+    if (job.region) publishRegionalSurface_(job);
+    else {
+        published_region_.reset();
+        current_depths_ = job.depths;
+        current_flux_ = job.flux;
+        if (!max_depth_user_set_ && !current_depths_.empty()) {
+            const float peak = *std::max_element(current_depths_.begin(),
+                                                  current_depths_.end());
+            if (std::isfinite(peak) && peak > max_depth_) max_depth_ = peak;
+        }
+        cellSurfaces_.resize(cells_.size());
+        for (size_t c = 0; c < cells_.size(); ++c)
+            cellSurfaces_[c] = surfaceForDepth(int(c),current_depths_[c]);
+        cellFlowDepths_ = job.flow;
+        surfaceDepths_ = job.smooth;
+        fillSceneCorners_();
+        applyCurrentFlux_();
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
     if (arrows_item_)   arrows_item_->geometryChanged();
     published_key_ = job.key;
@@ -2103,8 +2173,51 @@ void SWMM2DResultsLayer::publishSurface_(const SurfaceJob& job, quint64 seq)
 
 void SWMM2DResultsLayer::fitSurface_(SurfaceJob& job) const
 {
+    if(!job.inputPath.isEmpty()) {
+        openswmmvis::io::Mesh2DH5Reader reader;
+        bool ok=reader.open(job.inputPath);
+        if(job.region) ok=ok && reader.readHydraulicCellsAt(job.key.frame,job.region->cells,job.depths,job.flux);
+        else if(ok) {ok=reader.readDepthsAt(job.key.frame,job.depths);if(!reader.readEdgeFluxAt(job.key.frame,job.flux)) job.flux.clear();}
+        const size_t count=job.region?job.region->cells.size():cells_.size();
+        if(!ok || job.depths.size()!=count) job.depths.assign(count,std::numeric_limits<float>::quiet_NaN());
+        for(float& d:job.depths) if(!std::isfinite(d) || d<0) d=std::numeric_limits<float>::quiet_NaN();
+    }
     std::vector<CellWaterGeometry::Surface> surfaces;
-    fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth);
+    if (!job.region) {
+        fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth);
+        return;
+    }
+    const auto& region=*job.region;
+    surfaces.resize(region.cells.size());
+    for(size_t i=0;i<surfaces.size();++i)
+        surfaces[i]=CellWaterGeometry::reconstruct(region.splits[i],job.depths[i],vz_);
+    job.flow=CellWaterGeometry::flowingCornerDepths(region.splits,surfaces,vx_,vy_,vz_,
+        region.topology,job.depths,job.flux,job.policy);
+    CellWaterGeometry::smoothCornerDepths(region.splits,surfaces,vz_,region.topology,
+        job.smooth,job.policy,job.flow);
+    if(!region.checkRegion) return;
+    SurfaceJob check;check.region=region.checkRegion;check.policy=job.policy;
+    for(int c:check.region->cells) {
+        const size_t i=size_t(std::lower_bound(region.cells.begin(),region.cells.end(),c)-region.cells.begin());
+        check.depths.push_back(job.depths[i]);
+        if(!job.flux.empty()) check.flux.insert(check.flux.end(),job.flux.begin()+4*i,job.flux.begin()+4*i+4);
+    }
+    fitSurface_(check);
+    auto compare=[&](double a,double b) {
+        if(std::isfinite(a)!=std::isfinite(b)) {job.acceptable=false;return;}
+        if(!std::isfinite(a)) return;
+        job.regionalError=std::max(job.regionalError,std::abs(a-b));
+        if(std::abs(a-b)>.002 || ((a>0)!=(b>0) && std::max(std::abs(a),std::abs(b))>1e-6)) job.acceptable=false;
+    };
+    for(size_t core=0;core<region.coreCells.size();++core) {
+        const int c=region.coreCells[core];
+        const size_t a=size_t(std::lower_bound(region.cells.begin(),region.cells.end(),c)-region.cells.begin());
+        const size_t b=size_t(std::lower_bound(check.region->cells.begin(),check.region->cells.end(),c)-check.region->cells.begin());
+        for(int k=0;k<region.splits[a].vertexCount();++k) {
+            compare(job.smooth[a][k],check.smooth[b][k]);
+            if(!job.reference.empty()) compare(job.smooth[a][k],job.reference[core][k]);
+        }
+    }
 }
 
 void SWMM2DResultsLayer::scheduleFit_()
@@ -2131,6 +2244,7 @@ void SWMM2DResultsLayer::scheduleFit_()
     if (job->live) live_fit_clock_.start();
     if (job == pending_surface_) pending_surface_.reset();
     surface_busy_ = true;
+    active_surface_ = job;
     ++surface_fit_count_;
     surface_future_ = QtConcurrent::run(&surface_pool_, [this, job] {
         fitSurface_(*job);
@@ -2141,19 +2255,39 @@ void SWMM2DResultsLayer::scheduleFit_()
 
 void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& job)
 {
-    if (job->epoch != surface_epoch_) return;   // geometry or source changed meanwhile
+    if (job->epoch != surface_epoch_ || active_surface_ != job) return;
+    active_surface_.reset();   // capture may deliver completion before the queued callback
     surface_busy_ = false;
-    const bool valid = source_ && job->key.frame < source_->timeCount()
-                       && job->key == surfaceKey_(job->key.frame);
+    auto expected=surfaceKey_(job->key.frame);
+    if(job->forEnvelope) expected.regionRev=0;
+    const bool valid = source_ && job->key.frame < source_->timeCount() && job->key == expected;
     if (valid) {
+        if(job->region) {
+            regional_error_=job->regionalError;
+            if(!job->acceptable) {
+                ++regional_fallbacks_;
+                surface_region_.reset();++surface_region_revision_;pending_surface_.reset();
+                if(!published_region_ && published_key_==surfaceKey_(requested_time_idx_)) {
+                    published_seq_=request_seq_;scheduleFit_();return;
+                }
+                // Keep a failed regional attempt on the worker path even for
+                // layers whose original small-mesh bootstrap was synchronous.
+                auto full=std::make_shared<SurfaceJob>();full->key=surfaceKey_(requested_time_idx_);
+                full->seq=++request_seq_;full->epoch=surface_epoch_;full->policy=waterVisibilityPolicy();
+                requested_key_=full->key;readSurfaceJob_(*full);pending_surface_=std::move(full);scheduleFit_();
+                return;
+            }
+        }
         cacheSurface_(job);
         const int count = source_->timeCount();
-        resetEnvelopeIfStale_();
-        if (job->key.frame == surfaceMaxFramesDone_ && job->key.frame < count - 1) {
-            foldSurfaceMaximum(job->smooth, surfaceMaxCache_);
-            ++surfaceMaxFramesDone_;
+        if (!job->region) {
+            resetEnvelopeIfStale_();
+            if (job->key.frame == surfaceMaxFramesDone_ && job->key.frame < count - 1) {
+                foldSurfaceMaximum(job->smooth, surfaceMaxCache_);
+                ++surfaceMaxFramesDone_;
+            }
+            if (job->key.frame == count - 1) envelope_newest_ = job;
         }
-        if (job->key.frame == count - 1) envelope_newest_ = job;
         // Frames are shown in request order; one that finished after a newer
         // request was already displayed is kept in the cache only.
         if (!job->forEnvelope && job->seq > published_seq_) publishSurface_(*job, job->seq);
@@ -2172,6 +2306,7 @@ void SWMM2DResultsLayer::cancelSurfaceJobs_()
         surface_future_.waitForFinished();
         surface_busy_ = false;
     }
+    active_surface_.reset();
     ++surface_epoch_;   // a result already queued for delivery is ignored
     surface_cache_.clear();
     surface_cache_bytes_ = 0;
@@ -2220,7 +2355,7 @@ void SWMM2DResultsLayer::setCurrentTimeIndex(int t)
     const bool inFlight = request_seq_ > published_seq_;
     // Asked for already and still being fitted with the same content.
     if (inFlight && t == requested_time_idx_ && requested_key_ == surfaceKey_(t)) return;
-    if (t == current_time_idx_ && !current_depths_.empty()) {
+    if (t == current_time_idx_ && !current_depths_.empty() && !surface_region_) {
         if (inFlight) {   // back on the displayed frame: withdraw the newer request
             pending_surface_.reset();
             requested_time_idx_ = t;
@@ -2409,6 +2544,8 @@ void SWMM2DResultsLayer::closeSource()
     // runs HDF5Mesh2DSource::~HDF5Mesh2DSource → Mesh2DH5Reader::~Mesh2DH5Reader
     // → H5Fclose, releasing the file so the engine can truncate / rewrite.
     source_.reset();
+    surface_region_.reset();published_region_.reset();analysis_surface_.reset();
+    surfaceNeighbors_.clear();hydraulic_view_={};
     current_time_idx_ = -1;
     last_range_hi_    = -1;
     live_range_dirty_ = live_frame_dirty_ = false;
@@ -2498,7 +2635,7 @@ void SWMM2DResultsLayer::refreshWaterDisplayPolicy_()
     // current mask. Invalidate pending map work before requesting a repaint.
     ++policy_revision_;
     surfaceMaxSource_ = nullptr;
-    if (async_surface_ && source_ && requested_time_idx_ >= 0 && published_key_.frame >= 0) {
+    if ((async_surface_ || surface_region_) && source_ && requested_time_idx_ >= 0 && published_key_.frame >= 0) {
         // Refit the requested frame under the new policy on the worker. The
         // policy signal is emitted together with the refitted surface.
         policy_signal_pending_ = true;
@@ -2740,6 +2877,12 @@ void SWMM2DResultsLayer::setIsolinesWidth(double px)
 
 std::pair<float, int> SWMM2DResultsLayer::currentPeak() const
 {
+    if(published_region_ && source_) {
+        std::vector<float> values;if(!source_->readDepthsAt(current_time_idx_,values)) return {0,-1};
+        std::pair<float,int> peak{0,-1};for(size_t c=0;c<values.size();++c)
+            if(std::isfinite(values[c]) && values[c]>peak.first) peak={values[c],int(c)};
+        return peak;
+    }
     if (current_depths_.empty()) return {0.0f, -1};
     auto it = std::max_element(current_depths_.begin(), current_depths_.end());
     return { *it, static_cast<int>(std::distance(current_depths_.begin(), it)) };
@@ -2908,6 +3051,11 @@ float SWMM2DResultsLayer::depthAtSceneNow(const QPointF& scenePt) const
 {
     const int idx = pickDisplayTriAt_(scenePt);
     if (idx < 0 || idx >= m_sceneTris.size()) return 0.0f;
+    if(published_region_ && source_) {
+        float depth=std::numeric_limits<float>::quiet_NaN();
+        source_->readDepthAt(current_time_idx_,triCell_[size_t(idx)],depth);
+        return depth;
+    }
     return m_sceneTris[idx].depth;   // sub-triangle carries its CELL's depth
 }
 
@@ -2955,7 +3103,8 @@ double SWMM2DResultsLayer::groundAtDisplayTriangle(int idx, const QPointF& p) co
 
 double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(int idx, const QPointF& p) const
 {
-    return signedDepthAtDisplayTriangle(idx,p,surfaceDepths_);
+    const auto analysis=analysisSurface_();
+    return signedDepthAtDisplayTriangle(idx,p,analysis ? analysis->smooth : surfaceDepths_);
 }
 
 double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(int idx, const QPointF& p,
@@ -2997,6 +3146,15 @@ bool SWMM2DResultsLayer::cellHasSurface(int cell) const
 
 CellWaterGeometry::DisplayState SWMM2DResultsLayer::cellWaterDisplayState(int cell) const
 {
+    if(published_region_) {
+        const auto analysis=analysisSurface_();
+        if(!analysis || cell<0 || size_t(cell)>=analysis->smooth.size()) return CellWaterGeometry::DisplayState::Invalid;
+        const auto raw=CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
+            surfaceForDepth(cell,analysis->depths[size_t(cell)]),vz_,waterVisibilityPolicy());
+        if(!CellWaterGeometry::visible(raw,waterVisibilityPolicy()) || analysis->flow.empty()) return raw;
+        return CellWaterGeometry::displayState(analysis->flow[size_t(cell)],
+            cellSplit_[size_t(cell)].vertexCount(),waterVisibilityPolicy());
+    }
     if (cell < 0 || size_t(cell) >= cellSurfaces_.size() || size_t(cell) >= cellSplit_.size())
         return CellWaterGeometry::DisplayState::Invalid;
     const auto raw=CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
@@ -3009,23 +3167,53 @@ CellWaterGeometry::DisplayState SWMM2DResultsLayer::cellWaterDisplayState(int ce
 
 SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() const
 {
-    VelocityField field{current_depths_, vvx_, vvy_};
+    if(published_region_) {
+        VelocityField field;field.cells=published_region_->cells;field.vertices=published_region_->vertices;
+        for(int c:field.cells) {
+            const auto state=CellWaterGeometry::displayState(surfaceDepths_[size_t(c)],
+                cellSplit_[size_t(c)].vertexCount(),waterVisibilityPolicy());
+            field.depths.push_back(CellWaterGeometry::visible(state,waterVisibilityPolicy())?current_depths_[size_t(c)]:0.f);
+        }
+        for(int v:field.vertices) {field.vx.push_back(vvx_[size_t(v)]);field.vy.push_back(vvy_[size_t(v)]);}
+        return field;
+    }
+    VelocityField field{current_depths_, vvx_, vvy_, {}, {}};
     for (size_t c = 0; c < field.depths.size(); ++c)
-        if (!cellHasSurface(int(c))) field.depths[c] = 0.0f;
+        if (!CellWaterGeometry::visible(CellWaterGeometry::displayState(surfaceDepths_[c],
+                cellSplit_[c].vertexCount(),waterVisibilityPolicy()),waterVisibilityPolicy())) field.depths[c] = 0.0f;
     return field;
 }
 
 bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
                                          float& outVx, float& outVy) const
 {
-    if (!cellHasSurface(pickCellAt(scenePt))) { outVx = outVy = 0.0f; return false; }
+    const int cell=pickCellAt(scenePt);
+    if(cell<0 || size_t(cell)>=surfaceDepths_.size() || !CellWaterGeometry::visible(
+        CellWaterGeometry::displayState(surfaceDepths_[size_t(cell)],cellSplit_[size_t(cell)].vertexCount(),
+            waterVisibilityPolicy()),waterVisibilityPolicy())) {outVx=outVy=0;return false;}
     return velocityAtScene_(scenePt, outVx, outVy, current_depths_, vvx_, vvy_);
 }
 
 bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
     float& outVx, float& outVy, const VelocityField& field) const
 {
-    return velocityAtScene_(scenePt, outVx, outVy, field.depths, field.vx, field.vy);
+    if(field.cells.empty()) return velocityAtScene_(scenePt, outVx, outVy, field.depths, field.vx, field.vy);
+    outVx=outVy=0;
+    const int t=pickDisplayTriAt_(scenePt);if(t<0)return false;
+    const int c=triCell_[size_t(t)];
+    const auto cell=std::lower_bound(field.cells.begin(),field.cells.end(),c);
+    if(cell==field.cells.end() || *cell!=c) return false;
+    const float depth=field.depths[size_t(cell-field.cells.begin())];
+    if(!std::isfinite(depth) || depth<=0 || depth<dry_depth_) return false;
+    std::array<double,3> w;const auto& tri=m_sceneTris[t];
+    if(!CellWaterGeometry::barycentric(scenePt,tri.a,tri.b,tri.c,w)) return false;
+    for(int k=0;k<3;++k) {
+        const int v=tris_[size_t(t)][k];
+        const auto at=std::lower_bound(field.vertices.begin(),field.vertices.end(),v);
+        if(at==field.vertices.end() || *at!=v) {outVx=outVy=0;return false;}
+        const size_t i=size_t(at-field.vertices.begin());outVx+=float(w[k]*field.vx[i]);outVy+=float(w[k]*field.vy[i]);
+    }
+    return true;
 }
 
 bool SWMM2DResultsLayer::velocityAtScene_(const QPointF& scenePt,
@@ -3075,6 +3263,16 @@ bool SWMM2DResultsLayer::velocityAtScene_(const QPointF& scenePt,
     return true;
 }
 
+QVector<double> SWMM2DResultsLayer::currentDepthSamples(bool includeDry) const
+{
+    std::vector<float> full;
+    if(published_region_ && source_) source_->readDepthsAt(current_time_idx_,full);
+    const auto& depths=published_region_?full:current_depths_;
+    QVector<double> samples;samples.reserve(depths.size());
+    for(float d:depths) if(std::isfinite(d) && (includeDry?d>=0:d>0)) samples.push_back(d);
+    return samples;
+}
+
 QVector<double> SWMM2DResultsLayer::depthClassificationSamples(
     const OpenSWMM::Render::ClassificationScheme& scheme) const
 {
@@ -3089,7 +3287,7 @@ QVector<double> SWMM2DResultsLayer::depthClassificationSamples(
             if (std::isfinite(d) && d > 0.0) samples.push_back(d);
     };
     if (scheme.rangeMode() == RangeMode::PerFrameAutoStretch)
-        append(current_depths_);
+        return currentDepthSamples();
     else
         append(maxDepthPerCell());
     return samples;
@@ -3183,7 +3381,8 @@ void SWMM2DResultsLayer::advanceEnvelope_() const
 {
     const int count=source_->timeCount();
     while (surfaceMaxFramesDone_<count-1) {
-        const auto hit=cachedSurface_(surfaceKey_(surfaceMaxFramesDone_));
+        auto key=surfaceKey_(surfaceMaxFramesDone_);key.regionRev=0;
+        const auto hit=cachedSurface_(key);
         if (!hit) break;
         foldSurfaceMaximum(hit->smooth,surfaceMaxCache_);
         ++surfaceMaxFramesDone_;
@@ -3192,8 +3391,8 @@ void SWMM2DResultsLayer::advanceEnvelope_() const
 
 const std::vector<CellWaterGeometry::CornerDepths>* SWMM2DResultsLayer::newestSurface_(int frame) const
 {
-    const SurfaceKey key=surfaceKey_(frame);
-    if (published_key_==key) return &surfaceDepths_;
+    auto key=surfaceKey_(frame);key.regionRev=0;
+    if (!published_region_ && published_key_==key) return &surfaceDepths_;
     if (envelope_newest_ && envelope_newest_->key==key) return &envelope_newest_->smooth;
     if (const auto hit=cachedSurface_(key)) return &hit->smooth;   // kept alive by the cache
     return nullptr;
@@ -3234,11 +3433,11 @@ std::shared_ptr<SWMM2DResultsLayer::SurfaceJob> SWMM2DResultsLayer::nextEnvelope
         frame=count-1;
     }
     auto job=std::make_shared<SurfaceJob>();
-    job->key=surfaceKey_(frame);
+    job->key=surfaceKey_(frame);job->key.regionRev=0;
     job->epoch=surface_epoch_;
     job->forEnvelope=true;
     job->policy=waterVisibilityPolicy();
-    readSurfaceInputs_(frame,job->depths,job->flux);
+    readSurfaceJob_(*job);
     return job;
 }
 
@@ -3293,6 +3492,8 @@ void SWMM2DResultsLayer::clearHighlights()
 void SWMM2DResultsLayer::rebuildSceneGeometry_()
 {
     cancelSurfaceJobs_();   // the worker reads the geometry rebuilt below
+    surface_region_.reset();published_region_.reset();analysis_surface_.reset();
+    surfaceNeighbors_.clear();hydraulic_view_={};++surface_region_revision_;
     m_sceneTris.clear();
     m_triGrid.clear();   // drop the stale index; every early-return path below
                          // leaves an empty grid so pickCellAt falls back safely.
@@ -3457,6 +3658,17 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // contour on this fan; every per-face value is looked up through triCell_.
     buildDisplayFan(vx_, vy_, vz_, cells_, tris_, triCell_, cellTri0_, &cellSplit_);
     surfaceTopology_=CellWaterGeometry::smoothTopology(cellSplit_);
+    if(source_->supportsHydraulicCells()) {
+        surfaceNeighbors_.assign(cells_.size(),std::array<int,4>{-1,-1,-1,-1});
+        for(const auto& edge:surfaceTopology_.edges) {
+            auto connect=[&](int a,int b,int other) {
+                const int cell=a/4,nv=cellSplit_[size_t(cell)].vertexCount();
+                const int start=(a%4+1)%nv==b%4?a%4:b%4;
+                surfaceNeighbors_[size_t(cell)][start]=other/4;
+            };
+            connect(edge.a0,edge.b0,edge.a1);connect(edge.a1,edge.b1,edge.a0);
+        }
+    }
     cellFlowDepths_.clear();
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
@@ -3867,7 +4079,12 @@ void SWMM2DResultsLayer::onCanvasCRSChanged(
             newCanvasSRS->ogrSpatialReference());
     }
 
+    const bool wasRegional=bool(published_region_);
     rebuildSceneGeometry_();
+    if(wasRegional && source_ && current_time_idx_>=0) {
+        loadFrame_(current_time_idx_);
+        return;
+    }
     applyCurrentDepths_();
     applyCurrentFlux_();
     if (graphics_item_) graphics_item_->geometryChanged();
