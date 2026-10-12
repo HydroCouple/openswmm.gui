@@ -6,6 +6,9 @@
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/mapcanvas.h"
+#include "map/openswmmvisscene.h"
+#include "map/tools/maptool.h"
+#include <QGraphicsRectItem>
 #include "project/projectserializer.h"
 #include "swmmvis.h"
 #include "swmmvisprojectwindow.h"
@@ -167,6 +170,29 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override {
         QElapsedTimer clock;clock.start();MapCanvas::paintEvent(event);paintMs.push_back(clock.nsecsElapsed()/1e6);
+    }
+};
+class CompositionBackdrop : public OpenSWMMVisLayer {
+public:
+    explicit CompositionBackdrop(bool raster=false):OpenSWMMVisLayer("composition fixture"),m_raster(raster) {}
+    bool isRasterLayer() const override { return m_raster; }
+    void render(QPainter *p,const MapExtent &,const QSize &size,const SpatialReferenceSystem *) override {
+        if(m_raster)p->fillRect(QRect(QPoint(),size),QColor(20,60,100));
+    }
+    void populateScene(QGraphicsScene *scene,const MapExtent &,const SpatialReferenceSystem *) override {
+        if(m_raster)return;
+        auto *item=scene->addRect(QRectF(20,-80,60,60),Qt::NoPen,QColor(200,100,0,128));
+        item->setData(0,QVariant::fromValue(reinterpret_cast<quintptr>(this)));item->setZValue(layerZValue());
+    }
+private:bool m_raster;
+};
+class CompositionTool : public OpenSWMMVisMapTool {
+public:
+    explicit CompositionTool(MapCanvas *canvas):OpenSWMMVisMapTool("composition input",canvas) {}
+    int presses=0;
+    void mousePressEvent(QMouseEvent *) override { ++presses; }
+    void paint(QPainter *p,const MapExtent &,const SpatialReferenceSystem *) override {
+        p->fillRect(QRect(10,10,20,20),QColor(10,220,30));
     }
 };
 class HeadWidthPreview:public QQuickItem {
@@ -366,6 +392,110 @@ private slots:
             }
         }
     }
+    void cpuCellFillPreservesOpacityAndCapture() {
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
+        for(auto *sub:layer.sublayers())sub->setVisible(false);
+        auto *fill=layer.cellDepthFillSublayer();fill->setVisible(true);fill->setOpacity(.5);
+        auto *style=fill->fillStyle();style->setColorRampName("");style->setLowColor(QColor(0,0,200));
+        style->setHighColor(QColor(0,0,200));style->setClassified(false);
+        layer.setOpacity(.5);auto mask=layer.maskSpec();mask.enabled=true;layer.setMaskSpec(mask);
+        MapCanvas canvas;canvas.resize(480,480);canvas.setBackgroundColor(QColor(20,60,100));canvas.setShowScaleBar(false);
+        canvas.addLayer(&layer,false);canvas.setExtent({-10,-10,110,110},false);canvas.show();QTest::qWait(100);
+        QString error;const auto image=canvas.captureMap(&error).toImage();QVERIFY2(!image.isNull(),qPrintable(error));
+        QVERIFY(!layer.qsgOwnsRendering());QVERIFY(!canvas.compositionStats().active);
+        const auto color=image.pixelColor(qRound(240*image.devicePixelRatio()),qRound(200*image.devicePixelRatio()));
+        QVERIFY2(std::abs(color.red()-15)<=2,qPrintable(color.name()));
+        QVERIFY2(std::abs(color.green()-45)<=2,qPrintable(color.name()));
+        QVERIFY2(std::abs(color.blue()-125)<=2,qPrintable(color.name()));
+        fill->setVisible(false);
+        const auto empty=canvas.captureMap(&error).toImage();QVERIFY2(!empty.isNull(),qPrintable(error));
+        QCOMPARE(empty.pixelColor(qRound(240*empty.devicePixelRatio()),qRound(200*empty.devicePixelRatio())),QColor(20,60,100));
+        canvas.takeLayer(0,false);
+    }
+    void visibleCompositionCachesAndFallsBack() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Requires native GPU composition");
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
+        for(auto *sub:layer.sublayers())sub->setVisible(false);
+        auto *sub=layer.flowStreakSublayer();sub->setVisible(true);
+        auto *style=sub->streakStyle();style->setContinuousParticles(true);
+        style->setColor(Qt::transparent);style->setSpacingPx(25);
+        style->setMinimumLifetimeSeconds(20);style->setMaximumLifetimeSeconds(40);
+        style->setSpeedMultiplier(1);style->setAnimationTimestepMs(16);
+        CompositionBackdrop raster(true),vector;
+        ParticleReviewCanvas canvas;canvas.resize(480,480);canvas.setShowScaleBar(false);
+        canvas.addLayer(&raster,false);canvas.addLayer(&vector,false);canvas.addLayer(&layer,false);
+        canvas.reorderLayers({&raster,&vector,&layer},false);
+        canvas.setExtent({-10,-10,110,110},false);
+        CompositionTool tool(&canvas);canvas.setActiveTool(&tool);canvas.show();
+        QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);
+        QTest::qWait(1500);
+        auto initial=canvas.compositionStats();QVERIFY(initial.renderedFrames>10);
+        auto *surface=canvas.findChild<QQuickWidget*>("flowMapComposition");QVERIFY(surface);
+        QVERIFY(surface->testAttribute(Qt::WA_TransparentForMouseEvents));QCOMPARE(surface->focusPolicy(),Qt::NoFocus);
+        QTest::mouseClick(canvas.windowHandle(),Qt::LeftButton,Qt::NoModifier,QPoint(100,100));
+        QCOMPARE(tool.presses,1);
+        QTest::qWait(500);initial=canvas.compositionStats();
+        QTest::qWait(1000);auto ordinary=canvas.compositionStats();
+        QVERIFY(ordinary.renderedFrames>initial.renderedFrames+10);
+        QCOMPARE(ordinary.captureReadbacks,initial.captureReadbacks);
+        QCOMPARE(ordinary.fallbackReadbacks,initial.fallbackReadbacks);
+        QCOMPARE(ordinary.textureUploads,initial.textureUploads);
+        const double scale=canvas.width()/canvas.extent().width();
+        const auto extent=canvas.extent();
+        const QRectF view(extent.xMin(),-extent.yMax(),extent.width(),extent.height());
+        // Finish work already queued for this tick before checking that the
+        // capture itself dispatches no new tick or particle lifecycle event.
+        QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
+        const auto before=layer.flowParticles(view,scale,layer.frameRevision());QVERIFY(before);
+        QString error;const QImage image=canvas.captureMap(&error).toImage();QVERIFY2(!image.isNull(),qPrintable(error));
+        const auto after=layer.flowParticles(view,scale,layer.frameRevision());QVERIFY(after);
+        QCOMPARE(after->clock,before->clock);QCOMPARE(after->births,before->births);QCOMPARE(after->deaths,before->deaths);
+        const auto pixel=[&](const QImage &im,int x,int y){return im.pixelColor(qRound(x*im.devicePixelRatio()),qRound(y*im.devicePixelRatio()));};
+        QCOMPARE(pixel(image,20,20),QColor(10,220,30));
+        QCOMPARE(pixel(image,60,60),QColor(20,60,100));
+        const QColor blend=pixel(image,240,240);
+        QVERIFY(std::abs(blend.red()-110)<=2);QVERIFY(std::abs(blend.green()-80)<=2);QVERIFY(std::abs(blend.blue()-50)<=2);
+        QCOMPARE(blend.alpha(),255);
+        auto mask=layer.maskSpec();mask.enabled=true;layer.setMaskSpec(mask);
+        QTRY_VERIFY(!canvas.compositionStats().active);QVERIFY(!layer.qsgOwnsRendering());
+        const auto masked=canvas.captureMap(&error);QVERIFY2(!masked.isNull(),qPrintable(error));
+        QCOMPARE(pixel(masked.toImage(),240,240),blend);
+        mask.enabled=false;layer.setMaskSpec(mask);QTRY_VERIFY(canvas.compositionStats().active);
+        SWMM2DResultsLayer second;second.setSource(std::make_unique<FlowSource>());
+        canvas.addLayer(&second,false);QTRY_VERIFY(!canvas.compositionStats().active);
+        const auto multiple=canvas.captureMap(&error);QVERIFY2(!multiple.isNull(),qPrintable(error));
+        canvas.takeLayer(canvas.layers().indexOf(&second),false);QTRY_VERIFY(canvas.compositionStats().active);
+        // A CPU layer above the native output cannot fit into its background.
+        auto *fill=layer.cellDepthFillSublayer();fill->setVisible(true);
+        fill->fillStyle()->setColorRampName("");
+        fill->fillStyle()->setLowColor(QColor(0,0,200));fill->fillStyle()->setHighColor(QColor(0,0,200));
+        fill->fillStyle()->setClassified(false);
+        canvas.reorderLayers({&raster,&layer,&vector},false);QTRY_VERIFY(!canvas.compositionStats().active);
+        const auto ordered=canvas.captureMap(&error).toImage();QVERIFY2(!ordered.isNull(),qPrintable(error));
+        const QColor over=pixel(ordered,240,200);
+        QVERIFY(std::abs(over.red()-100)<=2);QVERIFY(std::abs(over.green()-50)<=2);QVERIFY(std::abs(over.blue()-100)<=2);
+        canvas.reorderLayers({&raster,&vector,&layer},false);QTRY_VERIFY(canvas.compositionStats().active);
+        layer.setOpacity(.4);QTest::qWait(100);QVERIFY(canvas.compositionStats().active);
+        const auto translucent=canvas.captureMap(&error).toImage();QVERIFY2(!translucent.isNull(),qPrintable(error));
+        const QColor opacity=pixel(translucent,240,200);
+        QVERIFY(std::abs(opacity.red()-66)<=2);QVERIFY(std::abs(opacity.green()-48)<=2);QVERIFY(std::abs(opacity.blue()-110)<=2);
+        QVERIFY(canvas.moveSublayer(&layer,0,int(layer.sublayers().size())-1,false));QTest::qWait(100);
+        QVERIFY(canvas.compositionStats().active);QVERIFY(!canvas.captureMap(&error).isNull());
+        const auto oldExtent=canvas.extent();canvas.zoomAroundCursor(1.2,{240,240});QTest::qWait(150);
+        QVERIFY(canvas.extent()!=oldExtent);QVERIFY(!canvas.captureMap(&error).isNull());
+        canvas.pan(5,3);canvas.resize(520,400);QTest::qWait(200);
+        QCOMPARE(surface->geometry(),canvas.rect());QVERIFY(!canvas.captureMap(&error).isNull());
+        canvas.hide();QTest::qWait(300);const auto hidden=canvas.compositionStats().renderedFrames;
+        QTest::qWait(300);QCOMPARE(canvas.compositionStats().renderedFrames,hidden);
+        canvas.show();QTRY_VERIFY(canvas.compositionStats().renderedFrames>hidden);
+        qputenv("OPENSWMM_FLOW_COMPOSITION","0");canvas.update();QTRY_VERIFY(!canvas.compositionStats().active);
+        QVERIFY(!canvas.captureMap(&error).isNull());qunsetenv("OPENSWMM_FLOW_COMPOSITION");
+        canvas.update();QTRY_VERIFY(canvas.compositionStats().active);
+        canvas.setActiveTool(nullptr);
+        canvas.takeLayer(canvas.layers().indexOf(&layer),false);QVERIFY(!layer.qsgOwnsRendering());
+        QVERIFY(!canvas.compositionStats().active);QVERIFY(!canvas.captureMap(&error).isNull());
+        while(canvas.layerCount())canvas.takeLayer(0,false);
+    }
     void continuousNativePresentation() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Run the native layer comparison window");
         const QString folder=qEnvironmentVariable("FLOW_PARTICLE_NATIVE_OUTPUT","tests/verification/flow_particles/native-layer");QDir().mkpath(folder);
@@ -413,6 +543,10 @@ private slots:
             peakHistory=std::max(peakHistory,p.history.size());
             for(const auto &sample:p.history)if(sample.error>=0) {++reducedSegments;maxError=std::max(maxError,sample.error);}
         }
+        const auto composition=canvas.compositionStats();
+        auto intervals=composition.renderIntervalsMs;
+        std::sort(intervals.begin(),intervals.end());
+        const auto renderPercentile=[&](double q){return intervals.isEmpty()?0.:intervals[int(q*(intervals.size()-1))];};
         QFile report(folder+"/native.json");QVERIFY(report.open(QIODevice::WriteOnly));
         report.write(QJsonDocument(QJsonObject{{"source",path.isEmpty()?"synthetic native SWMM":path},
             {"triangles",layer.m_sceneTris.size()},{"births",qint64(frame->births)},{"deaths",qint64(frame->deaths)},
@@ -423,7 +557,11 @@ private slots:
             {"maxRetainedErrorPx",maxError*scale},{"trailSeconds",style->trailDurationSeconds()},
             {"minimumLifetimeSeconds",style->minimumLifetimeSeconds()},{"maximumLifetimeSeconds",style->maximumLifetimeSeconds()},
             {"paintMedianMs",percentile(.5)},{"paintP95Ms",percentile(.95)},
-            {"presentation","MapCanvas widget paint; existing readback composition; not OS display cadence"}}).toJson());
+            {"compositionActive",composition.active},{"renderedFrames",qint64(composition.renderedFrames)},
+            {"textureUploads",qint64(composition.textureUploads)},{"captureReadbacks",qint64(composition.captureReadbacks)},
+            {"fallbackReadbacks",qint64(composition.fallbackReadbacks)},
+            {"renderIntervalMedianMs",renderPercentile(.5)},{"renderIntervalP95Ms",renderPercentile(.95)},
+            {"presentation","Qt Quick render-completion notifications; not OS display presentation; paint costs are separate"}}).toJson());
         canvas.takeLayer(0,false);
     }
     void initTestCase() {
