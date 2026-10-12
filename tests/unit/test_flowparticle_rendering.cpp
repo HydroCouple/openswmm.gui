@@ -48,10 +48,17 @@ private slots:
         node.sync(frame,1,1,4,4,4,0,0,appearance);
         const auto *v=static_cast<const float*>(node.geometry()->vertexData());
         QCOMPARE(v[0],20.f);QCOMPARE(v[1],60.f);
-        QVERIFY(std::abs(v[10]-20/255.f)<1e-6);QVERIFY(std::abs(v[13]-128/255.f)<1e-6);
+        QVERIFY(std::abs(v[11]-20/255.f)<1e-6);QVERIFY(std::abs(v[14]-128/255.f)<1e-6);
         const int uploads=node.uploads();appearance.opacity=.4;appearance.fade=false;appearance.taper=false;
         node.sync(frame,.5,1,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads);
         appearance.color=Qt::red;node.sync(frame,1,1,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads+1);
+    }
+    void shortenedHistoryUsesItsVisibleWindowWithoutChangingLifetime() {
+        FlowParticleNode node;auto frame=bend();frame->particles.front().historyLimited=true;
+        node.sync(frame,1,1,20,4,4,0);
+        const auto *v=static_cast<const float*>(node.geometry()->vertexData());
+        QCOMPARE(v[7],100.f);QCOMPARE(v[10],0.f); // lifetime and retained tail start are independent
+        const int uploads=node.uploads();node.sync(frame,.25,1,20,4,4,0);QCOMPARE(node.uploads(),uploads);
     }
     void nativeJoinedBrightnessAndInterpolatedHead() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Run with a native window to verify joined ribbons");
@@ -72,6 +79,22 @@ private slots:
         }
         QDir().mkpath(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT));
         QVERIFY(image.save(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT)+"/joined-bend.png"));
+    }
+    void nativeShortenedTailFadesAndKeepsInterpolatedHead() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Run with a native window to verify shortened tails");
+        QQuickWindow window;window.setFlags(window.flags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
+        window.setColor(Qt::black);window.resize(160,80);auto *preview=new Preview(window.contentItem());
+        preview->frame->particles.front().historyLimited=true;window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+        preview->update();const auto image=window.grabWindow();const double dpr=image.width()/160.;
+        QVERIFY(qRed(image.pixel(int(21*dpr),int(60.5*dpr)))<10); // no hard bright cutoff at the retained start
+        QVERIFY(qRed(image.pixel(int(70*dpr),int(60.5*dpr)))>30);
+        for(double alpha:{0.,.25,.5,.75,1.}) {
+            preview->alpha=alpha;preview->update();const auto moved=window.grabWindow();
+            int first=moved.height();const int x=int(100.5*dpr);
+            for(int y=0;y<moved.height();++y)if(qRed(moved.pixel(x,y))>5)first=std::min(first,y);
+            QVERIFY(std::abs(first/dpr-(40-20*alpha))<1.1);
+        }
+        QVERIFY(image.save(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT)+"/shortened-tail.png"));
     }
 };
 QTEST_MAIN(FlowParticleRenderingTest)

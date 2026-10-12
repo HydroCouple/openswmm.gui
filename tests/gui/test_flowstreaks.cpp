@@ -258,7 +258,10 @@ private slots:
             QCOMPARE(system.particles().front().id,id);
         }
         QCOMPARE(system.frame()->births,quint64(1));QCOMPARE(system.frame()->deaths,quint64(0));
-        for(size_t i=0;i<history.size();++i)QCOMPARE(system.particles().front().history[i].position,history[i].position);
+        for(const auto &sample:system.particles().front().history)if(sample.age<=history.back().age) {
+            const auto original=std::find_if(history.begin(),history.end(),[&](const auto &s){return s.age==sample.age;});
+            QVERIFY(original!=history.end());QCOMPARE(sample.position,original->position);
+        }
         const int reads=raw->reads;system.advance(.1);QCOMPARE(raw->reads,reads);
     }
     void continuousControllerCoalescesLiveUpdatesWithoutParticleReplacement() {
@@ -310,7 +313,7 @@ private slots:
             findParticles(root)->geometry()->vertexCount()>0),5000);
         auto *node=findParticles(root);QCOMPARE(findFlow(root)->geometry()->vertexCount(),0);
         const auto *v=static_cast<const float*>(node->geometry()->vertexData());
-        QVERIFY(std::abs(v[10]-20/255.f)<1e-6);QVERIFY(std::abs(v[13]-128/255.f)<1e-6);
+        QVERIFY(std::abs(v[11]-20/255.f)<1e-6);QVERIFY(std::abs(v[14]-128/255.f)<1e-6);
         const int uploads=node->uploads();const auto frame=layer.flowParticles(layer.m_sceneBBox,1,layer.frameRevision());
         style->setHeadWidthPx(6);root=renderer.updatePaintNode(root,nullptr);
         QCOMPARE(node->uploads(),uploads+1);QCOMPARE(layer.flowParticles(layer.m_sceneBBox,1,layer.frameRevision())->births,frame->births);
@@ -365,7 +368,7 @@ private slots:
     }
     void continuousNativePresentation() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Run the native layer comparison window");
-        const QString folder="tests/verification/flow_particles/native-layer";QDir().mkpath(folder);
+        const QString folder=qEnvironmentVariable("FLOW_PARTICLE_NATIVE_OUTPUT","tests/verification/flow_particles/native-layer");QDir().mkpath(folder);
         SWMM2DResultsLayer layer;const QString path=qEnvironmentVariable("FLOW_STREAK_RESULT");
         if(path.isEmpty())layer.setSource(std::make_unique<GridFlowSource>(400,100));
         else {
@@ -377,6 +380,13 @@ private slots:
         style->setTrailDurationSeconds(1);style->setSpeedMultiplier(2);style->setSpacingPx(30);
         bool customSpeed=false;const double speed=qEnvironmentVariable("FLOW_PARTICLE_NATIVE_SPEED").toDouble(&customSpeed);
         if(customSpeed)style->setSpeedMultiplier(speed);
+        for(const auto &setting:{qMakePair("FLOW_PARTICLE_NATIVE_TRAIL","trailDurationSeconds"),
+                                 qMakePair("FLOW_PARTICLE_NATIVE_MIN_LIFE","minimumLifetimeSeconds"),
+                                 qMakePair("FLOW_PARTICLE_NATIVE_MAX_LIFE","maximumLifetimeSeconds")}) {
+            if(!qEnvironmentVariableIsSet(setting.first))continue;
+            bool valid=false;const double value=qEnvironmentVariable(setting.first).toDouble(&valid);QVERIFY(valid);
+            style->setProperty(setting.second,value);
+        }
         if(qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_COLOR"))style->setColor(QColor(qEnvironmentVariable("FLOW_PARTICLE_NATIVE_COLOR")));
         layer.meshNodeSublayer()->setVisible(false);const auto box=layer.m_sceneBBox;
         ParticleReviewCanvas canvas;canvas.setWindowTitle("Continuous particles — native SWMM layer preview");
@@ -395,10 +405,13 @@ private slots:
         std::sort(canvas.paintMs.begin(),canvas.paintMs.end());
         const auto percentile=[&](double q){return canvas.paintMs.empty()?0.:canvas.paintMs[size_t(q*(canvas.paintMs.size()-1))];};
         QJsonArray stops;for(auto count:frame->stopCounts)stops.append(qint64(count));
-        int waiting=0,limited=0,crossings=0,maxCrossings=0;size_t history=0;
+        int waiting=0,limited=0,crossings=0,maxCrossings=0,reducedSegments=0;size_t history=0,peakHistory=0;
+        double maxError=0;
         for(const auto &p:frame->particles) {
             waiting+=p.waitingForData;limited+=p.historyLimited;crossings+=p.crossings;
             maxCrossings=std::max(maxCrossings,p.crossings);history+=p.history.size();
+            peakHistory=std::max(peakHistory,p.history.size());
+            for(const auto &sample:p.history)if(sample.error>=0) {++reducedSegments;maxError=std::max(maxError,sample.error);}
         }
         QFile report(folder+"/native.json");QVERIFY(report.open(QIODevice::WriteOnly));
         report.write(QJsonDocument(QJsonObject{{"source",path.isEmpty()?"synthetic native SWMM":path},
@@ -406,6 +419,9 @@ private slots:
             {"stopCounts",stops},{"animationSeconds",frame->clock},{"observedWallSeconds",elapsed.elapsed()/1000.},
             {"waitingForData",waiting},{"historyLimited",limited},{"cellCrossings",crossings},
             {"maxParticleCrossings",maxCrossings},{"historySamples",qint64(history)},{"speedMultiplier",style->speedMultiplier()},
+            {"reducedSegments",reducedSegments},{"maxParticleHistorySamples",qint64(peakHistory)},
+            {"maxRetainedErrorPx",maxError*scale},{"trailSeconds",style->trailDurationSeconds()},
+            {"minimumLifetimeSeconds",style->minimumLifetimeSeconds()},{"maximumLifetimeSeconds",style->maximumLifetimeSeconds()},
             {"paintMedianMs",percentile(.5)},{"paintP95Ms",percentile(.95)},
             {"presentation","MapCanvas widget paint; existing readback composition; not OS display cadence"}}).toJson());
         canvas.takeLayer(0,false);
@@ -526,7 +542,7 @@ private slots:
         QCOMPARE(panel.findChild<QDoubleSpinBox*>("animationTimestepMs")->value(),double(std::numeric_limits<int>::max()));
     }
     void continuousLongTrailKeepsHistoryAndPopulationBounded() {
-        SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();source->speed=.01f;
+        SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();source->speed=.0001f;
         layer.setSource(std::move(source));
         auto *sub=layer.flowStreakSublayer();sub->setVisible(true);
         auto *style=sub->streakStyle();style->setContinuousParticles(true);style->setSpeedMultiplier(1);
@@ -535,12 +551,13 @@ private slots:
         // casting, keeping the requested duration rather than wrapping it.
         style->setTrailDurationSeconds(FlowStreakStyle::maximumNumericValue());
         QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
-        layer.advanceFlowStreaks(12);QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        layer.advanceFlowStreaks(120);QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
         const auto frame=layer.flowParticles(layer.m_sceneBBox,1,layer.frameRevision());QVERIFY(frame);
         QVERIFY(!frame->particles.empty());QCOMPARE(frame->deaths,quint64(0));
         for(const auto &p:frame->particles) {
             QVERIFY(p.lifetime>=600 && p.lifetime<=3600);QVERIFY(p.history.size()<=4096);
-            QVERIFY(p.history.size()>512);QVERIFY(!p.historyLimited);
+            QVERIFY(p.age>119);QVERIFY(!p.historyLimited);QCOMPARE(p.history.front().age,0.);
+            bool reduced=false;for(const auto &sample:p.history)reduced|=sample.error>=0;QVERIFY(reduced);
         }
         QCOMPARE(style->trailDurationSeconds(),FlowStreakStyle::maximumNumericValue());
         // The long-tail history allocation still reduces the maximum pool.

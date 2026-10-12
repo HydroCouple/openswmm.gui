@@ -26,7 +26,10 @@ struct FlowParticleSnapshot {
 };
 enum class FlowParticleStop { None, Lifetime, Dry, Outflow, ClosedFace, InvalidField, VectorConflict };
 const char *flowParticleStopName(FlowParticleStop);
-struct FlowParticleSample { QPointF position; double age=0; int cell=-1; float speed=0; };
+struct FlowParticleSample {
+    QPointF position; double age=0; int cell=-1; float speed=0;
+    double error=-1; // incoming segment's accumulated interpolation error; -1 is an original segment
+};
 struct FlowParticle {
     quint64 id=0;
     QPointF position;
@@ -35,6 +38,8 @@ struct FlowParticle {
     double visibleAfterAge=-1; // excludes history made obsolete by a dry update
     FlowParticleStop stop=FlowParticleStop::None;
     bool waitingForData=false,historyLimited=false;
+    double historyFloorAge=-1; // oldest history lost to the display budget, never an integration limit
+    size_t nextHistoryReduction=256; // amortize passes, rather than scanning every tick
     std::deque<FlowParticleSample> history;
     double pending=0; // resumable integration work, never a lifetime limit
     std::vector<int> zeroCells; // exact-vertex cycle detection survives work slices
@@ -42,6 +47,7 @@ struct FlowParticle {
 struct FlowParticleSettings {
     double timestep=1./60.,speed=1,minimumLifetime=20,maximumLifetime=40;
     double trailSeconds=1,fadeSeconds=.5,cutoff=.001;
+    double historyTolerance=.001; // scene units; native layer derives this from a quarter pixel
     int maxParticles=2000,maxHistory=512;
 };
 struct FlowParticleFrame {
@@ -71,6 +77,7 @@ public:
 private:
     int locate(QPointF,bool requireWet=true) const;
     bool integrate(FlowParticle &,int &budget,int &steps);
+    bool reduceHistory(FlowParticle &,int &budget,int &steps);
     void stop(FlowParticle &,FlowParticleStop);
     void publish();
     FlowParticleField fieldAt(int cell,double clock) const;
@@ -83,6 +90,11 @@ private:
     double m_clock=0,m_elapsed=0,m_tick=0;
     size_t m_cursor=0;
     bool m_inTick=false;
+    // Only the current particle can have a pending reduction. Publication
+    // keeps the original history until the linear pass is complete.
+    std::deque<FlowParticleSample> m_reducedHistory;
+    size_t m_historyIndex=0;
+    double m_historyError=-1;
     quint64 m_nextId=1,m_births=0,m_deaths=0;
     std::array<quint64,7> m_stopCounts{};
 };

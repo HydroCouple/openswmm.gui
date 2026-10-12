@@ -7,13 +7,13 @@
 #include <cmath>
 
 namespace {
-struct Vertex { float x,y,nx,ny,age,previous,current,lifetime,side,stoppedAt,r,g,b,a; };
+struct Vertex { float x,y,nx,ny,age,previous,current,lifetime,side,stoppedAt,tailStart,r,g,b,a; };
 const QSGGeometry::AttributeSet &attributes() {
     static const QSGGeometry::Attribute attrs[]={
         QSGGeometry::Attribute::create(0,2,QSGGeometry::FloatType,true),
         QSGGeometry::Attribute::create(1,2,QSGGeometry::FloatType),
         QSGGeometry::Attribute::create(2,4,QSGGeometry::FloatType),
-        QSGGeometry::Attribute::create(3,2,QSGGeometry::FloatType),
+        QSGGeometry::Attribute::create(3,3,QSGGeometry::FloatType),
         QSGGeometry::Attribute::create(4,4,QSGGeometry::FloatType)};
     static const QSGGeometry::AttributeSet set={5,sizeof(Vertex),attrs};return set;
 }
@@ -66,6 +66,7 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
     geometry()->allocate(count);auto *v=static_cast<Vertex*>(geometry()->vertexData());
     if(m_frame && scale>0)for(const auto &p:m_frame->particles) {
         const auto &history=p.history;
+        const float tailStart=p.historyLimited && !history.empty()?float(history.front().age):-1;
         auto make=[&](size_t i) {
             const auto point=history[i].position;
             const auto local=point-m_anchor;
@@ -79,7 +80,7 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
             // Shared offset at each joint; limit long miters at sharp bends.
             normal*=std::min(2.,projection>1e-12?1/projection:1.)*(.5/scale);
             Vertex left{float(local.x()),float(local.y()),float(-normal.x()),float(-normal.y()),
-                float(history[i].age),float(p.previousAge),float(p.age),float(p.lifetime),-1,float(p.stoppedAt),
+                float(history[i].age),float(p.previousAge),float(p.age),float(p.lifetime),-1,float(p.stoppedAt),tailStart,
                 float(color.redF()),float(color.greenF()),float(color.blueF()),float(color.alphaF())};
             Vertex right=left;right.nx=-left.nx;right.ny=-left.ny;right.side=1;
             return std::array<Vertex,2>{left,right};

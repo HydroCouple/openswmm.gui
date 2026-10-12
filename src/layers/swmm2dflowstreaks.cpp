@@ -149,6 +149,7 @@ std::shared_ptr<const FlowParticleFrame> SWMM2DResultsLayer::flowParticles(
     settings.minimumLifetime=style->minimumLifetimeSeconds();settings.maximumLifetime=style->maximumLifetimeSeconds();
     settings.trailSeconds=style->trailDurationSeconds();settings.fadeSeconds=style->lifetimeFadeSeconds();
     settings.cutoff=style->dryDepthCutoff();
+    settings.historyTolerance=.25/scale;
     // Clamp before conversion: user-selected durations can exceed int range.
     settings.maxHistory=int(std::clamp(std::ceil(settings.trailSeconds*120)+64,512.,4096.));
     // Bound the pool and its retained/publication copies before long tails
@@ -391,8 +392,11 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
         p->save();p->setOpacity(p->opacity()*m_flowStreakSublayer->opacity());
         p->setRenderHint(QPainter::Antialiasing,true);p->setPen(Qt::NoPen);
         for(const auto &particle:frame->particles) {
+            if(particle.history.empty())continue;
             const double age=particle.previousAge+(particle.age-particle.previousAge)*flowParticleInterpolation();
-            const double tail=style->trailDurationSeconds(),fade=style->lifetimeFadeSeconds();
+            const double tail=std::min(style->trailDurationSeconds(),particle.historyLimited
+                ?std::max(1e-6,age-particle.history.front().age):style->trailDurationSeconds());
+            const double fade=style->lifetimeFadeSeconds();
             std::vector<FlowParticleSample> points;
             for(size_t i=1;i<particle.history.size();++i) {
                 const auto &a=particle.history[i-1],&b=particle.history[i];
