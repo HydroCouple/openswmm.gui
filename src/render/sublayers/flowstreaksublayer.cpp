@@ -14,11 +14,11 @@ void FlowStreakStyle::setColor(QColor value) {
     if(m_color==value) return; m_color=value; setDirty();
 }
 void FlowStreakStyle::setWidthPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,double(0.1),double(12));
+    if(!std::isfinite(value)) return; value=std::clamp(value,0.1,maximumNumericValue());
     if(m_widthPx==value) return; m_widthPx=value; setDirty();
 }
 void FlowStreakStyle::setHeadWidthPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,double(0.1),double(12));
+    if(!std::isfinite(value)) return; value=std::clamp(value,0.1,maximumNumericValue());
     if(m_headWidthPx==value) return; m_headWidthPx=value; setDirty();
 }
 double FlowStreakStyle::widthAtFraction(double tailToHead) const {
@@ -30,14 +30,14 @@ double FlowStreakStyle::widthAtFraction(double tailToHead) const {
         +(m_headWidthPx-m_widthPx)*h*h*(3-2*h);
 }
 void FlowStreakStyle::setTrailLengthPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,double(1),double(200));
+    if(!std::isfinite(value)) return; value=std::clamp(value,1.,maximumNumericValue());
     if(m_trailLengthPx==value) return; m_trailLengthPx=value; setDirty();
 }
 void FlowStreakStyle::setVelocityScaledTrail(bool value) {
     if(m_velocityScaledTrail==value) return;m_velocityScaledTrail=value;setDirty();
 }
 void FlowStreakStyle::setTrailDurationSeconds(double value) {
-    if(!std::isfinite(value)) return;value=std::clamp(value,.1,30.);
+    if(!std::isfinite(value)) return;value=std::clamp(value,.1,maximumNumericValue());
     if(m_trailDurationSeconds==value) return;m_trailDurationSeconds=value;setDirty();
 }
 void FlowStreakStyle::setFade(bool value) {
@@ -47,15 +47,15 @@ void FlowStreakStyle::setTaper(bool value) {
     if(m_taper==value) return; m_taper=value; setDirty();
 }
 void FlowStreakStyle::setSpacingPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,double(8),double(200));
+    if(!std::isfinite(value)) return; value=std::clamp(value,8.,maximumNumericValue());
     if(m_spacingPx==value) return; m_spacingPx=value; setDirty();
 }
 void FlowStreakStyle::setPathLengthPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,double(16),double(512));
+    if(!std::isfinite(value)) return; value=std::clamp(value,16.,maximumNumericValue());
     if(m_pathLengthPx==value) return; m_pathLengthPx=value; setDirty();
 }
 void FlowStreakStyle::setDryDepthCutoff(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,double(0),double(10));
+    if(!std::isfinite(value)) return; value=std::clamp(value,0.,maximumNumericValue());
     if(m_dryDepthCutoff==value) return; m_dryDepthCutoff=value; setDirty();
 }
 void FlowStreakStyle::setAnimated(bool value) {
@@ -65,25 +65,25 @@ void FlowStreakStyle::setContinuousParticles(bool value) {
     if(m_continuousParticles==value)return;m_continuousParticles=value;setDirty();
 }
 void FlowStreakStyle::setSpeedMultiplier(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,double(0),double(1000));
+    if(!std::isfinite(value)) return; value=std::clamp(value,0.,maximumNumericValue());
     if(m_speedMultiplier==value) return; m_speedMultiplier=value; setDirty();
 }
 void FlowStreakStyle::setAnimationTimestepMs(int value) {
-    value=std::clamp(value,8,1000);
+    value=std::max(value,8);
     if(m_animationTimestepMs==value) return; m_animationTimestepMs=value; setDirty();
 }
 void FlowStreakStyle::setMinimumLifetimeSeconds(double value) {
-    if(!std::isfinite(value)) return;value=std::clamp(value,.1,120.);
+    if(!std::isfinite(value)) return;value=std::clamp(value,.1,maximumNumericValue());
     if(m_minimumLifetimeSeconds==value) return;
     m_minimumLifetimeSeconds=value;m_maximumLifetimeSeconds=std::max(value,m_maximumLifetimeSeconds);setDirty();
 }
 void FlowStreakStyle::setMaximumLifetimeSeconds(double value) {
-    if(!std::isfinite(value)) return;value=std::clamp(value,.1,120.);
+    if(!std::isfinite(value)) return;value=std::clamp(value,.1,maximumNumericValue());
     if(m_maximumLifetimeSeconds==value) return;
     m_maximumLifetimeSeconds=value;m_minimumLifetimeSeconds=std::min(value,m_minimumLifetimeSeconds);setDirty();
 }
 void FlowStreakStyle::setLifetimeFadeSeconds(double value) {
-    if(!std::isfinite(value)) return;value=std::clamp(value,0.,10.);
+    if(!std::isfinite(value)) return;value=std::clamp(value,0.,maximumNumericValue());
     if(m_lifetimeFadeSeconds==value) return;m_lifetimeFadeSeconds=value;setDirty();
 }
 void FlowStreakStyle::setColorByMagnitude(bool value) {

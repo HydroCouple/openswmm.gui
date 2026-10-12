@@ -40,6 +40,7 @@
 
 #include <QElapsedTimer>
 #include <algorithm>
+#include <limits>
 #include <QQmlError>
 #include <QQuickItem>
 #include <QQuickWidget>
@@ -2381,7 +2382,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         renderTerrainLabel(p);
 
     bool animateFlow = false;
-    int flowInterval = 1000;
+    int flowInterval = std::numeric_limits<int>::max();
     for (auto *layer : std::as_const(m_layers)) {
         auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
         if (flow && flow->flowStreaksEnabled()

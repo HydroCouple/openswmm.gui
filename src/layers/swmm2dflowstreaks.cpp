@@ -141,14 +141,16 @@ std::shared_ptr<const FlowParticleFrame> SWMM2DResultsLayer::flowParticles(
     const QRectF &view,double scale,quint64 displayedRevision,bool presented)
 {
     const auto *style=m_flowStreakSublayer->streakStyle();
-    if(!style->continuousParticles() || !flowStreaksEnabled())return {};
+    if(!style->continuousParticles() || !flowStreaksEnabled() || !view.isValid()
+       || !std::isfinite(scale) || scale<=0)return {};
     if(presented)m_particles->setPresentedRevision(displayedRevision);
     m_particleView=view;m_particleScale=scale;
     FlowParticleSettings settings;settings.speed=style->speedMultiplier();
     settings.minimumLifetime=style->minimumLifetimeSeconds();settings.maximumLifetime=style->maximumLifetimeSeconds();
     settings.trailSeconds=style->trailDurationSeconds();settings.fadeSeconds=style->lifetimeFadeSeconds();
     settings.cutoff=style->dryDepthCutoff();
-    settings.maxHistory=std::clamp(int(std::ceil(settings.trailSeconds*120))+64,512,4096);
+    // Clamp before conversion: user-selected durations can exceed int range.
+    settings.maxHistory=int(std::clamp(std::ceil(settings.trailSeconds*120)+64,512.,4096.));
     // Bound the pool and its retained/publication copies before long tails
     // allocate. Lower density rather than shortening assigned particle lives.
     settings.maxParticles=std::min(2000,int((96*1024*1024)/(4*sizeof(FlowParticleSample)*size_t(settings.maxHistory))));

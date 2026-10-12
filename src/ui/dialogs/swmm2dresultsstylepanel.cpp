@@ -940,20 +940,25 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
     boolean("colorByMagnitude",tr("Colour by velocity magnitude"));
     auto number = [&](const char *key,const QString &label,double lo,double hi,int decimals,const QString &suffix) {
         auto *box=makeDSpin(page,lo,hi,decimals==3?0.001:0.5,decimals,st->property(key).toDouble(),suffix);
+        box->setKeyboardTracking(false); // commit complete entries, especially paired lifetime edits
+        box->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
+        // A numeric-range maximum must not stretch the form to dozens of digits.
+        box->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);box->setMaximumWidth(220);
         box->setObjectName(QString::fromLatin1(key));form->addRow(label,box);
         connect(box,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st,key](double v){st->setProperty(key,v);});
         connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box] {
             QSignalBlocker block(box);box->setValue(st->property(key).toDouble());
         });
     };
-    number("widthPx",tr("Trail width:"),0.1,12,1,tr(" px"));
-    number("headWidthPx",tr("Head width:"),0.1,12,1,tr(" px"));
+    const double maximum=OpenSWMM::Render::FlowStreakStyle::maximumNumericValue();
+    number("widthPx",tr("Trail width:"),0.1,maximum,1,tr(" px"));
+    number("headWidthPx",tr("Head width:"),0.1,maximum,1,tr(" px"));
     auto *trailMode=new QComboBox(page);trailMode->setObjectName(QStringLiteral("velocityScaledTrail"));
     trailMode->addItems({tr("Velocity × duration"),tr("Pixel length (legacy)")});
     trailMode->setCurrentIndex(st->velocityScaledTrail()?0:1);form->addRow(tr("Trail length mode:"),trailMode);
     connect(trailMode,qOverload<int>(&QComboBox::currentIndexChanged),st,[st](int index){st->setVelocityScaledTrail(index==0);});
-    number("trailDurationSeconds",tr("Trail duration:"),.1,30,1,tr(" s"));
-    number("trailLengthPx",tr("Approximate trail length:"),1,200,1,tr(" px"));
+    number("trailDurationSeconds",tr("Trail duration:"),.1,maximum,1,tr(" s"));
+    number("trailLengthPx",tr("Approximate trail length:"),1,maximum,1,tr(" px"));
     auto *trailDuration=page->findChild<QDoubleSpinBox*>("trailDurationSeconds");
     auto *trailLength=page->findChild<QDoubleSpinBox*>("trailLengthPx");
     trailDuration->setToolTip(tr("The visible tail covers this many seconds of flow travel. Faster flow makes longer streaks; slow flow makes shorter marks. This is separate from particle lifetime. Visual speed changes movement without changing tail length. Wet boundaries and prepared path limits can shorten the tail."));
@@ -964,12 +969,12 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         trailDuration->setEnabled(st->continuousParticles() || st->velocityScaledTrail());
         trailLength->setEnabled(!st->continuousParticles() && !st->velocityScaledTrail());
         trailDuration->setToolTip(st->continuousParticles()
-            ?tr("Recorded history in animation seconds. Movement speed changes the spatial length of the trail.")
+            ?tr("Recorded history in animation seconds. Movement speed changes the spatial length of the trail. The memory budget may pause particles with very long histories; the status below reports this separately from missing data.")
             :tr("Visible tail in seconds of flow travel; independent of animation speed."));
     };
     connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,trailMode,updateTrailMode);updateTrailMode();
-    number("spacingPx",tr("Spacing:"),8,200,1,tr(" px"));
-    number("pathLengthPx",tr("Base path length:"),16,512,1,tr(" px"));
+    number("spacingPx",tr("Spacing:"),8,maximum,1,tr(" px"));
+    number("pathLengthPx",tr("Base path length:"),16,maximum,1,tr(" px"));
     page->findChild<QDoubleSpinBox*>("pathLengthPx")->setToolTip(tr("Paths extend beyond this length when needed for particle lifetime, within the rendering budget."));
     auto *basePath=page->findChild<QDoubleSpinBox*>("pathLengthPx");
     auto updatePreview=[st,basePath,help] {
@@ -979,17 +984,20 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
             :tr("Live rendering uses cached paths and updates as results arrive. Animation can continue at the selected time; it illustrates flow, not particle travel time."));
     };
     connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,help,updatePreview);updatePreview();
-    number("speedMultiplier",tr("Visual speed multiplier:"),0,1000,1,QString());
-    number("minimumLifetimeSeconds",tr("Minimum particle lifetime:"),.1,120,1,tr(" s"));
-    number("maximumLifetimeSeconds",tr("Maximum particle lifetime:"),.1,120,1,tr(" s"));
-    number("lifetimeFadeSeconds",tr("Birth/death fade duration:"),0,10,1,tr(" s"));
+    number("speedMultiplier",tr("Visual speed multiplier:"),0,maximum,1,QString());
+    number("minimumLifetimeSeconds",tr("Minimum particle lifetime:"),.1,maximum,1,tr(" s"));
+    number("maximumLifetimeSeconds",tr("Maximum particle lifetime:"),.1,maximum,1,tr(" s"));
+    number("lifetimeFadeSeconds",tr("Birth/death fade duration:"),0,maximum,1,tr(" s"));
     for(const char *key:{"minimumLifetimeSeconds","maximumLifetimeSeconds"})
         page->findChild<QDoubleSpinBox*>(key)->setToolTip(tr("A new randomized lifetime is chosen for each birth, in animation seconds. Dry areas, barriers, view coverage and tracing limits may end a particle earlier. Changing motion speed does not change its scheduled lifetime."));
-    number("animationTimestepMs",tr("Animation update interval:"),8,1000,0,tr(" ms"));
+    number("animationTimestepMs",tr("Animation update interval:"),8,std::numeric_limits<int>::max(),0,tr(" ms"));
     auto *timestep=page->findChild<QDoubleSpinBox*>("animationTimestepMs");
+    timestep->setStepType(QAbstractSpinBox::DefaultStepType);
     timestep->setSingleStep(1);
     timestep->setToolTip(tr("Requested interval between particle animation updates: try 16 ms for smoother motion or 33 ms for fewer updates. Motion speed and the hydraulic solver timestep are unchanged. The canvas uses the fastest visible layer setting; actual updates depend on rendering time."));
-    number("dryDepthCutoff",tr("Minimum wet depth:"),0,10,3,tr(" m"));
+    number("dryDepthCutoff",tr("Minimum wet depth:"),0,maximum,3,tr(" m"));
+    auto *entryHelp=new QLabel(tr("Type values directly and press Enter to apply. Arrow steps adapt to the value. Rendering work and memory budgets still apply."),page);
+    entryHelp->setWordWrap(true);lay->addWidget(entryHelp);
     auto *binding = new SublayerSchemeBinding(
         [st]{return st->scheme();},[st](const OpenSWMM::Render::ClassificationScheme &scheme){st->setScheme(scheme);},
         []{return QVector<double>{};},[st]{return qMakePair(st->scheme().rangeMin(),st->scheme().rangeMax());},true,false);

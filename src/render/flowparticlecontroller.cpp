@@ -90,8 +90,10 @@ std::shared_ptr<const FlowParticleFrame> FlowParticleController::frame(quint64 r
 }
 QString FlowParticleController::status() const {
     if(!m_current)return tr("Preparing continuous particles");
-    int waiting=0;for(const auto &p:m_current->particles)waiting+=p.waitingForData || p.historyLimited;
-    return tr("%1 particles · %2 births · %3 deaths · %4 waiting · %5 s lag")
-        .arg(m_current->particles.size()).arg(m_current->births).arg(m_current->deaths).arg(waiting).arg(m_lag,0,'f',3);
+    int waiting=0,historyLimited=0;
+    for(const auto &p:m_current->particles) {waiting+=p.waitingForData;historyLimited+=p.historyLimited;}
+    return tr("%1 particles · %2 births · %3 deaths · %4 waiting for data · %5 at trail history limit · %6 s lag")
+        .arg(m_current->particles.size()).arg(m_current->births).arg(m_current->deaths)
+        .arg(waiting).arg(historyLimited).arg(m_lag,0,'f',3);
 }
 } // namespace OpenSWMM::Render

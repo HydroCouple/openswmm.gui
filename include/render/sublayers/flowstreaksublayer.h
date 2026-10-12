@@ -4,6 +4,7 @@
 #include "render/sublayerstyle.h"
 #include "render/classificationscheme.h"
 #include <QColor>
+#include <limits>
 namespace OpenSWMM::Render {
 class FlowStreakStyle : public SublayerStyle {
     Q_OBJECT
@@ -47,6 +48,9 @@ class FlowStreakStyle : public SublayerStyle {
     Q_CLASSINFO("group:colorByMagnitude","Colour")
 public:
     explicit FlowStreakStyle(QObject *parent=nullptr);
+    // Rendering uniforms use floats; impose only their numeric range, not
+    // arbitrary tuning ceilings. Keep editors and persisted values consistent.
+    static constexpr double maximumNumericValue() { return std::numeric_limits<float>::max(); }
     QColor color() const { return m_color; }
     void setColor(QColor value);
     double widthPx() const { return m_widthPx; }
