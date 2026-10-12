@@ -11,6 +11,7 @@
  */
 #include "layers/swmm2dresultslayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
+#include "render/classificationcolorsampler.h"
 
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
@@ -301,6 +302,7 @@ public:
 
         p->save();
         p->setPen(Qt::NoPen);
+        p->setOpacity(p->opacity()*layer_->opacity());
 
         // Slice Z.14-paint — install clip from the layer's MaskSpec.
         // resolveMaskClip returns ok=false on disabled/unresolvable, in
@@ -610,7 +612,7 @@ public:
             pen.setWidthF(w);
             if (es) pen.setStyle(es->dashPattern());
             p->save();
-            p->setOpacity(subOp);
+            p->setOpacity(p->opacity()*subOp);
             p->setPen(pen);
             p->setBrush(Qt::NoBrush);
             for (const auto &e : layer_->m_sceneEdges) {
@@ -647,7 +649,7 @@ public:
             const double rScene = (szPx * 0.5) / scale;
 
             p->save();
-            p->setOpacity(subOp);
+            p->setOpacity(p->opacity()*subOp);
             if (outPx > 0.0) {
                 QPen pen(outC);
                 pen.setCosmetic(true);
@@ -676,6 +678,40 @@ public:
         }
 
         };
+        // Flat cell-depth fills must survive native/CPU ownership handoffs
+        // (masks and ordered stacks). Use the same classification and wet
+        // polygon as the native renderer, retaining the sublayer paint order.
+        const auto paintCellFill = [&](OpenSWMM::Render::CellDepthFillSublayer *sub) {
+            const auto *style = sub->fillStyle();
+            double lo = dryDepth, hi = maxDepth;
+            if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
+                lo = style->rangeMin(); hi = style->rangeMax();
+            }
+            if (hi <= lo) return;
+            QVector<double> levels;
+            if (style->classified()) {
+                const auto samples = style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::PerFrameAutoStretch
+                    ? layer_->currentDepthSamples(true) : layer_->depthClassificationSamples(style->scheme());
+                levels = style->scheme().levelEdges(lo, hi, samples);
+            }
+            const int bands = std::max(1, int(levels.size())-1);
+            const OpenSWMM::Render::ClassificationColorSampler colors(style->scheme(),lo,hi,
+                                                                       style->classified() ? bands : 0);
+            p->save(); p->setPen(Qt::NoPen); p->setOpacity(p->opacity()*sub->opacity());
+            for (const auto &t : tris) {
+                if (!std::isfinite(t.depth) || t.depth < lo) continue;
+                const auto wet = CellWaterGeometry::clipTriangle(t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
+                if (wet.size < 3) continue;
+                QPolygonF polygon;
+                for (int i=0; i<wet.size; ++i) polygon.append(wet.vertices[i].point);
+                if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed)) continue;
+                const int index = levels.size() >= 2 ? std::clamp(int(std::upper_bound(levels.cbegin()+1,
+                    levels.cend()-1,t.depth)-(levels.cbegin()+1)),0,bands-1) : 0;
+                p->setBrush(style->classified() ? colors.classColor(index) : colors.valueColor(t.depth));
+                p->drawConvexPolygon(polygon);
+            }
+            p->restore();
+        };
         for (auto *sub : layer_->sublayers()) {
             if (!sub || !sub->isVisible()) continue;
             if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
@@ -689,7 +725,7 @@ public:
                     const bool contours=style->presentation()==Presentation::Contours;
                     const auto levels=contours?style->contourLevels(frame->minimum,frame->maximum,frame->samples):std::vector<double>();
                     const auto geometry=layer_->resultScalarGeometry(frame,levels,!contours);
-                    p->save();p->setOpacity(scalar->opacity());p->setBrush(Qt::NoBrush);
+                    p->save();p->setOpacity(p->opacity()*scalar->opacity());p->setBrush(Qt::NoBrush);
                     QPen pen(lineStyle->color());pen.setCosmetic(true);pen.setStyle(lineStyle->dashPattern());
                     for(const auto &line:geometry->contours) {
                         const auto index=std::lower_bound(levels.begin(),levels.end(),line.level)-levels.begin();
@@ -722,7 +758,8 @@ public:
                     p->setBrush(colors[cell]); p->drawConvexPolygon(pts,3);
                 }
                 p->restore();
-            } else if (sub == layer_->flowStreakSublayer()) layer_->paintFlowStreaks(p, exposed);
+            } else if (sub == layer_->cellDepthFillSublayer()) paintCellFill(layer_->cellDepthFillSublayer());
+            else if (sub == layer_->flowStreakSublayer()) layer_->paintFlowStreaks(p, exposed);
             else if (sub == bandSub) paintBandPass();
             else if (sub == isolineSub) paintIsolinePass();
             else if (sub == layer_->meshEdgeSublayer()) paintEdgePass();
@@ -915,7 +952,7 @@ private:
         pen.setCapStyle(Qt::RoundCap);
 
         p->save();
-        p->setOpacity(alpha);
+        p->setOpacity(p->opacity()*layer_->opacity()*alpha);
 
         // Skip cells whose magnitude is below 0.01% of the running peak —
         // numerical noise without clipping real flow on slow shallow runs.

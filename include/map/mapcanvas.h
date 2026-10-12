@@ -78,6 +78,22 @@ class MapCanvas : public QWidget
 
 public:
 
+    struct CompositionStats {
+        bool active = false;
+        quint64 renderedFrames = 0;
+        quint64 textureUploads = 0;
+        quint64 captureReadbacks = 0;
+        quint64 fallbackReadbacks = 0;
+        QVector<double> renderIntervalsMs;
+    };
+    // Render-completion notifications, not OS display presentation times.
+    [[nodiscard]] CompositionStats compositionStats() const;
+
+    using QWidget::update;
+    // An opaque composition child occludes the parent's paint handler. Map
+    // edits must also synchronize its cached images/native ownership.
+    Q_SLOT void update();
+
     explicit MapCanvas(QWidget *parent = nullptr);
     ~MapCanvas() override;
 
@@ -430,6 +446,11 @@ private:
     void renderScaleBar(QPainter &painter) const;
     void renderCoordinates(QPainter &painter, double mapX, double mapY) const;
     void renderTerrainLabel(QPainter &painter) const;
+    void paintForeground(QPainter &painter);
+    void updateFlowAnimationTimer();
+    void initializeVisibleComposition();
+    bool renderVisibleComposition();
+    void stopVisibleComposition();
 
     // Returns ground distance (metres) represented by one horizontal screen pixel
     // at the centre of the current view.  CRS-aware: uses the cosine-latitude
@@ -558,6 +579,25 @@ private:
     class SWMMLayerQSGRenderer       *m_qsgRenderer     = nullptr;
     class SWMM2DResultsQSGRenderer   *m_qsg2DRenderer   = nullptr;
     class SWMM2DMeshQSGRenderer      *m_qsgMeshRenderer = nullptr;
+
+    // Complete opaque map composition: cached CPU images below/above native
+    // geometry. A transparent native child cannot compose reliably in an MDI
+    // host on macOS. Ordinary particle frames never read this surface back.
+    class QQuickWidget *m_compositionWidget = nullptr;
+    class SWMMLayerQSGRenderer *m_compositionNetwork = nullptr;
+    class SWMM2DResultsQSGRenderer *m_compositionResults = nullptr;
+    QPointer<class SWMM2DResultsLayer> m_compositionLayer;
+    class SWMM2DMeshQSGRenderer *m_compositionMesh = nullptr;
+    class MapTextureItem *m_rasterTexture = nullptr;
+    class MapTextureItem *m_sceneTexture = nullptr;
+    class MapTextureItem *m_foregroundTexture = nullptr;
+    bool m_compositionActive = false;
+    bool m_compositionFailed = false;
+    bool m_compositionCreationPending = false;
+    bool m_compositionSyncPending = false;
+    bool m_compositionOrderedFallback = false;
+    CompositionStats m_compositionStats;
+    QElapsedTimer m_compositionClock;
 
     // Cached QSG framebuffer (re-grabbed only when something the QSG
     // renderer cares about actually changed — extent, layer, widget

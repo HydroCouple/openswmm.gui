@@ -45,6 +45,8 @@
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QQuickWindow>
+#include <QSGSimpleTextureNode>
+#include <QSGTexture>
 
 #include <QPainter>
 #include <QMouseEvent>
@@ -64,6 +66,41 @@
 #include <QWindow>
 
 #include <ogr_spatialref.h>   // OGRCoordinateTransformation for fullExtent
+
+// QQuickWidget uses the GUI render loop. Images are implicitly shared and
+// uploaded only when their content changes; viewport transforms move the
+// existing texture. Scene-graph invalidation naturally recreates the texture.
+class MapTextureItem final : public QQuickItem
+{
+public:
+    explicit MapTextureItem(QQuickItem *parent) : QQuickItem(parent)
+    { setFlag(ItemHasContents); setAcceptedMouseButtons(Qt::NoButton); }
+    void setImage(const QImage &image, const QRectF &target)
+    {
+        setPosition(target.topLeft()); setSize(target.size());
+        if (image.cacheKey() != m_image.cacheKey()) { m_image = image; update(); }
+    }
+    quint64 uploads = 0;
+protected:
+    QSGNode *updatePaintNode(QSGNode *old, UpdatePaintNodeData *) override
+    {
+        if (m_image.isNull()) { delete old; return nullptr; }
+        auto *node = static_cast<QSGSimpleTextureNode *>(old);
+        if (!node) node = new QSGSimpleTextureNode;
+        if (!old || m_uploadedKey != m_image.cacheKey()) {
+            auto *texture = window()->createTextureFromImage(m_image);
+            if (!texture) { delete node; return nullptr; }
+            // The owning node releases the previous texture in setTexture().
+            node->setTexture(texture); node->setOwnsTexture(true);
+            node->setFiltering(QSGTexture::Linear);
+            m_uploadedKey = m_image.cacheKey(); ++uploads;
+        }
+        node->setRect(boundingRect()); return node;
+    }
+private:
+    QImage m_image;
+    qint64 m_uploadedKey = 0;
+};
 
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
@@ -278,7 +315,7 @@ MapCanvas::MapCanvas(QWidget *parent)
 
     // Scale bar appearance settings — child QObject so it's cleaned up with the canvas.
     m_scaleBarSettings = new ScaleBarSettings(this);
-    connect(m_scaleBarSettings, &ScaleBarSettings::changed, this, qOverload<>(&QWidget::update));
+    connect(m_scaleBarSettings, &ScaleBarSettings::changed, this, qOverload<>(&MapCanvas::update));
 
     // Seed from persisted preferences and live-update whenever they change.
     syncScaleBarFromPreferences();
@@ -300,11 +337,13 @@ MapCanvas::MapCanvas(QWidget *parent)
                 }
             });
 
+
 }
 
 MapCanvas::~MapCanvas()
 {
     cancelRenderJob();
+    stopVisibleComposition();
 
     // Hand every layer its scene item back before m_scene (our child) is
     // destroyed and deletes those items itself.
@@ -647,6 +686,7 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
             if (!m_layers.contains(flow)) return;
             if (!flow->qsgOwnsRendering()) m_sceneDirty = true;
             // Phase-only presentation: no scene refresh, result read or fit.
+            if (m_compositionActive && m_compositionLayer == flow) return;
             update();
         });
     }
@@ -747,6 +787,7 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
         return layer;   // command's redo() has already removed it
     }
 
+    stopVisibleComposition();
     OpenSWMMVisLayer *layer = m_layers.takeAt(index);
 
     disconnect(layer, &OpenSWMMVisLayer::repaintRequested,
@@ -1725,18 +1766,28 @@ QPixmap MapCanvas::captureMap(QString *error)
         }
         m_sceneDirty = true;
         m_qsgFrameDirty = true;
-        const QPixmap image = grab();
+        QPixmap image;
+        if (renderVisibleComposition()) {
+            m_compositionWidget->repaint();
+            QImage frame = m_compositionWidget->grabFramebuffer();
+            frame.setDevicePixelRatio(devicePixelRatioF());
+            image = QPixmap::fromImage(frame);
+            ++m_compositionStats.captureReadbacks;
+        } else {
+            image = grab();
+        }
+        auto *renderer = m_compositionActive ? m_compositionResults : m_qsg2DRenderer;
         bool ready = true;
         for (auto *layer : std::as_const(m_layers)) {
             auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
             if (!flow || !flow->flowStreaksEnabled() || !view.intersects(flow->m_sceneBBox)) continue;
             if (flow->flowStreakBusy()) ready = false;
-            if (flow->qsgOwnsRendering() && m_qsg2DRenderer
-                && (!m_qsg2DRenderer->captureReady()
-                    || m_qsg2DRenderer->displayedFrameRevision() != flow->frameRevision())) ready = false;
+            if (flow->qsgOwnsRendering() && renderer
+                && (!renderer->captureReady()
+                    || renderer->displayedFrameRevision() != flow->frameRevision())) ready = false;
         }
         if (ready) return image;
-        if (m_qsg2DRenderer) m_qsg2DRenderer->finishPendingCapture();
+        if (renderer) renderer->finishPendingCapture();
     }
     if (error) *error = tr("The flow display is still preparing. Please retry the capture.");
     return {};
@@ -1890,8 +1941,220 @@ void MapCanvas::onRenderJobFinished(QImage result)
 // paintEvent — composites raster buffer + tool overlay + decorations
 // ---------------------------------------------------------------------------
 
+void MapCanvas::initializeVisibleComposition()
+{
+    m_compositionCreationPending = false;
+    if (m_compositionWidget) return;
+    m_compositionWidget = new QQuickWidget(this);
+    m_compositionWidget->setObjectName(QStringLiteral("flowMapComposition"));
+    m_compositionWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_compositionWidget->setAttribute(Qt::WA_OpaquePaintEvent);
+    m_compositionWidget->setFocusPolicy(Qt::NoFocus);
+    m_compositionWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    auto format = m_compositionWidget->format(); format.setSamples(4);
+    m_compositionWidget->setFormat(format);
+    m_compositionWidget->setSource(QUrl(QStringLiteral("qrc:/openswmm/qml/swmmlayer.qml")));
+    connect(m_compositionWidget, &QQuickWidget::sceneGraphError, this,
+            [this](QQuickWindow::SceneGraphError, const QString &message) {
+        qWarning() << "[MapCanvas] visible composition unavailable:" << message;
+        m_compositionFailed = true;
+        stopVisibleComposition(); update();
+    });
+    auto *root = m_compositionWidget->rootObject();
+    if (root) {
+        m_compositionResults = root->findChild<SWMM2DResultsQSGRenderer *>(QStringLiteral("results2dRenderer"));
+        m_compositionMesh = root->findChild<SWMM2DMeshQSGRenderer *>(QStringLiteral("mesh2dRenderer"));
+        m_compositionNetwork = root->findChild<SWMMLayerQSGRenderer *>(QStringLiteral("swmmRenderer"));
+        m_rasterTexture = new MapTextureItem(root); m_rasterTexture->setZ(-2);
+        m_sceneTexture = new MapTextureItem(root); m_sceneTexture->setZ(-1);
+        m_foregroundTexture = new MapTextureItem(root);
+    }
+    connect(m_compositionWidget->quickWindow(), &QQuickWindow::afterRendering, this, [this] {
+        if (!m_compositionActive) return;
+        ++m_compositionStats.renderedFrames;
+        if (m_compositionClock.isValid()) {
+            if (m_compositionStats.renderIntervalsMs.size() == 4096)
+                m_compositionStats.renderIntervalsMs.remove(0, 1024);
+            m_compositionStats.renderIntervalsMs.append(m_compositionClock.nsecsElapsed()/1e6);
+        }
+        m_compositionClock.start();
+    });
+    m_compositionWidget->hide();
+}
+
+MapCanvas::CompositionStats MapCanvas::compositionStats() const
+{
+    auto stats = m_compositionStats;
+    stats.active = m_compositionActive;
+    stats.textureUploads = (m_rasterTexture ? m_rasterTexture->uploads : 0)
+                         + (m_sceneTexture ? m_sceneTexture->uploads : 0)
+                         + (m_foregroundTexture ? m_foregroundTexture->uploads : 0);
+    return stats;
+}
+
+void MapCanvas::update()
+{
+    QWidget::update();
+    if (!m_compositionActive || m_compositionSyncPending) return;
+    m_compositionSyncPending = true;
+    QTimer::singleShot(0, this, [this] {
+        m_compositionSyncPending = false;
+        if (!m_compositionActive) return;
+        if (!renderVisibleComposition()) QWidget::update();
+        updateFlowAnimationTimer();
+    });
+}
+
+void MapCanvas::stopVisibleComposition()
+{
+    if (!m_compositionActive) return;
+    m_compositionActive = false;
+    m_compositionLayer.clear();
+    m_compositionWidget->hide();
+    m_compositionResults->setLayer(nullptr);
+    m_compositionMesh->setLayer(nullptr);
+    m_compositionNetwork->setLayer(nullptr);
+    for (auto *layer : std::as_const(m_layers)) {
+        if (auto *results = qobject_cast<SWMM2DResultsLayer *>(layer)) results->setQsgOwnsRendering(false);
+        if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer)) mesh->setQsgOwnsRendering(false);
+    }
+    m_qsg1DForced = false;
+    syncQsgRenderKindsFromPreferences();
+    m_sceneDirty = true;
+    m_qsgFrameDirty = true;
+    m_qsgFrameCache = {};
+    m_compositionClock.invalidate();
+}
+
+bool MapCanvas::renderVisibleComposition()
+{
+    m_compositionOrderedFallback = false;
+    SWMM2DResultsLayer *results = nullptr;
+    SWMM2DMeshLayer *mesh = nullptr;
+    SWMMModelLayer *network = nullptr;
+    bool hasContinuousResults = false;
+    bool supported = !m_compositionFailed && isVisible() && !window()->isMinimized()
+        && m_extent.isValid() && width() > 0 && height() > 0
+        && QGuiApplication::platformName() != QLatin1String("offscreen")
+        && QGuiApplication::platformName() != QLatin1String("minimal")
+        && qEnvironmentVariable("QT_QUICK_BACKEND") != QLatin1String("software")
+        && qEnvironmentVariable("OPENSWMM_FLOW_COMPOSITION") != QLatin1String("0");
+    for (auto *layer : std::as_const(m_layers)) {
+        if (!layer->isVisible() || layer->opacity() <= 0) continue;
+        if (auto *r = qobject_cast<SWMM2DResultsLayer *>(layer)) {
+            hasContinuousResults |= r->flowStreaksEnabled()
+                && r->flowStreakSublayer()->streakStyle()->continuousParticles();
+            if (results || r->maskSpec().enabled) m_compositionOrderedFallback = true;
+            if (results || r->maskSpec().enabled) supported = false;
+            results = r;
+        } else if (auto *m = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+            if (mesh || m->maskSpec().enabled) m_compositionOrderedFallback = true;
+            if (mesh || m->maskSpec().enabled) supported = false;
+            mesh = m;
+        } else if (auto *n = qobject_cast<SWMMModelLayer *>(layer)) {
+            if (network || n->maskSpec().enabled) m_compositionOrderedFallback = true;
+            if (network || n->maskSpec().enabled) supported = false;
+            network = n;
+        }
+    }
+    if (!hasContinuousResults) {
+        m_compositionOrderedFallback = false;
+        stopVisibleComposition(); return false;
+    }
+    supported = supported && results && results->flowStreaksEnabled()
+        && results->flowStreakSublayer()->streakStyle()->continuousParticles();
+    if (mesh && (!PreferencesManager::instance()->qsgMeshRenderEnabled()
+                 || qEnvironmentVariable("OPENSWMM_QSG_MESH") == QLatin1String("0"))) mesh = nullptr;
+    // CPU layers fit in the cached background only when they precede every
+    // native item. Annotations are explicitly drawn in the foreground, as in
+    // the existing canvas. Unsupported stacks retain that existing path.
+    bool nativeBelow = false;
+    for (auto *layer : std::as_const(m_layers)) {
+        if (!layer->isVisible() || layer->opacity() <= 0 || layer->isRasterLayer()) continue;
+        if (layer == results || layer == mesh || layer == network) nativeBelow = true;
+        else if (nativeBelow && !qobject_cast<OpenSWMMVisAnnotationLayer *>(layer)) {
+            supported = false; m_compositionOrderedFallback = true;
+        }
+    }
+    if (!supported) { stopVisibleComposition(); return false; }
+
+    if (!m_compositionWidget) {
+        // Adding the first render-to-texture child can recreate the top-level
+        // backing-store manager. Schedule that change outside paintEvent.
+        if (!m_compositionCreationPending) {
+            m_compositionCreationPending = true;
+            QTimer::singleShot(0, this, [this] { initializeVisibleComposition(); update(); });
+        }
+        return false;
+    }
+    if (!m_compositionWidget || !m_compositionResults || !m_compositionMesh || !m_compositionNetwork
+        || m_compositionWidget->status() != QQuickWidget::Ready) return false;
+
+    if (!m_compositionActive) {
+        // Separate windows own separate texture caches. Never migrate an
+        // existing renderer's scene-graph resources to another QQuickWindow.
+        if (m_qsgRenderer) m_qsgRenderer->setLayer(nullptr);
+        if (m_qsg2DRenderer) m_qsg2DRenderer->setLayer(nullptr);
+        if (m_qsgMeshRenderer) m_qsgMeshRenderer->setLayer(nullptr);
+        m_compositionActive = true;
+        m_sceneDirty = true;
+        m_compositionClock.invalidate();
+    }
+    m_compositionLayer = results;
+    for (auto *layer : std::as_const(m_layers)) {
+        if (auto *r = qobject_cast<SWMM2DResultsLayer *>(layer)) r->setQsgOwnsRendering(r == results);
+        if (auto *m = qobject_cast<SWMM2DMeshLayer *>(layer)) m->setQsgOwnsRendering(m == mesh);
+    }
+    if (network) {
+        network->setQsgRenderKinds(SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNodes
+            | SWMMModelLayer::QsgLinks | SWMMModelLayer::QsgCatch | SWMMModelLayer::QsgGages));
+        m_qsg1DForced = true;
+    }
+    m_compositionWidget->setGeometry(rect());
+    m_compositionWidget->setClearColor(m_bgColor);
+    m_compositionResults->setProperty("canvasDevicePixelRatio", 1.0);
+    m_compositionResults->setLayer(results);
+    m_compositionMesh->setLayer(mesh);
+    m_compositionNetwork->setLayer(network);
+    for (const auto &entry : {qMakePair(static_cast<QQuickItem *>(m_compositionResults), static_cast<OpenSWMMVisLayer *>(results)),
+                             qMakePair(static_cast<QQuickItem *>(m_compositionMesh), static_cast<OpenSWMMVisLayer *>(mesh)),
+                             qMakePair(static_cast<QQuickItem *>(m_compositionNetwork), static_cast<OpenSWMMVisLayer *>(network))}) {
+        entry.first->setZ(entry.second ? m_layers.indexOf(entry.second) : 0);
+        entry.first->setOpacity(entry.second ? entry.second->opacity() : 1.0);
+    }
+    m_compositionResults->setMapExtent(m_extent);
+    m_compositionMesh->setMapExtent(m_extent);
+    m_compositionNetwork->setMapExtent(m_extent);
+
+    const qreal dpr = devicePixelRatioF();
+    const QSize pixels(qRound(width()*dpr), qRound(height()*dpr));
+    const bool gesture = m_isPanning || m_isZooming;
+    if ((!gesture || m_sceneBuffer.isNull()) && (m_sceneDirty || m_sceneBufferExtent != m_extent
+        || m_sceneBuffer.size() != pixels || !qFuzzyCompare(m_sceneBuffer.devicePixelRatio(), dpr))) renderSceneBuffer();
+    const auto target = [this](const MapExtent &source) {
+        if (!source.isValid()) return QRectF(rect());
+        const double sx = width()/m_extent.width(), sy = height()/m_extent.height();
+        return QRectF((source.xMin()-m_extent.xMin())*sx, (m_extent.yMax()-source.yMax())*sy,
+                      source.width()*sx, source.height()*sy);
+    };
+    m_rasterTexture->setImage(m_mapBuffer, target(m_mapBufferExtent));
+    m_sceneTexture->setImage(m_sceneBuffer, target(m_sceneBufferExtent));
+    QImage foreground(pixels, QImage::Format_ARGB32_Premultiplied);
+    foreground.setDevicePixelRatio(dpr); foreground.fill(Qt::transparent);
+    QPainter painter(&foreground);
+    painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing | QPainter::SmoothPixmapTransform);
+    paintForeground(painter); painter.end();
+    m_foregroundTexture->setZ(m_layers.size()+1);
+    m_foregroundTexture->setImage(foreground, QRectF(rect()));
+    m_compositionWidget->show();
+    m_compositionWidget->raise();
+    return true;
+}
+
 void MapCanvas::paintEvent(QPaintEvent * /*event*/)
 {
+    if (renderVisibleComposition()) { updateFlowAnimationTimer(); return; }
+
     // Opt-in profiling (openswmm.render.perf).
     const bool perfOn = lcRenderPerf().isDebugEnabled();
     QElapsedTimer paintTimer;
@@ -1987,8 +2250,9 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         if (qobject_cast<SWMMModelLayer *>(layer)) modelBelow = true;
         if (modelBelow && qobject_cast<SWMMResultsLayer *>(layer)) resultsAboveModel = true;
     }
-    if (resultsAboveModel != m_resultsRequireOrderedScene) {
-        m_resultsRequireOrderedScene = resultsAboveModel;
+    const bool orderedScene = resultsAboveModel || m_compositionOrderedFallback;
+    if (orderedScene != m_resultsRequireOrderedScene) {
+        m_resultsRequireOrderedScene = orderedScene;
         m_qsg1DForced = false;
         syncQsgRenderKindsFromPreferences();
         m_sceneDirty = true;
@@ -2236,15 +2500,18 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 const qreal backingDpr = m_qsgWidget->quickWindow()->effectiveDevicePixelRatio();
                 const qreal overlayScale = qsgDpr / (backingDpr > 0 ? backingDpr : qreal(1));
                 if (m_qsgRenderer) {
+                    m_qsgRenderer->setOpacity(firstSwmm ? firstSwmm->opacity() : 1.0);
                     m_qsgRenderer->setLayer(firstSwmm);
                     m_qsgRenderer->setMapExtent(m_extent);
                 }
                 if (m_qsg2DRenderer) {
+                    m_qsg2DRenderer->setOpacity(want2D ? want2D->opacity() : 1.0);
                     m_qsg2DRenderer->setProperty("canvasDevicePixelRatio",overlayScale);
                     m_qsg2DRenderer->setLayer(want2D);
                     m_qsg2DRenderer->setMapExtent(m_extent);
                 }
                 if (m_qsgMeshRenderer) {
+                    m_qsgMeshRenderer->setOpacity(wantMesh ? wantMesh->opacity() : 1.0);
                     m_qsgMeshRenderer->setLayer(wantMesh);
                     m_qsgMeshRenderer->setMapExtent(m_extent);
                 }
@@ -2272,6 +2539,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                     kPerfOn ? perfTimer.nsecsElapsed() / 1e6 : -1.0;
                 if (kPerfOn) perfTimer.restart();
                 m_qsgFrameCache    = m_qsgWidget->grabFramebuffer();
+                ++m_compositionStats.fallbackReadbacks;
                 if (kPerfOn) {
                     OpenSWMM::Render::Qsg2DRenderStats canvasStats;
                     canvasStats.rendererName = QStringLiteral("canvas");
@@ -2332,6 +2600,24 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         } // close `} else {` for qsgActive path
     }
 
+    paintForeground(p);
+    updateFlowAnimationTimer();
+
+    p.end(); // finalise m_frameBuffer before blitting
+
+    if (perfOn)
+        qCDebug(lcRenderPerf).noquote()
+            << QStringLiteral("[paint.total] %1 ms gesture=%2")
+                   .arg(paintTimer.elapsed())
+                   .arg((m_isPanning || m_isZooming) ? 1 : 0);
+
+    // ---- Blit the completed frame to the screen in one atomic operation ----
+    QPainter screen(this);
+    screen.drawImage(0, 0, m_frameBuffer);
+}
+
+void MapCanvas::paintForeground(QPainter &p)
+{
     OpenSWMMVisAnnotationLayer::paintLayers(p, m_layers, m_extent, m_canvasSRS, size());
 
     // ---- Layer 2c: profile overlays (above the QSG flood-map mesh) --------
@@ -2381,6 +2667,10 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     if (m_terrainZ.has_value())
         renderTerrainLabel(p);
 
+}
+
+void MapCanvas::updateFlowAnimationTimer()
+{
     bool animateFlow = false;
     int flowInterval = std::numeric_limits<int>::max();
     for (auto *layer : std::as_const(m_layers)) {
@@ -2399,17 +2689,6 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     if (animateFlow && !m_flowTimer->isActive()) { m_flowClock.start(); m_flowTimer->start(); }
     if (!animateFlow) m_flowTimer->stop();
 
-    p.end(); // finalise m_frameBuffer before blitting
-
-    if (perfOn)
-        qCDebug(lcRenderPerf).noquote()
-            << QStringLiteral("[paint.total] %1 ms gesture=%2")
-                   .arg(paintTimer.elapsed())
-                   .arg((m_isPanning || m_isZooming) ? 1 : 0);
-
-    // ---- Blit the completed frame to the screen in one atomic operation ----
-    QPainter screen(this);
-    screen.drawImage(0, 0, m_frameBuffer);
 }
 
 // ---------------------------------------------------------------------------
