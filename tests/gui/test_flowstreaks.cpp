@@ -472,7 +472,7 @@ private slots:
         timestep->setValue(33);QCOMPARE(style->animationTimestepMs(),33);
         style->setAnimationTimestepMs(50);QCOMPARE(timestep->value(),50.);
         style->setAnimationTimestepMs(1);QCOMPARE(timestep->value(),8.);
-        style->setAnimationTimestepMs(2000);QCOMPARE(timestep->value(),1000.);
+        style->setAnimationTimestepMs(2000);QCOMPARE(timestep->value(),2000.);
         auto *minimum=panel.findChild<QDoubleSpinBox*>("minimumLifetimeSeconds");
         auto *trailMode=panel.findChild<QComboBox*>("velocityScaledTrail");QVERIFY(trailMode);
         auto *trailDuration=panel.findChild<QDoubleSpinBox*>("trailDurationSeconds");
@@ -487,6 +487,64 @@ private slots:
         maximum->setValue(10);QCOMPARE(style->maximumLifetimeSeconds(),10.);QCOMPARE(minimum->value(),10.);
         style->setMaximumLifetimeSeconds(25);QCOMPARE(maximum->value(),25.);
         motion->setChecked(false);QVERIFY(!style->animated());style->setAnimated(true);QVERIFY(motion->isChecked());
+    }
+    void stylePanelAcceptsExtendedRangesAndPreservesSavedValues() {
+        SWMM2DResultsLayer layer;openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
+        auto *style=layer.flowStreakSublayer()->streakStyle();
+        // Exercise actual typing/Enter, not just programmatic spin-box edits.
+        // Every value exceeds the old UI AND style-bag ceiling.
+        for(const auto &setting:{qMakePair("widthPx",24.),qMakePair("headWidthPx",48.),
+                                 qMakePair("trailLengthPx",2000.),qMakePair("trailDurationSeconds",120.),
+                                 qMakePair("spacingPx",1000.),qMakePair("pathLengthPx",4096.),
+                                 qMakePair("speedMultiplier",5000.),qMakePair("minimumLifetimeSeconds",600.),
+                                 qMakePair("maximumLifetimeSeconds",3600.),qMakePair("lifetimeFadeSeconds",30.),
+                                 qMakePair("animationTimestepMs",5000.),qMakePair("dryDepthCutoff",25.)}) {
+            if(QString::fromLatin1(setting.first)=="trailLengthPx")style->setVelocityScaledTrail(false);
+            if(QString::fromLatin1(setting.first)=="trailDurationSeconds")style->setVelocityScaledTrail(true);
+            auto *control=panel.findChild<QDoubleSpinBox*>(setting.first);QVERIFY(control);
+            QVERIFY(control->isEnabled());const auto previous=style->property(setting.first);
+            control->selectAll();QTest::keyClicks(control,QString::number(setting.second));
+            QCOMPARE(style->property(setting.first),previous); // partially typed entries do not write the model
+            QTest::keyClick(control,Qt::Key_Return);
+            QCOMPARE(control->value(),setting.second);QCOMPARE(style->property(setting.first).toDouble(),setting.second);
+        }
+        const auto json=QJsonDocument::fromJson(QJsonDocument(style->toJson()).toJson()).object();
+        FlowStreakStyle restored;restored.fromJson(json);QCOMPARE(restored.toJson(),style->toJson());
+        // Opening/synchronizing an editor must never truncate an existing value.
+        openswmmvis::ui::Swmm2DResultsStylePanel reopened(&layer);
+        QCOMPARE(reopened.findChild<QDoubleSpinBox*>("maximumLifetimeSeconds")->value(),3600.);
+        style->setMaximumLifetimeSeconds(7200);
+        QCOMPARE(panel.findChild<QDoubleSpinBox*>("maximumLifetimeSeconds")->value(),7200.);
+        QCOMPARE(reopened.findChild<QDoubleSpinBox*>("maximumLifetimeSeconds")->value(),7200.);
+        // Only numeric representation limits remain; derived products stay finite.
+        style->setMaximumLifetimeSeconds(std::numeric_limits<double>::max());
+        style->setSpeedMultiplier(std::numeric_limits<double>::max());
+        QCOMPARE(style->maximumLifetimeSeconds(),FlowStreakStyle::maximumNumericValue());
+        QCOMPARE(panel.findChild<QDoubleSpinBox*>("maximumLifetimeSeconds")->value(),style->maximumLifetimeSeconds());
+        QVERIFY(std::isfinite(style->pathSettings()["duration"].toDouble()));
+        style->setAnimationTimestepMs(std::numeric_limits<int>::max());
+        QCOMPARE(panel.findChild<QDoubleSpinBox*>("animationTimestepMs")->value(),double(std::numeric_limits<int>::max()));
+    }
+    void continuousLongTrailKeepsHistoryAndPopulationBounded() {
+        SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();source->speed=.01f;
+        layer.setSource(std::move(source));
+        auto *sub=layer.flowStreakSublayer();sub->setVisible(true);
+        auto *style=sub->streakStyle();style->setContinuousParticles(true);style->setSpeedMultiplier(1);
+        style->setMinimumLifetimeSeconds(600);style->setMaximumLifetimeSeconds(3600);
+        // Far beyond int range after conversion to samples: must clamp BEFORE
+        // casting, keeping the requested duration rather than wrapping it.
+        style->setTrailDurationSeconds(FlowStreakStyle::maximumNumericValue());
+        QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        layer.advanceFlowStreaks(12);QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        const auto frame=layer.flowParticles(layer.m_sceneBBox,1,layer.frameRevision());QVERIFY(frame);
+        QVERIFY(!frame->particles.empty());QCOMPARE(frame->deaths,quint64(0));
+        for(const auto &p:frame->particles) {
+            QVERIFY(p.lifetime>=600 && p.lifetime<=3600);QVERIFY(p.history.size()<=4096);
+            QVERIFY(p.history.size()>512);QVERIFY(!p.historyLimited);
+        }
+        QCOMPARE(style->trailDurationSeconds(),FlowStreakStyle::maximumNumericValue());
+        // The long-tail history allocation still reduces the maximum pool.
+        QVERIFY(frame->particles.size()<=size_t((96*1024*1024)/(4*sizeof(FlowParticleSample)*4096)));
     }
     void headWidthPreservesLegacyStyles() {
         FlowStreakStyle style;
@@ -505,9 +563,9 @@ private slots:
         style.fromJson({{"widthPx",3.},{"headWidthPx",8.}});
         QCOMPARE(style.widthPx(),3.);QCOMPARE(style.headWidthPx(),8.);
         style.setHeadWidthPx(-1);QCOMPARE(style.headWidthPx(),.1);
-        style.setHeadWidthPx(30);QCOMPARE(style.headWidthPx(),12.);
+        style.setHeadWidthPx(30);QCOMPARE(style.headWidthPx(),30.);
         style.setHeadWidthPx(std::numeric_limits<double>::quiet_NaN());
-        style.setHeadWidthPx(std::numeric_limits<double>::infinity());QCOMPARE(style.headWidthPx(),12.);
+        style.setHeadWidthPx(std::numeric_limits<double>::infinity());QCOMPARE(style.headWidthPx(),30.);
         // Even the narrowest head on the widest tapered trail stays positive.
         style.setWidthPx(12);style.setHeadWidthPx(.1);style.setTaper(true);
         for(int i=0;i<=100;++i)QVERIFY(style.widthAtFraction(i/100.)>0);
@@ -522,11 +580,11 @@ private slots:
             style.setTrailDurationSeconds(invalid);QCOMPARE(style.trailDurationSeconds(),5.5);
         }
         style.setTrailDurationSeconds(-1);QCOMPARE(style.trailDurationSeconds(),.1);
-        style.setTrailDurationSeconds(200);QCOMPARE(style.trailDurationSeconds(),30.);
+        style.setTrailDurationSeconds(200);QCOMPARE(style.trailDurationSeconds(),200.);
         style.fromJson({{"trailLengthPx",24.}});QVERIFY(!style.velocityScaledTrail());QCOMPARE(style.activeTrailDurationSeconds(),0.);
         QCOMPARE(style.trailLengthPx(),24.);QCOMPARE(style.pathSettings(),key);
         reopened.fromJson(style.toJson());QCOMPARE(reopened.toJson(),style.toJson());
-        style.setVelocityScaledTrail(true);QCOMPARE(style.activeTrailDurationSeconds(),30.);
+        style.setVelocityScaledTrail(true);QCOMPARE(style.activeTrailDurationSeconds(),200.);
     }
     void lifetimeValidationAndLegacyStyles() {
         FlowStreakStyle style;
@@ -542,9 +600,9 @@ private slots:
             style.setMinimumLifetimeSeconds(invalid);style.setMaximumLifetimeSeconds(invalid);style.setLifetimeFadeSeconds(invalid);
             QCOMPARE(style.toJson(),reopened.toJson());
         }
-        style.setMinimumLifetimeSeconds(200);QCOMPARE(style.minimumLifetimeSeconds(),120.);QCOMPARE(style.maximumLifetimeSeconds(),120.);
+        style.setMinimumLifetimeSeconds(200);QCOMPARE(style.minimumLifetimeSeconds(),200.);QCOMPARE(style.maximumLifetimeSeconds(),200.);
         style.setMaximumLifetimeSeconds(-1);QCOMPARE(style.minimumLifetimeSeconds(),.1);QCOMPARE(style.maximumLifetimeSeconds(),.1);
-        style.setLifetimeFadeSeconds(20);QCOMPARE(style.lifetimeFadeSeconds(),10.);
+        style.setLifetimeFadeSeconds(20);QCOMPARE(style.lifetimeFadeSeconds(),20.);
         style.setLifetimeFadeSeconds(-1);QCOMPARE(style.lifetimeFadeSeconds(),0.);
     }
     void velocitiesHaveCorrectDepthConversion() {
@@ -1420,6 +1478,8 @@ private slots:
         QCOMPARE(animationTimer->interval(),33);
         layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(1000);canvas.repaint();
         QCOMPARE(animationTimer->interval(),1000);
+        layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(5000);canvas.repaint();
+        QCOMPARE(animationTimer->interval(),5000);
         const double slowPhase=layer.flowStreakSeconds();QTest::qWait(40);QCOMPARE(layer.flowStreakSeconds(),slowPhase);
         layer.flowStreakSublayer()->streakStyle()->setAnimationTimestepMs(16);canvas.repaint();
         const int builds=layer.flowStreakBuildCount();
