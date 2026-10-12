@@ -969,7 +969,7 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         trailDuration->setEnabled(st->continuousParticles() || st->velocityScaledTrail());
         trailLength->setEnabled(!st->continuousParticles() && !st->velocityScaledTrail());
         trailDuration->setToolTip(st->continuousParticles()
-            ?tr("Recorded history in animation seconds. Movement speed changes the spatial length of the trail. The memory budget may pause particles with very long histories; the status below reports this separately from missing data.")
+            ?tr("Recorded history in animation seconds. Movement speed changes the spatial length of the trail. Redundant points are reduced within a small visual error. If a complex trail reaches the memory budget, only its displayed tail is shortened and reported below; motion and assigned lifetime continue.")
             :tr("Visible tail in seconds of flow travel; independent of animation speed."));
     };
     connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,trailMode,updateTrailMode);updateTrailMode();

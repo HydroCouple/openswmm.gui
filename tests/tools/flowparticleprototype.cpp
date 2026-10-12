@@ -160,7 +160,7 @@ public:
             for(const auto &p:frame.particles)if(p.id==1) {
                 tracked->setText(QString("Particle %1 · cell %2 · %3 crossings · age %4 / %5 s · %6")
                     .arg(p.id).arg(p.cell).arg(p.crossings).arg(p.age,0,'f',2).arg(p.lifetime,0,'f',2)
-                    .arg(p.waitingForData?"waiting for data":p.historyLimited?"history budget":flowParticleStopName(p.stop)));
+                    .arg(p.waitingForData?"waiting for data":p.historyLimited?"shortened tail":flowParticleStopName(p.stop)));
                 QTextStream stream(&trace);stream<<frame.clock<<','<<p.id<<','<<p.age<<','<<p.lifetime<<','<<p.cell<<','<<p.crossings<<','
                     <<p.position.x()<<','<<p.position.y()<<','<<flowParticleStopName(p.stop)<<'\n';
                 trackedCrossings=std::max(trackedCrossings,p.crossings);trackedDied|=p.stop==FlowParticleStop::Lifetime;

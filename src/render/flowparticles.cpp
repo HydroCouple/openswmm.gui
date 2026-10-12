@@ -27,6 +27,52 @@ double depth(const FlowParticleField &field,const std::array<double,3> &w) {
 quint64 randomBits(quint64 h) {
     h=(h^(h>>30))*0xbf58476d1ce4e5b9ULL;h=(h^(h>>27))*0x94d049bb133111ebULL;return h^(h>>31);
 }
+enum class SegmentSupport { Wet, Blocked, Unknown };
+SegmentSupport segmentSupport(const FlowParticleSnapshot &field,const FlowParticleSample &a,
+    const FlowParticleSample &b,double cutoff,bool checkFaces) {
+    // A bounded local walk, never a whole-mesh query. Unknown support refuses
+    // a reduction; missing residency must not be mistaken for actual drying.
+    const auto &mesh=*field.mesh;int cell=a.cell;double fraction=0;
+    std::array<int,64> visited{};
+    for(int count=0;count<int(visited.size());++count) {
+        if(cell<0 || size_t(cell)>=field.fields.size())return SegmentSupport::Unknown;
+        if(std::find(visited.begin(),visited.begin()+count,cell)!=visited.begin()+count)
+            return SegmentSupport::Unknown;
+        visited[size_t(count)]=cell;
+        const auto point=a.position+(b.position-a.position)*fraction;
+        const auto w=weights(mesh,cell,point),end=weights(mesh,cell,b.position);
+        if(!inside(w))return SegmentSupport::Unknown;
+        const auto &f=field.fields[size_t(cell)];
+        const double startDepth=depth(f,w);if(!std::isfinite(startDepth))return SegmentSupport::Unknown;
+        if(startDepth<=cutoff)return SegmentSupport::Blocked;
+        // Historical wet support remains knowable when a depth packet arrives
+        // before flux. Only shortcut approval needs the face/velocity flags.
+        if(checkFaces && !f.available)return SegmentSupport::Unknown;
+        if(inside(end)) {
+            const double endDepth=depth(f,end);if(!std::isfinite(endDepth))return SegmentSupport::Unknown;
+            return endDepth>cutoff?SegmentSupport::Wet:SegmentSupport::Blocked;
+        }
+        int edge=-1;double crossing=1;
+        for(int e=0;e<3;++e)if(end[e]<-1e-9) {
+            const double t=fraction+(1-fraction)*std::max(0.,w[e])/(w[e]-end[e]);
+            if(t<crossing) {crossing=t;edge=e;}
+        }
+        if(edge<0)return SegmentSupport::Unknown;
+        const auto boundary=weights(mesh,cell,a.position+(b.position-a.position)*crossing);
+        const double boundaryDepth=depth(f,boundary);if(!std::isfinite(boundaryDepth))return SegmentSupport::Unknown;
+        if(boundaryDepth<=cutoff)return SegmentSupport::Blocked;
+        const int next=mesh.neighbors[size_t(cell)][edge];
+        if(next<0)return f.residentEdges&(1<<edge)?SegmentSupport::Blocked:SegmentSupport::Unknown;
+        if(checkFaces && !(f.exits&(1<<edge))) {
+            // An incoming direction is fine for a historical path; a face
+            // closed in both directions may not be introduced by a shortcut.
+            int reverse=-1;for(int e=0;e<3;++e)if(mesh.neighbors[size_t(next)][e]==cell)reverse=e;
+            if(reverse<0 || !(field.fields[size_t(next)].exits&(1<<reverse)))return SegmentSupport::Blocked;
+        }
+        cell=next;fraction=crossing;
+    }
+    return SegmentSupport::Unknown;
+}
 }
 const char *flowParticleStopName(FlowParticleStop reason) {
     switch(reason) {
@@ -41,10 +87,11 @@ const char *flowParticleStopName(FlowParticleStop reason) {
 }
 bool FlowParticleSystem::setSettings(const FlowParticleSettings &settings) {
     for(double value:{settings.timestep,settings.speed,settings.minimumLifetime,settings.maximumLifetime,
-                      settings.trailSeconds,settings.fadeSeconds,settings.cutoff}) if(!std::isfinite(value))return false;
+                      settings.trailSeconds,settings.fadeSeconds,settings.cutoff,settings.historyTolerance}) if(!std::isfinite(value))return false;
     if(settings.timestep<=0 || settings.speed<0 || settings.minimumLifetime<=0
        || settings.maximumLifetime<settings.minimumLifetime || settings.trailSeconds<=0
-       || settings.fadeSeconds<0 || settings.cutoff<0 || settings.maxParticles<1 || settings.maxHistory<3)return false;
+       || settings.fadeSeconds<0 || settings.cutoff<0 || settings.historyTolerance<0
+       || settings.maxParticles<1 || settings.maxHistory<3)return false;
     m_settings=settings;return true;
 }
 bool FlowParticleSystem::setField(std::shared_ptr<const FlowParticleSnapshot> field,double transitionSeconds) {
@@ -84,13 +131,18 @@ bool FlowParticleSystem::setField(std::shared_ptr<const FlowParticleSnapshot> fi
     // Validate historical wet support on result updates, never on every tick.
     // Missing regional residency culls temporarily; actual drying invalidates
     // the older visible tail without replacing its recorded coordinates.
-    for(auto &p:m_particles)for(const auto &sample:p.history) {
+    for(auto &p:m_particles)for(size_t i=0;i<p.history.size();++i) {
+        const auto &sample=p.history[i];
         const int cell=sample.cell>=0?sample.cell:locate(sample.position,false);
         if(cell>=0 && size_t(cell)<m_field->fields.size()) {
             const auto &f=m_field->fields[size_t(cell)];
             if(depth(f,weights(*m_field->mesh,cell,sample.position))<=m_settings.cutoff)
                 p.visibleAfterAge=std::max(p.visibleAfterAge,sample.age);
         }
+        // A reduced segment can span a newly dry cell whose sample was
+        // removed. Recheck that support on hydraulic updates, not every tick.
+        if(i>0 && sample.error>=0 && segmentSupport(*m_field,p.history[i-1],sample,m_settings.cutoff,false)==SegmentSupport::Blocked)
+            p.visibleAfterAge=std::max(p.visibleAfterAge,sample.age);
     }
     publish();return true;
 }
@@ -143,6 +195,36 @@ quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publi
 void FlowParticleSystem::stop(FlowParticle &p,FlowParticleStop reason) {
     p.stop=reason;p.pending=0;p.stoppedAt=m_clock+m_tick;++m_deaths;++m_stopCounts[size_t(reason)];
 }
+bool FlowParticleSystem::reduceHistory(FlowParticle &p,int &budget,int &steps) {
+    if(!m_historyIndex) {
+        m_reducedHistory.clear();m_reducedHistory.push_back(p.history.front());
+        m_historyIndex=1;m_historyError=-1;
+    }
+    while(m_historyIndex+1<p.history.size()) {
+        if(budget<=0)return false;
+        --budget;++steps;
+        const auto &a=m_reducedHistory.back();auto b=p.history[m_historyIndex];
+        b.error=std::max(b.error,m_historyError);const auto &c=p.history[m_historyIndex+1];
+        const double span=c.age-a.age,t=span>0?(b.age-a.age)/span:0;
+        const double error=std::max({0.,b.error,c.error})+norm(b.position-(a.position+(c.position-a.position)*t));
+        const double speedError=std::abs(b.speed-(a.speed+(c.speed-a.speed)*t));
+        if(b.age<p.previousAge-1e-12 && span>0 && error<=m_settings.historyTolerance
+           && speedError<=.01*std::max({.01f,a.speed,b.speed,c.speed})
+           && segmentSupport(*m_field,a,c,m_settings.cutoff,true)==SegmentSupport::Wet) {
+            m_historyError=error;
+        } else {m_reducedHistory.push_back(b);m_historyError=-1;}
+        ++m_historyIndex;
+    }
+    auto last=p.history.back();last.error=std::max(last.error,m_historyError);m_reducedHistory.push_back(last);
+    p.history.swap(m_reducedHistory);m_reducedHistory.clear();m_historyIndex=0;
+    // A highly curved/blocked path may not fit at this visual tolerance.
+    // Limit only the displayed tail, never numerical motion or death age.
+    while(p.history.size()>=size_t(m_settings.maxHistory)) {
+        p.history.pop_front();p.historyFloorAge=p.history.front().age;
+    }
+    p.nextHistoryReduction=std::max(size_t(128),p.history.size()+std::max(size_t(64),p.history.size()/2));
+    return true;
+}
 bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
     const auto &mesh=*m_field->mesh;
     if(p.cell<0) {
@@ -150,8 +232,15 @@ bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
         if(p.cell<0) {p.waitingForData=true;p.pending=0;return true;}
     }
     while(p.pending>1e-12 && p.stop==FlowParticleStop::None) {
+        if(!m_historyIndex) {
+            while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds)p.history.pop_front();
+        }
+        const auto threshold=m_settings.historyTolerance>0
+            ?std::min(size_t(m_settings.maxHistory),p.nextHistoryReduction):size_t(m_settings.maxHistory);
+        if((m_historyIndex || p.history.size()>=threshold)
+           && !reduceHistory(p,budget,steps))return false;
         if(budget<=0)return false;
-        --budget;++steps;p.waitingForData=false;p.historyLimited=false;
+        --budget;++steps;p.waitingForData=false;
         const auto f=fieldAt(p.cell,m_clock+m_tick*.5);
         if(!f.available) {
             const double knownDepth=depth(f,weights(mesh,p.cell,p.position));
@@ -195,14 +284,12 @@ bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
         }
         const double consumed=dt*fraction,newAge=p.age+consumed;
         while(p.history.size()>1 && p.history[1].age<=newAge-m_settings.trailSeconds)p.history.pop_front();
-        if(consumed>1e-12 && p.history.size()>=size_t(m_settings.maxHistory)) {
-            p.historyLimited=true;p.pending=0;return true; // retain age, position and death schedule
-        }
         const int oldCell=p.cell;
         if(consumed>1e-12) {
             p.position+=(next-p.position)*fraction;p.age=newAge;p.pending=std::max(0.,p.pending-consumed);
             const float magnitude=float(f.speed[0]*end[0]+f.speed[1]*end[1]+f.speed[2]*end[2]);
             p.history.push_back({p.position,p.age,p.cell,magnitude});p.zeroCells.clear();
+            p.historyLimited=p.historyFloorAge>=0 && p.age-p.historyFloorAge<m_settings.trailSeconds;
         }
         if(p.age>=p.lifetime-1e-10) {p.age=p.lifetime;stop(p,FlowParticleStop::Lifetime);break;}
         if(dry) {stop(p,FlowParticleStop::Dry);break;}

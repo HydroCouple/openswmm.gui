@@ -100,8 +100,11 @@ private slots:
             for(auto &f:next->fields)for(auto &v:f.velocity)v={i%2?2.:3.,0};
             QVERIFY(system.setField(next));system.advance(1./60);
             const auto &p=system.particles().front();QCOMPARE(p.id,id);QCOMPARE(p.lifetime,lifetime);
-            QVERIFY(p.history.size()>=oldHistory.size());
-            for(size_t j=0;j<oldHistory.size();++j)QCOMPARE(p.history[j].position,oldHistory[j].position);
+            for(const auto &sample:p.history)if(sample.age<=oldHistory.back().age) {
+                const auto original=std::find_if(oldHistory.begin(),oldHistory.end(),[&](const auto &s){return s.age==sample.age;});
+                QVERIFY(original!=oldHistory.end());QCOMPARE(sample.position,original->position);
+            }
+            QCOMPARE(first->particles.front().history.size(),oldHistory.size()); // immutable earlier publication
         }
         QCOMPARE(system.frame()->births,quint64(1));QCOMPARE(system.frame()->deaths,quint64(0));
     }
@@ -116,14 +119,171 @@ private slots:
         system.setField(ready);system.advance(.2);const auto &p=system.particles().front();
         QVERIFY(!p.waitingForData);QCOMPARE(p.id,id);QVERIFY(std::abs(p.position.x()-position.x()-.4)<1e-8);
     }
-    void historyLimitWaitsWithoutKillingTheParticle() {
-        FlowParticleSystem system;auto settings=longLife();settings.maxHistory=3;
-        system.setSettings(settings);system.setField(field(20,2));const auto id=system.spawn({.13,.42});
-        system.advance(1);const auto age=system.particles().front().age;
-        QVERIFY(system.particles().front().historyLimited);QCOMPARE(system.particles().front().stop,FlowParticleStop::None);
-        system.advance(1);QCOMPARE(system.particles().front().age,age);
-        settings.maxHistory=1000;system.setSettings(settings);system.advance(.1);
-        QCOMPARE(system.particles().front().id,id);QVERIFY(system.particles().front().age>age);
+    void reducedHistoryCrossesHundredsOfCellsUntilAssignedDeath() {
+        auto snapshot=field(250,2);FlowParticleSystem reference,reduced;
+        auto settings=longLife();settings.historyTolerance=0;reference.setSettings(settings);reference.setField(snapshot);reference.spawn({.13,.42},9);
+        settings.maxHistory=32;settings.historyTolerance=.001;reduced.setSettings(settings);reduced.setField(snapshot);const auto id=reduced.spawn({.13,.42},9);
+        const auto first=reduced.frame();size_t peak=0;
+        for(int i=0;i<500;++i) {
+            reference.advance(.2,100000);reduced.advance(.2,100000);
+            const auto &p=reduced.particles().front(),&r=reference.particles().front();
+            QCOMPARE(p.position,r.position);QCOMPARE(p.age,r.age);QCOMPARE(p.crossings,r.crossings);
+            QCOMPARE(p.id,id);QCOMPARE(p.lifetime,r.lifetime);QVERIFY(!p.historyLimited);
+            QVERIFY(p.history.size()<=32);peak=std::max(peak,p.history.size());
+        }
+        const auto &p=reduced.particles().front();QCOMPARE(p.stop,FlowParticleStop::Lifetime);QCOMPARE(p.age,100.);
+        QCOMPARE(p.history.front().position,QPointF(.13,.42));QCOMPARE(first->particles.front().history.size(),size_t(1));
+        QVERIFY(p.crossings>=400);QVERIFY(reference.particles().front().history.size()>6000);
+        const QString folder=QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT);QVERIFY(QDir().mkpath(folder));
+        QFile evidence(folder+"/bounded-history.json");QVERIFY(evidence.open(QIODevice::WriteOnly));
+        evidence.write(QJsonDocument(QJsonObject{{"particleId",qint64(id)},{"deathAge",p.age},{"cellCrossings",p.crossings},
+            {"peakSamples",qint64(peak)},{"historyLimit",settings.maxHistory},{"shortenedTail",p.historyLimited}}).toJson());
+    }
+    void reductionPreservesCurvesAndTimestampInterpolationError() {
+        auto snapshot=field(20,20,{},true);FlowParticleSystem reference,reduced;
+        auto settings=longLife();settings.minimumLifetime=settings.maximumLifetime=120;settings.trailSeconds=120;
+        settings.historyTolerance=0;
+        reference.setSettings(settings);reference.setField(snapshot);reference.spawn({14,10.2});
+        settings.maxHistory=256;settings.historyTolerance=.01;
+        reduced.setSettings(settings);reduced.setField(snapshot);reduced.spawn({14,10.2});
+        for(int i=0;i<600;++i) {
+            reference.advance(.2,100000);reduced.advance(.2,100000);
+            const auto &p=reduced.particles().front();QCOMPARE(p.position,reference.particles().front().position);
+            QCOMPARE(p.age,reference.particles().front().age);QVERIFY(p.history.size()<=256);QVERIFY(!p.historyLimited);
+        }
+        const auto &history=reduced.particles().front().history;size_t index=1;double peakError=0;
+        for(const auto &sample:reference.particles().front().history) {
+            while(index+1<history.size() && history[index].age<sample.age)++index;
+            const auto &a=history[index-1],&b=history[index];
+            const auto interpolated=a.position+(b.position-a.position)*((sample.age-a.age)/(b.age-a.age));
+            const auto delta=sample.position-interpolated;peakError=std::max(peakError,std::hypot(delta.x(),delta.y()));
+        }
+        QVERIFY2(peakError<=settings.historyTolerance+1e-9,qPrintable(QString("interpolation error %1").arg(peakError)));
+        QCOMPARE(reduced.particles().front().stop,FlowParticleStop::Lifetime);
+    }
+    void complexHistoryLimitShortensOnlyTheTailAndCanRecover() {
+        FlowParticleSystem system;auto settings=longLife();settings.maxHistory=3;settings.historyTolerance=0;
+        settings.minimumLifetime=settings.maximumLifetime=2;system.setSettings(settings);
+        system.setField(field(20,20,{},true));const auto id=system.spawn({14,10.2});
+        system.advance(1,100000);const auto &p=system.particles().front();
+        QVERIFY(p.historyLimited);QVERIFY(std::abs(p.age-1)<1e-9);QVERIFY(p.history.size()<=3);
+        const auto position=p.position;settings.maxHistory=1000;settings.trailSeconds=.1;system.setSettings(settings);
+        system.advance(.2,100000);QVERIFY(!system.particles().front().historyLimited);
+        QVERIFY(system.particles().front().position!=position);system.advance(1,100000);
+        QCOMPARE(system.particles().front().id,id);QCOMPARE(system.particles().front().age,2.);
+        QCOMPARE(system.particles().front().stop,FlowParticleStop::Lifetime);
+    }
+    void reductionWorkSlicesAndDisplayCadenceKeepTheSamePath() {
+        auto snapshot=field(20,20,{},true);FlowParticleSystem reference,sliced;
+        auto settings=longLife();settings.maxHistory=32;settings.historyTolerance=.01;
+        for(auto *system:{&reference,&sliced}) {system->setSettings(settings);system->setField(snapshot);system->spawn({14,10.2});}
+        reference.advance(8,100000);auto work=sliced.advance(8,1);int slices=0;
+        while(work.pending && ++slices<20000) {work=sliced.advance(0,1);QVERIFY(work.steps<=1);}
+        QVERIFY(!work.pending);const auto &a=reference.particles().front(),&b=sliced.particles().front();
+        QCOMPARE(a.position,b.position);QCOMPARE(a.age,b.age);QCOMPARE(a.history.size(),b.history.size());
+        for(size_t i=0;i<a.history.size();++i) {QCOMPARE(a.history[i].position,b.history[i].position);QCOMPARE(a.history[i].error,b.history[i].error);}
+        for(double interval:{1./30,1./120,.173}) {
+            FlowParticleSystem cadence;cadence.setSettings(settings);cadence.setField(snapshot);cadence.spawn({14,10.2});
+            double time=0;while(time<8-1e-12) {const double dt=std::min(interval,8-time);cadence.advance(dt,100000);time+=dt;}
+            QCOMPARE(cadence.particles().front().position,a.position);QCOMPARE(cadence.particles().front().history.size(),a.history.size());
+        }
+    }
+    void dryingInsideAReducedSegmentHidesTheObsoleteTail() {
+        for(bool depthBeforeFlux:{false,true}) {
+        auto snapshot=field(20,2);FlowParticleSystem system;auto settings=longLife();settings.maxHistory=32;
+        system.setSettings(settings);system.setField(snapshot);system.spawn({.13,.42});system.advance(5,100000);
+        const auto history=system.particles().front().history;bool removedCell=false;
+        for(size_t i=1;i<history.size();++i)if(history[i].error>=0 && history[i-1].position.x()<4 && history[i].position.x()>5)removedCell=true;
+        QVERIFY(removedCell);
+        auto dry=std::make_shared<FlowParticleSnapshot>(*snapshot);
+        for(size_t i=0;i<dry->fields.size();++i) {
+            if(depthBeforeFlux)dry->fields[i].available=false;
+            const auto &tri=dry->mesh->triangles[i];double x=0;for(int v:tri)x+=dry->mesh->vertices[v].x()/3;
+            if(x>=4 && x<=5) {dry->fields[i].depth={0,0,0};dry->fields[i].available=false;}
+        }
+        const auto position=system.particles().front().position;const auto life=system.particles().front().lifetime;
+        QVERIFY(system.setField(dry));QVERIFY(system.particles().front().visibleAfterAge>2);
+        for(const auto &sample:system.frame()->particles.front().history)QVERIFY(sample.position.x()>5);
+        QCOMPARE(system.particles().front().history.size(),history.size());system.advance(.1);
+        if(depthBeforeFlux) {
+            QCOMPARE(system.particles().front().position,position);QVERIFY(system.particles().front().waitingForData);
+            auto complete=std::make_shared<FlowParticleSnapshot>(*dry);
+            for(auto &f:complete->fields)f.available=true;system.setField(complete);system.advance(.1);
+        }
+        QVERIFY(system.particles().front().position.x()>position.x());QCOMPARE(system.particles().front().lifetime,life);
+        }
+    }
+    void reductionKeepsCurrentTickSamplesForHeadInterpolation() {
+        auto settings=longLife();settings.maxHistory=8;settings.timestep=.2;
+        FlowParticleSystem system;system.setSettings(settings);system.setField(field(20,2));system.spawn({.13,.42});
+        system.advance(4,100000);const auto &p=system.particles().front();QVERIFY(p.history.size()<=8);
+        bool bracket=false;for(const auto &sample:p.history)if(std::abs(sample.age-p.previousAge)<1e-9)bracket=true;
+        QVERIFY(bracket);QCOMPARE(p.history.back().position,p.position);
+        QCOMPARE(p.history.back().age,p.age);
+    }
+    void reductionsNeverShortcutAcrossDryCellsOrClosedFaces() {
+        for(bool dry:{false,true}) {
+            auto snapshot=field(3,3,{1,0});std::vector<bool> island(snapshot->fields.size());
+            for(size_t i=0;i<island.size();++i) {
+                QPointF center;for(int v:snapshot->mesh->triangles[i])center+=snapshot->mesh->vertices[v]/3;
+                island[i]=center.x()>1 && center.x()<2 && center.y()>1 && center.y()<2;
+                if(dry && island[i])snapshot->fields[i].depth={0,0,0};
+            }
+            if(!dry)for(size_t i=0;i<island.size();++i)for(int e=0;e<3;++e) {
+                const int next=snapshot->mesh->neighbors[i][e];
+                if(next>=0 && island[i]!=island[size_t(next)])snapshot->fields[i].exits&=~(1<<e);
+            }
+            FlowParticleSystem system;auto settings=longLife();settings.maxHistory=32;
+            settings.historyTolerance=100;system.setSettings(settings);system.setField(snapshot);system.spawn({.2,.5});
+            system.advance(2,100000);
+            auto turn=std::make_shared<FlowParticleSnapshot>(*snapshot);
+            for(auto &f:turn->fields)for(auto &v:f.velocity)v={0,1};system.setField(turn);system.advance(2,100000);
+            turn=std::make_shared<FlowParticleSnapshot>(*turn);
+            for(auto &f:turn->fields)for(auto &v:f.velocity)v={-1,0};system.setField(turn);system.advance(2,100000);
+            const auto &p=system.particles().front();QCOMPARE(p.stop,FlowParticleStop::None);
+            QVERIFY(!p.historyLimited);QVERIFY(p.history.size()<=32);
+            QCOMPARE(p.history.front().position,QPointF(.2,.5));
+            for(size_t i=1;i<p.history.size();++i)for(int step=0;step<=128;++step) {
+                const auto a=p.history[i-1].position,b=p.history[i].position;
+                const auto point=a+(b-a)*(step/128.);
+                QVERIFY2(!(point.x()>1+1e-9 && point.x()<2-1e-9 && point.y()>1+1e-9 && point.y()<2-1e-9),
+                    qPrintable(QString("shortcut at %1,%2 dry=%3").arg(point.x()).arg(point.y()).arg(dry)));
+            }
+        }
+    }
+    void reducedHistorySurvivesLiveReversalWithoutRewritingIdentity() {
+        // The half-second velocity ramp needs about 30 original samples at
+        // this tight time-interpolation tolerance, in addition to older history.
+        auto snapshot=field(30,2);FlowParticleSystem system;auto settings=longLife();settings.maxHistory=64;
+        system.setSettings(settings);system.setField(snapshot);const auto id=system.spawn({10.13,.42});
+        system.advance(3,100000);const auto first=system.frame();const auto position=system.particles().front().position;
+        auto reverse=std::make_shared<FlowParticleSnapshot>(*snapshot);
+        for(auto &f:reverse->fields)for(auto &v:f.velocity)v={-2,0};
+        system.setField(reverse,.5);system.advance(.5,100000);
+        QCOMPARE(system.particles().front().id,id);QVERIFY(std::abs(system.particles().front().position.x()-position.x())<1e-8);
+        for(int i=0;i<100;++i) {auto update=std::make_shared<FlowParticleSnapshot>(*reverse);update->revision=i+2;system.setField(update);system.advance(.02,100000);}
+        const auto &p=system.particles().front();QCOMPARE(p.id,id);QCOMPARE(p.lifetime,first->particles.front().lifetime);
+        QCOMPARE(p.stop,FlowParticleStop::None);QVERIFY(p.history.size()<=64);QVERIFY(!p.historyLimited);
+        QCOMPARE(first->particles.front().history.front().position,QPointF(10.13,.42));
+    }
+    void reductionPreservesNonuniformTimingOnStraightPaths() {
+        auto snapshot=field(40,2);FlowParticleSystem reference,reduced;auto settings=longLife();
+        settings.historyTolerance=0;reference.setSettings(settings);settings.maxHistory=16;settings.historyTolerance=.001;reduced.setSettings(settings);
+        for(auto *system:{&reference,&reduced}) {system->setField(snapshot);system->spawn({.13,.42});}
+        for(double speed:{2.,6.,1.}) {
+            auto next=std::make_shared<FlowParticleSnapshot>(*snapshot);
+            for(auto &f:next->fields)for(auto &v:f.velocity)v={speed,0};
+            for(auto *system:{&reference,&reduced}) {system->setField(next);system->advance(2,100000);}
+        }
+        const auto &p=reduced.particles().front();QVERIFY(!p.historyLimited);QVERIFY(p.history.size()<=16);
+        const auto &history=p.history;size_t index=1;
+        for(const auto &sample:reference.particles().front().history) {
+            while(index+1<history.size() && history[index].age<sample.age)++index;
+            const auto &a=history[index-1],&b=history[index];
+            const auto interpolated=a.position+(b.position-a.position)*((sample.age-a.age)/(b.age-a.age));
+            const auto delta=sample.position-interpolated;
+            QVERIFY(std::hypot(delta.x(),delta.y())<=settings.historyTolerance+1e-9);
+        }
     }
     void realBoundariesHaveExplicitReasonsAndDoNotBridge() {
         for(auto reason:{FlowParticleStop::ClosedFace,FlowParticleStop::Dry,FlowParticleStop::Outflow}) {
