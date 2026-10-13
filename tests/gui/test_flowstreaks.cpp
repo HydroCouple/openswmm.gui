@@ -669,6 +669,31 @@ private slots:
         QTest::addColumn<bool>("quad");
         QTest::newRow("native-triangles")<<false;QTest::newRow("native-quads")<<true;
     }
+    void canvasAttachmentPreservesUnprojectedRegionalParticles() {
+        const auto original=qgetenv("OPENSWMM_REGIONAL_SURFACE");qputenv("OPENSWMM_REGIONAL_SURFACE","1");
+        const auto restore=qScopeGuard([&]{if(original.isNull())qunsetenv("OPENSWMM_REGIONAL_SURFACE");else qputenv("OPENSWMM_REGIONAL_SURFACE",original);});
+        for(bool quad:{false,true}) {
+            SWMM2DResultsLayer layer;
+            if(quad)layer.setSource(std::make_unique<QuadGridFlowSource>(160,120));
+            else layer.setSource(std::make_unique<GridFlowSource>(160,120));
+            layer.flowStreakSublayer()->setVisible(true);layer.flowStreakSublayer()->streakStyle()->setContinuousParticles(true);
+            const QRectF view(100,-60,20,20);QVERIFY(layer.prepareFlowStreaksForCapture(view,20));
+            layer.advanceFlowStreaks(.3);QVERIFY(layer.prepareFlowStreaksForCapture(view,20));
+            const auto before=layer.flowParticles(view,20,layer.frameRevision());QVERIFY(before && !before->particles.empty());
+            const auto geometry=layer.geomRevision();const auto revision=layer.frameRevision();
+            MapCanvas canvas;canvas.resize(480,480);canvas.addLayer(&layer,false);
+            QCOMPARE(layer.geomRevision(),geometry);QCOMPARE(layer.frameRevision(),revision);
+            const auto attached=layer.flowParticles(view,20,revision);QCOMPARE(attached,before);
+            canvas.setExtent({100,40,120,60},false);QVERIFY(layer.prepareFlowStreaksForCapture(view,20));
+            const auto after=layer.flowParticles(view,20,layer.frameRevision());QVERIFY(after);
+            for(const auto &old:before->particles) {
+                const auto it=std::find_if(after->particles.begin(),after->particles.end(),[&](const auto &p){return p.id==old.id;});
+                QVERIFY(it!=after->particles.end());QCOMPARE(it->position,old.position);QCOMPARE(it->age,old.age);
+                QCOMPARE(it->lifetime,old.lifetime);QCOMPARE(it->history.size(),old.history.size());
+            }
+            canvas.takeLayer(0,false);
+        }
+    }
     void continuousRegionalLargeMesh() {
         QFETCH(bool,quad);
         const bool large=qEnvironmentVariableIsSet("FLOW_PARTICLE_6M");
@@ -781,7 +806,8 @@ private slots:
             report.insert("steadyParticles",int(current->particles.size()));report.insert("waitingForData",waiting);
             report.insert("shortenedTails",limited);report.insert("historySamples",qint64(history));
             report.insert("animationSeconds",current->clock);
-            report.insert("movingParticles",moving);report.insert("sustainedMotionValidated",moving>0);
+            report.insert("movingParticles",moving);report.insert("motionPresentAtEnd",moving>0);
+            report.insert("performanceCertified",false); // short profile; residency/lifetime/memory gates remain
             report.insert("births",qint64(current->births));report.insert("deaths",qint64(current->deaths));
             QJsonArray stops;for(auto count:current->stopCounts)stops.append(qint64(count));report.insert("stopCounts",stops);
             QString error;const auto image=canvas.captureMap(&error);QVERIFY2(!image.isNull(),qPrintable(error));QVERIFY(image.save(folder+"/"+name+".png"));
@@ -1184,8 +1210,10 @@ private slots:
         layer.setHydraulicView(layer.m_sceneBBox,1);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
         QVERIFY(!layer.regionalHydraulicsPublished());QCOMPARE(layer.m_sceneTris[0].depth,.4f);
         layer.setHydraulicView(a,8);QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(),10000);
+        const auto geometry=layer.geomRevision();
         layer.onCanvasCRSChanged(nullptr);
-        QVERIFY(!layer.regionalHydraulicsPublished());QCOMPARE(layer.m_sceneTris[0].depth,.4f);
+        QCOMPARE(layer.geomRevision(),geometry);QVERIFY(layer.regionalHydraulicsPublished());
+        QVERIFY(std::abs(layer.depthAtSceneInterp(a.center())-.4)<1e-5);
         layer.closeSource();layer.setSource(std::make_unique<FlowSource>());
         QVERIFY(!layer.regionalHydraulicsPublished());
     }
