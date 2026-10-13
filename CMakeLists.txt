@@ -686,6 +686,7 @@ set(
         # ── Simulation ───────────────────────────────────────────────────────
         include/simulation/runpathresolver.h
         include/simulation/simulationrunner.h
+        include/simulation/checkpointworker.h
         include/simulation/simulationstatusmodel.h
 
         # ── Section view (Slice SP — vector section / profile diagrams) ──────
@@ -1475,6 +1476,7 @@ set(
         # Simulation
         src/simulation/runpathresolver.cpp
         src/simulation/simulationrunner.cpp
+        src/simulation/checkpointworker.cpp
         src/simulation/simulationstatusmodel.cpp
 
         # UI utilities

@@ -2687,6 +2687,20 @@ add_swmmvis_gui_test(test_simrunner_failures
 )
 target_link_libraries(test_simrunner_failures PRIVATE Qt6::Concurrent)
 
+# Worker-owned native checkpoint sessions; value results and path protection.
+add_swmmvis_gui_test(test_checkpointworker
+    test_checkpointworker.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/checkpointworker.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/checkpointworker.h
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+)
+target_link_libraries(test_checkpointworker PRIVATE Qt6::Concurrent)
+
 # SimulationRunner on EPA SWMM 5.2.4 through the bundled versioned worker
 # (cmake/EngineVersions.cmake): protocol, engine identity in the .out, the
 # skip+warn backports, and a loud failure when no worker exists for a version.
