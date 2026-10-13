@@ -20,11 +20,13 @@
  *      whatever the dialog happens to return.
  */
 #include <QtTest>
+#include <limits>
 
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/dialogs/mesh2daquifermodel.h"
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <QAbstractSpinBox>
 #include <QAccessible>
@@ -210,6 +212,7 @@ private slots:
     {
         Engine engine;
         QVERIFY(engine.handle);
+        QCOMPARE(swmm_node_add(engine.handle, "DraftNode", SWMM_NODE_JUNCTION), SWMM_OK);
         Mesh2DGroundwaterDialog dlg(engine.handle);
         auto *nodes = dlg.findChild<Mesh2DAquiferNodeModel *>();
         QVERIFY(nodes);
@@ -238,6 +241,67 @@ private slots:
         QCOMPARE(applied.count(), 1);
         QCOMPARE(writes.count(), 1);
         QVERIFY(!nodes->isDirty());
+    }
+
+    void nodeBedApplyAndRestorePreserveOptOutAndAutoLocation()
+    {
+        Engine engine;
+        QCOMPARE(swmm_node_add(engine.handle,"Disabled",SWMM_NODE_JUNCTION),SWMM_OK);
+        QCOMPARE(swmm_node_add(engine.handle,"Edited",SWMM_NODE_JUNCTION),SWMM_OK);
+        QCOMPARE(swmm_gw2d_node_add(engine.handle,"Disabled",-1,0,0,0),SWMM_OK);
+        QCOMPARE(swmm_gw2d_node_set_exchange(engine.handle,0,0),SWMM_OK);
+        QCOMPARE(swmm_gw2d_node_add(engine.handle,"Edited",2,3,1,4),SWMM_OK);
+        Mesh2DAquiferNodeModel model;model.load(engine.handle);
+        QCOMPARE(model.index(0,Mesh2DAquiferNodeModel::ColCell).data().toString(),QStringLiteral("AUTO"));
+        QCOMPARE(model.index(0,Mesh2DAquiferNodeModel::ColExchange).data(Qt::CheckStateRole).toInt(),int(Qt::Unchecked));
+        QVERIFY(model.setData(model.index(1,Mesh2DAquiferNodeModel::ColArea),7.));
+        QVERIFY(model.commit(engine.handle,false).isEmpty());
+        int locate=0,exchange=1,automatic=1;
+        QCOMPARE(swmm_gw2d_node_get_flags(engine.handle,0,&locate,&exchange,&automatic),SWMM_OK);
+        QCOMPARE(locate,1);QCOMPARE(exchange,0);QCOMPARE(automatic,0);
+        QVERIFY(model.restoreLoaded(engine.handle).isEmpty());
+        double area=0;swmm_gw2d_node_get(engine.handle,1,nullptr,0,nullptr,nullptr,nullptr,&area);QCOMPARE(area,4.);
+        swmm_gw2d_node_get_flags(engine.handle,0,&locate,&exchange,&automatic);QCOMPARE(exchange,0);
+        model.load(engine.handle);
+        QVERIFY(model.setData(model.index(1,Mesh2DAquiferNodeModel::ColArea),8.));
+        QCOMPARE(swmm_gw2d_node_set_exchange(engine.handle,0,1),SWMM_OK);
+        QVERIFY(!model.commit(engine.handle).isEmpty());
+        swmm_gw2d_node_get(engine.handle,1,nullptr,0,nullptr,nullptr,nullptr,&area);QCOMPARE(area,4.);
+        swmm_gw2d_node_get_flags(engine.handle,0,&locate,&exchange,&automatic);QCOMPARE(exchange,1);
+    }
+
+    void nodeBedCheckboxSupportsKeyboardAndReviewedLayouts()
+    {
+        Engine engine;
+        QCOMPARE(swmm_node_add(engine.handle,"ReviewNode",SWMM_NODE_JUNCTION),SWMM_OK);
+        QCOMPARE(swmm_gw2d_node_add(engine.handle,"ReviewNode",-1,0,0,0),SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(engine.handle);auto*model=dialog.findChild<Mesh2DAquiferNodeModel*>();
+        QTableView*view=nullptr;for(auto*v:dialog.findChildren<QTableView*>())if(v->model()==model)view=v;
+        QVERIFY(view);auto*tabs=dialog.findChild<QTabWidget*>();QVERIFY(tabs);tabs->setCurrentIndex(2);
+        dialog.show();view->setFocus();view->setCurrentIndex(model->index(0,Mesh2DAquiferNodeModel::ColExchange));
+        QTest::keyClick(view,Qt::Key_Space);
+        QCOMPARE(model->index(0,Mesh2DAquiferNodeModel::ColExchange).data(Qt::CheckStateRole).toInt(),int(Qt::Unchecked));
+        int exchange=0;swmm_gw2d_node_get_flags(engine.handle,0,nullptr,&exchange,nullptr);QCOMPARE(exchange,1);
+        const auto output=qEnvironmentVariable("SWMMVIS_GROUNDWATER_DIALOG_TEST_OUTPUT",QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().filePath("../../tests/output/r5_node_beds"));
+        QVERIFY(QDir().mkpath(output));
+        for(int width:{560,1200}){
+            dialog.resize(width,620);QCoreApplication::processEvents();
+            QVERIFY(dialog.grab().save(QDir(output).filePath(QStringLiteral("node-beds-%1.png").arg(width))));
+        }
+        dialog.reject();swmm_gw2d_node_get_flags(engine.handle,0,nullptr,&exchange,nullptr);QCOMPARE(exchange,1);
+    }
+
+    void nodeBedRejectsUnknownAndDuplicateNamesAtomically()
+    {
+        Engine engine;
+        QCOMPARE(swmm_node_add(engine.handle,"Known",SWMM_NODE_JUNCTION),SWMM_OK);
+        QCOMPARE(swmm_gw2d_node_add(engine.handle,"Known",0,0,0,0),SWMM_OK);
+        Mesh2DAquiferNodeModel model;model.load(engine.handle);
+        const int row=model.appendRow("Missing",1);QVERIFY(!model.commit(engine.handle).isEmpty());
+        QVERIFY(model.setData(model.index(row,Mesh2DAquiferNodeModel::ColNode),"known"));
+        QVERIFY(!model.commit(engine.handle).isEmpty());
+        int count=0;swmm_gw2d_node_count(engine.handle,&count);QCOMPARE(count,1);
+        QVERIFY(!model.setData(model.index(0,Mesh2DAquiferNodeModel::ColArea),std::numeric_limits<double>::infinity()));
     }
 
     void escapeDiscardsUnappliedRows()
