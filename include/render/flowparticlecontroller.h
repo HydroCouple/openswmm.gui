@@ -14,12 +14,14 @@ public:
     explicit FlowParticleController(QObject *parent=nullptr);
     ~FlowParticleController() override;
     void request(std::shared_ptr<const FlowParticleNativeInput>,bool reset=false);
+    std::shared_ptr<const FlowStreakMesh> requestedMesh() const {return m_requestedMesh;}
     void configure(const FlowParticleSettings &,QRectF seeds,int population);
     void advance(double seconds);
     void setPresentedRevision(quint64 revision) { m_presentedRevision=revision; }
     void waitForDone();
     bool busy() const { return m_busy || bool(m_pending); }
     std::shared_ptr<const FlowParticleFrame> frame(quint64 revision) const;
+    std::shared_ptr<const FlowParticleFrame> latestFrame() const {return m_current;}
     double interpolation() const { return m_interpolation; }
     QString status() const;
 signals:
@@ -35,6 +37,7 @@ private:
     void complete();
     std::shared_ptr<State> m_state;
     std::shared_ptr<const FlowParticleNativeInput> m_pending;
+    std::shared_ptr<const FlowStreakMesh> m_requestedMesh;
     std::shared_ptr<const FlowParticleFrame> m_current,m_previous;
     QThreadPool m_pool;
     QFutureWatcher<Result> m_watcher;

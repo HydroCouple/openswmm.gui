@@ -60,6 +60,14 @@ private slots:
         QCOMPARE(v[7],100.f);QCOMPARE(v[10],0.f); // lifetime and retained tail start are independent
         const int uploads=node.uploads();node.sync(frame,.25,1,20,4,4,0);QCOMPARE(node.uploads(),uploads);
     }
+    void viewportCullingRetainsVisibleTrailsWithOffscreenHeads() {
+        FlowParticleNode node;const auto frame=bend();FlowParticleAppearance appearance;
+        appearance.viewport={10,50,20,20}; // the head is outside, the old trail is visible
+        node.sync(frame,1,1,4,4,4,0,0,appearance);QCOMPARE(node.geometry()->vertexCount(),12);
+        const int uploads=node.uploads();appearance.viewport={120,0,20,20};
+        node.sync(frame,1,1,4,4,4,0,0,appearance);QCOMPARE(node.geometry()->vertexCount(),0);QCOMPARE(node.uploads(),uploads+1);
+        appearance.viewport={};node.sync(frame,1,1,4,4,4,0,0,appearance);QCOMPARE(node.geometry()->vertexCount(),12);
+    }
     void nativeJoinedBrightnessAndInterpolatedHead() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Run with a native window to verify joined ribbons");
         QQuickWindow window;window.setFlags(window.flags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);

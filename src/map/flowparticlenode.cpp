@@ -57,14 +57,26 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
     m->opacity=float(appearance.opacity);m->softFade=appearance.fade?1:0;m->taper=appearance.taper?1:0;
     markDirty(DirtyMaterial);
     if(frame==m_frame && scale==m_scale && trackedId==m_trackedId && appearance.anchor==m_anchor
-       && appearance.color==m_color && appearance.revision==m_appearanceRevision)return;
+       && appearance.color==m_color && appearance.revision==m_appearanceRevision && appearance.viewport==m_viewport)return;
     QElapsedTimer build;build.start();
     m_frame=std::move(frame);m_scale=scale;m_trackedId=trackedId;
-    m_anchor=appearance.anchor;m_color=appearance.color;m_appearanceRevision=appearance.revision;
+    m_anchor=appearance.anchor;m_color=appearance.color;m_appearanceRevision=appearance.revision;m_viewport=appearance.viewport;
+    const auto visible=[&](const OpenSWMM::Render::FlowParticle &p) {
+        if(p.history.size()<2)return false;
+        if(!m_viewport.isValid())return true;
+        double left=INFINITY,top=INFINITY,right=-INFINITY,bottom=-INFINITY;
+        for(const auto &sample:p.history) {
+            left=std::min(left,sample.position.x());right=std::max(right,sample.position.x());
+            top=std::min(top,sample.position.y());bottom=std::max(bottom,sample.position.y());
+        }
+        return right>=m_viewport.left() && left<=m_viewport.right()
+            && bottom>=m_viewport.top() && top<=m_viewport.bottom();
+    };
     int count=0;if(m_frame && scale>0)for(const auto &p:m_frame->particles)
-        if(p.history.size()>1)count+=int(p.history.size()-1)*6;
+        if(visible(p))count+=int(p.history.size()-1)*6;
     geometry()->allocate(count);auto *v=static_cast<Vertex*>(geometry()->vertexData());
     if(m_frame && scale>0)for(const auto &p:m_frame->particles) {
+        if(!visible(p))continue;
         const auto &history=p.history;
         const float tailStart=p.historyLimited && !history.empty()?float(history.front().age):-1;
         auto make=[&](size_t i) {

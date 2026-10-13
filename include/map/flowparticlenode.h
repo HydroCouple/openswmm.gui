@@ -7,6 +7,7 @@
 
 struct FlowParticleAppearance {
     QPointF anchor;
+    QRectF viewport; // invalid means no culling; include stroke margin in scene units
     QColor color=Qt::white;
     double opacity=1;
     bool fade=true,taper=true;
@@ -30,6 +31,7 @@ private:
     double m_scale=0;
     quint64 m_trackedId=0;
     QPointF m_anchor;
+    QRectF m_viewport;
     QColor m_color;
     quint64 m_appearanceRevision=0;
     int m_uploads=0;

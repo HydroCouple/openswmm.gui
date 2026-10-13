@@ -103,6 +103,14 @@ bool FlowParticleSystem::setField(std::shared_ptr<const FlowParticleSnapshot> fi
         m_particles.clear();m_inTick=false;m_elapsed=0;m_cursor=0;
     } else if(m_field && m_field->mesh!=field->mesh) {
         const auto &old=m_field->mesh->sourceTriangles,&next=field->mesh->sourceTriangles;
+        if(transitionSeconds>0) {
+            auto previous=std::make_shared<FlowParticleSnapshot>(*field);
+            for(size_t i=0;i<next.size();++i) {
+                const auto it=std::lower_bound(old.begin(),old.end(),next[i]);
+                if(it!=old.end() && *it==next[i])previous->fields[i]=fieldAt(int(it-old.begin()),m_clock);
+            }
+            previousBlend=std::move(previous);
+        }
         // Regional replacement retains world positions, ages and histories.
         // Particles outside residency wait until a later region contains them.
         for(auto &p:m_particles) {
@@ -331,6 +339,7 @@ FlowParticleWork FlowParticleSystem::advance(double elapsed,int stepBudget) {
 }
 void FlowParticleSystem::publish() {
     auto frame=std::make_shared<FlowParticleFrame>();frame->clock=m_clock;frame->timestep=m_settings.timestep;
+    frame->geometry=m_field?m_field->geometry:0;
     frame->revision=m_field?m_field->revision:0;frame->births=m_births;frame->deaths=m_deaths;
     frame->stopCounts=m_stopCounts;
     frame->particles=m_particles;

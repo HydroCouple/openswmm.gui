@@ -621,6 +621,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             const auto frame=m_layer->flowParticles(viewRect,logicalScale,m_lastRenderedFrame);
             if(!frame && m_layer->flowStreaksEnabled())return; // keep the complete matching presentation
             FlowParticleAppearance appearance;appearance.anchor={m_anchorX,m_anchorY};
+            const double stroke=2*std::max(style->widthPx(),style->headWidthPx())/logicalScale;
+            appearance.viewport=viewRect.adjusted(-stroke,-stroke,stroke,stroke);
             appearance.color=style->color();appearance.opacity=sub->opacity();
             appearance.fade=style->fade();appearance.taper=style->taper();
             appearance.revision=qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));

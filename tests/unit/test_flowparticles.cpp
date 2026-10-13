@@ -1,6 +1,7 @@
 // GPL-3.0-or-later
 #include "render/flowparticles.h"
 #include "render/flowparticlefields.h"
+#include "render/flowparticleresidency.h"
 #include <QTest>
 #include <QDir>
 #include <QFile>
@@ -36,6 +37,64 @@ static FlowParticleSettings longLife() {
 class FlowParticlesTest:public QObject {
     Q_OBJECT
 private slots:
+    void sparseCaptureExcludesTheGapAndIncludesSharedBoundaryFaces() {
+        const auto source=field(100,10);
+        auto mesh=FlowStreakMesh::captureRegions(source->mesh->vertices,source->mesh->triangles,source->mesh->grid,
+            {{2,2,1,1},{90,2,1,1}});QVERIFY(mesh);
+        QVERIFY(mesh->triangles.size()<50);
+        const int *begin=nullptr,*end=nullptr;mesh->grid.candidatesAtPoint(50,2.5,begin,end);
+        QVERIFY(!begin || begin==end);
+        // Both triangles that share an exactly clipped edge remain indexed.
+        for(int id:{2*(2*100+2),2*(2*100+2)+1})
+            QVERIFY(std::binary_search(mesh->sourceTriangles.begin(),mesh->sourceTriangles.end(),id));
+        std::atomic_bool cancel=false;mesh->prepare(cancel);
+        const auto a=std::lower_bound(mesh->sourceTriangles.begin(),mesh->sourceTriangles.end(),2*(2*100+2));
+        const int local=int(a-mesh->sourceTriangles.begin());
+        QVERIFY(std::find(mesh->neighbors[local].begin(),mesh->neighbors[local].end(),local+1)!=mesh->neighbors[local].end());
+    }
+    void residencyPinsAnOffscreenHeadAndEveryReducedTrailSegment() {
+        const auto source=field(200,20);
+        FlowParticleFrame frame;FlowParticle p;p.position={150,10};
+        p.history={{{100,10},0,0},{{150,10},10,0}};frame.particles.push_back(p);
+        const auto regions=flowParticleResidency({1,1,5,5},source->mesh->grid,&frame);
+        QVERIFY(!regions.limited);QVERIFY(!regions.tiles.empty());
+        for(QPointF point:{QPointF(3,3),QPointF(110,10),QPointF(130,10),QPointF(150,10),QPointF(159,10)}) {
+            QVERIFY2(std::any_of(regions.rectangles.begin(),regions.rectangles.end(),[&](QRectF r){return r.contains(point);}),
+                qPrintable(QString("missing support at %1,%2").arg(point.x()).arg(point.y())));
+        }
+        // Long thin domains can fit; an overview exceeding the tile budget is declined.
+        MeshSpatialGrid grid;grid.cols=100;grid.rows=100;grid.cellW=grid.cellH=1;
+        grid.extent={0,0,100,100};grid.cellOffsets={0,1};grid.cellIndices={0};
+        const auto limited=flowParticleResidency(grid.extent,grid,nullptr);QVERIFY(limited.limited);QVERIFY(limited.tiles.empty());
+    }
+    void bufferedSupportSurvivesMotionBetweenResidencyChecks() {
+        const auto source=field(200,20);FlowParticleFrame frame;FlowParticle p;p.position={150,10};
+        p.history={{{100,10},0,0},{{150,10},10,0}};frame.particles.push_back(p);
+        const auto captured=flowParticleResidency({1,1,5,5},source->mesh->grid,&frame,2);
+        frame.particles.front().position={155,10};frame.particles.front().history.push_back({{155,10},11,0});
+        const auto needed=flowParticleResidency({1,1,5,5},source->mesh->grid,&frame,.5);
+        QVERIFY(!needed.limited);QVERIFY(std::includes(captured.tiles.begin(),captured.tiles.end(),needed.tiles.begin(),needed.tiles.end()));
+    }
+    void aLayoutReplacementStartsFromTheCurrentTemporalBlend() {
+        auto initial=field(20,2,{2,0});auto ids=std::make_shared<FlowStreakMesh>(*initial->mesh);
+        for(int i=0;i<int(ids->triangles.size());++i)ids->sourceTriangles.push_back(i);initial->mesh=ids;
+        FlowParticleSystem reference,regional;
+        for(auto *system:{&reference,&regional}) {system->setSettings(longLife());system->setField(initial);QVERIFY(system->spawn({.13,.42},7));system->advance(.1);}
+        auto next=std::make_shared<FlowParticleSnapshot>(*initial);next->revision=2;
+        for(auto &f:next->fields)for(auto &v:f.velocity)v={4,0};
+        for(auto *system:{&reference,&regional}) {system->setField(next,.5);system->advance(.2);}
+        auto subset=std::make_shared<FlowParticleSnapshot>(*next);
+        auto cropped=FlowStreakMesh::captureRegions(ids->vertices,ids->triangles,ids->grid,{{0,0,8,2}});QVERIFY(cropped);
+        std::atomic_bool cancel=false;cropped->prepare(cancel);subset->mesh=cropped;subset->fields.clear();
+        for(int id:cropped->sourceTriangles)subset->fields.push_back(next->fields[size_t(id)]);
+        const auto history=regional.particles().front().history;const auto id=regional.particles().front().id;
+        reference.setField(next,.5);regional.setField(subset,.5);
+        for(auto *system:{&reference,&regional})system->advance(.5);
+        const auto &p=regional.particles().front();QCOMPARE(p.id,id);QCOMPARE(p.age,reference.particles().front().age);
+        QVERIFY(std::hypot((p.position-reference.particles().front().position).x(),(p.position-reference.particles().front().position).y())<1e-9);
+        for(size_t i=0;i<history.size();++i)QCOMPARE(p.history[i].position,history[i].position);
+        QCOMPARE(p.stop,FlowParticleStop::None);
+    }
     void oneIdentityCrossesHundredsOfCellsUntilItsOwnDeath() {
         FlowParticleSystem system;auto settings=longLife();settings.timestep=.1;QVERIFY(system.setSettings(settings));
         QVERIFY(system.setField(field(250,2)));const auto id=system.spawn({.13,.42},42);QVERIFY(id);

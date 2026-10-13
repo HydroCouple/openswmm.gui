@@ -25,6 +25,7 @@ FlowParticleController::FlowParticleController(QObject *parent):QObject(parent),
 }
 FlowParticleController::~FlowParticleController() { m_state->cancelled=true;m_pool.waitForDone(); }
 void FlowParticleController::request(std::shared_ptr<const FlowParticleNativeInput> input,bool reset) {
+    m_requestedMesh=input?input->mesh:nullptr;
     m_pending=std::move(input);m_reset|=reset;dispatch();
 }
 void FlowParticleController::configure(const FlowParticleSettings &settings,QRectF seeds,int population) {
@@ -57,7 +58,8 @@ void FlowParticleController::dispatch() {
         // waiting time must not become a catch-up jump on that publication.
         const double visibleElapsed=state->field && state->field->revision==presented?elapsed:0;
         const int deficit=population-int(state->system.particles().size());
-        state->birthsDue=std::min(64.,state->birthsDue+visibleElapsed*population/4.);
+        const double life=settings.minimumLifetime*.5+settings.maximumLifetime*.5+settings.fadeSeconds;
+        state->birthsDue=std::min(64.,state->birthsDue+visibleElapsed*population/life);
         const int births=std::min({64,deficit,int(state->birthsDue)});
         if(state->field && seeds.isValid())for(int i=0;i<births && !state->cancelled.load();++i) {
             const double x=randomUnit(state->seed+0x9e3779b97f4a7c15ULL);

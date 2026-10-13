@@ -1377,9 +1377,16 @@ private:
     OpenSWMM::Render::FlowStreakCache *m_flowCache = nullptr;
     OpenSWMM::Render::FlowParticleController *m_particles = nullptr;
     std::shared_ptr<OpenSWMM::Render::FlowStreakMesh> m_particleMesh;
+    std::shared_ptr<const OpenSWMM::Render::FlowParticleNativeInput> m_particleInput;
+    std::vector<quint64> m_particleTiles;
+    double m_particleCaptureClock=0,m_particleCheckClock=-1;
+    QRectF m_particleCheckedView;
+    size_t m_particleFieldBytes=0,m_particlePeakTriangles=0,m_particlePeakMeshBytes=0;
+    int m_particleCaptures=0,m_particleReads=0;
     quint64 m_particleEpoch=~quint64(0),m_particleRevision=~quint64(0);
     double m_particleCutoff=-1,m_particleScale=0;
-    int m_particleTime=-1;
+    int m_particleTime=-1,m_particleGeneration=-1;
+    QDateTime m_particleSimTime;
     QRectF m_particleView;
     QString m_particleLimit;
     std::shared_ptr<OpenSWMM::Render::FlowStreakMesh> m_flowMesh;
@@ -1465,6 +1472,9 @@ public:
     std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> flowParticles(
         const QRectF &view,double pixelsPerSceneUnit,quint64 displayedRevision,bool presented=true);
     double flowParticleInterpolation() const { return m_particles->interpolation(); }
+    size_t flowParticleFieldBytes() const {return m_particleFieldBytes;}
+    int flowParticleFieldCaptures() const {return m_particleCaptures;}
+    int flowParticleFieldReads() const {return m_particleReads;}
     std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> flowStreaks(
         const QRectF &view, double pixelsPerSceneUnit, quint64 displayedRevision);
     std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> presentedFlowStreaks(

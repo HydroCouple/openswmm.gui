@@ -52,7 +52,7 @@ struct FlowParticleSettings {
 };
 struct FlowParticleFrame {
     double clock=0,timestep=1./60.;
-    quint64 revision=0,births=0,deaths=0;
+    quint64 geometry=0,revision=0,births=0,deaths=0;
     std::array<quint64,7> stopCounts{};
     std::vector<FlowParticle> particles;
 };
