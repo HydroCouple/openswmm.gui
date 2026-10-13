@@ -429,7 +429,7 @@ void Mesh2DAquiferModel::setUnitLabels(const QString &lengthLabel,
 bool Mesh2DAquiferNodeModel::Row::operator==(const Row &o) const
 {
     return node == o.node && cell == o.cell && kc == o.kc && dc == o.dc &&
-           area == o.area;
+           area == o.area && locate == o.locate && exchange == o.exchange && automatic == o.automatic;
 }
 
 Mesh2DAquiferNodeModel::Mesh2DAquiferNodeModel(QObject *parent)
@@ -465,20 +465,28 @@ QVariant Mesh2DAquiferNodeModel::data(const QModelIndex &index, int role) const
         case ColArea:
             return tr("Exchange area in %1. 0 uses the cell's own plan area.")
                        .arg(m_areaLabel);
+        case ColCell:
+            return r.locate ? tr("Locate by node coordinates (AUTO). Resolved cell: %1.").arg(r.cell < 0 ? tr("unavailable") : QString::number(r.cell + 1))
+                            : tr("Explicit receiving cell, numbered from 1.");
+        case ColExchange:
+            return tr("Aquifer exchange enabled. Disabling it preserves the bed and prevents aquifer exchange; it does not seal local seepage.");
         default: break;
         }
         return {};
     }
+    if (role == Qt::CheckStateRole && index.column() == ColExchange)
+        return r.exchange ? Qt::Checked : Qt::Unchecked;
     if (role != Qt::DisplayRole && role != Qt::EditRole) return {};
 
     switch (index.column()) {
     case ColNode: return r.node;
-    case ColCell: return r.cell + 1;   // 1-based, as in the file
+    case ColCell: return r.locate ? QVariant(QStringLiteral("AUTO")) : QVariant(r.cell + 1);
     case ColKc:   return r.kc;
     case ColDc:   return r.dc;
     case ColArea:
         if (r.area <= 0.0 && role == Qt::DisplayRole) return tr("(cell area)");
         return r.area;
+    case ColExchange: return role == Qt::EditRole ? QVariant(bool(r.exchange)) : QVariant();
     default: break;
     }
     return {};
@@ -487,10 +495,12 @@ QVariant Mesh2DAquiferNodeModel::data(const QModelIndex &index, int role) const
 bool Mesh2DAquiferNodeModel::setData(const QModelIndex &index,
                                      const QVariant &value, int role)
 {
-    if (role != Qt::EditRole || !index.isValid() ||
+    if ((role != Qt::EditRole && role != Qt::CheckStateRole) || !index.isValid() ||
         index.row() >= m_rows.size())
         return false;
     Row &r = m_rows[index.row()];
+    if (r.automatic) return false;
+    if (role == Qt::CheckStateRole && index.column() != ColExchange) return false;
     bool ok = true;
     switch (index.column()) {
     case ColNode: {
@@ -500,30 +510,37 @@ bool Mesh2DAquiferNodeModel::setData(const QModelIndex &index,
         break;
     }
     case ColCell: {
+        if (value.toString().trimmed().compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0) {
+            r.cell = -1; r.locate = 1; break;
+        }
         const int c = value.toInt(&ok);
         if (!ok || c < 1) return false;
         r.cell = c - 1;
+        r.locate = 0;
         break;
     }
     case ColKc: {
         const double v = value.toDouble(&ok);
-        if (!ok || v < 0.0) return false;
+        if (!ok || !std::isfinite(v) || v < 0.0) return false;
         r.kc = v;
         break;
     }
     case ColDc: {
         const double v = value.toDouble(&ok);
-        if (!ok || v < 0.0) return false;
+        if (!ok || !std::isfinite(v) || v < 0.0) return false;
         r.dc = v;
         break;
     }
     case ColArea: {
         if (value.toString().trimmed().isEmpty()) { r.area = 0.0; break; }
         const double v = value.toDouble(&ok);
-        if (!ok || v < 0.0) return false;
+        if (!ok || !std::isfinite(v) || v < 0.0) return false;
         r.area = v;
         break;
     }
+    case ColExchange:
+        r.exchange = role == Qt::CheckStateRole ? value.toInt() == Qt::Checked : value.toBool();
+        break;
     default: return false;
     }
     emit dataChanged(index, index);
@@ -542,6 +559,7 @@ QVariant Mesh2DAquiferNodeModel::headerData(int section,
     case ColKc:   return tr("Bed Kc (%1)").arg(m_rateLabel);
     case ColDc:   return tr("Bed thickness (%1)").arg(m_lengthLabel);
     case ColArea: return tr("Exchange area (%1)").arg(m_areaLabel);
+    case ColExchange: return tr("Exchange");
     default: break;
     }
     return {};
@@ -550,6 +568,8 @@ QVariant Mesh2DAquiferNodeModel::headerData(int section,
 Qt::ItemFlags Mesh2DAquiferNodeModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid()) return Qt::NoItemFlags;
+    if (m_rows.at(index.row()).automatic) return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    if (index.column() == ColExchange) return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
 }
 
@@ -579,6 +599,9 @@ void Mesh2DAquiferNodeModel::load(SWMM_Engine engine)
                 if (swmm_gw2d_node_get(engine, i, name, sizeof name, &r.cell,
                                        &r.kc, &r.dc, &r.area) != SWMM_OK) {m_loadError=tr("Cannot read every node bed.");break;}
                 r.node = QString::fromUtf8(name);
+                if (swmm_gw2d_node_get_flags(engine, i, &r.locate, &r.exchange, &r.automatic) != SWMM_OK) {
+                    m_loadError=tr("Cannot read node-bed ownership flags.");break;
+                }
                 m_rows.append(r);
             }
         }
@@ -587,12 +610,16 @@ void Mesh2DAquiferNodeModel::load(SWMM_Engine engine)
     endResetModel();
 }
 
-QString Mesh2DAquiferNodeModel::replaceRows(SWMM_Engine engine,const QList<Row>&rows)const
+QString Mesh2DAquiferNodeModel::replaceRows(SWMM_Engine engine,const QList<Row>&expected,const QList<Row>&rows,bool apply)const
 {
-    int n=0;if(swmm_gw2d_node_count(engine,&n)!=SWMM_OK)return tr("Cannot read node-bed count.");
-    for(int i=n-1;i>=0;--i)if(swmm_gw2d_node_remove(engine,i)!=SWMM_OK)return tr("Cannot remove node bed %1.").arg(i+1);
-    for(int i=0;i<rows.size();++i){const auto&r=rows[i];auto node=r.node.toUtf8();if(swmm_gw2d_node_add(engine,node.constData(),r.cell,r.kc,r.dc,r.area)!=SWMM_OK)return tr("Bed %1 (%2) was refused; conductivity requires positive thickness.").arg(i+1).arg(r.node);}
-    return {};
+    QList<QByteArray> names;names.reserve(expected.size()+rows.size());
+    QList<SWMM_GwNodeBed> before,after;before.reserve(expected.size());after.reserve(rows.size());
+    auto snapshot=[&](const QList<Row>&source,QList<SWMM_GwNodeBed>&out){
+        for(const auto&r:source){names.append(r.node.toUtf8());out.append({names.back().constData(),r.cell,r.locate,r.exchange,r.automatic,r.kc,r.dc,r.area});}
+    };
+    snapshot(expected,before);snapshot(rows,after);
+    const auto rc=swmm_gw2d_node_replace(engine,before.constData(),before.size(),after.constData(),after.size(),nullptr,0,apply?1:0);
+    return rc==SWMM_OK?QString{}:tr("Node-bed transaction refused. Check node names, duplicate connections, positive bed thickness and newer edits. No node beds were changed.");
 }
 QString Mesh2DAquiferNodeModel::validateCommit(SWMM_Engine engine)const
 {
@@ -601,15 +628,20 @@ QString Mesh2DAquiferNodeModel::validateCommit(SWMM_Engine engine)const
     Mesh2DAquiferNodeModel current;current.load(engine);if(!current.m_loadError.isEmpty())return current.m_loadError;
     if(current.m_rows!=m_loaded)return tr("Node beds changed outside this editor. Reopen it to preserve newer edits.");
     QSet<QString> names;for(const auto&r:m_rows){if(r.node.trimmed().isEmpty()||names.contains(r.node))return tr("Node beds require unique node names.");names.insert(r.node);if(!std::isfinite(r.kc)||!std::isfinite(r.dc)||!std::isfinite(r.area))return tr("Node-bed values must be finite.");}
-    SWMM_Engine check=swmm_engine_new();if(!check)return tr("Cannot allocate validation model.");const auto error=replaceRows(check,m_rows);swmm_engine_destroy(check);return error;
+    if(!isDirty())return {};return replaceRows(engine,m_loaded,m_rows,false);
 }
 QString Mesh2DAquiferNodeModel::commit(SWMM_Engine engine,bool advanceBaseline)
 {
     if(!isDirty())return {};auto error=validateCommit(engine);if(!error.isEmpty())return error;
-    error=replaceRows(engine,m_rows);if(!error.isEmpty()){const auto rollback=restoreLoaded(engine);return rollback.isEmpty()?error+tr(" Original rows restored."):error+tr(" Rollback failed: ")+rollback;}
+    error=replaceRows(engine,m_loaded,m_rows);if(!error.isEmpty())return error;
     if(advanceBaseline)acceptChanges();return {};
 }
-QString Mesh2DAquiferNodeModel::restoreLoaded(SWMM_Engine engine)const{return replaceRows(engine,m_loaded);}
+QString Mesh2DAquiferNodeModel::restoreLoaded(SWMM_Engine engine)const{
+    Mesh2DAquiferNodeModel current;current.load(engine);
+    if(!current.m_loadError.isEmpty())return current.m_loadError;
+    if(current.m_rows==m_loaded)return {};
+    return replaceRows(engine,m_rows,m_loaded);
+}
 void Mesh2DAquiferNodeModel::acceptChanges(){m_loaded=m_rows;}
 
 bool Mesh2DAquiferNodeModel::isDirty() const { return m_rows != m_loaded; }
@@ -621,6 +653,7 @@ int Mesh2DAquiferNodeModel::appendRow(const QString &node, int cell)
     Row r;
     r.node = node;
     r.cell = cell;
+    r.locate = cell < 0;
     m_rows.append(r);
     endInsertRows();
     return at;

@@ -337,9 +337,11 @@ QWidget *Mesh2DGroundwaterDialog::buildNodeBedPage()
     m_nodeView->setModel(m_nodes);
     m_nodeView->setAccessibleName(tr("Groundwater node beds"));
     m_nodeView->setAccessibleDescription(
-        tr("Select a row with the arrow keys. Press F2 to edit the current cell."));
+        tr("Select a row with the arrow keys. Press F2 to edit the current cell. Press Space to toggle aquifer exchange."));
     m_nodeView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_nodeView->horizontalHeader()->setStretchLastSection(false);
+    m_nodeView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_nodeView->horizontalHeader()->moveSection(Mesh2DAquiferNodeModel::ColExchange, 2);
     v->addWidget(m_nodeView, 1);
 
     auto *row = new QHBoxLayout;

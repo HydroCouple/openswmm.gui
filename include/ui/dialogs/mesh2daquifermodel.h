@@ -130,7 +130,7 @@ class Mesh2DAquiferNodeModel : public QAbstractTableModel
 {
     Q_OBJECT
 public:
-    enum Column { ColNode = 0, ColCell, ColKc, ColDc, ColArea, ColCount };
+    enum Column { ColNode = 0, ColCell, ColKc, ColDc, ColArea, ColExchange, ColCount };
 
     explicit Mesh2DAquiferNodeModel(QObject *parent = nullptr);
 
@@ -163,10 +163,12 @@ private:
         double  kc   = 0.0;  // 0 = direct Darcy, no semi-confining bed
         double  dc   = 0.0;
         double  area = 0.0;  // 0 = the cell's own area
+        int locate = 0, exchange = 1, automatic = 0;
         bool operator==(const Row &o) const;
     };
 
-    QString replaceRows(SWMM_Engine engine, const QList<Row> &rows) const;
+    QString replaceRows(SWMM_Engine engine, const QList<Row> &expected,
+                        const QList<Row> &rows, bool apply = true) const;
     QString m_loadError;
     QList<Row> m_rows;
     QList<Row> m_loaded;

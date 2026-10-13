@@ -77,6 +77,7 @@ set(_oe_api_sentinels
     "openswmm_infrastructure.h:swmm_lid_node_state_get"
     "openswmm_infrastructure.h:swmm_lid_node_configure_flow"
     "openswmm_checkpoint.h:swmm_checkpoint_start_session"
+    "openswmm_gw2d.h:swmm_gw2d_node_replace"
     "openswmm_nodes.h:swmm_node_get_rim_depth"
     "openswmm_infrastructure.h:swmm_street_rename"
 )
