@@ -7,7 +7,9 @@
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/mapcanvas.h"
 #include "map/openswmmvisscene.h"
+#include "map/openswmmvisgraphicsview.h"
 #include "map/tools/maptool.h"
+#include "render/smoothfillraster.h"
 #include <QGraphicsRectItem>
 #include "project/projectserializer.h"
 #include "swmmvis.h"
@@ -74,6 +76,14 @@ public:
     bool readDepthsAt(int t,std::vector<float>&d) override {d.assign(1,depths.at(size_t(t)));return true;}
     bool readEdgeGeometry(std::vector<float>&len,std::vector<float>&nx,std::vector<float>&ny) override {
         len={100,100,100,100};nx={1,0,-1,0};ny={0,1,0,-1};return true;
+    }
+};
+class SlopingFlowSource : public FlowSource {
+public:
+    SlopingFlowSource() {fluxEnabled=false;}
+    bool readMeshGeometry(std::vector<double>&x,std::vector<double>&y,std::vector<double>&z,
+                          std::vector<std::array<int,3>>&t) override {
+        FlowSource::readMeshGeometry(x,y,z,t);z={0,1,1,0};return true;
     }
 };
 class GridFlowSource : public FlowSource {
@@ -412,6 +422,97 @@ private slots:
         QCOMPARE(empty.pixelColor(qRound(240*empty.devicePixelRatio()),qRound(200*empty.devicePixelRatio())),QColor(20,60,100));
         canvas.takeLayer(0,false);
     }
+    void smoothRasterSharesEdgesAndInterpolatesPremultipliedColors() {
+        using namespace SmoothFillRaster;
+        QImage image(16,16,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
+        const QRgb color=qPremultiply(qRgba(40,100,200,128));
+        // The diagonal passes through pixel centres. Reversed winding must
+        // neither double the opacity nor leave a one-pixel crack.
+        triangle(image,{{{{0,0},color},{{16,0},color},{{16,16},color}}});
+        triangle(image,{{{{0,0},color},{{0,16},color},{{16,16},color}}});
+        for(int y=0;y<16;++y)for(int x=0;x<16;++x)QCOMPARE(image.pixel(x,y),color);
+        image.fill(Qt::transparent);
+        triangle(image,{{{{0,0},qPremultiply(qRgba(255,0,0,255))},
+                         {{16,0},qPremultiply(qRgba(0,255,0,128))},
+                         {{0,16},qPremultiply(qRgba(0,0,255,0))}}});
+        const QRgb mid=image.pixel(3,3); // weights 9/16, 3.5/16, 3.5/16
+        QCOMPARE(qRed(mid),143);QCOMPARE(qGreen(mid),28);QCOMPARE(qBlue(mid),0);QCOMPARE(qAlpha(mid),171);
+        const QImage before=image;
+        triangle(image,{{{{NAN,0},color},{{1,0},color},{{0,1},color}}});QCOMPARE(image,before);
+        triangle(image,{{{{-1e30,-1e30},color},{{-1e30,0},color},{{0,-1e30},color}}});QCOMPARE(image,before);
+    }
+    void cpuSmoothFillMatchesNativeAndRetainsOrder() {
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<SlopingFlowSource>());
+        double shallow=1e9,deep=-1e9;
+        for(const auto &t:layer.m_sceneTris)for(float d:{t.dv0,t.dv1,t.dv2}) {shallow=std::min(shallow,double(d));deep=std::max(deep,double(d));}
+        QVERIFY(shallow<.1);QVERIFY(deep>.4);
+        for(auto *sub:layer.sublayers())sub->setVisible(false);
+        auto *fill=layer.smoothDepthFillSublayer();fill->setVisible(true);fill->setOpacity(.65);layer.setOpacity(.7);
+        auto *style=fill->fillStyle();style->setUseCustomRange(true);style->setRangeMin(.1);style->setRangeMax(.4);
+        auto mask=layer.maskSpec();mask.enabled=true;layer.setMaskSpec(mask);
+        MapCanvas canvas;canvas.resize(480,360);canvas.setBackgroundColor(QColor(20,60,100));canvas.setShowScaleBar(false);
+        canvas.addLayer(&layer,false);canvas.setExtent({-10,-10,110,110},false);canvas.show();QTest::qWait(100);
+        QString error;
+        for(bool classified:{false,true})for(bool invert:{false,true}) {
+            style->setClassified(classified);style->setInvertRamp(invert);
+            const auto cpu=canvas.captureMap(&error).toImage();QVERIFY2(!cpu.isNull(),qPrintable(error));
+            QVERIFY(!layer.qsgOwnsRendering());
+            int filled=0,dry=0;
+            const auto pixel=[&](const QImage &i,int x,int y) {
+                return i.pixelColor(qRound(x*i.devicePixelRatio()),qRound(y*i.devicePixelRatio()));
+            };
+            for(int y=60;y<300;y+=10)for(int x=60;x<420;x+=10) {
+                if(pixel(cpu,x,y)==canvas.backgroundColor())++dry;else ++filled;
+            }
+            QVERIFY(filled>30);QVERIFY(dry>30);
+            if(qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW")) {
+                mask.enabled=false;layer.setMaskSpec(mask);QTest::qWait(150);
+                const auto native=canvas.captureMap(&error).toImage();QVERIFY2(!native.isNull(),qPrintable(error));
+                QVERIFY(layer.qsgOwnsRendering());
+                const QString folder=qEnvironmentVariable("FLOW_PARTICLE_NATIVE_OUTPUT","workplans/artifacts/flow_particle_fallback_2026-10-12");QDir().mkpath(folder);
+                const QString name=QString("smooth-%1-%2").arg(classified?"classified":"continuous",invert?"inverted":"normal");
+                QVERIFY(cpu.save(folder+"/"+name+"-cpu.png"));QVERIFY(native.save(folder+"/"+name+"-native.png"));
+                int compared=0;
+                for(int y=60;y<300;y+=13)for(int x=60;x<420;x+=11) {
+                    const auto a=pixel(cpu,x,y),b=pixel(native,x,y);
+                    const int diff=std::max({std::abs(a.red()-b.red()),std::abs(a.green()-b.green()),std::abs(a.blue()-b.blue())});
+                    QVERIFY2(diff<=5,qPrintable(QString("pixel %1,%2 cpu %3 native %4 diff %5").arg(x).arg(y).arg(a.name()).arg(b.name()).arg(diff)));
+                    ++compared;
+                }
+                QVERIFY(compared>200);mask.enabled=true;layer.setMaskSpec(mask);
+            }
+        }
+        // Two fills obey their actual stack order in the CPU fallback.
+        style->setColorRampName("");style->setLowColor(QColor(200,0,0));style->setHighColor(QColor(200,0,0));
+        style->setClassified(false);style->setUseCustomRange(false);fill->setOpacity(1);layer.setOpacity(1);
+        auto *cell=layer.cellDepthFillSublayer();cell->setVisible(true);
+        cell->fillStyle()->setColorRampName("");cell->fillStyle()->setLowColor(QColor(0,0,200));cell->fillStyle()->setHighColor(QColor(0,0,200));
+        cell->fillStyle()->setClassified(false);
+        layer.moveSublayer(layer.sublayers().indexOf(cell),layer.sublayers().size()-1);
+        const auto blue=canvas.captureMap(&error).toImage();QVERIFY(!blue.isNull());
+        layer.moveSublayer(layer.sublayers().indexOf(fill),layer.sublayers().size()-1);
+        const auto red=canvas.captureMap(&error).toImage();QVERIFY(!red.isNull());
+        const auto location=canvas.overlayView()->mapFromScene(QPointF(10,-50));
+        const auto at=[&](const QImage &i){return i.pixelColor(qRound(location.x()*i.devicePixelRatio()),qRound(location.y()*i.devicePixelRatio()));};
+        QCOMPARE(at(blue),QColor(0,0,200));QCOMPARE(at(red),QColor(200,0,0));
+        cell->setVisible(false);
+        for(double dpr:{1.,2.}) {
+            QImage transformed(QSize(600,450)*dpr,QImage::Format_ARGB32_Premultiplied);
+            transformed.setDevicePixelRatio(dpr);transformed.fill(QColor(3,5,7));
+            QPainter painter(&transformed);painter.setClipRect(QRectF(50,50,400,300));
+            painter.translate(180,80);painter.rotate(17);painter.shear(.15,.1);painter.scale(2,2);
+            canvas.overlayView()->scene()->render(&painter,QRectF(0,0,100,100),layer.m_sceneBBox,Qt::IgnoreAspectRatio);
+            painter.end();int redPixels=0;
+            for(int y=0;y<transformed.height();++y)for(int x=0;x<transformed.width();++x) {
+                const auto color=transformed.pixelColor(x,y);
+                if(x<50*dpr || x>=450*dpr || y<50*dpr || y>=350*dpr)QCOMPARE(color,QColor(3,5,7));
+                redPixels+=color.red()>150 && color.blue()<10;
+            }
+            QVERIFY(redPixels>1000);
+        }
+        canvas.zoomAroundCursor(1.3,{240,180});canvas.pan(7,3);canvas.resize(520,400);
+        QVERIFY(!canvas.captureMap(&error).isNull());canvas.takeLayer(0,false);
+    }
     void visibleCompositionCachesAndFallsBack() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Requires native GPU composition");
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
@@ -563,6 +664,134 @@ private slots:
             {"renderIntervalMedianMs",renderPercentile(.5)},{"renderIntervalP95Ms",renderPercentile(.95)},
             {"presentation","Qt Quick render-completion notifications; not OS display presentation; paint costs are separate"}}).toJson());
         canvas.takeLayer(0,false);
+    }
+    void continuousRegionalLargeMesh_data() {
+        QTest::addColumn<bool>("quad");
+        QTest::newRow("native-triangles")<<false;QTest::newRow("native-quads")<<true;
+    }
+    void continuousRegionalLargeMesh() {
+        QFETCH(bool,quad);
+        const bool large=qEnvironmentVariableIsSet("FLOW_PARTICLE_6M");
+        const bool native=qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW");
+        const int cols=large?2000:160,rows=large?(quad?3000:1500):120;
+        QElapsedTimer timer;timer.start();
+        SWMM2DResultsLayer layer;
+        std::unique_ptr<GridFlowSource> source=quad?std::unique_ptr<GridFlowSource>(new QuadGridFlowSource(cols,rows))
+                                                  :std::make_unique<GridFlowSource>(cols,rows);
+        auto *raw=source.get();layer.setSource(std::move(source));
+        const double loadMs=timer.nsecsElapsed()/1e6;
+        QCOMPARE(layer.m_sceneTris.size(),cols*rows*2);
+        for(auto *sub:layer.sublayers())sub->setVisible(false);
+        layer.smoothDepthFillSublayer()->setVisible(true);
+        auto *sub=layer.flowStreakSublayer();sub->setVisible(true);auto *style=sub->streakStyle();
+        style->setContinuousParticles(true);style->setSpeedMultiplier(1);style->setSpacingPx(30);
+        style->setMinimumLifetimeSeconds(60);style->setMaximumLifetimeSeconds(90);style->setTrailDurationSeconds(10);
+        style->setAnimationTimestepMs(16);style->setColor(QColor(10,30,80));
+        const QRectF view(cols*.65,-rows*.5,40,30);const double scale=32;
+        timer.restart();QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
+        const double prepareMs=timer.nsecsElapsed()/1e6;
+        if(large)QVERIFY(layer.regionalHydraulicsPublished());
+        const auto input=layer.captureFlowParticleInput(view,scale);QVERIFY(input);
+        QVERIFY(input->triangles.size()<size_t(FlowStreakMesh::maxRegionTriangles));
+        const size_t payload=input->mesh->bytes()+input->triangles.capacity()*sizeof(FlowParticleNativeTriangle);
+        QVERIFY(payload<32*1024*1024);
+        qInfo()<<"Resident display triangles"<<input->triangles.size()<<"input payload bytes"<<payload;
+        int croppedEdges=0;
+        for(size_t i=0;i<input->triangles.size();++i)for(int e=0;e<3;++e) {
+            if(input->mesh->neighbors[i][e]>=0)continue;
+            const auto &ids=input->mesh->triangles[i];
+            const auto midpoint=(input->mesh->vertices[ids[(e+1)%3]]+input->mesh->vertices[ids[(e+2)%3]])*.5;
+            const auto box=layer.m_sceneBBox;
+            if(std::abs(midpoint.x()-box.left())<1e-6 || std::abs(midpoint.x()-box.right())<1e-6
+                || std::abs(midpoint.y()-box.top())<1e-6 || std::abs(midpoint.y()-box.bottom())<1e-6)continue;
+            QVERIFY2(!(input->triangles[i].residentEdges&(1<<e)),"A regional edge inside the native domain must wait, not become an outlet");
+            ++croppedEdges;
+        }
+        QVERIFY(croppedEdges>0);
+        const int fullReads=raw->reads,regionalReads=raw->regionalReads;
+        timer.restart();
+        for(int i=0;i<120;++i) {
+            layer.advanceFlowStreaks(1./60.);QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
+        }
+        const double advanceMs=timer.nsecsElapsed()/1e6;
+        const auto first=layer.flowParticles(view,scale,layer.frameRevision());QVERIFY(first);
+        QVERIFY(first->particles.size()>10);QCOMPARE(raw->reads,fullReads);QCOMPARE(raw->regionalReads,regionalReads);
+        int crossings=0;for(const auto &p:first->particles)crossings+=p.crossings;QVERIFY(crossings>0);
+        // A new live packet must use a regional read and retain particle IDs,
+        // assigned lifetimes, recorded history and world positions.
+        raw->speed=3;++raw->revision;layer.refreshCurrentFrame();
+        QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()!=first->revision,10000);
+        QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
+        const auto updated=layer.flowParticles(view,scale,layer.frameRevision());QVERIFY(updated);
+        for(const auto &old:first->particles) {
+            const auto it=std::find_if(updated->particles.begin(),updated->particles.end(),[&](const auto &p){return p.id==old.id;});
+            QVERIFY(it!=updated->particles.end());QCOMPARE(it->position,old.position);QCOMPARE(it->age,old.age);
+            QCOMPARE(it->lifetime,old.lifetime);QCOMPARE(it->history.size(),old.history.size());
+        }
+        if(large) {QCOMPARE(raw->reads,fullReads);QVERIFY(raw->regionalReads>regionalReads);}
+        const QRectF distant(cols*.1,-rows*.2,40,30);
+        QVERIFY(layer.prepareFlowStreaksForCapture(distant,scale));
+        layer.advanceFlowStreaks(.1);QVERIFY(layer.prepareFlowStreaksForCapture(distant,scale));
+        const auto away=layer.flowParticles(distant,scale,layer.frameRevision());QVERIFY(away);
+        for(const auto &old:first->particles) {
+            const auto it=std::find_if(away->particles.begin(),away->particles.end(),[&](const auto &p){return p.id==old.id;});
+            QVERIFY(it!=away->particles.end());QCOMPARE(it->position,old.position);QVERIFY(it->waitingForData);
+        }
+        QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
+        layer.advanceFlowStreaks(.1);QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
+        const auto returned=layer.flowParticles(view,scale,layer.frameRevision());QVERIFY(returned);
+        int resumed=0;for(const auto &old:first->particles)for(const auto &p:returned->particles)
+            if(p.id==old.id && p.position.x()>old.position.x())++resumed;
+        QVERIFY(resumed>10);
+        QJsonObject report{{"nativeCells",raw->triangleCount()},{"displayTriangles",layer.m_sceneTris.size()},
+            {"cellType",quad?"quad":"triangle"},{"loadMs",loadMs},{"regionPrepareMs",prepareMs},
+            {"manualAdvanceMs",advanceMs},{"manualAnimationSeconds",2},{"particles",int(first->particles.size())},
+            {"cellCrossings",crossings},{"regionTriangles",int(input->triangles.size())},
+            {"inputPayloadBytes",qint64(payload)},{"fullReadsAfterLoad",raw->reads-fullReads},
+            {"regionalReads",raw->regionalReads},{"resumedParticles",resumed},
+            {"memoryScope","input payload only; process high-water includes baseline mesh, map and renderer"}};
+        const QString folder=qEnvironmentVariable("FLOW_PARTICLE_NATIVE_OUTPUT","workplans/artifacts/flow_particle_fallback_2026-10-12");QDir().mkpath(folder);
+        const QString name=QString(large?"6m-%1":"regional-%1").arg(quad?"quads":"triangles");
+        if(native) {
+            ParticleReviewCanvas canvas;canvas.resize(1920,1080);canvas.setShowScaleBar(false);
+            canvas.setWindowFlags(canvas.windowFlags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
+            canvas.addLayer(&layer,false);canvas.setExtent({view.left(),-view.bottom(),view.right(),-view.top()},false);canvas.show();
+            QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);QTest::qWait(3000);
+            const auto before=canvas.compositionStats();QTest::qWait(15000);const auto after=canvas.compositionStats();
+            QVERIFY(after.renderedFrames>before.renderedFrames+100);
+            QCOMPARE(after.fallbackReadbacks,before.fallbackReadbacks);QCOMPARE(after.captureReadbacks,before.captureReadbacks);
+            QCOMPARE(after.textureUploads,before.textureUploads);
+            // The bounded interval history has at most 4096 entries; this
+            // sample fits without eviction and excludes warm-up intervals.
+            auto intervals=after.renderIntervalsMs.mid(before.renderIntervalsMs.size());std::sort(intervals.begin(),intervals.end());
+            QVERIFY(intervals.size()>100);
+            report.insert("renderIntervalMedianMs",intervals[int(.5*(intervals.size()-1))]);
+            report.insert("renderIntervalP95Ms",intervals[int(.95*(intervals.size()-1))]);
+            report.insert("intervalWithin30FpsTarget",intervals[int(.95*(intervals.size()-1))]<=33.3);
+            report.insert("renderedFrames",qint64(after.renderedFrames-before.renderedFrames));
+            report.insert("logicalViewportWidth",canvas.width());report.insert("logicalViewportHeight",canvas.height());
+            report.insert("devicePixelRatio",canvas.devicePixelRatioF());
+            report.insert("steadyFallbackReadbacks",qint64(after.fallbackReadbacks-before.fallbackReadbacks));
+            report.insert("steadyTextureUploads",qint64(after.textureUploads-before.textureUploads));
+            report.insert("cadenceScope","Qt Quick render completions; synthetic live source; not solver impact or OS presentation");
+            const auto current=layer.flowParticles(view,scale,layer.frameRevision(),false);QVERIFY(current);
+            int waiting=0,limited=0,moving=0;size_t history=0;
+            for(const auto &p:current->particles) {waiting+=p.waitingForData;limited+=p.historyLimited;history+=p.history.size();
+                moving+=!p.waitingForData && p.stop==FlowParticleStop::None;}
+            report.insert("steadyParticles",int(current->particles.size()));report.insert("waitingForData",waiting);
+            report.insert("shortenedTails",limited);report.insert("historySamples",qint64(history));
+            report.insert("animationSeconds",current->clock);
+            report.insert("movingParticles",moving);report.insert("sustainedMotionValidated",moving>0);
+            report.insert("births",qint64(current->births));report.insert("deaths",qint64(current->deaths));
+            QJsonArray stops;for(auto count:current->stopCounts)stops.append(qint64(count));report.insert("stopCounts",stops);
+            QString error;const auto image=canvas.captureMap(&error);QVERIFY2(!image.isNull(),qPrintable(error));QVERIFY(image.save(folder+"/"+name+".png"));
+            canvas.takeLayer(0,false);
+        }
+        QFile file(folder+"/"+name+".json");QVERIFY(file.open(QIODevice::WriteOnly));file.write(QJsonDocument(report).toJson());
+        if(large) { // The bounded overview rejection must happen before copying a full field.
+            timer.restart();QVERIFY(!layer.captureFlowParticleInput(layer.m_sceneBBox,1));
+            QVERIFY(timer.elapsed()<1000);QVERIFY(layer.flowStreakStatus().contains("Zoom in"));
+        }
     }
     void initTestCase() {
         QCoreApplication::setOrganizationName("OpenSWMMFlowTests");

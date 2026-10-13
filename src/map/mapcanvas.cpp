@@ -2270,6 +2270,104 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         }
     }
 
+    // Select legacy native owners before the CPU scene is rendered. In
+    // particular, the first masked capture must already include its fill.
+    const bool legacyNative = !m_resultsRequireOrderedScene &&
+        (m_qsgRenderer || m_qsg2DRenderer || m_qsgMeshRenderer) && m_qsgWidget;
+    SWMMModelLayer *firstSwmm = nullptr;
+    SWMM2DResultsLayer *want2D = nullptr;
+    SWMM2DMeshLayer *wantMesh = nullptr;
+    if (legacyNative) {
+        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
+            if (!layer->isVisible()) continue;
+            if (auto *sl = qobject_cast<SWMMModelLayer *>(layer)) {
+                firstSwmm = sl;
+                break;
+            }
+        }
+
+        // VS.8 — a single SWMM2DResultsQSGRenderer can own one 2D results
+        // layer. Choose the topmost visible 2D layer so the QSG framebuffer
+        // composes in the same stack order as the QGraphicsScene. If that
+        // top layer needs CPU-only masking, keep every 2D results layer on the
+        // CPU path; drawing a lower QSG layer above a masked top layer would
+        // invert their visual order.
+        SWMM2DResultsLayer *top2D = nullptr;
+        for (int i = int(m_layers.size()) - 1; i >= 0; --i) {
+            OpenSWMMVisLayer *layer = m_layers.at(i);
+            if (!layer || !layer->isVisible()) continue;
+            if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer)) {
+                top2D = rl;
+                break;
+            }
+        }
+        want2D =
+            (top2D && m_qsg2DRenderer && !top2D->maskSpec().enabled)
+                ? top2D : nullptr;
+        const bool own2D = want2D != nullptr;
+
+        // Mesh Tiled LOD P1.1 — same single-owner rule for the terrain mesh:
+        // topmost visible SWMM2DMeshLayer, gated by the Rendering/
+        // QsgMeshEnabled preference and the OPENSWMM_QSG_MESH=0 env
+        // kill-switch. A masked mesh layer stays on the CPU path (the QSG
+        // renderer has no mask support). And when a visible 2D results layer
+        // must render on the CPU (want2D == nullptr while top2D exists), the
+        // mesh stays CPU too — a QSG mesh would composite ABOVE the
+        // CPU-painted flood map and invert their visual order.
+        static const bool kQsgMeshEnvOff =
+            qEnvironmentVariable("OPENSWMM_QSG_MESH") == QLatin1String("0");
+        SWMM2DMeshLayer *topMesh = nullptr;
+        for (int i = int(m_layers.size()) - 1; i >= 0; --i) {
+            OpenSWMMVisLayer *layer = m_layers.at(i);
+            if (!layer || !layer->isVisible()) continue;
+            if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+                topMesh = ml;
+                break;
+            }
+        }
+        wantMesh =
+            (topMesh && m_qsgMeshRenderer && !kQsgMeshEnvOff
+             && PreferencesManager::instance()->qsgMeshRenderEnabled()
+             && !topMesh->maskSpec().enabled
+             && (own2D || !top2D))
+                ? topMesh : nullptr;
+        const bool ownMesh = wantMesh != nullptr;
+
+        // Ownership handoff — the setters no-op when unchanged, and their
+        // repaintRequested emissions only schedule (not re-enter) a paint.
+        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
+            if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer))
+                rl->setQsgOwnsRendering(rl == want2D);
+            else if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(layer))
+                ml->setQsgOwnsRendering(ml == wantMesh);
+        }
+        if (m_qsgCached2DLayer && m_qsgCached2DLayer != want2D)
+            m_qsgCached2DLayer->setQsgOwnsRendering(false);
+        if (m_qsgCachedMeshLayer && m_qsgCachedMeshLayer != wantMesh)
+            m_qsgCachedMeshLayer->setQsgOwnsRendering(false);
+
+        // While the flood map (or, since Mesh Tiled LOD P1.1, the terrain
+        // mesh) renders in the QSG frame, the 1D network must render there
+        // too (above it) — a CPU-painted network in the scene buffer would
+        // composite UNDER them. Force the kinds on and restore the
+        // preference-derived mask when the QSG-owned 2D layers go away.
+        if ((own2D || ownMesh) && firstSwmm
+            && firstSwmm->qsgRenderKinds() == SWMMModelLayer::QsgNone) {
+            firstSwmm->setQsgRenderKinds(
+                SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNodes
+                                       | SWMMModelLayer::QsgLinks
+                                       | SWMMModelLayer::QsgCatch
+                                       | SWMMModelLayer::QsgGages));
+            m_qsg1DForced = true;
+        } else if (!own2D && !ownMesh && m_qsg1DForced) {
+            m_qsg1DForced = false;
+            syncQsgRenderKindsFromPreferences();
+        }
+
+    }
+    const bool own2D = want2D != nullptr;
+    const bool ownMesh = wantMesh != nullptr;
+
     // ---- Layer 2: vector scene items ----------------------------------------
     // The vector scene (2D mesh, GIS vectors, annotations) is expensive to
     // render on a large mesh, so the cost is scoped to *active pan/zoom
@@ -2352,95 +2450,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     //   3. grabFramebuffer() reads the FBO → QImage.
     //   4. drawImage() into m_frameBuffer AFTER basemap / DTM / mesh so
     //      the stacking order is deterministic and all layers are visible.
-    if (!m_resultsRequireOrderedScene &&
-        (m_qsgRenderer || m_qsg2DRenderer || m_qsgMeshRenderer) && m_qsgWidget) {
-        SWMMModelLayer *firstSwmm = nullptr;
-        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
-            if (!layer->isVisible()) continue;
-            if (auto *sl = qobject_cast<SWMMModelLayer *>(layer)) {
-                firstSwmm = sl;
-                break;
-            }
-        }
-
-        // VS.8 — a single SWMM2DResultsQSGRenderer can own one 2D results
-        // layer. Choose the topmost visible 2D layer so the QSG framebuffer
-        // composes in the same stack order as the QGraphicsScene. If that
-        // top layer needs CPU-only masking, keep every 2D results layer on the
-        // CPU path; drawing a lower QSG layer above a masked top layer would
-        // invert their visual order.
-        SWMM2DResultsLayer *top2D = nullptr;
-        for (int i = int(m_layers.size()) - 1; i >= 0; --i) {
-            OpenSWMMVisLayer *layer = m_layers.at(i);
-            if (!layer || !layer->isVisible()) continue;
-            if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer)) {
-                top2D = rl;
-                break;
-            }
-        }
-        SWMM2DResultsLayer *want2D =
-            (top2D && m_qsg2DRenderer && !top2D->maskSpec().enabled)
-                ? top2D : nullptr;
-        const bool own2D = want2D != nullptr;
-
-        // Mesh Tiled LOD P1.1 — same single-owner rule for the terrain mesh:
-        // topmost visible SWMM2DMeshLayer, gated by the Rendering/
-        // QsgMeshEnabled preference and the OPENSWMM_QSG_MESH=0 env
-        // kill-switch. A masked mesh layer stays on the CPU path (the QSG
-        // renderer has no mask support). And when a visible 2D results layer
-        // must render on the CPU (want2D == nullptr while top2D exists), the
-        // mesh stays CPU too — a QSG mesh would composite ABOVE the
-        // CPU-painted flood map and invert their visual order.
-        static const bool kQsgMeshEnvOff =
-            qEnvironmentVariable("OPENSWMM_QSG_MESH") == QLatin1String("0");
-        SWMM2DMeshLayer *topMesh = nullptr;
-        for (int i = int(m_layers.size()) - 1; i >= 0; --i) {
-            OpenSWMMVisLayer *layer = m_layers.at(i);
-            if (!layer || !layer->isVisible()) continue;
-            if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(layer)) {
-                topMesh = ml;
-                break;
-            }
-        }
-        SWMM2DMeshLayer *wantMesh =
-            (topMesh && m_qsgMeshRenderer && !kQsgMeshEnvOff
-             && PreferencesManager::instance()->qsgMeshRenderEnabled()
-             && !topMesh->maskSpec().enabled
-             && (own2D || !top2D))
-                ? topMesh : nullptr;
-        const bool ownMesh = wantMesh != nullptr;
-
-        // Ownership handoff — the setters no-op when unchanged, and their
-        // repaintRequested emissions only schedule (not re-enter) a paint.
-        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
-            if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer))
-                rl->setQsgOwnsRendering(rl == want2D);
-            else if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(layer))
-                ml->setQsgOwnsRendering(ml == wantMesh);
-        }
-        if (m_qsgCached2DLayer && m_qsgCached2DLayer != want2D)
-            m_qsgCached2DLayer->setQsgOwnsRendering(false);
-        if (m_qsgCachedMeshLayer && m_qsgCachedMeshLayer != wantMesh)
-            m_qsgCachedMeshLayer->setQsgOwnsRendering(false);
-
-        // While the flood map (or, since Mesh Tiled LOD P1.1, the terrain
-        // mesh) renders in the QSG frame, the 1D network must render there
-        // too (above it) — a CPU-painted network in the scene buffer would
-        // composite UNDER them. Force the kinds on and restore the
-        // preference-derived mask when the QSG-owned 2D layers go away.
-        if ((own2D || ownMesh) && firstSwmm
-            && firstSwmm->qsgRenderKinds() == SWMMModelLayer::QsgNone) {
-            firstSwmm->setQsgRenderKinds(
-                SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNodes
-                                       | SWMMModelLayer::QsgLinks
-                                       | SWMMModelLayer::QsgCatch
-                                       | SWMMModelLayer::QsgGages));
-            m_qsg1DForced = true;
-        } else if (!own2D && !ownMesh && m_qsg1DForced) {
-            m_qsg1DForced = false;
-            syncQsgRenderKindsFromPreferences();
-        }
-
+    if (legacyNative) {
         // §QSG-1: skip the GPU render + readback entirely when no kind
         // is owned by the QSG overlay (the default Preferences state).
         // grabFramebuffer() is the single most expensive thing in
