@@ -34,6 +34,7 @@
 #include <QQuickWidget>
 #include <QQuickWindow>
 #include <cmath>
+#include <map>
 #include <limits>
 using namespace OpenSWMM::Render;
 
@@ -41,7 +42,9 @@ class FlowSource : public IMesh2DSource {
 public:
     bool live=false,fluxEnabled=true;
     float speed=2;
-    int revision=0,reads=0;
+    int revision=0,reads=0,generation=0;
+    qint64 timeOrigin=1700000000;
+    int historyGeneration() const override {return generation;}
     std::vector<float> depths{.25f,.5f,.25f};
     int vertexCount() const override {return 4;}
     int triangleCount() const override {return 2;}
@@ -53,7 +56,7 @@ public:
         x={0,100,100,0};y={0,0,100,100};z={0,0,0,0};t={{0,1,2},{0,2,3}};return true;
     }
     bool readDepthsAt(int t,std::vector<float>&d) override {++reads;d.assign(2,depths.at(size_t(t)));return true;}
-    QDateTime simTimeAt(int i) const override {return QDateTime::fromSecsSinceEpoch(1700000000+i*60,Qt::UTC);}
+    QDateTime simTimeAt(int i) const override {return QDateTime::fromSecsSinceEpoch(timeOrigin+i*60,Qt::UTC);}
     bool readEdgeGeometry(std::vector<float>&len,std::vector<float>&nx,std::vector<float>&ny) override {
         const float n=std::sqrt(.5f);
         len={100,100/n,100,0,100,100,100/n,0};
@@ -90,13 +93,14 @@ class GridFlowSource : public FlowSource {
 public:
     GridFlowSource(int cols=400,int rows=400):cols(cols),rows(rows) {live=true;}
     int cols,rows,regionalReads=0;
+    bool regionalMissing=false,regionalMismatch=false;
     bool supportsHydraulicCells() const override {return true;}
     std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
     readHydraulicCellsAt(int t,const std::vector<int>& ids) override {
         if(!openswmmvis::io::validHydraulicCells(ids,triangleCount())) return {};
-        ++regionalReads;
+        ++regionalReads;if(regionalMissing)return {};
         auto out=std::make_shared<openswmmvis::io::Mesh2DHydraulicFrame>();
-        out->time=t;out->revision=revision;out->cells=ids;
+        out->time=regionalMismatch?t+1:t;out->revision=revision;out->generation=generation;out->cells=ids;
         const float signs[8]={1,-1,0,0,0,-1,1,0};
         for(int c:ids) {
             const float d=depths.at(size_t(t));out->depths.push_back(d);
@@ -146,7 +150,7 @@ public:
     readHydraulicCellsAt(int t,const std::vector<int>& ids) override {
         if(!openswmmvis::io::validHydraulicCells(ids,triangleCount())) return {};
         ++regionalReads;auto out=std::make_shared<openswmmvis::io::Mesh2DHydraulicFrame>();
-        out->time=t;out->revision=revision;out->cells=ids;const float signs[4]={1,0,-1,0};
+        out->time=t;out->revision=revision;out->generation=generation;out->cells=ids;const float signs[4]={1,0,-1,0};
         for(int c:ids) {
             Q_UNUSED(c);const float d=depths.at(size_t(t));out->depths.push_back(d);
             for(float sign:signs)out->flux.push_back(sign*d*speed);
@@ -740,7 +744,7 @@ private slots:
         }
         const double advanceMs=timer.nsecsElapsed()/1e6;
         const auto first=layer.flowParticles(view,scale,layer.frameRevision());QVERIFY(first);
-        QVERIFY(first->particles.size()>10);QCOMPARE(raw->reads,fullReads);QCOMPARE(raw->regionalReads,regionalReads);
+        QVERIFY(first->particles.size()>10);QCOMPARE(raw->reads,fullReads);QVERIFY(raw->regionalReads-regionalReads<10);
         int crossings=0;for(const auto &p:first->particles)crossings+=p.crossings;QVERIFY(crossings>0);
         // A new live packet must use a regional read and retain particle IDs,
         // assigned lifetimes, recorded history and world positions.
@@ -760,7 +764,7 @@ private slots:
         const auto away=layer.flowParticles(distant,scale,layer.frameRevision());QVERIFY(away);
         for(const auto &old:first->particles) {
             const auto it=std::find_if(away->particles.begin(),away->particles.end(),[&](const auto &p){return p.id==old.id;});
-            QVERIFY(it!=away->particles.end());QCOMPARE(it->position,old.position);QVERIFY(it->waitingForData);
+            QVERIFY(it!=away->particles.end());QVERIFY(it->position.x()>old.position.x());QVERIFY(!it->waitingForData);
         }
         QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
         layer.advanceFlowStreaks(.1);QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
@@ -782,13 +786,17 @@ private slots:
             canvas.setWindowFlags(canvas.windowFlags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
             canvas.addLayer(&layer,false);canvas.setExtent({view.left(),-view.bottom(),view.right(),-view.top()},false);canvas.show();
             QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);QTest::qWait(3000);
-            const auto before=canvas.compositionStats();QTest::qWait(15000);const auto after=canvas.compositionStats();
+            const auto before=canvas.compositionStats();
+            const int seconds=std::clamp(qEnvironmentVariableIntValue("FLOW_PARTICLE_NATIVE_SECONDS"),15,120);
+            QTest::qWait(seconds*1000);const auto after=canvas.compositionStats();
             QVERIFY(after.renderedFrames>before.renderedFrames+100);
             QCOMPARE(after.fallbackReadbacks,before.fallbackReadbacks);QCOMPARE(after.captureReadbacks,before.captureReadbacks);
             QCOMPARE(after.textureUploads,before.textureUploads);
-            // The bounded interval history has at most 4096 entries; this
-            // sample fits without eviction and excludes warm-up intervals.
-            auto intervals=after.renderIntervalsMs.mid(before.renderIntervalsMs.size());std::sort(intervals.begin(),intervals.end());
+            // Select only new intervals, including after the bounded history
+            // has evicted the beginning of a longer residency/lifetime run.
+            const auto newFrames=after.renderedFrames-before.renderedFrames;
+            auto intervals=after.renderIntervalsMs.mid(int(std::max<qint64>(0,after.renderIntervalsMs.size()-qint64(newFrames))));
+            std::sort(intervals.begin(),intervals.end());
             QVERIFY(intervals.size()>100);
             report.insert("renderIntervalMedianMs",intervals[int(.5*(intervals.size()-1))]);
             report.insert("renderIntervalP95Ms",intervals[int(.95*(intervals.size()-1))]);
@@ -807,6 +815,13 @@ private slots:
             report.insert("shortenedTails",limited);report.insert("historySamples",qint64(history));
             report.insert("animationSeconds",current->clock);
             report.insert("movingParticles",moving);report.insert("motionPresentAtEnd",moving>0);
+            report.insert("fieldWorkingUpperBoundBytes",qint64(layer.flowParticleFieldBytes()));
+            report.insert("fieldCaptures",layer.flowParticleFieldCaptures());report.insert("fieldSubsetReads",layer.flowParticleFieldReads());
+            if(large && seconds>=90) {
+                QVERIFY(moving>0);QCOMPARE(waiting,0);QVERIFY(current->deaths>0);
+                QCOMPARE(current->deaths,current->stopCounts[size_t(FlowParticleStop::Lifetime)]);
+                QCOMPARE(raw->reads,fullReads);
+            }
             report.insert("performanceCertified",false); // short profile; residency/lifetime/memory gates remain
             report.insert("births",qint64(current->births));report.insert("deaths",qint64(current->deaths));
             QJsonArray stops;for(auto count:current->stopCounts)stops.append(qint64(count));report.insert("stopCounts",stops);
@@ -818,6 +833,114 @@ private slots:
             timer.restart();QVERIFY(!layer.captureFlowParticleInput(layer.m_sceneBBox,1));
             QVERIFY(timer.elapsed()<1000);QVERIFY(layer.flowStreakStatus().contains("Zoom in"));
         }
+    }
+    void missingOrMismatchedResidencyPacketsRetainTheAcceptedField() {
+        SWMM2DResultsLayer layer;auto source=std::make_unique<GridFlowSource>(700,200);auto *raw=source.get();
+        layer.setSource(std::move(source));auto *sub=layer.flowStreakSublayer();sub->setVisible(true);
+        auto *style=sub->streakStyle();style->setContinuousParticles(true);style->setSpeedMultiplier(1);
+        style->setMinimumLifetimeSeconds(60);style->setMaximumLifetimeSeconds(90);
+        const QRectF view(300,-40,30,20);QVERIFY(layer.prepareFlowStreaksForCapture(view,16));
+        const auto accepted=layer.captureFlowParticleInput(view,16);QVERIFY(accepted);
+        raw->regionalMissing=true;
+        const QRectF outside(100,-20,30,20);QVERIFY(!layer.captureFlowParticleInput(outside,16));
+        QCOMPARE(layer.captureFlowParticleInput(view,16),accepted);
+        raw->regionalMissing=false;raw->regionalMismatch=true;
+        QVERIFY(!layer.captureFlowParticleInput(outside,16));QCOMPARE(layer.captureFlowParticleInput(view,16),accepted);
+        raw->regionalMismatch=false;
+        const auto replacement=layer.captureFlowParticleInput(outside,16);QVERIFY(replacement);QVERIFY(replacement!=accepted);
+        // Returning to an oversized overview also keeps the working snapshot.
+        QVERIFY(!layer.captureFlowParticleInput(layer.m_sceneBBox,1));
+        QCOMPARE(layer.captureFlowParticleInput(outside,16),replacement);QVERIFY(!layer.flowStreakStatus().contains("Zoom in"));
+    }
+    void liveHistoryTrimPreservesAgeButAnActualBackwardSeekResetsIt() {
+        SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();auto *raw=source.get();raw->live=true;
+        layer.setSource(std::move(source));auto *sub=layer.flowStreakSublayer();sub->setVisible(true);
+        auto *style=sub->streakStyle();style->setContinuousParticles(true);style->setSpeedMultiplier(1);
+        layer.setCurrentTimeIndex(2);QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        layer.advanceFlowStreaks(1);QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        const auto old=layer.flowParticles(layer.m_sceneBBox,1,layer.frameRevision());QVERIFY(!old->particles.empty());
+        raw->timeOrigin+=120;++raw->generation;layer.setCurrentTimeIndex(0);
+        QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        const auto trimmed=layer.flowParticles(layer.m_sceneBBox,1,layer.frameRevision());QVERIFY(trimmed);
+        QCOMPARE(trimmed->particles.front().id,old->particles.front().id);
+        QCOMPARE(trimmed->particles.front().age,old->particles.front().age);
+        QCOMPARE(trimmed->particles.front().position,old->particles.front().position);
+        raw->timeOrigin-=120;++raw->revision;layer.refreshCurrentFrame();
+        QTRY_VERIFY(layer.frameRevision()!=trimmed->revision);
+        QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox,1));
+        const auto sought=layer.flowParticles(layer.m_sceneBBox,1,layer.frameRevision());QVERIFY(sought);
+        QVERIFY(!sought->particles.empty());QCOMPARE(sought->particles.front().age,0.);
+    }
+    void continuousBirthsAreDistributedAcrossTheSelectedLifetimeRange() {
+        SWMM2DResultsLayer layer;auto source=std::make_unique<FlowSource>();source->speed=.001f;
+        layer.setSource(std::move(source));auto *sub=layer.flowStreakSublayer();sub->setVisible(true);
+        auto *style=sub->streakStyle();style->setContinuousParticles(true);style->setSpeedMultiplier(1);
+        style->setMinimumLifetimeSeconds(20);style->setMaximumLifetimeSeconds(40);style->setLifetimeFadeSeconds(1);style->setSpacingPx(30);
+        const auto view=layer.m_sceneBBox;QVERIFY(layer.prepareFlowStreaksForCapture(view,4));
+        auto frame=layer.flowParticles(view,4,layer.frameRevision());QVERIFY(frame);QCOMPARE(frame->births,quint64(1));
+        for(int i=0;i<80;++i) {layer.advanceFlowStreaks(.1);QVERIFY(layer.prepareFlowStreaksForCapture(view,4));}
+        frame=layer.flowParticles(view,4,layer.frameRevision());QVERIFY(frame);
+        QVERIFY(frame->births>10);QCOMPARE(frame->deaths,quint64(0));
+        std::array<int,4> ageBins{};double minLife=INFINITY,maxLife=0;
+        for(const auto &p:frame->particles) {
+            ++ageBins[size_t(std::clamp(int(p.age/2),0,3))];minLife=std::min(minLife,p.lifetime);maxLife=std::max(maxLife,p.lifetime);
+        }
+        for(int count:ageBins)QVERIFY(count>0);QVERIFY(maxLife-minLife>10);
+        // The old four-second fill would put the complete pool in the first cohort.
+        QVERIFY(frame->births<100);
+    }
+    void continuousResidencyThroughRandomizedDeaths_data() {continuousRegionalLargeMesh_data();}
+    void continuousResidencyThroughRandomizedDeaths() {
+        QFETCH(bool,quad);const bool large=qEnvironmentVariableIsSet("FLOW_PARTICLE_6M");
+        const int cols=large?2000:500,rows=large?(quad?3000:1500):80;
+        SWMM2DResultsLayer layer;
+        std::unique_ptr<GridFlowSource> source=quad?std::unique_ptr<GridFlowSource>(new QuadGridFlowSource(cols,rows)):
+            std::make_unique<GridFlowSource>(cols,rows);auto *raw=source.get();raw->speed=1;
+        layer.setSource(std::move(source));for(auto *sub:layer.sublayers())sub->setVisible(false);
+        auto *sub=layer.flowStreakSublayer();sub->setVisible(true);auto *style=sub->streakStyle();
+        style->setContinuousParticles(true);style->setSpeedMultiplier(1);style->setSpacingPx(50);
+        style->setMinimumLifetimeSeconds(60);style->setMaximumLifetimeSeconds(90);style->setTrailDurationSeconds(10);
+        const QRectF view(large?1000:50,-rows*.5,30,20),distant(large?100:10,-rows*.2,30,20);
+        const double scale=16;QVERIFY(layer.prepareFlowStreaksForCapture(view,scale));
+        const int fullReads=raw->reads;
+        struct Trace {QPointF start;double born,life;};std::map<quint64,Trace> traces;
+        QSet<quint64> deaths;int witnessedDeaths=0,maxWaiting=0,aliveAtEnd=0;double maxError=0;QElapsedTimer timer;timer.start();
+        for(int step=0;step<1000;++step) {
+            const QRectF requested=step>=300 && step<400?distant:view;
+            QVERIFY(layer.prepareFlowStreaksForCapture(requested,scale));
+            layer.advanceFlowStreaks(.1);QVERIFY(layer.prepareFlowStreaksForCapture(requested,scale));
+            const auto frame=layer.flowParticles(requested,scale,layer.frameRevision());QVERIFY(frame);
+            int waiting=0;
+            for(const auto &p:frame->particles) {
+                auto [it,inserted]=traces.try_emplace(p.id,Trace{p.position-QPointF((!quad && p.position.x()>=cols*.5?2.:1.)*p.age,0),frame->clock-p.age,p.lifetime});
+                const auto &trace=it->second;QCOMPARE(p.lifetime,trace.life);waiting+=p.waitingForData;
+                const double nativeSpeed=!quad && trace.start.x()>=cols*.5?2.:1.;
+                maxError=std::max(maxError,std::abs(p.position.x()-trace.start.x()-nativeSpeed*p.age));
+                if(p.stop==FlowParticleStop::None) {
+                    QVERIFY2(std::abs(p.age-(frame->clock-trace.born))<1e-6,"A cache boundary froze the assigned life");
+                    QVERIFY(!p.waitingForData);
+                } else {
+                    QCOMPARE(p.stop,FlowParticleStop::Lifetime);QVERIFY(std::abs(p.age-p.lifetime)<1e-6);
+                    if(!deaths.contains(p.id)) {deaths.insert(p.id);++witnessedDeaths;}
+                }
+                QVERIFY(!p.historyLimited);QVERIFY(p.history.size()<=4096);
+            }
+            maxWaiting=std::max(maxWaiting,waiting);aliveAtEnd=int(frame->particles.size());
+            QVERIFY(layer.flowParticleFieldBytes()<=128*1024*1024);
+        }
+        const auto final=layer.flowParticles(view,scale,layer.frameRevision());QVERIFY(final);
+        QVERIFY(witnessedDeaths>5);QVERIFY(final->deaths>5);QVERIFY(aliveAtEnd>10);QVERIFY2(maxError<1e-4,qPrintable(QString("trajectory error %1").arg(maxError)));
+        QCOMPARE(raw->reads,fullReads);QVERIFY(layer.flowParticleFieldCaptures()>3);
+        QVERIFY(layer.flowParticleFieldCaptures()<450);QVERIFY(layer.flowParticleFieldReads()<450);
+        QJsonObject report{{"nativeCells",raw->triangleCount()},{"cellType",quad?"quad":"triangle"},
+            {"animationSeconds",final->clock},{"testWallMs",timer.elapsed()},{"births",qint64(final->births)},
+            {"assignedLifetimeDeaths",qint64(final->deaths)},{"witnessedDeaths",witnessedDeaths},
+            {"maximumWaiting",maxWaiting},{"trajectoryError",maxError},{"particlesAtEnd",aliveAtEnd},
+            {"fieldCaptures",layer.flowParticleFieldCaptures()},{"fieldSubsetReads",layer.flowParticleFieldReads()},
+            {"fieldWorkingUpperBoundBytes",qint64(layer.flowParticleFieldBytes())},{"fullReadsAfterLoad",raw->reads-fullReads}};
+        const QString folder=qEnvironmentVariable("FLOW_PARTICLE_NATIVE_OUTPUT","workplans/artifacts/flow_particle_residency_2026-10-13");QDir().mkpath(folder);
+        QFile output(folder+QString(large?"/6m-lifetimes-%1.json":"/lifetimes-%1.json").arg(quad?"quads":"triangles"));
+        QVERIFY(output.open(QIODevice::WriteOnly));output.write(QJsonDocument(report).toJson());
     }
     void initTestCase() {
         QCoreApplication::setOrganizationName("OpenSWMMFlowTests");

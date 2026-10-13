@@ -22,6 +22,10 @@ struct FlowStreakMesh {
         const QVector<QPointF> &vertices,
         const std::vector<std::array<int,3>> &triangles,
         const MeshSpatialGrid &grid, const QRectF &coverage);
+    static std::shared_ptr<FlowStreakMesh> captureRegions(
+        const QVector<QPointF> &vertices,
+        const std::vector<std::array<int,3>> &triangles,
+        const MeshSpatialGrid &grid,const QVector<QRectF> &regions);
     QRectF coverage;
     std::vector<int> sourceTriangles; // local -> global, ascending, includes dry cells
     QVector<QPointF> vertices;

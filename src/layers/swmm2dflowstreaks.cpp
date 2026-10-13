@@ -1,6 +1,7 @@
 // GPL-3.0-or-later
 #include "layers/swmm2dresultslayer.h"
 #include "mesh/meshcellgeom.h"
+#include "render/flowparticleresidency.h"
 #include <QJsonDocument>
 #include <QPainter>
 #include <QLinearGradient>
@@ -85,58 +86,129 @@ std::shared_ptr<const FlowParticleNativeInput> SWMM2DResultsLayer::captureFlowPa
        || (source_->isLive() && !liveRenderEnabled()))return {};
     const auto visible=view.intersected(m_sceneBBox);if(!visible.isValid())return {};
     const quint64 epoch=geomRevision()*0x9e3779b97f4a7c15ULL+source_revision_;
-    if(epoch!=m_particleEpoch) {m_particleMesh.reset();m_particleEpoch=epoch;m_particleRevision=~quint64(0);}
-    if(!m_particleMesh || !m_particleMesh->coverage.contains(visible)) {
-        const double pad=std::max(view.width(),view.height())*.5;
-        m_particleMesh=FlowStreakMesh::captureRegion(m_sceneVerts,tris_,m_triGrid,
-            view.adjusted(-pad,-pad,pad,pad).intersected(m_sceneBBox));
+    if(epoch!=m_particleEpoch) {
+        m_particleMesh.reset();m_particleTiles.clear();
+        m_particleEpoch=epoch;m_particleRevision=~quint64(0);m_particleSimTime={};m_particleTime=-1;m_particleCheckClock=-1;
     }
-    if(!m_particleMesh) {
-        m_particleLimit=tr("Zoom in to render continuous particles: the regional geometry limit is 250,000 display triangles.");return {};
+    const auto frame=m_particles->latestFrame();
+    const double clock=frame?frame->clock:0;
+    const double cutoff=m_flowStreakSublayer->streakStyle()->dryDepthCutoff();
+    // The two-second head margin permits four support checks per animation
+    // second. View/result changes bypass this throttle immediately.
+    if(m_particleInput && m_particleInput->geometry==epoch && m_particleInput->revision==frame_revision_ && m_particleInput->cutoff==cutoff
+        && visible==m_particleCheckedView && clock>=m_particleCheckClock && clock-m_particleCheckClock<.25) {
+        m_particleLimit.clear();return m_particleInput;
     }
-    const size_t count=m_particleMesh->triangles.size();
-    // Covers captures, reconstruction scratch and three immutable fields.
-    // Oversized overview requests are declined before allocating snapshots.
-    if(m_particleMesh->bytes()+count*(sizeof(FlowParticleNativeTriangle)+3*sizeof(FlowParticleField)
-       +sizeof(std::array<QPointF,3>))>192*1024*1024) {
+    auto residency=flowParticleResidency(visible,m_triGrid,frame && frame->geometry==epoch?frame.get():nullptr,.5);
+    if(residency.limited) {
         m_particleLimit=tr("Zoom in to render continuous particles within the regional field memory limit.");return {};
     }
-    m_particleLimit.clear();
-    auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=m_particleMesh;
-    input->geometry=epoch;input->revision=frame_revision_;
-    input->cutoff=m_flowStreakSublayer->streakStyle()->dryDepthCutoff();input->triangles.reserve(count);
-    for(int id:m_particleMesh->sourceTriangles) {
+    const bool contains=std::includes(m_particleTiles.begin(),m_particleTiles.end(),residency.tiles.begin(),residency.tiles.end());
+    const bool prune=m_particleTiles.size()>2*residency.tiles.size() && clock-m_particleCaptureClock>2;
+    if(contains && !prune && m_particleInput && m_particleInput->geometry==epoch && m_particleInput->revision==frame_revision_
+        && m_particleInput->cutoff==cutoff) {
+        m_particleCheckClock=clock;m_particleCheckedView=visible;m_particleLimit.clear();return m_particleInput;
+    }
+    if(!contains || prune) {
+        // Required support looks half a second ahead; captures load two seconds.
+        // Requiring the entire prefetch margin would replace the mesh each check.
+        residency=flowParticleResidency(visible,m_triGrid,frame && frame->geometry==epoch?frame.get():nullptr);
+        if(residency.limited) {
+            m_particleLimit=tr("Zoom in to render continuous particles within the regional field memory limit.");return {};
+        }
+    }
+    const auto coherent=[&] {return published_key_.frame==current_time_idx_
+        && published_key_.tickRev==source_->frameContentRevision(current_time_idx_)
+        && published_key_.generation==source_->historyGeneration();};
+    if(!coherent())return {};
+    auto mesh=contains && !prune?m_particleMesh:
+        FlowStreakMesh::captureRegions(m_sceneVerts,tris_,m_triGrid,residency.rectangles);
+    if(!mesh) {
+        m_particleLimit=tr("Zoom in to render continuous particles: the regional geometry limit is 250,000 display triangles.");return {};
+    }
+    const size_t count=mesh->triangles.size();
+    const auto meshBytes=[](const FlowStreakMesh &m) {return m.bytes()+m.triangles.size()*sizeof(std::array<int,3>);};
+    // Bound old, pending and replacement meshes/inputs, the temporal blend,
+    // immutable fields, adjacency/discharge scratch and sparse capture scratch.
+    // Keep the high-water dimensions while older jobs/transition fields may
+    // still own a different layout. Coalescing must not hide a larger old field.
+    const size_t peakCount=std::max(count,m_particlePeakTriangles);
+    const size_t peakMesh=std::max(meshBytes(*mesh),m_particlePeakMeshBytes);
+    const size_t peak=3*peakMesh+peakCount*(3*sizeof(FlowParticleNativeTriangle)
+        +5*sizeof(FlowParticleField)+192)+8*1024*1024;
+    if(peak>128*1024*1024) {
+        m_particleLimit=tr("Zoom in to render continuous particles within the regional field memory limit.");return {};
+    }
+    const bool reuse=m_particleInput && m_particleInput->geometry==epoch && m_particleInput->revision==frame_revision_;
+    std::vector<int> missing;
+    for(int id:mesh->sourceTriangles) {
+        if(reuse && std::binary_search(m_particleInput->mesh->sourceTriangles.begin(),m_particleInput->mesh->sourceTriangles.end(),id))continue;
+        const int cell=triCell_[size_t(id)];
+        if(!std::isfinite(current_depths_[size_t(cell)]) && (missing.empty() || missing.back()!=cell))missing.push_back(cell);
+    }
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame> raw;
+    if(!missing.empty() && source_->supportsHydraulicCells()) {
+        raw=source_->readHydraulicCellsAt(current_time_idx_,missing);++m_particleReads;
+        if(!raw || raw->time!=current_time_idx_ || raw->revision!=published_key_.tickRev
+            || raw->generation!=published_key_.generation || raw->cells!=missing
+            || raw->depths.size()!=missing.size() || !coherent())return {};
+    }
+    auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=mesh;
+    input->geometry=epoch;input->revision=frame_revision_;input->cutoff=cutoff;input->triangles.reserve(count);
+    for(int id:mesh->sourceTriangles) {
         FlowParticleNativeTriangle t;
         const auto &vi=tris_[size_t(id)];const int cell=triCell_[size_t(id)];
         const auto &native=cells_[size_t(cell)];const int nv=native[3]>=0?4:3;
-        const auto &display=m_sceneTris[id];t.depth={display.dv0,display.dv1,display.dv2};
-        t.meanDepth=current_depths_[size_t(cell)];
-        t.available=current_flux_.size()==4*cells_.size() && std::isfinite(t.meanDepth);
-        for(int k=0;k<3;++k)t.metres[k]={vx_[size_t(vi[k])],vy_[size_t(vi[k])]};
-        double external=0,total=0;int diagonal=-1;
-        for(int k=0;k<nv;++k)total+=t.available?current_flux_[size_t(mesh::edgeSlot(cell,k))]:NAN;
-        for(int e=0;e<3;++e) {
-            const int a=vi[(e+1)%3],b=vi[(e+2)%3];int slot=-1;
-            for(int k=0;k<nv;++k) {
-                const int x=native[(k+1)%nv],y=native[(k+2)%nv];
-                if((x==a && y==b)||(x==b && y==a))slot=mesh::edgeSlot(cell,k);
+        const auto cached=reuse?std::lower_bound(m_particleInput->mesh->sourceTriangles.begin(),m_particleInput->mesh->sourceTriangles.end(),id):std::vector<int>::const_iterator{};
+        if(reuse && cached!=m_particleInput->mesh->sourceTriangles.end() && *cached==id) {
+            t=m_particleInput->triangles[size_t(cached-m_particleInput->mesh->sourceTriangles.begin())];
+        } else {
+            const auto &display=m_sceneTris[id];t.depth={display.dv0,display.dv1,display.dv2};
+            t.meanDepth=current_depths_[size_t(cell)];
+            const float *flux=current_flux_.size()==4*cells_.size()?current_flux_.data()+4*cell:nullptr;
+            if(!std::isfinite(t.meanDepth) && raw) {
+                const auto it=std::lower_bound(raw->cells.begin(),raw->cells.end(),cell);
+                if(it!=raw->cells.end() && *it==cell) {
+                    const size_t local=size_t(it-raw->cells.begin());t.meanDepth=raw->depths[local];
+                    flux=raw->flux.size()==4*raw->cells.size()?raw->flux.data()+4*local:nullptr;
+                    const auto surface=CellWaterGeometry::reconstruct(cellSplit_[size_t(cell)],t.meanDepth,vz_);
+                    for(int k=0;k<3;++k)t.depth[k]=surface.state==CellWaterGeometry::State::Dry?0:
+                        float(surface.signedDepth(vz_[size_t(vi[k])]));
+                }
             }
-            if(slot<0)diagonal=e;
-            else {t.flux[e]=t.available?current_flux_[size_t(slot)]:NAN;external+=t.flux[e];}
+            t.available=flux && std::isfinite(t.meanDepth);
+            for(int k=0;k<3;++k)t.metres[k]={vx_[size_t(vi[k])],vy_[size_t(vi[k])]};
+            double external=0,total=0;int diagonal=-1;
+            for(int k=0;k<nv;++k)total+=t.available?flux[k]:NAN;
+            for(int e=0;e<3;++e) {
+                const int a=vi[(e+1)%3],b=vi[(e+2)%3];int slot=-1;
+                for(int k=0;k<nv;++k) {
+                    const int x=native[(k+1)%nv],y=native[(k+2)%nv];
+                    if((x==a && y==b)||(x==b && y==a))slot=k;
+                }
+                if(slot<0)diagonal=e;
+                else {t.flux[e]=t.available?flux[slot]:NAN;external+=t.flux[e];}
+            }
+            if(diagonal>=0) {
+                const auto &split=cellSplit_[size_t(cell)];const int sub=id-cellTri0_[size_t(cell)];
+                const double area=split.area[0]+split.area[1];
+                t.flux[diagonal]=area>0?total*split.area[size_t(sub)]/area-external:NAN;
+            }
         }
-        if(diagonal>=0) {
-            const auto &split=cellSplit_[size_t(cell)];const int sub=id-cellTri0_[size_t(cell)];
-            const double area=split.area[0]+split.area[1];
-            t.flux[diagonal]=area>0?total*split.area[size_t(sub)]/area-external:NAN;
-        }
-        FlowStreakSample topology;flowSample_(id,topology);
+        t.residentEdges=7;FlowStreakSample topology;flowSample_(id,topology);
         for(int e=0;e<3;++e)if(topology.neighbors[e]>=0
-            && !std::binary_search(m_particleMesh->sourceTriangles.begin(),m_particleMesh->sourceTriangles.end(),topology.neighbors[e]))
+            && !std::binary_search(mesh->sourceTriangles.begin(),mesh->sourceTriangles.end(),topology.neighbors[e]))
                 t.residentEdges&=~(1<<e);
         input->triangles.push_back(t);
     }
+    if(!coherent())return {};
+    m_particleMesh=mesh;m_particleInput=input;
+    if(!contains || prune)m_particleTiles=residency.tiles;
+    m_particleCaptureClock=clock;m_particleCheckClock=clock;m_particleCheckedView=visible;m_particleFieldBytes=peak;
+    m_particlePeakTriangles=peakCount;m_particlePeakMeshBytes=peakMesh;++m_particleCaptures;m_particleLimit.clear();
     return input;
 }
+
 std::shared_ptr<const FlowParticleFrame> SWMM2DResultsLayer::flowParticles(
     const QRectF &view,double scale,quint64 displayedRevision,bool presented)
 {
@@ -158,13 +230,15 @@ std::shared_ptr<const FlowParticleFrame> SWMM2DResultsLayer::flowParticles(
     const auto visible=view.intersected(m_sceneBBox);
     const double desired=visible.width()*visible.height()*scale*scale/(style->spacingPx()*style->spacingPx());
     m_particles->configure(settings,visible,int(std::clamp(desired,1.,double(settings.maxParticles))));
-    if(displayedRevision==frame_revision_ && (m_particleRevision!=frame_revision_
-       || m_particleCutoff!=settings.cutoff || !m_particleMesh || !m_particleMesh->coverage.contains(visible))) {
+    if(displayedRevision==frame_revision_) {
         const auto input=captureFlowParticleInput(view,scale);
-        if(input) {
-            const bool seek=m_particleTime>=0 && current_time_idx_<m_particleTime;
+        if(input && (m_particleRevision!=input->revision || m_particleCutoff!=settings.cutoff
+            || m_particles->requestedMesh()!=input->mesh)) {
+            const auto time=source_->simTimeAt(current_time_idx_);
+            const bool seek=m_particleSimTime.isValid() && time.isValid()?time<m_particleSimTime:
+                m_particleTime>=0 && current_time_idx_<m_particleTime && source_->historyGeneration()==m_particleGeneration;
             m_particles->request(input,seek);m_particleRevision=frame_revision_;m_particleTime=current_time_idx_;
-            m_particleCutoff=settings.cutoff;
+            m_particleSimTime=time;m_particleGeneration=published_key_.generation;m_particleCutoff=settings.cutoff;
         }
     }
     return m_particles->frame(displayedRevision);
