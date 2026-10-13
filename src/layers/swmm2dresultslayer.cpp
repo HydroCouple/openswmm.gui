@@ -4164,6 +4164,10 @@ double SWMM2DResultsLayer::resolveCoordinateScale_() const
 void SWMM2DResultsLayer::onCanvasCRSChanged(
         const SpatialReferenceSystem* newCanvasSRS)
 {
+    // Undeclared model coordinates remain a pass-through on every canvas.
+    // Attaching a view must not invalidate their prepared regional fields
+    // and particle identities. Unit changes rebuild through their own setter.
+    if (!srs() && !m_transform) return;
     // Same transform path as SWMM2DMeshLayer::onCanvasCRSChanged — without it
     // the results sat in model coordinates on a reprojected canvas while the
     // mesh layer moved, separating terrain from inundation. Issue #155.
