@@ -76,6 +76,7 @@ set(_oe_api_sentinels
     "openswmm_2d.h:swmm_2d_get_report_rainfall_bulk"
     "openswmm_infrastructure.h:swmm_lid_node_state_get"
     "openswmm_infrastructure.h:swmm_lid_node_configure_flow"
+    "openswmm_checkpoint.h:swmm_checkpoint_start_session"
     "openswmm_nodes.h:swmm_node_get_rim_depth"
     "openswmm_infrastructure.h:swmm_street_rename"
 )
@@ -91,6 +92,10 @@ foreach(_sentinel IN LISTS _oe_api_sentinels)
     find_path(_oe_hdr_path "openswmm/engine/${_hdr}"
               HINTS ${_oe_incdirs} "${OPENSWMMENGINE_INSTALL_DIR}/include"
               NO_DEFAULT_PATH)
+    if(NOT _oe_hdr_path)
+        list(APPEND _oe_missing "${_hdr} (required header)")
+        set(_oe_checked TRUE)
+    endif()
     if(_oe_hdr_path)
         set(_oe_checked TRUE)
         file(READ "${_oe_hdr_path}/openswmm/engine/${_hdr}" _oe_hdr_text)

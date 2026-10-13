@@ -407,8 +407,10 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
         case ColEndDate:
             return rec.endSimDate;
         case ColRunoffErr:
+            if(qIsNaN(rec.runoffErrPct))return QStringLiteral("—");
             return QStringLiteral("%1 %").arg(rec.runoffErrPct, 0, 'f', 3);
         case ColRoutingErr:
+            if(qIsNaN(rec.routingErrPct))return QStringLiteral("—");
             return QStringLiteral("%1 %").arg(rec.routingErrPct, 0, 'f', 3);
         case ColTwoDErr:
             if (qIsNaN(rec.twoDErrPct))

@@ -79,6 +79,8 @@ class PropertiesPanel;
 namespace openswmmvis::ui { class SectionViewPanel; }
 class AttributeTablePanel;
 class SimulationStatusModel;
+class CheckpointModel;
+class CheckpointsDialog;
 class ProfilePlotDialog;
 
 namespace openswmmvis::ui { class CursorWindowSlider; }
@@ -867,6 +869,8 @@ private:
     // Cancel toolbar actions can reach any running runner. Entries are
     // removed on SimulationRunner::finished.
     QHash<int, class SimulationRunner *> mActiveRunners;
+    QHash<SWMMVisProjectWindow*,CheckpointModel*> mCheckpointModels;
+    QHash<SWMMVisProjectWindow*,QPointer<CheckpointsDialog>> mCheckpointDialogs;
 
     // Slice CF.MVP — keyed map of in-flight 2D results layers so per-tick
     // twoDDepthsAvailable signals can find the layer to push into. Uses
@@ -975,6 +979,9 @@ private:
      * removed from its canvas.
      */
     void clearSimulationStatusForProject(class SWMMVisProjectWindow *pw);
+    void showCheckpoints();
+    bool prepareCheckpointContext(SWMMVisProjectWindow*,CheckpointModel*);
+    void checkpointInventory(QStringList& inputs,QStringList& active)const;
 
     // Phase 2 editing actions — declared for future programmatic wiring
     QAction           *mActionAddJunction  = nullptr;

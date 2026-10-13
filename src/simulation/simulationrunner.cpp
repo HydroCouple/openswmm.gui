@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "simulation/simulationrunner.h"
+#include "simulation/runpathlease.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_massbalance.h>
@@ -424,6 +425,11 @@ QString SimulationRunner::parseTwoDOutputFile(const QString &inpPath)
     return QFileInfo(inpPath).absoluteDir().absoluteFilePath(value);
 }
 
+QStringList SimulationRunner::runInputPaths(const QString& inp)
+{
+    auto paths=knownRunReferences(inp).inputs;paths.append(QFileInfo(inp).absoluteFilePath());return paths;
+}
+
 QStringList SimulationRunner::runOutputPaths(const QString &inp, const QString &rpt, const QString &out)
 {
     const QFileInfo report(rpt);
@@ -465,7 +471,7 @@ bool SimulationRunner::validateRunPaths(const QString &inp, const QString &rpt, 
             if (sameRunFile(path, outputs[j]))
                 return fail(tr("Run output file paths %1 and %2 refer to the same file. Choose separate destinations.").arg(path, outputs[j]));
         for (const auto &active : activeOutputs)
-            if (sameRunFile(path, active))
+            if (RunPathLease::overlaps(path, active))
                 return fail(tr("Run output file %1 is already in use by another simulation (%2). Stop that run or choose another path.").arg(path, active));
     }
     return true;
@@ -596,6 +602,19 @@ void SimulationRunner::start()
         return;
     }
 
+    m_pathLease=std::make_unique<RunPathLease>(this);
+    bool reserved=true;
+    for(const auto& path:runInputPaths(m_inpPath))
+        if(!m_pathLease->add(path,false,&pathError)) {reserved=false;break;}
+    if(reserved)for(const auto& path:m_outputPaths)
+        if(!m_pathLease->add(path,true,&pathError)) {reserved=false;break;}
+    if(!reserved) {
+        m_pathLease.reset();
+        QMetaObject::invokeMethod(this,[this,pathError] {
+            emit finished(m_jobId,false,SWMM_ERR_IO,pathError,0,0,qQNaN());
+        },Qt::QueuedConnection);return;
+    }
+
     // Capture everything the lambda needs by value; the runner pointer is
     // passed as user_data to the C callbacks (safe because the runner lives
     // until after finished() fires and the caller calls deleteLater()).
@@ -639,6 +658,7 @@ void SimulationRunner::start()
                                           "non-standard exception");
                 }
                 watcher->deleteLater();
+                m_pathLease.reset();
                 emit finished(m_jobId, res.success, res.errorCode,
                               res.errorMessage, res.runoffErrFrac, res.routingErrFrac,
                               res.twoDErrFrac);

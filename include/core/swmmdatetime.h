@@ -61,6 +61,19 @@ inline QDateTime swmmDateTimeToQDateTime(double value)
     return QDateTime(date, QTime(h, mi, s), Qt::UTC);
 }
 
+// Checkpoint/report metadata preserves milliseconds. Keep this distinct from
+// the canonical whole-second engine authoring helper above. Use wall-clock
+// arithmetic; no system timezone or DST conversion is applied.
+inline QDateTime swmmDateTimeToMilliseconds(double value)
+{
+    if(!std::isfinite(value)||value < QDate(1899,12,30).daysTo(QDate(1,1,1)) || value > 2958465.99999999)return {};
+    const auto days=static_cast<qint64>(std::floor(value));
+    const auto millis=static_cast<qint64>(std::llround((value-days)*86400000.0));
+    const auto date=QDate(1899,12,30).addDays(days);
+    if(!date.isValid())return {};
+    return QDateTime(date,QTime(0,0),Qt::UTC).addMSecs(millis);
+}
+
 /*! \brief QDateTime → SWMM DateTime double.
  *
  *  Reads the calendar components directly (no timezone conversion) and encodes
