@@ -4184,3 +4184,31 @@ qt_add_shaders(test_flowstreaks "flowstreak_test_shaders"
         ${CMAKE_SOURCE_DIR}/resources/shaders/flowstreak.frag
         ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.vert
         ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.frag)
+
+# Shared checkpoint catalog, worker activation and actual Qt views.
+add_swmmvis_gui_test(test_checkpointmodel
+    test_checkpointmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/checkpointmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/checkpointworker.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/checkpointsdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/checkpointmodel.h
+    ${CMAKE_SOURCE_DIR}/include/simulation/checkpointworker.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/checkpointsdialog.h
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+)
+target_link_libraries(test_checkpointmodel PRIVATE Qt6::Concurrent)
+
+# Real project capture and status integration, using the same app sources.
+add_swmmvis_gui_test(test_checkpointapplication
+    test_checkpointapplication.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_checkpointapplication)
+set_property(TEST test_checkpointapplication APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")

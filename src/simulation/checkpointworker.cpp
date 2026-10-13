@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "simulation/checkpointworker.h"
 #include "simulation/simulationrunner.h"
+#include "simulation/runpathlease.h"
+#include <openswmm/engine/openswmm_massbalance.h>
+#ifdef OPENSWMM_HAS_2D
+#include <openswmm/engine/openswmm_2d.h>
+#endif
 #include <openswmm/engine/openswmm_checkpoint.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <QtConcurrent>
@@ -70,40 +75,11 @@ std::filesystem::path nativePath(const QString& path) {
     return std::filesystem::path(path.toUtf8().constData());
 #endif
 }
-// Canonical parents catch nonexistent aliases; equivalent catches existing
-// hardlinks. Directory leases also cover descendant paths.
-bool overlaps(const QString& a,const QString& b) {
-    if(SimulationRunner::sameFilePath(a,b))return true;
-    const auto ca=std::filesystem::weakly_canonical(nativePath(a));
-    const auto cb=std::filesystem::weakly_canonical(nativePath(b));
-    auto within=[](const auto& child,const auto& parent) {
-        auto c=child.begin();for(auto p=parent.begin();p!=parent.end();++p,++c) {
-            if(c==child.end())return false;
-#ifdef Q_OS_WIN
-            if(QString::fromStdWString(c->wstring()).compare(QString::fromStdWString(p->wstring()),Qt::CaseInsensitive)!=0)return false;
-#else
-            if(*c!=*p)return false;
-#endif
-        }
-        return true;
-    };
-    return within(ca,cb)||within(cb,ca);
-}
-struct LeaseEntry {quint64 id;const void* owner;QString path;bool write;};
-QMutex leaseMutex;
-QList<LeaseEntry> leases;
-quint64 nextLease=0;
-struct Lease {
-    explicit Lease(const void* operation):owner(operation) {}
-    const void* owner;
-    QList<quint64> ids;
-    ~Lease() {QMutexLocker lock(&leaseMutex);for(auto id:ids)for(auto i=leases.begin();i!=leases.end();)if(i->id==id)i=leases.erase(i);else ++i;}
-    void add(const QString& path,bool write,const QStringList& active = {}) {
-        for(const auto& p:active)require(!overlaps(path,p),QStringLiteral("Checkpoint path is already in use: %1").arg(path),SWMM_ERR_IO);
-        QMutexLocker lock(&leaseMutex);
-        for(const auto& prior:leases)if(prior.owner!=owner&&(write||prior.write))
-            require(!overlaps(path,prior.path),QStringLiteral("Checkpoint path conflicts with another operation: %1").arg(path),SWMM_ERR_IO);
-        const auto id=++nextLease;ids.append(id);leases.append({id,owner,path,write});
+bool overlaps(const QString& a,const QString& b) {return RunPathLease::overlaps(a,b);}
+struct Lease:RunPathLease {
+    explicit Lease(const void* owner):RunPathLease(owner) {}
+    void add(const QString& path,bool write,const QStringList& active={}) {
+        QString error;require(RunPathLease::add(path,write,&error,active),error,SWMM_ERR_IO);
     }
 };
 QByteArray inputHash(const QString& path) {
@@ -156,7 +132,7 @@ QJsonObject inspect(SWMM_Engine engine,const QString& path) {
     return m;
 }
 }
-CheckpointWorker::CheckpointWorker(QObject* parent):QObject(parent) {qRegisterMetaType<CheckpointResult>();}
+CheckpointWorker::CheckpointWorker(QObject* parent):QObject(parent) {qRegisterMetaType<CheckpointResult>();qRegisterMetaType<CheckpointSaveResult>();}
 CheckpointWorker::~CheckpointWorker() {cancel();m_future.waitForFinished();}
 void CheckpointWorker::cancel() {if(m_control)m_control->cancelled=true;}
 void CheckpointWorker::invalidate() {++m_generation;cancel();}
@@ -169,7 +145,7 @@ bool CheckpointWorker::start(const CheckpointRequest& request) {
     Q_ASSERT(thread()==QThread::currentThread());if(m_busy)return false;
     m_busy=true;const auto generation=++m_generation;QFutureWatcher<CheckpointResult>* watcher=nullptr;bool launched=false;
     try {
-    m_control=std::make_shared<Control>();m_control->acceptingSaves=request.operation==CheckpointRequest::Operation::Resume;
+    m_control=std::make_shared<Control>();m_control->acceptingSaves=(request.operation==CheckpointRequest::Operation::Resume||request.operation==CheckpointRequest::Operation::Run);
     watcher=new QFutureWatcher<CheckpointResult>(this);
     connect(watcher,&QFutureWatcher<CheckpointResult>::finished,this,[this,watcher,generation] {
         CheckpointResult result;
@@ -181,7 +157,7 @@ bool CheckpointWorker::start(const CheckpointRequest& request) {
         if(result.stale)result.metadata={};
         m_busy=false;m_control.reset();watcher->deleteLater();emit finished(result);
     });
-        m_future=QtConcurrent::run(checkpointPool(request.operation==CheckpointRequest::Operation::Resume),[request,generation,control=m_control,this] {return execute(request,generation,control,this);});
+        m_future=QtConcurrent::run(checkpointPool(request.operation==CheckpointRequest::Operation::Resume||request.operation==CheckpointRequest::Operation::Run),[request,generation,control=m_control,this] {return execute(request,generation,control,this);});
         launched=true;
         watcher->setFuture(m_future);
     } catch(...) {
@@ -208,10 +184,11 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest& request,quin
     auto cancelled=[&] {if(control->cancelled)throw Failure{SWMM_OK,QStringLiteral("Checkpoint operation cancelled.")};};
     try {
         cancelled();require(request.engineVersion=="6.0.0",QStringLiteral("Checkpoint recovery requires the linked current engine."),SWMM_ERR_LIFECYCLE);
-        require(absolutePath(request.checkpointPath),QStringLiteral("Choose an absolute checkpoint path."));
+        if(request.operation!=CheckpointRequest::Operation::Run)require(absolutePath(request.checkpointPath),QStringLiteral("Choose an absolute checkpoint path."));
         for(const auto& p:request.protectedInputs+request.activePaths)require(absolutePath(p),QStringLiteral("Protected paths must be absolute."));
-        Lease inputs(control.get());inputs.add(request.checkpointPath,false,request.activePaths);
-        for(const auto& p:request.protectedInputs)inputs.add(p,false,request.activePaths);
+        Lease inputs(control.get());if(!request.checkpointPath.isEmpty())inputs.add(request.checkpointPath,false,request.activePaths);
+        // Protected paths are overwrite guards, not resources this operation reads.
+        // Other projects may be actively writing some of these guarded files.
         if(request.operation==CheckpointRequest::Operation::Export) {
             require(absolutePath(request.destination),QStringLiteral("Choose a new absolute bundle folder."));
             outputs.add(request.destination,true,request.activePaths);
@@ -223,6 +200,8 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest& request,quin
             inputs.add(request.modelPath,false,request.activePaths);
             require(inputHash(request.modelPath)==request.modelSha256,QStringLiteral("Model snapshot has changed."),SWMM_ERR_IO);
             requireNativeInput(request.modelPath);
+            require(request.outputProfile>=2||SimulationRunner::parseTwoDOutputFile(request.modelPath).isEmpty(),
+                QStringLiteral("This input declares a mesh writer; select a mesh recording profile."),SWMM_ERR_LIFECYCLE);
             require(request.outputProfile>=0&&request.outputProfile<=4&&(!request.detailedSources||request.sourceHistory)&&
                 (request.outputProfile!=4||request.sourceHistory),QStringLiteral("Invalid checkpoint recording profile."));
             require(!request.ownershipToken.contains(QChar(0))&&QString::fromUtf8(request.ownershipToken.toUtf8())==request.ownershipToken,
@@ -260,25 +239,39 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest& request,quin
             const auto source=(request.sourceHistory?journal:QString()).toUtf8(),token=request.ownershipToken.toUtf8();
             const SWMM_CheckpointSessionOptions options{sizeof options,1,request.outputProfile,source.constData(),request.detailedSources?1:0,token.constData()};
             cancelled();checkpoint(swmm_checkpoint_start_session(engine.handle,&options));cancelled();
-            result.metadata=inspect(engine.handle,request.checkpointPath);
+            if(request.operation!=CheckpointRequest::Operation::Run)result.metadata=inspect(engine.handle,request.checkpointPath);
             for(const auto& value:result.metadata.value("companions").toArray())inputs.add(value.toObject().value("path").toString(),false,request.activePaths);
             if(request.operation==CheckpointRequest::Operation::Inspect)result.acceptedSeconds=result.metadata.value("engine_seconds").toDouble();
             cancelled();
-            if(request.operation==CheckpointRequest::Operation::Resume) {
+            if(request.operation==CheckpointRequest::Operation::Resume||request.operation==CheckpointRequest::Operation::Run) {
                 result.acceptedSeconds=0;
-                checkpoint(swmm_checkpoint_restore(engine.handle,request.checkpointPath.toUtf8().constData()));
+                if(request.operation==CheckpointRequest::Operation::Resume)
+                    checkpoint(swmm_checkpoint_restore(engine.handle,request.checkpointPath.toUtf8().constData()));
+                engine.checked(swmm_get_start_time(engine.handle,&result.startDate));
+                engine.checked(swmm_get_end_time(engine.handle,&result.endDate));
+                const auto start=result.startDate,end=result.endDate;
+                QMetaObject::invokeMethod(receiver,[receiver,generation,start,end] {
+                    if(receiver->m_generation==generation)emit receiver->timeline(generation,start,end);
+                },Qt::QueuedConnection);
                 engine.checked(swmm_engine_get_elapsed_seconds(engine.handle,&result.acceptedSeconds));
+#ifdef OPENSWMM_HAS_2D
+                int surfaceActive=0;engine.checked(swmm_2d_is_active(engine.handle,&surfaceActive));
+#endif
                 auto savePending=[&] {
                     QStringList pending;{QMutexLocker lock(&control->mutex);pending.swap(control->saves);}
+                    result.saves.reserve(result.saves.size()+pending.size());
                     for(const auto& path:pending) {
                         CheckpointSaveResult saved;saved.path=path;
                         try {
                             for(const auto& p:request.protectedInputs+QStringList{request.modelPath,request.checkpointPath})
                                 require(!overlaps(path,p),QStringLiteral("Save path overlaps a protected input."),SWMM_ERR_IO);
-                            Lease save(control.get());save.add(path,true,request.activePaths);checkpoint(swmm_checkpoint_save(engine.handle,path.toUtf8().constData()));saved.success=true;
+                            Lease save(control.get());save.add(path,true,request.activePaths);
+                            outputs.add(path,false); // Reserve catalog input before publication can succeed.
+                            checkpoint(swmm_checkpoint_save(engine.handle,path.toUtf8().constData()));saved.success=true;saved.acceptedSeconds=result.acceptedSeconds;saved.acceptedDate=result.startDate+result.acceptedSeconds/86400.0;
                         }
                         catch(const Failure& f) {saved.errorCode=f.code;saved.error=f.message;}
                         result.saves.append(saved);
+                        QMetaObject::invokeMethod(receiver,[receiver,generation,saved] {emit receiver->saved(generation,saved);},Qt::QueuedConnection);
                     }
                 };
                 auto notify=[&] {const auto seconds=result.acceptedSeconds;QMetaObject::invokeMethod(receiver,[receiver,generation,seconds] {if(receiver->m_generation==generation)emit receiver->progress(generation,seconds);},Qt::QueuedConnection);};
@@ -290,7 +283,15 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest& request,quin
                     engine.checked(swmm_engine_get_elapsed_seconds(engine.handle,&result.acceptedSeconds));engine.checked(stepCode);
                     if(lastProgress.elapsed()>=100) {notify();lastProgress.restart();}if(elapsed==0)break;
                 }
-                savePending();notify();engine.checked(swmm_engine_end(engine.handle));engine.checked(swmm_engine_report(engine.handle));
+                savePending();notify();
+#ifdef OPENSWMM_HAS_2D
+                // end() releases the surface router; read the accepted balance
+                // while its context is still available.
+                if(surfaceActive)engine.checked(swmm_2d_get_continuity_error(engine.handle,&result.twoDError));
+#endif
+                engine.checked(swmm_engine_end(engine.handle));engine.checked(swmm_engine_report(engine.handle));
+                engine.checked(swmm_get_runoff_continuity_error(engine.handle,&result.runoffError));
+                engine.checked(swmm_get_routing_continuity_error(engine.handle,&result.routingError));
                 result.success=!control->cancelled;
             } else result.success=true;
         }

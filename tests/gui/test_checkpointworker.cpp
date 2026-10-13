@@ -7,10 +7,12 @@
 #include <QJsonArray>
 #include <QFutureWatcher>
 #include <filesystem>
+#include <cmath>
 #include <openswmm/engine/openswmm_checkpoint.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_surface_ownership.h>
 #include "simulation/checkpointworker.h"
+#include "simulation/runpathlease.h"
 
 namespace {
 QString root() {
@@ -164,8 +166,28 @@ private slots:
         request.operation=CheckpointRequest::Operation::Resume;request.destination=QDir(root()).filePath("surface-resumed");QSignalSpy resumed(&worker,&CheckpointWorker::finished);QVERIFY(worker.start(request));QVERIFY(worker.queueSave(QDir(request.destination).filePath("resumed.chk")));
         if(resumed.isEmpty())QVERIFY(resumed.wait(30000));result=qvariant_cast<CheckpointResult>(resumed.last().at(0));QVERIFY2(result.success,qPrintable(result.error));QVERIFY(!result.saves.isEmpty());QVERIFY2(result.saves[0].success,qPrintable(result.saves[0].error));
         QVERIFY(result.acceptedSeconds>=8);QCOMPARE(bytes(f.authoredOutput),QByteArray("protected authored result"));QVERIFY(emptyFolder(f.staging));
+        request=f.request();request.operation=CheckpointRequest::Operation::Run;request.checkpointPath.clear();request.destination=QDir(root()).filePath("surface-initial");
+        QSignalSpy initial(&worker,&CheckpointWorker::finished),saved(&worker,&CheckpointWorker::saved),timeline(&worker,&CheckpointWorker::timeline);
+        QVERIFY(worker.start(request));const auto initialCheckpoint=QDir(request.destination).filePath("initial.chk");QVERIFY(worker.queueSave(initialCheckpoint));
+        if(initial.isEmpty())QVERIFY(initial.wait(30000));result=qvariant_cast<CheckpointResult>(initial.last().at(0));
+        QVERIFY2(result.success,qPrintable(result.error));QVERIFY(result.acceptedSeconds>=8);QCOMPARE(timeline.size(),1);QCOMPARE(saved.size(),1);
+        const auto published=qvariant_cast<CheckpointSaveResult>(saved.last()[1]);QVERIFY(published.success);QVERIFY(std::isfinite(published.acceptedSeconds));
+        request=f.request();request.checkpointPath=initialCheckpoint;result=finish(worker,request);QVERIFY2(result.success,qPrintable(result.error));
+        QCOMPARE(bytes(f.authoredOutput),QByteArray("protected authored result"));QVERIFY(emptyFolder(f.staging));
     }
 #endif
+    void unrelatedActiveFilesAreOverwriteGuardsRatherThanInputsToRead() {
+        Fixture f("unrelated-active");CheckpointWorker worker;auto request=f.request();
+        const auto folder=QDir(root()).filePath("unrelated-active-output");QDir().mkpath(folder);
+        RunPathLease other(this);QString error;QVERIFY(other.add(folder,true,&error));
+        request.protectedInputs={QDir(folder).filePath("growing.history")};request.activePaths={folder};
+        request.operation=CheckpointRequest::Operation::Run;request.checkpointPath.clear();request.destination=QDir(root()).filePath("unrelated-new-run");
+        QSignalSpy done(&worker,&CheckpointWorker::finished);QVERIFY(worker.start(request));
+        QVERIFY(worker.queueSave(QDir(request.destination).filePath("safe.chk")));
+        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(QDir(request.destination).filePath("safe.chk")),30000);worker.cancel();
+        if(done.isEmpty())QVERIFY(done.wait(30000));const auto result=qvariant_cast<CheckpointResult>(done.last()[0]);
+        QVERIFY2(result.errorCode==0,qPrintable(result.error));QVERIFY(result.cancelled);QVERIFY(result.saves[0].success);
+    }
     void exportFailureDoesNotAdoptOrRemoveInputs() {
         Fixture f("export");CheckpointWorker worker;auto request=f.request();request.operation=CheckpointRequest::Operation::Export;request.destination=QDir(root()).filePath("non-file-bundle");
         const auto original=bytes(f.cp);const auto result=finish(worker,request);QVERIFY(!result.success);QVERIFY(result.publishedPath.isEmpty());QVERIFY(!QFileInfo::exists(request.destination));QCOMPARE(bytes(f.cp),original);

@@ -15,6 +15,7 @@
 #include <QStringList>
 #include <QVector>
 #include <atomic>
+#include <memory>
 
 /**
  * @brief Runs a single SWMM simulation on a worker thread and emits
@@ -30,6 +31,8 @@
  * Ownership: created and destroyed on the GUI thread by `SWMMVis`.
  * The runner self-deletes after emitting `finished`.
  */
+class RunPathLease;
+
 class SimulationRunner : public QObject
 {
     Q_OBJECT
@@ -70,6 +73,7 @@ public:
 
     // GUI preflight can add source resources and active run destinations.
     // Always includes INP protection and checks aliases between all outputs.
+    static QStringList runInputPaths(const QString& inp);
     static QStringList runOutputPaths(const QString &inp, const QString &rpt, const QString &out);
     static bool sameFilePath(const QString &left, const QString &right);
     static bool validateRunPaths(const QString &inp, const QString &rpt, const QString &out,
@@ -253,6 +257,7 @@ private:
     QStringList m_outputPaths;
     bool m_started = false;
     QFuture<void> m_workerFuture;
+    std::unique_ptr<RunPathLease> m_pathLease;
 
     std::atomic<bool> m_cancel{false};
     std::atomic<bool> m_paused{false};

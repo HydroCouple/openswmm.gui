@@ -686,6 +686,9 @@ set(
         # ── Simulation ───────────────────────────────────────────────────────
         include/simulation/runpathresolver.h
         include/simulation/simulationrunner.h
+        include/simulation/checkpointmodel.h
+        include/simulation/runpathlease.h
+        include/ui/dialogs/checkpointsdialog.h
         include/simulation/checkpointworker.h
         include/simulation/simulationstatusmodel.h
 
@@ -1476,6 +1479,8 @@ set(
         # Simulation
         src/simulation/runpathresolver.cpp
         src/simulation/simulationrunner.cpp
+        src/simulation/checkpointmodel.cpp
+        src/ui/dialogs/checkpointsdialog.cpp
         src/simulation/checkpointworker.cpp
         src/simulation/simulationstatusmodel.cpp
 
@@ -2120,13 +2125,18 @@ if(APPLE)
     # these added dylibs. Source paths come from the prebuilt engine package
     # (OPENSWMMENGINE_INSTALL_DIR, set in cmake/FetchOpenSWMMEngine.cmake).
     set(_swmmvis_frameworks "$<TARGET_BUNDLE_DIR:SWMMVis>/Contents/Frameworks")
+    if(EXISTS "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_swmmvis_frameworks}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib" "${_swmmvis_frameworks}/"
+            VERBATIM)
+    endif()
+    if(EXISTS "${OPENSWMMENGINE_INSTALL_DIR}/lib/libopenswmm_gpu_omp.dylib")
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_swmmvis_frameworks}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${OPENSWMMENGINE_INSTALL_DIR}/lib/libopenswmm_gpu_omp.dylib"
-                "${_swmmvis_frameworks}/"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib"
                 "${_swmmvis_frameworks}/"
         # The plugin depends on @rpath/libomp.dylib and carries Homebrew's
         # libomp directory as its FIRST LC_RPATH, so inside the bundle it
@@ -2142,6 +2152,10 @@ if(APPLE)
         COMMENT "Bundle GPU plugin (openswmm_gpu_omp) + libomp into SWMMVis.app/Contents/Frameworks"
         VERBATIM
     )
+
+    else()
+        message(STATUS "Engine package has no GPU plugin; deploying the native CPU build")
+    endif()
 
     # Ad-hoc re-sign after every build. Without this, when CMake
     # rebuilds a dependent dylib (engine, QPropertyModel, …) macOS's

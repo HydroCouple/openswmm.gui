@@ -203,6 +203,13 @@
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
+#include "simulation/checkpointmodel.h"
+#include "simulation/runpathlease.h"
+#include "ui/dialogs/checkpointsdialog.h"
+#include "core/swmmdatetime.h"
+#include <openswmm/engine/openswmm_surface_ownership.h>
+#include <openswmm/engine/openswmm_checkpoint.h>
+#include <QCryptographicHash>
 #ifdef Q_OS_MACOS
 #include "platform/macoswindowutils.h"   // App Nap hold while a run streams
 #endif
@@ -4188,6 +4195,10 @@ void SWMMVis::initializePropertiesPanelDockWidget()
 void SWMMVis::initializeSimulationStatusDockWidget()
 {
     mSimStatusModel = new SimulationStatusModel(this);
+    auto* checkpoints=new QAction(tr("Checkpoints…"),this);
+    checkpoints->setObjectName("actionCheckpoints");
+    ui->menuAnalysis->insertAction(ui->actionExecute,checkpoints);
+    connect(checkpoints,&QAction::triggered,this,&SWMMVis::showCheckpoints);
 
     auto *view = ui->treeViewSimulationStatus;
     view->setModel(mSimStatusModel);
@@ -5208,6 +5219,7 @@ void SWMMVis::closeEvent(QCloseEvent *event)
     // exit promptly so teardown returns immediately. Un-pause first: a paused
     // step loop parks in a sleep and would never observe the cancel otherwise
     // (mirrors the Stop action).
+    for(auto* checkpoints:std::as_const(mCheckpointModels))checkpoints->closeProject();
     for (SimulationRunner *runner : std::as_const(mActiveRunners)) {
         runner->setPaused(false);
         runner->cancel();
@@ -8137,6 +8149,113 @@ void SWMMVis::updateSimulationProgressBar()
     applyProgressBarState();
 }
 
+void SWMMVis::checkpointInventory(QStringList& inputs,QStringList& active)const
+{
+    for(auto* window:ui->mdiAreaCentral->subWindowList()) {
+        auto* project=qobject_cast<SWMMVisProjectWindow*>(window);
+        if(!project||!project->modelLayer())continue;
+        const auto path=project->modelLayer()->modelFilePath();
+        if(!path.isEmpty())inputs<<SimulationRunner::runInputPaths(path)<<ProjectSerializer::sidecarPathFor(path);
+        if(project->canvas())for(auto* layer:project->canvas()->layers()) {
+            if(auto* mesh=qobject_cast<SWMM2DMeshLayer*>(layer);mesh&&!mesh->sourcePath().isEmpty())inputs<<mesh->sourcePath();
+            if(auto* result=qobject_cast<SWMMResultsLayer*>(layer);result&&!result->resultsFilePath().isEmpty())active<<result->resultsFilePath();
+            if(auto* result=qobject_cast<SWMM2DResultsLayer*>(layer);result&&result->source()&&!result->source()->sourcePath().isEmpty())active<<result->source()->sourcePath();
+        }
+    }
+    for(auto* runner:std::as_const(mActiveRunners)) {active<<runner->outputPaths();inputs<<runner->inpPath();}
+    for(auto* model:std::as_const(mCheckpointModels)) {active<<model->reservedPaths();for(int row=0;row<model->rowCount();++row)for(const auto& f:model->files(row))inputs<<f.path;}
+    active<<RunPathLease::activePaths();inputs.removeDuplicates();active.removeDuplicates();
+}
+
+bool SWMMVis::prepareCheckpointContext(SWMMVisProjectWindow* project,CheckpointModel* model)
+{
+    QPointer<SWMMVisProjectWindow> pw(project);
+    if(!pw||pw->isClosing()||!pw->modelLayer()||pw->engineVersion()!="6.0.0")return false;
+    QString error;
+    if(pw->hasChanges()&&!pw->save(&error)) {QMessageBox::warning(this,tr("Checkpoint model"),error);return false;}
+    if(!pw||pw->isClosing()||!pw->modelLayer())return false;
+    auto r=model->context();r.engineVersion=pw->engineVersion();r.modelPath=pw->modelLayer()->modelFilePath();
+    r.projectRevision=QString::number(pw->modelLayer()->editRevision());
+    QFile input(r.modelPath);QCryptographicHash hash(QCryptographicHash::Sha256);
+    if(r.modelPath.isEmpty()||!input.open(QIODevice::ReadOnly)||!hash.addData(&input)) {
+        QMessageBox::warning(this,tr("Checkpoint model"),tr("Save a readable native model before preparing a checkpoint run."));return false;
+    }
+    r.modelSha256=hash.result();r.ownershipToken.clear();
+    int count=0;
+    if(swmm_surface_owner_get(pw->modelLayer()->engine(),nullptr,0,&count)!=SWMM_OK)return false;
+    if(count) {
+        int objects=0,shares=0,cells=0,valid=0;char token[128]={},diagnostic[4096]={};
+        const auto rc=swmm_surface_owner_preview(pw->modelLayer()->engine(),nullptr,-1,nullptr,0,&objects,nullptr,0,&shares,nullptr,0,&cells,&valid,token,sizeof token,diagnostic,sizeof diagnostic,nullptr,nullptr);
+        if(rc||!valid) {QMessageBox::warning(this,tr("Checkpoint ownership review"),QString::fromUtf8(diagnostic));return false;}
+        r.ownershipToken=QString::fromUtf8(token);
+    }
+    QStringList inputs,active;checkpointInventory(inputs,active);r.protectedInputs=inputs;r.activePaths=active;
+    model->setContext(r);return true;
+}
+
+void SWMMVis::showCheckpoints()
+{
+    QPointer<SWMMVisProjectWindow> pw(activeProjectWindow());
+    if(!pw||pw->isClosing()||!pw->modelLayer()||!pw->modelLayer()->engine())return;
+    if(pw->engineVersion()!="6.0.0") {QMessageBox::information(this,tr("Checkpoints"),tr("Native checkpoints require the linked current engine. Legacy workers do not provide this workflow."));return;}
+    auto* model=mCheckpointModels.value(pw);
+    if(!model) {
+        const auto path=pw->modelLayer()->modelFilePath();if(path.isEmpty()) {QMessageBox::information(this,tr("Checkpoints"),tr("Save this project first."));return;}
+        const auto root=QFileInfo(path).absoluteDir().filePath(QFileInfo(path).completeBaseName()+".checkpoints");
+        if(!QDir().mkpath(root)) {QMessageBox::warning(this,tr("Checkpoints"),tr("Cannot create the project checkpoint catalog folder."));return;}
+        model=new CheckpointModel(QDir(root).filePath("catalog.json"),this);mCheckpointModels.insert(pw,model);
+        CheckpointRequest context;context.stagingRoot=root;
+        context.outputProfile=SimulationRunner::parseTwoDOutputFile(path).isEmpty()?1:4;
+        context.sourceHistory=context.outputProfile==4;model->setContext(context);
+        connect(pw->modelLayer(),&SWMMModelLayer::modelEdited,model,[model,pw] {
+            auto r=model->context();r.projectRevision=pw&&pw->modelLayer()?QString::number(pw->modelLayer()->editRevision()):QStringLiteral("closed");
+            r.modelSha256.clear();model->setContext(r);
+        });
+        connect(pw->modelLayer(),&SWMMModelLayer::engineAboutToClose,model,[model] {auto r=model->context();r.modelSha256.clear();r.projectRevision="engine closed";model->setContext(r);});
+        connect(pw,&QObject::destroyed,this,[this,key=pw.data(),model] {
+            mCheckpointModels.remove(key);if(auto dialog=mCheckpointDialogs.take(key))dialog->deleteLater();
+            model->closeProject();if(!model->busy())model->deleteLater();
+            else connect(model,&CheckpointModel::stateChanged,model,[model] {if(!model->busy())model->deleteLater();});
+        });
+        struct Job {int id=-1;double start=0,end=0;};auto job=std::make_shared<Job>();
+        connect(model,&CheckpointModel::runStarted,this,[this,pw,job](const QString& label,const QString& path) {
+            if(!pw||pw->isClosing())return;
+            job->id=mSimStatusModel->addOrReuseJobForModel(pw,label,path,"6.0.0");job->start=job->end=0;
+            mRunningSimProgress[job->id]=0;updateSimulationProgressBar();ui->dockWidgetSimulationStatus->show();
+            mSimStatusModel->updateProgress(job->id,0,{},qQNaN(),qQNaN());
+        });
+        connect(model,&CheckpointModel::runTimeline,this,[this,pw,job](double start,double end) {
+            job->start=start;job->end=end;if(pw&&!pw->isClosing())mSimStatusModel->setSimulationDates(job->id,openswmmvis::core::swmmDateTimeToMilliseconds(start),openswmmvis::core::swmmDateTimeToMilliseconds(end));
+        });
+        connect(model,&CheckpointModel::runProgress,this,[this,pw,job](double seconds) {
+            if(!pw||pw->isClosing())return;
+            const double span=(job->end-job->start)*86400;const double fraction=span>0?std::clamp(seconds/span,0.0,1.0):0;
+            mSimStatusModel->updateProgress(job->id,fraction,openswmmvis::core::swmmDateTimeToMilliseconds(job->start+seconds/86400),qQNaN(),qQNaN());
+            mRunningSimProgress[job->id]=fraction;updateSimulationProgressBar();
+        });
+        connect(model,&CheckpointModel::runFinished,this,[this,pw,job](const CheckpointResult& result) {
+            mRunningSimProgress.remove(job->id);updateSimulationProgressBar();
+            if(!pw||pw->isClosing())return;
+            mSimStatusModel->finishJob(job->id,result.success,result.errorCode,result.error,result.runoffError,result.routingError,result.twoDError);
+            onLogMessage(tr("Checkpoint run accepted %1 s. Files: %2").arg(QString::number(result.acceptedSeconds,'g',17),result.outputPaths.join(", ")));
+        });
+        connect(model,&CheckpointModel::notice,this,[this](const QString& text) {onLogMessage(text);});
+    }
+    unsigned long caps=0;swmm_checkpoint_capabilities(pw->modelLayer()->engine(),&caps);model->setCapabilities(caps);
+    auto dialog=mCheckpointDialogs.value(pw);
+    if(!dialog) {
+        dialog=new CheckpointsDialog(model,this);mCheckpointDialogs.insert(pw,dialog);
+        dialog->setPreparation([this,pw,model](bool frozenModel) {
+            if(!pw||pw->isClosing())return false;
+            if(!frozenModel) {QStringList inputs,active;checkpointInventory(inputs,active);model->setInventory(inputs,active);return true;}
+            const auto id=mSimStatusModel->ensureJobForModel(pw,QFileInfo(pw->modelLayer()->modelFilePath()).fileName(),pw->modelLayer()->modelFilePath(),pw->engineVersion());
+            if(mActiveRunners.contains(id)) {QMessageBox::information(this,tr("Checkpoints"),tr("Stop the ordinary run or wait for it to finish before preparing a checkpoint operation."));return false;}
+            return prepareCheckpointContext(pw,model);
+        });
+    }
+    dialog->show();dialog->raise();dialog->activateWindow();
+}
+
 void SWMMVis::clearSimulationStatusForProject(SWMMVisProjectWindow *pw)
 {
     if (!pw || !mSimStatusModel) return;
@@ -9081,6 +9200,14 @@ void SWMMVis::onRunSimulation()
         return;
     }
 
+    if(auto* checkpoints=mCheckpointModels.value(pw);checkpoints&&checkpoints->runBusy()) {
+        onLogMessage(tr("This project has an active checkpoint run. Open Checkpoints to save or stop it."),OpenSWMMVisLogMessage::Warning);return;
+    }
+    int owned=0;
+    if(pw->engineVersion()=="6.0.0"&&swmm_surface_owner_get(pw->modelLayer()->engine(),nullptr,0,&owned)==SWMM_OK&&owned>0) {
+        showCheckpoints();return;
+    }
+
     const auto alreadyRunning = [&]() {
         const int existing = mSimStatusModel->ensureJobForModel(pw,
             QFileInfo(inpPath).fileName(), inpPath, pw->engineVersion());
@@ -9236,6 +9363,8 @@ void SWMMVis::onRunSimulation()
     const auto pathsAvailable = [&]() {
         if (!contextCurrent() || alreadyRunning()) return false;
         QStringList inputs, active;
+        for(auto* checkpoints:std::as_const(mCheckpointModels)) {active.append(checkpoints->reservedPaths());for(int row=0;row<checkpoints->rowCount();++row)for(const auto& file:checkpoints->files(row))inputs.append(file.path);}
+        active.append(RunPathLease::activePaths());
         for (QMdiSubWindow *window : ui->mdiAreaCentral->subWindowList()) {
             auto *project = qobject_cast<SWMMVisProjectWindow *>(window);
             if (!project || !project->modelLayer()) continue;
