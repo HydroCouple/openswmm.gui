@@ -12,6 +12,7 @@
 #include "layers/swmm2dresultslayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
 #include "render/classificationcolorsampler.h"
+#include "render/smoothfillraster.h"
 
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
@@ -712,6 +713,66 @@ public:
             }
             p->restore();
         };
+        const auto paintSmoothFill = [&](OpenSWMM::Render::SmoothDepthFillSublayer *sub) {
+            const auto *style=sub->fillStyle();
+            double lo=dryDepth,hi=maxDepth;
+            if (style->useCustomRange() && style->rangeMax()>style->rangeMin()) {
+                lo=style->rangeMin();hi=style->rangeMax();
+            }
+            if (hi<=lo || sub->opacity()<=0) return;
+            const auto transform=p->deviceTransform();
+            const QRect bounds=transform.mapRect(exposed.isNull()?layer_->m_sceneBBox:exposed)
+                .toAlignedRect().intersected(QRect(0,0,p->device()->width(),p->device()->height()));
+            if (bounds.isEmpty()) return;
+            // Allocate only the exposed device rectangle, never a mesh-sized image.
+            QImage image(bounds.size(),QImage::Format_ARGB32_Premultiplied);
+            if (image.isNull()) return;
+            image.fill(Qt::transparent);
+            QVector<double> levels;
+            if (style->classified()) {
+                const auto samples=style->scheme().rangeMode()==OpenSWMM::Render::RangeMode::PerFrameAutoStretch
+                    ? layer_->currentDepthSamples(true):layer_->depthClassificationSamples(style->scheme());
+                levels=style->scheme().levelEdges(lo,hi,samples);
+            }
+            const int bands=std::max(1,int(levels.size())-1);
+            const OpenSWMM::Render::ClassificationColorSampler colors(style->scheme(),lo,hi,style->classified()?bands:0);
+            const auto colorAt=[&](double value) {
+                const int index=levels.size()>=2?std::clamp(int(std::upper_bound(levels.cbegin()+1,
+                    levels.cend()-1,value)-(levels.cbegin()+1)),0,bands-1):0;
+                QColor color=style->classified()?colors.classColor(index):colors.valueColor(value);
+                color.setAlphaF(color.alphaF()*sub->opacity());
+                return qPremultiply(color.rgba());
+            };
+            std::vector<QPointF> points,clipped,part;
+            std::vector<double> values,clippedValues,partValues;
+            for (auto *buffer:{&points,&clipped,&part}) buffer->reserve(6);
+            for (auto *buffer:{&values,&clippedValues,&partValues}) buffer->reserve(6);
+            const auto emitPolygon=[&](const auto &pts,const auto &vals) {
+                for (size_t k=1;k+1<pts.size();++k) {
+                    std::array<OpenSWMM::Render::SmoothFillRaster::Vertex,3> vertices;
+                    int n=0;
+                    for (size_t j:{size_t(0),k,k+1}) vertices[n++]={transform.map(pts[j])-bounds.topLeft(),colorAt(std::max(vals[j],lo))};
+                    OpenSWMM::Render::SmoothFillRaster::triangle(image,vertices);
+                }
+            };
+            const auto visible=layer_->m_triGrid.query(exposed.isNull()?layer_->m_sceneBBox:exposed);
+            for (int id:visible) {
+                const auto &t=tris[id];
+                const auto wet=CellWaterGeometry::clipTriangle(t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
+                points.clear();values.clear();
+                for (int j=0;j<wet.size;++j) {points.push_back(wet.vertices[j].point);values.push_back(wet.vertices[j].depth);}
+                OpenSWMM::Contour::detail::clipHalfplane(points,values,lo,true,clipped,clippedValues);
+                if (clipped.empty()) continue;
+                const auto range=std::minmax_element(clippedValues.begin(),clippedValues.end());
+                if (*range.first<hi && *range.second>hi) {
+                    OpenSWMM::Contour::detail::clipHalfplane(clipped,clippedValues,hi,false,part,partValues);emitPolygon(part,partValues);
+                    OpenSWMM::Contour::detail::clipHalfplane(clipped,clippedValues,hi,true,part,partValues);emitPolygon(part,partValues);
+                } else emitPolygon(clipped,clippedValues);
+            }
+            p->save();p->resetTransform();
+            const double dpr=p->device()->devicePixelRatioF();image.setDevicePixelRatio(dpr);
+            p->drawImage(QPointF(bounds.topLeft())/dpr,image);p->restore();
+        };
         for (auto *sub : layer_->sublayers()) {
             if (!sub || !sub->isVisible()) continue;
             if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
@@ -759,6 +820,7 @@ public:
                 }
                 p->restore();
             } else if (sub == layer_->cellDepthFillSublayer()) paintCellFill(layer_->cellDepthFillSublayer());
+            else if (sub == layer_->smoothDepthFillSublayer()) paintSmoothFill(layer_->smoothDepthFillSublayer());
             else if (sub == layer_->flowStreakSublayer()) layer_->paintFlowStreaks(p, exposed);
             else if (sub == bandSub) paintBandPass();
             else if (sub == isolineSub) paintIsolinePass();
