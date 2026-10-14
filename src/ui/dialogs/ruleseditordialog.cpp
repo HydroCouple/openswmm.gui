@@ -231,6 +231,14 @@ void RulesEditorDialog::buildUi_()
     bannerLay->addStretch(1);
     layR->addWidget(m_validationBanner);
 
+    auto *rainHelp = new QLabel(tr("Rain gages: INTENSITY or n-HR_DEPTH (1–48 hours). "
+                                  "Use 24-HR_DEPTH for one day or 48-HR_DEPTH for two days."), paneR);
+    rainHelp->setObjectName(QStringLiteral("rainGageRuleHelp"));
+    rainHelp->setWordWrap(true);
+    rainHelp->setToolTip(tr("Depth sums completed hourly rainfall totals in inches or millimeters, "
+                           "excluding the current partial hour. The gage must be used by hydrology."));
+    layR->addWidget(rainHelp);
+
     m_codeEditor = new RuleCodeEditor(paneR);
     m_codeEditor->setModelLayer(m_layer.data());
     layR->addWidget(m_codeEditor, /*stretch=*/1);

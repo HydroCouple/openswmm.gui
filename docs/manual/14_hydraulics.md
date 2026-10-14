@@ -602,12 +602,12 @@ The editor highlights the SWMM rule grammar and completes it:
 |---|---|
 | Block keywords | `RULE`, `IF`, `THEN`, `ELSE`, `AND`, `OR`, `NOT`, `PRIORITY` |
 | Object types | `NODE`, `LINK`, `CONDUIT`, `PUMP`, `ORIFICE`, `WEIR`, `OUTLET`, `SUBCATCH`, `SIMULATION`, `GAGE` |
-| Variables | `DEPTH`, `HEAD`, `FLOW`, `VOLUME`, `INFLOW`, `SETTING`, `STATUS`, `CLOCKTIME`, `DATE`, `MONTH`, `DAY`, `TIME`, `OVERFLOW` |
+| Variables | `DEPTH`, `HEAD`, `FLOW`, `VOLUME`, `INFLOW`, `SETTING`, `STATUS`, `CLOCKTIME`, `DATE`, `MONTH`, `DAY`, `TIME`, `OVERFLOW`, `INTENSITY`, `n-HR_DEPTH` |
 | Operators | `=`, `<`, `>`, `<=`, `>=`, `<>`, `IS` |
 | Numbers | Decimals and clock times `HH:MM[:SS]` |
 | Comments | `;` to end of line |
 
-Completion draws on that vocabulary **plus the live node, link and subcatchment
+Completion draws on that vocabulary **plus the live node, link, rain gage and subcatchment
 names from the model**, so premises and actions can be completed against real
 object ids. The popup triggers after two characters or on **Ctrl+Space**.
 
@@ -616,6 +616,29 @@ stop typing, resolving `NODE` / `LINK` / `CURVE` / `TIMESERIES` references
 against the live name tables without mutating engine state. There is also an
 explicit validate-now button. Edits flush on focus-out and on changing the
 selected rule.
+
+Rain-gage conditions use `GAGE`, followed by a live gage ID and either
+`INTENSITY` (in/hr or mm/hr) or `n-HR_DEPTH` (inches or millimeters). The
+lookback `n` is from **1 to 48 hours**, matching the legacy solver. Use
+`24-HR_DEPTH` for one day and `48-HR_DEPTH` for two days:
+
+```text
+RULE TwoDayRain
+IF GAGE RG 48-HR_DEPTH >= 1.0
+THEN ORIFICE O1 SETTING = 0
+ELSE ORIFICE O1 SETTING = 1
+```
+
+Depth sums completed simulation-hour buckets and excludes the current partial
+hour. History starts at zero; rainfall before the simulation start and
+`DRY_DAYS` do not seed it. The gage must be used by hydrology; a gage referenced
+only by a rule returns zero, matching legacy. A runoff interface file also
+bypasses this accumulation. Longer lookbacks are rejected.
+
+Use the documented hour spelling. The legacy parser accepts numeric prefixes,
+so `3-DAY_DEPTH` means **three hours**, not three days. The editor offers
+`INTENSITY` and representative hour depths and highlights any `n-HR_DEPTH`
+token; engine validation checks the supported range.
 
 The rule body is free text, so anything the engine's parser accepts can be
 written here — including the engine's curve-, time-series- and PID-modulated
