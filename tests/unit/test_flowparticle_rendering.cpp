@@ -17,20 +17,77 @@ static std::shared_ptr<FlowParticleFrame> bend() {
 }
 class Preview:public QQuickItem {
 public:
-    std::shared_ptr<FlowParticleFrame> frame=bend();double alpha=1;
+    std::shared_ptr<FlowParticleFrame> frame=bend();double alpha=1,fade=0;
     std::vector<double> syncTimes;
     Preview(QQuickItem *parent):QQuickItem(parent) {setFlag(ItemHasContents);setSize({160,80});}
 protected:
     QSGNode *updatePaintNode(QSGNode *old,UpdatePaintNodeData *) override {
         auto *node=old?static_cast<FlowParticleNode*>(old):new FlowParticleNode(window());
         const auto uploads=node->uploads();
-        node->sync(frame,alpha,1,4,4,4,0);
+        node->sync(frame,alpha,1,4,4,4,fade);
         if(node->uploads()!=uploads)syncTimes.push_back(node->geometryBuildMs());return node;
     }
 };
 class FlowParticleRenderingTest:public QObject {
     Q_OBJECT
 private slots:
+    void nativePublicationKeepsTheVisibleHeadAndBrightnessContinuous() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Native publication continuity");
+        QQuickWindow window;window.setFlags(window.flags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
+        window.setColor(Qt::black);window.resize(240,80);auto *preview=new Preview(window.contentItem());preview->setSize({240,80});
+        preview->frame=std::make_shared<FlowParticleFrame>();preview->frame->clock=2;preview->frame->previousClock=2-1./30.;
+        FlowParticle p;p.id=1;p.age=2;p.previousAge=2-1./30.;p.lifetime=100;
+        p.history={{{20,40},0,0},{{68,40},1,0},{{116,40},2,0}};preview->frame->particles.push_back(p);
+        window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const auto brightness=[](const QImage &image) {
+            double total=0;for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)total+=qRed(image.pixel(x,y));return total;
+        };
+        double maximumChange=0,maximumHeadError=0,previousHead=0;
+        for(int tick=0;tick<15;++tick) {
+            preview->alpha=1;preview->update();const auto before=window.grabWindow();QVERIFY(!before.isNull());
+            auto next=std::make_shared<FlowParticleFrame>(*preview->frame);
+            next->previousClock=next->clock;next->clock+=1./30.;
+            auto &particle=next->particles.front();particle.previousAge=particle.age;particle.age+=1./30.;
+            particle.history.push_back({{20+48*particle.age,40},particle.age,0});
+            preview->frame=next;preview->alpha=0;preview->update();const auto after=window.grabWindow();QVERIFY(!after.isNull());
+            const double change=std::abs(brightness(after)-brightness(before))/brightness(before);
+            maximumChange=std::max(maximumChange,change);QVERIFY(change<.02);
+            for(double alpha:{0.,.5,1.}) {
+                preview->alpha=alpha;preview->update();const auto image=window.grabWindow();
+                const double dpr=image.width()/240.;const int y=int(40.5*dpr);int last=-1;
+                for(int x=0;x<image.width();++x)if(qRed(image.pixel(x,y))>5)last=x;
+                const double head=(last+.5)/dpr,expected=20+48*(particle.previousAge+(particle.age-particle.previousAge)*alpha);
+                QVERIFY(head>=previousHead);previousHead=head;
+                maximumHeadError=std::max(maximumHeadError,std::abs(head-expected));QVERIFY(std::abs(head-expected)<1.1);
+            }
+        }
+        QDir().mkpath(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT));
+        QFile report(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT)+"/publication-continuity.json");QVERIFY(report.open(QIODevice::WriteOnly));
+        report.write(QJsonDocument(QJsonObject{{"publications",15},{"interpolatedFrames",45},
+            {"maximumHandoffBrightnessChange",maximumChange},{"maximumHeadErrorPx",maximumHeadError}}).toJson());
+    }
+    void nativeRetirementFadesBetweenPublications() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Native retirement presentation clock");
+        QQuickWindow window;window.setFlags(window.flags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
+        window.setColor(Qt::black);window.resize(160,80);auto *preview=new Preview(window.contentItem());
+        preview->frame=std::make_shared<FlowParticleFrame>();preview->frame->previousClock=1;preview->frame->clock=2;
+        FlowParticle p;p.id=1;p.age=p.previousAge=1;p.lifetime=100;p.stoppedAt=1;
+        p.history={{{20,40},0,0},{{140,40},1,0}};preview->frame->particles.push_back(p);preview->fade=1;
+        window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+        std::vector<double> brightness;
+        for(double alpha:{0.,.25,.5,.75,1.}) {
+            preview->alpha=alpha;preview->update();const auto image=window.grabWindow();QVERIFY(!image.isNull());
+            const double dpr=image.width()/160.;brightness.push_back(qRed(image.pixel(int(100.5*dpr),int(40.5*dpr)))/255.);
+            QDir().mkpath(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT));
+            QVERIFY(image.save(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT)+QString("/retirement-%1.png").arg(alpha)));
+        }
+        QVERIFY(brightness.front()>.5);QVERIFY(brightness.back()<.01);
+        for(size_t i=1;i<brightness.size();++i)QVERIFY(brightness[i]<brightness[i-1]);
+        for(size_t i=0;i<brightness.size();++i) {
+            const double t=double(i)/4,expected=1-t*t*(3-2*t);
+            QVERIFY(std::abs(brightness[i]/brightness.front()-expected)<.015);
+        }
+    }
     void ribbonBudgetAtTwoThousandParticles() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_BENCHMARK"))QSKIP("Opt-in ribbon synchronization measurement");
         auto frame=std::make_shared<FlowParticleFrame>();frame->clock=2;

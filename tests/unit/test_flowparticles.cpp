@@ -52,6 +52,125 @@ static FlowParticleSettings longLife() {
 class FlowParticlesTest:public QObject {
     Q_OBJECT
 private slots:
+    void historyReductionPreservesThePreviousPublishedHead() {
+        FlowParticleSystem system;auto settings=longLife();settings.publicationInterval=1./30.;
+        settings.maxHistory=16;settings.historyTolerance=.25;
+        QVERIFY(system.setSettings(settings));QVERIFY(system.setField(field(40,40,{},true)));QVERIFY(system.spawn({25,20.2}));
+        auto previous=system.frame();
+        for(int tick=0;tick<300;++tick) {
+            QVERIFY(!system.advance(1./60.).pending);
+            const auto frame=system.frame();if(frame==previous)continue;
+            const auto &p=frame->particles.front();
+            const auto sample=std::find_if(p.history.begin(),p.history.end(),[&](const auto &s){return s.age==p.previousAge;});
+            QVERIFY2(sample!=p.history.end(),"History reduction removed the head still used by display interpolation");
+            QCOMPARE(sample->position,previous->particles.front().position);previous=frame;
+        }
+    }
+    void publishedHistoryAndRetirementCoverTheDisplayDelay() {
+        FlowParticleSystem system;auto settings=longLife();settings.publicationInterval=1./30.;
+        settings.trailSeconds=.1;settings.historyTolerance=0;settings.maxHistory=64;
+        QVERIFY(system.setSettings(settings));QVERIFY(system.setField(field(100,2,{1,0})));QVERIFY(system.spawn({10,.5}));
+        QVERIFY(!system.advance(1).pending);
+        const auto &p=system.frame()->particles.front();
+        QVERIFY(p.history.front().age<=p.previousAge-settings.trailSeconds+1e-10);
+        // Numerical time leads visible time by one publication interval. A
+        // retired slot must remain until its displayed fade has completed.
+        FlowParticleSystem retired;settings.fadeSeconds=.2;
+        QVERIFY(retired.setSettings(settings));QVERIFY(retired.setField(field(1,1,{2,0})));QVERIFY(retired.spawn({.9,.5}));
+        QVERIFY(!retired.advance(16./60.).pending);QCOMPARE(retired.particles().front().stop,FlowParticleStop::Outflow);
+        retired.eraseFinished();QCOMPARE(retired.particles().size(),size_t(1));
+        QVERIFY(!retired.advance(.05).pending);retired.eraseFinished();QVERIFY(retired.particles().empty());
+    }
+    void prewarmPublishesMatureTrailsWithStaggeredAges() {
+        const auto snapshot=field(200,2);
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={2,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        FlowParticleSettings settings;settings.publicationInterval=1./30.;settings.maxParticles=200;
+        settings.maxHistory=128;settings.trailSeconds=1.5;
+        FlowParticleAppearance appearance;FlowParticleController controller;
+        controller.configure(settings,{10,0,20,2},200,{100,40},appearance,snapshot->mesh->grid);
+        int emptyTrails=0,publications=0;
+        connect(&controller,&FlowParticleController::ready,this,[&] {
+            if(const auto frame=controller.frame(1)) {
+                ++publications;
+                for(const auto &p:frame->particles)emptyTrails+=p.history.size()<2;
+            }
+        });
+        controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        const auto frame=controller.frame(1);QVERIFY(frame);QVERIFY(!controller.busy());
+        QVERIFY(std::abs(frame->clock-2)<1e-8);QCOMPARE(frame->particles.size(),size_t(200));
+        QCOMPARE(publications,1);QVERIFY(emptyTrails<20);
+        double youngest=100,oldest=0;
+        for(const auto &p:frame->particles) {youngest=std::min(youngest,p.age);oldest=std::max(oldest,p.age);}
+        QVERIFY(oldest-youngest>15);QVERIFY(frame->deaths>0);
+        QVERIFY(!frame->ribbon.vertices.empty());QCOMPARE(controller.diagnostics().failedBirths,quint64(0));
+        QVERIFY(controller.diagnostics().prewarmMs>0);QCOMPARE(controller.opacity(),0.);
+        controller.advance(.15);QVERIFY(std::abs(controller.opacity()-.5)<1e-8);controller.waitForDone();
+        QVERIFY(std::abs(controller.opacity()-.5)<1e-8);
+        FlowParticleView paused{100,40};paused.animated=false;
+        controller.configure(settings,{10,0,20,2},200,paused,appearance,snapshot->mesh->grid);
+        QTest::qWait(30);QVERIFY(std::abs(controller.opacity()-.5)<1e-8);
+        controller.configure(settings,{10,0,20,2},200,{100,40},appearance,snapshot->mesh->grid);
+        controller.advance(.15);controller.waitForDone();QVERIFY(std::abs(controller.opacity()-1)<1e-8);
+        controller.request(input,true);controller.waitForDone();QCOMPARE(controller.opacity(),0.);
+        QVERIFY(std::abs(controller.frame(1)->clock-2)<1e-8);
+        controller.configure(settings,{10,0,20,2},200,paused,appearance,snapshot->mesh->grid);
+        controller.request(input,true);controller.waitForDone();QCOMPARE(controller.opacity(),1.);
+    }
+    void agedBirthRetainsAnExactForwardTrajectory() {
+        const auto snapshot=field(200,2,{1,0});FlowParticleSystem young,aged;
+        auto settings=longLife();settings.maxHistory=128;
+        for(auto *system:{&young,&aged}) {QVERIFY(system->setSettings(settings));QVERIFY(system->setField(snapshot));}
+        QVERIFY(young.spawn({10,.5},7));QVERIFY(aged.spawn({10,.5},7,true,-1,.5));
+        QCOMPARE(aged.particles().front().age,50.);QCOMPARE(aged.particles().front().history.front().age,50.);
+        for(int i=0;i<120;++i) {
+            QVERIFY(!young.advance(1./60.).pending);QVERIFY(!aged.advance(1./60.).pending);
+            QCOMPARE(aged.particles().front().position,young.particles().front().position);
+            QVERIFY(std::abs(aged.particles().front().age-young.particles().front().age-50)<1e-10);
+        }
+        QVERIFY(!aged.spawn({10,.5},7,true,-1,1));QVERIFY(!aged.spawn({10,.5},7,true,-1,NAN));
+        QCOMPARE(aged.frame()->deaths,quint64(0));
+    }
+    void displayInterpolationAdvancesBeforeWorkerCompletion() {
+        const auto snapshot=field(200,2);
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={2,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        auto settings=longLife();settings.publicationInterval=1./30.;
+        FlowParticleController controller;controller.configure(settings,{10,0,20,2},20);
+        controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        controller.advance(1./30.);controller.waitForDone();
+        const auto frame=controller.frame(1);QVERIFY(frame);QVERIFY(frame->clock>frame->previousClock);
+        QVERIFY(std::abs(controller.interpolation())<1e-8);
+        // GUI time must move the existing frame even while the queued worker
+        // completion has not been delivered. No event processing occurs here.
+        controller.advance(1./120.);
+        QCOMPARE(controller.frame(1),frame);QVERIFY(std::abs(controller.interpolation()-.25)<1e-8);
+        controller.advance(1./120.);QVERIFY(std::abs(controller.interpolation()-.5)<1e-8);
+        controller.waitForDone();QVERIFY(std::abs(controller.interpolation()-.5)<1e-8);
+        const auto visibleAge=[&] {
+            const auto &p=controller.frame(1)->particles.front();
+            return p.previousAge+(p.age-p.previousAge)*controller.interpolation();
+        };
+        const double before=visibleAge();controller.advance(1./60.);const double queued=visibleAge();
+        QVERIFY(queued>before);controller.waitForDone();QVERIFY(std::abs(visibleAge()-queued)<1e-8);
+        const double paused=controller.interpolation();QTest::qWait(50);QCOMPARE(controller.interpolation(),paused);
+        auto next=std::make_shared<FlowParticleNativeInput>(*input);next->revision=2;
+        controller.setPresentedRevision(2);controller.request(next);controller.waitForDone();
+        const auto &p=controller.frame(2)->particles.front();
+        QVERIFY(std::abs(p.previousAge+(p.age-p.previousAge)*controller.interpolation()-queued)<1e-8);
+        controller.request(next,true);controller.waitForDone();QCOMPARE(controller.frame(2)->clock,0.);
+        QCOMPARE(controller.interpolation(),0.);
+    }
     void partialTicksKeepTheCompletedFramePrivateFromStaging() {
         FlowParticleSystem system;auto settings=longLife();settings.maxHistory=64;
         QVERIFY(system.setSettings(settings));QVERIFY(system.setField(field(20,2,{1,0})));

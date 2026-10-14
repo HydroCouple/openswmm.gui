@@ -209,8 +209,9 @@ int FlowParticleSystem::locate(QPointF p,bool requireWet) const {
         if(inside(w) && (!requireWet || (f.available && depth(f,w)>m_settings.cutoff)))return *it;
     }return -1;
 }
-quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publishImmediately,int cellHint) {
-    if(m_inTick || int(m_particles.size())>=m_settings.maxParticles)return 0;
+quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publishImmediately,int cellHint,double initialAgeFraction) {
+    if(m_inTick || int(m_particles.size())>=m_settings.maxParticles
+       || !std::isfinite(initialAgeFraction) || initialAgeFraction<0 || initialAgeFraction>=1)return 0;
     const int cell=cellHint>=0?cellHint:locate(position);
     if(!m_field || cell<0 || size_t(cell)>=m_field->fields.size())return 0;
     const auto w=weights(*m_field->mesh,cell,position);
@@ -228,9 +229,10 @@ quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publi
     }
     const double random=double(randomBits(randomSeed+p.id*0x9e3779b97f4a7c15ULL)>>11)/9007199254740992.;
     p.lifetime=m_settings.minimumLifetime+(m_settings.maximumLifetime-m_settings.minimumLifetime)*random;
+    p.age=p.previousAge=p.publishedAge=p.previousPublishedAge=p.lifetime*initialAgeFraction;
     const auto f=fieldAt(cell,m_clock);
     const float speed=float(f.speed[0]*w[0]+f.speed[1]*w[1]+f.speed[2]*w[2]);
-    p.history.push_back({position,0,cell,speed});m_particles.push_back(std::move(p));++m_births;
+    p.history.push_back({position,p.age,cell,speed});m_particles.push_back(std::move(p));++m_births;
     if(publishImmediately)publish();return m_particles.back().id;
 }
 void FlowParticleSystem::stop(FlowParticleReference<false> &p,FlowParticleStop reason) {
@@ -249,7 +251,8 @@ bool FlowParticleSystem::reduceHistory(FlowParticleReference<false> &p,int &budg
         const double span=c.age-a.age,t=span>0?(b.age-a.age)/span:0;
         const double error=std::max({0.,b.error,c.error})+norm(b.position-(a.position+(c.position-a.position)*t));
         const double speedError=std::abs(b.speed-(a.speed+(c.speed-a.speed)*t));
-        if(b.age<p.previousAge-1e-12 && span>0 && error<=m_settings.historyTolerance
+        const double displayedHead=m_settings.publicationInterval>0?p.publishedAge:p.previousAge;
+        if(b.age<displayedHead-1e-12 && span>0 && error<=m_settings.historyTolerance
            && speedError<=.01*std::max({.01f,a.speed,b.speed,c.speed})
            && segmentSupport(*m_field,a,c,m_settings.cutoff,true)==SegmentSupport::Wet) {
             m_historyError=error;
@@ -269,14 +272,16 @@ bool FlowParticleSystem::reduceHistory(FlowParticleReference<false> &p,int &budg
     return true;
 }
 void FlowParticleSystem::appendHistory(FlowParticleReference<false> &p,float speed) {
-    while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds)p.history.pop_front();
+    // The display trails numerical time by one publication. Keep its tail
+    // support until it has been shown; the renderer clips the exact duration.
+    while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds-m_settings.publicationInterval)p.history.pop_front();
     p.history.push_back({p.position,p.age,p.cell,speed});++p.samplesSinceReduction;
     // A trail that cannot be reduced must not trigger another full scan on
     // every substep. Retain the bounded tail between passes.
     while(p.history.size()>size_t(m_settings.maxHistory)) {
         p.history.pop_front();p.historyFloorAge=p.history.front().age;
     }
-    p.historyLimited=p.historyFloorAge>=0 && p.age-p.historyFloorAge<m_settings.trailSeconds;
+    p.historyLimited=p.historyFloorAge>=0 && p.age-p.historyFloorAge<m_settings.trailSeconds+m_settings.publicationInterval;
 }
 bool FlowParticleSystem::integrate(FlowParticleReference<false> &p,int &budget,int &steps) {
     const auto &mesh=*m_field->mesh;
@@ -291,7 +296,7 @@ bool FlowParticleSystem::integrate(FlowParticleReference<false> &p,int &budget,i
     }
     while(p.pending>1e-12 && p.stop==FlowParticleStop::None) {
         if(!m_historyIndex) {
-            while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds)p.history.pop_front();
+            while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds-m_settings.publicationInterval)p.history.pop_front();
         }
         const auto threshold=std::min(size_t(m_settings.maxHistory),p.nextHistoryReduction);
         const bool reductionDue=m_settings.historyTolerance>0 && p.history.size()>=threshold
@@ -342,7 +347,7 @@ bool FlowParticleSystem::integrate(FlowParticleReference<false> &p,int &budget,i
             if(a<=fraction) {fraction=a;edge=-1;dry=true;}
         }
         const double consumed=dt*fraction,newAge=p.age+consumed;
-        while(p.history.size()>1 && p.history[1].age<=newAge-m_settings.trailSeconds)p.history.pop_front();
+        while(p.history.size()>1 && p.history[1].age<=newAge-m_settings.trailSeconds-m_settings.publicationInterval)p.history.pop_front();
         const int oldCell=p.cell;
         if(consumed>1e-12) {
             p.position+=(next-p.position)*fraction;p.age=newAge;p.pending=std::max(0.,p.pending-consumed);
@@ -459,7 +464,7 @@ void FlowParticleSystem::eraseFinished() {
     size_t retained=0;
     for(size_t i=0;i<m_particles.size();++i) {
         auto p=m_particles[i];
-        if(p.stop!=FlowParticleStop::None && m_clock-p.stoppedAt>=m_settings.fadeSeconds) {
+        if(p.stop!=FlowParticleStop::None && m_clock-p.stoppedAt>=m_settings.fadeSeconds+m_settings.publicationInterval) {
             m_freeHistories.push_back(std::move(p.history));
         } else m_particles.move(retained++,i);
     }

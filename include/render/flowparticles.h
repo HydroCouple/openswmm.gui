@@ -319,7 +319,7 @@ public:
     FlowParticleSystem();
     bool setSettings(const FlowParticleSettings &);
     bool setField(std::shared_ptr<const FlowParticleSnapshot>,double transitionSeconds=0);
-    quint64 spawn(QPointF position,quint64 randomSeed=0,bool publishImmediately=true,int cellHint=-1);
+    quint64 spawn(QPointF position,quint64 randomSeed=0,bool publishImmediately=true,int cellHint=-1,double initialAgeFraction=0);
     FlowParticleWork advance(double elapsed,int stepBudget=16384);
     void eraseFinished();
     void setAppearance(double scale,FlowParticleAppearance appearance) {m_renderScale=scale;m_appearance=std::move(appearance);}

@@ -66,7 +66,8 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
     double interpolation,double scale,double tail,double width,double head,double fade,quint64 trackedId,
     const FlowParticleAppearance &appearance) {
     auto *m=static_cast<Material*>(material());m->interpolation=float(interpolation);
-    m->clock=frame?float(frame->clock):0;m->tail=float(tail);m->width=float(width);m->head=float(head);m->fade=float(fade);
+    m->clock=frame?float(frame->previousClock+(frame->clock-frame->previousClock)*interpolation):0;
+    m->tail=float(tail);m->width=float(width);m->head=float(head);m->fade=float(fade);
     m->opacity=float(appearance.opacity);m->softFade=appearance.fade?1:0;m->taper=appearance.taper?1:0;
     markDirty(DirtyMaterial);
     if(frame==m_frame && scale==m_scale && trackedId==m_trackedId && appearance.anchor==m_anchor

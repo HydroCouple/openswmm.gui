@@ -13,8 +13,8 @@ struct FlowParticleController::State {
     quint64 seed=1;
     FlowParticleSeedDistribution seeds;
     QRectF seedView;
-    double seedCutoff=-1,birthsDue=0,gain=-1;
-    bool fillPopulation=true;
+    double seedCutoff=-1,birthsDue=0,gain=-1,warmRemaining=0,deferredElapsed=0;
+    bool fillPopulation=true,initialAges=false,reveal=true;
     FlowParticleDiagnostics diagnostics;
     std::shared_ptr<const FlowParticleResidencySupport> residency;
 };
@@ -38,10 +38,16 @@ void FlowParticleController::setPresentedRevision(quint64 revision) {
     m_presentedRevision=revision;m_presentationChanged=true;dispatch();
 }
 void FlowParticleController::advance(double seconds) {
-    if(std::isfinite(seconds) && seconds>=0) {m_elapsed+=seconds;dispatch();}
+    if(!std::isfinite(seconds) || seconds<0)return;
+    m_elapsed+=seconds;m_presentationClock+=seconds;
+    // Presentation keeps moving on GUI ticks while the worker is occupied.
+    // Pausing supplies no elapsed time, so neither heads nor fades drift.
+    const QPointer<FlowParticleController> guard(this);
+    if(m_current && seconds>0)emit ready();
+    if(guard)dispatch();
 }
 void FlowParticleController::dispatch() {
-    if(m_busy || (!m_pending && !m_presentationChanged && m_elapsed<=0 && m_lag<=0))return;
+    if(m_busy || (!m_pending && !m_presentationChanged && !m_warming && m_elapsed<=0 && m_lag<=0))return;
     m_busy=true;
     m_presentationChanged=false;
     const auto input=std::exchange(m_pending,{});const bool reset=std::exchange(m_reset,false);
@@ -52,7 +58,7 @@ void FlowParticleController::dispatch() {
             if(reset) {
                 state->system=FlowParticleSystem();state->field.reset();state->pending.reset();
                 state->seeds={};state->seedCutoff=-1;state->birthsDue=0;state->gain=-1;state->fillPopulation=true;
-                state->residency.reset();
+                state->residency.reset();state->warmRemaining=0;state->deferredElapsed=0;state->reveal=true;
             }
             state->system.setSettings(settings);
             if(input)state->pending=buildFlowParticleField(*input,state->cancelled);
@@ -61,9 +67,13 @@ void FlowParticleController::dispatch() {
                 // Finish a partial tick with its original field before applying the
                 // newest packet. Normal updates blend velocity over 0.25 seconds.
                 const bool replacement=state->field && state->field->geometry!=state->pending->geometry;
+                const bool first=!state->field;
                 if(state->system.setField(state->pending,state->field?.25:0)) {
                     state->field=std::exchange(state->pending,{});accepted=true;
                     if(replacement) {state->fillPopulation=true;state->birthsDue=0;state->gain=-1;}
+                    if(first || replacement) {
+                        state->warmRemaining=view.scale>0?2:0;state->initialAges=state->warmRemaining>0;state->reveal=true;
+                    }
                 }
             }
             if(state->field && (accepted || seeds!=state->seedView || settings.cutoff!=state->seedCutoff)) {
@@ -81,9 +91,39 @@ void FlowParticleController::dispatch() {
             state->system.setSettings(settings);
             if(appearance) {
                 appearance->particleCapacity=population;appearance->historyCapacity=settings.maxHistory;
-                state->system.setAppearance(view.scale,std::move(*appearance));
+                state->system.setAppearance(state->warmRemaining>settings.publicationInterval+1e-12?0:view.scale,*appearance);
             } else state->system.setAppearance(0,{});
-            state->system.eraseFinished();
+            QElapsedTimer publication;publication.start();
+            state->deferredElapsed+=elapsed;
+            if(state->seeds.triangles.empty())state->warmRemaining=0;
+            const auto fill=[&](int limit,bool aged) {
+                // A partial tick owns the state. Finish it before births or
+                // compaction; a work-slice boundary is not a failed seed.
+                if(state->system.lagSeconds()+1e-12>=settings.timestep)return;
+                state->system.eraseFinished();
+                const int deficit=population-int(state->system.particles().size());
+                const int births=std::min(limit,std::max(0,deficit));
+                for(int i=0;i<births && !state->cancelled.load() && !state->seeds.triangles.empty();++i) {
+                    const auto seed=state->seeds.sample(state->seed++);++state->diagnostics.birthAttempts;
+                    const double age=aged?double((state->seed*0xd1b54a32d192ed03ULL)>>11)/9007199254740992.:0;
+                    if(state->system.spawn(seed.first,state->seed,false,seed.second,age))state->birthsDue-=1;
+                    else {++state->diagnostics.failedBirths;break;}
+                }
+            };
+            int budget=32768;
+            const bool prepared=state->warmRemaining>1e-12;
+            while(state->warmRemaining>1e-12 && budget>0 && !state->cancelled.load()) {
+                fill(state->initialAges?population:64,state->initialAges);state->initialAges=false;
+                if(appearance && state->warmRemaining<=settings.publicationInterval+1e-12)
+                    state->system.setAppearance(view.scale,*appearance);
+                const double before=state->system.clock();
+                const double step=state->system.lagSeconds()+1e-12>=settings.timestep?0:std::min(settings.timestep,state->warmRemaining);
+                const auto work=state->system.advance(step,budget);budget-=work.steps;
+                state->warmRemaining=std::max(0.,state->warmRemaining-(state->system.clock()-before));
+                if(work.pending)break;
+            }
+            const bool warming=state->warmRemaining>1e-12;
+            if(prepared)state->diagnostics.prewarmMs+=publication.nsecsElapsed()/1e6;
             // Continue in the displayed hydraulic field while the next field is
             // prepared. Switching fields waits for presentation; animation does not.
             const int deficit=population-int(state->system.particles().size());
@@ -92,15 +132,12 @@ void FlowParticleController::dispatch() {
             // Shoreline/outlet deaths can be much earlier than assigned lives.
             // Refill freed slots too, or compressed motion starves narrow pools.
             else state->birthsDue=std::max(double(deficit),std::min(double(population),state->birthsDue+elapsed*population/life));
-            const int births=std::min({64,deficit,int(state->birthsDue)});
-            if(state->field && !state->seeds.triangles.empty())for(int i=0;i<births && !state->cancelled.load();++i) {
-                const auto seed=state->seeds.sample(state->seed++);++state->diagnostics.birthAttempts;
-                if(state->system.spawn(seed.first,state->seed,false,seed.second))state->birthsDue-=1;
-                else {++state->diagnostics.failedBirths;break;}
+            if(!warming) {
+                fill(std::min(64,std::max(0,int(state->birthsDue))),false);
+                state->system.advance(std::exchange(state->deferredElapsed,0.),std::max(1,budget));
             }
             if(int(state->system.particles().size())>=population && population>0)state->fillPopulation=false;
-            QElapsedTimer publication;publication.start();state->system.advance(elapsed,32768);
-            const auto frame=state->system.frame();
+            const auto frame=warming?nullptr:state->system.frame();
             const double clock=state->system.clock();
             if(state->field && !grid.isEmpty() && (accepted || !state->residency || clock-state->residency->clock>=.25)) {
                 auto support=std::make_shared<FlowParticleResidencySupport>();
@@ -118,7 +155,10 @@ void FlowParticleController::dispatch() {
             state->diagnostics.referencePixelsPerSecond=view.scale*settings.speed*state->seeds.referenceSpeed;
             state->diagnostics.metresPerPixelSecond=settings.speedExponent==1 && view.scale>0 && settings.speed>0 && state->seeds.referenceSpeed>0
                 ?state->seeds.referenceSpeedSI/(view.scale*settings.speed*state->seeds.referenceSpeed):0;
-            return Result{frame,state->system.interpolation(),state->system.lagSeconds(),accepted,state->diagnostics,state->residency};
+            const bool reveal=frame && std::exchange(state->reveal,false);
+            const double delay=settings.publicationInterval>0?settings.publicationInterval:settings.timestep;
+            return Result{frame,clock+state->system.lagSeconds()-delay,
+                state->system.lagSeconds(),accepted,warming,reveal,state->diagnostics,state->residency};
         };
         auto result=work();
         {
@@ -139,11 +179,15 @@ void FlowParticleController::complete() {
     if(result.frame) {
         if(m_current && m_current->revision!=result.frame->revision)m_previous=m_current;
         m_current=result.frame;
+        // Include GUI time queued during this job. Taking a completed frame
+        // must not undo movement already presented between worker messages.
+        m_presentationClock=result.presentationClock+m_elapsed;
+        if(result.reveal)m_revealClock=m_view.animated?m_presentationClock:-1;
     }
-    m_interpolation=result.interpolation;m_lag=result.lag;m_diagnostics=result.diagnostics;m_residency=std::move(result.residency);
+    m_warming=result.warming;m_lag=result.lag;m_diagnostics=result.diagnostics;m_residency=std::move(result.residency);
     const QPointer<FlowParticleController> guard(this);
     emit ready();if(!guard)return;
-    if(m_pending || m_presentationChanged || m_elapsed>0 || m_lag>=m_settings.timestep)dispatch();
+    if(m_pending || m_presentationChanged || m_warming || m_elapsed>0 || m_lag>=m_settings.timestep)dispatch();
 }
 void FlowParticleController::waitForDone() {
     for(int i=0;i<100 && m_busy;++i) {
@@ -159,6 +203,16 @@ std::shared_ptr<const FlowParticleFrame> FlowParticleController::frame(quint64 r
     if(m_current && m_current->revision==revision)return m_current;
     if(m_previous && m_previous->revision==revision)return m_previous;
     return {};
+}
+double FlowParticleController::interpolation(const std::shared_ptr<const FlowParticleFrame> &frame) const {
+    const auto &shown=frame?frame:m_current;
+    if(!shown || shown->clock<=shown->previousClock)return 0;
+    return std::clamp((m_presentationClock-shown->previousClock)/(shown->clock-shown->previousClock),0.,1.);
+}
+double FlowParticleController::opacity() const {
+    if(m_revealClock<0)return 1;
+    const double t=std::clamp((m_presentationClock-m_revealClock)/.3,0.,1.);
+    return t*t*(3-2*t);
 }
 QString FlowParticleController::status() const {
     if(!m_current)return tr("Preparing continuous particles");
