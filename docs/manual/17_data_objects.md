@@ -26,7 +26,7 @@ right-clicking it and choosing **Edit…** — opens its editor with that item
 selected. This works for every data-object category: time series, curves,
 patterns, control rules, transects, unit hydrographs, inlets, LID controls,
 pollutants, land uses, aquifers, snowpacks and streets. The Properties panel's
-**Open in <Editor>…** button does the same. Right-clicking a category offers
+**Open in &lt;Editor&gt;…** button does the same. Right-clicking a category offers
 **Add New…**. For pollutants, land uses, aquifers, streets and inlets, the
 category menu also offers **Open in Attribute Table**, which lists every object
 in one table so you can edit many at once (see \ref manual_attribute_tables). Every

@@ -48,7 +48,7 @@ because that many series takes a while to build and clutters the charts.
 |-------------|------------|
 | **Node** | Depth, Head, Volume, Lateral inflow, Total inflow, Overflow |
 | **Link** | Flow, Depth, Velocity, Volume, Capacity |
-| **Subcatchment** | Rainfall, Snow depth, Evaporation, Infiltration, Runoff |
+| **Subcatchment** | Rainfall, Snow depth, Evaporation, Infiltration, Runoff; optional snow state and flux variables listed below |
 | **System** | Rainfall, Snow depth, Evaporation (average rate), Infiltration, Runoff, Dry-weather inflow, Groundwater inflow, Lateral inflow, Flooding, Outflow, Storage, Total evaporation, Potential ET, Temperature |
 | **2D mesh cell** | Depth, HGL, Velocity magnitude, Velocity X, Velocity Y, Rainfall, Rainfall volume |
 | **2D mesh edge** | Flow (volumetric, m³/s), Unit-width flux (m²/s) |
@@ -63,7 +63,23 @@ hours and temperature in degrees; ordinary pollutants use the run's concentratio
 unit.
 
 Units follow the run: a `.out` written in CFS/GPM/MGD labels axes in US units,
-one written in CMS/LPS/MLD in SI.
+one written in CMS/LPS/MLD in SI. The optional snow/ground variables retain
+explicit SI units in either project system:
+
+| Snow variable | Units |
+|---|---|
+| **Snow water equivalent** | m |
+| **Snow/ground energy** | kJ/m² |
+| **Snow/ground surface temperature**; **Snow/ground bulk temperature** | °C |
+| **Snow/ground albedo**; **Snow cover fraction** | Dimensionless |
+| **Snowmelt rate**; **Snow liquid surface input**; **Snow sublimation / condensation** | m/s |
+
+These entries enable only when the loaded result contains the corresponding
+columns. **Snow depth** is geometric depth and remains in the run's project units;
+it is not interchangeable with snow water equivalent. Mesh snow fields are also
+available in the live and HDF5 cell-variable views when present. Expand a run in
+Simulation Status to inspect its available subcatchment and mesh snow water
+budgets (m³) and UEB energy residuals (kJ).
 
 Every attribute menu also carries an **All attributes** entry that adds one
 series per attribute for that object in a single click.

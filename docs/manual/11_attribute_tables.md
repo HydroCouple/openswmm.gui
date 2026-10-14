@@ -77,7 +77,7 @@ Examples of the input block:
 | **Storage Units** | Maximum Depth, storage shape, functional coefficient/exponent/constant, three shape parameters (headers are generic; the per-shape meaning is the cell tooltip), seepage rate and the Green-Ampt exfiltration triple |
 | **Dividers** | The junction set plus divider type |
 | **Conduits** | From/To Node, Vertex Count, Length, roughness, offsets, initial and maximum flow, entry/exit/average loss, seepage rate, barrels, culvert code, Cross-Section and Inlets compound cells |
-| **Subcatchments** | Vertex Count, Area, Width, Slope, % Impervious, % Zero-Impervious, Manning's n (imperv./perv.), depression storage (imperv./perv.), rain gage, outlet, infiltration model and its parameters, plus the Land Use, LID Usage, Initial Loadings and Groundwater compound cells |
+| **Subcatchments** | Vertex Count, Area, Width, Slope, % Impervious, % Zero-Impervious, Manning's n (imperv./perv.), depression storage (imperv./perv.), rain gage, outlet, Snow Pack, infiltration model and its parameters, plus the Land Use, LID Usage, Initial Loadings and Groundwater compound cells |
 | **Rain Gages** | Rain format, recording interval, snow catch factor, data source, Station ID, Rain File (path) and Rain File Column |
 
 Column headers carry the unit resolved from the project's flow-unit system, so
@@ -507,7 +507,7 @@ section — with **Applying one value to many rows** above.
   exist, plus `(none)`.
 - On an inlet row, fields the inlet's type does not use show `—` and cannot be
   edited (for example, curb fields on a GRATE inlet).
-- Right-click a row → **Edit "<name>" in <Editor>…** opens the full editor on
+- Right-click a row → **Edit "<name>" in &lt;Editor&gt;…** opens the full editor on
   that object.
 - Selecting rows selects those objects, so the Properties panel follows along.
   These objects have no map location, so **Zoom to selected**, **Change Type**
