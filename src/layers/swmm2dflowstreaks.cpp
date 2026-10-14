@@ -70,11 +70,13 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
     const auto *style=m_flowStreakSublayer->streakStyle();
     const auto frame=flowParticles(coverage,scale,frame_revision_);if(!frame)return;
     const auto smooth=[](double x){x=std::clamp(x,0.,1.);return x*x*(3-2*x);};
-    p->save();p->setOpacity(p->opacity()*m_flowStreakSublayer->opacity());
+    const double interpolation=flowParticleInterpolation(frame);
+    const double clock=frame->previousClock+(frame->clock-frame->previousClock)*interpolation;
+    p->save();p->setOpacity(p->opacity()*m_flowStreakSublayer->opacity()*flowParticleOpacity());
     p->setRenderHint(QPainter::Antialiasing,true);p->setPen(Qt::NoPen);
     for(const auto &particle:frame->particles) {
         if(particle.history.empty())continue;
-        const double age=particle.previousAge+(particle.age-particle.previousAge)*flowParticleInterpolation();
+        const double age=particle.previousAge+(particle.age-particle.previousAge)*interpolation;
         const double tail=std::min(style->trailDurationSeconds(),particle.historyLimited
             ?std::max(1e-6,age-particle.history.front().age):style->trailDurationSeconds());
         const double fade=style->lifetimeFadeSeconds();
@@ -102,7 +104,7 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
         }
         double opacity=1;const double birthFade=std::min(fade,particle.lifetime*.2);
         if(birthFade>0)opacity*=smooth(age/birthFade)*smooth((particle.lifetime-age)/birthFade);
-        if(particle.stoppedAt>=0)opacity*=fade>0?1-smooth((frame->clock-particle.stoppedAt)/fade):0;
+        if(particle.stoppedAt>=0)opacity*=fade>0?1-smooth((clock-particle.stoppedAt)/fade):0;
         const auto color=style->colorForSpeed(points.back().speed);
         QLinearGradient gradient(points.front().position,points.back().position);
         for(double f:{0.,.25,.5,.75,1.}) {

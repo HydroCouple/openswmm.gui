@@ -12,9 +12,10 @@ namespace OpenSWMM::Render {
 struct FlowParticleView {
     double scale=0,spacing=40,motionPixelsPerSecond=48,speedFloorSI=0;
     double speedExponent=1./3.;
+    bool animated=true;
 };
 struct FlowParticleDiagnostics {
-    double wetFraction=0,referenceSpeedSI=0,motionGain=0,publicationMs=0,integrationMs=0;
+    double wetFraction=0,referenceSpeedSI=0,motionGain=0,publicationMs=0,integrationMs=0,prewarmMs=0;
     double metresPerPixelSecond=0;
     double speedExponent=1,referencePixelsPerSecond=0;
     int targetPopulation=0;
@@ -36,7 +37,8 @@ public:
     bool busy() const { return m_busy || bool(m_pending); }
     std::shared_ptr<const FlowParticleFrame> frame(quint64 revision) const;
     std::shared_ptr<const FlowParticleFrame> latestFrame() const {return m_current;}
-    double interpolation() const { return m_interpolation; }
+    double interpolation(const std::shared_ptr<const FlowParticleFrame> &frame={}) const;
+    double opacity() const;
     QString status() const;
     FlowParticleDiagnostics diagnostics() const {return m_diagnostics;}
     std::shared_ptr<const FlowParticleResidencySupport> residency() const {return m_residency;}
@@ -46,8 +48,8 @@ private:
     struct State;
     struct Result {
         std::shared_ptr<const FlowParticleFrame> frame;
-        double interpolation=1,lag=0;
-        bool fieldAccepted=false;
+        double presentationClock=0,lag=0;
+        bool fieldAccepted=false,warming=false,reveal=false;
         FlowParticleDiagnostics diagnostics;
         std::shared_ptr<const FlowParticleResidencySupport> residency;
     };
@@ -69,9 +71,9 @@ private:
     std::optional<FlowParticleAppearance> m_appearance;
     FlowParticleDiagnostics m_diagnostics;
     QRectF m_seeds;
-    double m_elapsed=0,m_interpolation=1,m_lag=0;
+    double m_elapsed=0,m_presentationClock=0,m_revealClock=-1,m_lag=0;
     int m_population=2000;
     quint64 m_presentedRevision=~quint64(0);
-    bool m_busy=false,m_reset=false,m_presentationChanged=false;
+    bool m_busy=false,m_reset=false,m_presentationChanged=false,m_warming=false;
 };
 } // namespace OpenSWMM::Render

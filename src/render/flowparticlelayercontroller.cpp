@@ -257,7 +257,8 @@ std::shared_ptr<const FlowParticleFrame> FlowParticleLayerController::frame(
         }
     }
     appearance.colorForSpeed=m_palette;
-    m_worker->configure(settings,visible,settings.maxParticles,{scale,style->spacingPx(),48,m_layer->m_velocityFloorSI},
+    FlowParticleView particleView{scale,style->spacingPx(),48,m_layer->m_velocityFloorSI};particleView.animated=style->animated();
+    m_worker->configure(settings,visible,settings.maxParticles,particleView,
                         std::move(appearance),m_layer->m_triGrid);
     if(presented)m_worker->setPresentedRevision(displayedRevision);
     if(displayedRevision==m_layer->frame_revision_) {

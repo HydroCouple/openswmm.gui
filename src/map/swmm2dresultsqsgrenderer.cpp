@@ -616,11 +616,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         FlowParticleAppearance appearance;appearance.anchor={m_anchorX,m_anchorY};
         const double stroke=2*std::max(style->widthPx(),style->headWidthPx())/logicalScale;
         appearance.viewport=viewRect.adjusted(-stroke,-stroke,stroke,stroke);
-        appearance.color=style->color();appearance.opacity=sub->opacity();
+        appearance.color=style->color();appearance.opacity=sub->opacity()*m_layer->flowParticleOpacity();
         appearance.fade=true;appearance.taper=true;
         appearance.revision=qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));
         if(style->colorByMagnitude())appearance.colorForSpeed=[style](double v){return style->colorForSpeed(v);};
-        root->particleNode->sync(frame,m_layer->flowParticleInterpolation(),logicalScale,
+        root->particleNode->sync(frame,m_layer->flowParticleInterpolation(frame),logicalScale,
             style->trailDurationSeconds(),style->widthPx(),style->headWidthPx(),style->lifetimeFadeSeconds(),0,appearance);
     };
     auto clearAll = [&]() {

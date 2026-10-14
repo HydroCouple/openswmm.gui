@@ -15,7 +15,8 @@ public:
     void advance(double seconds);
     void waitForDone() {m_worker->waitForDone();}
     bool busy() const {return m_worker->busy();}
-    double interpolation() const {return m_worker->interpolation();}
+    double interpolation(const std::shared_ptr<const FlowParticleFrame> &frame={}) const {return m_worker->interpolation(frame);}
+    double opacity() const {return m_worker->opacity();}
     FlowParticleDiagnostics diagnostics() const {return m_worker->diagnostics();}
     size_t fieldBytes() const {return m_particleFieldBytes;}
     int captures() const {return m_particleCaptures;}
