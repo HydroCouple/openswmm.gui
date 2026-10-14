@@ -23,8 +23,10 @@
  */
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/dialogs/simoptions/datespage.h"
 
 #include <QComboBox>
+#include <QDateTimeEdit>
 #include <QDoubleSpinBox>
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -113,6 +115,8 @@ private slots:
     void noScrollAt1280x800();
     void structure();
     void aquiferProcessInputsPreserveAutomaticAndConvertUnits();
+    void reportStartFollowsEditedSimulationWindow();
+    void reportStartReloadsEarlierSimulationWindow();
 };
 
 namespace {
@@ -142,6 +146,93 @@ void setRouting(SimulationOptionsDialog &dlg, const char *token)
 }
 
 } // namespace
+
+void TestSimulationOptionsGates::reportStartFollowsEditedSimulationWindow()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    openswmmvis::ui::SimOptionsContext ctx(layer->engine(), nullptr, nullptr, {});
+    openswmmvis::ui::DatesPage page(ctx);
+    page.read();
+    auto editor = [&page](const char *key) -> QDateTimeEdit * {
+        for (auto *edit : page.findChildren<QDateTimeEdit *>())
+            if (edit->property("optionKey").toString().split(',').contains(QLatin1String(key)))
+                return edit;
+        return nullptr;
+    };
+    auto *start = editor("START_DATE");
+    auto *end = editor("END_DATE");
+    auto *report = editor("REPORT_START_DATE");
+    QVERIFY(start && end && report);
+
+    const QDateTime original(QDate(2026, 10, 14), QTime(11, 0));
+    end->setDateTime(original.addSecs(7200));
+    start->setDateTime(original);
+    report->setDateTime(original.addSecs(1800));
+
+    // Moving the window earlier must allow a report time before the old start.
+    const QDateTime earlier = original.addDays(-1);
+    start->setDateTime(earlier);
+    report->setDateTime(earlier.addSecs(1800));
+    QCOMPARE(report->dateTime(), earlier.addSecs(1800));
+
+    // Both ends of the current window constrain reporting, including seconds.
+    end->setDateTime(earlier.addSecs(1207));
+    QCOMPARE(report->dateTime(), end->dateTime());
+    report->setDateTime(earlier.addSecs(1800));
+    QCOMPARE(report->dateTime(), end->dateTime());
+    end->setDateTime(original.addDays(1));
+    report->setDateTime(original.addSecs(3600));
+    QCOMPARE(report->dateTime(), original.addSecs(3600));
+    start->setDateTime(original.addSecs(5400));
+    QCOMPARE(report->dateTime(), start->dateTime());
+
+    // Users can temporarily invert the window while editing either endpoint.
+    start->setDateTime(original.addDays(2));
+    end->setDateTime(original.addDays(3));
+    report->setDateTime(original.addDays(2).addSecs(600));
+    QCOMPARE(report->dateTime(), original.addDays(2).addSecs(600));
+}
+
+void TestSimulationOptionsGates::reportStartReloadsEarlierSimulationWindow()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    auto e = layer->engine();
+    auto setWindow = [e](const char *date, const char *start, const char *end,
+                         const char *report) {
+        return swmm_options_set(e, "START_DATE", date) == SWMM_OK
+            && swmm_options_set(e, "START_TIME", start) == SWMM_OK
+            && swmm_options_set(e, "END_DATE", date) == SWMM_OK
+            && swmm_options_set(e, "END_TIME", end) == SWMM_OK
+            && swmm_options_set(e, "REPORT_START_DATE", date) == SWMM_OK
+            && swmm_options_set(e, "REPORT_START_TIME", report) == SWMM_OK;
+    };
+    QVERIFY(setWindow("10/14/2026", "11:00:00", "13:00:00", "11:30:00"));
+    openswmmvis::ui::SimOptionsContext ctx(e, nullptr, nullptr, {});
+    openswmmvis::ui::DatesPage page(ctx);
+    page.read();
+    QDateTimeEdit *report = nullptr;
+    for (auto *edit : page.findChildren<QDateTimeEdit *>())
+        if (edit->property("optionKey").toString().split(',').contains("REPORT_START_DATE"))
+            report = edit;
+    QVERIFY(report);
+
+    // read() also runs after Apply: clear the old bounds before loading values.
+    QVERIFY(setWindow("10/13/2026", "09:00:00", "10:00:00", "09:30:07"));
+    page.read();
+    QCOMPARE(report->dateTime(), QDateTime(QDate(2026, 10, 13), QTime(9, 30, 7)));
+    page.write();
+    QCOMPARE(ctx.option("REPORT_START_DATE"), QStringLiteral("10/13/2026"));
+    QCOMPARE(ctx.option("REPORT_START_TIME"), QStringLiteral("09:30:07"));
+
+    // Expanding the window later must also release its previous upper bound.
+    QVERIFY(setWindow("10/15/2026", "14:00:00", "17:00:00", "16:00:03"));
+    page.read();
+    QCOMPARE(report->dateTime(), QDateTime(QDate(2026, 10, 15), QTime(16, 0, 3)));
+    page.write();
+    QCOMPARE(ctx.option("REPORT_START_TIME"), QStringLiteral("16:00:03"));
+}
 
 /*! T0 — the names exist and are parented into the page stack. */
 void TestSimulationOptionsGates::objectNameCensus()
