@@ -111,7 +111,9 @@ void TestPlotVariablePickerDialog::attributeListsPinned()
 {
     QCOMPARE(nodePlotAttributes().size(),     6);
     QCOMPARE(linkPlotAttributes().size(),     5);
-    QCOMPARE(subcatchPlotAttributes().size(), 8);
+    QCOMPARE(subcatchPlotAttributes().size(), 17);
+    QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSWE,UnitSystem::US),QStringLiteral("m"));
+    QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSurfaceTemp,UnitSystem::US),QStringLiteral("°C"));
     QCOMPARE(systemPlotAttributes().size(),  15);
 
     // No duplicates within any list, and every system entry really is one.
@@ -168,7 +170,7 @@ void TestPlotVariablePickerDialog::groupsPerSelectedFeature()
     QCOMPARE(tree->topLevelItem(0)->childCount(), 15);
     QCOMPARE(tree->topLevelItem(1)->childCount(), 6);   // Node J1
     QCOMPARE(tree->topLevelItem(2)->childCount(), 5);   // Link C1
-    QCOMPARE(tree->topLevelItem(3)->childCount(), 8);   // Subcatchment S1
+    QCOMPARE(tree->topLevelItem(3)->childCount(), 17);   // Subcatchment S1
     QVERIFY(tree->topLevelItem(1)->text(0).contains(QStringLiteral("J1")));
 }
 

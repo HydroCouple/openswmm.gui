@@ -11,8 +11,11 @@
 #include "snowpack/snowpackregistry.h"
 #include "ui/models/snowpacklistmodel.h"
 #include "ui/theme/iconfactory.h"
+#include <openswmm/engine/openswmm_snow.h>
 
 #include <QDialogButtonBox>
+#include <QComboBox>
+#include <QLabel>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -40,7 +43,7 @@ const FieldSpec kFields[SnowpackProvider::ParamCount] = {
     { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
     { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
     { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
-    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Initial Snow Water Equivalent (in or mm)",           0.0,    1.0e6, 4, 0.1  },
     { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
     { "Fraction of Impervious Area Plowable",    0.0,    1.0,   4, 0.01 },
     // IMPERVIOUS
@@ -48,7 +51,7 @@ const FieldSpec kFields[SnowpackProvider::ParamCount] = {
     { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
     { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
     { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
-    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Initial Snow Water Equivalent (in or mm)",           0.0,    1.0e6, 4, 0.1  },
     { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
     { "Depth at 100% Cover (in or mm)",          0.0,    1.0e6, 4, 0.1  },
     // PERVIOUS
@@ -56,7 +59,7 @@ const FieldSpec kFields[SnowpackProvider::ParamCount] = {
     { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
     { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
     { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
-    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Initial Snow Water Equivalent (in or mm)",           0.0,    1.0e6, 4, 0.1  },
     { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
     { "Depth at 100% Cover (in or mm)",          0.0,    1.0e6, 4, 0.1  },
     // REMOVAL
@@ -66,6 +69,11 @@ const FieldSpec kFields[SnowpackProvider::ParamCount] = {
     { "Fraction Transferred to Pervious Area",    0.0,   1.0,   4, 0.01 },
     { "Fraction Converted to Immediate Melt",     0.0,   1.0,   4, 0.01 },
     { "Fraction Transferred to Subcatchment",     0.0,   1.0,   4, 0.01 },
+    { "Forest fraction", 0, 1, 4, .05 },
+    { "Snow drift factor", 0, 100, 4, .1 },
+    { "Ground heat flux (W/m²)", -10000, 10000, 4, 1 },
+    { "Albedo extinction depth (m)", .000001, 100, 6, .01 },
+    { "Initial snow energy (kJ/m²)", -1e9, 1e9, 6, 100 },
 };
 
 struct GroupSpec { const char *title; int first; int count; };
@@ -74,6 +82,7 @@ const GroupSpec kGroups[] = {
     { "Impervious Area", SnowpackProvider::ImperviousCmin, 7 },
     { "Pervious Area",   SnowpackProvider::PerviousCmin,   7 },
     { "Snow Removal",    SnowpackProvider::RemovalDsnow,   6 },
+    { "UEB site",        SnowpackProvider::UebForest,      5 },
 };
 } // namespace
 
@@ -110,11 +119,16 @@ QString SnowpackEditorDialog::pickSnowpack(SnowpackRegistry* registry,
     if (auto* provider = registry->findByName(currentName))
         dialog.selectProviderInList_(provider);
     if (dialog.exec() != QDialog::Accepted || !dialog.currentProvider()) return {};
-    if (registry->saveToEngine() < 0) return {};
     return dialog.currentProvider()->name();
 }
 
 SnowpackEditorDialog::~SnowpackEditorDialog() = default;
+
+void SnowpackEditorDialog::accept() {
+    if(m_registry && m_registry->saveToEngine()<0) {QMessageBox::warning(this,tr("Snowpack validation"),m_registry->lastSaveError());return;}
+    QDialog::accept();
+}
+
 
 void SnowpackEditorDialog::openForSnowpack(const QString &name)
 {
@@ -166,7 +180,17 @@ void SnowpackEditorDialog::buildUi_()
     auto *nameForm = new QFormLayout;
     m_nameEdit = new QLineEdit(formPane);
     nameForm->addRow(tr("N&ame"), m_nameEdit);
+    m_modelKind = new QComboBox(formPane);
+    m_modelKind->setObjectName(QStringLiteral("snowModelKind"));
+    m_modelKind->addItem(tr("Project default"), -1);
+    m_modelKind->addItem(tr("Degree day"), 0);
+    m_modelKind->addItem(tr("UEB energy balance"), 1);
+    nameForm->addRow(tr("Model"), m_modelKind);
+    connect(m_modelKind, &QComboBox::currentIndexChanged, this, &SnowpackEditorDialog::onModelEdited_);
     paneLay->addLayout(nameForm);
+    auto *scope = new QLabel(tr("Changes apply to every subcatchment and mesh cell assigned this named snowpack. Initial snow values are water equivalent. Shared UEB material and solver parameters are in Climatology."), formPane);
+    scope->setWordWrap(true);
+    paneLay->addWidget(scope);
 
     m_spins.resize(SnowpackProvider::ParamCount);
     for (const GroupSpec &gs : kGroups) {
@@ -175,6 +199,7 @@ void SnowpackEditorDialog::buildUi_()
         for (int k = gs.first; k < gs.first + gs.count; ++k) {
             const FieldSpec &fs = kFields[k];
             auto *s = new QDoubleSpinBox(box);
+            s->setObjectName(QStringLiteral("snowParameter%1").arg(k));
             s->setRange(fs.min, fs.max);
             s->setDecimals(fs.decimals);
             s->setSingleStep(fs.step);
@@ -204,8 +229,8 @@ void SnowpackEditorDialog::buildUi_()
     outer->addWidget(m_splitter, 1);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, this, &SnowpackEditorDialog::accept);
+    connect(bb, &QDialogButtonBox::accepted, this, &SnowpackEditorDialog::accept);
     outer->addWidget(bb);
 
     connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged,
@@ -229,11 +254,18 @@ void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
 
     const bool enabled = (p != nullptr);
     m_nameEdit->setEnabled(enabled);
+    m_modelKind->setEnabled(enabled);
     m_removalSubcatchEdit->setEnabled(enabled);
     for (QDoubleSpinBox *s : m_spins) s->setEnabled(enabled);
 
     if (p) {
+        if (m_registry && m_registry->engineHandle()) {
+            int model = 0;
+            if (swmm_snow_get_model(static_cast<SWMM_Engine>(m_registry->engineHandle()), &model) == SWMM_OK)
+                p->setDefaultModel(model);
+        }
         m_nameEdit->setText(p->name());
+        m_modelKind->setCurrentIndex(m_modelKind->findData(p->modelKind()));
         m_removalSubcatchEdit->setText(p->removalSubcatch());
         for (int k = 0; k < m_spins.size(); ++k)
             m_spins[k]->setValue(p->param(k));
@@ -243,6 +275,25 @@ void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
     }
 
     m_suppressFieldSync = prev;
+    updateModelFields_();
+}
+
+void SnowpackEditorDialog::updateModelFields_()
+{
+    const bool ueb = m_current && m_current->effectiveModel() == 1;
+    for (int k = 0; k < m_spins.size(); ++k) {
+        const bool degreeDay = k < SnowpackProvider::RemovalDsnow && k % 7 < 4;
+        const bool site = k >= SnowpackProvider::UebForest;
+        m_spins[k]->setEnabled(m_current && !(ueb && degreeDay) && (!site || ueb));
+        m_spins[k]->setToolTip(ueb && degreeDay ? tr("Retained for degree-day snow; inactive under UEB.") : QString());
+    }
+}
+
+void SnowpackEditorDialog::onModelEdited_()
+{
+    if (m_suppressFieldSync || !m_current) return;
+    m_current->setModelKind(m_modelKind->currentData().toInt());
+    updateModelFields_();
 }
 
 void SnowpackEditorDialog::selectProviderInList_(SnowpackProvider *p)
@@ -312,6 +363,15 @@ void SnowpackEditorDialog::onNameEdited_()
 void SnowpackEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current) return;
+    if (m_current->modelKind() < 0 && m_current->effectiveModel() == 1) {
+        for (int k = SnowpackProvider::UebForest; k < m_spins.size(); ++k) {
+            if (m_current->param(k) != m_spins[k]->value()) {
+                m_current->setModelKind(1);
+                m_modelKind->setCurrentIndex(m_modelKind->findData(1));
+                break;
+            }
+        }
+    }
     for (int k = 0; k < m_spins.size(); ++k)
         m_current->setParam(k, m_spins[k]->value());
 }

@@ -19,6 +19,7 @@
 #include <QString>
 
 #include <openswmm/engine/openswmm_engine.h>
+#include "ui/models/snowclimatesettings.h"
 
 class QTabWidget;
 class QComboBox;
@@ -50,7 +51,8 @@ public:
         TabHumidity    = 3,
         TabSnowMelt    = 4,
         TabArealDepletion = 5,
-        TabAdjustments = 6
+        TabAdjustments = 6,
+        TabRadiation = 7
     };
 
     explicit ClimatologyDialog(SWMM_Engine engine,
@@ -89,6 +91,9 @@ private:
     void buildSnowTab(QTabWidget *tabs);
     void buildAdcTab(QTabWidget *tabs);
     void buildAdjustmentsTab(QTabWidget *tabs);
+    void buildRadiationTab(QTabWidget *tabs);
+    void editUebParameters();
+    void updateSnowDraft();
 
     void readFromEngine();
     void writeToEngine();
@@ -144,6 +149,18 @@ private:
     QDoubleSpinBox *m_elevation      = nullptr;
     QDoubleSpinBox *m_latitude       = nullptr;
     QDoubleSpinBox *m_longitude      = nullptr;
+    QComboBox *m_snowModel = nullptr;
+    QDoubleSpinBox *m_snowStep = nullptr;
+    QCheckBox *m_radiationSite = nullptr;
+    QDoubleSpinBox *m_siteValues[4]{};
+    QComboBox *m_radiationModes[2]{};
+    QComboBox *m_radiationSeries[2]{};
+    QComboBox *m_cloudMode = nullptr;
+    QComboBox *m_cloudSeries = nullptr;
+    QDoubleSpinBox *m_cloudValues[4]{};
+    openswmmvis::ui::RelativePathPicker *m_metFile = nullptr;
+    openswmmvis::ui::SnowClimateSettings m_snowDraft;
+    QString m_initialSnowSig;
 
     // --- Areal depletion ---
     QTableWidget   *m_adc            = nullptr;  // 10 rows x 2 cols (imperv, perv)

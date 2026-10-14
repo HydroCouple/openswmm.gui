@@ -149,6 +149,12 @@ void HeatConfigDialog::buildUi()
     tabs->setObjectName(QStringLiteral("hc_tabs"));
     m_tabs = tabs;
     vlay->addWidget(tabs);
+    auto* sharedRadiation=new QPushButton(tr("Edit shared snow and radiation forcing…"),this);
+    sharedRadiation->setObjectName("hc_sharedRadiation");sharedRadiation->setAutoDefault(false);
+    sharedRadiation->setToolTip(tr("Apply these heat settings and open Climatology → Radiation for the shared site, cloud and forcing sources."));
+    vlay->addWidget(sharedRadiation);
+    connect(sharedRadiation,&QPushButton::clicked,this,[this]{onAccept();if(result()==QDialog::Accepted)emit radiationEditorRequested();});
+
 
     // ── Sources ─────────────────────────────────────────────────────────
     auto *srcPage = new QWidget(tabs);
@@ -303,7 +309,7 @@ void HeatConfigDialog::buildUi()
             switch (p.code) {
             case SWMM_HEAT_SOLAR_LATITUDE:  spin->setRange(-90.0, 90.0); break;
             case SWMM_HEAT_SOLAR_LONGITUDE: spin->setRange(-180.0, 180.0); break;
-            case SWMM_HEAT_SOLAR_TIMEZONE:  spin->setRange(-12.0, 14.0); break;
+            case SWMM_HEAT_SOLAR_TIMEZONE:  spin->setRange(-14.0, 14.0); break;
             case SWMM_HEAT_SOLAR_ELEVATION: spin->setRange(-500.0, 9000.0); break;
             default: break;
             }

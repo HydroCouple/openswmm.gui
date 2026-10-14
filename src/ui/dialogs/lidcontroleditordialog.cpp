@@ -267,7 +267,7 @@ void LidControlEditorDialog::buildUi_()
     m_flowModel->setObjectName("lidFlowModel");
     m_flowModel->addItems({tr("Existing formulation (with backwater)"), tr("Richards 1D")});
     countForm->addRow(tr("Flow model"), m_flowModel);
-    m_richardsBoundaryNotice = new QLabel(tr("Richards supports sealed bottoms and native soil drainage. Active 2D aquifer beds require the forthcoming bottom-interface coupling."), m_nodeLayerPage);
+    m_richardsBoundaryNotice = new QLabel(tr("Richards supports sealed bottoms, native soil drainage, and a mesh aquifer connection. Set bottom ownership and contact area in the storage node’s Bottom connection editor. Mesh coupling uses the CPU water-only solver."), m_nodeLayerPage);
     m_richardsBoundaryNotice->setWordWrap(true);
     m_richardsBoundaryNotice->setVisible(false);
     countForm->addRow(m_richardsBoundaryNotice);

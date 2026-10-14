@@ -2,6 +2,7 @@
 #include "simulation/checkpointworker.h"
 #include "simulation/simulationrunner.h"
 #include "simulation/runpathlease.h"
+#include "simulation/snowledger.h"
 #include <openswmm/engine/openswmm_massbalance.h>
 #ifdef OPENSWMM_HAS_2D
 #include <openswmm/engine/openswmm_2d.h>
@@ -274,7 +275,15 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest& request,quin
                         QMetaObject::invokeMethod(receiver,[receiver,generation,saved] {emit receiver->saved(generation,saved);},Qt::QueuedConnection);
                     }
                 };
-                auto notify=[&] {const auto seconds=result.acceptedSeconds;QMetaObject::invokeMethod(receiver,[receiver,generation,seconds] {if(receiver->m_generation==generation)emit receiver->progress(generation,seconds);},Qt::QueuedConnection);};
+                auto notify=[&] {
+                    const auto seconds=result.acceptedSeconds;
+                    const auto snow=openswmmvis::simulation::snowLedgerRows(engine.handle);
+                    QMetaObject::invokeMethod(receiver,[receiver,generation,seconds,snow] {
+                        if(receiver->m_generation!=generation)return;
+                        emit receiver->progress(generation,seconds);
+                        emit receiver->snowLedgerChanged(generation,snow);
+                    },Qt::QueuedConnection);
+                };
                 notify();QElapsedTimer lastProgress;lastProgress.start();
                 while(!control->cancelled) {
                     savePending();double elapsed=0;const int stepCode=swmm_engine_step(engine.handle,&elapsed);

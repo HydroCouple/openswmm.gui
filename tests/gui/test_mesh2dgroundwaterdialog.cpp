@@ -27,6 +27,7 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 
 #include <QAbstractSpinBox>
 #include <QAccessible>
@@ -42,8 +43,10 @@
 #include <QTableView>
 #include <QStyledItemDelegate>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QComboBox>
 #include <QTabWidget>
+#include <QUndoStack>
 
 using openswmmvis::ui::Mesh2DGroundwaterDialog;
 using openswmmvis::ui::Mesh2DAquiferModel;
@@ -67,6 +70,80 @@ class TestMesh2DGroundwaterDialog : public QObject
     Q_OBJECT
 
 private slots:
+    void lidBottomAndFootprintAreStagedAtomicAndShareTheNodeBedView() {
+        Engine e;QCOMPARE(swmm_node_add(e.handle,"LID",SWMM_NODE_STORAGE),SWMM_OK);
+        QCOMPARE(swmm_lid_add(e.handle,"Stack",8),SWMM_OK);
+        const SWMM_LidNodeLayer layers[]={{0,{6,.1}},{1,{12,.45,.2,.08,2,10,3}},{3,{.5,0}}};
+        QCOMPARE(swmm_lid_node_layers_set(e.handle,0,layers,3),SWMM_OK);
+        QCOMPARE(swmm_node_set_storage_functional(e.handle,0,0,1,12.3456789012345),SWMM_OK);
+        QCOMPARE(swmm_node_set_lid(e.handle,0,0,25),SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(e.handle);dialog.focusNode("LID");
+        auto* model=dialog.findChild<Mesh2DAquiferNodeModel*>();
+        auto* destination=dialog.findChild<QComboBox*>("lidBottomDestination");
+        QVERIFY(destination&&destination->isEnabled());destination->setCurrentIndex(1);
+        int mode=-1;QCOMPARE(swmm_node_get_lid_bottom(e.handle,0,&mode),SWMM_OK);QCOMPARE(mode,0);
+        dialog.findChild<QPushButton*>("lidUseFootprint")->click();
+        QCOMPARE(model->rowCount(),1);QCOMPARE(model->index(0,Mesh2DAquiferNodeModel::ColArea).data().toDouble(),12.3456789012345);
+        QCOMPARE(model->index(0,Mesh2DAquiferNodeModel::ColBottom).data(Qt::EditRole).toInt(),1);
+        QVERIFY(model->validateCommit(e.handle).isEmpty());QVERIFY(model->commit(e.handle,false).isEmpty());
+        swmm_node_get_lid_bottom(e.handle,0,&mode);QCOMPARE(mode,1);
+        QVERIFY(model->restoreLoaded(e.handle).isEmpty());swmm_node_get_lid_bottom(e.handle,0,&mode);QCOMPARE(mode,0);
+        int count=-1;swmm_gw2d_node_count(e.handle,&count);QCOMPARE(count,0);
+        QCOMPARE(swmm_node_set_storage_functional(e.handle,0,0,1,13),SWMM_OK);
+        QVERIFY(!model->commit(e.handle).isEmpty());swmm_node_get_lid_bottom(e.handle,0,&mode);QCOMPARE(mode,0);
+        model->load(e.handle);QVERIFY(model->setBottomDestination("LID",2));
+        QVERIFY(!model->commit(e.handle).isEmpty()); // no active reviewed mesh receiver
+        swmm_node_get_lid_bottom(e.handle,0,&mode);QCOMPARE(mode,0);
+        QCOMPARE(swmm_node_set_storage_functional(e.handle,0,1,2,0),SWMM_OK);model->load(e.handle);
+        QVERIFY(!model->useLidFootprint("LID").isEmpty());QCOMPARE(model->rowCount(),0);
+        QUndoStack undo;int edits=0;dialog.setNodeUndoStack(&undo,[]{return true;},[&]{++edits;});
+        dialog.updateBottomConnection();destination->setCurrentIndex(1);
+        dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(undo.count(),1);swmm_node_get_lid_bottom(e.handle,0,&mode);QCOMPARE(mode,1);
+        undo.undo();swmm_node_get_lid_bottom(e.handle,0,&mode);QCOMPARE(mode,0);
+        undo.redo();swmm_node_get_lid_bottom(e.handle,0,&mode);QCOMPARE(mode,1);QCOMPARE(edits,2);
+        const QString out=qEnvironmentVariable("SWMMVIS_GROUNDWATER_DIALOG_TEST_OUTPUT");
+        if(!out.isEmpty()){QDir().mkpath(out);dialog.resize(1100,720);dialog.show();QTest::qWait(30);QVERIFY(dialog.grab().save(out+"/lid-bottom-review.png"));}
+    }
+    void firstAquiferAndMeshBottomCanBeAppliedTogether() {
+        QTemporaryDir dir;QVERIFY(dir.isValid());QFile file(dir.filePath("new-bottom.inp"));QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(R"([OPTIONS]
+FLOW_UNITS CMS
+FLOW_ROUTING DYNWAVE
+[STORAGE]
+LID 0 .325 0 FUNCTIONAL 0 0 10 0 0
+[2D_OPTIONS]
+GROUNDWATER AUTO
+[2D_VERTICES]
+0 0 0
+2 0 0
+2 2 0
+0 2 0
+[2D_QUADS]
+0 1 2 3 .03
+[2D_AQUIFER_OPTIONS]
+MODE PER_SUBCATCH
+[LID_CONTROLS]
+Stack NODE
+Stack SURFACE 75 .1
+Stack MEDIA 150 .45 .2 .08 5 10 75
+Stack AGGREGATE 100 .4 100
+Stack BOTTOM 0 1
+[LID_NODES]
+LID Stack .2
+)");file.close();Engine e(false);
+        QCOMPARE(swmm_engine_open(e.handle,file.fileName().toUtf8().constData(),nullptr,nullptr,nullptr),SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(e.handle);dialog.focusNode("LID");
+        auto* aquifer=dialog.findChild<Mesh2DAquiferModel*>();aquifer->appendRow();
+        for(auto* combo:dialog.findChildren<QComboBox*>())if(combo->findText("PER_SUBCATCH")>=0)combo->setCurrentText("MESH");
+        dialog.findChild<QPushButton*>("lidUseFootprint")->click();
+        dialog.findChild<QComboBox*>("lidBottomDestination")->setCurrentIndex(2);
+        QSignalSpy applied(&dialog,&Mesh2DGroundwaterDialog::applied);
+        QTimer dismiss;connect(&dismiss,&QTimer::timeout,[]{for(auto*w:QApplication::topLevelWidgets())if(auto*m=qobject_cast<QMessageBox*>(w))m->accept();});dismiss.start(20);
+        dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(applied.count(),1);int mode=-1;QCOMPARE(swmm_node_get_lid_bottom(e.handle,0,&mode),SWMM_OK);QCOMPARE(mode,2);
+        int count=0;QCOMPARE(swmm_gw2d_row_count(e.handle,&count),SWMM_OK);QCOMPARE(count,1);
+    }
     void noOpApplyDoesNotDirtyOrRoundOptions(){
         Engine e;QCOMPARE(swmm_gw2d_option_set(e.handle,"C_GW","0.123456789012345"),SWMM_OK);
         Mesh2DGroundwaterDialog dialog(e.handle);QSignalSpy writes(&dialog,&Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);QSignalSpy applied(&dialog,&Mesh2DGroundwaterDialog::applied);
@@ -179,10 +256,10 @@ private slots:
         Mesh2DGroundwaterDialog dlg(engine.handle, nullptr,
                                     Mesh2DGroundwaterDialog::Page::Options);
         QVERIFY(!dlg.objectName().isEmpty());
-        auto *form = dlg.findChild<QFormLayout *>();
-        QVERIFY(form);
+        const auto forms=dlg.findChildren<QFormLayout *>();
+        QVERIFY(!forms.isEmpty());
         int checked = 0;
-        for (int row = 0; row < form->rowCount(); ++row) {
+        for(auto* form:forms)for (int row = 0; row < form->rowCount(); ++row) {
             const auto *item = form->itemAt(row, QFormLayout::FieldRole);
             auto *field = item ? item->widget() : nullptr;
             if (!qobject_cast<QComboBox *>(field) &&
@@ -196,7 +273,7 @@ private slots:
             QVERIFY(!accessible->text(QAccessible::Name).isEmpty());
             ++checked;
         }
-        QCOMPARE(checked, 7);
+        QVERIFY(checked>=9);
         for (auto *view : dlg.findChildren<QTableView *>()) {
             auto *accessible = QAccessible::queryAccessibleInterface(view);
             QVERIFY(accessible);

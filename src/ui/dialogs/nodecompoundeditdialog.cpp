@@ -1005,6 +1005,7 @@ void NodeCompoundEditDialog::refreshActivePage()
         break;
     }
     case NodeCompoundEditRef::GroundwaterSources:
+    case NodeCompoundEditRef::LidBottomConnection:
         break;   // no page here — NodeCompoundEditButton routes it elsewhere
     }
 }

@@ -618,7 +618,7 @@ QString topologyReplacementError(const QString &text, const QString &path)
         QStringLiteral("[GW_SORPTION]"), QStringLiteral("[GW_INITIAL_QUALITY]")};
     static const QSet<QString> indexedSections = {
         QStringLiteral("[2D_INITIAL_VELOCITY]"), QStringLiteral("[2D_BOUNDARY_QUALITY]"),
-        QStringLiteral("[GW_BOUNDARY_QUALITY]")};
+        QStringLiteral("[GW_BOUNDARY_QUALITY]"), QStringLiteral("[2D_SNOW_CELLS]")};
     static const QRegularExpression tokenPattern(
         QStringLiteral(R"re("([^"]*)"|'([^']*)'|([^\s]+))re"));
     QString section;
@@ -635,7 +635,8 @@ QString topologyReplacementError(const QString &text, const QString &path)
         const bool indexed = indexedSections.contains(section);
         const bool node = section == QStringLiteral("[2D_AQUIFER_NODE]");
         const bool source = section == QStringLiteral("[GW_SOURCES]");
-        if (!scopeRelevant && !indexed && !node && !source) continue;
+        const bool snowDefault = section == QStringLiteral("[2D_SNOW_DEFAULTS]");
+        if (!scopeRelevant && !indexed && !node && !source && !snowDefault) continue;
         QStringList tokens;
         auto matches = tokenPattern.globalMatch(line);
         while (matches.hasNext()) {
@@ -647,7 +648,8 @@ QString topologyReplacementError(const QString &text, const QString &path)
         const QString second = tokens.value(1).toUpper();
         const bool externalQuality = section == QStringLiteral("[GW_INITIAL_QUALITY]")
             && first == QStringLiteral("FILE");
-        if (indexed || externalQuality
+        const QString snowTag = first == QStringLiteral("TAG") ? tokens.value(1) : tokens.value(0);
+        if (indexed || externalQuality || (snowDefault && snowTag != QStringLiteral("*"))
             || (scopeRelevant && (first == QStringLiteral("CELL") || first == QStringLiteral("TAG")))
             || (node && second != QStringLiteral("AUTO"))
             || (source && (second == QStringLiteral("CELL") || second == QStringLiteral("TAG")))) {

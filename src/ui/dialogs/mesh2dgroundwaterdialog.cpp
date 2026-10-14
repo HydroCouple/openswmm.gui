@@ -18,6 +18,11 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QSignalBlocker>
+#include <QUndoStack>
+#include <QUndoCommand>
+#include <QApplication>
+#include <QItemSelectionModel>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -74,6 +79,22 @@ public:
 private:
     QStringList m_items;
     bool m_inherited=false;
+};
+
+class NodeConnectionUndo final:public QUndoCommand {
+    std::shared_ptr<Mesh2DAquiferNodeModel> draft_;SWMM_Engine engine_;
+    std::function<bool()> current_;std::function<void()> edited_;bool first_=true;
+    void install(bool forward) {
+        QString error;
+        if(!current_||!current_())error=QObject::tr("The model or mesh changed after this connection edit.");
+        else error=forward?draft_->commit(engine_,false):draft_->restoreLoaded(engine_);
+        if(!error.isEmpty()){setObsolete(true);QMessageBox::warning(QApplication::activeWindow(),QObject::tr("LID bottom connection"),error);return;}
+        if(edited_)edited_();
+    }
+public:
+    NodeConnectionUndo(std::shared_ptr<Mesh2DAquiferNodeModel> draft,SWMM_Engine engine,
+        std::function<bool()> current,std::function<void()> edited):draft_(std::move(draft)),engine_(engine),current_(std::move(current)),edited_(std::move(edited)) {setText(QObject::tr("Edit node bottom connections"));}
+    void undo()override{install(false);}void redo()override{if(first_){first_=false;return;}install(true);}
 };
 
 QString optionText(SWMM_Engine e, const char *key)
@@ -142,6 +163,7 @@ void Mesh2DGroundwaterDialog::buildUi(Page initialPage)
     case Page::Options:            m_tabs->setCurrentIndex(0); break;
     case Page::InitialConditions:  m_tabs->setCurrentIndex(1); break;  // hg0 lives on the rows
     case Page::State:              m_tabs->setCurrentIndex(3); break;
+    case Page::NodeBeds:           m_tabs->setCurrentIndex(2); break;
     default:                       m_tabs->setCurrentIndex(1); break;
     }
     outer->addWidget(m_tabs, 1);
@@ -335,6 +357,7 @@ QWidget *Mesh2DGroundwaterDialog::buildNodeBedPage()
     m_nodes = new Mesh2DAquiferNodeModel(this);
     m_nodeView = new QTableView(page);
     m_nodeView->setModel(m_nodes);
+    m_nodeView->setItemDelegateForColumn(Mesh2DAquiferNodeModel::ColBottom,new ComboDelegate(Mesh2DAquiferNodeModel::bottomLabels(),m_nodeView));
     m_nodeView->setAccessibleName(tr("Groundwater node beds"));
     m_nodeView->setAccessibleDescription(
         tr("Select a row with the arrow keys. Press F2 to edit the current cell. Press Space to toggle aquifer exchange."));
@@ -357,6 +380,22 @@ QWidget *Mesh2DGroundwaterDialog::buildNodeBedPage()
     row->addWidget(m_delBedBtn);
     row->addStretch(1);
     v->addLayout(row);
+
+    auto* form=new QFormLayout;
+    m_bottomNode=new QComboBox(page);m_bottomNode->setObjectName("lidBottomNode");m_bottomNode->setAccessibleName(tr("Storage LID node"));
+    m_bottomDestination=new QComboBox(page);m_bottomDestination->setObjectName("lidBottomDestination");m_bottomDestination->setAccessibleName(tr("Bottom destination"));
+    m_bottomDestination->addItems(Mesh2DAquiferNodeModel::bottomLabels());
+    m_useFootprint=new QPushButton(tr("Use current LID footprint"),page);m_useFootprint->setObjectName("lidUseFootprint");m_useFootprint->setAutoDefault(false);
+    form->addRow(tr("Storage LID &node"),m_bottomNode);form->addRow(tr("Bottom &destination"),m_bottomDestination);form->addRow(QString{},m_useFootprint);v->addLayout(form);
+    m_bottomSummary=new QLabel(page);m_bottomSummary->setObjectName("lidBottomPreview");m_bottomSummary->setWordWrap(true);v->addWidget(m_bottomSummary);
+    connect(m_bottomNode,qOverload<int>(&QComboBox::currentIndexChanged),this,&Mesh2DGroundwaterDialog::updateBottomConnection);
+    connect(m_bottomDestination,qOverload<int>(&QComboBox::currentIndexChanged),this,[this](int mode){m_nodes->setBottomDestination(m_bottomNode->currentText(),mode);updateBottomConnection();});
+    connect(m_useFootprint,&QPushButton::clicked,this,[this]{const auto error=m_nodes->useLidFootprint(m_bottomNode->currentText());updateBottomConnection();if(!error.isEmpty())m_bottomSummary->setText(error);});
+    connect(m_nodeView->selectionModel(),&QItemSelectionModel::currentRowChanged,this,[this](const QModelIndex& index){
+        const QString name=m_nodes->data(m_nodes->index(index.row(),0),Qt::DisplayRole).toString();
+        const int at=m_bottomNode->findText(name);if(at>=0)m_bottomNode->setCurrentIndex(at);
+    });
+    connect(m_nodes,&QAbstractItemModel::dataChanged,this,[this]{updateBottomConnection();});
 
     return page;
 }
@@ -442,6 +481,8 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     m_loadedOptions=readOptions();m_displayedOptions=optionDraft();
     m_aquifer->load(m_engine);
     m_nodes->load(m_engine);
+    {QSignalBlocker block(m_bottomNode);m_bottomNode->clear();m_bottomNode->addItems(m_nodes->lidNodes());}
+    updateBottomConnection();
     refreshState();
 
     // The setter also marks options authored; querying lifecycle avoids a
@@ -458,6 +499,7 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
 void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
 {
     m_editable = on;
+    updateBottomConnection();
     if (!on) m_buttons->setStandardButtons(QDialogButtonBox::Close);
     m_refreshBtn->setEnabled(m_engine != nullptr);
     for (QWidget *w : std::initializer_list<QWidget *>{
@@ -507,7 +549,7 @@ bool Mesh2DGroundwaterDialog::applyChanges()
     if(!optionsChanged&&!aqChanged&&!nodesChanged)return true;
     QString error;if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed outside this editor. Reopen it to preserve newer edits.");
     if(error.isEmpty())error=m_aquifer->validateCommit(m_engine);
-    if(error.isEmpty())error=m_nodes->validateCommit(m_engine);
+    if(error.isEmpty())error=m_nodes->validateCommit(m_engine,!optionsChanged&&!aqChanged);
     if(error.isEmpty()&&optionsChanged){SWMM_Engine check=swmm_engine_new();if(!check)error=tr("Cannot allocate option validation model.");else {for(auto it=draft.cbegin();it!=draft.cend();++it)if(it.value()!=m_displayedOptions.value(it.key())&&!setOption(check,it.key().toUtf8().constData(),it.value())){error=tr("Invalid groundwater option %1.").arg(it.key());break;}swmm_engine_destroy(check);}}
     if(!error.isEmpty()){QMessageBox::warning(this,tr("2D Groundwater"),error);return false;}
     QPointer<Mesh2DGroundwaterDialog> self=this;emit changesMayHaveBeenApplied();if(!self||!m_engine||!canEdit(m_engine))return false;
@@ -515,7 +557,7 @@ bool Mesh2DGroundwaterDialog::applyChanges()
     // that signal, before the first write, without restoring over their edits.
     if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed before commit.");
     if(error.isEmpty())error=m_aquifer->validateCommit(m_engine);
-    if(error.isEmpty())error=m_nodes->validateCommit(m_engine);
+    if(error.isEmpty())error=m_nodes->validateCommit(m_engine,!optionsChanged&&!aqChanged);
     if(!error.isEmpty()){QMessageBox::warning(this,tr("2D Groundwater"),error);return false;}
     error=applyOptions();if(error.isEmpty())error=m_aquifer->commit(m_engine,false);if(error.isEmpty())error=m_nodes->commit(m_engine,false);
     if(!error.isEmpty()){
@@ -524,8 +566,27 @@ bool Mesh2DGroundwaterDialog::applyChanges()
         error+=failed.isEmpty()?tr(" Previous values restored; your draft remains available."):tr(" Rollback incomplete: %1. Reload the saved model before further editing.").arg(failed.join(", "));
         QMessageBox::warning(this,tr("2D Groundwater"),error);return false;
     }
+    if(nodesChanged&&m_nodeUndo)m_nodeUndo->push(new NodeConnectionUndo(m_nodes->transactionCopy(),m_engine,m_undoCurrent,m_undoEdited));
     m_aquifer->acceptChanges();m_nodes->acceptChanges();m_loadedOptions=readOptions();m_displayedOptions=draft;
     refreshState();emit applied();return true;
+}
+
+void Mesh2DGroundwaterDialog::setNodeUndoStack(QUndoStack* stack,std::function<bool()> current,std::function<void()> edited) {
+    m_nodeUndo=stack;m_undoCurrent=std::move(current);m_undoEdited=std::move(edited);
+}
+void Mesh2DGroundwaterDialog::focusNode(const QString& node) {
+    m_tabs->setCurrentIndex(2);const int at=m_bottomNode->findText(node);
+    if(at>=0)m_bottomNode->setCurrentIndex(at);
+    const int row=m_nodes->bedRow(node);if(row>=0)m_nodeView->selectRow(row);
+    updateBottomConnection();
+}
+void Mesh2DGroundwaterDialog::updateBottomConnection() {
+    if(!m_bottomDestination)return;
+    m_bottomNode->setEnabled(m_engine&&!m_nodes->lidNodes().isEmpty());
+    const auto node=m_bottomNode->currentText();const int mode=m_nodes->bottomDestination(node);
+    {QSignalBlocker block(m_bottomDestination);m_bottomDestination->setCurrentIndex(std::max(0,mode));}
+    m_bottomDestination->setEnabled(m_editable&&mode>=0);m_useFootprint->setEnabled(m_editable&&mode>=0);
+    m_bottomSummary->setText(m_nodes->connectionSummary(node));
 }
 
 void Mesh2DGroundwaterDialog::onAddAquiferRow()

@@ -14,6 +14,7 @@
 #include <openswmm/engine/openswmm_climate.h>
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QObject>
@@ -47,7 +48,47 @@ private slots:
     void noOpOkDoesNotMarkChanged();
     void setCurrentTabClamps();
     void humidityTabRoundTrips();
+    void snowAndRadiationRoundTrip();
 };
+
+
+void TestClimatologyDialog::snowAndRadiationRoundTrip()
+{
+    SWMM_Engine e = makeClimateEngine();
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        auto *model = dlg.findChild<QComboBox*>(QStringLiteral("clim_snowModel"));
+        auto *step = dlg.findChild<QDoubleSpinBox*>(QStringLiteral("clim_snowStep"));
+        auto *site = dlg.findChild<QCheckBox*>(QStringLiteral("clim_radiationSite"));
+        auto *latitude = dlg.findChild<QDoubleSpinBox*>(QStringLiteral("clim_site0"));
+        auto *longitude = dlg.findChild<QDoubleSpinBox*>(QStringLiteral("clim_site1"));
+        auto *shortwave = dlg.findChild<QComboBox*>(QStringLiteral("clim_radiationMode0"));
+        auto* cloud=dlg.findChild<QComboBox*>(QStringLiteral("clim_cloudMode"));
+        auto* fraction=dlg.findChild<QDoubleSpinBox*>(QStringLiteral("clim_cloud0"));
+        QVERIFY(model && step && site && latitude && longitude && shortwave && cloud && fraction);
+        QCOMPARE(step->maximum(),3600.);
+        cloud->setCurrentIndex(cloud->findData(1));fraction->setValue(.35);
+        model->setCurrentIndex(model->findData(1)); step->setValue(1800);
+        site->setChecked(true); latitude->setValue(45); longitude->setValue(-120);
+        shortwave->setCurrentIndex(shortwave->findData(0));
+        dlg.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(dlg.wroteAnyChanges());
+    }
+    int model = -1; double step = 0; SWMM_RadiationConfig radiation{};
+    QCOMPARE(swmm_snow_get_model(e, &model), SWMM_OK); QCOMPARE(model, 1);
+    QCOMPARE(swmm_snow_get_step(e, &step), SWMM_OK); QCOMPARE(step, 1800.);
+    QCOMPARE(swmm_climate_get_radiation(e, &radiation), SWMM_OK);
+    SWMM_ClimateCloudConfig cloud{};char cloudName[256];
+    QCOMPARE(swmm_climate_get_cloud(e,&cloud,cloudName,sizeof(cloudName)),SWMM_OK);
+    QCOMPARE(cloud.mode,1);QCOMPARE(cloud.fraction,.35);
+    QCOMPARE(radiation.explicit_site, 1); QCOMPARE(radiation.latitude, 45.); QCOMPARE(radiation.longitude, -120.);
+    {
+        ClimatologyDialog dlg(e, nullptr);
+        dlg.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(!dlg.wroteAnyChanges());
+    }
+    swmm_engine_destroy(e);
+}
 
 void TestClimatologyDialog::constructsWithNullEngine()
 {

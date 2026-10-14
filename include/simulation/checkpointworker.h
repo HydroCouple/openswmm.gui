@@ -64,6 +64,7 @@ public:
     quint64 generation() const { return m_generation; }
 signals:
     void progress(quint64 generation, double acceptedSeconds);
+    void snowLedgerChanged(quint64 generation, const QStringList& rows);
     void timeline(quint64 generation, double startDate, double endDate);
     void saved(quint64 generation, const CheckpointSaveResult&);
     void finished(const CheckpointResult&);

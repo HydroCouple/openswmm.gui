@@ -26,6 +26,8 @@
 
 #include <QAbstractTableModel>
 #include <QList>
+#include <QMap>
+#include <memory>
 #include <QString>
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -130,7 +132,7 @@ class Mesh2DAquiferNodeModel : public QAbstractTableModel
 {
     Q_OBJECT
 public:
-    enum Column { ColNode = 0, ColCell, ColKc, ColDc, ColArea, ColExchange, ColCount };
+    enum Column { ColNode = 0, ColCell, ColKc, ColDc, ColArea, ColExchange, ColBottom, ColCount };
 
     explicit Mesh2DAquiferNodeModel(QObject *parent = nullptr);
 
@@ -147,11 +149,20 @@ public:
 
     void load(SWMM_Engine engine);
     QString commit(SWMM_Engine engine, bool advanceBaseline = true);
-    QString validateCommit(SWMM_Engine engine) const;
+    QString validateCommit(SWMM_Engine engine, bool validateReceiver = true) const;
     QString restoreLoaded(SWMM_Engine engine) const;
     void acceptChanges();
     [[nodiscard]] bool isDirty() const;
     int appendRow(const QString &node, int cell);
+
+    std::shared_ptr<Mesh2DAquiferNodeModel> transactionCopy() const;
+    QStringList lidNodes() const { return m_bottoms.keys(); }
+    int bottomDestination(const QString& node) const { return m_bottoms.value(node, -1); }
+    bool setBottomDestination(const QString& node, int mode);
+    int bedRow(const QString& node) const;
+    QString useLidFootprint(const QString& node);
+    QString connectionSummary(const QString& node) const;
+    static QStringList bottomLabels();
 
     void setUnitLabels(const QString &lengthLabel, const QString &rateLabel,
                        const QString &areaLabel);
@@ -168,7 +179,12 @@ private:
     };
 
     QString replaceRows(SWMM_Engine engine, const QList<Row> &expected,
-                        const QList<Row> &rows, bool apply = true) const;
+                        const QList<Row> &rows, const QMap<QString,int>& expectedBottoms,
+                        const QMap<QString,int>& bottoms, bool apply = true) const;
+    QMap<QString,int> m_bottoms, m_loadedBottoms;
+    QMap<QString,double> m_footprints;
+    QMap<QString,QString> m_controls;
+    QMap<QString,QList<double>> m_geometry;
     QString m_loadError;
     QList<Row> m_rows;
     QList<Row> m_loaded;

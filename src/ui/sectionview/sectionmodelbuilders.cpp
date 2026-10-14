@@ -1133,7 +1133,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
     voidSpace.pts  = ring(invert, rim, 0.0);
     m.polys << voidSpace;
 
-    QString richardsStatistics;
+    QString richardsStatistics,bottomStatistics;
     int lidControl = -1; double initialSaturation = 0.0;
     swmm_node_get_lid(engine, nodeIdx, &lidControl, &initialSaturation);
     if (lidControl >= 0) {
@@ -1152,6 +1152,24 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
             top = bottom;
         }
         m.title = tr_("%1 — LID Storage Profile").arg(nodeName);
+        SWMM_LidBottomState connection{};
+        if(swmm_lid_node_bottom_state_get(engine,nodeIdx,&connection)==SWMM_OK) {
+            const double length=units.si?1.:1./.3048;
+            const double head=connection.aquifer_head_m*length;
+            m.polylines << DiagramPolyline{QPolygonF({QPointF(-half-wall,head),QPointF(half+wall,head)}),
+                DiagramRole::Water,true,tr_("Aquifer head · cell %1 · %2 s").arg(connection.cell).arg(num(connection.aquifer_time_s,3)),false};
+            bottomStatistics=tr_("Bottom → aquifer: %1 m³ net · pending ↓ %2 / ↑ %3 m³ · contact %4 m²")
+                .arg(num(connection.net_cumulative_m3,5),num(connection.pending_down_m3,5),num(connection.pending_up_m3,5),num(connection.contact_area_m2,3));
+            if(connection.valid_sample) {
+                bottomStatistics+=tr_(" · %1 m³/s over [%2, %3] s").arg(num(connection.net_rate_m3s,5),num(connection.sample_start_s,3),num(connection.sample_end_s,3));
+                if(connection.net_rate_m3s!=0) {
+                    const QPointF upper(0,invert+vSpan*.08),lower(0,invert-vSpan*.08);
+                    m.arrows << DiagramArrow{connection.net_rate_m3s>0?upper:lower,connection.net_rate_m3s>0?lower:upper,
+                        tr_("Bottom exchange"),DiagramRole::Accent};
+                }
+            }
+        }
+
         SWMM_LidRichardsOptions flow{};
         if (swmm_lid_richards_options_get(engine, lidControl, &flow) == SWMM_OK && flow.model == 1) {
             m.title = tr_("%1 — Richards 1D profile").arg(nodeName);
@@ -1611,6 +1629,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
     }
     m.footer = footer;
     if (!richardsStatistics.isEmpty()) m.footer += QStringLiteral(" · ") + richardsStatistics;
+    if (!bottomStatistics.isEmpty()) m.footer += QStringLiteral("\n") + bottomStatistics;
 
     return m;
 }

@@ -1148,6 +1148,10 @@ private slots:
         QTest::newRow("gw-source-cell") << QString("GW_SOURCES") << QString("Well CELL 1 FLOW 1");
         QTest::newRow("gw-source-tag") << QString("GW_SOURCES") << QString("Well TAG bank FLOW 1");
         QTest::newRow("gw-file") << QString("GW_INITIAL_QUALITY") << QString("FILE external.csv");
+        QTest::newRow("snow-cell") << QString("2D_SNOW_CELLS") << QString("1 SNOWPACK Winter");
+        QTest::newRow("snow-cell-prefix") << QString("2D_SNOW_CELLS") << QString("CELL 1 SNOWPACK Winter");
+        QTest::newRow("snow-tag") << QString("2D_SNOW_DEFAULTS") << QString("bank SNOWPACK Winter");
+        QTest::newRow("snow-tag-prefix") << QString("2D_SNOW_DEFAULTS") << QString("TAG bank SNOWPACK Winter");
         QTest::newRow("lowercase-header-with-comment") << QString("2d_initial_velocity") << QString("0 1 2");
     }
 
@@ -1176,6 +1180,7 @@ private slots:
         const QString path = dir.filePath("uniform.inp");
         const QByteArray config =
             "[2D_OPTIONS]\nGROUNDWATER AUTO\n"
+            "[2D_SNOW_DEFAULTS]\n* SNOWPACK Winter\n"
             "[2D_AQUIFER_OPTIONS]\nMODE MESH\n"
             "[2D_AQUIFER]\n* 0.5 5 0.45 0.1 2\n"
             "[2D_AQUIFER_NODE]\n\"Node one\" AUTO KC 0.01 DC 0.5\n"

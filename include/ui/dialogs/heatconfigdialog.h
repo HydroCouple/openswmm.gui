@@ -85,6 +85,7 @@ public:
 
 signals:
     void changesApplied();
+    void radiationEditorRequested();
 
 public slots:
     void invalidateEngine();

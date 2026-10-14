@@ -44,6 +44,16 @@ const QVector<PlotAttribute> &subcatchPlotAttributes()
         PlotAttribute::SubcatchGwFlow,
         PlotAttribute::SubcatchGwElev,
         PlotAttribute::SubcatchSoilMoisture,
+        PlotAttribute::SubcatchSnowSWE,
+        PlotAttribute::SubcatchSnowEnergy,
+        PlotAttribute::SubcatchSnowSurfaceTemp,
+        PlotAttribute::SubcatchSnowBulkTemp,
+        PlotAttribute::SubcatchSnowAlbedo,
+        PlotAttribute::SubcatchSnowCover,
+        PlotAttribute::SubcatchSnowMelt,
+        PlotAttribute::SubcatchSnowInput,
+        PlotAttribute::SubcatchSnowSublimation,
+
     };
     return kList;
 }
@@ -119,6 +129,15 @@ QString labelFor(PlotAttribute a)
     case PlotAttribute::LinkVolume:        return QStringLiteral("Volume (link)");
     case PlotAttribute::LinkCapacity:      return QStringLiteral("Capacity");
     case PlotAttribute::SubcatchRainfall:  return QStringLiteral("Rainfall");
+    case PlotAttribute::SubcatchSnowSWE: return QStringLiteral("Snow water equivalent");
+    case PlotAttribute::SubcatchSnowEnergy: return QStringLiteral("Snow/ground energy");
+    case PlotAttribute::SubcatchSnowSurfaceTemp: return QStringLiteral("Snow/ground surface temperature");
+    case PlotAttribute::SubcatchSnowBulkTemp: return QStringLiteral("Snow/ground bulk temperature");
+    case PlotAttribute::SubcatchSnowAlbedo: return QStringLiteral("Snow/ground albedo");
+    case PlotAttribute::SubcatchSnowCover: return QStringLiteral("Snow cover fraction");
+    case PlotAttribute::SubcatchSnowMelt: return QStringLiteral("Snowmelt rate");
+    case PlotAttribute::SubcatchSnowInput: return QStringLiteral("Snow liquid surface input");
+    case PlotAttribute::SubcatchSnowSublimation: return QStringLiteral("Snow sublimation / condensation");
     case PlotAttribute::SubcatchSnowDepth: return QStringLiteral("Snow depth");
     case PlotAttribute::SubcatchEvap:      return QStringLiteral("Evaporation");
     case PlotAttribute::SubcatchInfil:     return QStringLiteral("Infiltration");
@@ -204,6 +223,15 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
     case PlotAttribute::Mesh2DEdgeFlux:
         return us ? QStringLiteral("ft²/s") : QStringLiteral("m²/s");
 
+    case PlotAttribute::SubcatchSnowSWE: return QStringLiteral("m");
+    case PlotAttribute::SubcatchSnowEnergy: return QStringLiteral("kJ/m²");
+    case PlotAttribute::SubcatchSnowSurfaceTemp: return QStringLiteral("°C");
+    case PlotAttribute::SubcatchSnowBulkTemp: return QStringLiteral("°C");
+    case PlotAttribute::SubcatchSnowAlbedo: return QStringLiteral("");
+    case PlotAttribute::SubcatchSnowCover: return QStringLiteral("");
+    case PlotAttribute::SubcatchSnowMelt: return QStringLiteral("m/s");
+    case PlotAttribute::SubcatchSnowInput: return QStringLiteral("m/s");
+    case PlotAttribute::SubcatchSnowSublimation: return QStringLiteral("m/s");
     case PlotAttribute::LinkCapacity:
     case PlotAttribute::SubcatchSoilMoisture:
         return QStringLiteral("");      // dimensionless 0..1

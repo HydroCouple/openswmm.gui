@@ -43,6 +43,7 @@ struct NodeCompoundEditRef
          *  G5). The button opens GroundwaterExchangeDialog for the pick;
          *  the data is owned by the subcatchment. */
         GroundwaterSources,
+        LidBottomConnection,
     };
 
     SWMM_Engine     engine   = nullptr;  ///< Engine handle (borrow, not owned)

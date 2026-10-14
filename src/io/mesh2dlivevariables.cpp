@@ -2,12 +2,44 @@
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_reactions.h>
+#include <openswmm/engine/openswmm_snow2d.h>
+#include <openswmm/plugin_sdk/SnowResults.hpp>
 #include <QHash>
 #include <QSet>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
 namespace openswmmvis::io {
+Mesh2DLiveVariablesPtr captureSurfaceProcessVariables(SWMM_Engine engine,int cells,QString* error) {
+    auto groundwater=captureGroundwaterVariables(engine,cells,error);
+    if (!engine || cells<=0) return groundwater;
+    std::vector<SWMM_SnowState> state(cells);
+    std::vector<SWMM_MeshSnowLedger> ledger(cells);
+    if (swmm_snow2d_get_states(engine,0,cells,state.data())!=SWMM_OK ||
+        swmm_snow2d_get_ledgers(engine,0,cells,ledger.data())!=SWMM_OK) {
+        if(error && error->isEmpty()) *error=QStringLiteral("Cannot capture live snow state.");
+        return groundwater;
+    }
+    if(std::none_of(state.begin(),state.end(),[](const auto& s){return s.model!=SWMM_SNOW_DEFAULT;}))return groundwater;
+    auto frame=groundwater?std::make_shared<Mesh2DLiveVariables>(*groundwater):std::make_shared<Mesh2DLiveVariables>();
+    frame->cellCount=cells;
+    const auto offset=frame->variables.size();
+    for(const auto& field:openswmm::meshSnowFields) {
+        Mesh2DLiveVariable v;auto& d=v.descriptor;
+        d.dataset=QString::fromLatin1(field.name);d.label=QStringLiteral("Surface — ")+QString::fromLatin1(field.label);
+        d.units=QString::fromLatin1(field.units);d.unitsKnown=true;d.temporal=Mesh2DResultVariable::Temporal::Held;
+        v.values.resize(cells);v.status.resize(cells,Mesh2DValueStatus::Valid);frame->variables.append(std::move(v));
+    }
+    for(int c=0;c<cells;++c) {
+        const auto values=openswmm::meshSnowValues(state[c],ledger[c]);
+        for(std::size_t k=0;k<values.size();++k) {
+            auto& v=frame->variables[offset+int(k)];v.values[c]=static_cast<float>(values[k]);
+            if(!std::isfinite(v.values[c]))v.status[c]=Mesh2DValueStatus::Missing;
+        }
+    }
+    return frame;
+}
 Mesh2DLiveVariablesPtr captureGroundwaterVariables(SWMM_Engine engine,
                                                   int expectedCells, QString *error)
 {

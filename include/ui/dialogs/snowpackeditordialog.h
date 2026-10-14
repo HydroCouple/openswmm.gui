@@ -22,6 +22,7 @@ class QLineEdit;
 class QListView;
 class QPushButton;
 class QSplitter;
+class QComboBox;
 
 class SWMMModelLayer;
 
@@ -63,6 +64,7 @@ public:
     QLineEdit         *nameEdit()  const noexcept { return m_nameEdit; }
 
     void invokeNew();
+    void accept()override;
 
     /*! \brief Modeless open-for-edit: shows the dialog and selects \p name.
      *  Used by the Object Browser, Properties panel and Attribute Table. */
@@ -74,12 +76,14 @@ private slots:
     void onDeleteClicked_();
     void onNameEdited_();
     void onFieldEdited_();
+    void onModelEdited_();
     void onRemovalSubcatchEdited_();
     void onProviderRenamed_(openswmmvis::snowpack::SnowpackProvider *p,
                               const QString &prev, const QString &now);
 
 private:
     void buildUi_();
+    void updateModelFields_();
     void bindProvider_(openswmmvis::snowpack::SnowpackProvider *p);
     void selectProviderInList_(openswmmvis::snowpack::SnowpackProvider *p);
     QString suggestUniqueName_() const;
@@ -96,6 +100,7 @@ private:
     QPushButton       *m_addBtn    = nullptr;
     QPushButton       *m_delBtn    = nullptr;
     QLineEdit         *m_nameEdit  = nullptr;
+    QComboBox         *m_modelKind = nullptr;
 
     QVector<QDoubleSpinBox*> m_spins;   ///< one per SnowpackProvider::Param
     QLineEdit *m_removalSubcatchEdit = nullptr;

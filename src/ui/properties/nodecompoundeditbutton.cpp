@@ -9,6 +9,12 @@
 #include "layers/gwsourcesummary.h"
 #include "ui/dialogs/groundwaterexchangedialog.h"
 #include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/dialogs/mesh2dgroundwaterdialog.h"
+#include "layers/swmmmodellayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include "core/unitsystem.h"
 #include "ui/properties/subcatchcompoundeditref.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
@@ -83,6 +89,33 @@ void NodeCompoundEditButton::onClicked()
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
         return;
+    }
+
+    if(m_ref.kind==NodeCompoundEditRef::LidBottomConnection) {
+        auto* dialog=new openswmmvis::ui::Mesh2DGroundwaterDialog(m_ref.engine,window(),
+            openswmmvis::ui::Mesh2DGroundwaterDialog::Page::NodeBeds,UnitSystem::instance());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->focusNode(m_ref.nodeName);
+        for(auto* canvas:window()->findChildren<MapCanvas*>())if(canvas->layers().contains(m_ref.layer)) {
+            QPointer<SWMMModelLayer> owner=m_ref.layer;const auto engine=m_ref.engine;
+            QList<QPair<QPointer<SWMM2DMeshLayer>,quint64>> geometry;
+            for(auto* layer:canvas->layers())if(auto* mesh=qobject_cast<SWMM2DMeshLayer*>(layer)) {
+                geometry.append({mesh,mesh->geomRevision()});
+                connect(mesh,&SWMM2DMeshLayer::meshEditsChanged,dialog,[mesh,dialog,revision=mesh->geomRevision()]{
+                            if(mesh->geomRevision()!=revision)dialog->invalidateContext();
+                        });
+            }
+            dialog->setNodeUndoStack(canvas->undoStack(),[owner,engine,geometry]{
+                if(!owner||owner->engine()!=engine)return false;
+                for(const auto& item:geometry)if(!item.first||item.first->geomRevision()!=item.second)return false;
+                return true;
+            },[owner]{if(owner)owner->markEdited();});break;
+        }
+        if(m_ref.layer) {
+            connect(m_ref.layer,&SWMMModelLayer::engineAboutToClose,dialog,&openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+            connect(m_ref.layer,&QObject::destroyed,dialog,&openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+            connect(dialog,&openswmmvis::ui::Mesh2DGroundwaterDialog::applied,m_ref.layer,&SWMMModelLayer::markEdited);
+        }
+        dialog->show();return;
     }
 
     NodeCompoundEditDialog dlg(m_ref, this);

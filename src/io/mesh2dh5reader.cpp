@@ -217,6 +217,7 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString& nam
     base.label.prepend(domainLabel);
     readStringAttr(data, "units", base.units);
     base.unitsKnown = !base.units.isEmpty();
+    if (name.startsWith(QStringLiteral("Mesh2_face_snow_"))) base.temporal = V::Temporal::Held;
     if (dims.size() == 1) {
         QString methods;
         readStringAttr(data, "cell_methods", methods);

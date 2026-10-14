@@ -8,6 +8,8 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_snow.h>
+#include <vector>
 
 namespace openswmmvis::snowpack {
 
@@ -51,6 +53,11 @@ SnowpackProvider *SnowpackRegistry::create(const QString &name)
 {
     if (name.isEmpty() || hasName(name)) return nullptr;
     auto *p = new SnowpackProvider(name, this);
+    if (m_engineHandle) {
+        int model = 0;
+        if (swmm_snow_get_model(static_cast<SWMM_Engine>(m_engineHandle), &model) == SWMM_OK)
+            p->setDefaultModel(model);
+    }
     m_providers.push_back(p);
     m_byLowerName.insert(name.toLower(), p);
     wireProviderSignals_(p);
@@ -91,7 +98,8 @@ bool SnowpackRegistry::rename(SnowpackProvider *p, const QString &newName)
 
 int SnowpackRegistry::loadFromEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    m_saveError.clear();
+    if (!engineHandle) {m_saveError=tr("No model is open.");return -1;}
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
@@ -130,6 +138,16 @@ int SnowpackRegistry::loadFromEngine(void *engineHandle)
         if (swmm_snowpack_get_removal_subcatch(eng, i, buf, sizeof(buf)) == SWMM_OK)
             p->setRemovalSubcatch(QString::fromUtf8(buf));
 
+        SWMM_UebSnowpack ueb{};
+        if (swmm_snowpack_get_ueb(eng, i, &ueb) == SWMM_OK) {
+            p->setModelKind(ueb.model);
+            p->setParam(SnowpackProvider::UebForest, ueb.forest_fraction);
+            p->setParam(SnowpackProvider::UebDrift, ueb.drift_factor);
+            p->setParam(SnowpackProvider::UebGroundHeat, ueb.ground_heat_wm2);
+            p->setParam(SnowpackProvider::UebExtinctionDepth, ueb.extinction_depth_m);
+            p->setParam(SnowpackProvider::UebInitialEnergy, ueb.initial_energy_kjm2);
+        }
+
         ++added;
     }
     return added;
@@ -142,56 +160,29 @@ int SnowpackRegistry::saveToEngine()
 
 int SnowpackRegistry::saveToEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    m_saveError.clear();
+    if (!engineHandle) {m_saveError=tr("No model is open.");return -1;}
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
-    int written = 0;
-    for (SnowpackProvider *p : m_providers) {
-        const QByteArray idUtf8 = p->name().toUtf8();
-        int idx = swmm_snowpack_index(eng, idUtf8.constData());
-        if (idx < 0) {
-            if (swmm_snowpack_add(eng, idUtf8.constData()) != SWMM_OK) continue;
-            idx = swmm_snowpack_index(eng, idUtf8.constData());
-            if (idx < 0) continue;
-        }
-
-        swmm_snowpack_set_plowable(eng, idx,
-                                   p->param(SnowpackProvider::PlowableCmin),
-                                   p->param(SnowpackProvider::PlowableCmax),
-                                   p->param(SnowpackProvider::PlowableTbase),
-                                   p->param(SnowpackProvider::PlowableFwFrac),
-                                   p->param(SnowpackProvider::PlowableSd0),
-                                   p->param(SnowpackProvider::PlowableFw0),
-                                   p->param(SnowpackProvider::PlowableLast));
-        swmm_snowpack_set_impervious(eng, idx,
-                                     p->param(SnowpackProvider::ImperviousCmin),
-                                     p->param(SnowpackProvider::ImperviousCmax),
-                                     p->param(SnowpackProvider::ImperviousTbase),
-                                     p->param(SnowpackProvider::ImperviousFwFrac),
-                                     p->param(SnowpackProvider::ImperviousSd0),
-                                     p->param(SnowpackProvider::ImperviousFw0),
-                                     p->param(SnowpackProvider::ImperviousLast));
-        swmm_snowpack_set_pervious(eng, idx,
-                                   p->param(SnowpackProvider::PerviousCmin),
-                                   p->param(SnowpackProvider::PerviousCmax),
-                                   p->param(SnowpackProvider::PerviousTbase),
-                                   p->param(SnowpackProvider::PerviousFwFrac),
-                                   p->param(SnowpackProvider::PerviousSd0),
-                                   p->param(SnowpackProvider::PerviousFw0),
-                                   p->param(SnowpackProvider::PerviousLast));
-        swmm_snowpack_set_removal(eng, idx,
-                                  p->param(SnowpackProvider::RemovalDsnow),
-                                  p->param(SnowpackProvider::RemovalFOut),
-                                  p->param(SnowpackProvider::RemovalFImp),
-                                  p->param(SnowpackProvider::RemovalFPerv),
-                                  p->param(SnowpackProvider::RemovalFImelt),
-                                  p->param(SnowpackProvider::RemovalFSubcatch));
-        const QByteArray subUtf8 = p->removalSubcatch().toUtf8();
-        swmm_snowpack_set_removal_subcatch(eng, idx, subUtf8.constData());
-        ++written;
+    std::vector<SWMM_SnowpackEdit> edits(m_providers.size());
+    std::vector<QByteArray> names(m_providers.size()), destinations(m_providers.size());
+    for(int i=0;i<m_providers.size();++i) {
+        const auto* p=m_providers[i];auto& edit=edits[i];
+        names[i]=p->name().toUtf8();destinations[i]=p->removalSubcatch().toUtf8();
+        edit.name=names[i].constData();edit.removal_subcatch=destinations[i].constData();
+        for(int surface=0;surface<3;++surface)
+            for(int k=0;k<7;++k)edit.surface[surface][k]=p->param(surface*7+k);
+        for(int k=0;k<6;++k)edit.removal[k]=p->param(SnowpackProvider::RemovalDsnow+k);
+        edit.ueb={p->modelKind(),p->param(SnowpackProvider::UebForest),
+            p->param(SnowpackProvider::UebDrift),p->param(SnowpackProvider::UebGroundHeat),
+            p->param(SnowpackProvider::UebExtinctionDepth),p->param(SnowpackProvider::UebInitialEnergy)};
     }
-    return written;
+    char diagnostic[1024]={};
+    if(swmm_snowpack_apply(eng,edits.data(),static_cast<int>(edits.size()),diagnostic,sizeof(diagnostic))!=SWMM_OK) {
+        m_saveError=*diagnostic?QString::fromUtf8(diagnostic):tr("Snowpacks cannot be changed while the simulation is initialized or running.");return -1;
+    }
+    return static_cast<int>(edits.size());
 }
 
 } // namespace openswmmvis::snowpack

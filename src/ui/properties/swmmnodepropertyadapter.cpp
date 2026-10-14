@@ -49,6 +49,7 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     const QString R  = (u && u->isSI()) ? QStringLiteral("mm/hr")
                                         : QStringLiteral("in/hr");
 
+    if (property == QLatin1String("lidBottomConnection")) return tr("Bottom Connection");
     if (property == QLatin1String("lidControl")) return tr("LID Control");
     if (property == QLatin1String("lidInitialSaturation")) return tr("LID Initial Saturation (%)");
     // Base — common to every node type.
@@ -1096,4 +1097,13 @@ void SWMMNodePropertyAdapter::setLidInitialSaturation(double sat) {
     if (nodeIdx() < 0) return;
     int c = -1; double old = 0;
     if (swmm_node_get_lid(m_engine, nodeIdx(), &c, &old) == SWMM_OK && c >= 0 && swmm_node_set_lid(m_engine, nodeIdx(), c, sat) == SWMM_OK) emit changed();
+}
+
+NodeCompoundEditRef SWMMNodePropertyAdapter::lidBottomConnectionRef()const {
+    NodeCompoundEditRef r;r.engine=m_engine;r.layer=m_layer;r.nodeName=m_name;r.kind=NodeCompoundEditRef::LidBottomConnection;
+    int mode=0,control=-1;double sat=0;
+    if(nodeIdx()>=0&&swmm_node_get_lid(m_engine,nodeIdx(),&control,&sat)==SWMM_OK&&control>=0&&swmm_node_get_lid_bottom(m_engine,nodeIdx(),&mode)==SWMM_OK)
+        r.summary=mode==2?tr("Mesh aquifer"):mode==1?tr("Sealed"):tr("Keep current behavior");
+    else r.summary=tr("No storage LID");
+    return r;
 }

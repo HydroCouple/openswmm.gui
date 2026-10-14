@@ -471,6 +471,13 @@ void TwoDPage::buildUi()
     });
     rainfallForm->addRow(QString(), m_editInfilCellsBtn);
 
+    auto *snowAssignments = new QPushButton(tr("Snow options and assignments…"), rainfallGroup);
+    snowAssignments->setObjectName(QStringLiteral("editMeshSnowBtn"));
+    snowAssignments->setToolTip(tr("Edit AUTO / enabled / disabled, the snow update interval, shared snowpacks and cell or region overrides."));
+    connect(snowAssignments, &QPushButton::clicked,
+            this, &TwoDPage::showSnowAssignmentsRequested);
+    rainfallForm->addRow(tr("Snowmelt:"), snowAssignments);
+
     // ── Evaporation ─────────────────────────────────────────────────────
     m_evap2DCombo = new QComboBox(rainfallGroup);
     m_evap2DCombo->setObjectName(QStringLiteral("evap2DCombo"));

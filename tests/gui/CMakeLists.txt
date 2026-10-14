@@ -2612,6 +2612,11 @@ add_swmmvis_gui_test(test_simulationoptionsdialog
 
 # Climatology dialog — instantiated against a synthetic BUILDING engine; the
 # dialog is dependency-light (Qt Widgets + the swmm_climate_* engine ABI only).
+add_swmmvis_gui_test(test_meshsnowmodel
+    test_meshsnowmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/meshsnowmodel.cpp
+)
+
 add_swmmvis_gui_test(test_climatologydialog
     test_climatologydialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/climatologydialog.h
@@ -4212,3 +4217,9 @@ add_swmmvis_gui_test(test_checkpointapplication
 )
 swmmvis_link_full_app_deps(test_checkpointapplication)
 set_property(TEST test_checkpointapplication APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")
+
+add_swmmvis_gui_test(test_simulationstatus_snow
+    test_simulationstatus_snow.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
+)

@@ -1388,6 +1388,15 @@ void ComparisonPlotDialog::onAddSeriesClicked()
     case PlotAttribute::LinkCapacity:
         kind = ObjectRef::Kind::Link;
         break;
+    case PlotAttribute::SubcatchSnowSWE:
+    case PlotAttribute::SubcatchSnowEnergy:
+    case PlotAttribute::SubcatchSnowSurfaceTemp:
+    case PlotAttribute::SubcatchSnowBulkTemp:
+    case PlotAttribute::SubcatchSnowAlbedo:
+    case PlotAttribute::SubcatchSnowCover:
+    case PlotAttribute::SubcatchSnowMelt:
+    case PlotAttribute::SubcatchSnowInput:
+    case PlotAttribute::SubcatchSnowSublimation:
     case PlotAttribute::SubcatchRainfall:
     case PlotAttribute::SubcatchSnowDepth:
     case PlotAttribute::SubcatchEvap:

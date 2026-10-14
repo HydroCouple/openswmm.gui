@@ -36,6 +36,7 @@ CheckpointModel::CheckpointModel(const QString& catalog,QObject* parent):QAbstra
         }
         emit stateChanged();if(!m_closed)emit notice(m_status);
     });
+    connect(&m_run,&CheckpointWorker::snowLedgerChanged,this,[this](quint64,const QStringList& rows) {if(!m_closed)emit runSnowLedgerChanged(rows);});
     connect(&m_run,&CheckpointWorker::saved,this,[this](quint64,const CheckpointSaveResult& s) {recordSave(s);});
     connect(&m_run,&CheckpointWorker::timeline,this,[this](quint64,double a,double b) {emit runTimeline(a,b);});
     connect(&m_run,&CheckpointWorker::progress,this,[this](quint64,double seconds) {

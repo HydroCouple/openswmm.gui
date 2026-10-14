@@ -81,10 +81,10 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
             const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
             emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::ForegroundRole});
 
-            if (!rec.warnings.isEmpty()) {
+            if (!rec.warnings.isEmpty() || !rec.snowLedger.isEmpty()) {
                 const QModelIndex jobIdx = createIndex(row, 0, kRootId);
-                beginRemoveRows(jobIdx, 0, rec.warnings.size() - 1);
-                rec.warnings.clear();
+                beginRemoveRows(jobIdx, 0, rec.warnings.size()+rec.snowLedger.size() - 1);
+                rec.warnings.clear();rec.snowLedger.clear();
                 endRemoveRows();
             }
 
@@ -122,6 +122,21 @@ int SimulationStatusModel::ensureJobForModel(SWMMVisProjectWindow *model,
                      createIndex(row, NumColumns - 1, kRootId),
                      {Qt::DisplayRole, Qt::ForegroundRole});
     return jobId;
+}
+
+void SimulationStatusModel::updateSnowLedger(int jobId,const QStringList& rows)
+{
+    const int r=jobIndexById(jobId);if(r<0)return;
+    auto& job=m_jobs[r];const auto parent=createIndex(r,0,kRootId);const int first=job.warnings.size();
+    if(job.snowLedger.size()==rows.size()) {
+        if(rows.isEmpty())return;
+        job.snowLedger=rows;
+        emit dataChanged(index(first,0,parent),index(first+rows.size()-1,0,parent));return;
+    }
+    if(!job.snowLedger.isEmpty()) {
+        beginRemoveRows(parent,first,first+job.snowLedger.size()-1);job.snowLedger.clear();endRemoveRows();
+    }
+    if(!rows.isEmpty()) {beginInsertRows(parent,first,first+rows.size()-1);job.snowLedger=rows;endInsertRows();}
 }
 
 void SimulationStatusModel::updateProgress(int jobId, double fraction,
@@ -328,8 +343,8 @@ int SimulationStatusModel::rowCount(const QModelIndex &parent) const
 {
     if (!parent.isValid())
         return m_jobs.size();
-    if (parent.internalId() == kRootId)
-        return m_jobs[parent.row()].warnings.size();
+    if (parent.column()==0 && parent.internalId() == kRootId && parent.row()<m_jobs.size())
+        return m_jobs[parent.row()].warnings.size()+m_jobs[parent.row()].snowLedger.size();
     return 0;
 }
 
@@ -347,7 +362,13 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
         const int jobRow = int(index.internalId());
         if (jobRow < 0 || jobRow >= m_jobs.size()) return {};
         const auto &rec = m_jobs[jobRow];
-        if (index.row() < 0 || index.row() >= rec.warnings.size()) return {};
+        if(index.row()>=rec.warnings.size()) {
+            const int r=index.row()-rec.warnings.size();
+            if(r>=rec.snowLedger.size())return {};
+            if(index.column()==0 && (role==Qt::DisplayRole||role==Qt::ToolTipRole))return rec.snowLedger[r];
+            return {}; // process balances are ordinary data, not warnings
+        }
+        if (index.row() < 0) return {};
 
         if (role == Qt::DisplayRole && index.column() == 0)
             return rec.warnings.at(index.row());
