@@ -10,12 +10,26 @@ struct FlowParticleResidency {
     QVector<QRectF> rectangles;
     bool limited=false;
 };
+// Residency needs only tile geometry, never the source index or its mutable
+// query scratch. Copying this description to the worker is constant-sized.
+struct FlowParticleResidencyGrid {
+    QRectF extent;double cellW=0,cellH=0;int cols=0,rows=0;
+    FlowParticleResidencyGrid()=default;
+    FlowParticleResidencyGrid(const MeshSpatialGrid &grid)
+        :extent(grid.extent),cellW(grid.cellW),cellH(grid.cellH),cols(grid.cols),rows(grid.rows) {}
+    bool isEmpty() const {return cols<=0 || rows<=0 || cellW<=0 || cellH<=0;}
+};
+struct FlowParticleResidencySupport {
+    FlowParticleResidency required,prefetch;
+    quint64 geometry=0;double clock=0;
+};
 
 // Quarter-sized source-index tiles give precise sparse support without a
 // domain-sized locator. Heads prefetch two animation seconds; trails pin every
 // retained segment, including segments whose intermediate samples were reduced.
-inline FlowParticleResidency flowParticleResidency(QRectF view,const MeshSpatialGrid &grid,
-                                                  const FlowParticleFrame *frame,double lookahead=2)
+template<class Particles>
+inline FlowParticleResidency flowParticleResidencyForParticles(QRectF view,const FlowParticleResidencyGrid &grid,
+                                                  const Particles &particles,double lookahead=2,bool includeView=true)
 {
     FlowParticleResidency out;
     if(grid.isEmpty() || !view.isValid())return out;
@@ -37,8 +51,8 @@ inline FlowParticleResidency flowParticleResidency(QRectF view,const MeshSpatial
         }
     };
     const double pad=std::max(view.width(),view.height())*.5;
-    add(view.adjusted(-pad,-pad,pad,pad));
-    if(frame)for(const auto &p:frame->particles) {
+    if(includeView)add(view.adjusted(-pad,-pad,pad,pad));
+    for(const auto &p:particles) {
         if(out.limited)break;
         if(p.stop==FlowParticleStop::None) {
             QPointF velocity;
@@ -51,6 +65,7 @@ inline FlowParticleResidency flowParticleResidency(QRectF view,const MeshSpatial
             add(QRectF(p.position,predicted).normalized().adjusted(-dx,-dy,dx,dy));
         }
         for(size_t i=1;i<p.history.size();++i) {
+            if(p.history[i-1].age<=p.visibleAfterAge)continue;
             const double error=std::max(0.,p.history[i].error);
             add(QRectF(p.history[i-1].position,p.history[i].position).normalized()
                 .adjusted(-dx/8-error,-dy/8-error,dx/8+error,dy/8+error));
@@ -63,5 +78,21 @@ inline FlowParticleResidency flowParticleResidency(QRectF view,const MeshSpatial
     for(quint64 key:out.tiles)out.rectangles.append({grid.extent.left()+(key%cols)*dx,
         grid.extent.top()+(key/cols)*dy,dx,dy});
     return out;
+}
+inline FlowParticleResidency flowParticleResidency(QRectF view,const FlowParticleResidencyGrid &grid,
+                                                  const FlowParticleFrame *frame,double lookahead=2,bool includeView=true) {
+    return frame?flowParticleResidencyForParticles(view,grid,frame->particles,lookahead,includeView)
+                :flowParticleResidencyForParticles(view,grid,FlowParticleSlots<FlowParticle>{},lookahead,includeView);
+}
+inline void mergeFlowParticleResidency(FlowParticleResidency &out,const FlowParticleResidency &support,
+                                      const FlowParticleResidencyGrid &grid) {
+    if(out.limited || support.limited) {out.limited=true;return;}
+    std::vector<quint64> tiles;tiles.reserve(out.tiles.size()+support.tiles.size());
+    std::set_union(out.tiles.begin(),out.tiles.end(),support.tiles.begin(),support.tiles.end(),std::back_inserter(tiles));
+    if(tiles.size()>4096) {out.limited=true;return;}
+    out.tiles=std::move(tiles);out.rectangles.clear();out.rectangles.reserve(out.tiles.size());
+    const int cols=grid.cols*4;const double dx=grid.cellW/4,dy=grid.cellH/4;
+    for(quint64 key:out.tiles)out.rectangles.append({grid.extent.left()+(key%cols)*dx,
+        grid.extent.top()+(key/cols)*dy,dx,dy});
 }
 } // namespace OpenSWMM::Render

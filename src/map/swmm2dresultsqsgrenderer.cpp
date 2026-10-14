@@ -546,7 +546,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         m_dirty.noteLayerChanged();
         root            = new ResultsRootNode();
         root->flowNode = new QSGNode();root->appendChildNode(root->flowNode);
-        root->particleNode = new FlowParticleNode();root->flowNode->appendChildNode(root->particleNode);
+        root->particleNode = new FlowParticleNode(window());root->flowNode->appendChildNode(root->particleNode);
         cellFillNode    = root->cellFillNode   = makeColoredNode();
         smoothFillNode  = root->smoothFillNode = makeColoredNode();
         bandNode        = root->bandNode       = makeColoredNode();

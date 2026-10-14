@@ -102,15 +102,14 @@ bool FlowParticleSystem::setSettings(const FlowParticleSettings &settings) {
        || settings.fadeSeconds<0 || settings.cutoff<0 || settings.historyTolerance<0
        || settings.referenceSpeed<0 || settings.speedExponent<=0 || settings.speedExponent>1
        || settings.publicationInterval<0 || settings.maxParticles<1 || settings.maxHistory<3)return false;
-    m_particles.reserve(size_t(settings.maxParticles));m_freeParticles.reserve(size_t(settings.maxParticles));
+    m_particles.reserve(size_t(settings.maxParticles));m_freeHistories.reserve(size_t(settings.maxParticles));
     m_reducedHistory.reserve(size_t(settings.maxHistory)+1);
-    for(auto &p:m_particles) {p.history.reserve(size_t(settings.maxHistory)+1);}
+    for(auto p:m_particles) {p.history.reserve(size_t(settings.maxHistory)+1);}
     for(auto &frame:m_frames) {
         if(!frame)frame=std::make_shared<FlowParticleFrame>();
         // Retained publications are immutable, including their spare slots.
         if(frame.use_count()!=1 && !(frame==m_frame && frame.use_count()==2))continue;
         frame->particles.reserve(size_t(settings.maxParticles));
-        for(auto &p:frame->particles)p.history.reserve(size_t(settings.maxHistory)+1);
     }
     m_settings=settings;return true;
 }
@@ -133,14 +132,15 @@ bool FlowParticleSystem::setField(std::shared_ptr<const FlowParticleSnapshot> fi
         }
         // Regional replacement retains world positions, ages and histories.
         // Particles outside residency wait until a later region contains them.
-        for(auto &p:m_particles) {
+        for(auto p:m_particles) {
             int target=-1;
             if(p.cell>=0 && size_t(p.cell)<old.size()) {
                 const auto it=std::lower_bound(next.begin(),next.end(),old[size_t(p.cell)]);
                 if(it!=next.end() && *it==old[size_t(p.cell)])target=int(it-next.begin());
             }
             p.cell=target;p.zeroCells.clear();
-            for(auto &sample:p.history) {
+            for(size_t i=0;i<p.history.size();++i) {
+                auto &sample=p.history.mutableAt(i);
                 const auto it=sample.cell>=0 && size_t(sample.cell)<old.size()
                     ?std::lower_bound(next.begin(),next.end(),old[size_t(sample.cell)]):next.end();
                 sample.cell=it!=next.end() && *it==old[size_t(sample.cell)]?int(it-next.begin()):-1;
@@ -159,7 +159,7 @@ bool FlowParticleSystem::setField(std::shared_ptr<const FlowParticleSnapshot> fi
     // Validate historical wet support on result updates, never on every tick.
     // Missing regional residency culls temporarily; actual drying invalidates
     // the older visible tail without replacing its recorded coordinates.
-    for(auto &p:m_particles)for(size_t i=0;i<p.history.size();++i) {
+    for(auto p:m_particles)for(size_t i=0;i<p.history.size();++i) {
         const auto &sample=p.history[i];
         const int cell=sample.cell>=0?sample.cell:locate(sample.position,false);
         if(cell>=0 && size_t(cell)<m_field->fields.size()) {
@@ -217,19 +217,14 @@ quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publi
     const double wetDepth=depth(m_field->fields[size_t(cell)],w);
     if(!inside(w) || !m_field->fields[size_t(cell)].available
        || !std::isfinite(wetDepth) || wetDepth<=m_settings.cutoff)return 0;
-    FlowParticle p;
-    if(!m_freeParticles.empty()) {
-        p=std::move(m_freeParticles.back());m_freeParticles.pop_back();
-        p.history.clear();p.zeroCells.clear();
+    FlowParticleState p;
+    if(!m_freeHistories.empty()) {
+        p.history=std::move(m_freeHistories.back());m_freeHistories.pop_back();p.history.clear();
     }
-    // Reset metadata while retaining allocated history and vertex-cycle storage.
-    auto history=std::move(p.history);auto zeroCells=std::move(p.zeroCells);
-    p=FlowParticle{};p.history=std::move(history);p.zeroCells=std::move(zeroCells);
     p.history.reserve(size_t(m_settings.maxHistory)+1);
     p.id=m_nextId++;p.cell=cell;p.position=position;
     for(auto &frame:m_frames)if(frame.use_count()==1 || (frame==m_frame && frame.use_count()==2)) {
         frame->particles.prepare(m_particles.size()+1);
-        frame->particles[m_particles.size()].history.reserve(size_t(m_settings.maxHistory)+1);
     }
     const double random=double(randomBits(randomSeed+p.id*0x9e3779b97f4a7c15ULL)>>11)/9007199254740992.;
     p.lifetime=m_settings.minimumLifetime+(m_settings.maximumLifetime-m_settings.minimumLifetime)*random;
@@ -238,10 +233,10 @@ quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publi
     p.history.push_back({position,0,cell,speed});m_particles.push_back(std::move(p));++m_births;
     if(publishImmediately)publish();return m_particles.back().id;
 }
-void FlowParticleSystem::stop(FlowParticle &p,FlowParticleStop reason) {
+void FlowParticleSystem::stop(FlowParticleReference<false> &p,FlowParticleStop reason) {
     p.stop=reason;p.pending=0;p.stoppedAt=m_clock+m_tick;++m_deaths;++m_stopCounts[size_t(reason)];
 }
-bool FlowParticleSystem::reduceHistory(FlowParticle &p,int &budget,int &steps) {
+bool FlowParticleSystem::reduceHistory(FlowParticleReference<false> &p,int &budget,int &steps) {
     if(!m_historyIndex) {
         m_reducedHistory.clear();m_reducedHistory.push_back(p.history.front());
         m_historyIndex=1;m_historyError=-1;
@@ -273,7 +268,7 @@ bool FlowParticleSystem::reduceHistory(FlowParticle &p,int &budget,int &steps) {
     p.nextHistoryReduction=std::max(size_t(128),p.history.size()+std::max(size_t(64),p.history.size()/2));
     return true;
 }
-void FlowParticleSystem::appendHistory(FlowParticle &p,float speed) {
+void FlowParticleSystem::appendHistory(FlowParticleReference<false> &p,float speed) {
     while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds)p.history.pop_front();
     p.history.push_back({p.position,p.age,p.cell,speed});++p.samplesSinceReduction;
     // A trail that cannot be reduced must not trigger another full scan on
@@ -283,7 +278,7 @@ void FlowParticleSystem::appendHistory(FlowParticle &p,float speed) {
     }
     p.historyLimited=p.historyFloorAge>=0 && p.age-p.historyFloorAge<m_settings.trailSeconds;
 }
-bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
+bool FlowParticleSystem::integrate(FlowParticleReference<false> &p,int &budget,int &steps) {
     const auto &mesh=*m_field->mesh;
     // Display compression can amplify a vortex at a shared vertex into
     // millions of unresolvable crossings. Only this illustrative mode may
@@ -392,23 +387,47 @@ FlowParticleWork FlowParticleSystem::advance(double elapsed,int stepBudget) {
         if(!m_inTick) {
             if(stepBudget<=0 || out.ticks>=tickBudget)break;
             m_tick=m_settings.timestep;m_cursor=0;m_inTick=true;
-            for(auto &p:m_particles) {p.previousAge=p.age;p.pending=p.stop==FlowParticleStop::None?m_tick:0;}
+            for(auto p:m_particles) {p.previousAge=p.age;p.pending=p.stop==FlowParticleStop::None?m_tick:0;}
+            if(!m_frame || m_settings.publicationInterval==0 || m_clock+m_tick-m_publishedClock+1e-12>=m_settings.publicationInterval) {
+                // Keep the previous completed frame untouched if this tick
+                // needs several work slices. The back buffer stays private.
+                m_stagingFrame=writableFrame(true);
+                if(m_stagingFrame) {prepareFrame(*m_stagingFrame);m_stagingFrame->timestep=m_settings.publicationInterval;}
+            }
         }
         while(m_cursor<m_particles.size()) {
-            if(!integrate(m_particles[m_cursor],stepBudget,out.steps)) {out.pending=true;return out;}
+            auto particle=m_particles[m_cursor];
+            if(!integrate(particle,stepBudget,out.steps)) {out.pending=true;return out;}
+            if(m_stagingFrame)captureParticle(*m_stagingFrame,m_cursor,true);
             ++m_cursor;
         }
         m_clock+=m_tick;m_elapsed=std::max(0.,m_elapsed-m_tick);m_inTick=false;++out.ticks;
-        if(!m_frame || m_settings.publicationInterval==0 || m_clock-m_publishedClock+1e-12>=m_settings.publicationInterval)publish();
+        if(m_stagingFrame)publish(std::exchange(m_stagingFrame,{}));
+        else if(!m_frame || m_settings.publicationInterval==0 || m_clock-m_publishedClock+1e-12>=m_settings.publicationInterval)publish();
     }
     if(!m_inTick && (!m_frame || m_frame->births!=m_births || m_frame->particles.size()!=m_particles.size()))publish();
     out.pending=m_inTick || m_elapsed+1e-12>=m_settings.timestep;return out;
 }
-void FlowParticleSystem::publish() {
-    QElapsedTimer publication;publication.start();
-    std::shared_ptr<FlowParticleFrame> frame;
+std::shared_ptr<FlowParticleFrame> FlowParticleSystem::writableFrame(bool excludeCurrent) {
     for(const auto &candidate:m_frames)
-        if(candidate.use_count()==1 || (candidate==m_frame && candidate.use_count()==2)) {frame=candidate;break;}
+        if((!excludeCurrent || candidate!=m_frame)
+           && (candidate.use_count()==1 || (candidate==m_frame && candidate.use_count()==2)))return candidate;
+    return {};
+}
+void FlowParticleSystem::prepareFrame(FlowParticleFrame &frame) {
+    // Spare headers stay allocated, but retired slots must release their
+    // shared history pages when density or geometry shrinks.
+    for(size_t i=m_particles.size();i<frame.particles.size();++i)frame.particles[i]=FlowParticle{};
+    frame.particles.resize(m_particles.size());
+}
+void FlowParticleSystem::captureParticle(FlowParticleFrame &frame,size_t index,bool regular) {
+    auto source=m_particles[index];auto &p=frame.particles[index];p=source;
+    if(m_settings.publicationInterval>0)p.previousAge=regular?source.publishedAge:source.previousPublishedAge;
+    if(p.visibleAfterAge>=0)while(!p.history.empty() && p.history.front().age<=p.visibleAfterAge)p.history.pop_front();
+}
+void FlowParticleSystem::publish(std::shared_ptr<FlowParticleFrame> frame) {
+    const bool prepared=frame && frame->timestep==m_settings.publicationInterval;
+    if(!frame)frame=writableFrame();
     // Captures/renderers can retain every buffer. Keep integrating, defer
     // publication, and never overwrite an externally held immutable frame.
     if(!frame) {++m_deferredPublications;return;}
@@ -418,28 +437,33 @@ void FlowParticleSystem::publish() {
     frame->revision=m_field?m_field->revision:0;frame->births=m_births;frame->deaths=m_deaths;
     frame->unresolvedOrbits=m_unresolvedOrbits;
     frame->stopCounts=m_stopCounts;
-    frame->particles=m_particles;
     const bool regular=m_settings.publicationInterval==0 || m_clock-m_publishedClock+1e-12>=m_settings.publicationInterval;
     frame->previousClock=regular?m_publishedClock:m_previousPublishedClock;
-    for(size_t i=0;i<m_particles.size();++i) {
-        auto &p=frame->particles[i];
-        if(m_settings.publicationInterval>0)p.previousAge=regular?m_particles[i].publishedAge:m_particles[i].previousPublishedAge;
-        if(regular) {
-            m_particles[i].previousPublishedAge=m_particles[i].publishedAge;m_particles[i].publishedAge=p.age;
-        }
-        while(!p.history.empty() && p.history.front().age<=p.visibleAfterAge)p.history.pop_front();
+    if(!prepared) {
+        prepareFrame(*frame);
+        for(size_t i=0;i<m_particles.size();++i)captureParticle(*frame,i,regular);
     }
-    if(regular) {m_previousPublishedClock=m_publishedClock;m_publishedClock=m_clock;}
-    frame->publicationMs=publication.nsecsElapsed()/1e6;
+    if(regular) {
+        for(auto p:m_particles) {p.previousPublishedAge=p.publishedAge;p.publishedAge=p.age;}
+        m_previousPublishedClock=m_publishedClock;m_publishedClock=m_clock;
+    }
     if(m_renderScale>0)buildFlowParticleRibbon(*frame,m_renderScale,0,m_appearance,frame->ribbon);
+    // Worker preparation (including forced field snapshots) is counted in
+    // its work time. Publication measures the completed-buffer handoff.
+    QElapsedTimer publication;publication.start();auto *published=frame.get();
     m_frame=std::move(frame);
+    published->publicationMs=publication.nsecsElapsed()/1e6;
 }
 void FlowParticleSystem::eraseFinished() {
     if(m_inTick)return;
-    for(auto &p:m_particles)if(p.stop!=FlowParticleStop::None && m_clock-p.stoppedAt>=m_settings.fadeSeconds) {
-        m_freeParticles.push_back(std::move(p));p.id=0;
+    size_t retained=0;
+    for(size_t i=0;i<m_particles.size();++i) {
+        auto p=m_particles[i];
+        if(p.stop!=FlowParticleStop::None && m_clock-p.stoppedAt>=m_settings.fadeSeconds) {
+            m_freeHistories.push_back(std::move(p.history));
+        } else m_particles.move(retained++,i);
     }
-    std::erase_if(m_particles,[](const auto &p){return p.id==0;});
+    m_particles.resize(retained);
 }
 double FlowParticleSystem::interpolation() const {
     if(m_settings.publicationInterval==0)return std::clamp(m_elapsed/m_settings.timestep,0.,1.);

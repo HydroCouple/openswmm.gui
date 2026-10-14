@@ -1,6 +1,7 @@
 // GPL-3.0-or-later
 #pragma once
 #include "render/flowparticlefields.h"
+#include "render/flowparticleresidency.h"
 #include <QThread>
 #include <QObject>
 #include <condition_variable>
@@ -28,7 +29,7 @@ public:
     ~FlowParticleController() override;
     void request(std::shared_ptr<const FlowParticleNativeInput>,bool reset=false);
     std::shared_ptr<const FlowParticleMesh> requestedMesh() const {return m_requestedMesh;}
-    void configure(const FlowParticleSettings &,QRectF seeds,int population,FlowParticleView view={},std::optional<FlowParticleAppearance> appearance={});
+    void configure(const FlowParticleSettings &,QRectF seeds,int population,FlowParticleView view={},std::optional<FlowParticleAppearance> appearance={},FlowParticleResidencyGrid grid={});
     void advance(double seconds);
     void setPresentedRevision(quint64 revision);
     void waitForDone();
@@ -38,6 +39,7 @@ public:
     double interpolation() const { return m_interpolation; }
     QString status() const;
     FlowParticleDiagnostics diagnostics() const {return m_diagnostics;}
+    std::shared_ptr<const FlowParticleResidencySupport> residency() const {return m_residency;}
 signals:
     void ready();
 private:
@@ -47,6 +49,7 @@ private:
         double interpolation=1,lag=0;
         bool fieldAccepted=false;
         FlowParticleDiagnostics diagnostics;
+        std::shared_ptr<const FlowParticleResidencySupport> residency;
     };
     void dispatch();
     void complete();
@@ -61,6 +64,8 @@ private:
     std::optional<Result> m_result;
     FlowParticleSettings m_settings;
     FlowParticleView m_view;
+    FlowParticleResidencyGrid m_grid;
+    std::shared_ptr<const FlowParticleResidencySupport> m_residency;
     std::optional<FlowParticleAppearance> m_appearance;
     FlowParticleDiagnostics m_diagnostics;
     QRectF m_seeds;

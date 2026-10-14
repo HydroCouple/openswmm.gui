@@ -61,7 +61,10 @@ std::shared_ptr<const FlowParticleNativeInput> FlowParticleLayerController::capt
         && visible==m_particleCheckedView && clock>=m_particleCheckClock && clock-m_particleCheckClock<.25) {
         m_particleLimit.clear();return m_particleInput;
     }
-    auto residency=flowParticleResidency(visible,m_layer->m_triGrid,frame && frame->geometry==epoch?frame.get():nullptr,.5);
+    const FlowParticleResidencyGrid grid(m_layer->m_triGrid);
+    const auto support=m_worker->residency();
+    auto residency=flowParticleResidency(visible,grid,nullptr);
+    if(support && support->geometry==epoch)mergeFlowParticleResidency(residency,support->required,grid);
     if(residency.limited) {
         m_particleLimit=tr("Zoom in to render continuous particles within the regional field memory limit.");return {};
     }
@@ -74,7 +77,8 @@ std::shared_ptr<const FlowParticleNativeInput> FlowParticleLayerController::capt
     if(!contains || prune) {
         // Required support looks half a second ahead; captures load two seconds.
         // Requiring the entire prefetch margin would replace the mesh each check.
-        residency=flowParticleResidency(visible,m_layer->m_triGrid,frame && frame->geometry==epoch?frame.get():nullptr);
+        residency=flowParticleResidency(visible,grid,nullptr);
+        if(support && support->geometry==epoch)mergeFlowParticleResidency(residency,support->prefetch,grid);
         if(residency.limited) {
             m_particleLimit=tr("Zoom in to render continuous particles within the regional field memory limit.");return {};
         }
@@ -204,11 +208,26 @@ std::shared_ptr<const FlowParticleFrame> FlowParticleLayerController::frame(
     settings.maxHistory=int(std::clamp(std::ceil(settings.trailSeconds*120)+64,512.,4096.));
     const auto current=m_worker->latestFrame();
     const size_t currentPopulation=current?current->particles.size():0;
-    if(currentPopulation)settings.maxHistory=std::min(settings.maxHistory,
-        std::max(3,int((96*1024*1024)/((6*sizeof(FlowParticleSample)+6*2*sizeof(FlowParticleVertex))*currentPopulation))));
+    const auto particleBytes=[](int history) {
+        // Working/recycled paged histories, four immutable headers, worker
+        // packets + renderer/fallback/GPU vertices, timing and static indices.
+        return 2*FlowParticleRing<FlowParticleSample>::reservedBytes(size_t(history)+1)
+            +4*sizeof(FlowParticle)+sizeof(FlowParticleState)+14*size_t(history)*sizeof(FlowParticleVertex)
+            +6*size_t(history-1)*sizeof(quint32)+5*sizeof(FlowParticleTiming);
+    };
+    constexpr size_t particleBudget=96*1024*1024;
+    if(currentPopulation) {
+        int low=3,high=settings.maxHistory;
+        while(low<high) {
+            const int middle=low+(high-low+1)/2;
+            if(particleBytes(middle)*currentPopulation<=particleBudget)low=middle;
+            else high=middle-1;
+        }
+        settings.maxHistory=low;
+    }
     // Bound the pool and its retained/publication copies before long tails
     // allocate. Lower density rather than shortening assigned particle lives.
-    settings.maxParticles=std::min(2000,int((96*1024*1024)/((6*sizeof(FlowParticleSample)+6*2*sizeof(FlowParticleVertex))*size_t(settings.maxHistory))));
+    settings.maxParticles=std::max(1,std::min(2000,int(particleBudget/particleBytes(settings.maxHistory))));
     const auto visible=view.intersected(m_layer->m_sceneBBox);
     FlowParticleAppearance appearance;appearance.anchor=m_layer->m_sceneBBox.center();appearance.color=style->color();
     const double stroke=2*std::max(style->widthPx(),style->headWidthPx())/scale;
@@ -238,7 +257,8 @@ std::shared_ptr<const FlowParticleFrame> FlowParticleLayerController::frame(
         }
     }
     appearance.colorForSpeed=m_palette;
-    m_worker->configure(settings,visible,settings.maxParticles,{scale,style->spacingPx(),48,m_layer->m_velocityFloorSI},std::move(appearance));
+    m_worker->configure(settings,visible,settings.maxParticles,{scale,style->spacingPx(),48,m_layer->m_velocityFloorSI},
+                        std::move(appearance),m_layer->m_triGrid);
     if(presented)m_worker->setPresentedRevision(displayedRevision);
     if(displayedRevision==m_layer->frame_revision_) {
         const auto input=capture(view,scale);
