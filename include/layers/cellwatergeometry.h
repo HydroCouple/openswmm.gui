@@ -177,7 +177,7 @@ inline std::vector<CornerDepths> flowingCornerDepths(
     NeighborhoodFit::Stats* stats = nullptr)
 {
     if (x.size()!=z.size() || y.size()!=z.size()) return {};
-    return NeighborhoodFit::reconstruct(cells,surfaces,z,topology,depths,flux,policy,stats);
+    return NeighborhoodFit::reconstruct(cells,surfaces,x,y,z,topology,depths,flux,policy,stats);
 }
 
 // Continuous, bounded display projection of VFR stages on each connected
