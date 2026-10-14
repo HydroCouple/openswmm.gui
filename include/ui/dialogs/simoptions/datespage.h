@@ -69,6 +69,7 @@ signals:
 private:
     void buildUi();
     void tagWidgets();
+    void updateReportStartRange();
     void updateDurationLabel();
     void addEventRow();
     void removeSelectedEventRows();

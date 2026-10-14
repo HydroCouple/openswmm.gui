@@ -147,17 +147,16 @@ void DatesPage::buildUi()
 
     winTabLay->addWidget(winGroup);
 
-    // Live sync: clamp report-start ≥ start, refresh duration label.
+    // Keep reporting inside the current simulation window.
     connect(m_startEdit, &QDateTimeEdit::dateTimeChanged,
-            this, [this](const QDateTime &s) {
-                m_reportStartEdit->setMinimumDateTime(s);
-                if (m_reportStartEdit->dateTime() < s)
-                    m_reportStartEdit->setDateTime(s);
+            this, [this](const QDateTime &) {
+                updateReportStartRange();
                 updateDurationLabel();
                 emit scheduleChanged();
             });
     connect(m_endEdit, &QDateTimeEdit::dateTimeChanged,
             this, [this](const QDateTime &) {
+                updateReportStartRange();
                 updateDurationLabel();
                 emit scheduleChanged();
             });
@@ -301,6 +300,19 @@ void DatesPage::tagWidgets()
     tagOption(m_eventsTable, "[EVENTS]");
 }
 
+void DatesPage::updateReportStartRange()
+{
+    const QDateTime start = m_startEdit->dateTime();
+    const QDateTime end = m_endEdit->dateTime();
+    if (start <= end) {
+        m_reportStartEdit->setDateTimeRange(start, end);
+    } else {
+        // Either endpoint may be edited first when moving the whole window.
+        m_reportStartEdit->clearMinimumDateTime();
+        m_reportStartEdit->clearMaximumDateTime();
+    }
+}
+
 void DatesPage::updateDurationLabel()
 {
     if (!m_durationLabel || !m_startEdit || !m_endEdit) return;
@@ -330,11 +342,11 @@ void DatesPage::read()
     const auto sim = PreferencesManager::instance()->simulationDefaults();
     using SOD = SimulationOptionsDialog;
 
-    // Block signals on Start/Report-start during seeding so the clamp
-    // connection doesn't bump report-start prematurely between the two
-    // reads. Seed the minimum + duration label explicitly at the end.
+    // Load the window and replace its old bounds before loading report-start.
+    // Block intermediate changes so only the complete schedule is published.
     {
         QSignalBlocker bs(m_startEdit);
+        QSignalBlocker be(m_endEdit);
         QSignalBlocker br(m_reportStartEdit);
 
         QDateTime start = SOD::parseEngineDateTime(
@@ -345,12 +357,12 @@ void DatesPage::read()
             ctx_.option("END_DATE"),   ctx_.option("END_TIME",   "00:00:00"));
         if (end.isValid()) m_endEdit->setDateTime(end);
 
+        updateReportStartRange();
         QDateTime rpt = SOD::parseEngineDateTime(
             ctx_.option("REPORT_START_DATE"),
             ctx_.option("REPORT_START_TIME", "00:00:00"));
         if (rpt.isValid()) m_reportStartEdit->setDateTime(rpt);
     }
-    m_reportStartEdit->setMinimumDateTime(m_startEdit->dateTime());
     updateDurationLabel();
 
     // Engine round-trip for step values is loose: a step may come back as
