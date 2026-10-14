@@ -2424,14 +2424,14 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     int belowMinimum=0;
     for (int i=0;i<result.triangles.size();++i) {
         if ((i&8191)==0 && promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
-        const auto &cell=result.triangles[i]; bool small=false; double angle=180;
+        const auto &cell=result.triangles[i]; bool hasUndersizedEdge=false; double angle=180;
         for (int k=0;k<cell.vertexCount();++k) {
             const auto &a=result.vertices[cell.vertex(k)].xy;
             const auto &b=result.vertices[cell.vertex((k+1)%cell.vertexCount())].xy;
             const auto &c=result.vertices[cell.vertex((k+cell.vertexCount()-1)%cell.vertexCount())].xy;
             const double edge=std::hypot(a.x()-b.x(),a.y()-b.y());
             smallest=std::min(smallest,edge); largest=std::max(largest,edge);
-            small=small || edge<in.minCellSize*(1-1e-9);
+            hasUndersizedEdge=hasUndersizedEdge || edge<in.minCellSize*(1-1e-9);
             if (i%stride==0) sampledEdges.append(edge);
             const QPointF u=b-a,v=c-a;
             const double denom=std::hypot(u.x(),u.y())*std::hypot(v.x(),v.y());
@@ -2439,7 +2439,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
         minAngle=std::min(minAngle,angle);
         if (i%stride==0) sampledAngles.append(angle);
-        if (small) {++belowMinimum;exceptionCells.insert(i);}
+        if (hasUndersizedEdge) {++belowMinimum;exceptionCells.insert(i);}
         if (angle<in.genOpts.minAngleDeg-1e-6) exceptionCells.insert(i);
     }
     auto quantile=[](QVector<double> &values,double q) {
