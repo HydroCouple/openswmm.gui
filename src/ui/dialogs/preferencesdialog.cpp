@@ -3,6 +3,9 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  */
+#include "ui/widgets/meshresolutionwidget.h"
+#include <QMessageBox>
+
 
 #include "ui/dialogs/preferencesdialog.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -1163,41 +1166,13 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     cplLay->addWidget(rainGroup);
 
     // ── Mesh generation seeds ────────────────────────────────────────────
-    auto *meshGroup = new QGroupBox(tr("Mesh generation defaults"), page);
+    auto *meshTabs = new QTabWidget(page);
+    meshTabs->setObjectName(QStringLiteral("meshDefaultsTabs"));
+    m_meshResolution = new MeshResolutionWidget(meshTabs);
+    meshTabs->addTab(m_meshResolution,tr("Cell size and terrain"));
+    auto *meshGroup = new QGroupBox(tr("Geometry and elevation defaults"), meshTabs);
     auto *meshForm  = new QFormLayout(meshGroup);
-
-    m_twoDMeshCellSizeSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshCellSizeSpin->setRange(0.0, 1e9);
-    m_twoDMeshCellSizeSpin->setDecimals(3);
-    m_twoDMeshCellSizeSpin->setSuffix(QStringLiteral(" m"));
-    m_twoDMeshCellSizeSpin->setSpecialValueText(tr("from extent"));
-    meshForm->addRow(tr("Cell size at features"), m_twoDMeshCellSizeSpin);
-
-    m_twoDMeshCoarsenSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshCoarsenSpin->setRange(1.0, 1000.0);
-    m_twoDMeshCoarsenSpin->setDecimals(1);
-    m_twoDMeshCoarsenSpin->setPrefix(QStringLiteral("× "));
-    meshForm->addRow(tr("Coarsen away from features up to"), m_twoDMeshCoarsenSpin);
-
-    m_twoDMeshSizeRatioSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshSizeRatioSpin->setRange(1.05, 2.0);
-    m_twoDMeshSizeRatioSpin->setDecimals(2);
-    m_twoDMeshSizeRatioSpin->setSingleStep(0.05);
-    meshForm->addRow(tr("Size ratio between neighbouring cells"), m_twoDMeshSizeRatioSpin);
-
-    m_twoDMeshMinCellSizeSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshMinCellSizeSpin->setRange(0.0, 1e9);
-    m_twoDMeshMinCellSizeSpin->setDecimals(3);
-    m_twoDMeshMinCellSizeSpin->setSuffix(QStringLiteral(" m"));
-    m_twoDMeshMinCellSizeSpin->setSpecialValueText(tr("cell size / 4"));
-    meshForm->addRow(tr("Minimum cell size"), m_twoDMeshMinCellSizeSpin);
-
-    m_twoDMeshTerrainTolSpin = new QDoubleSpinBox(meshGroup);
-    m_twoDMeshTerrainTolSpin->setRange(0.0, 1e6);
-    m_twoDMeshTerrainTolSpin->setDecimals(3);
-    m_twoDMeshTerrainTolSpin->setSuffix(QStringLiteral(" m"));
-    m_twoDMeshTerrainTolSpin->setSpecialValueText(tr("off"));
-    meshForm->addRow(tr("Terrain tolerance"), m_twoDMeshTerrainTolSpin);
+    meshTabs->addTab(meshGroup,tr("Geometry and elevation"));
 
     m_twoDMeshMinAngleSpin = new QDoubleSpinBox(meshGroup);
     m_twoDMeshMinAngleSpin->setRange(20.0, 33.0);
@@ -1270,7 +1245,7 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
         tr("Write mesh to external file ([2D_MESH_FILE])"), meshGroup);
     meshForm->addRow(QString(), m_twoDMeshOutputExternalBox);
 
-    meshLay->addWidget(meshGroup);
+    meshLay->addWidget(meshTabs);
 }
 
 QWidget *PreferencesDialog::buildMapDisplayPage()
@@ -1815,11 +1790,7 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     selData(m_twoDRainfallModeCombo, d.rainfallMode);
     m_twoDReport2DBox        ->setChecked(d.report2D);
 
-    m_twoDMeshCellSizeSpin      ->setValue(d.meshCellSizeM);
-    m_twoDMeshCoarsenSpin       ->setValue(d.meshCoarsenFactor);
-    m_twoDMeshSizeRatioSpin     ->setValue(d.meshSizeRatio);
-    m_twoDMeshMinCellSizeSpin   ->setValue(d.meshMinCellSizeM);
-    m_twoDMeshTerrainTolSpin    ->setValue(d.meshTerrainToleranceM);
+    m_meshResolution->setSettings(d.resolutionSettings());
     m_twoDMeshMinAngleSpin      ->setValue(d.meshMinAngleDeg);
     m_twoDMeshStreetQuadsBox    ->setChecked(d.meshQuadsBetweenBreaklines);
     m_twoDMeshTrimTurnSpin      ->setValue(d.meshTrimTurnDeg);
@@ -1971,11 +1942,7 @@ void PreferencesDialog::writeToManager()
         d.rainfallMode       = m_twoDRainfallModeCombo  ->currentData().toString();
         d.report2D           = m_twoDReport2DBox        ->isChecked();
 
-        d.meshCellSizeM         = m_twoDMeshCellSizeSpin      ->value();
-        d.meshCoarsenFactor     = m_twoDMeshCoarsenSpin       ->value();
-        d.meshSizeRatio         = m_twoDMeshSizeRatioSpin     ->value();
-        d.meshMinCellSizeM      = m_twoDMeshMinCellSizeSpin   ->value();
-        d.meshTerrainToleranceM = m_twoDMeshTerrainTolSpin    ->value();
+        d.meshResolution = m_meshResolution->settings();
         d.meshMinAngleDeg       = m_twoDMeshMinAngleSpin      ->value();
         d.meshQuadsBetweenBreaklines = m_twoDMeshStreetQuadsBox->isChecked();
         d.meshTrimTurnDeg       = m_twoDMeshTrimTurnSpin      ->value();
@@ -2053,11 +2020,17 @@ void PreferencesDialog::writeToManager()
 
 void PreferencesDialog::onApply()
 {
+    if (const QString error=m_meshResolution->settings().validate(); !error.isEmpty()) {
+        QMessageBox::warning(this,tr("Mesh resolution settings"),error); return;
+    }
     writeToManager();
 }
 
 void PreferencesDialog::onAccept()
 {
+    if (const QString error=m_meshResolution->settings().validate(); !error.isEmpty()) {
+        QMessageBox::warning(this,tr("Mesh resolution settings"),error); return;
+    }
     writeToManager();
     accept();
 }

@@ -46,6 +46,23 @@ class TestMeshGenerator : public QObject
 
 private slots:
 
+    void noGlobalSizeAndNoLimitHookDoNotRestoreUniformCap()
+    {
+        MeshGenerator g;
+        g.setDomain(QPolygonF(QVector<QPointF>{{0,0},{100,0},{100,100},{0,100}}));
+        GenerationOptions options; options.maxArea=0; options.minCellSize=1; options.minAngleDeg=0; options.latticeSeeding=true;
+        g.setOptions(options);
+        auto result=g.generate(); QVERIFY2(result.ok,qPrintable(result.errorMsg)); QCOMPARE(result.triangles.size(),2);
+        options.maxArea=1; g.setOptions(options);
+        RefineHook hook; hook.targetAreaAt=[](double,double){return 0.0;}; g.setRefineHook(hook);
+        result=g.generate(); QVERIFY2(result.ok,qPrintable(result.errorMsg)); QCOMPARE(result.triangles.size(),2);
+        ConstraintSegment strip; strip.path={{10,50},{90,50}}; strip.marker=7; strip.stripWidth=6;
+        g.addConstraintSegment(strip);
+        result=g.generate(); QVERIFY2(result.ok,qPrintable(result.errorMsg)); QVERIFY(result.triangles.size()<10000);
+        hook.targetAreaAt=[](double,double){return 100.0;}; g.setRefineHook(hook);
+        result=g.generate(); QVERIFY2(result.ok,qPrintable(result.errorMsg)); QVERIFY(result.triangles.size()>2);
+    }
+
     /*! Empty domain → ok=false, no crash, clear errorMsg. */
     void emptyDomain_failsCleanly()
     {

@@ -1752,6 +1752,7 @@ set(
         src/ui/widgets/stylepropertydelegate.cpp
         # Phase GG0d — mesh generation region-defaults table impl.
         src/ui/widgets/meshregiondefaultswidget.cpp
+        src/ui/widgets/meshresolutionwidget.cpp
         src/ui/widgets/corridorsourceswidget.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────

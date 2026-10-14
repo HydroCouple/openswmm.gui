@@ -3,6 +3,8 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  */
+#include <QJsonDocument>
+
 
 #include "core/preferencesmanager.h"
 
@@ -1740,6 +1742,8 @@ PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
     d.meshTerrainToleranceM = readTwoDSetting<double>(s, QStringLiteral("MeshTerrainToleranceM"), d.meshTerrainToleranceM);
     // Same key as the pre-overhaul Triangle bound: a saved value carries over
     // (the triangle engine gives it the same meaning, MESH_TRIANGLE_ENGINE_PLAN D10).
+    const auto resolutionJson=readTwoDSetting<QByteArray>(s, QStringLiteral("MeshResolutionJson"), {});
+    if (!resolutionJson.isEmpty()) d.meshResolution=mesh::ResolutionSettings::fromJson(QJsonDocument::fromJson(resolutionJson).object());
     d.meshMinAngleDeg       = std::clamp(readTwoDSetting<double>(s, QStringLiteral("MeshMinAngleDeg"), d.meshMinAngleDeg), 20.0, 33.0);
     d.meshQuadsBetweenBreaklines = readTwoDSetting<bool>(s, QStringLiteral("MeshQuadsBetweenBreaklines"), d.meshQuadsBetweenBreaklines);
     d.meshTrimTurnDeg       = readTwoDSetting<double>(s, QStringLiteral("MeshTrimTurnDeg"),       d.meshTrimTurnDeg);
@@ -1798,6 +1802,7 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     put(QStringLiteral("RainfallMode"),       d.rainfallMode);
     put(QStringLiteral("Report2D"),           d.report2D);
 
+    put(QStringLiteral("MeshResolutionJson"), QJsonDocument(d.resolutionSettings().toJson()).toJson(QJsonDocument::Compact));
     put(QStringLiteral("MeshCellSizeM"),         d.meshCellSizeM);
     put(QStringLiteral("MeshCoarsenFactor"),     d.meshCoarsenFactor);
     put(QStringLiteral("MeshSizeRatio"),         d.meshSizeRatio);

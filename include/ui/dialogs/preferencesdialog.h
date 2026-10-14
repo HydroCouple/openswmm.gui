@@ -16,6 +16,8 @@
 
 #include <QDialog>
 
+class MeshResolutionWidget;
+
 #include <QColor>
 #include <QFont>
 
@@ -223,11 +225,7 @@ private:
     QCheckBox      *m_twoDCouplingAreaAutoBox = nullptr;
     QComboBox      *m_twoDRainfallModeCombo   = nullptr;
     QCheckBox      *m_twoDReport2DBox         = nullptr;
-    QDoubleSpinBox *m_twoDMeshCellSizeSpin    = nullptr;
-    QDoubleSpinBox *m_twoDMeshCoarsenSpin     = nullptr;
-    QDoubleSpinBox *m_twoDMeshSizeRatioSpin   = nullptr;
-    QDoubleSpinBox *m_twoDMeshMinCellSizeSpin = nullptr;
-    QDoubleSpinBox *m_twoDMeshTerrainTolSpin  = nullptr;
+    MeshResolutionWidget *m_meshResolution = nullptr;
     QDoubleSpinBox *m_twoDMeshMinAngleSpin    = nullptr;
     QCheckBox      *m_twoDMeshStreetQuadsBox  = nullptr;
     QDoubleSpinBox *m_twoDMeshTrimTurnSpin    = nullptr;

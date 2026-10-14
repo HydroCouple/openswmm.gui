@@ -21,6 +21,7 @@
 
 #include "render/colorramp.h"
 #include "plot/numberformat.h"
+#include "mesh/meshresolution.h"
 
 #include <QBrush>
 #include <QColor>
@@ -528,14 +529,24 @@ public:
         bool    report2D           = false;   ///< REPORT_2D
 
         // Mesh-generation seeds (SI canonical; the dialog unit-scales).
-        // MESH_OVERHAUL_PLAN_2026-09-29.md §3: the eleven-control surface.
-        // Defaults chosen by the user 2026-10-03 (20 ft cells, x1000 largest,
-        // ratio 2, 20 ft vertical error at cell scale, 33 degrees).
-        double  meshCellSizeM        = 6.096; ///< 20 ft; 0 = derive from the model extent
-        double  meshCoarsenFactor    = 1000.0; ///< h_max = cell size × this (MESH_TRIANGLE_ENGINE_PLAN D14)
+        // Version 2 defaults: 20 ft minimum, no maximum, automatic elevation
+        // tolerance. Legacy fields remain readable for old preferences.
+        double  meshCellSizeM        = 0.0; ///< 0 = inherit minimum target for new configurations
+        double  meshCoarsenFactor    = 0.0; ///< Legacy multiplier; 0 = no maximum for new configurations
         double  meshSizeRatio        = 2.0;   ///< neighbour edge-length ratio
         double  meshMinCellSizeM     = 6.096; ///< 20 ft; 0 = cell size / 4
-        double  meshTerrainToleranceM = 6.096; ///< 20 ft maximum vertical error; 0 = automatic
+        double  meshTerrainToleranceM = 0.0; ///< 0 = automatic elevation estimate
+        std::optional<mesh::ResolutionSettings> meshResolution;
+        mesh::ResolutionSettings resolutionSettings() const {
+            if (meshResolution) return *meshResolution;
+            mesh::ResolutionSettings r;
+            r.minimumM=meshMinCellSizeM>0?meshMinCellSizeM:meshCellSizeM>0?meshCellSizeM/4:6.096;
+            if (meshCellSizeM>0) r.featureM=meshCellSizeM;
+            if (meshCoarsenFactor>0) r.maximumM=r.featureM.value_or(r.minimumM)*meshCoarsenFactor;
+            if (meshTerrainToleranceM>0) r.toleranceM=meshTerrainToleranceM;
+            r.breaklineToleranceM=r.toleranceM; r.transition=meshSizeRatio;
+            return r;
+        }
         /// Every triangle's smallest angle reaches this (degrees, 20–33;
         /// MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md D10).
         double  meshMinAngleDeg      = 33.0;

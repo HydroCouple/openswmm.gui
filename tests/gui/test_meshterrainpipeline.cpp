@@ -257,6 +257,95 @@ class TestMeshTerrainPipeline : public QObject
     }
 
 private slots:
+    void independentResolutionControls()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA",".")).absoluteFilePath("../../verification/mesh_controls_2026-10-13/independent"));
+        Inputs in; QVERIFY(prepareBurnFixture(dir,in,false)); in.burnEnabled=false; in.auxPoints.clear();
+        mesh::ResolutionSettings r; r.minimumM=1; r.toleranceM=.05; r.alignTerrain=false; r.reference=mesh::ResolutionSettings::Reference::Full;
+        in.resolution=r; in.genOpts.minAngleDeg=0; in.quadMode=0;
+        auto coarse=run(in); QVERIFY2(coarse.ok,qPrintable(coarse.errorMsg)); QCOMPARE(coarse.meshResult.triangles.size(),2);
+        QCOMPARE(coarse.generationStats.terrainUnresolved,0); QVERIFY(coarse.summary.contains("No limit"));
+        r.maximumM=4; in.resolution=r;
+        const auto fine=run(in); QVERIFY2(fine.ok,qPrintable(fine.errorMsg)); QVERIFY(fine.meshResult.triangles.size()>coarse.meshResult.triangles.size());
+        r.maximumM.reset(); r.featureM=2; r.refineFeatures=false; in.resolution=r;
+        const auto off=run(in); QVERIFY2(off.ok,qPrintable(off.errorMsg)); QCOMPARE(off.meshResult.triangles.size(),2);
+        in.dtmPath.clear(); r.terrain=mesh::ResolutionSettings::Terrain::Off; in.resolution=r;
+        in.auxPoints={{{16,16},10.0,true}}; // Elevation source without any extra size target.
+        const auto noDem=run(in); QVERIFY2(noDem.ok,qPrintable(noDem.errorMsg)); QCOMPARE(noDem.meshResult.triangles.size(),4);
+    }
+
+    void breaklinesStayIndependentOfElevationTolerance()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA",".")).absoluteFilePath("../../verification/mesh_controls_2026-10-13/breaklines"));
+        Inputs in; QVERIFY(prepareBurnFixture(dir,in,false)); in.burnEnabled=false; in.auxPoints.clear(); in.quadMode=0;
+        auto *ds=static_cast<GDALDataset *>(GDALOpen(in.dtmPath.toUtf8().constData(),GA_Update)); QVERIFY(ds);
+        std::vector<float> values(1600);
+        for (int y=0;y<40;++y) for(int x=0;x<40;++x) values[y*40+x]=(x>=16 && x<24)?8.f:10.f;
+        QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write,0,0,40,40,values.data(),40,40,GDT_Float32,0,0),CE_None); GDALClose(ds);
+        mesh::ResolutionSettings r; r.minimumM=1; r.toleranceM=.05; r.breaklineToleranceM=.2; r.reference=mesh::ResolutionSettings::Reference::Full;
+        in.resolution=r; in.genOpts.minAngleDeg=20;
+        const auto tight=run(in); QVERIFY2(tight.ok,qPrintable(tight.errorMsg));
+        r.toleranceM=6.096; in.resolution=r;
+        const auto loose=run(in); QVERIFY2(loose.ok,qPrintable(loose.errorMsg));
+        QVERIFY(tight.metrics.value("breaklineCount").toInt()>0);
+        QCOMPARE(loose.metrics.value("breaklineCount"),tight.metrics.value("breaklineCount"));
+        QCOMPARE(loose.metrics.value("breaklineSignature"),tight.metrics.value("breaklineSignature"));
+        QCOMPARE(loose.metrics.value("breaklineToleranceM"),tight.metrics.value("breaklineToleranceM"));
+        r.terrain=mesh::ResolutionSettings::Terrain::Off; in.resolution=r;
+        const QDir cold(dir.filePath("terrain-off-cold")); QVERIFY(QDir().mkpath(cold.path()));
+        in.inpPath=cold.filePath("model.inp");
+        QVERIFY(writeBytes(in.inpPath,"[OPTIONS]\nFLOW_UNITS CMS\n"));
+        const auto off=run(in); QVERIFY2(off.ok,qPrintable(off.errorMsg));
+        QCOMPARE(off.metrics.value("breaklineCount"),tight.metrics.value("breaklineCount"));
+        QCOMPARE(off.metrics.value("breaklineSignature"),tight.metrics.value("breaklineSignature"));
+        QFile report(dir.filePath("comparison.json")); QVERIFY(report.open(QIODevice::WriteOnly));
+        report.write(QJsonDocument(QJsonObject{{"tight",tight.metrics},{"loose",loose.metrics},{"terrainOff",off.metrics}}).toJson());
+    }
+
+    void resolutionUsesPhysicalHorizontalAndVerticalUnits()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA",".")).absoluteFilePath("../../verification/mesh_controls_2026-10-13/units"));
+        Inputs in; QVERIFY(prepareBurnFixture(dir,in,false)); in.burnEnabled=false; in.auxPoints.clear(); in.quadMode=0;
+        mesh::ResolutionSettings r; r.minimumM=1; r.maximumM=4; r.toleranceM=.1524;
+        r.alignTerrain=false; r.reference=mesh::ResolutionSettings::Reference::Direct; in.resolution=r;
+        in.genOpts.minAngleDeg=0;
+        for (double horizontal:{1.0,.3048,1200.0/3937.0}) {
+            OGRSpatialReference crs; QCOMPARE(crs.importFromEPSG(3857),OGRERR_NONE);
+            QCOMPARE(crs.SetLinearUnitsAndUpdateParameters("test length",horizontal),OGRERR_NONE);
+            char *wkt=nullptr; crs.exportToWkt(&wkt); in.meshCRSWkt=QString::fromUtf8(wkt); CPLFree(wkt);
+            in.meshLinearUnitToSI=horizontal; in.verticalUnitToSI=.3048; in.zConversionFactor=1/.3048;
+            const double extent=32/horizontal;
+            in.domains={QPolygonF(QVector<QPointF>{{0,0},{extent,0},{extent,extent},{0,extent}})};
+            in.modelExtent=MapExtent(0,0,extent,extent);
+            const auto result=run(in); QVERIFY2(result.ok,qPrintable(result.errorMsg));
+            QCOMPARE(result.metrics.value("minTargetM").toDouble(),1.0);
+            QCOMPARE(result.metrics.value("maxTargetM").toDouble(),4.0);
+            QVERIFY(std::abs(result.terrainToleranceUsed-.5)<1e-12);
+            QVERIFY(result.meshResult.triangles.size()>2);
+            QCOMPARE(result.generationStats.terrainUnresolved,0);
+            for (const auto &v:result.meshResult.vertices) QVERIFY(std::abs(v.z*.3048-10)<1e-5);
+        }
+    }
+
+    void averagedReferenceNeverSilentlyFallsBack()
+    {
+        const QDir dir(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA",".")).absoluteFilePath("../../verification/mesh_controls_2026-10-13/reference"));
+        Inputs in; QVERIFY(prepareBurnFixture(dir,in,false)); in.burnEnabled=false; in.auxPoints.clear(); in.quadMode=0;
+        mesh::ResolutionSettings r; r.minimumM=2; r.alignTerrain=false; r.toleranceM=.1; in.resolution=r;
+        const auto cold=run(in),warm=run(in); QVERIFY2(cold.ok,qPrintable(cold.errorMsg)); QVERIFY2(warm.ok,qPrintable(warm.errorMsg));
+        QCOMPARE(cold.metrics.value("terrainDecimation").toInt(),2);
+        QCOMPARE(cold.meshResult.vertices.size(),warm.meshResult.vertices.size());
+        for(int i=0;i<cold.meshResult.vertices.size();++i) {QCOMPARE(cold.meshResult.vertices[i].xy,warm.meshResult.vertices[i].xy);QCOMPARE(cold.meshResult.vertices[i].z,warm.meshResult.vertices[i].z);}
+        // A regular file where a directory is needed gives a portable cache
+        // failure without relying on account privileges or chmod behavior.
+        const QDir blocked(dir.filePath("blocked")); QVERIFY(QDir().mkpath(blocked.path()));
+        QVERIFY(writeBytes(blocked.filePath(".meshcache"),"not a directory"));
+        in.inpPath=blocked.filePath("model.inp"); QVERIFY(writeBytes(in.inpPath,"[OPTIONS]\nFLOW_UNITS CMS\n"));
+        const auto bad=run(in); QVERIFY(!bad.ok); QVERIFY(bad.errorMsg.contains("averaged",Qt::CaseInsensitive));
+        r.reference=mesh::ResolutionSettings::Reference::Direct; in.resolution=r;
+        const auto full=run(in); QVERIFY2(full.ok,qPrintable(full.errorMsg));
+    }
+
     void bundledChannelBoundaryExample()
     {
         const QDir source(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA","."))
@@ -305,7 +394,10 @@ private slots:
         const auto terrainFilesBefore=QDir(dir.filePath("terrain")).entryList(QDir::Files);
         Inputs in;QVERIFY2(dialog.collectInputs(&in,&error),qPrintable(error));
         QCOMPARE(in.boundaryKind,Inputs::BoundaryKind::VectorFile);
-        QCOMPARE(in.cellSize,4.);QCOMPARE(in.terrainTolerance,.1);
+        QVERIFY(in.resolution.has_value());
+        QCOMPARE(in.resolution->featureM.value(),4.);
+        QCOMPARE(in.cellSize,in.minCellSize); // Extra feature refinement is off.
+        QCOMPARE(in.terrainTolerance,.1);
         auto generated=run(in);QVERIFY2(generated.ok,qPrintable(generated.errorMsg));
         QVERIFY(!generated.burnRan);
         QVERIFY2(adoptBurn(window.get(),generated,&error),qPrintable(error));
@@ -807,7 +899,7 @@ NODE C interior
     // Opt-in reproduction of a real project through the dialog's own input
     // collection: SWMMVIS_REPRO_INP, SWMMVIS_REPRO_DEM, SWMMVIS_REPRO_BOUNDARY
     // (vector file), SWMMVIS_REPRO_OUT (review folder). Optional:
-    // SWMMVIS_REPRO_CELL / _MINCELL (model length units), _COARSEN, _BURN=0,
+    // SWMMVIS_REPRO_CELL / _MINCELL / _MAXSIZE (model length units), _BURN=0,
     // _QUADCORRIDOR=0|1, _MAXCELLS (cell budget).
     // Writes the final mesh.2dm and before/after timings in report.txt under _OUT.
     void projectReproduction()
@@ -829,13 +921,13 @@ NODE C interior
         const auto restoreUnits=qScopeGuard([previous=UnitSystem::activeProject()]{UnitSystem::setActiveProject(previous);});
         UnitSystem::setActiveProject(window->unitSystem());
         auto *dem=new GISRasterLayer(demPath);
-        auto *boundary=new GISVectorLayer(boundaryPath,QFileInfo(boundaryPath).completeBaseName());
+        auto *boundary=boundaryPath=="subcatchments"?nullptr:new GISVectorLayer(boundaryPath,QFileInfo(boundaryPath).completeBaseName());
         window->canvas()->addLayer(dem,false);
-        window->canvas()->addLayer(boundary,false);
+        if(boundary) window->canvas()->addLayer(boundary,false);
         MeshGenerationDialog dialog(window.get(),nullptr);
         const int demIndex=dialog.m_dtmCombo->findData(QVariant::fromValue<void *>(dem));
         QVERIFY(demIndex>=0); dialog.m_dtmCombo->setCurrentIndex(demIndex);
-        const int bIndex=dialog.m_boundaryLayerCombo->findData(QVariant::fromValue<void *>(boundary));
+        const int bIndex=dialog.m_boundaryLayerCombo->findData(QVariant::fromValue<void *>(boundary?static_cast<void *>(boundary):reinterpret_cast<void *>(0x1)));
         QVERIFY(bIndex>=0); dialog.m_boundaryLayerCombo->setCurrentIndex(bIndex);
         auto spin=[&](const char *name,const char *env){
             if(!qEnvironmentVariableIsSet(env)) return;
@@ -844,14 +936,24 @@ NODE C interior
         };
         spin("meshCellSizeSpin","SWMMVIS_REPRO_CELL");
         spin("meshMinCellSizeSpin","SWMMVIS_REPRO_MINCELL");
-        spin("meshCoarsenSpin","SWMMVIS_REPRO_COARSEN");
+        spin("meshMaxCellSizeSpin","SWMMVIS_REPRO_MAXSIZE");
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_MAXSIZE"))
+            dialog.findChild<QComboBox *>("meshMaximumMode")->setCurrentIndex(qEnvironmentVariable("SWMMVIS_REPRO_MAXSIZE").toDouble()>0?1:0);
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_CELL")) dialog.findChild<QComboBox *>("meshFeatureMode")->setCurrentIndex(1);
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_TERRAINTOL")) dialog.findChild<QComboBox *>("meshToleranceMode")->setCurrentIndex(1);
+        spin("meshBreaklineTolSpin","SWMMVIS_REPRO_BREAKLINETOL");
+        if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_BREAKLINETOL")) dialog.findChild<QComboBox *>("meshBreaklineMode")->setCurrentIndex(1);
         spin("meshTerrainTolSpin","SWMMVIS_REPRO_TERRAINTOL");
         if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_QUADMODE"))
             if(auto *mode=dialog.findChild<QComboBox *>(QStringLiteral("meshQuadModeCombo")))
                 mode->setCurrentIndex(qEnvironmentVariableIntValue("SWMMVIS_REPRO_QUADMODE"));
         if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_TERRAINREF"))
             if(auto *ref=dialog.findChild<QComboBox *>(QStringLiteral("meshTerrainReferenceCombo")))
-                ref->setCurrentIndex(qEnvironmentVariableIntValue("SWMMVIS_REPRO_TERRAINREF"));
+            {
+                const int value=qEnvironmentVariableIntValue("SWMMVIS_REPRO_TERRAINREF");
+                ref->setCurrentIndex(value==0?0:1);
+                dialog.findChild<QCheckBox *>("meshReadTerrainDirectBox")->setChecked(value==2);
+            }
         if(qEnvironmentVariableIsSet("SWMMVIS_REPRO_CONDUITS"))
             if(auto *conduits=dialog.findChild<QCheckBox *>(QStringLiteral("meshConduitsBox")))
                 conduits->setChecked(qEnvironmentVariable("SWMMVIS_REPRO_CONDUITS")!="0");
@@ -1007,6 +1109,16 @@ NODE C interior
             for(int i=0;i<m.vertices.size();++i)
                 ts << "ND " << i+1 << ' ' << m.vertices[i].xy.x() << ' ' << m.vertices[i].xy.y() << ' ' << m.vertices[i].z << '\n';
         }
+        QFile metrics(out.filePath("metrics.json")); QVERIFY(metrics.open(QIODevice::WriteOnly));
+        auto record=result.metrics;
+        if(in.resolution) record["settings"]=in.resolution->toJson();
+        record["meshCRSWkt"]=in.meshCRSWkt;
+        record["terrainPath"]=in.dtmPath;
+        record["terrainZFactor"]=in.zConversionFactor;
+        record["meshLinearUnitToSI"]=in.meshLinearUnitToSI;
+        record["verticalUnitToSI"]=in.verticalUnitToSI;
+        metrics.write(QJsonDocument(record).toJson());
+        report << result.summary;
         QFile f(out.filePath("report.txt"));
         QVERIFY(f.open(QIODevice::WriteOnly|QIODevice::Text));
         f.write(report.join('\n').toUtf8()+'\n');
@@ -1381,13 +1493,13 @@ NODE C interior
         const auto savedFiles=QDir(inputs.burnOutputDir).entryList(QDir::Files);
         QFile source(inputs.dtmPath);QVERIFY(source.open(QIODevice::ReadOnly));
         const auto originalSource=source.readAll();source.close();
-        if(laterFailure) inputs.genOpts.maxArea=0;
+        if(laterFailure) inputs.domains={QPolygonF(QVector<QPointF>{{0,0},{32,32}})};
         auto generated=run(inputs);
         QCOMPARE(generated.ok,!laterFailure);
         QCOMPARE(QDir(inputs.burnOutputDir).entryList(QDir::Files),savedFiles);
         QVERIFY(source.open(QIODevice::ReadOnly));QCOMPARE(source.readAll(),originalSource);
         if(laterFailure) {
-            QVERIFY2(generated.errorMsg.contains("no cell size"),qPrintable(generated.errorMsg));
+            QVERIFY2(generated.errorMsg.contains("domain",Qt::CaseInsensitive),qPrintable(generated.errorMsg));
             QVERIFY(!generated.generatedArtifacts);
         } else {
             QVERIFY(generated.burnRan);QVERIFY(generated.generatedArtifacts);
@@ -1696,7 +1808,7 @@ NODE C interior
      *  through the real worker. With a terrain tolerance the curbs come back
      *  as mesh edges (vertices exactly on the pixel-centre rows the
      *  extractor traces); with street quads the carriageway between them is
-     *  a strip of aligned quads; without a tolerance no line is laid. */
+     *  a strip of aligned quads; disabling alignment removes the lines. */
     void streetCurbsBecomeMeshEdges()
     {
         const QString root = qEnvironmentVariable("SWMMVIS_TERRAIN_PIPELINE_OUTPUT",
@@ -1798,12 +1910,13 @@ NODE C interior
         inputs.genOpts.quadsBetweenBreaklines = false;
 
         inputs.terrainTolerance = 0.0;
+        inputs.terrainBreaklines = false;
         inputs.meshOutputPath = dir.filePath("without_lines.2dm");
         const auto withoutLines = run(inputs);
         QVERIFY2(withoutLines.ok, qPrintable(withoutLines.errorMsg));
         int onLine = 0;
         for (const auto &v : withoutLines.meshResult.vertices) if (onCurb(v.xy)) ++onLine;
-        QVERIFY2(onLine < 4, qPrintable(QStringLiteral("%1 vertices on the curb rows without a tolerance").arg(onLine)));
+        QVERIFY2(onLine < 4, qPrintable(QStringLiteral("%1 vertices on the curb rows with alignment off").arg(onLine)));
     }
 };
 

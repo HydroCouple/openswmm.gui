@@ -683,7 +683,7 @@ QVector<Poly> prepareTerrainLines(const QVector<QVector<QPointF>> &lines,
                                   const QVector<QVector<QPointF>> &excludedRings,
                                   const QVector<SteinerPoint> &steiners,
                                   double hMin,
-                                  const QVector<ClearEdge> &stripEdges = {})
+                                  const QVector<ClearEdge> &stripEdges = {}, double minimumLength = 0.0)
 {
     QVector<Poly> out;
     if (lines.isEmpty() || !(hMin > 0.0)) return out;
@@ -699,7 +699,7 @@ QVector<Poly> prepareTerrainLines(const QVector<QVector<QPointF>> &lines,
     QVector<double> sorted = lineSeg;
     std::sort(sorted.begin(), sorted.end());
     const double typicalSeg = sorted[sorted.size() / 2] > 0.0 ? sorted[sorted.size() / 2] : hMin;
-    const double minLen = 4.0 * hMin;
+    const double minLen = minimumLength>0?minimumLength:4.0*hMin;
     const double clear = 0.25 * hMin;
 
     SegmentGrid grid;   // cell sized for the typical line; queries take any radius
@@ -1303,7 +1303,7 @@ QVector<QVector<QPointF>> MeshGenerator::previewTerrainBreaklines() const
         if (ring.size() >= 3) excluded.append(QVector<QPointF>(ring.begin(), ring.end()));
     }
     QVector<QVector<QPointF>> out;
-    for (const Poly &p : prepareTerrainLines(m_terrainLines, polys, domainRings, excluded, m_steiners, m_opts.minCellSize))
+    for (const Poly &p : prepareTerrainLines(m_terrainLines, polys, domainRings, excluded, m_steiners, m_opts.minCellSize, {}, m_opts.terrainMinLineLength))
     {
         QVector<QPointF> line = p.pts;
         if (p.closed) line.append(line.first());
@@ -1378,8 +1378,6 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
     // ── Size function ────────────────────────────────────────────────────
     const double hUniform = m_opts.maxArea > 0.0 ? std::sqrt(m_opts.maxArea / kEquilateral) : 0.0;
     const bool haveHook = bool(m_refineHook.targetAreaAt);
-    if (!haveHook && hUniform <= 0.0)
-        return fail(QStringLiteral("MeshGenerator: no cell size — set maxArea or install a size function."));
 
     QVector<QPair<QVector<QPointF>, double>> spacingOverrides;   // quad regions with a spacing
     QVector<QRectF> spacingOverrideBounds;                         // quick reject for hAt
@@ -1414,7 +1412,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         if (haveHook)
         {
             const double a = m_refineHook.targetAreaAt(x, y);
-            if (std::isfinite(a) && a > 0.0) h = std::sqrt(a / kEquilateral);
+            h = std::isfinite(a) && a > 0.0 ? std::sqrt(a / kEquilateral) : 0.0;
         }
         if (overrideSide == 0 || x < overrideExtent.left() || x > overrideExtent.right()
             || y < overrideExtent.top() || y > overrideExtent.bottom()) return h;
@@ -1700,7 +1698,8 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             if (!(L - 2.0 * c >= w)) break;
             const QVector<QPointF> centre = subPolyline(src.pts, c, L - c);
             const QPointF mid = centre[centre.size() / 2];
-            const double hMid = std::max(hClamped(mid.x(), mid.y()), 1e-12);
+            const double requested = hClamped(mid.x(), mid.y());
+            const double hMid = requested>0?requested:std::max(hMin,w);
             // Stations no longer than the room beside the strip either. The
             // spacing below never exceeds 2w / across <= w, so room beyond 2w
             // changes nothing; searching out to the local size (up to the
@@ -1777,7 +1776,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         QVector<QVector<QPointF>> excluded = holeRings;
         for (const QPolygonF &r : std::as_const(patchRings))
             if (r.size() >= 3) excluded.append(QVector<QPointF>(r.begin(), r.end()));
-        terrain = prepareTerrainLines(m_terrainLines, activePolys(), domainRings, excluded, m_steiners, hMin, stripEdges);
+        terrain = prepareTerrainLines(m_terrainLines, activePolys(), domainRings, excluded, m_steiners, hMin, stripEdges, m_opts.terrainMinLineLength);
         // Streets and ditches: facing lines with lower ground between them.
         if (m_opts.quadsBetweenBreaklines && m_refineHook.elevationAt && !terrain.isEmpty())
         {
@@ -1819,7 +1818,8 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             {
                 if (cancelled()) return fail(QStringLiteral("Cancelled."));
                 const QPointF mid = 0.5 * (fp.bankA[fp.bankA.size() / 2] + fp.bankB[fp.bankB.size() / 2]);
-                const double hMid = std::max(hClamped(mid.x(), mid.y()), 1e-12);
+                const double requested = hClamped(mid.x(), mid.y());
+                const double hMid = requested>0?requested:std::max(hMin,fp.width);
                 double hBank = std::max(std::min(minSizeOn(fp.bankA, false), minSizeOn(fp.bankB, false)), 1e-12);
                 hBank = std::min(hBank, std::max(hMin, std::min(clearanceOf(fp.bankA, hBank, kNone, &terrainGrid, fp.lineA, fp.lineB),
                                                                clearanceOf(fp.bankB, hBank, kNone, &terrainGrid, fp.lineA, fp.lineB))));
@@ -1860,7 +1860,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
             // The curbs under a strip are its sides now: prepare the lines
             // again so what remains keeps clear of the strips.
             if (accepted > 0)
-                terrain = prepareTerrainLines(m_terrainLines, activePolys(), domainRings, excluded, m_steiners, hMin, stripEdges);
+                terrain = prepareTerrainLines(m_terrainLines, activePolys(), domainRings, excluded, m_steiners, hMin, stripEdges, m_opts.terrainMinLineLength);
         }
         for (const Poly &p : std::as_const(terrain))
         {
@@ -2003,7 +2003,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
     // the domain and holes, and at least half a spacing from every
     // constraint. Refinement then only fills band transitions and the
     // neighbourhood of constraints, so open areas stay near-equilateral.
-    if (m_opts.latticeSeeding && hMin > 0.0)
+    if (m_opts.latticeSeeding && hMin > 0.0 && (haveHook || hUniform > 0.0 || !spacingOverrides.isEmpty()))
     {
         QRectF bbox;
         for (const auto &r : domainRings) bbox = bbox.isValid() ? bbox.united(QPolygonF(r).boundingRect()) : QPolygonF(r).boundingRect();
@@ -2072,7 +2072,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         qo.terrainWorstFirst = m_refineHook.terrainWorstFirst;
         qo.terrainFinalCheck = m_refineHook.terrainFinalCheck;
         qo.smoothingPasses = m_opts.smoothingPasses;
-        qo.terrainMinSpacing = qo.minEdge;
+        qo.terrainMinSpacing = hMin;
         // Terrain may require far more cells than the coarse size estimate.
         // The explicit cell budget remains the hard resource limit.
         if (qo.terrainError) qo.maxInsertions = std::max(qo.maxInsertions,qo.maxTriangles);

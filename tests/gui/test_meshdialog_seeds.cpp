@@ -25,6 +25,14 @@
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/meshgenerationdialog.h"
 #include "ui/widgets/meshregiondefaultswidget.h"
+#include "ui/widgets/meshresolutionwidget.h"
+#include <QToolButton>
+#include <QTreeWidget>
+#include <QStackedWidget>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QStyle>
+#include <QLabel>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -65,7 +73,7 @@ private slots:
         // Isolated QSettings (PreferencesManager default-constructs its store).
         QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
         QCoreApplication::setApplicationName(QStringLiteral("meshdialog-seeds-test"));
-        m_output=QFileInfo(fixturePath()).absolutePath()+QStringLiteral("/../../output/terrain_adaptive_mesh_2026-10/dialog");
+        m_output=QFileInfo(fixturePath()).absolutePath()+QStringLiteral("/../../verification/mesh_controls_2026-10-13/dialog");
         QVERIFY(QDir().mkpath(m_output));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,m_output);
@@ -113,13 +121,14 @@ private slots:
         QVERIFY(sepB->isChecked());
         QVERIFY(sepS->isEnabled());
         QVERIFY(sepS->value() > 0.0);
-        // User defaults 2026-10-03: 20 ft cells and vertical error, ratio 2.
+        // Independent sizing: 20 ft minimum, no maximum, automatic vertical estimate.
         const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
         QVERIFY(qAbs(cell->value() - 6.096 * toUnit) < 1e-3);
         QCOMPARE(ratio->value(), 2.0);
-        QVERIFY(qAbs(tol->value() - 6.096 * toUnit) < 1e-3);
+        QCOMPARE(seam<QComboBox>(&dlg,"meshMaximumMode")->currentIndex(),0);
+        QCOMPARE(seam<QComboBox>(&dlg,"meshFeatureMode")->currentIndex(),0);
+        QCOMPARE(seam<QComboBox>(&dlg,"meshToleranceMode")->currentIndex(),0);
         QCOMPARE(seam<QComboBox>(&dlg,"meshTerrainModeCombo")->currentIndex(),0);
-        QVERIFY(tol->specialValueText().contains("automatic"));   // still the meaning of 0
         QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->value(),0);   // automatic
         QCOMPARE(seam<QSpinBox>(&dlg,"meshTerrainCacheSpin")->specialValueText(),QStringLiteral("Automatic"));
         QCOMPARE(seam<QSpinBox>(&dlg,"meshMaxCellsSpin")->value(),20'000'000);
@@ -187,8 +196,11 @@ private slots:
         {
             MeshGenerationDialog dialog(m_window,m_window);
             QVERIFY(!dialog.findChild<QCheckBox *>("meshBurnEnabledBox"));
+            seam<QComboBox>(&dialog,"meshFeatureMode")->setCurrentIndex(1);
+            seam<QComboBox>(&dialog,"meshMaximumMode")->setCurrentIndex(1);
+            seam<QComboBox>(&dialog,"meshToleranceMode")->setCurrentIndex(1);
             seam<QDoubleSpinBox>(&dialog,"meshCellSizeSpin")->setValue(12.5);
-            seam<QDoubleSpinBox>(&dialog,"meshCoarsenSpin")->setValue(40);
+            seam<QDoubleSpinBox>(&dialog,"meshMaxCellSizeSpin")->setValue(40);
             seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->setValue(.4);
             seam<QDoubleSpinBox>(&dialog,"meshConduitStripSpin")->setValue(2.5);
             seam<QCheckBox>(&dialog,"meshRefineFeaturesBox")->setChecked(false);
@@ -207,7 +219,7 @@ private slots:
         QCOMPARE(m_window->channelBurnSettings().options.geometryTolerance,.025);
         auto verify=[](MeshGenerationDialog &dialog) {
             QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshCellSizeSpin")->value(),12.5);
-            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshCoarsenSpin")->value(),40.0);
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshMaxCellSizeSpin")->value(),40.0);
             QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->value(),.4);
             QCOMPARE(seam<QDoubleSpinBox>(&dialog,"meshConduitStripSpin")->value(),2.5);
             QVERIFY(!seam<QCheckBox>(&dialog,"meshRefineFeaturesBox")->isChecked());
@@ -242,17 +254,92 @@ private slots:
         m_window->setHasChanges(false);
     }
 
+    void migratesLegacyMultiplierAndSeparatesTolerances()
+    {
+        m_window->setMeshGenerationOptions({{"version",1},{"controls",QJsonObject{
+            {"meshCellSizeSpin",6.096},{"meshMinCellSizeSpin",6.096},{"meshCoarsenSpin",1000.0},
+            {"meshTerrainTolSpin",6.096},{"meshTerrainModeCombo",0}}}});
+        MeshGenerationDialog dialog(m_window,m_window);
+        const double toUnit=UnitSystem::instance()->isSI()?1:1/.3048;
+        QCOMPARE(seam<QComboBox>(&dialog,"meshMaximumMode")->currentIndex(),1);
+        QVERIFY(std::abs(seam<QDoubleSpinBox>(&dialog,"meshMaxCellSizeSpin")->value()-6096*toUnit)<.001);
+        auto *breakline=seam<QDoubleSpinBox>(&dialog,"meshBreaklineTolSpin");
+        QVERIFY(std::abs(breakline->value()-6.096*toUnit)<.001);
+        seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->setValue(.5);
+        QVERIFY(std::abs(breakline->value()-6.096*toUnit)<.001);
+        seam<QComboBox>(&dialog,"meshMaximumMode")->setCurrentIndex(0);
+        dialog.reject();
+        QCOMPARE(m_window->meshGenerationOptions().value("version").toInt(),2);
+        const auto r=mesh::ResolutionSettings::fromJson(m_window->meshGenerationOptions().value("resolution").toObject());
+        QVERIFY(!r.maximumM); QVERIFY(r.breaklineToleranceM);
+        { MeshGenerationDialog restored(m_window,m_window); QCOMPARE(seam<QComboBox>(&restored,"meshMaximumMode")->currentIndex(),0); }
+        m_window->setMeshGenerationOptions({});
+    }
+
+    void sharedEditorPreservesPhysicalSizesAcrossUnitChanges()
+    {
+        MeshResolutionWidget widget;
+        mesh::ResolutionSettings r; r.minimumM=3.048; r.maximumM=30.48; r.toleranceM=.1524; r.breaklineToleranceM=.6096;
+        widget.setSettings(r); widget.setUnits(.3048,"ft");
+        QCOMPARE(widget.minimum->value(),10.0); QCOMPARE(widget.maximum->value(),100.0);
+        QCOMPARE(widget.tolerance->value(),.5); QCOMPARE(widget.breaklineTolerance->value(),2.0);
+        widget.setUnits(1,"m"); QCOMPARE(widget.minimum->value(),3.048); QCOMPARE(widget.maximum->value(),30.48);
+        widget.setUnits(1200.0/3937.0,"US survey ft");
+        QVERIFY(std::abs(widget.settings().minimumM-r.minimumM)<1e-6);
+        QVERIFY(std::abs(widget.settings().toleranceM.value()-r.toleranceM.value())<1e-6);
+        r.maximumM=1; QVERIFY(!r.validate().isEmpty());
+    }
+
     void qualityControlsAreVisible()
     {
         m_window->setMeshGenerationOptions({});
         MeshGenerationDialog dialog(m_window,m_window);
         auto *tabs=dialog.findChild<QTabWidget *>(); QVERIFY(tabs);
         for(int i=0;i<tabs->count();++i) if(tabs->tabText(i).contains("Quality")) tabs->setCurrentIndex(i);
-        dialog.resize(1000,950); dialog.show(); QTest::qWait(100);
-        QVERIFY(seam<QComboBox>(&dialog,"meshTerrainModeCombo")->isVisible());
-        QVERIFY(seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->isVisible());
+        dialog.show(); QTest::qWait(100);
+        QVERIFY(!seam<QComboBox>(&dialog,"meshTerrainModeCombo")->isVisible());
+        QVERIFY(seam<QComboBox>(&dialog,"meshMaximumMode")->isVisible());
+        QVERIFY(!seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->isVisible());
         QVERIFY(seam<QCheckBox>(&dialog,"meshQualityOrderBox")->isChecked());
         QVERIFY(dialog.grab().save(QDir(m_output).filePath("mesh-quality-options.png")));
+        auto *categories=seam<QTreeWidget>(&dialog,"meshSettingsCategories");
+        auto *pages=seam<QStackedWidget>(&dialog,"meshSettingsPages");
+        const QStringList names={"Cell size","Local refinement","Terrain accuracy","Terrain features",
+                                 "Cell shape","Quads and regions","Corridors","Boundaries","Limits"};
+        QCOMPARE(categories->topLevelItemCount(),names.size());
+        categories->setFocus();
+        for (int i=0;i<names.size();++i) {
+            if(i) QTest::keyClick(categories,Qt::Key_Down);
+            QCoreApplication::processEvents();
+            QCOMPARE(categories->currentItem()->text(0),names[i]);
+            QCOMPARE(pages->currentIndex(),i);
+            auto *scroll=qobject_cast<QScrollArea *>(pages->currentWidget()); QVERIFY(scroll);
+            QCOMPARE(scroll->horizontalScrollBar()->maximum(),0);
+            if(names[i]!="Corridors") QCOMPARE(scroll->verticalScrollBar()->maximum(),0);
+            QVERIFY(dialog.grab().save(QDir(m_output).filePath(QString("mesh-quality-%1.png").arg(i))));
+        }
+        QVERIFY(seam<QSpinBox>(&dialog,"meshMaxCellsSpin")->isVisible());
+        // Links must reveal the target page before focusing its control.
+        categories->setCurrentItem(categories->topLevelItem(1));
+        auto *links=seam<QLabel>(&dialog,"meshLocalTargetsLink");
+        QVERIFY(QMetaObject::invokeMethod(links,"linkActivated",Qt::DirectConnection,Q_ARG(QString,"regions")));
+        QCOMPARE(categories->currentItem()->text(0),QString("Quads and regions"));
+        QVERIFY(seam<QComboBox>(&dialog,"meshQuadRegionLayerCombo")->isVisible());
+        categories->setCurrentItem(categories->topLevelItem(1));
+        QVERIFY(QMetaObject::invokeMethod(links,"linkActivated",Qt::DirectConnection,Q_ARG(QString,"corridors")));
+        QCOMPARE(categories->currentItem()->text(0),QString("Corridors"));
+        // Native themes and enlarged UI fonts must not clip the category text.
+        categories->setCurrentItem(categories->topLevelItem(5));
+        for (int points : {12,24}) {
+            QFont font=categories->font(); font.setPointSize(points); categories->setFont(font);
+            QCoreApplication::processEvents();
+            const int padding=2*categories->style()->pixelMetric(QStyle::PM_FocusFrameHMargin);
+            for (const auto &label : names)
+                QTRY_VERIFY(categories->columnWidth(0)>=categories->fontMetrics().horizontalAdvance(label)+padding);
+            QTRY_VERIFY(categories->viewport()->width()>=categories->columnWidth(0));
+            QCOMPARE(categories->horizontalScrollBar()->maximum(),0);
+        }
+        QVERIFY(dialog.grab().save(QDir(m_output).filePath("mesh-category-large-font.png")));
     }
 
 private:

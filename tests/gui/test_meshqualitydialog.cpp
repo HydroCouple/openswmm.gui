@@ -4,14 +4,8 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * The mesh-generation dialog's Quality tab after the overhaul
- * (workplans/MESH_OVERHAUL_PLAN_2026-09-29.md §3): three groups —
- * Resolution, Shape, Boundaries — carrying the eleven controls, every one in
- * a physical unit, seeded from the 2D Defaults preference page.
- *
- * The widgets carry no object names, so they are located structurally — the
- * group box by title, then its children in layout order. The structure IS
- * the thing under test.
+ * Quality controls use independent physical size and accuracy settings,
+ * shared with Preferences. Geometry and shape controls remain separate.
  */
 #include "core/unitsystem.h"
 #include "core/preferencesmanager.h"
@@ -71,16 +65,21 @@ private slots:
         delete m_workspace;
     }
 
-    void threeGroupsCarryElevenControls()
+    void groupsSeparateSizeAccuracyAndGeometry()
     {
-        QGroupBox *res = groupTitled(m_dlg, QStringLiteral("Resolution"));
+        QGroupBox *sizes = groupTitled(m_dlg, QStringLiteral("Cell size"));
+        QGroupBox *local = groupTitled(m_dlg, QStringLiteral("Local refinement"));
+        QGroupBox *terrain = groupTitled(m_dlg, QStringLiteral("Terrain accuracy"));
         QGroupBox *shape = groupTitled(m_dlg, QStringLiteral("Shape"));
         QGroupBox *bnd = groupTitled(m_dlg, QStringLiteral("Boundaries"));
-        QVERIFY2(res && shape && bnd, "Resolution / Shape / Boundaries groups are missing");
-        QCOMPARE(res->findChildren<QDoubleSpinBox *>().size(), 5);   // size, coarsen, ratio, floor, terrain
-        QCOMPARE(shape->findChildren<QComboBox *>().size(), 2);      // region layer, quads mode
-        QCOMPARE(shape->findChildren<QDoubleSpinBox *>().size(), 2); // minimum angle, conduit strip width
-        QCOMPARE(shape->findChildren<QCheckBox *>().size(), 3);      // worst angles first, lattice seeding, quads between facing break lines
+        QVERIFY(sizes && local && terrain && shape && bnd);
+        QCOMPARE(sizes->findChildren<QDoubleSpinBox *>().size(), 3);
+        QCOMPARE(local->findChildren<QDoubleSpinBox *>().size(), 1);
+        QCOMPARE(terrain->findChildren<QDoubleSpinBox *>().size(), 2);
+        QVERIFY(!m_dlg->findChild<QDoubleSpinBox *>("meshCoarsenSpin"));
+        QCOMPARE(shape->findChildren<QComboBox *>().size(), 0);      // quad controls have their own page
+        QCOMPARE(shape->findChildren<QDoubleSpinBox *>().size(), 1); // minimum angle
+        QCOMPARE(shape->findChildren<QCheckBox *>().size(), 2);      // worst angles first, lattice seeding
         QCOMPARE(shape->findChildren<QSpinBox *>().size(), 1);       // smoothing passes
         QCOMPARE(bnd->findChildren<QDoubleSpinBox *>().size(), 2);   // turn, deviation
         // The retired groups are gone.
@@ -93,16 +92,17 @@ private slots:
     void defaultsComeFromPreferencesInPhysicalUnits()
     {
         const auto t = PreferencesManager::instance()->twoDDefaults();
-        QGroupBox *res = groupTitled(m_dlg, QStringLiteral("Resolution"));
-        const auto spins = res->findChildren<QDoubleSpinBox *>();
-        // Cell size: 0 = derived from the extent; ratio and coarsening as seeded.
-        QCOMPARE(spins[0]->specialValueText(), QStringLiteral("(from extent)"));
-        QCOMPARE(spins[1]->value(), t.meshCoarsenFactor);
-        QCOMPARE(spins[2]->value(), t.meshSizeRatio);
-        QCOMPARE(spins[3]->specialValueText(), QStringLiteral("(cell size / 4)"));
-        QCOMPARE(spins[4]->specialValueText(), QStringLiteral("(automatic from DEM)"));   // adaptive terrain is the default mode
-        QVERIFY(spins[2]->minimum() >= 1.0 && spins[2]->maximum() <= 2.0);
-        QVERIFY(spins[0]->suffix().trimmed().size() >= 1);   // a length unit
+        const auto resolution=t.resolutionSettings();
+        const double toUnit=UnitSystem::instance()->isSI()?1.0:1.0/.3048;
+        auto *minimum=m_dlg->findChild<QDoubleSpinBox *>("meshMinCellSizeSpin");
+        auto *transition=m_dlg->findChild<QDoubleSpinBox *>("meshSizeRatioSpin");
+        QVERIFY(minimum && transition);
+        QVERIFY(qAbs(minimum->value()-resolution.minimumM*toUnit)<1e-6);
+        QCOMPARE(transition->value(),resolution.transition);
+        QCOMPARE(m_dlg->findChild<QComboBox *>("meshMaximumMode")->currentIndex(),resolution.maximumM?1:0);
+        QCOMPARE(m_dlg->findChild<QComboBox *>("meshToleranceMode")->currentIndex(),resolution.toleranceM?1:0);
+        QVERIFY(transition->minimum() >= 1.0 && transition->maximum() <= 2.0);
+        QVERIFY(!minimum->suffix().trimmed().isEmpty());
         QGroupBox *bnd = groupTitled(m_dlg, QStringLiteral("Boundaries"));
         const auto bspins = bnd->findChildren<QDoubleSpinBox *>();
         QCOMPARE(bspins[0]->value(), t.meshTrimTurnDeg);
@@ -110,7 +110,6 @@ private slots:
         // Triangle engine (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5).
         QCOMPARE(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshMinAngleSpin"))->value(), t.meshMinAngleDeg);
         QCOMPARE(m_dlg->findChild<QCheckBox *>(QStringLiteral("meshStreetQuadsBox"))->isChecked(), t.meshQuadsBetweenBreaklines);
-        const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;   // 10 ft strips by default
         QVERIFY(qAbs(m_dlg->findChild<QDoubleSpinBox *>(QStringLiteral("meshConduitStripSpin"))->value() - 3.048 * toUnit) < 1e-3);
     }
 

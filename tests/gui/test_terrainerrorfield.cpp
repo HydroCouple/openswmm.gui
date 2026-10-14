@@ -1,3 +1,4 @@
+#include <QLineF>
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "mesh/terrainerrorfield.h"
 #include "mesh/terrainlocalcopy.h"
@@ -126,6 +127,24 @@ private slots:
         QCOMPARE(rep.terrainUnresolved,0);
         QVERIFY(cdt.liveTriangleCount()<1500);
     }
+    void terrainMinimumSpacingStopsBeforeChasingSubscaleRelief()
+    {
+        constexpr int n=65; QVector<float> z(n*n);
+        for(int y=0;y<n;++y) for(int x=0;x<n;++x)
+            z[y*n+x]=float(8*std::exp(-((x-32.)*(x-32.)+(y-32.)*(y-32.))/8));
+        TerrainErrorField f; QVERIFY(f.buildFromGrid(z.data(),n,n));
+        ConstrainedDelaunay cdt; QVector<int> ids;
+        QVERIFY(cdt.build({{.5,.5},{64.5,.5},{64.5,64.5},{.5,64.5}},&ids));
+        for(int i=0;i<4;++i) QVERIFY(cdt.insertConstraint(ids[i],ids[(i+1)%4]));
+        cdt.removeExterior();
+        ConstrainedDelaunay::QualityOptions o; o.minAngleDeg=0; o.terrainTolerance=.001; o.terrainMinSpacing=10; o.terrainWorstFirst=true;
+        o.terrainElevationAt=[&](double x,double y){return f.sampleAt(x,y);};
+        o.terrainError=[&](const QPointF *xy,const double *z,QPointF *out){const auto q=f.queryWorst(xy,z,o.terrainTolerance);*out=q.point;return q.maxError;};
+        const auto rep=cdt.refineQuality(o); QVERIFY(rep.terrainInsertions>0); QVERIFY(rep.terrainUnresolved>0); QVERIFY(!rep.capped);
+        for(const auto &t:cdt.triangles()) if(t.alive) for(int k=0;k<3;++k)
+            QVERIFY(QLineF(cdt.vertices()[t.v[k]],cdt.vertices()[t.v[(k+1)%3]]).length()>=10-1e-8);
+    }
+
     void worstFirstSpendsACappedBudgetOnTheWorstError() {
         // Two mounds of different height on a plane and a tolerance no cap
         // can reach: worst-first must end with a lower maximum error than

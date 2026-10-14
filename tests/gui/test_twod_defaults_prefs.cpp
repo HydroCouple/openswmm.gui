@@ -18,6 +18,7 @@
 #include <QtTest/QtTest>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QSettings>
 #include <QSignalSpy>
 
@@ -31,6 +32,7 @@ private slots:
     void initTestCase();
     void compiledDefaultsPinTheContract();
     void roundTripPersistsAllFields();
+    void explicitResolutionAndLegacyPreferences();
     void setterEmitsPreferenceChanged();
 };
 
@@ -38,6 +40,11 @@ void TestTwoDDefaultsPrefs::initTestCase()
 {
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("twoddefaults-test"));
+    const QString output=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+        .filePath("../../verification/mesh_controls_2026-10-13/preferences");
+    QVERIFY(QDir().mkpath(output));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,output);
     QSettings settings;
     settings.remove(QStringLiteral("SWMMVis/Preferences/TwoDDefaults"));
     settings.sync();
@@ -70,11 +77,14 @@ void TestTwoDDefaultsPrefs::compiledDefaultsPinTheContract()
 
     // Mesh-generation seeds (MESH_OVERHAUL_PLAN_2026-09-29.md §3,
     // MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5; user defaults 2026-10-03).
-    QCOMPARE(d.meshCellSizeM, 6.096);
-    QCOMPARE(d.meshCoarsenFactor, 1000.0);
+    QCOMPARE(d.meshCellSizeM, 0.0);
+    QCOMPARE(d.meshCoarsenFactor, 0.0);
     QCOMPARE(d.meshSizeRatio, 2.0);
     QCOMPARE(d.meshMinCellSizeM, 6.096);
-    QCOMPARE(d.meshTerrainToleranceM, 6.096);
+    QCOMPARE(d.meshTerrainToleranceM, 0.0);
+    QVERIFY(!d.resolutionSettings().maximumM);
+    QVERIFY(!d.resolutionSettings().featureM);
+    QVERIFY(!d.resolutionSettings().toleranceM);
     QCOMPARE(d.meshMinAngleDeg, 33.0);
     QVERIFY(d.meshQuadsBetweenBreaklines);
     QCOMPARE(d.meshTrimTurnDeg, 5.0);
@@ -187,6 +197,33 @@ void TestTwoDDefaultsPrefs::setterEmitsPreferenceChanged()
     const auto args = spy.takeFirst();
     QCOMPARE(args.at(0).toString(), QStringLiteral("Defaults"));
     QCOMPARE(args.at(1).toString(), QStringLiteral("TwoDDefaults"));
+}
+
+void TestTwoDDefaultsPrefs::explicitResolutionAndLegacyPreferences()
+{
+    auto *p=PreferencesManager::instance();
+    QSettings settings;
+    const QString prefix="SWMMVis/Preferences/TwoDDefaults/";
+    settings.remove(prefix+"MeshResolutionJson");
+    settings.setValue(prefix+"MeshCellSizeM",6.096);
+    settings.setValue(prefix+"MeshMinCellSizeM",6.096);
+    settings.setValue(prefix+"MeshCoarsenFactor",1000.0);
+    settings.setValue(prefix+"MeshTerrainToleranceM",6.096);
+    settings.sync();
+    const auto migrated=p->twoDDefaults().resolutionSettings();
+    QCOMPARE(migrated.maximumM.value(),6096.0);
+    QCOMPARE(migrated.toleranceM.value(),6.096);
+    QCOMPARE(migrated.breaklineToleranceM.value(),6.096);
+
+    auto d=p->twoDDefaults();
+    auto r=migrated;
+    r.maximumM.reset(); r.featureM.reset(); r.toleranceM=.1524;
+    r.breaklineToleranceM=.6096; r.averagingM=3.048;
+    r.terrain=mesh::ResolutionSettings::Terrain::Off;
+    d.meshResolution=r;
+    p->setTwoDDefaults(d);
+    QCOMPARE(p->twoDDefaults().resolutionSettings().toJson(),r.toJson());
+    p->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
 }
 
 QTEST_MAIN(TestTwoDDefaultsPrefs)

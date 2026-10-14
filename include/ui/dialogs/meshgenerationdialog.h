@@ -26,6 +26,7 @@
 #include "mesh/meshgenerator.h"
 #include "mesh/meshquadregion.h"
 #include "mesh/meshresult.h"
+#include "mesh/meshresolution.h"
 #include "mesh/inpmeshwriter.h"
 #include "map/mapextent.h"
 
@@ -43,6 +44,7 @@ class QCloseEvent;
 class GISVectorLayer;
 class MeshRegionDefaultsWidget;
 class CorridorSourcesWidget;
+class MeshResolutionWidget;
 
 class QCheckBox;
 class QComboBox;
@@ -157,6 +159,10 @@ public:
         QString meshCRSWkt;
 
         // ── Resolution (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──────────
+        std::optional<mesh::ResolutionSettings> resolution; ///< Version 2 settings in SI; legacy callers may omit.
+        double maximumCellSize = -1; ///< -1 derives legacy multiplier; 0 is unbounded.
+        double breaklineTolerance = -1; ///< -1 retains legacy shared tolerance; 0 estimates independently.
+        double terrainAveragingSize = 0; ///< 0 matches minimum.
         double cellSize      = 0.0;   ///< Target cell size at features (map units).
         double coarsenFactor = 20.0;  ///< h_max = cellSize × this away from features.
         double sizeRatio     = 1.5;   ///< Allowed size ratio between neighbouring cells.
@@ -288,6 +294,9 @@ public:
     {
         bool              ok        = false;
         QString           errorMsg;
+        QString summary;
+        QJsonObject metrics;
+        QVector<int> exceptionCells;
         QStringList       alignmentWarnings; ///< Visible completion notes for degraded quad alignment.
         mesh::MeshResult  meshResult;
         mesh::GenerationStats generationStats; ///< Strips placed/dropped, triangles under the angle bound.
@@ -400,8 +409,8 @@ private:
 
     // ── Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3, MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5) ──
     // Resolution
+    MeshResolutionWidget *m_resolutionWidget = nullptr;
     QDoubleSpinBox *m_cellSizeSpin     = nullptr;  ///< cell size at features (map units)
-    QDoubleSpinBox *m_coarsenSpin      = nullptr;  ///< coarsen away from features up to ×
     QDoubleSpinBox *m_sizeRatioSpin    = nullptr;  ///< size ratio between neighbouring cells
     QDoubleSpinBox *m_minCellSizeSpin  = nullptr;  ///< floor (map units); (cell size / 4) at 0
     QDoubleSpinBox *m_terrainTolSpin   = nullptr;  ///< terrain tolerance (vertical units); (off) at 0
@@ -411,7 +420,6 @@ private:
     QCheckBox      *m_qualityOrderBox = nullptr;
     QComboBox      *m_terrainReferenceCombo = nullptr;
     QComboBox      *m_quadModeCombo = nullptr;
-    QLabel         *m_coarsenLengthLabel = nullptr;
     QCheckBox      *m_latticeSeedingBox = nullptr;
     QSpinBox       *m_smoothingSpin = nullptr;
     QSpinBox       *m_maxBreaklinesSpin = nullptr;

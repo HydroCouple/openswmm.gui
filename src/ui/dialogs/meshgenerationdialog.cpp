@@ -4,6 +4,8 @@
  * \date   2026
  * \license GPL-3.0-or-later
  */
+#include "ui/widgets/meshresolutionwidget.h"
+
 #include "ui/dialogs/meshgenerationdialog.h"
 #include "map/channelmeshadoptioncommand.h"
 #include "ui/theme/themehelpers.h"
@@ -211,7 +213,28 @@ static bool transformCheckedPt(OGRCoordinateTransformation *ct,
 // Quad region helpers (QUAD_MESHING_REDESIGN_PLAN_2026-09-06 §3.1)
 // ---------------------------------------------------------------------------
 
-/*! \brief Log / attribute spelling of a mesh::QuadRegionMode. */
+// Resolve the shared physical settings into the worker's map and elevation units.
+static void applyResolution(MeshGenerationDialog::PipelineInputs &in)
+{
+    if (!in.resolution) return;
+    const auto &r=*in.resolution;
+    in.minCellSize=r.minimumM/in.meshLinearUnitToSI;
+    in.cellSize=(r.refineFeatures?r.featureM.value_or(r.minimumM):r.minimumM)/in.meshLinearUnitToSI;
+    in.maximumCellSize=r.maximumM.value_or(0)/in.meshLinearUnitToSI;
+    in.sizeRatio=r.transition; in.refineAtFeatures=r.refineFeatures;
+    in.terrainAdaptive=r.terrain==mesh::ResolutionSettings::Terrain::Adaptive;
+    in.terrainAutoTolerance=!r.toleranceM && r.terrain!=mesh::ResolutionSettings::Terrain::Off;
+    in.terrainTolerance=r.terrain==mesh::ResolutionSettings::Terrain::Off?0:r.toleranceM.value_or(0)/in.verticalUnitToSI;
+    in.terrainBreaklines=r.alignTerrain;
+    in.breaklineTolerance=r.breaklineToleranceM.value_or(0)/in.verticalUnitToSI;
+    in.terrainReference=int(r.reference);
+    in.terrainAveragingSize=r.averagingM.value_or(r.minimumM)/in.meshLinearUnitToSI;
+    in.genOpts.maxArea=0.4330127018922193*in.maximumCellSize*in.maximumCellSize;
+    in.genOpts.minCellSize=in.minCellSize;
+    in.genOpts.terrainMinLineLength=r.minimumBreaklineLengthM.value_or(4*r.minimumM)/in.meshLinearUnitToSI;
+    in.maxTerrainBreaklines=r.maxBreaklines>0?r.maxBreaklines:std::max(1,in.genOpts.maxCells/200);
+}
+
 static void
 runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                     MeshGenerationDialog::PipelineInputs            in)
@@ -228,6 +251,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         promise.addResult(r);
     };
 
+    if (in.resolution) {
+        const QString error=in.resolution->validate();
+        if (!error.isEmpty()) { fail(error); return; }
+        if (!(in.meshLinearUnitToSI>0) || !std::isfinite(in.meshLinearUnitToSI)
+            || !(in.verticalUnitToSI>0) || !std::isfinite(in.verticalUnitToSI)) {
+            fail(QObject::tr("Mesh horizontal and vertical units must have a finite positive scale.")); return;
+        }
+        applyResolution(in);
+    }
+    if (in.maximumCellSize<0) in.maximumCellSize=in.cellSize*std::max(1.0,in.coarsenFactor);
+    if (in.breaklineTolerance<0) in.breaklineTolerance=in.terrainTolerance;
+    int terrainDecimation=1;
+    double actualTerrainPixelSize=0;
     promise.setProgressRange(0, 100);
 
     auto progress = [&](int pct, const QString &msg) {
@@ -599,6 +635,9 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // elevations and the final check each read the terrain again, and from a
     // large uncompressed DEM on a slow volume every pass was bound by that
     // volume. Later runs reuse the copy.
+    if (!in.dtmPath.isEmpty() && in.terrainReference==0 && !cache.isUsable()) {
+        fail(QObject::tr("The averaged terrain reference needs a writable mesh cache. Choose a writable project location or explicitly select Full DEM.")); return;
+    }
     if (!in.dtmPath.isEmpty() && cache.isUsable() && in.terrainReference != 2) {
         QRectF domainBox;
         for (const auto &ring : std::as_const(in.domains)) domainBox = domainBox.united(ring.boundingRect());
@@ -606,15 +645,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         progress(14, QObject::tr("Caching the terrain window…"));
         const auto local = mesh::prepareLocalTerrain(in.dtmPath, in.meshCRSWkt, domainBox, cache.dir(), [&](double) {
             return !promise.isCanceled();
-        }, in.terrainReference == 0 ? in.minCellSize : 0.0);
+        }, in.terrainReference == 0 ? (in.terrainAveragingSize>0?in.terrainAveragingSize:in.minCellSize) : 0.0);
         if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
         if (!local.path.isEmpty()) {
             qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][terrain] local copy %1 (%2 MB, %3 x %3 pixel average): %4")
                 .arg(local.reused ? QStringLiteral("reused") : QStringLiteral("written"))
                 .arg(local.bytes / 1e6, 0, 'f', 0).arg(local.decimation).arg(local.path);
             in.dtmPath = local.path;
+            terrainDecimation=local.decimation;
             cache.prune();
         } else {
+            if (in.terrainReference==0) {
+                fail(QObject::tr("Could not prepare the selected averaged terrain reference: %1. The full DEM has not been substituted.").arg(local.note)); return;
+            }
             qCInfo(lcMeshPerf).noquote() << "[Mesh][terrain] no local copy:" << local.note;
         }
         stageMark("local terrain copy");
@@ -1281,14 +1324,20 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     sizeOptions.nearSize  = in.cellSize;
     sizeOptions.gradation = std::max(in.sizeRatio - 1.0, 0.0);
     sizeOptions.areaFloor = areaFloor;
-    sizeOptions.maxSize   = in.coarsenFactor > 1.0 ? in.cellSize * in.coarsenFactor : in.cellSize;
+    sizeOptions.maxSize   = in.maximumCellSize;
+    for (const auto &region:quadRegions) if (region.spacing>0) {
+        if (in.resolution && (region.spacing<in.minCellSize || (in.maximumCellSize>0 && region.spacing>in.maximumCellSize))) {
+            fail(QObject::tr("Region '%1' has a target size outside the requested minimum and maximum. Adjust its local target or the global range.").arg(region.tag)); return;
+        }
+        sizeOptions.regions.append({region.ring,region.spacing});
+    }
     // Terrain-error size term (Stage 2). Lives here so the size field built
     // after the DTM block can still sample it.
     mesh::TerrainSizeField terrainField;
     QSet<QPair<qint64,qint64>> missingTerrainVertices;
     const bool useAdaptiveTerrain = useDTM && in.terrainAdaptive
         && (in.terrainTolerance > 0.0 || in.terrainAutoTolerance);
-    if (useAdaptiveTerrain)
+    if (useAdaptiveTerrain || (useDTM && (in.terrainAutoTolerance || in.terrainBreaklines)))
     {
         stageClock.restart();
         // Stage T: re-runs on the same DEM and bbox reload the summaries.
@@ -1310,11 +1359,15 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (in.terrainAutoTolerance) {
             // Quantized elevation data cannot justify sub-quantum precision.
             // The 0.1 m baseline is converted to the mesh's vertical unit.
-            // Nor can detail below the DEM's own micro-relief: the median
-            // residual of its 16-pixel planes floors the automatic value.
-            const double microRelief = terrainReference.leafResidualQuantile(.5);
-            in.terrainTolerance = std::max({.1/in.verticalUnitToSI,3.0*terrainReference.verticalQuantum(),
-                                            std::isfinite(microRelief)?microRelief:0.0});
+            // Local relief influences breakline detection separately; it is
+            // not evidence that a larger elevation error is acceptable.
+            in.terrainTolerance = std::max(.1/in.verticalUnitToSI,3.0*terrainReference.verticalQuantum());
+            progress(35,QObject::tr("Automatic elevation tolerance: %1 %2 (0.1 m baseline or three elevation increments)")
+                .arg(in.terrainTolerance).arg(in.verticalUnitToSI==1?QStringLiteral("m"):QStringLiteral("ft")));
+        }
+        if (in.terrainBreaklines && !(in.breaklineTolerance>0)) {
+            const double relief=terrainReference.leafResidualQuantile(.5);
+            in.breaklineTolerance=std::max({.1/in.verticalUnitToSI,3.0*terrainReference.verticalQuantum(),std::isfinite(relief)?relief:0.0});
         }
         qCInfo(lcMeshPerf) << "[Mesh][terrain] leaf residual (16 px planes) P50" << terrainReference.leafResidualQuantile(.5)
                            << "P90" << terrainReference.leafResidualQuantile(.9) << "P99" << terrainReference.leafResidualQuantile(.99);
@@ -1322,7 +1375,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                          << "| summary bytes" << terrainReference.summaryBytes() << "| tolerance" << in.terrainTolerance;
         stageMark("terrain error index");
     }
-    const bool useTerrainField = useDTM && in.terrainTolerance > 0.0;
+    const bool useTerrainField = useDTM && (in.terrainTolerance > 0.0 || in.terrainBreaklines);
+    if (useDTM) actualTerrainPixelSize=thinner.pixelSize();
 
     qCDebug(lcMeshPerf) << "[Mesh] domain bbox (mesh CRS):"
              << bx0 << by0 << "--" << bx1 << by1;
@@ -1358,6 +1412,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
 
         qCDebug(lcMeshPerf) << "[Mesh] DTM bbox (DTM CRS):" << dx0 << dy0 << "--" << dx1 << dy1;
+        if (dtmToMesh) {
+            const double cx=(dx0+dx1)*.5,cy=(dy0+dy1)*.5;
+            double x[2]={cx,cx+thinner.pixelSize()},y[2]={cy,cy};
+            actualTerrainPixelSize=transformChecked(dtmToMesh,2,x,y)==0?std::hypot(x[1]-x[0],y[1]-y[0]):0;
+        }
 
         if (useTerrainField && (!useAdaptiveTerrain || in.terrainBreaklines))
         {
@@ -1385,24 +1444,24 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             const double pitchDem = sizeOptions.nearSize > 0.0 && unitScale > 0.0
                 ? 0.5 * sizeOptions.nearSize / unitScale : 0.0;
             tso.outLevel = (pitchDem > 0.0 && thinner.pixelSize() > 0.0)
-                ? qBound(1, int(std::floor(std::log2(pitchDem / thinner.pixelSize()))), 6) : 1;
+                ? int(std::clamp(std::floor(std::log2(pitchDem / thinner.pixelSize())),1.0,6.0)) : 1;
             // Adaptive mode only needs the streaming geometry here; it does
             // not compute or impose the conservative block-size hierarchy.
-            if (useAdaptiveTerrain) {
+            if (useAdaptiveTerrain || !(in.terrainTolerance>0)) {
                 tso.rowsOnly = true;
                 tso.maxBandBytes = qint64(in.terrainCacheMiB)*1024*1024;
                 // Breaklines are detected on a grid about one minimum cell
                 // wide (block-averaged, from overviews when present): major
                 // features only, and far less DEM to read (D-R4).
                 if (in.minCellSize > 0.0 && unitScale > 0.0 && thinner.pixelSize() > 0.0)
-                    tso.decimation = std::max(1, int(std::floor(in.minCellSize / (unitScale * thinner.pixelSize()))));
+                    tso.decimation = int(std::clamp(std::floor(in.minCellSize / (unitScale * thinner.pixelSize())),
+                        1.0,double(std::numeric_limits<int>::max()/2)));
             }
-            // Terrain break lines (Phase 6b §2.1) ride the same row pass:
-            // one tolerance, one meaning — where the surface departs from a
-            // plane by more than it, the mesh gets an edge.
+            // Terrain break lines ride the same row pass but use their own
+            // detection tolerance, independent of elevation-error refinement.
             mesh::TerrainBreaklineExtractor breaklines;
             mesh::TerrainBreaklineOptions blo;
-            blo.tolerance = tso.tolerance;
+            blo.tolerance = in.zConversionFactor>0?in.breaklineTolerance/in.zConversionFactor:in.breaklineTolerance;
             blo.cacheMiB = in.terrainCacheMiB;
             // Major features only (MESH_REGIONAL_TRIQUAD_PLAN D-R4): the
             // generator keeps no line shorter than 4 x the minimum cell, so do
@@ -1411,7 +1470,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // drops a line the generator would keep.
             if (in.minCellSize > 0.0 && unitScale > 0.0 && thinner.pixelSize() > 0.0)
                 blo.minPixels = std::max(blo.minPixels,
-                    int(std::floor(4.0 * in.minCellSize / (std::sqrt(2.0) * unitScale * thinner.pixelSize() * tso.decimation))));
+                    int(std::clamp(std::floor((in.genOpts.terrainMinLineLength>0?in.genOpts.terrainMinLineLength:4.0*in.minCellSize)
+                        / (std::sqrt(2.0) * unitScale * thinner.pixelSize() * tso.decimation)),0.0,double(std::numeric_limits<int>::max()))));
             blo.cancelled = [&promise] { return promise.isCanceled(); };
             if (in.terrainBreaklines) tso.rowSink = [&breaklines, &blo](const float *row, int r, int cols, int rows) {
                 if (r == 0) breaklines.begin(cols, rows, blo);
@@ -1419,7 +1479,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             };
             // Stage L: adaptive mode streams the DEM only for break lines, so a
             // cached result for the same DEM window and parameters skips it.
-            const bool cacheBreaklines = useAdaptiveTerrain && in.terrainBreaklines && cache.isUsable();
+            const bool cacheBreaklines = tso.rowsOnly && in.terrainBreaklines && cache.isUsable();
             const QByteArray breaklineKey = cacheBreaklines
                 ? mesh::MeshStageCache::breaklineKey(mesh::MeshStageCache::identityOf(in.dtmPath), in.meshCRSWkt,
                       QRectF(QPointF(dx0,dy0),QPointF(dx1,dy1)), blo.tolerance, blo.lowRatio, blo.minPixels, blo.maxPixels,
@@ -1429,7 +1489,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // Keep the most significant lines only, ranked on the terrain
             // reference after the cache (so the cap can change cheaply).
             auto rankLines = [&](const QVector<QVector<QPointF>> &all) {
-                if (!useAdaptiveTerrain || in.maxTerrainBreaklines <= 0 || !(in.minCellSize > 0.0)) return all;
+                if (in.maxTerrainBreaklines <= 0 || !(in.minCellSize > 0.0)) return all;
                 double stats[3] = {};
                 QElapsedTimer rankClock; rankClock.start();
                 auto kept = mesh::rankBreaklinesByStep(all, [&](double x, double y) { return terrainReference.sampleAt(x, y); },
@@ -1515,7 +1575,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                                << "looks smaller than the DEM's noise — the mesh will follow noise.";
             }
             }
-            if (!useAdaptiveTerrain) sizeOptions.terrainSizeAt = [&terrainField, meshToDTM, unitScale](double x, double y) {
+            if (!useAdaptiveTerrain && in.terrainTolerance>0) sizeOptions.terrainSizeAt = [&terrainField, meshToDTM, unitScale](double x, double y) {
                 double gx = x, gy = y;
                 if (meshToDTM && !meshToDTM->Transform(1, &gx, &gy)) return 0.0;
                 return terrainField.sizeAtGeo(gx, gy) * unitScale;
@@ -1592,10 +1652,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                                << "| max size" << sizeOptions.maxSize
                                << "| terrain" << (useTerrainField ? "on" : "off");
         }
-        else
-            qWarning() << "[Mesh][grading] size field could not be built "
-                          "(no seed features?) — falling back to the uniform "
-                          "area cap.";
+        else { fail(QObject::tr("Could not construct the requested size field.")); return; }
     }
     // Cancellation and progress ride on the hook; the graded field is the
     // size function (it folds in the floor and the coarsening cap).
@@ -1605,7 +1662,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         hook.onProgress  = [&progress](qint64 cells) {
             progress(45, QObject::tr("Building cells… (%1 so far)").arg(cells));
         };
-        if (useGrading)
+        if (useGrading && sizeField.hasSizeBound())
         {
             hook.targetAreaAt = [&sizeField](double x, double y) {
                 return sizeField.targetAreaAt(x, y);
@@ -2217,6 +2274,8 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // untouched — mesh generation authors no per-cell infiltration at all.
     result.infilDefaults = in.infilDefaults;
 
+    QSet<int> exceptionCells;
+    int elevationOffsetOnly=0;
     if (useAdaptiveTerrain)
     {
         stageClock.restart();
@@ -2224,7 +2283,6 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         generationStats.terrainUnknown=0;
         generationStats.maxTerrainError=0;
         QStringList exceptions;
-        int elevationOffsetOnly=0;
         // Cells are in Hilbert order: read each chunk's DEM tiles in parallel
         // first, so the exact checks below hit the cache instead of reading
         // the raster tile by tile (USB-attached DEMs were I/O bound).
@@ -2271,6 +2329,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 }
                 generationStats.maxTerrainError=std::max(generationStats.maxTerrainError,q.upperBound);
             }
+            if(bad || unknown) exceptionCells.insert(i);
             if(bad) ++generationStats.terrainUnresolved;
             if(bad && !referenceFails && !unknown) ++elevationOffsetOnly;
             if(unknown) ++generationStats.terrainUnknown;
@@ -2346,8 +2405,77 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
     progress(95, QObject::tr("Done — adding layer…"));
 
+    // Bounded deterministic samples for distributions; extrema and exception
+    // counts cover every cell. No multi-million-edge sorting on the worker.
+    QVector<double> sampledEdges, sampledAngles;
+    const int stride=std::max(1,int(result.triangles.size()/25000));
+    double smallest=std::numeric_limits<double>::infinity(),largest=0,minAngle=180;
+    int belowMinimum=0;
+    for (int i=0;i<result.triangles.size();++i) {
+        if ((i&8191)==0 && promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
+        const auto &cell=result.triangles[i]; bool small=false; double angle=180;
+        for (int k=0;k<cell.vertexCount();++k) {
+            const auto &a=result.vertices[cell.vertex(k)].xy;
+            const auto &b=result.vertices[cell.vertex((k+1)%cell.vertexCount())].xy;
+            const auto &c=result.vertices[cell.vertex((k+cell.vertexCount()-1)%cell.vertexCount())].xy;
+            const double edge=std::hypot(a.x()-b.x(),a.y()-b.y());
+            smallest=std::min(smallest,edge); largest=std::max(largest,edge);
+            small=small || edge<in.minCellSize*(1-1e-9);
+            if (i%stride==0) sampledEdges.append(edge);
+            const QPointF u=b-a,v=c-a;
+            const double denom=std::hypot(u.x(),u.y())*std::hypot(v.x(),v.y());
+            if (denom>0) angle=std::min(angle,std::acos(std::clamp(QPointF::dotProduct(u,v)/denom,-1.0,1.0))*180/M_PI);
+        }
+        minAngle=std::min(minAngle,angle);
+        if (i%stride==0) sampledAngles.append(angle);
+        if (small) {++belowMinimum;exceptionCells.insert(i);}
+        if (angle<in.genOpts.minAngleDeg-1e-6) exceptionCells.insert(i);
+    }
+    auto quantile=[](QVector<double> &values,double q) {
+        if (values.isEmpty()) return 0.0;
+        const int k=int(q*(values.size()-1));
+        std::nth_element(values.begin(),values.begin()+k,values.end()); return values[k];
+    };
+    const double edgeP5=quantile(sampledEdges,.05),edgeP50=quantile(sampledEdges,.5),edgeP95=quantile(sampledEdges,.95);
+    const double angleP5=quantile(sampledAngles,.05),angleP50=quantile(sampledAngles,.5);
+    if (!std::isfinite(smallest)) smallest=0;
+    const QString horizontalUnit=in.meshLinearUnitName.isEmpty()?QStringLiteral("map units"):in.meshLinearUnitName;
+    const QString verticalUnit=in.verticalUnitToSI==1?QStringLiteral("m"):QStringLiteral("ft");
+    QString summary=QObject::tr("Requested and achieved\n%1 cells in %2 s.\nTarget size: minimum %3 %4; maximum %5.\nActual cell edges: %6 to %7 %4; sampled P5 / median / P95: %8 / %9 / %10.\n%11 cells have an edge below the minimum target (constraints, local targets or shape repair).\nMinimum angle: %12°; sampled P5 / median: %13° / %14°.")
+        .arg(result.triangles.size()).arg(totalClock.elapsed()/1000.0,0,'f',1).arg(in.minCellSize).arg(horizontalUnit)
+        .arg(in.maximumCellSize>0?QString::number(in.maximumCellSize)+" "+horizontalUnit:QObject::tr("No limit"))
+        .arg(smallest).arg(largest).arg(edgeP5).arg(edgeP50).arg(edgeP95).arg(belowMinimum).arg(minAngle).arg(angleP5).arg(angleP50);
+    if (useDTM) {
+        summary+=QObject::tr("\nTerrain reference: %1; %2 × %2 source pixels per reference pixel (approximate horizontal spacing %3 %4).")
+            .arg(in.terrainReference==0?QObject::tr("Averaged DEM"):QObject::tr("Full DEM")).arg(terrainDecimation)
+            .arg(actualTerrainPixelSize).arg(horizontalUnit);
+        summary+=in.terrainBreaklines?QObject::tr("\nBreakline detection tolerance: %1 %2; %3 retained lines.")
+            .arg(in.breaklineTolerance).arg(verticalUnit).arg(g.acceptedTerrainBreaklines().size()):QObject::tr("\nAutomatic terrain alignment was off.");
+    }
+    if (useAdaptiveTerrain) summary+=QObject::tr("\nElevation tolerance: %1 %2; maximum checked error bound: %3 %2.\n%4 cells exceed the tolerance; %5 have unknown coverage; %6 exceedances are elevation overrides. Checks apply to samples of the selected reference.")
+        .arg(in.terrainTolerance).arg(verticalUnit).arg(generationStats.maxTerrainError).arg(generationStats.terrainUnresolved).arg(generationStats.terrainUnknown).arg(elevationOffsetOnly);
+    else summary+=QObject::tr("\nAdaptive terrain accuracy checking was off.");
+    summary+=QObject::tr("\nInserted for size / shape / terrain: %1 / %2 / %3; constraint splits: %4.\nRefinement limit reached: %5.")
+        .arg(generationStats.sizeInserted).arg(generationStats.qualityInserted).arg(generationStats.terrainInserted).arg(generationStats.segmentSplits)
+        .arg(generationStats.refineCapped?QObject::tr("Yes"):QObject::tr("No"));
+
     PResult out;
     out.ok         = true;
+    out.summary=summary;
+    QByteArray breaklineGeometry;
+    { QDataStream stream(&breaklineGeometry,QIODevice::WriteOnly);
+      stream.setVersion(QDataStream::Qt_6_0); stream<<g.acceptedTerrainBreaklines(); }
+    out.exceptionCells=QVector<int>(exceptionCells.begin(),exceptionCells.end());
+    std::sort(out.exceptionCells.begin(),out.exceptionCells.end());
+    out.metrics={{"summary",summary},{"minTargetM",in.minCellSize*in.meshLinearUnitToSI},
+        {"maxTargetM",in.maximumCellSize>0?QJsonValue(in.maximumCellSize*in.meshLinearUnitToSI):QJsonValue(QJsonValue::Null)},
+        {"edgeMinM",smallest*in.meshLinearUnitToSI},{"edgeMaxM",largest*in.meshLinearUnitToSI},
+        {"cellsBelowMinimum",belowMinimum},{"angleMin",minAngle},{"angleP5",angleP5},{"angleMedian",angleP50},
+        {"breaklineToleranceM",in.breaklineTolerance*in.verticalUnitToSI},{"breaklineCount",g.acceptedTerrainBreaklines().size()},
+        {"breaklineSignature",QString::fromLatin1(QCryptographicHash::hash(breaklineGeometry,QCryptographicHash::Sha256).toHex())},
+        {"terrainDecimation",terrainDecimation},{"referencePixelSpacingM",actualTerrainPixelSize*in.meshLinearUnitToSI},
+        {"elapsedSeconds",totalClock.elapsed()/1000.0},
+        {"refinementCapped",generationStats.refineCapped}};
     out.meshResult = std::move(result);
     out.generationStats = generationStats;
     out.terrainToleranceUsed = useAdaptiveTerrain ? in.terrainTolerance : 0.0;
@@ -2409,7 +2537,7 @@ MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
     setObjectName(QStringLiteral("MeshGenerationDialog"));
     // Compact default — the tab pages scroll (see buildUi), so the window no
     // longer has to be tall enough to show the tallest page in full.
-    resize(540, 560);
+    resize(940, 700);
     setMinimumHeight(420);
     buildUi();
     m_dtmCombo->setObjectName(QStringLiteral("meshDtmCombo"));
@@ -2422,7 +2550,6 @@ MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
     m_elevMethodCombo->setObjectName(QStringLiteral("meshElevationMethodCombo"));
     m_nnVariantCombo->setObjectName(QStringLiteral("meshNNVariantCombo"));
     m_idwPowerSpin->setObjectName(QStringLiteral("meshIdwPowerSpin"));
-    m_coarsenSpin->setObjectName(QStringLiteral("meshCoarsenSpin"));
     m_minCellSizeSpin->setObjectName(QStringLiteral("meshMinCellSizeSpin"));
     m_quadRegionSubcatchEdit->setObjectName(QStringLiteral("meshRegionNamesEdit"));
     m_trimTurnSpin->setObjectName(QStringLiteral("meshTrimTurnSpin"));
@@ -2445,6 +2572,7 @@ MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
     m_quadRegionLayerCombo->setProperty("meshLayerPicker",true);
     seedDefaults();
     restoreOptions();
+    m_resolutionWidget->setTerrainAvailable(m_dtmCombo->currentData().value<void *>() != nullptr);
 
     // Keep suffix labels and defaults in sync if the user somehow changes
     // flow units while the dialog is open.
@@ -2622,6 +2750,7 @@ void MeshGenerationDialog::buildUi()
                     // Elevation-interpolation options only apply with no DTM.
                     if (m_elevInterpGroup)
                         m_elevInterpGroup->setEnabled(raster == nullptr);
+                    if (m_resolutionWidget) m_resolutionWidget->setTerrainAvailable(raster != nullptr);
                     updateZFactor();
                 });
 
@@ -2863,145 +2992,40 @@ void MeshGenerationDialog::buildUi()
                  tr("S&ources"));
 
     // ================================================================
-    // Tab 2 — Quality (MESH_OVERHAUL_PLAN_2026-09-29.md §3,
-    // MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md §5): Resolution (size field),
-    // Shape (minimum angle, where quads go: streets, conduits, regions,
-    // corridors) and Boundaries (straightness trimming).
+    // Tab 2 — Quality: persistent category navigation and one settings page
+    // at a time. The resolution pages are also shared with Preferences.
     // ================================================================
     auto *qualityPage = new QWidget;
     auto *qualityVBox = new QVBoxLayout(qualityPage);
     qualityVBox->setContentsMargins(8, 8, 8, 8);
 
-    // Resolution
-    {
-        auto *g = new QGroupBox(tr("Resolution"), qualityPage);
-        auto *f = new QFormLayout(g);
-        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-
-        m_cellSizeSpin = new QDoubleSpinBox(g);
-        m_cellSizeSpin->setObjectName(QStringLiteral("meshCellSizeSpin"));
-        m_cellSizeSpin->setRange(0.0, 1e9);
-        m_cellSizeSpin->setDecimals(3);
-        m_cellSizeSpin->setSpecialValueText(tr("(from extent)"));
-        m_cellSizeSpin->setToolTip(tr(
-            "Target cell edge length at features (conduits, nodes, boundaries, "
-            "breaklines, region rings). 0 derives one from the model extent."));
-        f->addRow(tr("Cell si&ze at features:"), m_cellSizeSpin);
-
-        m_coarsenSpin = new QDoubleSpinBox(g);
-        m_coarsenSpin->setRange(1.0, 1000.0);
-        m_coarsenSpin->setDecimals(1);
-        m_coarsenSpin->setSingleStep(0.5);
-        m_coarsenSpin->setPrefix(QStringLiteral("× "));
-        m_coarsenSpin->setToolTip(tr(
-            "The largest cell allowed, as a multiple of the cell size. It applies only "
-            "where nothing else needs smaller cells: footprints, conduits, break lines, "
-            "the minimum angle and terrain error all ask for smaller cells near them. In "
-            "dense urban areas they leave little room, so this mostly shows in open "
-            "areas (water, parks, large lots). 1 = uniform mesh."));
-        {
-            auto *row = new QWidget(g);
-            auto *h = new QHBoxLayout(row);
-            h->setContentsMargins(0, 0, 0, 0);
-            h->addWidget(m_coarsenSpin);
-            m_coarsenLengthLabel = new QLabel(row);
-            m_coarsenLengthLabel->setObjectName(QStringLiteral("coarsenLengthLabel"));
-            h->addWidget(m_coarsenLengthLabel);
-            h->addStretch(1);
-            f->addRow(tr("&Largest cell size:"), row);
-            const auto updateLength = [this] {
-                const double cell = m_cellSizeSpin->value();
-                m_coarsenLengthLabel->setText(cell > 0.0
-                    ? tr("= %1%2").arg(QLocale().toString(cell * m_coarsenSpin->value(), 'f', 0), m_cellSizeSpin->suffix())
-                    : tr("(of the cell size from the extent)"));
-            };
-            connect(m_coarsenSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, updateLength);
-            connect(m_cellSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, updateLength);
-            updateLength();
-        }
-
-        m_sizeRatioSpin = new QDoubleSpinBox(g);
-        m_sizeRatioSpin->setObjectName(QStringLiteral("meshSizeRatioSpin"));
-        m_sizeRatioSpin->setRange(1.05, 2.0);
-        m_sizeRatioSpin->setDecimals(2);
-        m_sizeRatioSpin->setSingleStep(0.05);
-        m_sizeRatioSpin->setToolTip(tr(
-            "Requested growth rate for the background size field. Smaller values give smoother transitions and more cells. "
-            "Fixed geometry and terrain refinement can produce larger ratios in the final mesh."));
-        f->addRow(tr("Size &ratio between neighbours:"), m_sizeRatioSpin);
-
-        m_minCellSizeSpin = new QDoubleSpinBox(g);
-        m_minCellSizeSpin->setRange(0.0, 1e9);
-        m_minCellSizeSpin->setDecimals(3);
-        m_minCellSizeSpin->setSpecialValueText(tr("(cell size / 4)"));
-        m_minCellSizeSpin->setToolTip(tr(
-            "Minimum requested spacing. Constrained boundaries and triangle quality can create smaller cells. "
-            "This also limits terrain refinement; conflicting terrain errors are reported."));
-        f->addRow(tr("&Minimum cell size:"), m_minCellSizeSpin);
-
-        m_terrainTolSpin = new QDoubleSpinBox(g);
-        m_terrainTolSpin->setObjectName(QStringLiteral("meshTerrainTolSpin"));
-        m_terrainTolSpin->setRange(0.0, 1e6);
-        m_terrainTolSpin->setDecimals(3);
-        m_terrainTolSpin->setSpecialValueText(tr("(automatic from DEM)"));
-        m_terrainTolSpin->setToolTip(tr(
-            "The largest vertical difference allowed between a triangle's flat surface and the "
-            "terrain reference below it, in elevation units. Refinement splits triangles until "
-            "every point of the reference inside them is within this. Measured against the DEM "
-            "averaged to the minimum cell size (see Terrain reference), features narrower than a "
-            "cell — curbs, walls, pixel noise — do not force refinement. 0 selects it from the DEM "
-            "(0.1 m, three elevation increments for quantized terrain, or the DEM's own "
-            "micro-relief); the resolved value is reported during generation."));
-        m_terrainModeCombo = new QComboBox(g);
-        m_terrainModeCombo->setObjectName(QStringLiteral("meshTerrainModeCombo"));
-        m_terrainModeCombo->addItems({tr("Adaptive elevation error"),tr("Legacy block sizing"),tr("Off")});
-        m_terrainModeCombo->setToolTip(tr("Adaptive mode starts coarse and refines where the actual triangles miss the terrain."));
-        f->addRow(tr("Terrain refinement:"),m_terrainModeCombo);
-        f->addRow(tr("Maximum &vertical error:"), m_terrainTolSpin);
-        m_terrainReferenceCombo = new QComboBox(g);
-        m_terrainReferenceCombo->setObjectName(QStringLiteral("meshTerrainReferenceCombo"));
-        m_terrainReferenceCombo->addItems({tr("DEM averaged to the minimum cell size"),
-                                           tr("Full DEM resolution"),
-                                           tr("Full DEM resolution, read directly")});
-        m_terrainReferenceCombo->setToolTip(tr(
-            "The terrain the mesh is measured against and takes its elevations from. The first "
-            "two keep a compressed float32 copy of the needed window in the project's .meshcache "
-            "folder (made once, reused by later runs). Averaged: detail narrower than a cell is "
-            "smoothed out, so the vertical error controls features a cell can represent. Full "
-            "resolution: every DEM pixel counts, so small errors refine down to the minimum cell "
-            "along curbs and walls. Read directly: no copy; slow for large DEMs on slow drives."));
-        f->addRow(tr("Terrain &reference:"), m_terrainReferenceCombo);
-        m_terrainBreaklinesBox = new QCheckBox(tr("Capture terrain breaklines"),g);
-        m_terrainBreaklinesBox->setObjectName(QStringLiteral("meshTerrainBreaklinesBox"));
-        m_terrainBreaklinesBox->setChecked(true);
-        m_terrainBreaklinesBox->setToolTip(tr("Align edges with DEM ridges, banks and slope breaks. Authored breaklines are always preserved."));
-        f->addRow(m_terrainBreaklinesBox);
-        m_refineFeaturesBox = new QCheckBox(tr("Refine around model features"),g);
-        m_refineFeaturesBox->setObjectName(QStringLiteral("meshRefineFeaturesBox"));
-        m_refineFeaturesBox->setChecked(false);
-        m_refineFeaturesBox->setToolTip(tr("Apply the feature cell size around included nodes and lines. When unchecked, geometry and coupling remain constrained, and terrain and triangle quality determine nearby refinement."));
-        f->addRow(m_refineFeaturesBox);
-        m_maxBreaklinesSpin = new QSpinBox(g);
-        m_maxBreaklinesSpin->setObjectName(QStringLiteral("meshMaxBreaklinesSpin"));
-        m_maxBreaklinesSpin->setRange(0, 10'000'000);
-        m_maxBreaklinesSpin->setSingleStep(1000);
-        m_maxBreaklinesSpin->setSpecialValueText(tr("automatic (cell budget ÷ 200)"));
-        m_maxBreaklinesSpin->setToolTip(tr(
-            "How many detected terrain break lines are kept as mesh edges, the most significant "
-            "first (longest, highest step). Every kept line costs cells along it."));
-        f->addRow(tr("Maximum terrain &break lines:"), m_maxBreaklinesSpin);
-        m_terrainReportLabel=new QLabel(g);
-        m_terrainReportLabel->setWordWrap(true);
-        m_terrainReportLabel->setObjectName(QStringLiteral("meshTerrainReportLabel"));
-        f->addRow(m_terrainReportLabel);
-        connect(m_terrainModeCombo,qOverload<int>(&QComboBox::currentIndexChanged),this,[this](int mode) {
-            m_terrainTolSpin->setEnabled(mode!=2);
-            m_terrainTolSpin->setSpecialValueText(mode==0?tr("(automatic from DEM)"):tr("(off)"));
-            m_terrainBreaklinesBox->setEnabled(mode!=2);
-        });
-
-        qualityVBox->addWidget(g);
-    }
+    m_resolutionWidget=new MeshResolutionWidget(qualityPage);
+    qualityVBox->addWidget(m_resolutionWidget);
+    m_cellSizeSpin=m_resolutionWidget->feature;
+    m_sizeRatioSpin=m_resolutionWidget->transition;
+    m_minCellSizeSpin=m_resolutionWidget->minimum;
+    m_terrainTolSpin=m_resolutionWidget->tolerance;
+    m_terrainModeCombo=m_resolutionWidget->terrainMode;
+    m_terrainReferenceCombo=m_resolutionWidget->reference;
+    m_terrainBreaklinesBox=m_resolutionWidget->alignTerrain;
+    m_refineFeaturesBox=m_resolutionWidget->refineFeatures;
+    m_maxBreaklinesSpin=m_resolutionWidget->maxBreaklines;
+    m_terrainReportLabel=m_resolutionWidget->report;
+    auto *localTargets=m_resolutionWidget->findChild<QLabel *>("meshLocalTargetsLink");
+    localTargets->setText(tr("Local targets: <a href=\"regions\">region settings</a> and <a href=\"corridors\">corridor settings</a>."));
+    localTargets->show();
+    connect(localTargets,&QLabel::linkActivated,this,[this](const QString &link) {
+        QWidget *target=link=="regions"?static_cast<QWidget *>(m_quadRegionLayerCombo):static_cast<QWidget *>(m_corridorSources);
+        m_resolutionWidget->showSettingsPage(target);
+    });
+    connect(m_terrainReportLabel,&QLabel::linkActivated,this,[this] {
+        if (!m_pw) return;
+        const auto last=m_pw->meshGenerationOptions().value("lastRun").toObject();
+        auto *box=new QMessageBox(QMessageBox::Information,tr("Previous mesh results"),
+            last.value("summary").toString(),QMessageBox::Ok,this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        box->show();
+    });
 
     // Shape
     {
@@ -3022,18 +3046,6 @@ void MeshGenerationDialog::buildUi()
             "two lines that meet at a smaller angle and triangles resting on "
             "the edge of a quad strip."));
         f->addRow(tr("Minimum &angle:"), m_minAngleSpin);
-        m_quadModeCombo = new QComboBox(g);
-        m_quadModeCombo->setObjectName(QStringLiteral("meshQuadModeCombo"));
-        m_quadModeCombo->addItems({tr("Off (triangles only)"), tr("Corridors and strips"), tr("Corridors, strips and open blocks")});
-        m_quadModeCombo->setCurrentIndex(2);
-        m_quadModeCombo->setToolTip(tr(
-            "Where the mesh uses quads; triangles fill everywhere else and every join is exact. "
-            "Corridors and strips: selected corridors and streets or ditches between facing break "
-            "lines (each with its own option). Open blocks: after a first pass, rectangles are "
-            "placed where the cells are nearly uniform and no feature runs — water, parks, "
-            "yards, wide lots — and meshed as square quads in a second pass (more time). "
-            "Quad regions you list are used in every mode except Off."));
-        f->addRow(tr("&Quads:"), m_quadModeCombo);
         m_qualityOrderBox = new QCheckBox(tr("Prioritize worst triangle angles"),g);
         m_qualityOrderBox->setObjectName(QStringLiteral("meshQualityOrderBox"));
         m_qualityOrderBox->setChecked(true);
@@ -3056,6 +3068,27 @@ void MeshGenerationDialog::buildUi()
             "improves the worst angle around them. Vertices on constraints never move."));
         f->addRow(tr("&Smoothing passes:"), m_smoothingSpin);
 
+        m_resolutionWidget->addSettingsPage(tr("Cell shape"),g);
+    }
+
+    {
+        auto *g = new QGroupBox(tr("Quad regions and strips"), qualityPage);
+        auto *f = new QFormLayout(g);
+        f->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+
+        m_quadModeCombo = new QComboBox(g);
+        m_quadModeCombo->setObjectName(QStringLiteral("meshQuadModeCombo"));
+        m_quadModeCombo->addItems({tr("Off (triangles only)"), tr("Corridors and strips"), tr("Corridors, strips and open blocks")});
+        m_quadModeCombo->setCurrentIndex(2);
+        m_quadModeCombo->setToolTip(tr(
+            "Where the mesh uses quads; triangles fill everywhere else and every join is exact. "
+            "Corridors and strips: selected corridors and streets or ditches between facing break "
+            "lines (each with its own option). Open blocks: after a first pass, rectangles are "
+            "placed where the cells are nearly uniform and no feature runs — water, parks, "
+            "yards, wide lots — and meshed as square quads in a second pass (more time). "
+            "Quad regions you list are used in every mode except Off."));
+        f->addRow(tr("&Quads:"), m_quadModeCombo);
+
         m_streetQuadsBox = new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), g);
         m_streetQuadsBox->setObjectName(QStringLiteral("meshStreetQuadsBox"));
         m_streetQuadsBox->setToolTip(tr(
@@ -3064,7 +3097,7 @@ void MeshGenerationDialog::buildUi()
             "cells between them are rows of quads along the feature. Needs a "
             "DTM and a terrain tolerance; everywhere else the mesh is "
             "triangles."));
-        f->addRow(QString(), m_streetQuadsBox);
+        f->addRow(m_streetQuadsBox);
 
         m_conduitStripSpin = new QDoubleSpinBox(g);
         m_conduitStripSpin->setObjectName(QStringLiteral("meshConduitStripSpin"));
@@ -3099,22 +3132,22 @@ void MeshGenerationDialog::buildUi()
             "unknown ID stops generation with an error."));
         f->addRow(tr("Subcatchments:"), m_quadRegionSubcatchEdit);
 
-        qualityVBox->addWidget(g);
+        m_resolutionWidget->addSettingsPage(tr("Quads and regions"),g);
     }
 
+    auto *corridorGroup = new QGroupBox(tr("Corridors"), qualityPage);
+    auto *corridorLayout = new QVBoxLayout(corridorGroup);
     if (m_pw && !m_pw->corridorRecipeLoadError().isEmpty()) {
         auto *warning = new QLabel(tr("The saved corridor recipe could not be loaded: %1\n"
                                      "Review the source settings. Generating a new mesh can replace this recipe; cancelling preserves it.")
-                                      .arg(m_pw->corridorRecipeLoadError()), qualityPage);
+                                      .arg(m_pw->corridorRecipeLoadError()), corridorGroup);
         warning->setWordWrap(true);
         warning->setAccessibleName(tr("Saved corridor recipe needs review"));
-        qualityVBox->addWidget(warning);
+        corridorLayout->addWidget(warning);
     }
-    auto *corridorGroup = new QGroupBox(tr("Corridors"), qualityPage);
-    auto *corridorLayout = new QVBoxLayout(corridorGroup);
     m_corridorSources = new CorridorSourcesWidget(corridorGroup);
     corridorLayout->addWidget(m_corridorSources);
-    qualityVBox->addWidget(corridorGroup);
+    m_resolutionWidget->addSettingsPage(tr("Corridors"),corridorGroup);
 
     // Boundaries
     {
@@ -3142,7 +3175,7 @@ void MeshGenerationDialog::buildUi()
             "original vertices."));
         f->addRow(tr("Trim boundary vertices: max &deviation:"), m_trimDeviationSpin);
 
-        qualityVBox->addWidget(g);
+        m_resolutionWidget->addSettingsPage(tr("Boundaries"),g);
     }
     {
         auto *g=new QGroupBox(tr("Large meshes"),qualityPage);
@@ -3162,12 +3195,10 @@ void MeshGenerationDialog::buildUi()
         m_terrainCacheSpin->setSuffix(tr(" MiB"));
         m_terrainCacheSpin->setToolTip(tr("Memory per terrain cache (DEM tiles and feature mask). Automatic uses one eighth of physical memory, from 256 MiB to 8 GiB. A larger cache is faster on large DEMs and does not change the mesh. Large feature masks spill to disk. The mesh, feature chains and terrain summaries use additional memory."));
         f->addRow(tr("Terrain cache:"),m_terrainCacheSpin);
-        qualityVBox->insertWidget(2,g);
+        m_resolutionWidget->addSettingsPage(tr("Limits"),g);
     }
-    qualityVBox->addStretch();
 
-    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(qualityPage, tabs),
-                 tr("Quality"));
+    tabs->addTab(qualityPage,tr("Quality"));
 
     // ================================================================
     // Tab 3 — Hydraulics
@@ -3350,9 +3381,7 @@ void MeshGenerationDialog::updateUnitDisplay()
 
     if (m_nodeFlattenSpin)   m_nodeFlattenSpin->setSuffix(suf);
     if (m_nodeMinSepSpin)    m_nodeMinSepSpin->setSuffix(suf);
-    if (m_cellSizeSpin)      m_cellSizeSpin->setSuffix(suf);
-    if (m_minCellSizeSpin)   m_minCellSizeSpin->setSuffix(suf);
-    if (m_terrainTolSpin)    m_terrainTolSpin->setSuffix(suf);
+    if (m_resolutionWidget) m_resolutionWidget->setUnits(us->isSI()?1.0:.3048,len);
     if (m_conduitStripSpin)  m_conduitStripSpin->setSuffix(suf);
     if (m_trimDeviationSpin) m_trimDeviationSpin->setSuffix(suf);
 }
@@ -3386,11 +3415,7 @@ void MeshGenerationDialog::seedDefaults()
     m_nodeMinSepSpin->setValue(t.meshMinNodeSepM * toUnit);
     // Resolution / shape / boundaries (MESH_OVERHAUL_PLAN_2026-09-29.md §3),
     // seeded from the 2D Defaults preference page (SI-canonical lengths).
-    m_cellSizeSpin->setValue(t.meshCellSizeM * toUnit);
-    m_coarsenSpin->setValue(t.meshCoarsenFactor);
-    m_sizeRatioSpin->setValue(t.meshSizeRatio);
-    m_minCellSizeSpin->setValue(t.meshMinCellSizeM * toUnit);
-    m_terrainTolSpin->setValue(t.meshTerrainToleranceM * toUnit);
+    m_resolutionWidget->setSettings(t.resolutionSettings());
     m_minAngleSpin->setValue(t.meshMinAngleDeg);
     m_streetQuadsBox->setChecked(t.meshQuadsBetweenBreaklines);
     m_conduitStripSpin->setValue(3.048 * toUnit);   // 10 ft
@@ -3463,7 +3488,14 @@ void MeshGenerationDialog::saveOptions()
     };
     addSources(m_pointLayerRows); addSources(m_lineLayerRows);
     QJsonObject options=m_pw->meshGenerationOptions();
-    options[QStringLiteral("version")]=1;
+    if (options.value("version").toInt()==1) {
+        const auto previous=options.value("controls").toObject();
+        options["migration"]=QJsonObject{{"fromVersion",1},
+            {"featureFromExtent",previous.value("meshCellSizeSpin").toDouble()<=0},
+            {"previousControls",previous}};
+    }
+    options[QStringLiteral("version")]=2;
+    options[QStringLiteral("resolution")]=m_resolutionWidget->settings().toJson();
     options[QStringLiteral("controls")]=controls;
     options[QStringLiteral("sources")]=sources;
     QJsonArray regions;
@@ -3493,7 +3525,8 @@ void MeshGenerationDialog::restoreOptions()
 {
     if (!m_pw) return;
     const auto options=m_pw->meshGenerationOptions();
-    if(options.value(QStringLiteral("version")).toInt()!=1) return;
+    const int version=options.value(QStringLiteral("version")).toInt();
+    if(version!=1 && version!=2) return;
     const auto controls=options.value(QStringLiteral("controls")).toObject();
     const double fromSI=UnitSystem::instance()->isSI()?1.0:1.0/.3048;
     // Source/unit combos emit dependent updates. Restore those first, then
@@ -3512,6 +3545,18 @@ void MeshGenerationDialog::restoreOptions()
         else if (auto *button=qobject_cast<QAbstractButton *>(w); button && button->isCheckable() && it->isBool()) button->setChecked(it->toBool());
         else if (auto *edit=qobject_cast<QLineEdit *>(w); edit && it->isString()) edit->setText(it->toString());
     }
+    double extentM=0;
+    if (m_pw->modelLayer()) {
+        const auto e=m_pw->modelLayer()->extent();
+        const auto *crs=m_pw->modelLayer()->srs();
+        extentM=std::max(e.width(),e.height())*(crs?crs->planarLinearUnit().metresPerUnit:1.0);
+    }
+    const auto resolution=version==2?mesh::ResolutionSettings::fromJson(options.value("resolution").toObject()):
+        mesh::ResolutionSettings::migrate(controls,PreferencesManager::instance()->twoDDefaults().resolutionSettings(),extentM);
+    m_resolutionWidget->setSettings(resolution);
+    const QString migration=version==1?tr("Previous sizes were migrated: feature target %1 %3; maximum target %2 %3. Terrain refinement now respects the minimum target; regenerated meshes may differ.")
+        .arg(resolution.featureM.value_or(resolution.minimumM)*fromSI)
+        .arg(resolution.maximumM.value_or(0)*fromSI).arg(UnitSystem::instance()->lengthLabel()):QString();
     auto restoreSources=[&](const QVector<AuxLayerRow> &rows) {
         for(const auto &value:options.value(QStringLiteral("sources")).toArray()) {
             const auto entry=value.toObject();
@@ -3537,6 +3582,9 @@ void MeshGenerationDialog::restoreOptions()
         .arg(last.value(QStringLiteral("unknown")).toInt()));
     else if (!last.isEmpty())
         m_terrainReportLabel->setText(tr("Last run: %1 cells; adaptive terrain checking was off.").arg(last.value(QStringLiteral("cells")).toInt()));
+    if (last.value("summary").isString())
+        m_terrainReportLabel->setText(m_terrainReportLabel->text().toHtmlEscaped()+tr(" <a href=\"results\">View full report</a>"));
+    if (!migration.isEmpty()) m_terrainReportLabel->setText(migration.toHtmlEscaped()+"<br>"+m_terrainReportLabel->text());
     refreshRegionRows();
     if (m_regionDefaults) {
         QVector<MeshRegionDefaultsWidget::RegionRow> rows;
@@ -3765,11 +3813,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     qsizetype nAuxLineVertsUnprojectable = 0;
 
     // ── Resolution / shape / boundaries (MESH_OVERHAUL_PLAN_2026-09-29.md §3) ──
-    // Set BEFORE the domain polygons are collected: the boundary ingestion
-    // trims rings with these. Distances are map units, as for every other
-    // distance spin in this dialog (no display→SI conversion on collect).
+    // Capture display values before collecting geometry. Shared resolution
+    // and the remaining lengths are converted once the CRS units are known.
     out->cellSize      = m_cellSizeSpin->value();
-    out->coarsenFactor = m_coarsenSpin->value();
+    out->resolution = m_resolutionWidget->settings();
+    if (const QString error=out->resolution->validate(); !error.isEmpty()) return fail(error);
     out->sizeRatio     = m_sizeRatioSpin->value();
     out->minCellSize   = m_minCellSizeSpin->value();
     out->conditionBoundary = m_conditionBoundaryBox && m_conditionBoundaryBox->isChecked();
@@ -3793,7 +3841,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->terrainCacheMiB=resolvedTerrainCacheMiB(m_terrainCacheSpin->value());
     out->trimTurnDeg   = m_trimTurnSpin->value();
     out->trimDeviation = m_trimDeviationSpin->value() > 0.0 ? m_trimDeviationSpin->value()
-                                                            : 0.1 * out->cellSize;
+                                                            : 0.1 * out->minCellSize;
     out->genOpts.maxArea       = 0.4330127018922193 * out->cellSize * out->cellSize;
     out->genOpts.minCellSize   = out->minCellSize;
     // Near-equilateral triangles (MESH_REGIONAL_TRIQUAD_PLAN D-R6): graded
@@ -4384,6 +4432,14 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // it in the same output vertical unit as the generated vertex heights.
     out->terrainTolerance *= (UnitSystem::instance()->isSI()?1.0:.3048)/out->verticalUnitToSI;
 
+    applyResolution(*out);
+    const double horizontalFactor=(UnitSystem::instance()->isSI()?1.0:.3048)/out->meshLinearUnitToSI;
+    out->trimDeviation*=horizontalFactor;
+    out->conduitStripWidth*=horizontalFactor;
+    out->nodeMinSeparation*=horizontalFactor;
+    out->nodeFlattenRadius*=horizontalFactor;
+    out->genOpts.patchSnapEps=.01*out->minCellSize;
+
     // ── Elevation interpolation (no-DTM fallback) ────────────────────
     out->elevInterpMethod = ElevInterpMethod(
         m_elevMethodCombo->currentData().toInt());
@@ -4519,6 +4575,7 @@ void MeshGenerationDialog::onMeshFinished()
         return;
     }
     const QString generatedModelPath = m_generationModelPath;
+    QPointer<SWMM2DMeshLayer> generatedLayer;
     const int generatedCellCount = result.meshResult.triangles.size();
     clearGenerationGuard();
     QString corridorError;
@@ -4604,31 +4661,40 @@ void MeshGenerationDialog::onMeshFinished()
         pendingLayer.release();
         canvas->undoStack()->push(adoption.release());
         m_pw->attachMeshLayer(meshLayer);
+        generatedLayer=meshLayer;
         // Kick the deferred heavy build now that the layer is adopted —
         // mirrors the file-open path (swmmvis.cpp attachMesh2DLayersAsync).
         meshLayer->finishSceneGeometryAsync();
     }
 
+    // The completed mesh is already adopted. The report stays open after
+    // closing the generation dialog and does not block other project work.
+    auto *reportBox=new QMessageBox(result.alignmentWarnings.isEmpty()?QMessageBox::Information:QMessageBox::Warning,
+        tr("Mesh generation results"),result.summary,QMessageBox::Ok,m_pw);
+    reportBox->setAttribute(Qt::WA_DeleteOnClose);
+    reportBox->setDetailedText(result.alignmentWarnings.join("\n\n"));
+    if (!result.exceptionCells.isEmpty()) {
+        auto *highlight=reportBox->addButton(tr("Highlight exception cells"),QMessageBox::ActionRole);
+        const QSet<int> indices(result.exceptionCells.begin(),result.exceptionCells.end());
+        const QPointer<SWMM2DMeshLayer> layer=generatedLayer;
+        connect(highlight,&QPushButton::clicked,reportBox,[layer,indices]{if(layer)layer->setHighlightedTriangles(indices);});
+    }
+    reportBox->open();
+
     m_pw->setCorridorSources(result.corridorSources);
     m_pw->setCorridorRecipeLoadError({});
     m_pw->setHasChanges(true);
-    if (!result.alignmentWarnings.isEmpty())
-    {
-        QMessageBox box(QMessageBox::Warning, tr("Mesh requirements need review"),
-                        tr("The mesh was generated with unresolved requirements. Review the terrain, quality or alignment notes before running the model."),
-                        QMessageBox::Ok, this);
-        box.setInformativeText(result.alignmentWarnings.first());
-        box.setDetailedText(result.alignmentWarnings.join(QStringLiteral("\n\n")));
-        box.exec();
-    }
     auto options=m_pw->meshGenerationOptions();
     const double toSI=result.verticalUnitToSI;
-    options[QStringLiteral("lastRun")]=QJsonObject{
+    QJsonObject lastRun=result.metrics;
+    const QJsonObject terrainStats{
         {QStringLiteral("cells"),generatedCellCount},
         {QStringLiteral("toleranceM"),result.terrainToleranceUsed*toSI},
         {QStringLiteral("unresolved"),result.generationStats.terrainUnresolved},
         {QStringLiteral("unknown"),result.generationStats.terrainUnknown},
         {QStringLiteral("maxErrorBoundM"),result.generationStats.maxTerrainError*toSI}};
+    for(auto it=terrainStats.begin();it!=terrainStats.end();++it) lastRun.insert(it.key(),it.value());
+    options[QStringLiteral("lastRun")]=lastRun;
     m_pw->setMeshGenerationOptions(options);
     accept();
 }
