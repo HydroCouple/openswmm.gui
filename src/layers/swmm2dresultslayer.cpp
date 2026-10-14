@@ -1717,6 +1717,11 @@ bool HDF5Mesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
 {
     return reader_->readFaceFieldAt(dataset, timeIdx, values);
 }
+bool HDF5Mesh2DSource::readFaceFieldCellsAt(const char* dataset,int time,const std::vector<int>& cells,
+                                         std::vector<float>& values)
+{
+    return reader_->readFaceFieldCellsAt(dataset,time,cells,values);
+}
 
 bool HDF5Mesh2DSource::readFaceEnvelope(const char* dataset,
                                         std::vector<float>& values)
@@ -1867,13 +1872,8 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireMeshRepaint(m_isolineSublayer);
     wireArrowRepaint(m_velocityVectorSublayer);
     m_flowStreakSublayer = new OpenSWMM::Render::FlowStreakSublayer(this);
-    m_flowCache = new OpenSWMM::Render::FlowStreakCache(this);
-    m_particles = new OpenSWMM::Render::FlowParticleController(this);
-    connect(m_particles,&OpenSWMM::Render::FlowParticleController::ready,
-            this,&SWMM2DResultsLayer::flowStreaksChanged);
+    m_particleController = new OpenSWMM::Render::FlowParticleLayerController(this);
     wireMeshRepaint(m_flowStreakSublayer);
-    connect(m_flowCache, &OpenSWMM::Render::FlowStreakCache::ready,
-            this, &SWMM2DResultsLayer::flowStreaksChanged);
     surface_pool_.setMaxThreadCount(1);
 }
 
@@ -1980,19 +1980,32 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     current_flux_.clear();
     have_velocity_ = false;
     edge_flux_probe_ = 0;   // re-probe edge-flux availability for the new source
+    m_velocityFloorSI=0;
+    m_edgeFluxAvailable=false;
     rebuildSceneGeometry_();
 
     const int n = source_ ? source_->timeCount() : 0;
     emit timeRangeChanged(0, std::max(0, n - 1));
 
-    // Auto-seed max_velocity_ from a single global RT0 scan so the colour
+    // Prefer the run's velocity envelope. A whole-series scan is retained
+    // only for small legacy outputs; large files grow the arrow range lazily.
+    std::vector<float> velocityEnvelope;
+    const bool haveEnvelope=source_ && source_->readFaceEnvelope("Mesh2_face_max_velocity",velocityEnvelope)
+        && velocityEnvelope.size()==cells_.size();
+    if(haveEnvelope) {
+        double peak=0;
+        for(float v:velocityEnvelope)if(std::isfinite(v))peak=std::max(peak,double(v));
+        m_velocityFloorSI=OpenSWMM::Render::flowParticleStagnationFloor(std::move(velocityEnvelope));
+        if(peak>0 && !max_velocity_user_set_)max_velocity_=peak;
+    }
+    // Auto-seed max_velocity_ from a bounded RT0 scan so the colour
     // ramp + arrow-length log scaling are anchored to the run's peak speed.
     // The layer's per-frame applyCurrentFlux_() only auto-GROWS max_velocity_;
     // without this seed it starts at the default (1 m/s) and shallow-flow
     // demos (snoopy peak ≈ 0.14 mm/s) end up with sub-pixel arrows.
     // Cheap: 480 frames × 128 cells × nv edges + 2×2 inverse per cell.
     if (source_ && have_edge_geom_ && !cells_.empty() && n > 0 &&
-        !max_velocity_user_set_)
+        !max_velocity_user_set_ && !haveEnvelope && quint64(n)*cells_.size()<=500000)
     {
         constexpr float kQMax = 10.0f;
         const int nCell = static_cast<int>(cells_.size());
@@ -2207,6 +2220,7 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
     analysis_surface_.reset();
     current_time_idx_ = t;
     readSurfaceInputs_(t, current_depths_, current_flux_);
+    m_edgeFluxAvailable=!current_flux_.empty();
 
     // Auto-track running max depth (unless the user explicitly pinned it).
     // The finite guard is belt-and-braces after the sanitize above: one Inf
@@ -2242,6 +2256,7 @@ void SWMM2DResultsLayer::publishSurface_(const SurfaceJob& job, quint64 seq)
     ++frame_revision_;
     analysis_surface_.reset();
     if(!job.flux.empty()) edge_flux_probe_=1;
+    m_edgeFluxAvailable=!job.flux.empty();
     if (job.region) publishRegionalSurface_(job);
     else {
         published_region_.reset();

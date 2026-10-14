@@ -14,30 +14,14 @@ class FlowStreakStyle : public SublayerStyle {
     Q_CLASSINFO("group:widthPx","Appearance")
     Q_PROPERTY(double headWidthPx READ headWidthPx WRITE setHeadWidthPx NOTIFY styleChanged)
     Q_CLASSINFO("group:headWidthPx","Appearance")
-    Q_PROPERTY(double trailLengthPx READ trailLengthPx WRITE setTrailLengthPx NOTIFY styleChanged)
-    Q_CLASSINFO("group:trailLengthPx","Appearance")
-    Q_PROPERTY(bool velocityScaledTrail READ velocityScaledTrail WRITE setVelocityScaledTrail NOTIFY styleChanged)
-    Q_CLASSINFO("group:velocityScaledTrail","Appearance")
     Q_PROPERTY(double trailDurationSeconds READ trailDurationSeconds WRITE setTrailDurationSeconds NOTIFY styleChanged)
     Q_CLASSINFO("group:trailDurationSeconds","Appearance")
-    Q_PROPERTY(bool fade READ fade WRITE setFade NOTIFY styleChanged)
-    Q_CLASSINFO("group:fade","Appearance")
-    Q_PROPERTY(bool taper READ taper WRITE setTaper NOTIFY styleChanged)
-    Q_CLASSINFO("group:taper","Appearance")
     Q_PROPERTY(double spacingPx READ spacingPx WRITE setSpacingPx NOTIFY styleChanged)
     Q_CLASSINFO("group:spacingPx","Distribution")
-    Q_PROPERTY(double pathLengthPx READ pathLengthPx WRITE setPathLengthPx NOTIFY styleChanged)
-    Q_CLASSINFO("group:pathLengthPx","Distribution")
-    Q_PROPERTY(double dryDepthCutoff READ dryDepthCutoff WRITE setDryDepthCutoff NOTIFY styleChanged)
-    Q_CLASSINFO("group:dryDepthCutoff","Wet support")
     Q_PROPERTY(bool animated READ animated WRITE setAnimated NOTIFY styleChanged)
-    Q_PROPERTY(bool continuousParticles READ continuousParticles WRITE setContinuousParticles NOTIFY styleChanged)
-    Q_CLASSINFO("group:continuousParticles","Motion")
     Q_CLASSINFO("group:animated","Motion")
     Q_PROPERTY(double speedMultiplier READ speedMultiplier WRITE setSpeedMultiplier NOTIFY styleChanged)
     Q_CLASSINFO("group:speedMultiplier","Motion")
-    Q_PROPERTY(int animationTimestepMs READ animationTimestepMs WRITE setAnimationTimestepMs NOTIFY styleChanged)
-    Q_CLASSINFO("group:animationTimestepMs","Motion")
     Q_PROPERTY(double minimumLifetimeSeconds READ minimumLifetimeSeconds WRITE setMinimumLifetimeSeconds NOTIFY styleChanged)
     Q_CLASSINFO("group:minimumLifetimeSeconds","Motion")
     Q_PROPERTY(double maximumLifetimeSeconds READ maximumLifetimeSeconds WRITE setMaximumLifetimeSeconds NOTIFY styleChanged)
@@ -58,31 +42,15 @@ public:
     double headWidthPx() const { return m_headWidthPx; }
     void setHeadWidthPx(double value);
     double widthAtFraction(double tailToHead) const;
-    double trailLengthPx() const { return m_trailLengthPx; }
-    void setTrailLengthPx(double value);
-    bool velocityScaledTrail() const { return m_velocityScaledTrail; }
-    void setVelocityScaledTrail(bool value);
     double trailDurationSeconds() const { return m_trailDurationSeconds; }
     void setTrailDurationSeconds(double value);
-    double activeTrailDurationSeconds() const { return m_velocityScaledTrail?m_trailDurationSeconds:0.; }
-    bool fade() const { return m_fade; }
-    void setFade(bool value);
-    bool taper() const { return m_taper; }
-    void setTaper(bool value);
     double spacingPx() const { return m_spacingPx; }
     void setSpacingPx(double value);
-    double pathLengthPx() const { return m_pathLengthPx; }
-    void setPathLengthPx(double value);
-    double dryDepthCutoff() const { return m_dryDepthCutoff; }
-    void setDryDepthCutoff(double value);
     bool animated() const { return m_animated; }
-    bool continuousParticles() const { return m_continuousParticles; }
-    void setContinuousParticles(bool value);
     void setAnimated(bool value);
     double speedMultiplier() const { return m_speedMultiplier; }
+    bool motionWasMigrated() const {return m_motionWasMigrated;}
     void setSpeedMultiplier(double value);
-    int animationTimestepMs() const { return m_animationTimestepMs; }
-    void setAnimationTimestepMs(int value);
     double minimumLifetimeSeconds() const { return m_minimumLifetimeSeconds; }
     void setMinimumLifetimeSeconds(double value);
     double maximumLifetimeSeconds() const { return m_maximumLifetimeSeconds; }
@@ -96,28 +64,19 @@ public:
     QColor colorForSpeed(double speed) const;
     QJsonObject toJson() const override;
     void fromJson(const QJsonObject &) override;
-    // Only these settings affect path preparation, not paint or phase.
-    QJsonObject pathSettings() const;
 private:
     ClassificationScheme m_scheme;
-    QColor m_color = QColor(Qt::white);
+    QColor m_color = QColor(255,255,255,217);
     double m_widthPx = 1.5;
-    double m_headWidthPx = 1.5;
-    double m_trailLengthPx = 80.0;
-    bool m_velocityScaledTrail = true;
-    double m_trailDurationSeconds = 2.0;
-    bool m_fade = true;
-    bool m_taper = true;
-    double m_spacingPx = 30.0;
-    double m_pathLengthPx = 350.0;
-    double m_dryDepthCutoff = 0.001;
+    double m_headWidthPx = 2.5;
+    double m_trailDurationSeconds = 1.5;
+    double m_spacingPx = 40.0;
     bool m_animated = true;
-    bool m_continuousParticles = false; // opt-in until native/large-mesh visual gates
-    double m_speedMultiplier = 2.0;
-    int m_animationTimestepMs = 16;
-    double m_minimumLifetimeSeconds = 8.0;
-    double m_maximumLifetimeSeconds = 16.0;
-    double m_lifetimeFadeSeconds = 0.5;
+    double m_speedMultiplier = 1.0;
+    bool m_motionWasMigrated=false;
+    double m_minimumLifetimeSeconds = 20.0;
+    double m_maximumLifetimeSeconds = 40.0;
+    double m_lifetimeFadeSeconds = 0.6;
     bool m_colorByMagnitude = false;
 };
 class FlowStreakSublayer : public ISublayer {

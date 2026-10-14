@@ -17,10 +17,12 @@ void SWMM2DResultsLayer::setHydraulicView(const QRectF& view, double scale)
     const QRectF visible=view.intersected(m_sceneBBox);
     if (!visible.isValid()) return;
     const double bucket=std::exp2(std::floor(std::log2(scale)*4)/4);
-    const double pathPad=m_flowStreakSublayer->streakStyle()->pathLengthPx()/bucket;
-    const auto needed=visible.adjusted(-pathPad,-pathPad,pathPad,pathPad).intersected(m_sceneBBox);
+    // Automatic pan support replaces the retired cached-path length setting.
+    // Particle residency adds its own motion/history support independently.
+    const double halo=std::min(96./bucket,.5*std::max(view.width(),view.height()));
+    const auto needed=visible.adjusted(-halo,-halo,halo,halo).intersected(m_sceneBBox);
     if(surface_region_ && surface_region_->coverage.contains(needed)) return;
-    const double pad=std::max({view.width()*.5,view.height()*.5,2*pathPad});
+    const double pad=std::max({view.width()*.5,view.height()*.5,2*halo});
     const auto coverage=view.adjusted(-pad,-pad,pad,pad).intersected(m_sceneBBox);
     if (hydraulic_view_==coverage) return; // rejected overview, until view/scale changes
     hydraulic_view_=coverage;

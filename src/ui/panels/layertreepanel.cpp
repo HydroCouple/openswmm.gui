@@ -1891,6 +1891,12 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         QAction *actExportS = subMenu.addAction(exportActionText(subExport, sub->displayName()));
         actExportS->setEnabled(subExport.isValid());
         subMenu.addSeparator();
+        if(auto *flow=qobject_cast<OpenSWMM::Render::FlowStreakSublayer *>(sub)) {
+            auto *action=subMenu.addAction(tr("Animate flow streaks"));action->setObjectName("flowMotionAction");action->setCheckable(true);
+            action->setChecked(flow->streakStyle()->animated());
+            connect(action,&QAction::toggled,flow->streakStyle(),&OpenSWMM::Render::FlowStreakStyle::setAnimated);
+        }
+        subMenu.addSeparator();
         QAction *actToggle = subMenu.addAction(
             sub->isVisible() ? tr("Hide %1").arg(sub->displayName())
                              : tr("Show %1").arg(sub->displayName()));
@@ -2170,6 +2176,12 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     actFeatureCount->setEnabled(false);             // pending feature
     auto *results2D = qobject_cast<SWMM2DResultsLayer *>(layer);
     const bool is2DResults = (results2D != nullptr);
+    if(results2D) {
+        auto *action=menu.addAction(tr("Animate flow streaks"));action->setObjectName("flowMotionAction");action->setCheckable(true);
+        action->setChecked(results2D->flowStreakSublayer()->streakStyle()->animated());
+        connect(action,&QAction::toggled,results2D->flowStreakSublayer()->streakStyle(),&OpenSWMM::Render::FlowStreakStyle::setAnimated);
+    }
+
     QAction *actPlotTS = nullptr;
     if (isResults) {
         actPlotTS = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),

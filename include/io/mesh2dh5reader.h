@@ -227,6 +227,8 @@ public:
      */
     bool readFaceFieldAt(const char* dataset, int timeIdx,
                          std::vector<float>& values) const;
+    bool readFaceFieldCellsAt(const char* dataset,int timeIdx,const std::vector<int>& cells,
+                             std::vector<float>& values) const;
 
     /*! \brief True iff \p dataset exists at the file root (probe cached). */
     bool hasFaceField(const char* dataset) const;

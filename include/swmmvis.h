@@ -810,6 +810,8 @@ private:
     QComboBox     *mComboActiveResults1D              = nullptr;
     QLabel        *mLabelActiveResults2D              = nullptr;
     QComboBox     *mComboActiveResults2D              = nullptr;
+    QCheckBox     *mCheckBoxFlowMotion                = nullptr;
+    QMetaObject::Connection m_flowMotionConnection;
     QCheckBox     *mCheckBoxLive2D                    = nullptr;  // live 2D render on/off (Issue 2)
     QCheckBox     *mCheckBoxLive1D                    = nullptr;  // live 1D results pref (LIVE_1D_RESULTS_PLAN_V2)
     class AnimationController *mAnimationController  = nullptr;

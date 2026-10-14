@@ -155,6 +155,7 @@ is snapped to it.
 |---------|--------------|
 | **Show Legend** | Toggles the canvas legend overlay |
 | **Set Style** | Opens layer properties for the selected layer |
+| **Flow motion** | Plays or pauses flow streaks on the active 2D results layer at the selected result time |
 | **Live 2D** | Renders and streams the active 2D layer during a run; only enabled for a live source |
 | **Live 1D** | Opens the `.out` while it is still being written; a saved preference, applied to the next run |
 
@@ -180,6 +181,7 @@ repaint immediately.
 | **Depth Contours** | Filled contour bands | Class scheme; **Interpolate band boundaries (marching triangles)** — on interpolates boundaries through the triangle, off gives flat per-cell bands |
 | **Depth Isolines** | Stroked iso-depth lines | **Mode** (Fixed count / Fixed interval + base); **Count**; **Method** (Equal interval, Quantile, Natural breaks (Jenks), Standard deviation, Logarithmic, Exponential); **Interval** and **Base level** (contours fall at base + k × interval); colour, width, stroke style; **Index contour every** N with its own width; contour **Labels** with decimals, font size and white halo |
 | **Flow Velocity** | Centroid arrow glyphs | **Length scaling** (Linear / Square root / Logarithmic); **Scale** in px per m/s; **Min**/**Max length**; **Head size**; **Shaft width**; **Colour by magnitude** (with its own class scheme) or a single colour; **Spacing** — minimum on-screen px between arrows, strongest cell per slot wins; **Dry depth cutoff** — suppress arrows in shallower water |
+| **Flow Streaks** | Moving trails over wet areas | **Colour** or **By speed**; **Density** (Sparse / Normal / Dense); **Motion**; **Trail** (Short / Normal / Long). **Advanced** provides exact values, lifetime, width and fading settings |
 | **Mesh Edges** | The triangulation's edges | Edge colour and width |
 | **Mesh Vertices** | Vertex markers | Marker style |
 
@@ -188,6 +190,18 @@ Colour for the band and isoline classes comes from either a named **colour ramp*
 colour** and a **High colour**.
 
 \fig{21_2d_style_panel_tabs.png, The 2D results styling panel showing the Depth Isolines tab}
+
+Flow streaks illustrate flow direction. Their motion adjusts to the map zoom,
+and slower movement is boosted so it remains visible. **Normal** uses a 48 px/s
+reference speed; it does not represent particle travel time. **By speed** colours
+use the original velocities in m/s. Density follows the visible wet area, and
+the trails follow the layer's wet boundary.
+
+Use **Flow motion** in the Results ribbon or **Animate flow streaks** in the
+layer's context menu to pause or resume motion. Result playback and flow motion
+can be paused independently. A live run also needs **Live 2D** enabled. Older
+cached-path styles migrate to Normal motion and the nearest density/trail
+presets; existing particle styles keep their saved values.
 
 For large meshes, the GPU renderer prepares depth contours in the background,
 including the first frame and changes to the live depth range. It keeps the last

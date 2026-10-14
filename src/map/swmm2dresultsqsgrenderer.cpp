@@ -15,7 +15,6 @@
  * (MeshStaticGeometryBuffers), and OPENSWMM_RENDER_PERF=1 sync stats.
  */
 #include "map/swmm2dresultsqsgrenderer.h"
-#include "map/flowstreaknode.h"
 #include "map/flowparticlenode.h"
 #include <QCoreApplication>
 #include "render/classificationcolorsampler.h"
@@ -251,7 +250,6 @@ struct ResultsRootNode : QSGTransformNode
 {
     QSGNode *flowNode = nullptr;
     FlowParticleNode *particleNode = nullptr;
-    FlowStreakNode *streakNode = nullptr;
     QHash<QString, ScalarResultNodes *> resultScalarNodes;
     QSGGeometryNode *cellFillNode   = nullptr;
     QSGGeometryNode *smoothFillNode = nullptr;
@@ -549,8 +547,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         root            = new ResultsRootNode();
         root->flowNode = new QSGNode();root->appendChildNode(root->flowNode);
         root->particleNode = new FlowParticleNode();root->flowNode->appendChildNode(root->particleNode);
-        root->streakNode = new FlowStreakNode();
-        root->flowNode->appendChildNode(root->streakNode);
         cellFillNode    = root->cellFillNode   = makeColoredNode();
         smoothFillNode  = root->smoothFillNode = makeColoredNode();
         bandNode        = root->bandNode       = makeColoredNode();
@@ -616,29 +612,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     auto syncStreaks = [&]() {
         auto *sub=m_layer->flowStreakSublayer();
         const auto *style=sub->streakStyle();
-        if(style->continuousParticles()) {
-            root->streakNode->sync({},*style,0,0,{},1);
-            const auto frame=m_layer->flowParticles(viewRect,logicalScale,m_lastRenderedFrame);
-            if(!frame && m_layer->flowStreaksEnabled())return; // keep the complete matching presentation
-            FlowParticleAppearance appearance;appearance.anchor={m_anchorX,m_anchorY};
-            const double stroke=2*std::max(style->widthPx(),style->headWidthPx())/logicalScale;
-            appearance.viewport=viewRect.adjusted(-stroke,-stroke,stroke,stroke);
-            appearance.color=style->color();appearance.opacity=sub->opacity();
-            appearance.fade=style->fade();appearance.taper=style->taper();
-            appearance.revision=qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));
-            if(style->colorByMagnitude())appearance.colorForSpeed=[style](double v){return style->colorForSpeed(v);};
-            root->particleNode->sync(frame,m_layer->flowParticleInterpolation(),logicalScale,
-                style->trailDurationSeconds(),style->widthPx(),style->headWidthPx(),style->lifetimeFadeSeconds(),0,appearance);
-            return;
-        }
-        root->particleNode->sync({},1,1);
-        const auto batch=m_layer->presentedFlowStreaks(viewRect,logicalScale,m_lastRenderedFrame);
-        root->streakNode->sync(batch,*sub->streakStyle(),m_layer->flowStreakSeconds(),
-            sub->opacity(),QPointF(m_anchorX,m_anchorY),logicalScale,m_layer->flowStreakDisplaySeconds());
+        const auto frame=m_layer->flowParticles(viewRect,logicalScale,m_lastRenderedFrame);
+        FlowParticleAppearance appearance;appearance.anchor={m_anchorX,m_anchorY};
+        const double stroke=2*std::max(style->widthPx(),style->headWidthPx())/logicalScale;
+        appearance.viewport=viewRect.adjusted(-stroke,-stroke,stroke,stroke);
+        appearance.color=style->color();appearance.opacity=sub->opacity();
+        appearance.fade=true;appearance.taper=true;
+        appearance.revision=qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));
+        if(style->colorByMagnitude())appearance.colorForSpeed=[style](double v){return style->colorForSpeed(v);};
+        root->particleNode->sync(frame,m_layer->flowParticleInterpolation(),logicalScale,
+            style->trailDurationSeconds(),style->widthPx(),style->headWidthPx(),style->lifetimeFadeSeconds(),0,appearance);
     };
     auto clearAll = [&]() {
         root->particleNode->sync({},1,1);
-        root->streakNode->sync({},*m_layer->flowStreakSublayer()->streakStyle(),0,0,{},1);
         clearPresentedFrames();
         const std::vector<QSGGeometry::ColoredPoint2D> empty_c;
         const std::vector<QSGGeometry::Point2D>        empty_p;
@@ -1078,9 +1064,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             // Capture the same live field before it is superseded. Waiting
             // until this contour is presented can otherwise leave no matching
             // velocity data when the producer is ahead of the display.
-            if(m_layer->flowStreakSublayer()->streakStyle()->continuousParticles())
-                m_layer->flowParticles(viewRect,logicalScale,key.frameRev,false);
-            else m_layer->flowStreaks(viewRect,logicalScale,key.frameRev);
+            m_layer->flowParticles(viewRect,logicalScale,key.frameRev,false);
             auto compute = [frame, input = std::move(input)]() -> std::shared_ptr<const ContourFrame> {
                 frame->contours = computeContourJob(input);
                 return frame;
@@ -1106,21 +1090,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             m_dirty.noteStyleChanged(); // deferred passes must rebuild on completion
             applyTransform();
             syncStreaks(); return root;
-        }
-        // Publish water and streaks together. A temporary path-cache miss must
-        // not blank the old streaks while a matching new frame is preparing.
-        // Retention is only allowed for the same geometry and complete old
-        // presentation; dry/no-velocity and rejected requests still publish.
-        // A superseded overview job can be cancelled by a fast producer; do
-        // not hold the surface waiting for paths that can no longer arrive.
-        if(!geomChanged && m_lastRenderedFrame!=m_contourFrame->key.frameRev
-           && m_contourFrame->key.frameRev==m_layer->frameRevision()
-           && m_layer->flowStreaksEnabled()
-           && (m_layer->flowStreakSublayer()->streakStyle()->continuousParticles()
-               ?!m_layer->flowParticles(viewRect,logicalScale,m_contourFrame->key.frameRev,false)
-               :!m_layer->flowStreaks(viewRect,logicalScale,m_contourFrame->key.frameRev))
-           && m_layer->flowStreakBusy()) {
-            m_dirty.noteStyleChanged();applyTransform();syncStreaks();return root;
         }
         const auto& frame = *m_contourFrame;
         // A fast producer often synchronizes repeatedly without a newly

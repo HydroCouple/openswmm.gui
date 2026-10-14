@@ -59,8 +59,9 @@ endif()
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickWidgets Concurrent)
 add_executable(flow_particle_prototype MACOSX_BUNDLE
     flowparticleprototype.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/flowparticleribbons.cpp
     ${CMAKE_SOURCE_DIR}/src/render/flowparticles.cpp
-    ${CMAKE_SOURCE_DIR}/src/render/flowstreakpaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/flowparticlemesh.cpp
     ${CMAKE_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
     ${CMAKE_SOURCE_DIR}/src/map/flowparticlenode.cpp)
 target_include_directories(flow_particle_prototype PRIVATE ${CMAKE_SOURCE_DIR}/include)

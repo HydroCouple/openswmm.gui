@@ -1781,7 +1781,10 @@ QPixmap MapCanvas::captureMap(QString *error)
         for (auto *layer : std::as_const(m_layers)) {
             auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
             if (!flow || !flow->flowStreaksEnabled() || !view.intersects(flow->m_sceneBBox)) continue;
-            if (flow->flowStreakBusy()) ready = false;
+            // A continuous worker can be catching up while a complete frame
+            // for this water surface is already available. Capture that
+            // immutable publication instead of requiring the worker to idle.
+            if (!flow->flowParticles(view, width()/view.width(), flow->frameRevision())) ready = false;
             if (flow->qsgOwnsRendering() && renderer
                 && (!renderer->captureReady()
                     || renderer->displayedFrameRevision() != flow->frameRevision())) ready = false;
@@ -1979,6 +1982,17 @@ void MapCanvas::initializeVisibleComposition()
         }
         m_compositionClock.start();
     });
+    // QQuickWidget uses an offscreen render-control window. Some backends do
+    // not emit frameSwapped; retain render-completion cadence separately and
+    // report an unavailable swap series rather than calling it display cadence.
+    connect(m_compositionWidget->quickWindow(), &QQuickWindow::frameSwapped, this, [this] {
+        if(!m_compositionActive)return;
+        if(m_compositionSwapClock.isValid()) {
+            if(m_compositionStats.swapIntervalsMs.size()==4096)m_compositionStats.swapIntervalsMs.remove(0,1024);
+            m_compositionStats.swapIntervalsMs.append(m_compositionSwapClock.nsecsElapsed()/1e6);
+        }
+        m_compositionSwapClock.start();
+    });
     m_compositionWidget->hide();
 }
 
@@ -2023,7 +2037,7 @@ void MapCanvas::stopVisibleComposition()
     m_sceneDirty = true;
     m_qsgFrameDirty = true;
     m_qsgFrameCache = {};
-    m_compositionClock.invalidate();
+    m_compositionClock.invalidate();m_compositionSwapClock.invalidate();
 }
 
 bool MapCanvas::renderVisibleComposition()
@@ -2042,8 +2056,7 @@ bool MapCanvas::renderVisibleComposition()
     for (auto *layer : std::as_const(m_layers)) {
         if (!layer->isVisible() || layer->opacity() <= 0) continue;
         if (auto *r = qobject_cast<SWMM2DResultsLayer *>(layer)) {
-            hasContinuousResults |= r->flowStreaksEnabled()
-                && r->flowStreakSublayer()->streakStyle()->continuousParticles();
+            hasContinuousResults |= r->flowStreaksEnabled();
             if (results || r->maskSpec().enabled) m_compositionOrderedFallback = true;
             if (results || r->maskSpec().enabled) supported = false;
             results = r;
@@ -2061,8 +2074,7 @@ bool MapCanvas::renderVisibleComposition()
         m_compositionOrderedFallback = false;
         stopVisibleComposition(); return false;
     }
-    supported = supported && results && results->flowStreaksEnabled()
-        && results->flowStreakSublayer()->streakStyle()->continuousParticles();
+    supported = supported && results && results->flowStreaksEnabled();
     if (mesh && (!PreferencesManager::instance()->qsgMeshRenderEnabled()
                  || qEnvironmentVariable("OPENSWMM_QSG_MESH") == QLatin1String("0"))) mesh = nullptr;
     // CPU layers fit in the cached background only when they precede every
@@ -2098,7 +2110,7 @@ bool MapCanvas::renderVisibleComposition()
         if (m_qsgMeshRenderer) m_qsgMeshRenderer->setLayer(nullptr);
         m_compositionActive = true;
         m_sceneDirty = true;
-        m_compositionClock.invalidate();
+        m_compositionClock.invalidate();m_compositionSwapClock.invalidate();
     }
     m_compositionLayer = results;
     for (auto *layer : std::as_const(m_layers)) {
@@ -2682,7 +2694,6 @@ void MapCanvas::paintForeground(QPainter &p)
 void MapCanvas::updateFlowAnimationTimer()
 {
     bool animateFlow = false;
-    int flowInterval = std::numeric_limits<int>::max();
     for (auto *layer : std::as_const(m_layers)) {
         auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
         if (flow && flow->flowStreaksEnabled()
@@ -2691,11 +2702,10 @@ void MapCanvas::updateFlowAnimationTimer()
             const auto *style = flow->flowStreakSublayer()->streakStyle();
             if (style->animated() && style->speedMultiplier() > 0) {
                 animateFlow = true;
-                flowInterval = std::min(flowInterval,style->animationTimestepMs());
             }
         }
     }
-    if (animateFlow && m_flowTimer->interval()!=flowInterval) m_flowTimer->setInterval(flowInterval);
+    if (animateFlow && m_flowTimer->interval()!=16) m_flowTimer->setInterval(16);
     if (animateFlow && !m_flowTimer->isActive()) { m_flowClock.start(); m_flowTimer->start(); }
     if (!animateFlow) m_flowTimer->stop();
 

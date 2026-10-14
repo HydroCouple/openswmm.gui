@@ -32,7 +32,7 @@ using namespace OpenSWMM::Render;
 
 static std::shared_ptr<FlowParticleSnapshot> makeField(bool curved) {
     const int columns=curved?80:200,rows=curved?80:60;
-    auto mesh=std::make_shared<FlowStreakMesh>();QVector<QRectF> boxes;
+    auto mesh=std::make_shared<FlowParticleMesh>();QVector<QRectF> boxes;
     for(int y=0;y<=rows;++y)for(int x=0;x<=columns;++x)mesh->vertices.append({double(x),double(y)});
     for(int y=0;y<rows;++y)for(int x=0;x<columns;++x) {
         const int a=y*(columns+1)+x,b=a+1,c=a+columns+2,d=c-1;
@@ -50,7 +50,7 @@ static std::shared_ptr<FlowParticleSnapshot> makeField(bool curved) {
         }field->fields.push_back(f);
     }return field;
 }
-static QImage background(const FlowStreakMesh &mesh) {
+static QImage background(const FlowParticleMesh &mesh) {
     const auto extent=mesh.coverage;const double scale=12;
     QImage image(int(extent.width()*scale),int(extent.height()*scale),QImage::Format_RGB32);
     image.fill(QColor(20,68,130));QPainter painter(&image);painter.scale(scale,scale);
@@ -229,7 +229,7 @@ private:
     }
     VisibleCanvas *canvas=nullptr;Preview *preview=nullptr;QLabel *status=nullptr,*tracked=nullptr;
     QFutureWatcher<Packet> watcher;QThreadPool pool;std::shared_ptr<WorkerState> worker;
-    std::shared_ptr<const FlowStreakMesh> displayedMesh;
+    std::shared_ptr<const FlowParticleMesh> displayedMesh;
     QTimer timer;QElapsedTimer elapsed,wall;QFile trace;std::vector<double> workerTimes;
     double pendingElapsed=0,duration=0,lag=0;QString outputDir;int reset=0,trackedCrossings=0,targetParticles=256;
     bool paused=false,reversePending=false,finishing=false,trackedDied=false,busy=false;quint64 steps=0;

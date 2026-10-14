@@ -22,55 +22,27 @@ void FlowStreakStyle::setHeadWidthPx(double value) {
     if(m_headWidthPx==value) return; m_headWidthPx=value; setDirty();
 }
 double FlowStreakStyle::widthAtFraction(double tailToHead) const {
-    // Match flowstreak.vert: blend the independent head width over the leading
-    // quarter, retaining the original taper everywhere when both widths match.
+    // Match the always-tapered particle ribbon and its independent head width.
     const double a=std::clamp(tailToHead,0.,1.);
     const double h=std::clamp((a-.75)*4,0.,1.);
-    return m_widthPx*(m_taper?std::max(.15,a):1.)
+    return m_widthPx*std::max(.25,a)
         +(m_headWidthPx-m_widthPx)*h*h*(3-2*h);
-}
-void FlowStreakStyle::setTrailLengthPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,1.,maximumNumericValue());
-    if(m_trailLengthPx==value) return; m_trailLengthPx=value; setDirty();
-}
-void FlowStreakStyle::setVelocityScaledTrail(bool value) {
-    if(m_velocityScaledTrail==value) return;m_velocityScaledTrail=value;setDirty();
 }
 void FlowStreakStyle::setTrailDurationSeconds(double value) {
     if(!std::isfinite(value)) return;value=std::clamp(value,.1,maximumNumericValue());
     if(m_trailDurationSeconds==value) return;m_trailDurationSeconds=value;setDirty();
 }
-void FlowStreakStyle::setFade(bool value) {
-    if(m_fade==value) return; m_fade=value; setDirty();
-}
-void FlowStreakStyle::setTaper(bool value) {
-    if(m_taper==value) return; m_taper=value; setDirty();
-}
 void FlowStreakStyle::setSpacingPx(double value) {
     if(!std::isfinite(value)) return; value=std::clamp(value,8.,maximumNumericValue());
     if(m_spacingPx==value) return; m_spacingPx=value; setDirty();
 }
-void FlowStreakStyle::setPathLengthPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,16.,maximumNumericValue());
-    if(m_pathLengthPx==value) return; m_pathLengthPx=value; setDirty();
-}
-void FlowStreakStyle::setDryDepthCutoff(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,0.,maximumNumericValue());
-    if(m_dryDepthCutoff==value) return; m_dryDepthCutoff=value; setDirty();
-}
 void FlowStreakStyle::setAnimated(bool value) {
     if(m_animated==value) return; m_animated=value; setDirty();
 }
-void FlowStreakStyle::setContinuousParticles(bool value) {
-    if(m_continuousParticles==value)return;m_continuousParticles=value;setDirty();
-}
 void FlowStreakStyle::setSpeedMultiplier(double value) {
     if(!std::isfinite(value)) return; value=std::clamp(value,0.,maximumNumericValue());
+    m_motionWasMigrated=false;
     if(m_speedMultiplier==value) return; m_speedMultiplier=value; setDirty();
-}
-void FlowStreakStyle::setAnimationTimestepMs(int value) {
-    value=std::max(value,8);
-    if(m_animationTimestepMs==value) return; m_animationTimestepMs=value; setDirty();
 }
 void FlowStreakStyle::setMinimumLifetimeSeconds(double value) {
     if(!std::isfinite(value)) return;value=std::clamp(value,.1,maximumNumericValue());
@@ -100,57 +72,40 @@ QColor FlowStreakStyle::colorForSpeed(double speed) const {
     return m_scheme.colorForValue(speed,m_scheme.rangeMin(),m_scheme.rangeMax());
 }
 QJsonObject FlowStreakStyle::toJson() const {
-    QJsonObject j{{"schemaVersion",3},{"classification",m_scheme.toJson()}};
-    j["continuousParticles"]=m_continuousParticles;
-    j["color"]=m_color.name(QColor::HexArgb);
-    j["widthPx"]=m_widthPx;
-    j["headWidthPx"]=m_headWidthPx;
-    j["trailLengthPx"]=m_trailLengthPx;
-    j["velocityScaledTrail"]=m_velocityScaledTrail;
-    j["trailDurationSeconds"]=m_trailDurationSeconds;
-    j["fade"]=m_fade;
-    j["taper"]=m_taper;
-    j["spacingPx"]=m_spacingPx;
-    j["pathLengthPx"]=m_pathLengthPx;
-    j["dryDepthCutoff"]=m_dryDepthCutoff;
-    j["animated"]=m_animated;
-    j["speedMultiplier"]=m_speedMultiplier;
-    j["animationTimestepMs"]=m_animationTimestepMs;
-    j["minimumLifetimeSeconds"]=m_minimumLifetimeSeconds;
-    j["maximumLifetimeSeconds"]=m_maximumLifetimeSeconds;
-    j["lifetimeFadeSeconds"]=m_lifetimeFadeSeconds;
-    j["colorByMagnitude"]=m_colorByMagnitude;
-    return j;
+    return {{"schemaVersion",5},{"classification",m_scheme.toJson()},
+        {"color",m_color.name(QColor::HexArgb)},{"widthPx",m_widthPx},{"headWidthPx",m_headWidthPx},
+        {"trailDurationSeconds",m_trailDurationSeconds},{"spacingPx",m_spacingPx},{"animated",m_animated},
+        {"speedMultiplier",m_speedMultiplier},{"minimumLifetimeSeconds",m_minimumLifetimeSeconds},
+        {"maximumLifetimeSeconds",m_maximumLifetimeSeconds},{"lifetimeFadeSeconds",m_lifetimeFadeSeconds},
+        {"colorByMagnitude",m_colorByMagnitude}};
 }
 void FlowStreakStyle::fromJson(const QJsonObject &j) {
     { const QSignalBlocker blocker(this);
-      setContinuousParticles(j["continuousParticles"].toBool(false));
       if(j.contains("color")) setColor(QColor(j["color"].toString()));
       if(j.contains("widthPx")) setWidthPx(j["widthPx"].toDouble(m_widthPx));
       if(j.contains("headWidthPx")) setHeadWidthPx(j["headWidthPx"].toDouble(m_headWidthPx));
-      else if(j.contains("widthPx")) setHeadWidthPx(m_widthPx); // legacy styles used one width
-      if(j.contains("trailLengthPx")) setTrailLengthPx(j["trailLengthPx"].toDouble(m_trailLengthPx));
-      if(j.contains("velocityScaledTrail")) setVelocityScaledTrail(j["velocityScaledTrail"].toBool(m_velocityScaledTrail));
-      else if(j.contains("trailLengthPx") && !j.contains("trailDurationSeconds")) setVelocityScaledTrail(false); // preserve saved pixel styles
-      if(j.contains("trailDurationSeconds")) setTrailDurationSeconds(j["trailDurationSeconds"].toDouble(m_trailDurationSeconds));
-      if(j.contains("fade")) setFade(j["fade"].toBool(m_fade));
-      if(j.contains("taper")) setTaper(j["taper"].toBool(m_taper));
+      else if(j.contains("widthPx")) setHeadWidthPx(m_widthPx);
       if(j.contains("spacingPx")) setSpacingPx(j["spacingPx"].toDouble(m_spacingPx));
-      if(j.contains("pathLengthPx")) setPathLengthPx(j["pathLengthPx"].toDouble(m_pathLengthPx));
-      if(j.contains("dryDepthCutoff")) setDryDepthCutoff(j["dryDepthCutoff"].toDouble(m_dryDepthCutoff));
+      if(j.contains("trailDurationSeconds")) setTrailDurationSeconds(j["trailDurationSeconds"].toDouble(m_trailDurationSeconds));
       if(j.contains("animated")) setAnimated(j["animated"].toBool(m_animated));
       if(j.contains("speedMultiplier")) setSpeedMultiplier(j["speedMultiplier"].toDouble(m_speedMultiplier));
-      if(j.contains("animationTimestepMs")) setAnimationTimestepMs(j["animationTimestepMs"].toInt(m_animationTimestepMs));
       if(j.contains("minimumLifetimeSeconds")) setMinimumLifetimeSeconds(j["minimumLifetimeSeconds"].toDouble(m_minimumLifetimeSeconds));
       if(j.contains("maximumLifetimeSeconds")) setMaximumLifetimeSeconds(j["maximumLifetimeSeconds"].toDouble(m_maximumLifetimeSeconds));
       if(j.contains("lifetimeFadeSeconds")) setLifetimeFadeSeconds(j["lifetimeFadeSeconds"].toDouble(m_lifetimeFadeSeconds));
       if(j.contains("colorByMagnitude")) setColorByMagnitude(j["colorByMagnitude"].toBool(m_colorByMagnitude));
       if(j.contains("classification")) m_scheme.fromJson(j["classification"].toObject());
+      const bool legacy=j["schemaVersion"].toInt()<4 || !j["continuousParticles"].toBool(true);
+      m_motionWasMigrated=false;
+      if(legacy && !j.isEmpty()) {
+          const auto nearest=[](double value,std::initializer_list<double> choices) {
+              return *std::min_element(choices.begin(),choices.end(),[=](double a,double b){return std::abs(a-value)<std::abs(b-value);});
+          };
+          setSpacingPx(nearest(m_spacingPx,{56.,40.,28.}));
+          setTrailDurationSeconds(j["velocityScaledTrail"].toBool(j.contains("trailDurationSeconds"))
+              ?nearest(m_trailDurationSeconds,{.75,1.5,3.}):1.5);
+          setSpeedMultiplier(1);m_motionWasMigrated=true;
+      }
     } setDirty();
-}
-QJsonObject FlowStreakStyle::pathSettings() const {
-    return {{"spacing",m_spacingPx},{"length",m_pathLengthPx},{"cutoff",m_dryDepthCutoff},
-            {"duration",m_maximumLifetimeSeconds*m_speedMultiplier}};
 }
 FlowStreakSublayer::FlowStreakSublayer(QObject *parent):ISublayer(parent),m_style(new FlowStreakStyle(this)) {
     connect(m_style,&SublayerStyle::styleChanged,this,&ISublayer::invalidated);

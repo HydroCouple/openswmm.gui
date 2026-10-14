@@ -85,6 +85,7 @@ public:
         quint64 captureReadbacks = 0;
         quint64 fallbackReadbacks = 0;
         QVector<double> renderIntervalsMs;
+        QVector<double> swapIntervalsMs;
     };
     // Render-completion notifications, not OS display presentation times.
     [[nodiscard]] CompositionStats compositionStats() const;
@@ -597,6 +598,7 @@ private:
     bool m_compositionSyncPending = false;
     bool m_compositionOrderedFallback = false;
     CompositionStats m_compositionStats;
+    QElapsedTimer m_compositionSwapClock;
     QElapsedTimer m_compositionClock;
 
     // Cached QSG framebuffer (re-grabbed only when something the QSG
