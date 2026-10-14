@@ -1178,6 +1178,7 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
     m_twoDMeshMinAngleSpin->setRange(20.0, 33.0);
     m_twoDMeshMinAngleSpin->setDecimals(1);
     m_twoDMeshMinAngleSpin->setSuffix(QStringLiteral("°"));
+    m_twoDMeshMinAngleSpin->setToolTip(tr("Higher values, especially near 33 degrees, can greatly increase the cell count and spend the budget before terrain refinement. Input geometry, the cascade floor and resource limits can prevent the target from being reached."));
     meshForm->addRow(tr("Minimum triangle angle"), m_twoDMeshMinAngleSpin);
 
     m_twoDMeshStreetQuadsBox = new QCheckBox(tr("Quads between facing break lines (streets, ditches)"), meshGroup);

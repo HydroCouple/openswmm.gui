@@ -389,7 +389,7 @@ void TraceAnalysisLayer::populateScene(QGraphicsScene *scene, const MapExtent &,
         item->links.append(p);
     }
     if (ct)
-        OCTDestroyCoordinateTransformation(ct);
+        OGRCoordinateTransformation::DestroyCT(ct);
     bool first = true;
     auto include = [&](QPointF p)
     {
@@ -787,7 +787,7 @@ bool TraceAnalysisLayer::hitTest(QPointF pixel, const QTransform &mapToPixel,
     auto finish = [&](bool hit)
     {
         if (ct)
-            OCTDestroyCoordinateTransformation(ct);
+            OGRCoordinateTransformation::DestroyCT(ct);
         return hit;
     };
     const auto &snapshot = m_result->dataset->snapshot;

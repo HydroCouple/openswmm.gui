@@ -28,6 +28,7 @@
 #include <QHash>
 #include <QPair>
 #include <QSet>
+#include <QJsonObject>
 #include <QPointF>
 #include <QPolygonF>
 #include <QString>
@@ -94,6 +95,7 @@ struct RefineHook
      *  Null = no strips from break lines. */
     std::function<double(double x, double y)> elevationAt;
     std::function<double(const QPointF *, const double *, QPointF *)> terrainError;
+    std::function<double(const QPointF *, const double *)> terrainErrorBound; ///< Certified residual and coverage for coarsening.
     std::function<double(double, double)> terrainElevationAt;
     double terrainTolerance = 0.0;
     /*! Insert terrain points worst error first once size and angle are met
@@ -135,6 +137,8 @@ struct GenerationOptions
     /*! Passes of non-degrading smoothing on free vertices after refinement
      *  (ConstrainedDelaunay::QualityOptions::smoothingPasses). 0 = off. */
     int smoothingPasses = 0;
+    bool diagnosticProvenance = false; ///< Review harness only; no effect on geometry.
+    int coarsenPasses = 0; ///< Bounded attempts to remove unnecessary free vertices; 0 = off.
     /*! Smallest spacing between distinct channel corridor vertices (lattice
      *  offsets and stations). Constraint joining stays below a tenth of it so
      *  a narrow bank crest is never welded to its toe. 0 = derive it from the
@@ -165,6 +169,7 @@ struct QuadRegionReport
 /*! \brief What the last generate() built (MeshGenerator::stats()). */
 struct GenerationStats
 {
+    QJsonObject provenance; ///< Vertex origins and shortest-edge associations before assembly.
     int  regionPatches = 0;     ///< Quad regions meshed with aligned quads.
     int  conduitStrips = 0;     ///< Conduit quad strips placed.
     int  breaklineStrips = 0;   ///< Quad strips between facing break lines.
@@ -177,6 +182,11 @@ struct GenerationStats
      *  exemption does not explain: they rest on fixed quad strip edges or on
      *  inputs closer together than a quarter of the minimum cell size. */
     int  trianglesBelowAngle = 0;
+    int coarsenRemoved = 0, coarsenRejectedAngle = 0, coarsenRejectedSize = 0;
+    int coarsenRejectedTerrain = 0, coarsenRejectedEdge = 0, coarsenAttempts = 0;
+    int coarsenHeightRejects = 0, coarsenBoundAccepts = 0, coarsenExactQueries = 0;
+    bool coarsenSkippedTerrain = false;
+    double coarsenSeconds = 0;
     bool refineCapped = false;  ///< Refinement stopped at its safety cap.
 };
 

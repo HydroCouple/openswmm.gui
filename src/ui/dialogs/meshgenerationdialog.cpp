@@ -231,6 +231,7 @@ static void applyResolution(MeshGenerationDialog::PipelineInputs &in)
     in.terrainAveragingSize=r.averagingM.value_or(r.minimumM)/in.meshLinearUnitToSI;
     in.genOpts.maxArea=0.4330127018922193*in.maximumCellSize*in.maximumCellSize;
     in.genOpts.minCellSize=in.minCellSize;
+    in.genOpts.coarsenPasses=r.coarsenPasses;
     in.genOpts.terrainMinLineLength=r.minimumBreaklineLengthM.value_or(4*r.minimumM)/in.meshLinearUnitToSI;
     in.maxTerrainBreaklines=r.maxBreaklines>0?r.maxBreaklines:std::max(1,in.genOpts.maxCells/200);
 }
@@ -1697,6 +1698,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 const double flat=flattenZ(x,y);
                 return std::isfinite(flat) && (!std::isfinite(terrainZ) || terrainZ>flat)?flat:terrainZ;
             };
+            hook.terrainErrorBound = [&](const QPointF *xy,const double *z) {
+                for (int k=0;k<3;++k)
+                    if (missingTerrainVertices.contains(keyOf(xy[k].x(),xy[k].y())))
+                        return std::numeric_limits<double>::quiet_NaN();
+                const auto q=terrainReference.queryTriangle(xy,z,in.terrainTolerance);
+                return q.valid && q.noDataSamples==0 ? q.upperBound : std::numeric_limits<double>::quiet_NaN();
+            };
             hook.terrainError = [&](const QPointF *xy,const double *z,QPointF *out) {
                 auto q=useAdaptiveTerrain?terrainReference.queryWorst(xy,z,in.terrainTolerance):mesh::TerrainErrorField::Query{};
                 double error=q.valid?q.maxError:0;
@@ -1710,6 +1718,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     stageClock.restart();
     mesh::MeshResult result = g.generate();
     mesh::GenerationStats generationStats = g.stats();
+    double coarseningSeconds = generationStats.coarsenSeconds;
     stageMark("generate()");
     // Open-area quad blocks (MESH_REGIONAL_TRIQUAD_PLAN phases 2-3): placed
     // where the cells just generated are nearly uniform and no feature runs,
@@ -1738,6 +1747,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             const int quadsBefore = result.quadCount();
             for (const auto &b : blocks) g.addQuadRegion(b);
             mesh::MeshResult withBlocks = g.generate();
+            coarseningSeconds += g.stats().coarsenSeconds;
             stageMark("generate() with open blocks");
             if (withBlocks.ok && !promise.isCanceled()) {
                 result = std::move(withBlocks);
@@ -1752,6 +1762,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         qCInfo(lcMeshPerf).noquote() << QStringLiteral("[Mesh][quad] open blocks: %1 placed, %2 embedded, %3 quads (grid %4 x %5 at %6)")
             .arg(blocks.size()).arg(openBlocks).arg(openBlockQuads).arg(grid.cols).arg(grid.rows).arg(pitch);
     }
+    generationStats.coarsenSeconds = coarseningSeconds;
     if (!g.acceptedTerrainBreaklines().isEmpty())
         qCInfo(lcMeshPerf) << "[Mesh][terrain] break lines kept as mesh edges"
                            << g.acceptedTerrainBreaklines().size();
@@ -2459,6 +2470,13 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         .arg(generationStats.sizeInserted).arg(generationStats.qualityInserted).arg(generationStats.terrainInserted).arg(generationStats.segmentSplits)
         .arg(generationStats.refineCapped?QObject::tr("Yes"):QObject::tr("No"));
 
+    if (in.genOpts.coarsenPasses>0) {
+        summary+=QObject::tr("\nRemoved by coarsening: %1 vertices (%2 triangles); rejection attempts for angle / size / terrain / short edge: %3 / %4 / %5 / %6. Coarsening time: %7 s.")
+            .arg(generationStats.coarsenRemoved).arg(2*generationStats.coarsenRemoved)
+            .arg(generationStats.coarsenRejectedAngle).arg(generationStats.coarsenRejectedSize)
+            .arg(generationStats.coarsenRejectedTerrain).arg(generationStats.coarsenRejectedEdge).arg(generationStats.coarsenSeconds,0,'f',2);
+        if (generationStats.coarsenSkippedTerrain) summary+=QObject::tr("\nCoarsening skipped: certified terrain coverage was unavailable.");
+    }
     PResult out;
     out.ok         = true;
     out.summary=summary;
@@ -2476,6 +2494,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         {"terrainDecimation",terrainDecimation},{"referencePixelSpacingM",actualTerrainPixelSize*in.meshLinearUnitToSI},
         {"elapsedSeconds",totalClock.elapsed()/1000.0},
         {"refinementCapped",generationStats.refineCapped}};
+    out.metrics["coarsenRemoved"]=generationStats.coarsenRemoved;
+    out.metrics["coarsenRejectedAngle"]=generationStats.coarsenRejectedAngle;
+    out.metrics["coarsenRejectedSize"]=generationStats.coarsenRejectedSize;
+    out.metrics["coarsenRejectedTerrain"]=generationStats.coarsenRejectedTerrain;
+    out.metrics["coarsenRejectedEdge"]=generationStats.coarsenRejectedEdge;
+    out.metrics["coarsenAttempts"]=generationStats.coarsenAttempts;
+    out.metrics["coarsenHeightRejects"]=generationStats.coarsenHeightRejects;
+    out.metrics["coarsenBoundAccepts"]=generationStats.coarsenBoundAccepts;
+    out.metrics["coarsenExactQueries"]=generationStats.coarsenExactQueries;
+    out.metrics["coarsenSkippedTerrain"]=generationStats.coarsenSkippedTerrain;
+    out.metrics["coarsenSeconds"]=generationStats.coarsenSeconds;
+    out.metrics["cells"]=result.triangles.size();
+    if (!generationStats.provenance.isEmpty()) out.metrics["provenance"]=generationStats.provenance;
     out.meshResult = std::move(result);
     out.generationStats = generationStats;
     out.terrainToleranceUsed = useAdaptiveTerrain ? in.terrainTolerance : 0.0;
@@ -3041,10 +3072,10 @@ void MeshGenerationDialog::buildUi()
         m_minAngleSpin->setDecimals(1);
         m_minAngleSpin->setSuffix(QStringLiteral("°"));
         m_minAngleSpin->setToolTip(tr(
-            "Every triangle's smallest angle reaches this: higher gives rounder "
-            "triangles and more of them. The exceptions are the wedge between "
-            "two lines that meet at a smaller angle and triangles resting on "
-            "the edge of a quad strip."));
+            "Requested minimum triangle angle. Higher values, especially near 33 degrees, "
+            "can greatly increase the cell count and spend the budget before terrain refinement. "
+            "Small input angles, fixed strip edges, the cascade floor and the cell budget "
+            "can prevent the target from being reached."));
         f->addRow(tr("Minimum &angle:"), m_minAngleSpin);
         m_qualityOrderBox = new QCheckBox(tr("Prioritize worst triangle angles"),g);
         m_qualityOrderBox->setObjectName(QStringLiteral("meshQualityOrderBox"));
@@ -3109,7 +3140,9 @@ void MeshGenerationDialog::buildUi()
             "on its middle row. Each strip stops one to four widths short of "
             "the conduit's ends so strips never meet at a junction; a strip "
             "that would cross or crowd another feature is left out and the "
-            "conduit stays a line of triangle edges."));
+            "conduit stays a line of triangle edges. Narrow strips force small cells even "
+            "when the minimum target is larger. Set the width to off to retain plain "
+            "constrained edges without strip rows."));
         f->addRow(tr("Conduit &quad strip width:"), m_conduitStripSpin);
 
         m_quadRegionLayerCombo = new QComboBox(g);

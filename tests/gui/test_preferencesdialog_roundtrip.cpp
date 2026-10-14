@@ -44,6 +44,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
+#include <QCheckBox>
 #include <QStackedWidget>
 #include <QString>
 #include <QStringList>
@@ -267,15 +268,21 @@ void TestPreferencesDialogRoundtrip::meshDefaultsShareIndependentControls()
     auto *toleranceMode=dialog.findChild<QComboBox *>("meshToleranceMode");
     auto *tolerance=dialog.findChild<QDoubleSpinBox *>("meshTerrainTolSpin");
     QVERIFY(maximumMode && maximum && toleranceMode && tolerance);
+    auto *coarsen=dialog.findChild<QCheckBox *>("meshCoarsenEnabled");
+    auto *passes=dialog.findChild<QSpinBox *>("meshCoarsenPassesSpin");
+    QVERIFY(coarsen && passes);coarsen->setChecked(true);passes->setValue(4);
     maximumMode->setCurrentIndex(1); maximum->setValue(50);
     toleranceMode->setCurrentIndex(1); tolerance->setValue(.1524);
     QVERIFY(QMetaObject::invokeMethod(&dialog,"onApply",Qt::DirectConnection));
     auto settings=PreferencesManager::instance()->twoDDefaults().resolutionSettings();
+    QCOMPARE(settings.coarsenPasses,4);
     QCOMPARE(settings.maximumM.value(),50.0); QCOMPARE(settings.toleranceM.value(),.1524);
     QVERIFY(!settings.breaklineToleranceM);
     maximumMode->setCurrentIndex(0);
     QVERIFY(QMetaObject::invokeMethod(&dialog,"onApply",Qt::DirectConnection));
     PreferencesDialog reopened(nullptr);
+    QVERIFY(reopened.findChild<QCheckBox *>("meshCoarsenEnabled")->isChecked());
+    QCOMPARE(reopened.findChild<QSpinBox *>("meshCoarsenPassesSpin")->value(),4);
     QCOMPARE(reopened.findChild<QComboBox *>("meshMaximumMode")->currentIndex(),0);
     QCOMPARE(reopened.findChild<QDoubleSpinBox *>("meshTerrainTolSpin")->value(),.1524);
     auto *cats=reopened.findChild<QListWidget *>("categories");

@@ -73,6 +73,38 @@ class TestMeshGeneratorV2 : public QObject
 {
     Q_OBJECT
 private slots:
+    void coarseningKeepsPinsConstraintsAndQuadRegions()
+    {
+        int previousCells=0,previousQuads=0,previousOversize=0;
+        for (bool coarsen:{false,true}) {
+            MeshGenerator g;g.setDomain(rect(0,0,120,100));
+            ConstraintSegment line; line.path={{10,25},{110,25}};line.tag="C1";line.marker=7;
+            g.addConstraintSegment(line);g.addSteinerPoint({{60,25},101,"J1"});
+            QuadRegion region;region.ring=rect(40,55,30,25);region.spacing=5;region.tag="R";
+            g.addQuadRegion(region);
+            GenerationOptions o;o.maxArea=.4330127018922193*100;o.minCellSize=2;
+            o.minAngleDeg=28;o.latticeSeeding=true;o.smoothingPasses=2;o.coarsenPasses=coarsen?3:0;
+            o.diagnosticProvenance=true;
+            g.setOptions(o);const auto m=g.generate();QVERIFY2(m.ok,qPrintable(m.errorMsg));
+            QCOMPARE(missingConstraintEdges(m),0);QVERIFY(std::abs(totalArea(m)-12000)<1e-6);
+            bool pin=false;int quads=0,oversize=0;
+            for (const auto &v:m.vertices) if (v.tag=="J1") {pin=true;QCOMPARE(v.xy,QPointF(60,25));}
+            QVERIFY(pin);
+            const auto origins=g.stats().provenance.value("liveVerticesByOrigin").toObject();
+            int inputs=0;
+            for (auto it=origins.begin();it!=origins.end();++it) if (it.key().contains("input_point")) inputs+=it.value().toInt();
+            QCOMPARE(inputs,1);
+            for (const auto &t:m.triangles) {
+                if (t.isQuad()) ++quads;
+                // The generator calibrates the requested MEAN edge by 1.22;
+                // fixed patch edges can leave pre-existing size exceptions.
+                else if (mesh::cellGeom(m.vertices,t).area>o.maxArea*1.22*1.22*(1+1e-9)) ++oversize;
+            }
+            if (!coarsen) {previousCells=m.triangles.size();previousQuads=quads;previousOversize=oversize;}
+            else {QVERIFY(g.stats().coarsenRemoved>0);QVERIFY(m.triangles.size()<previousCells);QCOMPARE(quads,previousQuads);QVERIFY(oversize<=previousOversize);}
+        }
+    }
+
     void lakeWithHoleConduitAndJunction()
     {
         MeshGenerator g;

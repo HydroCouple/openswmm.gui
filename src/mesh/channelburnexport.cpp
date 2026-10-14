@@ -34,8 +34,8 @@ ChannelBurnExportResult prepareChannelBurnExport(const ChannelMeshBurnResult &bu
     meshSrs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     if (meshSrs.importFromWkt(request.meshCRSWkt.toUtf8().constData()) != OGRERR_NONE)
         return fail(QObject::tr("The mesh coordinate system is invalid."));
-    using Transform = std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>;
-    Transform toMesh(nullptr, OCTDestroyCoordinateTransformation), toRaster(nullptr, OCTDestroyCoordinateTransformation);
+    using Transform = std::unique_ptr<OGRCoordinateTransformation, decltype(&OGRCoordinateTransformation::DestroyCT)>;
+    Transform toMesh(nullptr, OGRCoordinateTransformation::DestroyCT), toRaster(nullptr, OGRCoordinateTransformation::DestroyCT);
     if (!meshSrs.IsSame(&rasterSrs)) {
         toMesh.reset(OGRCreateCoordinateTransformation(&rasterSrs, &meshSrs));
         toRaster.reset(OGRCreateCoordinateTransformation(&meshSrs, &rasterSrs));

@@ -194,6 +194,18 @@ measurements.
 | **Cell budget** | Stop refinement and report the unmet requirements at the resource limit | 20,000,000 |
 | **Terrain cache** | Budget per DEM-tile or feature-mask cache. **Automatic** uses one eighth of physical memory, from 256 MiB to 8 GiB. A larger cache speeds up large DEMs and never changes the mesh. Large feature masks spill to disk; mesh arrays, summaries and feature chains use additional memory | Automatic |
 
+**Remove unnecessary vertices after refinement**, on **Cell shape**, optionally
+reduces cell count while retaining the minimum-angle rules, local target size and
+certified elevation tolerance. It never removes the mesh's input representation
+of a feature: node pins, constraint vertices and quad-region vertices are retained.
+Only free vertices added during meshing can be removed. Unknown DEM coverage
+prevents removal. Advanced coarsening settings limit reconsideration to 1–10
+attempts per vertex (3 when enabled). The option is off by default and stays off
+when older projects are loaded. The results show removed vertices and triangles,
+rejection counts and elapsed time. A vertex can be reconsidered after a neighbouring
+removal, so rejection counts are not unique vertex counts. With **No limit**, flat
+open areas can become large triangles; set a maximum target when their size matters.
+
 Final verification uses the exported geometry and elevations. Fixed strips,
 minimum spacing, missing DEM data or prescribed rim elevations may prevent the
 requested tolerance. The result then includes counts and example locations;

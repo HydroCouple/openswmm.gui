@@ -65,6 +65,20 @@ private slots:
         delete m_workspace;
     }
 
+    void coarseningSettingsAreSharedAndMigrateOff()
+    {
+        mesh::ResolutionSettings settings;settings.coarsenPasses=3;
+        QCOMPARE(mesh::ResolutionSettings::fromJson(settings.toJson()).coarsenPasses,3);
+        QCOMPARE(mesh::ResolutionSettings::fromJson({}).coarsenPasses,0);
+        QCOMPARE(mesh::ResolutionSettings::migrate({},settings,100).coarsenPasses,0);
+        settings.coarsenPasses=11;QVERIFY(!settings.validate().isEmpty());
+        auto *enabled=m_dlg->findChild<QCheckBox *>("meshCoarsenEnabled");
+        auto *passes=m_dlg->findChild<QSpinBox *>("meshCoarsenPassesSpin");
+        QVERIFY(enabled && passes);QVERIFY(!enabled->isChecked());QCOMPARE(passes->value(),3);
+        enabled->setChecked(true);QVERIFY(passes->isEnabled());
+        enabled->setChecked(false);QVERIFY(!passes->isEnabled());
+    }
+
     void groupsSeparateSizeAccuracyAndGeometry()
     {
         QGroupBox *sizes = groupTitled(m_dlg, QStringLiteral("Cell size"));

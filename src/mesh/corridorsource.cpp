@@ -15,7 +15,7 @@ namespace mesh {
 namespace {
 using Dataset = std::unique_ptr<GDALDataset, decltype(&GDALClose)>;
 using Feature = std::unique_ptr<OGRFeature, decltype(&OGRFeature::DestroyFeature)>;
-using Transform = std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>;
+using Transform = std::unique_ptr<OGRCoordinateTransformation, decltype(&OGRCoordinateTransformation::DestroyCT)>;
 
 bool stampFile(const QString &path, CorridorSourceStamp &stamp, QString &error)
 {
@@ -142,7 +142,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
             if (type != OFTInteger && type != OFTInteger64 && type != OFTReal)
                 return fail(context + QStringLiteral("width field '%1' must have a numeric field type.").arg(source.widthField));
         }
-        Transform transform(nullptr, OCTDestroyCoordinateTransformation);
+        Transform transform(nullptr, OGRCoordinateTransformation::DestroyCT);
         if (!sourceSrs.IsSame(&target)) {
             transform.reset(OGRCreateCoordinateTransformation(&sourceSrs, &target));
             if (!transform) return fail(context + QStringLiteral("could not create the source-to-mesh CRS transformation."));

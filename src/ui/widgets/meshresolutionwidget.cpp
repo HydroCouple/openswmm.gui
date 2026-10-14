@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>
 #include <QToolButton>
@@ -39,7 +40,9 @@ public:
 MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
 {
     auto *outer=new QVBoxLayout(this); outer->setContentsMargins(0,0,0,0);
-    auto *body=new QHBoxLayout; outer->addLayout(body,1);
+    auto *body=new QSplitter(Qt::Horizontal,this); outer->addWidget(body,1);
+    body->setObjectName("meshSettingsSplitter");
+    body->setChildrenCollapsible(false);
     m_categories=new QTreeWidget(this);
     m_categories->setObjectName("meshSettingsCategories");
     m_categories->setAccessibleName(tr("Mesh setting categories"));
@@ -52,10 +55,11 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     m_categories->header()->setStretchLastSection(false);
     m_categories->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_categories->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-    m_categories->setSizePolicy(QSizePolicy::Minimum,QSizePolicy::Expanding);
+    m_categories->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     m_pages=new QStackedWidget(this);
     m_pages->setObjectName("meshSettingsPages");
-    body->addWidget(m_categories); body->addWidget(m_pages,1);
+    body->addWidget(m_categories); body->addWidget(m_pages);
+    body->setStretchFactor(0,0); body->setStretchFactor(1,1);
     connect(m_categories,&QTreeWidget::currentItemChanged,this,[this](QTreeWidgetItem *item) {
         if (item) m_pages->setCurrentIndex(m_categories->indexOfTopLevelItem(item));
     });
@@ -127,11 +131,32 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     for (auto *b:{refineFeatures,alignTerrain}) connect(b,&QCheckBox::toggled,this,[this]{sync();});
     connect(m_refineTerrain,&QCheckBox::toggled,this,[this](bool on){terrainMode->setCurrentIndex(on?0:2);sync();});
     connect(terrainMode,qOverload<int>(&QComboBox::currentIndexChanged),this,[this](int mode){QSignalBlocker block(m_refineTerrain);m_refineTerrain->setChecked(mode!=2);sync();});
+    auto *shape=group(tr("Cell shape"));
+    coarsenEnabled=new QCheckBox(tr("Remove unnecessary vertices after refinement"),this);
+    coarsenEnabled->setObjectName("meshCoarsenEnabled"); shape->addRow(coarsenEnabled);
+    note(shape,tr("Removes free vertices only when angle, local size and elevation limits still hold. Constraint, node, feature and quad-region vertices are retained. Can reduce cell count at additional generation cost."));
+    auto *coarsenAdvanced=new QToolButton(this); coarsenAdvanced->setText(tr("Advanced coarsening settings"));
+    coarsenAdvanced->setCheckable(true); coarsenAdvanced->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    coarsenAdvanced->setArrowType(Qt::RightArrow); shape->addRow(coarsenAdvanced);
+    auto *coarsenDetails=new QWidget(this); auto *coarsenLayout=new QFormLayout(coarsenDetails);
+    coarsenLayout->setContentsMargins(0,0,0,0);
+    coarsenPasses=new QSpinBox(this); coarsenPasses->setObjectName("meshCoarsenPassesSpin");
+    coarsenPasses->setRange(1,10); coarsenPasses->setValue(3);
+    coarsenPasses->setToolTip(tr("Maximum attempts per vertex. Neighbours are reconsidered after a removal."));
+    coarsenLayout->addRow(tr("Coarsening passes:"),coarsenPasses); shape->addRow(coarsenDetails); coarsenDetails->hide();
+    connect(coarsenAdvanced,&QToolButton::toggled,this,[=](bool on){coarsenDetails->setVisible(on);coarsenAdvanced->setArrowType(on?Qt::DownArrow:Qt::RightArrow);});
+    connect(coarsenEnabled,&QCheckBox::toggled,coarsenPasses,&QWidget::setEnabled);
     setSettings({});
 }
 
 void MeshResolutionWidget::addSettingsPage(const QString &title, QWidget *content)
 {
+    for (int i=0;i<m_categories->topLevelItemCount();++i) if (m_categories->topLevelItem(i)->text(0)==title) {
+        auto *scroll=qobject_cast<QScrollArea *>(m_pages->widget(i));
+        auto *layout=qobject_cast<QVBoxLayout *>(scroll->widget()->layout());
+        layout->insertWidget(layout->count()-1,content);
+        return;
+    }
     auto *page=new QWidget(this);
     auto *layout=new QVBoxLayout(page);
     layout->setContentsMargins(4,0,4,0);
@@ -179,6 +204,7 @@ mesh::ResolutionSettings MeshResolutionWidget::settings() const
 {
     mesh::ResolutionSettings r;
     auto value=[&](QComboBox *mode,QDoubleSpinBox *spin)->std::optional<double>{return mode->currentIndex()==1?std::optional<double>(spin->value()*m_toSI):std::nullopt;};
+    r.coarsenPasses=coarsenEnabled->isChecked()?coarsenPasses->value():0;
     r.minimumM=minimum->value()*m_toSI; r.maximumM=value(maximumMode,maximum); r.featureM=value(featureMode,feature);
     r.toleranceM=value(toleranceMode,tolerance); r.breaklineToleranceM=value(breaklineMode,breaklineTolerance); r.averagingM=value(averagingMode,averaging);
     r.minimumBreaklineLengthM=value(minimumBreaklineMode,minimumBreakline); r.maxBreaklines=maxBreaklines->value();
@@ -191,6 +217,8 @@ mesh::ResolutionSettings MeshResolutionWidget::settings() const
 
 void MeshResolutionWidget::setSettings(const mesh::ResolutionSettings &r)
 {
+    coarsenPasses->setValue(r.coarsenPasses>0?r.coarsenPasses:3);
+    coarsenEnabled->setChecked(r.coarsenPasses>0); coarsenPasses->setEnabled(r.coarsenPasses>0);
     minimum->setValue(r.minimumM/m_toSI);
     auto set=[&](QComboBox *c,QDoubleSpinBox *s,std::optional<double> v,double fallback){s->setValue(v.value_or(fallback)/m_toSI);c->setCurrentIndex(v?1:0);};
     set(maximumMode,maximum,r.maximumM,10*r.minimumM); set(featureMode,feature,r.featureM,r.minimumM);
