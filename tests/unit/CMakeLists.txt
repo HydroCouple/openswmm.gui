@@ -805,29 +805,24 @@ add_swmmvis_unit_test(test_channelburnmesh
 )
 target_link_libraries(test_channelburnmesh PRIVATE Qt6::Gui predicates_lib)
 
-add_swmmvis_unit_test(test_flowstreakpaths
-    test_flowstreakpaths.cpp
-    ${PROJECT_SOURCE_DIR}/src/render/flowstreakpaths.cpp
-    ${PROJECT_SOURCE_DIR}/src/render/flowstreakcache.cpp
-    ${PROJECT_SOURCE_DIR}/include/render/flowstreakcache.h
-    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp)
-set_target_properties(test_flowstreakpaths PROPERTIES AUTOMOC ON)
-target_link_libraries(test_flowstreakpaths PRIVATE Qt6::Concurrent Qt6::Gui)
-
 add_swmmvis_unit_test(test_flowparticles
     test_flowparticles.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticlecontroller.cpp
+    ${PROJECT_SOURCE_DIR}/include/render/flowparticlecontroller.h
     ${PROJECT_SOURCE_DIR}/src/render/flowparticlefields.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticleribbons.cpp
     ${PROJECT_SOURCE_DIR}/src/render/flowparticles.cpp
-    ${PROJECT_SOURCE_DIR}/src/render/flowstreakpaths.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticlemesh.cpp
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp)
 set_target_properties(test_flowparticles PROPERTIES AUTOMOC ON)
-target_link_libraries(test_flowparticles PRIVATE Qt6::Gui)
+target_link_libraries(test_flowparticles PRIVATE Qt6::Gui Qt6::Concurrent)
 target_compile_definitions(test_flowparticles PRIVATE
     FLOW_PARTICLE_TEST_OUTPUT="${PROJECT_SOURCE_DIR}/tests/verification/flow_particles")
 
 add_swmmvis_unit_test(test_flowparticle_rendering
     test_flowparticle_rendering.cpp
-    ${PROJECT_SOURCE_DIR}/src/map/flowparticlenode.cpp)
+    ${PROJECT_SOURCE_DIR}/src/map/flowparticlenode.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/flowparticleribbons.cpp)
 set_target_properties(test_flowparticle_rendering PROPERTIES AUTOMOC ON)
 target_link_libraries(test_flowparticle_rendering PRIVATE Qt6::Widgets Qt6::Quick)
 target_compile_definitions(test_flowparticle_rendering PRIVATE

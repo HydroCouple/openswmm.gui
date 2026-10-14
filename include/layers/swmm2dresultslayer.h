@@ -74,8 +74,7 @@ class RuleList;   // Slice B.5b — see ruleList() override below.
 #include "render/sublayers/scalarfillsublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
 #include "render/sublayers/flowstreaksublayer.h"
-#include "render/flowstreakcache.h"
-#include "render/flowparticlecontroller.h"
+#include "render/flowparticlelayercontroller.h"
 
 // ---------------------------------------------------------------------------
 // IMesh2DSource — data-source abstraction shared by live + replay modes
@@ -280,6 +279,8 @@ public:
         (void)dataset; (void)timeIdx; (void)values;
         return false;
     }
+    virtual bool readFaceFieldCellsAt(const char*,int,const std::vector<int>&,std::vector<float>& values)
+    { values.clear();return false; }
 
     /*!
      * \brief Fetch a time-INVARIANT per-face \c [nFace] envelope written by the
@@ -603,6 +604,8 @@ public:
     bool hasFaceField(const char* dataset) const override;
     bool readFaceFieldAt(const char* dataset, int timeIdx,
                          std::vector<float>& values) override;
+    bool readFaceFieldCellsAt(const char* dataset,int time,const std::vector<int>& cells,
+                              std::vector<float>& values) override;
     bool readFaceEnvelope(const char* dataset, std::vector<float>& values) override;
     openswmmvis::io::CoordinateReference coordinateReference() const override;
 
@@ -1374,41 +1377,10 @@ private:
     OpenSWMM::Render::IsolineSublayer         *m_isolineSublayer        = nullptr;
     OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
     OpenSWMM::Render::FlowStreakSublayer *m_flowStreakSublayer = nullptr;
-    OpenSWMM::Render::FlowStreakCache *m_flowCache = nullptr;
-    OpenSWMM::Render::FlowParticleController *m_particles = nullptr;
-    std::shared_ptr<OpenSWMM::Render::FlowStreakMesh> m_particleMesh;
-    std::shared_ptr<const OpenSWMM::Render::FlowParticleNativeInput> m_particleInput;
-    std::vector<quint64> m_particleTiles;
-    double m_particleCaptureClock=0,m_particleCheckClock=-1;
-    QRectF m_particleCheckedView;
-    size_t m_particleFieldBytes=0,m_particlePeakTriangles=0,m_particlePeakMeshBytes=0;
-    int m_particleCaptures=0,m_particleReads=0;
-    quint64 m_particleEpoch=~quint64(0),m_particleRevision=~quint64(0);
-    double m_particleCutoff=-1,m_particleScale=0;
-    int m_particleTime=-1,m_particleGeneration=-1;
-    QDateTime m_particleSimTime;
-    QRectF m_particleView;
-    QString m_particleLimit;
-    std::shared_ptr<OpenSWMM::Render::FlowStreakMesh> m_flowMesh;
-    quint64 m_flowGeomRevision = ~quint64(0);
-    QRectF m_flowCoverage;
-    double m_flowScale = 0, m_flowSeconds = 0, m_flowSeedArea = 0;
-    double m_flowDisplaySeconds = 0, m_flowPresentedScale = 0;
-    quint64 m_flowPresentedRevision = ~quint64(0);
-    QRectF m_flowPresentedCoverage;
-    OpenSWMM::Render::FlowStreakPlayback m_flowPlayback;
-    QByteArray m_flowKey;
-    struct FlowFrameKey {
-        quint64 revision;
-        QByteArray key;
-        QJsonObject settings;
-        QRectF coverage;
-        double scale;
-    };
-    std::vector<FlowFrameKey> m_flowFrameKeys;
-    OpenSWMM::Render::FlowStreakField flowField_(int triangle) const;
-    bool flowSample_(int triangle, OpenSWMM::Render::FlowStreakSample &) const;
-    OpenSWMM::Render::FlowStreakSampler flowSampler_(double cutoff, double spacing);
+    friend class OpenSWMM::Render::FlowParticleLayerController;
+    OpenSWMM::Render::FlowParticleLayerController *m_particleController = nullptr;
+    double m_velocityFloorSI=0;
+    bool m_edgeFluxAvailable=false;
 
 
     // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
@@ -1471,26 +1443,20 @@ public:
         const QRectF &view,double pixelsPerSceneUnit);
     std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> flowParticles(
         const QRectF &view,double pixelsPerSceneUnit,quint64 displayedRevision,bool presented=true);
-    double flowParticleInterpolation() const { return m_particles->interpolation(); }
-    size_t flowParticleFieldBytes() const {return m_particleFieldBytes;}
-    int flowParticleFieldCaptures() const {return m_particleCaptures;}
-    int flowParticleFieldReads() const {return m_particleReads;}
-    std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> flowStreaks(
-        const QRectF &view, double pixelsPerSceneUnit, quint64 displayedRevision);
-    std::shared_ptr<const OpenSWMM::Render::FlowStreakBatch> presentedFlowStreaks(
-        const QRectF &view, double pixelsPerSceneUnit, quint64 displayedRevision);
+    double flowParticleInterpolation() const { return m_particleController->interpolation(); }
+    OpenSWMM::Render::FlowParticleDiagnostics flowParticleDiagnostics() const {return m_particleController->diagnostics();}
+    size_t flowParticleFieldBytes() const {return m_particleController->fieldBytes();}
+    int flowParticleFieldCaptures() const {return m_particleController->captures();}
+    int flowParticleFieldReads() const {return m_particleController->reads();}
     void paintFlowStreaks(QPainter *, const QRectF &view);
     bool prepareFlowStreaksForCapture(const QRectF &view, double pixelsPerSceneUnit);
     void advanceFlowStreaks(double seconds);
-    double flowStreakSeconds() const { return m_flowSeconds; }
-    double flowStreakDisplaySeconds() const;
-    int flowStreakBuildCount() const { return m_flowCache->builds(); }
-    bool flowStreakBusy() const { return m_flowStreakSublayer->streakStyle()->continuousParticles()
-        ?m_particles->busy():m_flowCache->busy(); }
+    bool flowStreakBusy() const {return m_particleController->busy();}
     QString flowStreakStatus() const;
+    QString flowStreakAvailability() const;
     bool flowStreaksEnabled() const;
 Q_SIGNALS:
-    void flowStreaksChanged(); // paths/phase only; never hydraulic invalidation
+    void flowStreaksChanged(); // particle publication only; never hydraulic invalidation
 public:
 
 

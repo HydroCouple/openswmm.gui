@@ -37,6 +37,9 @@
 #include "ui/widgets/dashstylecombo.h"
 
 #include <QCheckBox>
+#include <QButtonGroup>
+#include <QSlider>
+#include <QToolButton>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -912,110 +915,92 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
 
 QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
 {
-    auto *page = new QWidget(parent); auto *lay = new QVBoxLayout(page);
-    auto *sub = m_layer->flowStreakSublayer(); auto *st = sub->streakStyle();
-    lay->addWidget(makeSublayerHeader(page, sub, tr("Show flow streaks")));
-    auto *help = new QLabel(tr("Live rendering uses cached paths and updates as results arrive. "
-        "Animation can continue at the selected time; it illustrates flow, not particle travel time."),page);
-    help->setWordWrap(true); lay->addWidget(help);
-    auto *form = new QFormLayout; lay->addLayout(form);
-    auto *color = new ColorButton(page); color->setShowAlpha(true); color->setColor(st->color());
-    color->setEnabled(!st->colorByMagnitude());
-    color->setObjectName(QStringLiteral("flowStreakColor")); form->addRow(tr("Colour:"), color);
-    connect(color,&ColorButton::colorChanged,st,&OpenSWMM::Render::FlowStreakStyle::setColor);
-    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,color,[st,color] {
-        QSignalBlocker block(color); color->setColor(st->color());color->setEnabled(!st->colorByMagnitude());
-    });
-    auto boolean = [&](const char *key,const QString &label) {
-        auto *box = new QCheckBox(label,page);box->setObjectName(QString::fromLatin1(key));
-        box->setChecked(st->property(key).toBool()); form->addRow(box);
-        connect(box,&QCheckBox::toggled,st,[st,key](bool v){st->setProperty(key,v);});
-        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box] {
-            QSignalBlocker block(box);box->setChecked(st->property(key).toBool());
-        });
+    auto *page=new QWidget(parent);page->setObjectName("flowStreakTab");auto *lay=new QVBoxLayout(page);
+    auto *sub=m_layer->flowStreakSublayer();auto *st=sub->streakStyle();
+    lay->addWidget(makeSublayerHeader(page,sub,tr("Show flow streaks")));
+    auto *help=new QLabel(tr("Shows flow direction, with slower movement boosted for visibility. "
+        "Colours by speed use the recorded velocities."),page);help->setWordWrap(true);lay->addWidget(help);
+    auto *form=new QFormLayout;form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);lay->addLayout(form);
+    auto *colourRow=new QWidget(page);auto *colourLayout=new QHBoxLayout(colourRow);colourLayout->setContentsMargins(0,0,0,0);
+    auto *colour=new ColorButton(colourRow);colour->setShowAlpha(true);colour->setColor(st->color());colour->setObjectName("flowStreakColor");
+    auto *bySpeed=new QCheckBox(tr("By speed"),colourRow);bySpeed->setSizePolicy(QSizePolicy::Minimum,QSizePolicy::Fixed);bySpeed->setObjectName("colorByMagnitude");bySpeed->setChecked(st->colorByMagnitude());
+    colourLayout->addWidget(colour);colourLayout->addWidget(bySpeed);colourLayout->addStretch();form->addRow(tr("Colour:"),colourRow);
+    connect(colour,&ColorButton::colorChanged,st,&OpenSWMM::Render::FlowStreakStyle::setColor);
+    connect(bySpeed,&QCheckBox::toggled,st,&OpenSWMM::Render::FlowStreakStyle::setColorByMagnitude);
+    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,colour,[st,colour,bySpeed] {
+        QSignalBlocker a(colour),b(bySpeed);colour->setColor(st->color());bySpeed->setChecked(st->colorByMagnitude());colour->setEnabled(!st->colorByMagnitude());
+    });colour->setEnabled(!st->colorByMagnitude());
+    auto presets=[&](const char *name,const QString &label,const QStringList &labels,const QList<double> &values,const char *property) {
+        auto *row=new QWidget(page);row->setObjectName(name);auto *layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);layout->setSpacing(0);
+        auto *group=new QButtonGroup(row);auto *custom=new QLabel(row);custom->setObjectName(QString::fromLatin1(name)+"Custom");
+        for(int i=0;i<labels.size();++i) {
+            auto *button=new QPushButton(labels[i],row);button->setCheckable(true);button->setObjectName(QString::fromLatin1(name)+QString::number(i));
+            button->setStyleSheet(QStringLiteral("QPushButton { padding: 4px 10px; border: 1px solid palette(mid); border-radius: 4px; } "
+                "QPushButton:checked { background-color: palette(highlight); color: palette(highlighted-text); border-color: palette(highlight); }"));
+            group->addButton(button,i);layout->addWidget(button);
+        }
+        layout->addWidget(custom);layout->addStretch();form->addRow(label,row);
+        connect(group,&QButtonGroup::idClicked,st,[st,property,values](int id){st->setProperty(property,values[id]);});
+        auto refresh=[st,property,values,group,custom] {
+            const double value=st->property(property).toDouble();int selected=-1;
+            for(int i=0;i<values.size();++i)if(std::abs(value-values[i])<1e-6)selected=i;
+            group->setExclusive(false);for(auto *button:group->buttons())button->setChecked(group->id(button)==selected);group->setExclusive(true);
+            custom->setText(tr("Custom (%1)").arg(value,0,'g',4));custom->setVisible(selected<0);
+        };
+        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,row,refresh);refresh();
     };
-    boolean("animated",tr("Animate flow at selected time"));
-    boolean("continuousParticles",tr("Continuous particles (preview)"));
-    boolean("fade",tr("Fade streaks smoothly")); boolean("taper",tr("Taper trail tails"));
-    boolean("colorByMagnitude",tr("Colour by velocity magnitude"));
-    auto number = [&](const char *key,const QString &label,double lo,double hi,int decimals,const QString &suffix) {
-        auto *box=makeDSpin(page,lo,hi,decimals==3?0.001:0.5,decimals,st->property(key).toDouble(),suffix);
-        box->setKeyboardTracking(false); // commit complete entries, especially paired lifetime edits
-        box->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
-        // A numeric-range maximum must not stretch the form to dozens of digits.
-        box->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);box->setMaximumWidth(220);
-        box->setObjectName(QString::fromLatin1(key));form->addRow(label,box);
-        connect(box,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st,key](double v){st->setProperty(key,v);});
-        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box] {
-            QSignalBlocker block(box);box->setValue(st->property(key).toDouble());
-        });
+    presets("flowDensity",tr("Density:"),{tr("Sparse"),tr("Normal"),tr("Dense")},{56,40,28},"spacingPx");
+    auto *motionRow=new QWidget(page);auto *motionLayout=new QHBoxLayout(motionRow);motionLayout->setContentsMargins(0,0,0,0);
+    auto *motion=new QSlider(Qt::Horizontal,motionRow);motion->setObjectName("flowMotion");motion->setRange(25,400);motion->setTickPosition(QSlider::TicksBelow);motion->setTickInterval(100);
+    auto *motionValue=new QLabel(motionRow);motionValue->setObjectName("flowMotionValue");motionLayout->addWidget(motion,1);motionLayout->addWidget(motionValue);
+    form->addRow(tr("Motion:"),motionRow);
+    connect(motion,&QSlider::valueChanged,st,[st](int v){st->setSpeedMultiplier(v/100.);});
+    auto refreshMotion=[st,motion,motionValue] {
+        QSignalBlocker block(motion);motion->setValue(int(std::clamp(st->speedMultiplier()*100,25.,400.)));
+        motionValue->setText(std::abs(st->speedMultiplier()-1)<1e-6?tr("Normal"):tr("%1×").arg(st->speedMultiplier(),0,'g',3));
     };
-    const double maximum=OpenSWMM::Render::FlowStreakStyle::maximumNumericValue();
-    number("widthPx",tr("Trail width:"),0.1,maximum,1,tr(" px"));
-    number("headWidthPx",tr("Head width:"),0.1,maximum,1,tr(" px"));
-    auto *trailMode=new QComboBox(page);trailMode->setObjectName(QStringLiteral("velocityScaledTrail"));
-    trailMode->addItems({tr("Velocity × duration"),tr("Pixel length (legacy)")});
-    trailMode->setCurrentIndex(st->velocityScaledTrail()?0:1);form->addRow(tr("Trail length mode:"),trailMode);
-    connect(trailMode,qOverload<int>(&QComboBox::currentIndexChanged),st,[st](int index){st->setVelocityScaledTrail(index==0);});
-    number("trailDurationSeconds",tr("Trail duration:"),.1,maximum,1,tr(" s"));
-    number("trailLengthPx",tr("Approximate trail length:"),1,maximum,1,tr(" px"));
-    auto *trailDuration=page->findChild<QDoubleSpinBox*>("trailDurationSeconds");
-    auto *trailLength=page->findChild<QDoubleSpinBox*>("trailLengthPx");
-    trailDuration->setToolTip(tr("The visible tail covers this many seconds of flow travel. Faster flow makes longer streaks; slow flow makes shorter marks. This is separate from particle lifetime. Visual speed changes movement without changing tail length. Wet boundaries and prepared path limits can shorten the tail."));
-    trailLength->setToolTip(tr("Legacy pixel length estimated from each path's average speed. Local velocity changes can still change its visible length."));
-    auto updateTrailMode=[st,trailMode,trailDuration,trailLength] {
-        QSignalBlocker block(trailMode);trailMode->setCurrentIndex(st->velocityScaledTrail()?0:1);
-        trailMode->setEnabled(!st->continuousParticles());
-        trailDuration->setEnabled(st->continuousParticles() || st->velocityScaledTrail());
-        trailLength->setEnabled(!st->continuousParticles() && !st->velocityScaledTrail());
-        trailDuration->setToolTip(st->continuousParticles()
-            ?tr("Recorded history in animation seconds. Movement speed changes the spatial length of the trail. Redundant points are reduced within a small visual error. If a complex trail reaches the memory budget, only its displayed tail is shortened and reported below; motion and assigned lifetime continue.")
-            :tr("Visible tail in seconds of flow travel; independent of animation speed."));
-    };
-    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,trailMode,updateTrailMode);updateTrailMode();
-    number("spacingPx",tr("Spacing:"),8,maximum,1,tr(" px"));
-    number("pathLengthPx",tr("Base path length:"),16,maximum,1,tr(" px"));
-    page->findChild<QDoubleSpinBox*>("pathLengthPx")->setToolTip(tr("Paths extend beyond this length when needed for particle lifetime, within the rendering budget."));
-    auto *basePath=page->findChild<QDoubleSpinBox*>("pathLengthPx");
-    auto updatePreview=[st,basePath,help] {
-        basePath->setEnabled(!st->continuousParticles());
-        help->setText(st->continuousParticles()
-            ?tr("Continuous particles retain their trajectories as saved or live results update. New velocities blend over a short transition. Regional data limits pause particles. This preview uses the current map presentation; large-mesh performance is still being validated.")
-            :tr("Live rendering uses cached paths and updates as results arrive. Animation can continue at the selected time; it illustrates flow, not particle travel time."));
-    };
-    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,help,updatePreview);updatePreview();
-    number("speedMultiplier",tr("Visual speed multiplier:"),0,maximum,1,QString());
-    number("minimumLifetimeSeconds",tr("Minimum particle lifetime:"),.1,maximum,1,tr(" s"));
-    number("maximumLifetimeSeconds",tr("Maximum particle lifetime:"),.1,maximum,1,tr(" s"));
-    number("lifetimeFadeSeconds",tr("Birth/death fade duration:"),0,maximum,1,tr(" s"));
-    for(const char *key:{"minimumLifetimeSeconds","maximumLifetimeSeconds"})
-        page->findChild<QDoubleSpinBox*>(key)->setToolTip(tr("A new randomized lifetime is chosen for each birth, in animation seconds. Dry areas, barriers, view coverage and tracing limits may end a particle earlier. Changing motion speed does not change its scheduled lifetime."));
-    number("animationTimestepMs",tr("Animation update interval:"),8,std::numeric_limits<int>::max(),0,tr(" ms"));
-    auto *timestep=page->findChild<QDoubleSpinBox*>("animationTimestepMs");
-    timestep->setStepType(QAbstractSpinBox::DefaultStepType);
-    timestep->setSingleStep(1);
-    timestep->setToolTip(tr("Requested interval between particle animation updates: try 16 ms for smoother motion or 33 ms for fewer updates. Motion speed and the hydraulic solver timestep are unchanged. The canvas uses the fastest visible layer setting; actual updates depend on rendering time."));
-    number("dryDepthCutoff",tr("Minimum wet depth:"),0,maximum,3,tr(" m"));
-    auto *entryHelp=new QLabel(tr("Type values directly and press Enter to apply. Arrow steps adapt to the value. Rendering work and memory budgets still apply."),page);
-    entryHelp->setWordWrap(true);lay->addWidget(entryHelp);
-    auto *binding = new SublayerSchemeBinding(
-        [st]{return st->scheme();},[st](const OpenSWMM::Render::ClassificationScheme &scheme){st->setScheme(scheme);},
+    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,motion,refreshMotion);refreshMotion();
+    presets("flowTrail",tr("Trail:"),{tr("Short"),tr("Normal"),tr("Long")},{.75,1.5,3},"trailDurationSeconds");
+    auto *mapping=new QLabel(page);mapping->setObjectName("flowMotionMapping");mapping->setWordWrap(true);lay->addWidget(mapping);
+    auto *binding=new SublayerSchemeBinding([st]{return st->scheme();},[st](const OpenSWMM::Render::ClassificationScheme &v){st->setScheme(v);},
         []{return QVector<double>{};},[st]{return qMakePair(st->scheme().rangeMin(),st->scheme().rangeMax());},true,false);
-    auto *classification=new ClassificationEditor(binding,true,page);
-    classification->setEnabled(st->colorByMagnitude());lay->addWidget(classification);
+    auto *classification=new ClassificationEditor(binding,true,page);classification->setObjectName("flowClassification");classification->setVisible(st->colorByMagnitude());lay->addWidget(classification);
     connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,classification,
         [style=QPointer<OpenSWMM::Render::FlowStreakStyle>(st),classification,last=st->scheme().toJson()]() mutable {
-        if(!style) return;
-        const auto *st=style.data();
-        classification->setEnabled(st->colorByMagnitude());
-        const auto current=st->scheme().toJson();
-        if(current!=last) {last=current;classification->refresh();}
+        if(!style)return;classification->setVisible(style->colorByMagnitude());const auto current=style->scheme().toJson();
+        if(current!=last){last=current;classification->refresh();}
     },Qt::QueuedConnection);
-    auto *status=new QLabel(page);status->setWordWrap(true);lay->addWidget(status);
-    auto updateStatus=[layer=m_layer,status] {if(layer) status->setText(layer->flowStreakStatus());};
-    connect(m_layer,&SWMM2DResultsLayer::flowStreaksChanged,status,updateStatus);updateStatus();
-    connect(sub,&OpenSWMM::Render::ISublayer::invalidated,status,updateStatus);
-    connect(m_layer,&SWMM2DResultsLayer::repaintRequested,status,updateStatus);
+    auto *advancedToggle=new QToolButton(page);advancedToggle->setObjectName("flowAdvancedToggle");advancedToggle->setText(tr("Advanced"));advancedToggle->setCheckable(true);
+    advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);advancedToggle->setArrowType(Qt::RightArrow);lay->addWidget(advancedToggle,0,Qt::AlignLeft);
+    auto *advanced=new QWidget(page);advanced->setObjectName("flowAdvanced");advanced->setVisible(false);auto *details=new QFormLayout(advanced);lay->addWidget(advanced);
+    connect(advancedToggle,&QToolButton::toggled,advanced,[advanced,advancedToggle](bool open){advanced->setVisible(open);advancedToggle->setArrowType(open?Qt::DownArrow:Qt::RightArrow);});
+    auto number=[&](const char *key,const QString &label,double minimum,int decimals,const QString &suffix) {
+        auto *box=makeDSpin(advanced,minimum,OpenSWMM::Render::FlowStreakStyle::maximumNumericValue(),.5,decimals,st->property(key).toDouble(),suffix);
+        box->setObjectName(key);box->setKeyboardTracking(false);box->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
+        box->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);box->setMaximumWidth(220);details->addRow(label,box);
+        connect(box,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st,key](double value){st->setProperty(key,value);});
+        connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box]{QSignalBlocker block(box);box->setValue(st->property(key).toDouble());});
+    };
+    number("spacingPx",tr("Exact spacing:"),8,1,tr(" px"));
+    auto *exactMotion=makeDSpin(advanced,0,48*OpenSWMM::Render::FlowStreakStyle::maximumNumericValue(),1,2,48*st->speedMultiplier(),tr(" px/s"));
+    exactMotion->setObjectName("motionPixelsPerSecond");exactMotion->setKeyboardTracking(false);exactMotion->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);exactMotion->setMaximumWidth(220);
+    details->addRow(tr("Reference motion:"),exactMotion);
+    connect(exactMotion,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st](double value){st->setSpeedMultiplier(value/48);});
+    connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,exactMotion,[st,exactMotion]{QSignalBlocker block(exactMotion);exactMotion->setValue(48*st->speedMultiplier());});
+    number("trailDurationSeconds",tr("Exact trail duration:"),.1,2,tr(" s"));
+    number("minimumLifetimeSeconds",tr("Minimum lifetime:"),.1,1,tr(" s"));number("maximumLifetimeSeconds",tr("Maximum lifetime:"),.1,1,tr(" s"));
+    number("widthPx",tr("Trail width:"),.1,1,tr(" px"));number("headWidthPx",tr("Head width:"),.1,1,tr(" px"));number("lifetimeFadeSeconds",tr("Fade duration:"),0,1,tr(" s"));
+    auto *status=new QLabel(advanced);status->setObjectName("flowDiagnostics");status->setWordWrap(true);details->addRow(status);
+    auto updateStatus=[layer=m_layer,mapping,status] {
+        if(!layer)return;const auto d=layer->flowParticleDiagnostics();const auto *style=layer->flowStreakSublayer()->streakStyle();
+        QString text=style->motionWasMigrated()?tr("Old motion setting reset to Normal. "):QString();
+        text+=d.referenceSpeedSI>0?tr("Reference: %1 px/s at %2 m/s. Slower flow is boosted.").arg(d.referencePixelsPerSecond,0,'f',0).arg(d.referenceSpeedSI,0,'g',3)
+            :tr("Normal motion uses a 48 px/s reference. Slower flow is boosted.");
+        const auto availability=layer->flowStreakAvailability();if(!availability.isEmpty())text=availability;
+        mapping->setText(text);status->setText(layer->flowStreakStatus());
+    };
+    connect(m_layer,&SWMM2DResultsLayer::flowStreaksChanged,status,updateStatus);connect(sub,&OpenSWMM::Render::ISublayer::invalidated,status,updateStatus);
+    connect(m_layer,&SWMM2DResultsLayer::repaintRequested,status,updateStatus);updateStatus();
     lay->addStretch();return page;
 }
 

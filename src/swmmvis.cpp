@@ -1654,6 +1654,8 @@ void SWMMVis::refreshActiveResultsCombos()
     mComboActiveResults2D->addItem(tr("— none —"), QVariant::fromValue<quintptr>(0));
 
     if (!pw) {
+        QObject::disconnect(m_flowMotionConnection);
+        if(mCheckBoxFlowMotion)mCheckBoxFlowMotion->setEnabled(false);
         mComboActiveResults1D->setEnabled(false);
         mComboActiveResults2D->setEnabled(false);
         return;
@@ -1704,6 +1706,13 @@ void SWMMVis::refreshActiveResultsCombos()
         mCheckBoxLive2D->setEnabled(live);
         mCheckBoxLive2D->setChecked(active2D ? active2D->liveRenderEnabled()
                                              : true);
+    }
+    if(mCheckBoxFlowMotion) {
+        QObject::disconnect(m_flowMotionConnection);QSignalBlocker block(mCheckBoxFlowMotion);
+        auto *active=pw->active2DResultsLayer();mCheckBoxFlowMotion->setEnabled(active!=nullptr);
+        mCheckBoxFlowMotion->setChecked(active?active->flowStreakSublayer()->streakStyle()->animated():true);
+        if(active)m_flowMotionConnection=connect(active->flowStreakSublayer()->streakStyle(),
+            &OpenSWMM::Render::SublayerStyle::styleChanged,this,&SWMMVis::refreshActiveResultsCombos);
     }
 }
 
@@ -1802,6 +1811,15 @@ void SWMMVis::initializeAnimationToolBar()
         new openswmmvis::ui::RibbonGroup(tr("Display"), this);
     groupDisplay->addAction(ui->actionShowLegend);
     groupDisplay->addAction(ui->actionSetStyle);
+    mCheckBoxFlowMotion=new QCheckBox(tr("Flow motion"),this);mCheckBoxFlowMotion->setObjectName("flowStreakMotion");
+    mCheckBoxFlowMotion->setChecked(true);mCheckBoxFlowMotion->setEnabled(false);
+    mCheckBoxFlowMotion->setToolTip(tr("Animate flow streaks at the selected result time."));
+    connect(mCheckBoxFlowMotion,&QCheckBox::toggled,this,[this](bool moving) {
+        if(auto *project=activeProjectWindow())if(auto *layer=project->active2DResultsLayer())
+            layer->flowStreakSublayer()->streakStyle()->setAnimated(moving);
+    });
+    groupDisplay->addWidget(mCheckBoxFlowMotion);
+
     // Live-render toggle (moved here from the Analysis Results-Layers
     // group, iteration 3). Off stops 2D rendering AND frame streaming for
     // the active live layer during a run, to save GPU/CPU; on resumes and

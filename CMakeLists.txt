@@ -273,11 +273,12 @@ set(
         include/render/sublayers/meshnodesublayer.h
         include/render/sublayers/velocityvectorsublayer.h
         include/render/sublayers/flowstreaksublayer.h
-        include/render/flowstreakpaths.h
+        include/render/flowparticleribbons.h
         include/render/flowparticles.h
         include/render/flowparticlefields.h
         include/render/flowparticlecontroller.h
-        include/render/flowstreakcache.h
+        include/render/flowparticlemesh.h
+        include/render/flowparticlelayercontroller.h
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
         include/render/sublayers/resultscalarsublayer.h
@@ -352,7 +353,6 @@ set(
         include/render/resultscalargeometry.h
         include/render/scalarramplut.h
         include/map/scalarfillmaterial.h
-        include/map/flowstreaknode.h
         include/map/flowparticlenode.h
 
         # ── Plot ─────────────────────────────────────────────────────────────
@@ -1112,7 +1112,6 @@ set(
         src/render/resultscalargeometry.cpp
         # QSG-2D-1M Phase 8 — GPU scalar-fill material (ramp LUT texture).
         src/map/scalarfillmaterial.cpp
-        src/map/flowstreaknode.cpp
         src/map/flowparticlenode.cpp
         # Slice Z.14-paint — runtime clip-path resolver impl.
         src/render/maskclipresolver.cpp
@@ -1131,11 +1130,12 @@ set(
         src/render/sublayers/meshnodesublayer.cpp
         src/render/sublayers/velocityvectorsublayer.cpp
         src/render/sublayers/flowstreaksublayer.cpp
-        src/render/flowstreakpaths.cpp
+        src/render/flowparticleribbons.cpp
         src/render/flowparticles.cpp
         src/render/flowparticlefields.cpp
         src/render/flowparticlecontroller.cpp
-        src/render/flowstreakcache.cpp
+        src/render/flowparticlemesh.cpp
+        src/render/flowparticlelayercontroller.cpp
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
         src/render/sublayers/resultscalarsublayer.cpp
@@ -1787,8 +1787,6 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         FILES
             resources/shaders/scalarfill.vert
             resources/shaders/scalarfill.frag
-            resources/shaders/flowstreak.vert
-            resources/shaders/flowstreak.frag
             resources/shaders/flowparticle.vert
             resources/shaders/flowparticle.frag
     )

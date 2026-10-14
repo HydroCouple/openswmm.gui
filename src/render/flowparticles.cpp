@@ -1,5 +1,6 @@
 // GPL-3.0-or-later
 #include "render/flowparticles.h"
+#include <QElapsedTimer>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -8,7 +9,7 @@ namespace OpenSWMM::Render {
 namespace {
 double cross(QPointF a,QPointF b) { return a.x()*b.y()-a.y()*b.x(); }
 double norm(QPointF a) { return std::hypot(a.x(),a.y()); }
-std::array<double,3> weights(const FlowStreakMesh &mesh,int cell,QPointF p) {
+std::array<double,3> weights(const FlowParticleMesh &mesh,int cell,QPointF p) {
     const auto &tri=mesh.triangles[size_t(cell)];const auto a=mesh.vertices[tri[0]];
     const auto ab=mesh.vertices[tri[1]]-a,ac=mesh.vertices[tri[2]]-a;
     const double det=cross(ab,ac);
@@ -20,6 +21,12 @@ QPointF velocity(const FlowParticleField &field,const std::array<double,3> &w) {
     auto v=field.velocity[0]*w[0]+field.velocity[1]*w[1]+field.velocity[2]*w[2];
     for(int e=0;e<3;++e)v+=field.edgeCorrection[e]*(4*w[(e+1)%3]*w[(e+2)%3]);
     return v;
+}
+QPointF displayVelocity(const FlowParticleField &field,const std::array<double,3> &w,const FlowParticleSettings &settings) {
+    auto v=velocity(field,w);const double magnitude=norm(v);
+    if(settings.referenceSpeed>0 && settings.speedExponent!=1 && magnitude>0)
+        v=(v/magnitude)*(settings.referenceSpeed*std::pow(magnitude/settings.referenceSpeed,settings.speedExponent));
+    return v*settings.speed;
 }
 double depth(const FlowParticleField &field,const std::array<double,3> &w) {
     return field.depth[0]*w[0]+field.depth[1]*w[1]+field.depth[2]*w[2];
@@ -85,13 +92,26 @@ const char *flowParticleStopName(FlowParticleStop reason) {
     case FlowParticleStop::VectorConflict:return "vector/face conflict";
     }return "unknown";
 }
+FlowParticleSystem::FlowParticleSystem() {setSettings(FlowParticleSettings{});}
 bool FlowParticleSystem::setSettings(const FlowParticleSettings &settings) {
     for(double value:{settings.timestep,settings.speed,settings.minimumLifetime,settings.maximumLifetime,
-                      settings.trailSeconds,settings.fadeSeconds,settings.cutoff,settings.historyTolerance}) if(!std::isfinite(value))return false;
+                      settings.trailSeconds,settings.fadeSeconds,settings.cutoff,settings.historyTolerance,
+                      settings.referenceSpeed,settings.speedExponent,settings.publicationInterval}) if(!std::isfinite(value))return false;
     if(settings.timestep<=0 || settings.speed<0 || settings.minimumLifetime<=0
        || settings.maximumLifetime<settings.minimumLifetime || settings.trailSeconds<=0
        || settings.fadeSeconds<0 || settings.cutoff<0 || settings.historyTolerance<0
-       || settings.maxParticles<1 || settings.maxHistory<3)return false;
+       || settings.referenceSpeed<0 || settings.speedExponent<=0 || settings.speedExponent>1
+       || settings.publicationInterval<0 || settings.maxParticles<1 || settings.maxHistory<3)return false;
+    m_particles.reserve(size_t(settings.maxParticles));m_freeParticles.reserve(size_t(settings.maxParticles));
+    m_reducedHistory.reserve(size_t(settings.maxHistory)+1);
+    for(auto &p:m_particles) {p.history.reserve(size_t(settings.maxHistory)+1);}
+    for(auto &frame:m_frames) {
+        if(!frame)frame=std::make_shared<FlowParticleFrame>();
+        // Retained publications are immutable, including their spare slots.
+        if(frame.use_count()!=1 && !(frame==m_frame && frame.use_count()==2))continue;
+        frame->particles.reserve(size_t(settings.maxParticles));
+        for(auto &p:frame->particles)p.history.reserve(size_t(settings.maxHistory)+1);
+    }
     m_settings=settings;return true;
 }
 bool FlowParticleSystem::setField(std::shared_ptr<const FlowParticleSnapshot> field,double transitionSeconds) {
@@ -189,13 +209,31 @@ int FlowParticleSystem::locate(QPointF p,bool requireWet) const {
         if(inside(w) && (!requireWet || (f.available && depth(f,w)>m_settings.cutoff)))return *it;
     }return -1;
 }
-quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publishImmediately) {
+quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publishImmediately,int cellHint) {
     if(m_inTick || int(m_particles.size())>=m_settings.maxParticles)return 0;
-    const int cell=locate(position);if(cell<0)return 0;
-    FlowParticle p;p.id=m_nextId++;p.cell=cell;p.position=position;
+    const int cell=cellHint>=0?cellHint:locate(position);
+    if(!m_field || cell<0 || size_t(cell)>=m_field->fields.size())return 0;
+    const auto w=weights(*m_field->mesh,cell,position);
+    const double wetDepth=depth(m_field->fields[size_t(cell)],w);
+    if(!inside(w) || !m_field->fields[size_t(cell)].available
+       || !std::isfinite(wetDepth) || wetDepth<=m_settings.cutoff)return 0;
+    FlowParticle p;
+    if(!m_freeParticles.empty()) {
+        p=std::move(m_freeParticles.back());m_freeParticles.pop_back();
+        p.history.clear();p.zeroCells.clear();
+    }
+    // Reset metadata while retaining allocated history and vertex-cycle storage.
+    auto history=std::move(p.history);auto zeroCells=std::move(p.zeroCells);
+    p=FlowParticle{};p.history=std::move(history);p.zeroCells=std::move(zeroCells);
+    p.history.reserve(size_t(m_settings.maxHistory)+1);
+    p.id=m_nextId++;p.cell=cell;p.position=position;
+    for(auto &frame:m_frames)if(frame.use_count()==1 || (frame==m_frame && frame.use_count()==2)) {
+        frame->particles.prepare(m_particles.size()+1);
+        frame->particles[m_particles.size()].history.reserve(size_t(m_settings.maxHistory)+1);
+    }
     const double random=double(randomBits(randomSeed+p.id*0x9e3779b97f4a7c15ULL)>>11)/9007199254740992.;
     p.lifetime=m_settings.minimumLifetime+(m_settings.maximumLifetime-m_settings.minimumLifetime)*random;
-    const auto f=fieldAt(cell,m_clock);const auto w=weights(*m_field->mesh,cell,position);
+    const auto f=fieldAt(cell,m_clock);
     const float speed=float(f.speed[0]*w[0]+f.speed[1]*w[1]+f.speed[2]*w[2]);
     p.history.push_back({position,0,cell,speed});m_particles.push_back(std::move(p));++m_births;
     if(publishImmediately)publish();return m_particles.back().id;
@@ -225,6 +263,8 @@ bool FlowParticleSystem::reduceHistory(FlowParticle &p,int &budget,int &steps) {
     }
     auto last=p.history.back();last.error=std::max(last.error,m_historyError);m_reducedHistory.push_back(last);
     p.history.swap(m_reducedHistory);m_reducedHistory.clear();m_historyIndex=0;
+    p.samplesSinceReduction=0;
+    p.historyReductionSaturated=p.history.size()>=size_t(m_settings.maxHistory);
     // A highly curved/blocked path may not fit at this visual tolerance.
     // Limit only the displayed tail, never numerical motion or death age.
     while(p.history.size()>=size_t(m_settings.maxHistory)) {
@@ -233,8 +273,23 @@ bool FlowParticleSystem::reduceHistory(FlowParticle &p,int &budget,int &steps) {
     p.nextHistoryReduction=std::max(size_t(128),p.history.size()+std::max(size_t(64),p.history.size()/2));
     return true;
 }
+void FlowParticleSystem::appendHistory(FlowParticle &p,float speed) {
+    while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds)p.history.pop_front();
+    p.history.push_back({p.position,p.age,p.cell,speed});++p.samplesSinceReduction;
+    // A trail that cannot be reduced must not trigger another full scan on
+    // every substep. Retain the bounded tail between passes.
+    while(p.history.size()>size_t(m_settings.maxHistory)) {
+        p.history.pop_front();p.historyFloorAge=p.history.front().age;
+    }
+    p.historyLimited=p.historyFloorAge>=0 && p.age-p.historyFloorAge<m_settings.trailSeconds;
+}
 bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
     const auto &mesh=*m_field->mesh;
+    // Display compression can amplify a vortex at a shared vertex into
+    // millions of unresolvable crossings. Only this illustrative mode may
+    // collapse an orbit within the existing quarter-pixel visual tolerance.
+    const double orbitTolerance=m_settings.referenceSpeed>0 && m_settings.speedExponent<1
+        ?m_settings.historyTolerance:0;
     if(p.cell<0) {
         p.cell=locate(p.position);
         if(p.cell<0) {p.waitingForData=true;p.pending=0;return true;}
@@ -243,9 +298,10 @@ bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
         if(!m_historyIndex) {
             while(p.history.size()>1 && p.history[1].age<=p.age-m_settings.trailSeconds)p.history.pop_front();
         }
-        const auto threshold=m_settings.historyTolerance>0
-            ?std::min(size_t(m_settings.maxHistory),p.nextHistoryReduction):size_t(m_settings.maxHistory);
-        if((m_historyIndex || p.history.size()>=threshold)
+        const auto threshold=std::min(size_t(m_settings.maxHistory),p.nextHistoryReduction);
+        const bool reductionDue=m_settings.historyTolerance>0 && p.history.size()>=threshold
+            && (!p.historyReductionSaturated || p.samplesSinceReduction>=64);
+        if((m_historyIndex || reductionDue)
            && !reduceHistory(p,budget,steps))return false;
         if(budget<=0)return false;
         --budget;++steps;p.waitingForData=false;
@@ -258,7 +314,7 @@ bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
         }
         const auto w=weights(mesh,p.cell,p.position);
         if(!inside(w)) {stop(p,FlowParticleStop::InvalidField);break;}
-        const double d=depth(f,w);const QPointF v=velocity(f,w)*m_settings.speed;
+        const double d=depth(f,w);const QPointF v=displayVelocity(f,w,m_settings);
         if(!std::isfinite(d) || !std::isfinite(v.x()) || !std::isfinite(v.y())) {stop(p,FlowParticleStop::InvalidField);break;}
         if(d<=m_settings.cutoff) {stop(p,FlowParticleStop::Dry);break;}
         const double speed=norm(v);
@@ -276,7 +332,7 @@ bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
         for(int i=0;i<3;++i)if(ahead[i]-w[i]<-1e-14)
             dt=std::min(dt,std::max(0.,-w[i]/(ahead[i]-w[i])));
         const auto mid=weights(mesh,p.cell,p.position+v*(dt*.5));
-        const QPointF next=p.position+velocity(f,mid)*(m_settings.speed*dt);
+        const QPointF next=p.position+displayVelocity(f,mid,m_settings)*dt;
         const auto end=weights(mesh,p.cell,next);
         double fraction=1;int edge=-1;
         for(int i=0;i<3;++i)if(end[i]<-1e-12 && end[i]<w[i]) {
@@ -296,8 +352,9 @@ bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
         if(consumed>1e-12) {
             p.position+=(next-p.position)*fraction;p.age=newAge;p.pending=std::max(0.,p.pending-consumed);
             const float magnitude=float(f.speed[0]*end[0]+f.speed[1]*end[1]+f.speed[2]*end[2]);
-            p.history.push_back({p.position,p.age,p.cell,magnitude});p.zeroCells.clear();
-            p.historyLimited=p.historyFloorAge>=0 && p.age-p.historyFloorAge<m_settings.trailSeconds;
+            appendHistory(p,magnitude);
+            if(orbitTolerance<=0 || (!p.zeroCells.empty() && norm(p.position-p.crossingAnchor)>orbitTolerance))
+                p.zeroCells.clear();
         }
         if(p.age>=p.lifetime-1e-10) {p.age=p.lifetime;stop(p,FlowParticleStop::Lifetime);break;}
         if(dry) {stop(p,FlowParticleStop::Dry);break;}
@@ -306,9 +363,18 @@ bool FlowParticleSystem::integrate(FlowParticle &p,int &budget,int &steps) {
             const int neighbor=mesh.neighbors[size_t(p.cell)][edge];
             if(neighbor<0 && !(f.residentEdges&(1<<edge))) {p.waitingForData=true;p.pending=0;return true;}
             if(neighbor<0) {stop(p,FlowParticleStop::Outflow);break;}
-            if(consumed<=1e-12) {
-                if(p.zeroCells.empty())p.zeroCells.push_back(oldCell);
-                if(std::find(p.zeroCells.begin(),p.zeroCells.end(),neighbor)!=p.zeroCells.end()) {
+            if(consumed<=1e-12 || orbitTolerance>0) {
+                if(p.zeroCells.empty()) {p.zeroCells.push_back(oldCell);p.crossingAnchor=p.position;}
+                if(p.zeroCells.contains(neighbor)) {
+                    if(orbitTolerance>0 && norm(p.position-p.crossingAnchor)<=orbitTolerance) {
+                        const double remaining=std::min(p.pending,p.lifetime-p.age);
+                        p.age+=remaining;p.pending=std::max(0.,p.pending-remaining);
+                        const auto here=weights(mesh,p.cell,p.position);
+                        appendHistory(p,float(f.speed[0]*here[0]+f.speed[1]*here[1]+f.speed[2]*here[2]));
+                        p.zeroCells.clear();++m_unresolvedOrbits;
+                        if(p.age>=p.lifetime-1e-10) {p.age=p.lifetime;stop(p,FlowParticleStop::Lifetime);}
+                        break;
+                    }
                     stop(p,FlowParticleStop::VectorConflict);break;
                 }
                 p.zeroCells.push_back(neighbor);
@@ -332,26 +398,53 @@ FlowParticleWork FlowParticleSystem::advance(double elapsed,int stepBudget) {
             if(!integrate(m_particles[m_cursor],stepBudget,out.steps)) {out.pending=true;return out;}
             ++m_cursor;
         }
-        m_clock+=m_tick;m_elapsed=std::max(0.,m_elapsed-m_tick);m_inTick=false;++out.ticks;publish();
+        m_clock+=m_tick;m_elapsed=std::max(0.,m_elapsed-m_tick);m_inTick=false;++out.ticks;
+        if(!m_frame || m_settings.publicationInterval==0 || m_clock-m_publishedClock+1e-12>=m_settings.publicationInterval)publish();
     }
     if(!m_inTick && (!m_frame || m_frame->births!=m_births || m_frame->particles.size()!=m_particles.size()))publish();
     out.pending=m_inTick || m_elapsed+1e-12>=m_settings.timestep;return out;
 }
 void FlowParticleSystem::publish() {
-    auto frame=std::make_shared<FlowParticleFrame>();frame->clock=m_clock;frame->timestep=m_settings.timestep;
+    QElapsedTimer publication;publication.start();
+    std::shared_ptr<FlowParticleFrame> frame;
+    for(const auto &candidate:m_frames)
+        if(candidate.use_count()==1 || (candidate==m_frame && candidate.use_count()==2)) {frame=candidate;break;}
+    // Captures/renderers can retain every buffer. Keep integrating, defer
+    // publication, and never overwrite an externally held immutable frame.
+    if(!frame) {++m_deferredPublications;return;}
+    frame->clock=m_clock;frame->timestep=m_settings.publicationInterval>0?m_settings.publicationInterval:m_settings.timestep;
+    frame->deferredPublications=m_deferredPublications;
     frame->geometry=m_field?m_field->geometry:0;
     frame->revision=m_field?m_field->revision:0;frame->births=m_births;frame->deaths=m_deaths;
+    frame->unresolvedOrbits=m_unresolvedOrbits;
     frame->stopCounts=m_stopCounts;
     frame->particles=m_particles;
-    for(auto &p:frame->particles)
+    const bool regular=m_settings.publicationInterval==0 || m_clock-m_publishedClock+1e-12>=m_settings.publicationInterval;
+    frame->previousClock=regular?m_publishedClock:m_previousPublishedClock;
+    for(size_t i=0;i<m_particles.size();++i) {
+        auto &p=frame->particles[i];
+        if(m_settings.publicationInterval>0)p.previousAge=regular?m_particles[i].publishedAge:m_particles[i].previousPublishedAge;
+        if(regular) {
+            m_particles[i].previousPublishedAge=m_particles[i].publishedAge;m_particles[i].publishedAge=p.age;
+        }
         while(!p.history.empty() && p.history.front().age<=p.visibleAfterAge)p.history.pop_front();
+    }
+    if(regular) {m_previousPublishedClock=m_publishedClock;m_publishedClock=m_clock;}
+    frame->publicationMs=publication.nsecsElapsed()/1e6;
+    if(m_renderScale>0)buildFlowParticleRibbon(*frame,m_renderScale,0,m_appearance,frame->ribbon);
     m_frame=std::move(frame);
 }
 void FlowParticleSystem::eraseFinished() {
     if(m_inTick)return;
-    std::erase_if(m_particles,[&](const auto &p){return p.stop!=FlowParticleStop::None && m_clock-p.stoppedAt>=m_settings.fadeSeconds;});
+    for(auto &p:m_particles)if(p.stop!=FlowParticleStop::None && m_clock-p.stoppedAt>=m_settings.fadeSeconds) {
+        m_freeParticles.push_back(std::move(p));p.id=0;
+    }
+    std::erase_if(m_particles,[](const auto &p){return p.id==0;});
 }
 double FlowParticleSystem::interpolation() const {
-    return std::clamp(m_elapsed/m_settings.timestep,0.,1.);
+    if(m_settings.publicationInterval==0)return std::clamp(m_elapsed/m_settings.timestep,0.,1.);
+    if(!m_frame || m_frame->clock<=m_frame->previousClock)return 0;
+    const double visibleClock=m_clock+m_elapsed-m_settings.publicationInterval;
+    return std::clamp((visibleClock-m_frame->previousClock)/(m_frame->clock-m_frame->previousClock),0.,1.);
 }
 } // namespace OpenSWMM::Render

@@ -1150,6 +1150,17 @@ private slots:
 
     // ── Generic per-face field reader (rainfall / rain_cum plotting) ─────
 
+    void regionalFaceFieldsMatchFullRowsAndRefuseInvalidSelections()
+    {
+        Mesh2DH5Reader reader;QVERIFY(reader.open(fixturePath_));
+        std::vector<float> full,subset;
+        QVERIFY(reader.readFaceFieldAt("Mesh2_face_depth",2,full));
+        QVERIFY(reader.readFaceFieldCellsAt("Mesh2_face_depth",2,{1},subset));
+        QCOMPARE(subset.size(),size_t(1));QCOMPARE(subset[0],full[1]);
+        QVERIFY(!reader.readFaceFieldCellsAt("Mesh2_face_depth",2,{1,0},subset));QVERIFY(subset.empty());
+        QVERIFY(!reader.readFaceFieldCellsAt("Mesh2_face_depth",2,{2},subset));QVERIFY(subset.empty());
+        QVERIFY(!reader.readFaceFieldCellsAt("Mesh2_face_vx",2,{0},subset));QVERIFY(subset.empty());
+    }
     void readsNamedFaceFieldAndProbesAbsence()
     {
         Mesh2DH5Reader r;

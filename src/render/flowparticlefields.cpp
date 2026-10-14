@@ -1,11 +1,12 @@
 // GPL-3.0-or-later
 #include "render/flowparticlefields.h"
+#include <algorithm>
 #include <cmath>
 
 namespace OpenSWMM::Render {
 namespace {
 double cross(QPointF a,QPointF b) { return a.x()*b.y()-a.y()*b.x(); }
-QPointF toScene(const FlowParticleNativeTriangle &in,const FlowStreakMesh &mesh,int cell,QPointF v) {
+QPointF toScene(const FlowParticleNativeTriangle &in,const FlowParticleMesh &mesh,int cell,QPointF v) {
     const auto ab=in.metres[1]-in.metres[0],ac=in.metres[2]-in.metres[0];
     const double det=cross(ab,ac);
     const auto &ids=mesh.triangles[size_t(cell)];
@@ -22,11 +23,19 @@ std::shared_ptr<const FlowParticleSnapshot> buildFlowParticleField(
     std::vector<std::array<QPointF,3>> discharge(in.triangles.size());
     for(size_t i=0;i<in.triangles.size();++i) {
         if(i%4096==0 && cancelled.load())return {};
-        const auto &t=in.triangles[i];auto &f=out->fields[i];
+        auto t=in.triangles[i];auto &f=out->fields[i];
         f.depth=t.depth;f.residentEdges=t.residentEdges;f.available=t.available;f.exits=0;
         f.velocityDepth=t.meanDepth>in.cutoff?t.meanDepth:1;
         const double area2=std::abs(cross(t.metres[1]-t.metres[0],t.metres[2]-t.metres[0]));
         if(!std::isfinite(area2) || area2<1e-20 || !std::isfinite(t.meanDepth))f.available=false;
+        if(t.velocityOnly) {
+            if(!std::isfinite(t.velocitySI.x()) || !std::isfinite(t.velocitySI.y()))f.available=false;
+            const double orientation=cross(t.metres[1]-t.metres[0],t.metres[2]-t.metres[0])>0?1:-1;
+            for(int e=0;e<3;++e) {
+                const auto edge=t.metres[(e+2)%3]-t.metres[(e+1)%3];
+                t.flux[e]=t.meanDepth*orientation*(t.velocitySI.x()*edge.y()-t.velocitySI.y()*edge.x());
+            }
+        }
         for(double flux:t.flux)if(!std::isfinite(flux))f.available=false;
         for(auto p:t.metres)if(!std::isfinite(p.x()) || !std::isfinite(p.y()))f.available=false;
         f.outwardFlux=t.flux;
@@ -43,7 +52,7 @@ std::shared_ptr<const FlowParticleSnapshot> buildFlowParticleField(
     for(size_t i=0;i<in.triangles.size();++i) {
         if(i%4096==0 && cancelled.load())return {};
         const auto &t=in.triangles[i];auto &f=out->fields[i];
-        if(!f.available || t.meanDepth<=in.cutoff)continue;
+        if(!f.available || t.velocityOnly || t.meanDepth<=in.cutoff)continue;
         for(int e=0;e<3;++e) {
             const int neighbor=in.mesh->neighbors[i][e];
             if(neighbor<0 || !out->fields[size_t(neighbor)].available
@@ -52,6 +61,7 @@ std::shared_ptr<const FlowParticleSnapshot> buildFlowParticleField(
             for(int k=0;k<3;++k)if(in.mesh->neighbors[size_t(neighbor)][k]==int(i))otherEdge=k;
             if(otherEdge<0)continue;
             const auto &other=in.triangles[size_t(neighbor)];
+            if(other.velocityOnly)continue;
             // Incoherent hydraulic packets must not be blended into a vector
             // that disagrees with either side's reported crossing direction.
             if(t.flux[e]*other.flux[otherEdge]>=0)continue;
@@ -65,5 +75,110 @@ std::shared_ptr<const FlowParticleSnapshot> buildFlowParticleField(
         }
     }
     return out;
+}
+
+FlowParticleSeedDistribution buildFlowParticleSeeds(const FlowParticleSnapshot &field,QRectF view,double cutoff) {
+    FlowParticleSeedDistribution out;
+    if(!field.mesh || !view.isValid() || !std::isfinite(cutoff)
+       || field.fields.size()!=field.mesh->triangles.size())return out;
+    struct Corner {QPointF point;double depth;};
+    struct Speed {double scene,si,area;};
+    std::vector<Speed> speeds;
+    std::vector<double> areas,sceneSpeeds;
+    for(size_t i=0;i<field.fields.size();++i) {
+        const auto &f=field.fields[i];if(!f.available)continue;
+        std::vector<Corner> polygon;
+        bool finite=true;
+        for(int k=0;k<3;++k) {
+            const auto point=field.mesh->vertices[field.mesh->triangles[i][k]];
+            finite&=std::isfinite(f.depth[k]) && std::isfinite(point.x()) && std::isfinite(point.y());
+            polygon.push_back({point,f.depth[k]});
+        }
+        if(!finite)continue;
+        const auto clip=[&](auto distance) {
+            std::vector<Corner> next;
+            if(polygon.empty())return;
+            auto a=polygon.back();double da=distance(a);
+            for(const auto &b:polygon) {
+                const double db=distance(b);
+                if((da>0)!=(db>0)) {
+                    const double t=da/(da-db);
+                    next.push_back({a.point+(b.point-a.point)*t,a.depth+(b.depth-a.depth)*t});
+                }
+                if(db>0)next.push_back(b);
+                a=b;da=db;
+            }
+            polygon=std::move(next);
+        };
+        clip([&](Corner p){return p.depth-cutoff;});
+        clip([&](Corner p){return p.point.x()-view.left();});
+        clip([&](Corner p){return view.right()-p.point.x();});
+        clip([&](Corner p){return p.point.y()-view.top();});
+        clip([&](Corner p){return view.bottom()-p.point.y();});
+        if(polygon.size()<3)continue;
+        const auto &ids=field.mesh->triangles[i];const auto origin=field.mesh->vertices[ids[0]];
+        const auto ab=field.mesh->vertices[ids[1]]-origin,ac=field.mesh->vertices[ids[2]]-origin;
+        const double determinant=cross(ab,ac);if(std::abs(determinant)<1e-20)continue;
+        for(size_t k=1;k+1<polygon.size();++k) {
+            const std::array<QPointF,3> points{polygon[0].point,polygon[k].point,polygon[k+1].point};
+            const double area=std::abs(cross(points[1]-points[0],points[2]-points[0]))*.5;
+            if(!std::isfinite(area) || area<=1e-20)continue;
+            const auto center=(points[0]+points[1]+points[2])/3.;
+            const double b=cross(center-origin,ac)/determinant,c=cross(ab,center-origin)/determinant;
+            const std::array<double,3> w{1-b-c,b,c};
+            auto velocity=f.velocity[0]*w[0]+f.velocity[1]*w[1]+f.velocity[2]*w[2];
+            for(int e=0;e<3;++e)velocity+=f.edgeCorrection[e]*(4*w[(e+1)%3]*w[(e+2)%3]);
+            const double speed=std::hypot(velocity.x(),velocity.y());
+            const double si=f.speed[0]*w[0]+f.speed[1]*w[1]+f.speed[2]*w[2];
+            if(!std::isfinite(speed) || !std::isfinite(si))continue;
+            out.triangles.push_back({points,int(i),0});areas.push_back(area);sceneSpeeds.push_back(speed);
+            out.wetArea+=area;speeds.push_back({speed,si,area});
+        }
+    }
+    const auto percentile=[&](bool si) {
+        std::sort(speeds.begin(),speeds.end(),[&](const Speed &a,const Speed &b){return si?a.si<b.si:a.scene<b.scene;});
+        double area=0;
+        for(const auto &speed:speeds) {area+=speed.area;if(area>=.9*out.wetArea)return si?speed.si:speed.scene;}
+        return 0.;
+    };
+    out.referenceSpeed=percentile(false);out.referenceSpeedSI=percentile(true);
+    double weight=0;
+    for(size_t i=0;i<out.triangles.size();++i) {
+        const double relative=out.referenceSpeed>0?std::min(sceneSpeeds[i]/out.referenceSpeed,1.):0;
+        weight+=areas[i]*(.4+.6*relative);out.triangles[i].cumulativeWeight=weight;
+    }
+    return out;
+}
+std::pair<QPointF,int> FlowParticleSeedDistribution::sample(quint64 seed) const {
+    if(triangles.empty())return {{},-1};
+    const auto random=[](quint64 bits) {
+        bits=(bits^(bits>>30))*0xbf58476d1ce4e5b9ULL;
+        bits=(bits^(bits>>27))*0x94d049bb133111ebULL;
+        return std::clamp(double((bits^(bits>>31))>>11)/9007199254740992.,1e-12,1.-1e-12);
+    };
+    const double choice=random(seed+0x9e3779b97f4a7c15ULL)*triangles.back().cumulativeWeight;
+    const auto it=std::lower_bound(triangles.begin(),triangles.end(),choice,
+        [](const FlowParticleSeedTriangle &t,double weight){return t.cumulativeWeight<weight;});
+    const auto &points=it->points;
+    const double a=std::sqrt(random(seed+0x94d049bb133111ebULL)),b=random(seed+0xbf58476d1ce4e5b9ULL);
+    return {points[0]*(1-a)+points[1]*(a*(1-b))+points[2]*(a*b),it->cell};
+}
+double FlowParticleSeedDistribution::motionGain(double scale,double pixelsPerSecond,double floorSI) const {
+    if(!std::isfinite(scale) || scale<=0 || !std::isfinite(pixelsPerSecond) || pixelsPerSecond<0
+       || referenceSpeed<=0)return 0;
+    const double floor=referenceSpeedSI>0?std::max(0.,floorSI)*referenceSpeed/referenceSpeedSI:0;
+    return pixelsPerSecond/(scale*std::max(referenceSpeed,floor));
+}
+int FlowParticleSeedDistribution::population(double scale,double spacing,int capacity) const {
+    if(wetArea<=0 || !std::isfinite(scale) || scale<=0 || !std::isfinite(spacing) || spacing<=0 || capacity<=0)return 0;
+    return int(std::clamp(wetArea*scale*scale/(spacing*spacing),std::min(50.,double(capacity)),double(capacity)));
+}
+double flowParticleStagnationFloor(std::vector<float> envelope) {
+    std::erase_if(envelope,[](float speed){return !std::isfinite(speed) || speed<=0;});
+    if(envelope.empty())return 0;
+    // A single transient/dry-cell extreme must not suppress an entire run.
+    const auto index=size_t(std::ceil(.99*envelope.size()))-1;
+    std::nth_element(envelope.begin(),envelope.begin()+index,envelope.end());
+    return .01*envelope[index];
 }
 } // namespace OpenSWMM::Render

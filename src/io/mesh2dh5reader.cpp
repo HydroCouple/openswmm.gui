@@ -1064,6 +1064,17 @@ bool Mesh2DH5Reader::readFaceFieldAt(const char* dataset, int timeIdx,
                          timeIdx, -1, values, status, error) || setError_(error);
 }
 
+bool Mesh2DH5Reader::readFaceFieldCellsAt(const char* dataset,int time,const std::vector<int>& cells,
+                                        std::vector<float>& values) const
+{
+    const Hdf5Lock lock(hdf5Mutex());values.clear();
+    if(file_id_<0 || !dataset || time<0 || time>=timeCount()
+        || !validHydraulicCells(cells,triangleCount()) || !hasFaceField(dataset))return false;
+    QString error;
+    return readHydraulicSubset(hid_t(file_id_),dataset,time,triangleCount(),cells,false,values,nullptr,error)
+        || setError_(error);
+}
+
 bool Mesh2DH5Reader::readFaceEnvelope(const char* dataset, std::vector<float>& values) const
 {
     const Hdf5Lock lock(hdf5Mutex());
