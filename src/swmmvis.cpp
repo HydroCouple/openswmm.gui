@@ -3882,7 +3882,7 @@ void SWMMVis::initializeFeatureLayerDockWidget()
                 // Edit Mode latch and the session-only actions must follow.
                 if (layer)
                     connect(layer, &FeatureLayer::editingChanged, this,
-                            [this] { syncFeatureEditState(); },
+                            &SWMMVis::syncFeatureEditState,
                             Qt::UniqueConnection);
                 syncFeatureEditState();
             });
@@ -7355,13 +7355,14 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 Qt::UniqueConnection);
         // Map right-click → Delete, routed through the same slot as the Del
         // key and the Features grid so all three share one undo path.
+        QObject::disconnect(st, &OpenSWMMVisMapToolSelect::deleteFeaturesRequested,
+                            this, nullptr);
         connect(st, &OpenSWMMVisMapToolSelect::deleteFeaturesRequested,
                 this, [this](FeatureLayer *layer) {
                     if (layer && mFeatureLayerPanel)
                         mFeatureLayerPanel->selectLayer(layer);
                     onDeleteSelectedFeatures();
-                },
-                Qt::UniqueConnection);
+                });
     }
 
     // Slice BC — when MapToolSelectProfile finalizes a path, open the

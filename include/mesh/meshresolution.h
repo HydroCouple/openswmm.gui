@@ -18,6 +18,7 @@ struct ResolutionSettings
     double minimumM = 6.096;
     std::optional<double> maximumM, featureM, toleranceM, breaklineToleranceM, averagingM, minimumBreaklineLengthM;
     int maxBreaklines=0;
+    int coarsenPasses=0; ///< Absent in older projects: retain their original mesh behaviour.
     double transition = 2.0;
     bool refineFeatures = false, alignTerrain = true;
     enum class Terrain { Adaptive, Legacy, Off } terrain = Terrain::Adaptive;
@@ -29,6 +30,7 @@ struct ResolutionSettings
         if (!positive(minimumM)) return QStringLiteral("Minimum target cell size must be a positive finite length.");
         for (const auto &v:{maximumM,featureM,toleranceM,breaklineToleranceM,averagingM,minimumBreaklineLengthM})
             if (v && !positive(*v)) return QStringLiteral("Specified sizes and tolerances must be positive finite lengths.");
+        if (coarsenPasses<0 || coarsenPasses>10) return QStringLiteral("Coarsening passes must be between 0 and 10.");
         if (maxBreaklines<0 || maxBreaklines>10000000) return QStringLiteral("Terrain breakline count is out of range.");
         if (maximumM && *maximumM<minimumM) return QStringLiteral("Maximum target cell size must be at least the minimum target size.");
         if (refineFeatures && featureM && *featureM<minimumM) return QStringLiteral("Feature target size must be at least the minimum target size.");
@@ -42,7 +44,7 @@ struct ResolutionSettings
     QJsonObject toJson() const
     {
         auto value=[](std::optional<double> v) { return v ? QJsonValue(*v) : QJsonValue(QJsonValue::Null); };
-        return {{"minimumM",minimumM},{"maximumM",value(maximumM)}, {"featureM",value(featureM)},
+        return {{"coarsenPasses",coarsenPasses},{"minimumM",minimumM},{"maximumM",value(maximumM)}, {"featureM",value(featureM)},
             {"elevationToleranceM",value(toleranceM)},{"breaklineToleranceM",value(breaklineToleranceM)},
             {"averagingM",value(averagingM)},{"minimumBreaklineLengthM",value(minimumBreaklineLengthM)},{"maxBreaklines",maxBreaklines},{"transition",transition},{"refineFeatures",refineFeatures},
             {"alignTerrain",alignTerrain},
@@ -57,6 +59,7 @@ struct ResolutionSettings
             const auto v=o.value(QLatin1String(key));
             return v.isDouble()?std::optional<double>(v.toDouble()):std::nullopt;
         };
+        r.coarsenPasses=o.value("coarsenPasses").toInt(0);
         r.minimumM=o.value("minimumM").toDouble(r.minimumM);
         r.maximumM=value("maximumM"); r.featureM=value("featureM");
         r.toleranceM=value("elevationToleranceM"); r.breaklineToleranceM=value("breaklineToleranceM");
@@ -72,6 +75,7 @@ struct ResolutionSettings
     // Version 1 stored distance controls in metres and combo choices as indices.
     static ResolutionSettings migrate(const QJsonObject &c, ResolutionSettings r, double extentM)
     {
+        r.coarsenPasses=0;
         double feature=c.value("meshCellSizeSpin").toDouble(r.featureM.value_or(r.minimumM));
         if (feature<=0) feature=extentM>0?extentM/100.0:1.0;
         r.featureM=feature;

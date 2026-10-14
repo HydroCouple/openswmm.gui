@@ -268,10 +268,13 @@ private slots:
         seam<QDoubleSpinBox>(&dialog,"meshTerrainTolSpin")->setValue(.5);
         QVERIFY(std::abs(breakline->value()-6.096*toUnit)<.001);
         seam<QComboBox>(&dialog,"meshMaximumMode")->setCurrentIndex(0);
+        QVERIFY(!seam<QCheckBox>(&dialog,"meshCoarsenEnabled")->isChecked());
+        seam<QCheckBox>(&dialog,"meshCoarsenEnabled")->setChecked(true);
+        seam<QSpinBox>(&dialog,"meshCoarsenPassesSpin")->setValue(5);
         dialog.reject();
         QCOMPARE(m_window->meshGenerationOptions().value("version").toInt(),2);
         const auto r=mesh::ResolutionSettings::fromJson(m_window->meshGenerationOptions().value("resolution").toObject());
-        QVERIFY(!r.maximumM); QVERIFY(r.breaklineToleranceM);
+        QVERIFY(!r.maximumM); QVERIFY(r.breaklineToleranceM);QCOMPARE(r.coarsenPasses,5);
         { MeshGenerationDialog restored(m_window,m_window); QCOMPARE(seam<QComboBox>(&restored,"meshMaximumMode")->currentIndex(),0); }
         m_window->setMeshGenerationOptions({});
     }

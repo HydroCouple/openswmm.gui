@@ -21,6 +21,45 @@ using namespace mesh;
 class TestTerrainErrorField : public QObject {
     Q_OBJECT
 private slots:
+    void coarseningCertifiesHillAgainstEveryDemSample() {
+        const int n=41; QVector<float> z(n*n);
+        for (int r=0;r<n;++r) for (int c=0;c<n;++c)
+            z[r*n+c]=float(2*std::exp(-((c-20.0)*(c-20.0)+(r-20.0)*(r-20.0))/70));
+        TerrainErrorField field; QVERIFY(field.buildFromGrid(z.data(),n,n));
+        ConstrainedDelaunay cdt; QVector<int> ids;
+        QVERIFY(cdt.build({{.5,.5},{40.5,.5},{40.5,40.5},{.5,40.5}},&ids));
+        for (int i=0;i<4;++i) QVERIFY(cdt.insertConstraint(ids[i],ids[(i+1)%4]));
+        cdt.removeExterior();
+        for (int r=2;r<40;r+=2) for (int c=2;c<40;c+=2) QVERIFY(cdt.insertPoint({c+.5,r+.5})>=0);
+        ConstrainedDelaunay::QualityOptions q;
+        q.minAngleDeg=20;q.coarsenPasses=3;q.terrainTolerance=.08;q.terrainWorstFirst=true;
+        q.maxTriangles=20000;q.maxInsertions=10000;
+        q.terrainElevationAt=[&](double x,double y){return field.sampleAt(x,y);};
+        q.terrainError=[&](const QPointF *xy,const double *zz,QPointF *p) {
+            const auto result=field.queryWorst(xy,zz,q.terrainTolerance); *p=result.point;
+            return result.valid?result.maxError:std::numeric_limits<double>::quiet_NaN();
+        };
+        q.terrainErrorBound=[&](const QPointF *xy,const double *zz) {
+            const auto a=field.queryTriangle(xy,zz,q.terrainTolerance);
+            const auto exact=field.queryTriangle(xy,zz,q.terrainTolerance,true);
+            if (a.upperBound+1e-10<exact.maxError) return std::numeric_limits<double>::infinity();
+            return a.valid && !a.noDataSamples?a.upperBound:std::numeric_limits<double>::quiet_NaN();
+        };
+        const auto report=cdt.refineQuality(q);
+        qInfo("coarsened %d; certified shortcuts %d; exact queries %d",report.coarsenRemoved,report.coarsenBoundAccepts,report.coarsenExactQueries);
+        QVERIFY(report.coarsenRemoved>0);QVERIFY(report.coarsenExactQueries>0);
+        QCOMPARE(report.terrainUnresolved,0);QCOMPARE(report.terrainUnknown,0);
+        // Exhaustive final check also covers removals accepted through the
+        // affine plane-difference shortcut, independently of its cache.
+        for (const auto &T:cdt.triangles()) if (T.alive) {
+            QPointF xy[3];double zz[3];
+            for (int k=0;k<3;++k) {xy[k]=cdt.vertices()[T.v[k]];zz[k]=field.sampleAt(xy[k].x(),xy[k].y());}
+            const auto result=field.queryTriangle(xy,zz,q.terrainTolerance,true);
+            QVERIFY(result.valid);QCOMPARE(result.noDataSamples,quint64(0));
+            QVERIFY(result.maxError<=q.terrainTolerance+1e-10);
+        }
+    }
+
     void planesCertifyWithoutReadingSamples() {
         constexpr int n=513;
         QVector<float> z(n*n);

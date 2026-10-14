@@ -74,6 +74,12 @@ public:
      *  its id, or -1 when the point is outside every live triangle. */
     int insertPoint(const QPointF &p);
 
+    /*! Remove a free, interior vertex inserted after build(). Transactional:
+     * failure leaves the mesh untouched. Input and constraint vertices are
+     * protected. Vertex ids stay stable; removed vertices become unreferenced. */
+    bool removeVertex(int v);
+    [[nodiscard]] bool isVertexActive(int v) const { return v >= 0 && v < m_vertexTri.size() && m_vertexTri[v] >= 0; }
+
     /*! \brief Drop every triangle reachable from the super-triangle without
      *  crossing a constrained edge (the exterior of a constrained boundary). */
     void removeExterior();
@@ -117,10 +123,18 @@ public:
          *  before terrain points are placed (with terrainWorstFirst, or
          *  without terrain). 0 = off. */
         int smoothingPasses = 0;
+        int coarsenPasses = 0; ///< Maximum attempts per free vertex; 0 = off.
+        std::function<bool(const QPointF &)> protectedLocation;
+        QSet<int> protectedVertices; ///< Additional template vertices to retain.
+        /*! Certified maximum residual INCLUDING coverage, unlike terrainError's
+         * refinement witness. Return NaN for unknown coverage. Required for
+         * coarsening with terrain; absent means skip coarsening safely. */
+        std::function<double(const QPointF *, const double *)> terrainErrorBound;
         bool prioritizeQuality = true;
         int maxTriangles = std::numeric_limits<int>::max();
         /*! Smallest angle every triangle must reach (degrees); 0 = size only.
-         *  Refinement terminates up to about 34 degrees. */
+         *  High bounds can exhaust the resource/cascade limits; no termination
+         *  guarantee is implied by the practical 33-degree UI limit. */
         double minAngleDeg = 30.0;
         /*! Safety cap on inserted vertices (segment splits included). */
         int    maxInsertions = std::numeric_limits<int>::max();
@@ -143,6 +157,11 @@ public:
         double maxTerrainError = 0.0;
         bool capped = false;      ///< Stopped at maxInsertions.
         bool cancelled = false;
+        int coarsenRemoved = 0, coarsenRejectedAngle = 0, coarsenRejectedSize = 0;
+        int coarsenRejectedTerrain = 0, coarsenRejectedEdge = 0, coarsenAttempts = 0;
+        int coarsenHeightRejects = 0, coarsenBoundAccepts = 0, coarsenExactQueries = 0;
+        bool coarsenSkippedTerrain = false;
+        double coarsenSeconds = 0;
     };
     /*! \brief Delaunay refinement to the size and angle bounds (see the file
      *  comment). Call after the constraints are inserted and the exterior,
@@ -162,6 +181,15 @@ public:
      *  segment (see setFixedConstraint). For reporting and tests. */
     [[nodiscard]] bool touchesFixed(int t) const;
 
+    // Optional diagnostic provenance. Bits may overlap at coincident inputs;
+    // endpoint associations are not a causal explanation of final cell counts.
+    enum Origin : quint32 { Domain=1, Hole=2, Line=4, Patch=8, Node=16,
+        Breakline=32, Region=64, Lattice=128, Size=256, Angle=512,
+        Terrain=1024, SegmentSplit=2048 };
+    void enableProvenance() { m_origins.fill(0,m_pts.size()); }
+    void addVertexOrigin(int v, quint32 origin) { if (!m_origins.isEmpty() && v>=0 && v<m_origins.size()) m_origins[v]|=origin; }
+    [[nodiscard]] const QVector<quint32> &vertexOrigins() const { return m_origins; }
+
     // ── Read-out ───────────────────────────────────────────────────────
     [[nodiscard]] const QVector<QPointF> &vertices() const { return m_pts; }
     [[nodiscard]] const QVector<Triangle> &triangles() const { return m_tris; }
@@ -180,6 +208,12 @@ public:
     [[nodiscard]] QString errorMsg() const { return m_errorMsg; }
 
 private:
+    struct Removal {
+        QVector<int> star, ring;
+        QVector<Triangle> replacement;
+    };
+    bool prepareRemoval(int v, Removal *out) const;
+    void commitRemoval(int v, const Removal &removal);
     double orient(int a, int b, int c) const;
     double orient(int a, int b, const QPointF &p) const;
     bool   inCircle(int a, int b, int c, int d) const;
@@ -200,6 +234,7 @@ private:
     bool   exemptShortestEdge(int u, int v) const;
 
     QVector<QPointF>  m_pts;
+    QVector<quint32> m_origins;
     QVector<double>   m_terrainElevations;
     QVector<Triangle> m_tris;
     QVector<int>      m_vertexTri;   ///< Some live triangle incident to each vertex.

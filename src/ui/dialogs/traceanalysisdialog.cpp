@@ -281,7 +281,7 @@ bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
         }
     }
     if (ct)
-        OCTDestroyCoordinateTransformation(ct);
+        OGRCoordinateTransformation::DestroyCT(ct);
     if (!found.isEmpty())
     {
         setSeedNodes({found});

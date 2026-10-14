@@ -1908,6 +1908,18 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         return fail(QStringLiteral("MeshGenerator: %1").arg(cdt.errorMsg()));
     if (cancelled()) return fail(QStringLiteral("Cancelled."));
 
+    if (m_opts.diagnosticProvenance) {
+        cdt.enableProvenance();
+        for (int i=0;i<polys.size();++i) if (!polys[i].dropped) {
+            const auto &p=polys[i];
+            const quint32 origin=p.isDomain?ConstrainedDelaunay::Domain:p.isHole?ConstrainedDelaunay::Hole:
+                p.isTerrain?ConstrainedDelaunay::Breakline:p.regionIndex>=0?ConstrainedDelaunay::Region:
+                p.fixed?ConstrainedDelaunay::Patch:ConstrainedDelaunay::Line;
+            for (int k=0;k<p.pts.size();++k) cdt.addVertexOrigin(pointVertex[polyPointStart[i]+k],origin);
+        }
+        const int firstSteiner=cdtPoints.size()-m_steiners.size();
+        for (int i=firstSteiner;i<pointVertex.size();++i) cdt.addVertexOrigin(pointVertex[i],ConstrainedDelaunay::Node);
+    }
     for (int i = 0; i < polys.size(); ++i)
     {
         Poly &p = polys[i];
@@ -2032,7 +2044,10 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
                     const QPointF q(x, y);
                     if (!inDomain.anyContains(q) || inHole.anyContains(q)) continue;
                     if (near.segmentNear(q, q, 0.5 * s)) continue;
-                    if (cdt.insertPoint(q) >= 0) ++seeded;
+                    const int before=cdt.vertices().size();
+                    const int v=cdt.insertPoint(q);
+                    if (v>=0) ++seeded;
+                    if (v>=before) cdt.addVertexOrigin(v,ConstrainedDelaunay::Lattice);
                 }
             }
         }
@@ -2067,11 +2082,16 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         qo.prioritizeQuality = m_opts.prioritizeQuality;
         qo.maxTriangles = std::max(1,int(m_opts.maxCells-fixedCells));
         qo.terrainError = m_refineHook.terrainError;
+        qo.terrainErrorBound = m_refineHook.terrainErrorBound;
         qo.terrainElevationAt = m_refineHook.terrainElevationAt;
         qo.terrainTolerance = m_refineHook.terrainTolerance;
         qo.terrainWorstFirst = m_refineHook.terrainWorstFirst;
         qo.terrainFinalCheck = m_refineHook.terrainFinalCheck;
         qo.smoothingPasses = m_opts.smoothingPasses;
+        qo.coarsenPasses = m_opts.coarsenPasses;
+        const RingIndex protectedRegions(ringPointers(regionRings));
+        if (qo.coarsenPasses>0 && !regionRings.isEmpty())
+            qo.protectedLocation=[&](const QPointF &p){return protectedRegions.anyContains(p);};
         qo.terrainMinSpacing = hMin;
         // Terrain may require far more cells than the coarse size estimate.
         // The explicit cell budget remains the hard resource limit.
@@ -2080,6 +2100,17 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         const auto rep = cdt.refineQuality(qo);
         if (rep.cancelled || cancelled()) return fail(QStringLiteral("Cancelled."));
         m_stats.refineInserted = rep.inserted;
+        m_stats.coarsenRemoved = rep.coarsenRemoved;
+        m_stats.coarsenRejectedAngle = rep.coarsenRejectedAngle;
+        m_stats.coarsenRejectedSize = rep.coarsenRejectedSize;
+        m_stats.coarsenRejectedTerrain = rep.coarsenRejectedTerrain;
+        m_stats.coarsenRejectedEdge = rep.coarsenRejectedEdge;
+        m_stats.coarsenAttempts = rep.coarsenAttempts;
+        m_stats.coarsenHeightRejects = rep.coarsenHeightRejects;
+        m_stats.coarsenBoundAccepts = rep.coarsenBoundAccepts;
+        m_stats.coarsenExactQueries = rep.coarsenExactQueries;
+        m_stats.coarsenSkippedTerrain = rep.coarsenSkippedTerrain;
+        m_stats.coarsenSeconds = rep.coarsenSeconds;
         m_stats.sizeInserted = rep.sizeInsertions;
         m_stats.qualityInserted = rep.qualityInsertions;
         m_stats.terrainInserted = rep.terrainInsertions;
@@ -2106,6 +2137,33 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         if (rep.capped)
             qWarning() << "[Mesh] refinement stopped at its safety cap (" << qo.maxInsertions
                        << " vertices) — some triangles may miss the size or angle bound.";
+    }
+
+    if (m_opts.diagnosticProvenance) {
+        auto label=[](quint32 mask) {
+            QStringList labels;
+            const char *names[]={"domain","hole","line","patch","input_point","breakline","region","lattice","size","angle","terrain","segment_split"};
+            for (int k=0;k<12;++k) if (mask&(1u<<k)) labels.append(QLatin1String(names[k]));
+            return labels.isEmpty()?QStringLiteral("unclassified"):labels.join('+');
+        };
+        QJsonObject vertices,edges,below;
+        QSet<int> active;
+        const auto &origins=cdt.vertexOrigins();
+        auto count=[](QJsonObject &table,const QString &key){table[key]=table.value(key).toInt()+1;};
+        for (const auto &T:cdt.triangles()) if (T.alive) {
+            for (int v:T.v) active.insert(v);
+            int shortest=0;double length=std::numeric_limits<double>::infinity();
+            for (int k=0;k<3;++k) {
+                const auto delta=cdt.vertices()[T.v[(k+1)%3]]-cdt.vertices()[T.v[(k+2)%3]];
+                const double d=QPointF::dotProduct(delta,delta);
+                if (d<length) {length=d;shortest=k;}
+            }
+            const QString key=label(origins[T.v[(shortest+1)%3]]|origins[T.v[(shortest+2)%3]]);
+            count(edges,key);if (length<hMin*hMin) count(below,key);
+        }
+        for (int v:active) count(vertices,label(origins[v]));
+        m_stats.provenance={{"liveVerticesByOrigin",vertices},{"shortestEdgeEndpointOrigins",edges},{"belowMinimumEndpointOrigins",below},
+            {"scope",QStringLiteral("CDT before assembly; endpoint association, not causal attribution; structured patch interiors excluded")}};
     }
 
     // ── Assembly ─────────────────────────────────────────────────────────
@@ -2143,7 +2201,7 @@ MeshResult MeshGenerator::generateOnce(QPair<qint64, qint64> *leaked) const
         QVector<int> pending;
         double sx0 = std::numeric_limits<double>::infinity(), sx1 = -sx0, sy0 = sx0, sy1 = -sx0;
         for (int v = 0; v < cdt.vertices().size(); ++v) {
-            if (cdt.isSuperVertex(v) || std::isfinite(vertexZ[v])) continue;
+            if (cdt.isSuperVertex(v) || !cdt.isVertexActive(v) || std::isfinite(vertexZ[v])) continue;
             pending.append(v);
             const QPointF &q = cdt.vertices()[v];
             sx0 = std::min(sx0, q.x()); sx1 = std::max(sx1, q.x());

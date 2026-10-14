@@ -11,6 +11,7 @@
 #include "predicates.h"
 
 #include <QRectF>
+#include <QElapsedTimer>
 #include <QSet>
 #include <QScopeGuard>
 #include <array>
@@ -415,6 +416,7 @@ void ConstrainedDelaunay::splitEdge(int t, int e, int v)
 bool ConstrainedDelaunay::build(const QVector<QPointF> &points, QVector<int> *vertexOfPoint)
 {
     std::call_once(gPredicatesInit, [] { exactinit(); });
+    m_origins.clear();
     m_pts.clear(); m_tris.clear(); m_vertexTri.clear(); m_errorMsg.clear();
     m_terrainElevations.clear();
     m_segOrigin.clear(); m_segOriginExtra.clear(); m_segPiece.clear(); m_vertexSeg.clear(); m_fixedSub.clear();
@@ -503,6 +505,7 @@ int ConstrainedDelaunay::insertPoint(const QPointF &p)
     if (t < 0 || !m_tris[t].alive) return -1;
     const int v = m_pts.size();
     m_pts.append(p);
+    if (!m_origins.isEmpty()) m_origins.append(0);
     m_vertexTri.append(-1);
     const Triangle &T = m_tris[t];
     int onEdge = -1;
@@ -818,7 +821,9 @@ int ConstrainedDelaunay::splitSubsegment(int a, int b)
     if (p == A || p == B) return -1;   // below floating-point resolution
     const int v = m_pts.size();
     m_pts.append(p);
+    if (!m_origins.isEmpty()) m_origins.append(0);
     m_vertexTri.append(-1);
+    if (!m_origins.isEmpty()) m_origins[v]=((m_origins[a]|m_origins[b]) & 127u)|SegmentSplit;
     splitEdge(t, e, v);   // topological split: both halves stay constrained
     m_segOrigin.remove(key);
     m_segPiece.remove(key);
@@ -887,6 +892,125 @@ bool ConstrainedDelaunay::touchesFixed(int t) const
         }
     }
     return false;
+}
+
+// Build and legalize a cavity before touching shared topology. The ring is
+// ordered by the closed fan, so boundary edges retain their direction and flags.
+bool ConstrainedDelaunay::prepareRemoval(int v, Removal *out) const
+{
+    if (v < m_superBase + 3 || !isVertexActive(v) || m_vertexSeg.contains(v)) return false;
+    Removal r;
+    trianglesAround(v, &r.star);
+    if (r.star.size() < 3 || r.star.size() > 128) return false;
+    for (int t : r.star) {
+        const auto &T = m_tris[t];
+        const int i = edgeIndex(t, v);
+        if (!T.alive || i < 0 || T.constrained[(i+1)%3] || T.constrained[(i+2)%3]
+            || T.adj[(i+1)%3] < 0 || T.adj[(i+2)%3] < 0) return false;
+        for (int k=0;k<3;++k) if (isSuperVertex(T.v[k])) return false;
+        r.ring.append(T.v[(i+1)%3]);
+    }
+    const int n = r.ring.size();
+    for (int j=0;j<n;++j) {
+        const auto &T = m_tris[r.star[j]];
+        if (T.v[(edgeIndex(r.star[j],v)+2)%3] != r.ring[(j+1)%n]) return false;
+    }
+    auto triangle=[](int a,int b,int c) {
+        return Triangle{{a,b,c},{-1,-1,-1},{false,false,false},true};
+    };
+    QVector<int> polygon = r.ring;
+    while (polygon.size() > 3) {
+        bool clipped=false;
+        for (int j=0;j<polygon.size();++j) {
+            const int a=polygon[(j+polygon.size()-1)%polygon.size()], b=polygon[j], c=polygon[(j+1)%polygon.size()];
+            if (!(orient(a,b,c)>0)) continue;
+            bool occupied=false;
+            for (int q:polygon) if (q!=a && q!=b && q!=c
+                && orient(a,b,q)>=0 && orient(b,c,q)>=0 && orient(c,a,q)>=0) {occupied=true;break;}
+            if (occupied) continue;
+            r.replacement.append(triangle(a,b,c));
+            polygon.removeAt(j); clipped=true; break;
+        }
+        if (!clipped) return false;
+    }
+    if (!(orient(polygon[0],polygon[1],polygon[2])>0)) return false;
+    r.replacement.append(triangle(polygon[0],polygon[1],polygon[2]));
+    // Lawson flips confined to scratch triangles. Never call the global
+    // legalizer after quality gates: it may change triangles outside the star.
+    bool settled=false;
+    for (int guard=0;guard<4*n*n;++guard) {
+        bool flipped=false;
+        for (int i=0;i<r.replacement.size() && !flipped;++i)
+            for (int j=i+1;j<r.replacement.size() && !flipped;++j)
+                for (int e=0;e<3 && !flipped;++e) for (int f=0;f<3 && !flipped;++f) {
+                    auto &T=r.replacement[i]; auto &N=r.replacement[j];
+                    const int a=T.v[e], b=T.v[(e+1)%3], c=T.v[(e+2)%3], d=N.v[f];
+                    if (b!=N.v[(f+2)%3] || c!=N.v[(f+1)%3]) continue;
+                    if (orient(a,b,d)<=0 || orient(a,d,c)<=0 || !inCircle(T.v[0],T.v[1],T.v[2],d)) continue;
+                    T=triangle(a,b,d); N=triangle(a,d,c); flipped=true;
+                }
+        if (!flipped) {settled=true;break;}
+    }
+    if (!settled) return false;
+    for (int i=0;i<r.replacement.size();++i) for (int e=0;e<3;++e) {
+        auto &T=r.replacement[i];
+        const int a=T.v[(e+1)%3], b=T.v[(e+2)%3];
+        bool found=false;
+        for (int j=0;j<n;++j) if (a==r.ring[j] && b==r.ring[(j+1)%n]) {
+            const auto &old=m_tris[r.star[j]];
+            const int k=edgeIndex(r.star[j],v), neighbour=old.adj[k];
+            T.adj[e]=neighbour; T.constrained[e]=old.constrained[k]; found=true;
+            // Conservatively reject a cavity whose outer edge would need a
+            // flip. Outside triangles are never modified by legalization.
+            if (neighbour>=0 && !T.constrained[e]) {
+                const auto &N=m_tris[neighbour];
+                if (!N.alive) return false;
+                for (int f=0;f<3;++f) if (N.adj[f]==r.star[j]
+                    && inCircle(T.v[0],T.v[1],T.v[2],N.v[f])) return false;
+            }
+            break;
+        }
+        if (found) continue;
+        for (int j=0;j<r.replacement.size() && !found;++j) if (i!=j)
+            for (int f=0;f<3;++f) if (r.replacement[j].v[(f+1)%3]==b && r.replacement[j].v[(f+2)%3]==a) {
+                T.adj[e]=r.star[j]; found=true; break;
+            }
+        if (!found) return false;
+    }
+    *out=std::move(r);
+    return true;
+}
+
+void ConstrainedDelaunay::commitRemoval(int v, const Removal &r)
+{
+    // Repair external backlinks before reusing any old slot.
+    for (int j=0;j<r.ring.size();++j) {
+        const int old=r.star[j], k=edgeIndex(old,v), neighbour=m_tris[old].adj[k];
+        if (neighbour<0) continue;
+        int replacement=-1;
+        for (int i=0;i<r.replacement.size();++i) for (int e=0;e<3;++e)
+            if (r.replacement[i].v[(e+1)%3]==r.ring[j]
+                && r.replacement[i].v[(e+2)%3]==r.ring[(j+1)%r.ring.size()]) replacement=r.star[i];
+        for (int e=0;e<3;++e)
+            if (m_tris[neighbour].v[(e+1)%3]==r.ring[(j+1)%r.ring.size()]
+                && m_tris[neighbour].v[(e+2)%3]==r.ring[j]) m_tris[neighbour].adj[e]=replacement;
+    }
+    for (int t:r.star) {m_tris[t].alive=false;for (int &a:m_tris[t].adj) a=-1;}
+    for (int i=0;i<r.replacement.size();++i) {
+        const int t=r.star[i]; m_tris[t]=r.replacement[i];
+        for (int q:m_tris[t].v) m_vertexTri[q]=t;
+        if (m_triangleChanged) m_triangleChanged(t);
+    }
+    m_vertexTri[v]=-1;
+    m_lastLocate=r.star[0];
+}
+
+bool ConstrainedDelaunay::removeVertex(int v)
+{
+    Removal r;
+    if (!prepareRemoval(v,&r)) return false;
+    commitRemoval(v,r);
+    return true;
 }
 
 ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const QualityOptions &opt)
@@ -1188,6 +1312,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         const int before = m_pts.size();
         const int v = insertPoint(p);
         if (v < 0 || v < before) return false;   // outside or coincident
+        addVertexOrigin(v,reason==1?Size:reason==2?Angle:Terrain);
         if (reason == 1) ++rep.sizeInsertions;
         else if (reason == 2) ++rep.qualityInsertions;
         else if (reason == 3) ++rep.terrainInsertions;
@@ -1300,6 +1425,174 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
             for (int t : std::as_const(changed)) consider(t);
         }
         m_triangleChanged = enqueue;
+    }
+    // Coarsening cannot use refinement witnesses as upper bounds. Only the
+    // explicit coverage-aware callback (and bounds derived from it) certifies
+    // replacement triangles. Removed slots and vertex ids remain stable.
+    m_triangleChanged = {};
+    if (opt.coarsenPasses>0 && !rep.cancelled) {
+        QElapsedTimer clock; clock.start();
+        rep.coarsenSkippedTerrain=terrain && !opt.terrainErrorBound;
+        if (!rep.coarsenSkippedTerrain) {
+            const double unknown=std::numeric_limits<double>::quiet_NaN();
+            QVector<double> bounds(terrain?m_tris.size():0,unknown);
+            QVector<unsigned char> attempts(m_pts.size(),0);
+            QVector<unsigned> versions(m_pts.size(),0);
+            // Serial Morton tiles improve DEM locality; boundary stars are
+            // allowed because no concurrent topology mutation takes place.
+            double x0=std::numeric_limits<double>::infinity(),y0=x0,x1=-x0,y1=-x0;
+            QVector<char> used(m_pts.size(),0);
+            for (const auto &T:m_tris) if (T.alive) for (int v:T.v) if (!isSuperVertex(v)) {
+                used[v]=1;x0=std::min(x0,m_pts[v].x());y0=std::min(y0,m_pts[v].y());
+                x1=std::max(x1,m_pts[v].x());y1=std::max(y1,m_pts[v].y());
+            }
+            auto key=[&](int v,unsigned scale) {
+                const unsigned x=x1>x0?unsigned(std::clamp((m_pts[v].x()-x0)/(x1-x0),0.0,1.0)*scale):0;
+                const unsigned y=y1>y0?unsigned(std::clamp((m_pts[v].y()-y0)/(y1-y0),0.0,1.0)*scale):0;
+                return mortonKey(x,y);
+            };
+            if (terrain) {
+                // Capped refinement may not have reached terrain at all.
+                // Sample each needed elevation once, spatially ordered; the
+                // assembly stage reuses these same values afterwards.
+                while (heights.size()<m_pts.size()) heights.append(std::numeric_limits<double>::infinity());
+                QVector<QPair<quint64,int>> pending;
+                for (int v=0;v<m_pts.size();++v) if (used[v] && std::isinf(heights[v])) pending.append({key(v,65535),v});
+                std::sort(pending.begin(),pending.end());
+                for (int i=0;i<pending.size();++i) {
+                    if ((i&4095)==0 && opt.cancelled && opt.cancelled()) {rep.cancelled=true;break;}
+                    const int v=pending[i].second;
+                    heights[v]=opt.terrainElevationAt(m_pts[v].x(),m_pts[v].y());
+                }
+            }
+            struct Candidate { float score; int v; unsigned version,tile; };
+            auto less=[](const Candidate &a,const Candidate &b) {
+                if (a.tile!=b.tile) return a.tile>b.tile;
+                return a.score!=b.score?a.score<b.score:a.v>b.v;
+            };
+            std::priority_queue<Candidate,std::vector<Candidate>,decltype(less)> heap(less);
+            auto height=[&](int v) {
+                while (heights.size()<m_pts.size()) heights.append(std::numeric_limits<double>::infinity());
+                if (std::isinf(heights[v])) heights[v]=opt.terrainElevationAt(m_pts[v].x(),m_pts[v].y());
+                return heights[v];
+            };
+            auto score=[&](int v) {
+                if (!terrain) return 1.0;
+                QVector<int> star; trianglesAround(v,&star);
+                std::array<double,3> sum{0,0,0};
+                QVector<std::array<double,3>> normals;
+                for (int t:star) {
+                    const auto &T=m_tris[t];
+                    const QPointF b=m_pts[T.v[1]]-m_pts[T.v[0]],c=m_pts[T.v[2]]-m_pts[T.v[0]];
+                    const double z=height(T.v[0]),bz=height(T.v[1])-z,cz=height(T.v[2])-z;
+                    if (!std::isfinite(z) || !std::isfinite(bz) || !std::isfinite(cz)) return -1.0;
+                    std::array<double,3> normal{b.y()*cz-bz*c.y(),bz*c.x()-b.x()*cz,b.x()*c.y()-b.y()*c.x()};
+                    const double length=std::hypot(normal[0],normal[1],normal[2]);
+                    if (!(length>0)) return -1.0;
+                    for (int k=0;k<3;++k) {sum[k]+=normal[k];normal[k]/=length;}
+                    normals.append(normal);
+                }
+                const double length=std::hypot(sum[0],sum[1],sum[2]);
+                if (!(length>0)) return -1.0;
+                double result=1;
+                for (const auto &n:normals) result=std::min(result,(n[0]*sum[0]+n[1]*sum[1]+n[2]*sum[2])/length);
+                return result;
+            };
+            const int limit=std::clamp(opt.coarsenPasses,1,10);
+            auto queue=[&](int v) {
+                if (v<m_superBase+3 || !isVertexActive(v) || m_vertexSeg.contains(v)
+                    || opt.protectedVertices.contains(v) || (opt.protectedLocation && opt.protectedLocation(m_pts[v])) || attempts[v]>=limit) return;
+                heap.push({float(score(v)),v,++versions[v],unsigned(key(v,31))});
+            };
+            for (int v=m_superBase+3;v<m_pts.size() && !rep.cancelled;++v) {
+                if ((v&4095)==0 && opt.cancelled && opt.cancelled()) {rep.cancelled=true;break;}
+                queue(v);
+            }
+            auto plane=[&](const Triangle &T,const QPointF &p) {
+                const auto &a=m_pts[T.v[0]], &b=m_pts[T.v[1]], &c=m_pts[T.v[2]];
+                const double z=height(T.v[0]);
+                const double cross=orientPts(a,b,c);
+                const double u=((p.x()-a.x())*(c.y()-a.y())-(p.y()-a.y())*(c.x()-a.x()))/cross;
+                const double w=((b.x()-a.x())*(p.y()-a.y())-(b.y()-a.y())*(p.x()-a.x()))/cross;
+                return z+u*(height(T.v[1])-z)+w*(height(T.v[2])-z);
+            };
+            while (!heap.empty() && !rep.cancelled) {
+                const Candidate c=heap.top(); heap.pop();
+                const int v=c.v;
+                if (c.version!=versions[v] || !isVertexActive(v)) continue;
+                if ((rep.coarsenAttempts&255)==0 && opt.cancelled && opt.cancelled()) {rep.cancelled=true;break;}
+                ++attempts[v]; ++rep.coarsenAttempts;
+                Removal r;
+                if (!prepareRemoval(v,&r)) continue;
+                double shortest=std::numeric_limits<double>::infinity();
+                for (int t:r.star) for (int k=0;k<3;++k)
+                    shortest=std::min(shortest,dist2(m_pts[m_tris[t].v[k]],m_pts[m_tris[t].v[(k+1)%3]]));
+                bool accepted=true;
+                for (const auto &T:r.replacement) {
+                    const QPointF &a=m_pts[T.v[0]], &b=m_pts[T.v[1]], &c=m_pts[T.v[2]];
+                    const double cross=orientPts(a,b,c);
+                    const double l[3]={dist2(b,c),dist2(c,a),dist2(a,b)};
+                    const int k=l[0]<=l[1] && l[0]<=l[2]?0:l[1]<=l[2]?1:2;
+                    if (l[k]<shortest*(1-1e-12)) {++rep.coarsenRejectedEdge;accepted=false;break;}
+                    if (l[k]>=minEdge2 && cross/std::sqrt(l[(k+1)%3]*l[(k+2)%3])<sinMin
+                        && !exemptShortestEdge(T.v[(k+1)%3],T.v[(k+2)%3])) {
+                        ++rep.coarsenRejectedAngle;accepted=false;break;
+                    }
+                    const QPointF g=(a+b+c)/3;
+                    const double h=opt.hAt?opt.hAt(g.x(),g.y()):0;
+                    if (h>0 && cross*.5>kEquilateralArea*h*h) {++rep.coarsenRejectedSize;accepted=false;break;}
+                }
+                if (!accepted) continue;
+                QVector<double> newBounds;
+                if (terrain) {
+                    // A necessary condition only: the removed reference height
+                    // must still fit the new plane covering its location.
+                    for (const auto &T:r.replacement) if (orient(T.v[0],T.v[1],m_pts[v])>=0
+                        && orient(T.v[1],T.v[2],m_pts[v])>=0 && orient(T.v[2],T.v[0],m_pts[v])>=0) {
+                        const double error=std::abs(plane(T,m_pts[v])-height(v));
+                        if (!std::isfinite(error) || error>opt.terrainTolerance) {
+                            ++rep.coarsenHeightRejects;accepted=false;
+                        }
+                        break;
+                    }
+                    for (const auto &T:r.replacement) {
+                        if (!accepted) break;
+                        double bound=0;
+                        // The plane difference is affine. Bounding it at all
+                        // three vertices of EVERY old triangle covers every
+                        // overlap, without assuming the polygons are convex.
+                        for (int t:r.star) {
+                            if (!std::isfinite(bounds[t])) {bound=unknown;break;}
+                            double difference=0;
+                            for (int q:m_tris[t].v) {
+                                const double d=std::abs(plane(T,m_pts[q])-height(q));
+                                if (!std::isfinite(d)) {difference=unknown;break;}
+                                difference=std::max(difference,d);
+                            }
+                            if (!std::isfinite(difference)) {bound=unknown;break;}
+                            bound=std::max(bound,bounds[t]+difference);
+                        }
+                        if (std::isfinite(bound) && bound<=opt.terrainTolerance*(1-1e-10)) ++rep.coarsenBoundAccepts;
+                        else {
+                            QPointF xy[3]; double z[3];
+                            for (int k=0;k<3;++k) {xy[k]=m_pts[T.v[k]];z[k]=height(T.v[k]);}
+                            bound=opt.terrainErrorBound(xy,z); ++rep.coarsenExactQueries;
+                        }
+                        if (!std::isfinite(bound) || bound<0 || bound>opt.terrainTolerance) accepted=false;
+                        newBounds.append(bound);
+                    }
+                    if (!accepted) {++rep.coarsenRejectedTerrain;continue;}
+                }
+                commitRemoval(v,r); ++rep.coarsenRemoved;
+                for (int i=0;i<r.star.size();++i) {
+                    const int t=r.star[i];
+                    if (t<measured.size()) measured[t]=Measured{};
+                    if (terrain) bounds[t]=i<newBounds.size()?newBounds[i]:unknown;
+                }
+                for (int q:r.ring) queue(q);
+            }
+        }
+        rep.coarsenSeconds=clock.nsecsElapsed()/1e9;
     }
     // Independent pass over the final geometry: every live triangle is checked,
     // so a missed edge flip or a blocked terrain candidate cannot go unnoticed.

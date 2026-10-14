@@ -26,7 +26,8 @@ public:
     QDoubleSpinBox *minimum, *maximum, *feature, *tolerance, *breaklineTolerance, *averaging, *transition, *minimumBreakline;
     QComboBox *maximumMode, *featureMode, *toleranceMode, *breaklineMode, *averagingMode, *terrainMode, *reference, *minimumBreaklineMode;
     QCheckBox *refineFeatures, *alignTerrain;
-    QSpinBox *maxBreaklines;
+    QSpinBox *maxBreaklines, *coarsenPasses;
+    QCheckBox *coarsenEnabled;
     QLabel *report;
 private:
     void sync();

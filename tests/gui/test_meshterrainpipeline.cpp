@@ -43,6 +43,7 @@
 #include <QFile>
 #include <QPromise>
 #include <QSet>
+#include <QSettings>
 #include <QScopeGuard>
 #include <QTest>
 #include <gdal_priv.h>
@@ -911,6 +912,11 @@ NODE C interior
         const QDir out(qEnvironmentVariable("SWMMVIS_REPRO_OUT"));
         QVERIFY(!demPath.isEmpty() && !boundaryPath.isEmpty() && !out.path().isEmpty());
         QVERIFY(QDir().mkpath(out.path()));
+        QCoreApplication::setOrganizationName("openswmm-mesh-review");
+        QCoreApplication::setApplicationName("reproduction");
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,out.filePath("settings"));
+        { QSettings settings;settings.clear();settings.sync(); }
         QStringList report;
         QElapsedTimer clock; clock.start();
         auto workspace=std::unique_ptr<OpenSWMMVisWorkspace>(OpenSWMMVisWorkspace::newInstance(QString(),nullptr));
@@ -934,6 +940,19 @@ NODE C interior
             auto *w=dialog.findChild<QDoubleSpinBox *>(QString::fromLatin1(name)); QVERIFY(w);
             w->setValue(qEnvironmentVariable(env).toDouble());
         };
+        spin("meshMinAngleSpin","SWMMVIS_REPRO_ANGLE");
+        spin("meshConduitStripSpin","SWMMVIS_REPRO_STRIPWIDTH");
+        spin("meshSizeRatioSpin","SWMMVIS_REPRO_TRANSITION");
+        for (const auto &entry: {qMakePair("meshCoarsenPassesSpin","SWMMVIS_REPRO_COARSEN"),
+                                qMakePair("meshSmoothingSpin","SWMMVIS_REPRO_SMOOTHING")}) {
+            if (!qEnvironmentVariableIsSet(entry.second)) continue;
+            auto *control=dialog.findChild<QSpinBox *>(entry.first);QVERIFY(control);
+            control->setValue(qEnvironmentVariableIntValue(entry.second));
+        }
+        if (qEnvironmentVariableIsSet("SWMMVIS_REPRO_COARSEN"))
+            dialog.findChild<QCheckBox *>("meshCoarsenEnabled")->setChecked(qEnvironmentVariableIntValue("SWMMVIS_REPRO_COARSEN")>0);
+        if (qEnvironmentVariableIsSet("SWMMVIS_REPRO_LATTICE"))
+            dialog.findChild<QCheckBox *>("meshLatticeSeedingBox")->setChecked(qEnvironmentVariableIntValue("SWMMVIS_REPRO_LATTICE")>0);
         spin("meshCellSizeSpin","SWMMVIS_REPRO_CELL");
         spin("meshMinCellSizeSpin","SWMMVIS_REPRO_MINCELL");
         spin("meshMaxCellSizeSpin","SWMMVIS_REPRO_MAXSIZE");
@@ -961,6 +980,7 @@ NODE C interior
             if(auto *cap=dialog.findChild<QSpinBox *>(QStringLiteral("meshMaxCellsSpin")))
                 cap->setValue(qEnvironmentVariableIntValue("SWMMVIS_REPRO_MAXCELLS"));
         Inputs in; QVERIFY2(dialog.collectInputs(&in,&error),qPrintable(error));
+        in.genOpts.diagnosticProvenance=qEnvironmentVariableIsSet("SWMMVIS_REPRO_PROVENANCE");
         // Every writable generation artifact, including its terrain cache,
         // stays in the reproduction folder even when source files are external.
         QFile sourceModel(inp);QVERIFY(sourceModel.open(QIODevice::ReadOnly));
@@ -1112,6 +1132,13 @@ NODE C interior
         QFile metrics(out.filePath("metrics.json")); QVERIFY(metrics.open(QIODevice::WriteOnly));
         auto record=result.metrics;
         if(in.resolution) record["settings"]=in.resolution->toJson();
+        record["generationOptions"]=QJsonObject{{"minAngleDeg",in.genOpts.minAngleDeg},
+            {"smoothingPasses",in.genOpts.smoothingPasses},{"latticeSeeding",in.genOpts.latticeSeeding},
+            {"maxCells",in.genOpts.maxCells},{"stripWidth",in.conduitStripWidth},{"nodePins",in.includeJunctions}};
+        record["peakRssBytes"]=double(productionPeakRSS);
+        record["terrainUnresolved"]=result.generationStats.terrainUnresolved;
+        record["terrainUnknown"]=result.generationStats.terrainUnknown;
+        record["maxTerrainError"]=result.generationStats.maxTerrainError;
         record["meshCRSWkt"]=in.meshCRSWkt;
         record["terrainPath"]=in.dtmPath;
         record["terrainZFactor"]=in.zConversionFactor;

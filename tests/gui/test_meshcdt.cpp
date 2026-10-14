@@ -207,6 +207,113 @@ class TestMeshCdt : public QObject
 {
     Q_OBJECT
 private slots:
+    void removalPreservesTopologyAndConstraints()
+    {
+        for (bool diagonal:{false,true}) {
+            ConstrainedDelaunay cdt;
+            QVERIFY(buildRings(cdt,{square(0,0,20)}));
+            if (diagonal) QVERIFY(cdt.insertConstraint(0,2));
+            QRandomGenerator rng(912);
+            for (int i=0;i<90;++i) QVERIFY(cdt.insertPoint({.1+19.8*rng.generateDouble(),.1+19.8*rng.generateDouble()})>=0);
+            QVERIFY(!cdt.removeVertex(0));
+            int removed=0;
+            for (int v=cdt.inputVertexCount()+3;v<cdt.vertices().size();++v) {
+                const int before=cdt.liveTriangleCount();
+                if (!cdt.removeVertex(v)) continue;
+                ++removed;
+                QCOMPARE(cdt.liveTriangleCount(),before-2);
+                QVERIFY(!cdt.isVertexActive(v));
+                QVERIFY(topologyConsistent(cdt));
+                QCOMPARE(localDelaunayViolations(cdt),0);
+                QVERIFY(std::abs(liveArea(cdt)-400)<1e-8);
+                for (int i=0;i<4;++i) QVERIFY(!cdt.constrainedChain(i,(i+1)%4).isEmpty());
+                if (diagonal) QVERIFY(!cdt.constrainedChain(0,2).isEmpty());
+            }
+            QVERIFY(removed>60);
+            // Point location and insertion must work after dead slot reuse.
+            QVERIFY(cdt.insertPoint({7,8})>=0);
+            QVERIFY(topologyConsistent(cdt));
+            QCOMPARE(localDelaunayViolations(cdt),0);
+        }
+    }
+
+    void coarseningGatesAndDeterminism()
+    {
+        QVector<QPointF> firstVertices;
+        QVector<ConstrainedDelaunay::Triangle> firstTriangles;
+        for (int run=0;run<2;++run) {
+            ConstrainedDelaunay cdt;
+            QVERIFY(buildRings(cdt,{square(0,0,20)}));
+            for (int y=2;y<20;y+=2) for (int x=2;x<20;x+=2) QVERIFY(cdt.insertPoint({double(x),double(y)})>=0);
+            ConstrainedDelaunay::QualityOptions q;
+            q.minAngleDeg=20;q.coarsenPasses=3;
+            q.maxInsertions=10000;
+            q.hAt=[](double,double){return 6.0;};
+            if (run) q.cancelled=[] {return false;};
+            const auto rep=cdt.refineQuality(q);
+            QVERIFY(rep.coarsenRemoved>0);
+            QVERIFY(topologyConsistent(cdt));
+            QCOMPARE(localDelaunayViolations(cdt),0);
+            for (const auto &T:cdt.triangles()) if (T.alive) {
+                const auto &a=cdt.vertices()[T.v[0]], &b=cdt.vertices()[T.v[1]], &c=cdt.vertices()[T.v[2]];
+                QVERIFY(minAngleDeg(a,b,c)>=20-1e-8);
+                QVERIFY(ConstrainedDelaunay::orientExact(a,b,c)*.5<=.4330127018922193*36*(1+1e-10));
+            }
+            if (!run) {firstVertices=cdt.vertices();firstTriangles=cdt.triangles();}
+            else {
+                QCOMPARE(cdt.vertices(),firstVertices);
+                QCOMPARE(cdt.triangles().size(),firstTriangles.size());
+                for (int i=0;i<firstTriangles.size();++i) {
+                    QCOMPARE(cdt.triangles()[i].alive,firstTriangles[i].alive);
+                    for (int k=0;k<3;++k) QCOMPARE(cdt.triangles()[i].v[k],firstTriangles[i].v[k]);
+                }
+            }
+        }
+    }
+
+    void coarseningTerrainCoverageAndProtectedVertices()
+    {
+        for (int mode=0;mode<5;++mode) {
+            ConstrainedDelaunay cdt;
+            QVERIFY(buildRings(cdt,{square(0,0,10)}));
+            const int centre=cdt.insertPoint({5,5});
+            QVERIFY(centre>=0);
+            ConstrainedDelaunay::QualityOptions q;
+            q.minAngleDeg=0;q.coarsenPasses=3;q.terrainTolerance=.1;
+            q.terrainWorstFirst=true;
+            q.terrainElevationAt=[mode](double x,double y){return mode==1 && x==5 && y==5?1.0:0.0;};
+            q.terrainError=[](const QPointF *,const double *,QPointF *){return 0.0;};
+            if (mode!=3) q.terrainErrorBound=[mode](const QPointF *,const double *) {
+                return mode==2?std::numeric_limits<double>::quiet_NaN():0.0;
+            };
+            if (mode==4) q.protectedVertices.insert(centre);
+            const auto rep=cdt.refineQuality(q);
+            QCOMPARE(rep.coarsenRemoved,mode==0?1:0);
+            QCOMPARE(cdt.isVertexActive(centre),mode!=0);
+            QCOMPARE(rep.coarsenSkippedTerrain,mode==3);
+            if (mode==1) QVERIFY(rep.coarsenHeightRejects>0);
+            if (mode==2) QVERIFY(rep.coarsenRejectedTerrain>0);
+            QVERIFY(topologyConsistent(cdt));
+            QCOMPARE(localDelaunayViolations(cdt),0);
+        }
+    }
+
+    void coarseningCancellationAndOff()
+    {
+        ConstrainedDelaunay cdt;
+        QVERIFY(buildRings(cdt,{square(0,0,10)}));
+        const int centre=cdt.insertPoint({5,5});
+        ConstrainedDelaunay::QualityOptions q;
+        q.minAngleDeg=0;
+        QCOMPARE(cdt.refineQuality(q).coarsenRemoved,0);
+        QVERIFY(cdt.isVertexActive(centre));
+        q.coarsenPasses=3;q.cancelled=[] {return true;};
+        const auto report=cdt.refineQuality(q);
+        QVERIFY(report.cancelled);
+        QVERIFY(cdt.isVertexActive(centre));
+        QVERIFY(topologyConsistent(cdt));
+    }
+
     void randomPointsAreDelaunayAndConsistent()
     {
         QRandomGenerator rng(1234);

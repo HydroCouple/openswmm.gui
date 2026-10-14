@@ -359,8 +359,8 @@ bool ChannelBurnDialog::collectInputs(mesh::ChannelMeshBurnInputs *out, QString 
         return fail(tr("Use the model CRS for the mesh when replacing 1D channel intervals, or turn off 1D replacement."));
 
     // One transformation per snapshot, shared by all link and node coordinates.
-    std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>
-        transform(nullptr, OCTDestroyCoordinateTransformation);
+    std::unique_ptr<OGRCoordinateTransformation, decltype(&OGRCoordinateTransformation::DestroyCT)>
+        transform(nullptr, OGRCoordinateTransformation::DestroyCT);
     if (!modelSrs->equals(*meshSrs)) {
         transform.reset(modelSrs->createTransformationTo(*meshSrs));
         if (!transform) return fail(tr("Cannot transform channel coordinates into the mesh CRS."));
