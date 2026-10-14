@@ -19,8 +19,11 @@
  */
 #include "layers/gisobjectref.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/featurelayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
+#include "map/spatialreferencesystem.h"
+#include "map/tools/maptoolselectpolygon.h"
 #include "selection/gisselectionbridge.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/attributetablepanel.h"
@@ -102,6 +105,47 @@ bool buildFixture()
     return ok;
 }
 
+QString polygonQueryPath() { return outDir() + QStringLiteral("/polygon_query.gpkg"); }
+
+bool buildPolygonQueryFixture()
+{
+    GDALDriver *driver = GetGDALDriverManager()->GetDriverByName("GPKG");
+    if (!driver) return false;
+    const QByteArray path = polygonQueryPath().toUtf8();
+    if (QFile::exists(polygonQueryPath())) driver->Delete(path.constData());
+    auto *dataset = driver->Create(path.constData(), 0, 0, 0, GDT_Unknown, nullptr);
+    if (!dataset) return false;
+    OGRSpatialReference srs;
+    srs.importFromEPSG(4326);
+    srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    auto *layer = dataset->CreateLayer("geometries", &srs, wkbUnknown, nullptr);
+    if (!layer) { GDALClose(dataset); return false; }
+    const char *geometries[] = {
+        "POINT (0.5 0.5)",
+        "LINESTRING (-1 0.75, 2 0.75)",
+        "POLYGON ((0 0, 1 0, 0 1, 0 0))",
+        "POLYGON ((3 0, 6 0, 6 3, 3 3, 3 0), (4 1, 4 2, 5 2, 5 1, 4 1))",
+        "MULTIPOLYGON (((8 0, 9 0, 9 1, 8 1, 8 0)), ((12 0, 13 0, 13 1, 12 1, 12 0)))",
+        "POINT (0.85 0.85)"
+    };
+    bool ok = true;
+    long long fid = 5'000'000'000LL;
+    for (const char *wkt : geometries) {
+        OGRGeometry *geometry = nullptr;
+        if (OGRGeometryFactory::createFromWkt(wkt, nullptr, &geometry) != OGRERR_NONE) {
+            ok = false;
+            break;
+        }
+        auto *feature = OGRFeature::CreateFeature(layer->GetLayerDefn());
+        feature->SetFID(fid++);
+        feature->SetGeometryDirectly(geometry);
+        ok = ok && layer->CreateFeature(feature) == OGRERR_NONE;
+        OGRFeature::DestroyFeature(feature);
+    }
+    GDALClose(dataset);
+    return ok;
+}
+
 /*! Everything one test needs, wired the way SWMMVisProjectWindow wires it. */
 struct Rig {
     MapCanvas canvas;
@@ -109,8 +153,15 @@ struct Rig {
     SelectionManager sel;
     GisSelectionBridge bridge{&sel, &canvas};
 
-    explicit Rig() : layer(new GISVectorLayer(gpkgPath(), QStringLiteral("polys")))
+    explicit Rig(bool editable = false)
     {
+        if (editable) {
+            auto *feature = new FeatureLayer;
+            (void)feature->openTable(gpkgPath(), QStringLiteral("polys"));
+            layer = feature;
+        } else {
+            layer = new GISVectorLayer(gpkgPath(), QStringLiteral("polys"));
+        }
         canvas.addLayer(layer, /*pushUndo=*/false);
     }
 
@@ -144,7 +195,7 @@ class TestGisSelectionSync : public QObject
     Q_OBJECT
 private slots:
 
-    void initTestCase() { QVERIFY(buildFixture()); }
+    void initTestCase() { QVERIFY(buildFixture()); QVERIFY(buildPolygonQueryFixture()); }
 
     void querySelectsGisRowsAndPreservesOnError()
     {
@@ -477,6 +528,138 @@ private slots:
         // not its geometry — a bbox test would (wrongly) select it.
         QVERIFY(rig.layer->featureIdsInRect(
                         MapExtent(30.8, 0.8, 30.95, 0.95)).isEmpty());
+    }
+
+    void polygonSelect_syncsFeatures_data()
+    {
+        QTest::addColumn<bool>("editable");
+        QTest::newRow("imported vector") << false;
+        QTest::newRow("editable feature") << true;
+    }
+
+    void polygonQuery_matchesGeometryAndPreservesFilters()
+    {
+        GISVectorLayer layer(polygonQueryPath(), QStringLiteral("geometries"));
+        QVERIFY(layer.ogrLayer());
+        const long long base = 5'000'000'000LL;
+        const auto box = [](double x0, double y0, double x1, double y1) {
+            return QPolygonF{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+        };
+        // Points, crossing lines with both ends outside, and polygon overlap.
+        QCOMPARE(layer.featureIdsInPolygon(box(0.4, 0.4, 0.6, 0.8)),
+                 (QSet<long long>{base, base + 1, base + 2}));
+        // A nonrectangular lasso excludes the point in its empty bbox corner.
+        QCOMPARE(layer.featureIdsInPolygon(QPolygonF{{0, 0}, {1, 0}, {0, 1}}),
+                 (QSet<long long>{base, base + 1, base + 2}));
+        QCOMPARE(layer.featureIdsInPolygon(QPolygonF{{-0.1, -0.1}, {1.1, -0.1},
+                  {1.1, 0.3}, {0.3, 0.3}, {0.3, 1.1}, {-0.1, 1.1}}),
+                 (QSet<long long>{base + 1, base + 2}));
+        QCOMPARE(layer.featureIdsInPolygon(box(0.8, 0.8, 0.9, 0.9)),
+                 (QSet<long long>{base + 5}));
+        QVERIFY(layer.featureIdsInPolygon(box(4.2, 1.2, 4.8, 1.8)).isEmpty());
+        QCOMPARE(layer.featureIdsInPolygon(box(5.5, 0.5, 6.5, 1.5)),
+                 (QSet<long long>{base + 3}));
+        QCOMPARE(layer.featureIdsInPolygon(box(12.2, 0.2, 12.8, 0.8)),
+                 (QSet<long long>{base + 4}));
+        QVERIFY(layer.featureIdsInPolygon(QPolygonF{{0, 0}, {1, 1}}).isEmpty());
+
+        layer.ogrLayer()->SetSpatialFilterRect(8, 0, 9, 1);
+        const std::string savedWkt = layer.ogrLayer()->GetSpatialFilter()->exportToWkt();
+        // Selection temporarily overrides the scan filter, then restores it.
+        QCOMPARE(layer.featureIdsInPolygon(box(0.4, 0.4, 0.6, 0.8)).size(), 3);
+        QCOMPARE(layer.ogrLayer()->GetSpatialFilter()->exportToWkt(), savedWkt);
+        layer.ogrLayer()->SetSpatialFilter(nullptr);
+        QVERIFY(layer.ogrLayer()->SetAttributeFilter("fid = 5000000001") == OGRERR_NONE);
+        QCOMPARE(layer.featureIdsInPolygon(box(0.4, 0.4, 0.6, 0.8)),
+                 (QSet<long long>{base + 1}));
+        layer.ogrLayer()->SetAttributeFilter(nullptr);
+    }
+
+    void polygonQuery_reprojectsCanvasCoordinates()
+    {
+        GISVectorLayer layer(polygonQueryPath(), QStringLiteral("geometries"));
+        std::unique_ptr<SpatialReferenceSystem> canvasSRS(
+            SpatialReferenceSystem::fromWktOrProj(QStringLiteral("EPSG:3857")));
+        QVERIFY(canvasSRS);
+        // Metres on a Web Mercator canvas around the (0.5, 0.5) degree point.
+        const QPolygonF polygon{{54000, 54000}, {57000, 54000}, {57000, 57000}, {54000, 57000}};
+        const QSet<long long> expected{5'000'000'000LL, 5'000'000'002LL};
+        QCOMPARE(layer.featureIdsInPolygon(polygon, canvasSRS.get()), expected);
+        QCOMPARE(layer.featureIdsInPolygon(polygon), expected);
+    }
+
+    void polygonSelect_syncsFeatures()
+    {
+        QFETCH(bool, editable);
+        Rig rig(editable);
+        QVERIFY(rig.layer->ogrLayer());
+        rig.canvas.resize(960, 480);
+        rig.canvas.show();
+        rig.canvas.setExtent(MapExtent(-2, -3, 33, 3), false);
+        OpenSWMMVisMapToolSelectPolygon tool(&rig.canvas);
+        rig.canvas.setActiveTool(&tool);
+        AttributeTablePanel panel;
+        panel.setProject(nullptr, &rig.sel, &rig.canvas);
+        panel.showLayerSource(rig.layer);
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(view && view->model());
+        QSignalSpy busChanged(&rig.sel, &SelectionManager::selectionChanged);
+        QSignalSpy toolChanged(&tool, &OpenSWMMVisMapToolSelectPolygon::selectionChanged);
+
+        const long long f1 = rig.fidAt(0), f2 = rig.fidAt(10), f3 = rig.fidAt(20);
+        const auto draw = [&](double x0, Qt::KeyboardModifiers mods, int finish) {
+            for (const QPointF &p : {QPointF(x0 - 0.3, -0.3), QPointF(x0 + 1.3, -0.3),
+                                    QPointF(x0 + 1.3, 1.3), QPointF(x0 - 0.3, 1.3)}) {
+                int x, y;
+                rig.canvas.toPixelCoords(p.x(), p.y(), x, y);
+                QTest::mouseClick(&rig.canvas, Qt::LeftButton, Qt::NoModifier, QPoint(x, y));
+            }
+            if (finish == 0)
+                QTest::mouseClick(&rig.canvas, Qt::RightButton, mods, QPoint(1, 1));
+            else if (finish == 1)
+                QTest::keyClick(&rig.canvas, Qt::Key_Return, mods);
+            else
+                QTest::mouseDClick(&rig.canvas, Qt::LeftButton, mods, QPoint(1, 1));
+        };
+        const auto selectedRows = [&]() {
+            QSet<long long> ids;
+            for (const QModelIndex &idx : view->selectionModel()->selectedRows(0))
+                ids.insert(idx.data().toLongLong());
+            return ids;
+        };
+
+        rig.layer->setSelectedFeatureIds({f3});
+        busChanged.clear();
+        draw(0, Qt::NoModifier, 0);
+        QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f1}));
+        QCOMPARE(rig.sel.selection(), (QSet<SWMMObjectRef>{GisObjectRef::feature(rig.layer->layerId(), f1)}));
+        QCOMPARE(selectedRows(), (QSet<long long>{f1}));
+        QCOMPARE(busChanged.count(), 1);
+        QCOMPARE(toolChanged.count(), 1);
+
+        draw(10, Qt::ShiftModifier, 1);
+        QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f1, f2}));
+        QCOMPARE(selectedRows(), (QSet<long long>{f1, f2}));
+        draw(0, Qt::ControlModifier, 2);
+        QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f2}));
+        QCOMPARE(selectedRows(), (QSet<long long>{f2}));
+
+        // Hidden layers and cancelled/incomplete polygons keep their selection.
+        rig.layer->setVisible(false);
+        draw(20, Qt::NoModifier, 0);
+        QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f2}));
+        rig.layer->setVisible(true);
+        QTest::mouseClick(&rig.canvas, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+        QTest::keyClick(&rig.canvas, Qt::Key_Escape);
+        QTest::keyClick(&rig.canvas, Qt::Key_Return);
+        QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f2}));
+        draw(25, Qt::ShiftModifier, 0);
+        QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f2}));
+        draw(25, Qt::NoModifier, 0);
+        QVERIFY(rig.layer->selectedFeatureIds().isEmpty());
+        QVERIFY(rig.sel.selection().isEmpty());
+        QVERIFY(selectedRows().isEmpty());
+        rig.canvas.setActiveTool(nullptr);
     }
 
     /*! Feature refs on the bus leave non-GIS consumers untouched, and

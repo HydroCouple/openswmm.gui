@@ -778,6 +778,50 @@ QSet<long long> GISVectorLayer::featureIdsInRect(
     return out;
 }
 
+QSet<long long> GISVectorLayer::featureIdsInPolygon(
+    const QPolygonF &polygonCanvasCrs,
+    const SpatialReferenceSystem *canvasSRS) const
+{
+    QSet<long long> out;
+    if (!m_ogrLayer || polygonCanvasCrs.size() < 3) return out;
+    ensureTransform(canvasSRS);
+
+    OGRLinearRing ring;
+    for (const QPointF &p : polygonCanvasCrs)
+        ring.addPoint(p.x(), p.y());
+    ring.closeRings();
+    OGRPolygon polygon;
+    polygon.addRing(&ring);
+    if (m_transform) {
+        auto *inverse = m_transform->GetInverse();
+        if (!inverse) return out;
+        const OGRErr error = polygon.transform(inverse);
+        OGRCoordinateTransformation::DestroyCT(inverse);
+        if (error != OGRERR_NONE) return out;
+    }
+
+    // The envelope narrows the OGR scan; exact geometry intersection keeps
+    // concave lassos, polygon holes and multipart features accurate.
+    OGREnvelope envelope;
+    polygon.getEnvelope(&envelope);
+    OGRGeometry *saved = m_ogrLayer->GetSpatialFilter();
+    OGRGeometry *savedClone = saved ? saved->clone() : nullptr;
+    m_ogrLayer->SetSpatialFilterRect(envelope.MinX, envelope.MinY,
+                                   envelope.MaxX, envelope.MaxY);
+    m_ogrLayer->ResetReading();
+    OGRFeature *feature = nullptr;
+    while ((feature = m_ogrLayer->GetNextFeature()) != nullptr) {
+        const OGRGeometry *geometry = feature->GetGeometryRef();
+        if (geometry && geometry->Intersects(&polygon))
+            out.insert(static_cast<long long>(feature->GetFID()));
+        OGRFeature::DestroyFeature(feature);
+    }
+    m_ogrLayer->SetSpatialFilter(savedClone);
+    if (savedClone) OGRGeometryFactory::destroyGeometry(savedClone);
+    m_ogrLayer->ResetReading();
+    return out;
+}
+
 QVector<QPointF> GISVectorLayer::selectedFeatureAnchors() const
 {
     QVector<QPointF> out;
