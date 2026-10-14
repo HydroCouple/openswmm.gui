@@ -148,6 +148,7 @@ struct GenerationOptions
     /*! Snap radius (map units) used to match patch vertices against the
      *  output vertices. 0 = 1e-7. */
     double patchSnapEps = 0.0;
+    double terrainMinLineLength = 0.0; ///< 0 = four times minimum target size.
 };
 
 /*! \brief Per-region outcome of generate() (MeshGenerator::quadRegionReports()). */

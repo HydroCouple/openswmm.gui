@@ -36,6 +36,8 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QListWidget>
 #include <QMap>
 #include <QObject>
@@ -46,6 +48,7 @@
 #include <QString>
 #include <QStringList>
 #include <QTabWidget>
+#include <QTreeWidget>
 #include <QTest>
 #include <QVariant>
 #include <QWidget>
@@ -99,6 +102,7 @@ private slots:
     void applyWithNoEditsWritesNothing();
     void structure();
     void noScrollAt1280x800();
+    void meshDefaultsShareIndependentControls();
 };
 
 void TestPreferencesDialogRoundtrip::initTestCase()
@@ -253,6 +257,46 @@ void TestPreferencesDialogRoundtrip::noScrollAt1280x800()
     QVERIFY2(overflows.isEmpty(),
              qPrintable(QStringLiteral("page(s) still scroll at 1280x800: %1")
                             .arg(overflows.join(QStringLiteral(", ")))));
+}
+
+void TestPreferencesDialogRoundtrip::meshDefaultsShareIndependentControls()
+{
+    PreferencesDialog dialog(nullptr);
+    auto *maximumMode=dialog.findChild<QComboBox *>("meshMaximumMode");
+    auto *maximum=dialog.findChild<QDoubleSpinBox *>("meshMaxCellSizeSpin");
+    auto *toleranceMode=dialog.findChild<QComboBox *>("meshToleranceMode");
+    auto *tolerance=dialog.findChild<QDoubleSpinBox *>("meshTerrainTolSpin");
+    QVERIFY(maximumMode && maximum && toleranceMode && tolerance);
+    maximumMode->setCurrentIndex(1); maximum->setValue(50);
+    toleranceMode->setCurrentIndex(1); tolerance->setValue(.1524);
+    QVERIFY(QMetaObject::invokeMethod(&dialog,"onApply",Qt::DirectConnection));
+    auto settings=PreferencesManager::instance()->twoDDefaults().resolutionSettings();
+    QCOMPARE(settings.maximumM.value(),50.0); QCOMPARE(settings.toleranceM.value(),.1524);
+    QVERIFY(!settings.breaklineToleranceM);
+    maximumMode->setCurrentIndex(0);
+    QVERIFY(QMetaObject::invokeMethod(&dialog,"onApply",Qt::DirectConnection));
+    PreferencesDialog reopened(nullptr);
+    QCOMPARE(reopened.findChild<QComboBox *>("meshMaximumMode")->currentIndex(),0);
+    QCOMPARE(reopened.findChild<QDoubleSpinBox *>("meshTerrainTolSpin")->value(),.1524);
+    auto *cats=reopened.findChild<QListWidget *>("categories");
+    for (int i=0;i<cats->count();++i) if(cats->item(i)->text()=="Simulation Defaults") cats->setCurrentRow(i);
+    auto *tabs=reopened.findChild<QTabWidget *>("simulationDefaultsTabs");
+    QVERIFY(tabs);
+    for (int i=0;i<tabs->count();++i) if(tabs->tabText(i).contains("Mesh")) tabs->setCurrentIndex(i);
+    reopened.resize(1280,800); reopened.show(); QTest::qWait(50);
+    QVERIFY(reopened.grab().save(QDir(settingsDir()).filePath("mesh-preferences.png")));
+    auto *meshCategories=reopened.findChild<QTreeWidget *>("meshSettingsCategories");
+    auto *meshPages=reopened.findChild<QStackedWidget *>("meshSettingsPages");
+    QVERIFY(meshCategories && meshPages);
+    for(int i=0;i<meshCategories->topLevelItemCount();++i) {
+        meshCategories->setCurrentItem(meshCategories->topLevelItem(i));
+        QCoreApplication::processEvents();
+        auto *scroll=qobject_cast<QScrollArea *>(meshPages->currentWidget()); QVERIFY(scroll);
+        QCOMPARE(scroll->horizontalScrollBar()->maximum(),0);
+        QCOMPARE(scroll->verticalScrollBar()->maximum(),0);
+        QVERIFY(reopened.grab().save(QDir(settingsDir()).filePath(QString("mesh-preferences-%1.png").arg(i))));
+    }
+    PreferencesManager::instance()->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
 }
 
 QTEST_MAIN(TestPreferencesDialogRoundtrip)

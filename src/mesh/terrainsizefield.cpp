@@ -183,7 +183,10 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
     m_errorMsg.clear();
     if (!ds) { m_errorMsg = QStringLiteral("terrain size field: no dataset"); return false; }
     if (cols <= 0 || rows <= 0) { m_errorMsg = QStringLiteral("terrain size field: empty window"); return false; }
-    if (!(opt.tolerance > 0.0) || !std::isfinite(opt.tolerance)) return false;
+    if (!opt.rowsOnly && (!(opt.tolerance > 0.0) || !std::isfinite(opt.tolerance))) {
+        m_errorMsg = QStringLiteral("terrain size field: tolerance must be positive and finite");
+        return false;
+    }
     GDALRasterBand *b = ds->GetRasterBand(band);
     if (!b) { m_errorMsg = QStringLiteral("terrain size field: band %1 missing").arg(band); return false; }
     int hasNd = 0;

@@ -207,9 +207,8 @@ private slots:
      *  A domain with no constraint/ring/tagged-point seeds must still build
      *  when a terrain term (or region override) exists: the feature term is
      *  +inf everywhere, so the size is the terrain bound where it bites and
-     *  the maxSize clamp elsewhere. Only a field with no size source at all
-     *  is refused (Phase 7 triage: the terrain-tolerance pipeline case ran
-     *  a feature-free fixture and silently fell back to the uniform cap). */
+     *  the maxSize clamp elsewhere. A field with no size source at all is
+     *  valid and unbounded, so callers cannot restore a uniform fallback. */
     void seedlessTerrainFieldStillBuilds()
     {
         SizeField f;
@@ -223,10 +222,12 @@ private slots:
         QVERIFY(f.sizeAt(800.0, 800.0) <= 40.0 + 1e-6);   // clamped far field
         QVERIFY(f.sizeAt(800.0, 800.0) > 2.0);
 
-        // No seeds AND no terrain/region source stays refused.
+        // No seeds and no terrain/region source is explicitly unbounded.
         SizeField none;
-        QVERIFY(!none.build(QRectF(0, 0, 1000, 1000), {}, {}, {},
+        QVERIFY(none.build(QRectF(0, 0, 1000, 1000), {}, {}, {},
                             baseOptions()));
+        QVERIFY(!none.hasSizeBound());
+        QCOMPARE(none.targetAreaAt(500,500),0.0);
     }
 
     // ── Phase 6b: terrain decides, the cap bounds ─────────────────────

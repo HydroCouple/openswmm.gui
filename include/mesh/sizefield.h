@@ -109,11 +109,9 @@ class SizeField
 public:
     /*!
      * \brief Build the field.  Returns false (and leaves the field invalid)
-     *        when there is nothing to build from — degenerate bbox, no seeds
-     *        and no finite maximum, terrain term or region, or nonsensical options.
-     *        Callers fall back to the uniform cap. Without seeds every cell
-     *        starts from maxSize (nearSize when unbounded) and only the
-     *        terrain and region terms refine it.
+     *        for a degenerate bbox or nonsensical options. Without seeds each
+     *        cell starts at maxSize or unbounded; terrain and region terms
+     *        can supply local sizes. No size sources is a valid unbounded field.
      *
      * \p segs   constraint segments (conduits, aux lines) — every edge seeds.
      * \p rings  additional ring paths to seed (valid hole rings).
@@ -126,8 +124,8 @@ public:
                const SizeFieldOptions &opt);
 
     /*! Maximum permitted triangle area at (x, y) — the RefineHook contract.
-     *  Never returns <= 0 on a valid field (the near-size area is the lower
-     *  bound), so a graded field always constrains. */
+     *  Returns 0 on an unbounded field; a minimum target does not impose
+     *  a maximum area when no size source exists. */
     [[nodiscard]] double targetAreaAt(double x, double y) const;
     /*! Target edge length h(x, y) in map units: min over the feature-distance
      *  term, the terrain term and region overrides, clamped to
@@ -136,6 +134,7 @@ public:
      *  cell centres. 0 on an invalid field. */
     [[nodiscard]] double sizeAt(double x, double y) const;
     [[nodiscard]] bool   isValid() const { return m_cols > 0 && m_rows > 0; }
+    [[nodiscard]] bool   hasSizeBound() const { return isValid() && sizeAt(m_x0, m_y0) > 0.0; }
     [[nodiscard]] double pitch()   const { return m_pitch; }
     [[nodiscard]] int    cols()    const { return m_cols; }
     [[nodiscard]] int    rows()    const { return m_rows; }

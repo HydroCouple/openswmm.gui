@@ -903,6 +903,31 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         return minEdge2 > 0.0 && dist2(m_pts[a], m_pts[b]) < 4.0 * minEdge2;
     };
     const bool terrain = opt.terrainError && opt.terrainElevationAt && opt.terrainTolerance > 0;
+    // Terrain insertion must respect nearby vertices beyond the source
+    // triangle too. Quality/constraint repairs retain their separate floor.
+    const double terrainSpacing = std::max(opt.terrainMinSpacing, opt.minEdge);
+    QHash<QPair<qint64,qint64>, QVector<int>> terrainGrid;
+    auto terrainKey = [&](const QPointF &p) {
+        return qMakePair(qint64(std::floor(p.x()/terrainSpacing)), qint64(std::floor(p.y()/terrainSpacing)));
+    };
+    auto indexTerrainVertex = [&](int v) {
+        if (terrain && terrainSpacing > 0 && !isSuperVertex(v)) terrainGrid[terrainKey(m_pts[v])].append(v);
+    };
+    auto rebuildTerrainGrid = [&] {
+        terrainGrid.clear();
+        for (int v=0; v<m_pts.size(); ++v) indexTerrainVertex(v);
+    };
+    auto terrainClear = [&](const QPointF &p) {
+        if (!(terrainSpacing > 0)) return true;
+        const auto key=terrainKey(p);
+        for (int dy=-1;dy<=1;++dy) for (int dx=-1;dx<=1;++dx) {
+            const auto it=terrainGrid.constFind(qMakePair(key.first+dx,key.second+dy));
+            if (it!=terrainGrid.cend()) for (int v:*it)
+                if (dist2(p,m_pts[v]) < terrainSpacing*terrainSpacing*(1.0-1e-12)) return false;
+        }
+        return true;
+    };
+    if (terrain) rebuildTerrainGrid();
     m_terrainElevations.clear();
     auto &heights = m_terrainElevations;
     auto terrainError = [&](int t, QPointF *p) {
@@ -1098,6 +1123,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
         }
     };
     auto afterInsert = [&](int v) {
+        indexTerrainVertex(v);
         ++rep.inserted;
         QVector<int> star;
         trianglesAround(v, &star);
@@ -1127,6 +1153,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // Insert p for bad triangle t (reason already set), or split the
     // subsegments p would encroach. Returns false when nothing changed.
     auto tryInsert = [&](int t, const QPointF &p) {
+        if (reason == 3 && !terrainClear(p)) return false;
         enc.clear();
         int blockT = -1, blockE = -1;
         const int c = walkTo(t, p, &blockT, &blockE);
@@ -1145,6 +1172,7 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
             {
                 const int a = keyLo(k), b = keyHi(k);
                 if (stop || isFixedSub(a, b) || tooShortToSplit(a, b) || !isConstrained(a, b)) continue;
+                if (reason == 3 && !terrainClear((m_pts[a]+m_pts[b])*0.5)) continue;
                 const int v = splitSubsegment(a, b);
                 if (v < 0) continue;
                 ++rep.segmentSplits;
@@ -1239,6 +1267,8 @@ ConstrainedDelaunay::QualityReport ConstrainedDelaunay::refineQuality(const Qual
     // then only the triangles it changed are measured again.
     if (terrain && opt.terrainWorstFirst && !stop && !rep.cancelled)
     {
+        // Smoothing may have moved vertices since the initial grid build.
+        rebuildTerrainGrid();
         struct Candidate { double e; int t; int v[3]; QPointF p; };
         auto worse = [](const Candidate &a, const Candidate &b) { return a.e < b.e; };
         std::priority_queue<Candidate, std::vector<Candidate>, decltype(worse)> heap(worse);

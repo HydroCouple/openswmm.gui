@@ -126,23 +126,8 @@ bool SizeField::build(const QRectF &bbox,
     if (!gridLayout(bbox, opt, cols, rows, m_pitch, m_x0, m_y0))
         return false;
 
-    bool haveSeed = false;
-    for (const ConstraintSegment &cs : segs)
-        if (cs.path.size() >= 2) { haveSeed = true; break; }
-    if (!haveSeed)
-        for (const QVector<QPointF> &r : rings)
-            if (r.size() >= 2) { haveSeed = true; break; }
-    if (!haveSeed)
-        for (const SteinerPoint &sp : pts)
-            if (sp.marker != 0) { haveSeed = true; break; }
-    // A seedless field is still meaningful when a terrain term or region
-    // override exists (plan §1 objective 6; Phase 6b §2.3: the terrain
-    // decides, the coarsening cap only bounds it): unseeded cells start at
-    // maxSize in buildSizeGrid and are min'd with the terrain/region sizes.
-    // Only a field with no size source at all is refused.
-    if (!haveSeed && !opt.terrainSizeAt && opt.regions.isEmpty()
-        && !(std::isfinite(opt.maxSize) && opt.maxSize > 0.0))
-        return false;
+    // A seedless, unbounded field is valid: it requests no size refinement.
+    // It must not trigger the caller's legacy uniform-size fallback.
 
     m_near  = opt.nearSize;
     m_g     = opt.gradation;
@@ -193,7 +178,7 @@ void SizeField::buildSizeGrid(const SizeFieldOptions &opt, const QVector<float> 
     m_h.resize(total);
     const double hFloor = m_floor > 0.0 ? std::sqrt(m_floor / 0.4330127018922193) : 0.0;
     const double hMax   = (std::isfinite(opt.maxSize) && opt.maxSize > 0.0)
-                          ? std::max(opt.maxSize, m_near) : 0.0;
+                          ? opt.maxSize : 0.0;
     // Region bounding boxes once; the per-cell test is cheap after that.
     QVector<QRectF> regionBox;
     regionBox.reserve(opt.regions.size());
@@ -205,7 +190,7 @@ void SizeField::buildSizeGrid(const SizeFieldOptions &opt, const QVector<float> 
         {
             const int i = r * m_cols + c;
             // Unseeded cell (no vector feature at all): start from the cap.
-            double h = m_dist[i] >= kInf ? (hMax > 0.0 ? hMax : m_near)
+            double h = m_dist[i] >= kInf ? (hMax > 0.0 ? hMax : double(kInf))
                                          : m_near + m_g * cellDist(c, r);
             const double gx = m_x0 + c * m_pitch, gy = m_y0 + r * m_pitch;
             for (int k = 0; k < opt.regions.size(); ++k)
@@ -258,6 +243,9 @@ double SizeField::sizeAt(double x, double y) const
     const double h10 = cellSize(cx + 1, cy);
     const double h01 = cellSize(cx,     cy + 1);
     const double h11 = cellSize(cx + 1, cy + 1);
+    // Any finite source propagates over the connected grid. If none exists,
+    // keep the sentinel internal and expose the size-hook's unbounded value.
+    if (h00 >= kInf || h10 >= kInf || h01 >= kInf || h11 >= kInf) return 0.0;
     return (h00 * (1.0 - tx) + h10 * tx) * (1.0 - ty)
          + (h01 * (1.0 - tx) + h11 * tx) * ty;
 }
@@ -336,6 +324,7 @@ double SizeField::targetAreaAt(double x, double y) const
 {
     if (!isValid()) return 0.0;
     const double hxy = sizeAt(x, y);
+    if (!(hxy > 0.0)) return 0.0;
     // Area of the equilateral triangle of side h(x).
     double a = 0.4330127018922193 * hxy * hxy;   // √3/4
     if (m_floor > 0.0 && a < m_floor) a = m_floor;

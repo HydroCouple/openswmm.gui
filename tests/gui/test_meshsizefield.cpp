@@ -64,19 +64,22 @@ private slots:
         QCOMPARE(f.sizeAt(5,5),200.0);
     }
 
-    void refusesToBuildWithoutSeedsOrSense()
+    void unboundedFieldIsValidButInvalidGeometryIsNot()
     {
         SizeField f;
         const QRectF bbox(0, 0, 1000, 1000);
 
         // No seeds at all.
-        QVERIFY(!f.build(bbox, {}, {}, {}, baseOptions()));
-        QVERIFY(!f.isValid());
+        QVERIFY(f.build(bbox, {}, {}, {}, baseOptions()));
+        QVERIFY(f.isValid());
+        QVERIFY(!f.hasSizeBound());
+        QCOMPARE(f.targetAreaAt(500,500),0.0);
 
         // Untagged Steiner points are not seeds.
         SteinerPoint plain;
         plain.xy = QPointF(500, 500);
-        QVERIFY(!f.build(bbox, {}, {}, {plain}, baseOptions()));
+        QVERIFY(f.build(bbox, {}, {}, {plain}, baseOptions()));
+        QCOMPARE(f.sizeAt(500,500),0.0);
 
         // Nonsensical options.
         SizeFieldOptions o = baseOptions();
@@ -88,6 +91,17 @@ private slots:
 
         // Degenerate bbox.
         QVERIFY(!f.build(QRectF(), {midSegment()}, {}, {}, baseOptions()));
+    }
+
+    void minimumDoesNotBecomeAnUpperBound()
+    {
+        auto o=baseOptions(); o.areaFloor=100;
+        SizeField f; QVERIFY(f.build(QRectF(0,0,1000,1000),{},{},{},o));
+        QCOMPARE(f.targetAreaAt(500,500),0.0);
+        o.regions.append({QPolygonF(QVector<QPointF>{{0,0},{50,0},{50,50},{0,50}}),20});
+        QVERIFY(f.build(QRectF(0,0,1000,1000),{},{},{},o));
+        QVERIFY(f.sizeAt(25,25)<30);
+        QVERIFY(f.sizeAt(900,900)>100);
     }
 
     void nearAFeatureTheCapEqualsTheNearArea()

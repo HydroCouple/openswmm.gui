@@ -130,26 +130,50 @@ is selected.
 | **NN variant** | **Sibson (area-stealing)** or **Laplace (edge-ratio)**; natural neighbour falls back to IDW outside the seed convex hull |
 | **IDW power** | Shepard exponent |
 
-\fig{19_generate_mesh_quality.png, The Quality tab with the triangle quality and minimum cell size groups}
+\fig{19_generate_mesh_quality.png, The Quality tab with categories on the left and settings on the right}
 
 **Quality tab — Resolution and terrain accuracy**
 
+Select a category on the left to show its settings on the right: **Cell size**,
+**Local refinement**, **Terrain accuracy**, **Terrain features**, **Cell shape**,
+**Quads and regions**, **Corridors**, **Boundaries**, or **Limits**. Only the selected
+page scrolls; the category list and generation buttons remain available.
+The region and corridor links in Local refinement open the corresponding page.
+
 The constrained Delaunay generator starts with coarse cells and inserts vertices
 where size, angle, geometry or terrain accuracy requires them. It compares the
-actual triangle surface with the original valid DEM pixel centres. A constant
+actual triangle surface with valid samples of the selected terrain reference. A constant
 slope can therefore be as coarse as flat ground. The retired normal-dot-product
 node-removal controls are no longer used.
 
 | Control | What it does | Default |
 | --- | --- | --- |
-| **Cell size at features** | Reference spacing for the size controls; 0 derives it from the model extent | From extent |
-| **Coarsen away from features up to** | Maximum requested size as a multiple of the reference spacing | ×20 |
-| **Size ratio between neighbours** | Requested growth rate of the background size field; constraints and terrain refinement can create larger final ratios | 1.5 |
-| **Minimum cell size** | Minimum requested spacing and a limit on refinement. Constraints and angle refinement can create smaller cells | Reference size / 4 |
-| **Terrain refinement** | **Adaptive elevation error**, **Legacy block sizing**, or **Off** | Adaptive |
-| **Terrain tolerance** | Maximum vertical deviation at original DEM samples. Automatic uses 0.1 m, or three source elevation increments for whole-unit quantized terrain, whichever is larger | Automatic |
-| **Capture terrain breaklines** | Align mesh edges with DEM ridges, banks and slope breaks | On |
-| **Refine around model features** | Request extra fine spacing near included nodes and lines. With this off, those geometric constraints and coupling identities remain included | Off |
+| **Minimum target cell size** | Stops discretionary size and terrain refinement at this scale. Required geometry and shape repair can produce smaller cells, reported after generation | 20 ft / 6.096 m |
+| **Maximum target cell size** | **No limit** or an independent length in ft/m. No limit allows coarsening wherever terrain, geometry and local targets permit | No limit |
+| **Refine near selected features** | Optional extra refinement near included nodes, lines and rings. Its target inherits the minimum or uses a custom length. Source geometry remains included when this is off | Off |
+| **Refine to match terrain** | Refine actual triangles against the selected DEM reference | On |
+| **Elevation tolerance** | Allowed vertical deviation. Automatic estimates the larger of 0.1 m and three detected whole-unit elevation increments; the resolved value is reported | Automatic estimate |
+| **Terrain reference** | **Averaged DEM** or **Full DEM**. Averaging follows the minimum target unless a custom scale is chosen in Terrain accuracy | Averaged DEM |
+| **Align edges with terrain features** | Detect ridges, banks and slope breaks as constrained mesh edges | On |
+| **Terrain features** | Independent breakline detection tolerance, minimum line length and line count | Breakline estimates automatic; minimum length four times minimum target |
+| **Size transition rate** (Cell size) | Growth rate of the background size field | 2 |
+| **Advanced terrain settings** (Terrain accuracy) | Terrain refinement method and direct DEM reading | Adaptive elevation error; use a local copy |
+
+Sizes describe characteristic cell spacing, not a guaranteed length of every
+edge. A 20 ft minimum target and a 0.5 ft elevation tolerance describe different
+quantities: horizontal mesh spacing and vertical terrain discrepancy. Raising
+elevation tolerance no longer changes breakline detection. Large elevation
+changes across a planar hillside do not themselves constitute interpolation
+error.
+
+**No limit** removes the global upper size target. Terrain accuracy, geometric
+constraints and selected local targets still determine the mesh. Use an explicit
+maximum when terrain error alone does not describe the resolution you need.
+Changing a feature target does not change the maximum.
+
+The averaged reference requires a writable project mesh cache. If that reference
+cannot be prepared, generation stops with an explanation instead of silently
+using full-resolution terrain. The result reports the actual averaging block.
 
 Choose an explicit tolerance appropriate to the DEM and the features that matter
 to the model. Automatic tolerance is a starting value, not an estimate of DEM
@@ -162,11 +186,11 @@ measurements.
 
 | Control | What it does | Default |
 | --- | --- | --- |
-| **Minimum angle** | Smallest requested triangle angle; constrained acute corners and fixed strips can prevent it | 30° |
+| **Minimum angle** | Smallest requested triangle angle; constrained acute corners and fixed strips can prevent it | 33° |
 | **Prioritize worst triangle angles** | Process poor angles first; turn off to compare FIFO refinement | On |
 | **Quads between facing break lines** | Build aligned quads in suitable streets and ditches | On |
-| **Conduit quad strip width / region layer / corridors** | Explicit local alignment and spacing requirements | No conduit strip; no region override |
-| **Trim boundary vertices: max turn / max deviation** | Simplify boundary, hole and auxiliary-line geometry within the requested deviation | 5° / reference size ÷ 10 |
+| **Conduit quad strip width / region layer / corridors** | Explicit local alignment and spacing requirements | 10 ft / 3.048 m conduit strips; no region override |
+| **Trim boundary vertices: max turn / max deviation** | Simplify boundary, hole and auxiliary-line geometry within the requested deviation | 5° / minimum target ÷ 10 |
 | **Cell budget** | Stop refinement and report the unmet requirements at the resource limit | 20,000,000 |
 | **Terrain cache** | Budget per DEM-tile or feature-mask cache. **Automatic** uses one eighth of physical memory, from 256 MiB to 8 GiB. A larger cache speeds up large DEMs and never changes the mesh. Large feature masks spill to disk; mesh arrays, summaries and feature chains use additional memory | Automatic |
 
@@ -174,7 +198,18 @@ Final verification uses the exported geometry and elevations. Fixed strips,
 minimum spacing, missing DEM data or prescribed rim elevations may prevent the
 requested tolerance. The result then includes counts and example locations;
 model elevation offsets are distinguished from insufficient terrain resolution.
-A warning means the mesh has not met all requested requirements.
+The **Mesh generation results** report separates requested targets from achieved
+edge lengths, shape, terrain error bounds and resource limits. **Highlight
+exception cells** marks cells with short edges, small angles, terrain exceedances
+or unknown coverage on the map. An upper error bound is not an exact measured
+maximum. Verification of an averaged reference does not certify detail removed
+from the original DEM.
+
+Existing projects migrate their multiplier to an explicit finite maximum, and
+copy their old elevation tolerance into an independent breakline threshold.
+Saved values, including 20 ft tolerances, are retained. The stronger minimum
+stop can change regenerated meshes; existing mesh files are not changed merely
+by opening the dialog.
 
 The dialog remembers its settings when closed, including **Close** without
 Generate. It reloads them on reopening; saving the project also stores them in
@@ -646,8 +681,8 @@ visibility, panel layouts, the active mesh layer — lives in the project's
 - **Constrain, don't just refine.** A breakline as a constraint line puts mesh
   edges *on* the feature. Refining everywhere until the feature happens to be
   resolved costs orders of magnitude more cells and still misses the crest.
-- **Let planar areas coarsen.** Use adaptive terrain refinement and increase the
-  coarsening limit. Enable extra spacing around model features only where the
+- **Let planar areas coarsen.** Use adaptive terrain refinement and choose
+  **Maximum target cell size → No limit**. Enable extra spacing around model features only where the
   hydraulic model needs that resolution; geometric constraints remain included.
 - **One sliver sets the timestep for the whole domain.** The explicit marcher is
   CFL-limited on the smallest cell. If a run is inexplicably slow, set a

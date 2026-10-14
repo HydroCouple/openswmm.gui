@@ -87,8 +87,13 @@ LocalTerrainResult prepareLocalTerrain(const QString &sourcePath, const QString 
     // Averaging block: whole source pixels per copy pixel. The window grows
     // (or, at the raster edge, shrinks) to whole blocks so every copy pixel
     // is exactly d x d source pixels.
-    const int d = averageToCellSize > 0.0
-        ? std::max(1, int(std::floor(averageToCellSize / std::abs(gt[1])))) : 1;
+    const double requestedBlock=averageToCellSize>0
+        ? std::max(1.0,std::floor(averageToCellSize/std::abs(gt[1]))) : 1.0;
+    if (!std::isfinite(requestedBlock) || requestedBlock>std::min(w,h)) {
+        out.note=QStringLiteral("averaging scale is larger than the terrain raster");
+        return out;
+    }
+    const int d=int(requestedBlock);
     if (d > 1) {
         const auto fit = [d](int &lo, int &hi, int size) {
             int n = (hi - lo + d - 1) / d * d;
