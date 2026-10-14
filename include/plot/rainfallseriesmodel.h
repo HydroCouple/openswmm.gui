@@ -20,7 +20,7 @@
  *  - values are rainfall INTENSITY in the project's rain units per hour;
  *  - each entry applies from its own time until the recording interval
  *    elapses or the next entry begins, whichever comes first; zero between;
- *  - FILE-gage series are windowed to the simulation window ±1 day;
+ *  - FILE-gage series include the full loaded record, independent of run dates;
  *  - a FILE gage whose file failed to load reports count 0;
  *  - `swmm_gage_reload_rain_files` must run after gage/source/date edits
  *    (editable engine states only) before re-reading.
@@ -99,10 +99,11 @@ public:
 
     static RainGageStats computeStats(const RainGageRainfall &g);
 
-    /*! \brief Step-function chart points for the engine's application
+    /*! \brief Chart points for the engine's application
      *  contract: per entry `(t_i, v_i) (t_end, v_i)` with
      *  `t_end = min(t_i + interval, t_{i+1})`, plus explicit zero segments
-     *  across gaps. X is msecsSinceEpoch (QDateTimeAxis convention). */
+     *  across gaps. Cumulative depth rises linearly during each interval
+     *  and remains constant across gaps. X is msecsSinceEpoch. */
     static QVector<QPointF> buildStepSeries(const RainGageRainfall &g, Basis b);
 
     /*! \brief Cumulative-depth polyline (X msecsSinceEpoch, Y total depth). */

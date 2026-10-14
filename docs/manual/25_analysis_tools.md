@@ -75,11 +75,21 @@ on equal terms:
 | **Depth per interval** | mm or in |
 | **Cumulative depth** | mm or in — with this basis the Overlay tab *is* the cumulative-curve comparison |
 
+The full rainfall file is loaded and plotted even when its dates fall outside
+the model's simulation period. Simulation dates do not trim or shift the source
+records; a run applies rainfall at its recorded times.
+
+**INTENSITY** values are rates, **VOLUME** values are depths over the recording
+interval, and **CUMULATIVE** values are running depth readings. A decrease in a
+cumulative reading starts a new accumulation. The plots use the engine's
+converted intensities: cumulative depth rises during each wet interval and
+stays flat through dry gaps. For example, 0.25 in over 15 minutes is 1 in/hr.
+
 The summary table columns are **Gage**, **Source**, **Total depth**, **Peak
 intensity**, **Peak time**, **Interval**, **First**, **Last**, **Gaps**,
 **Longest gap**, **Points** and **Status**. **Source** names where the data came
 from — `TIMESERIES "name"`, `FILE (rain file, station …)` or `FILE (CSV/TSF,
-column …)`. **Status** reads `OK`, `no data in window`, or `file failed to load
+column …)`. **Status** reads `OK`, `no rainfall records`, or `file failed to load
 (0 entries)`, so a gage whose rain file is missing or misconfigured shows up here
 rather than silently plotting nothing.
 

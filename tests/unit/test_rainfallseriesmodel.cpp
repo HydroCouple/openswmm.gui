@@ -141,3 +141,21 @@ TEST(RainfallSeriesModel, AssemblesTimeseriesGageFromEngine)
 
     swmm_engine_destroy(eng);
 }
+
+TEST(RainfallSeriesModel, CumulativeDepthAccruesDuringIntervalsAndStaysFlatInGaps)
+{
+    const auto g = gappyGage();
+    const auto pts = RainfallSeriesModel::buildCumulativeSeries(g);
+    ASSERT_EQ(pts.size(), 6);
+    const double t0 = double(QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC)
+                                 .toMSecsSinceEpoch());
+    const double hours[] = {0, 1, 1, 2, 4, 5};
+    const double totals[] = {0, 2, 2, 3, 3, 3.5};
+    for (int i = 0; i < 6; ++i) {
+        EXPECT_NEAR(pts[i].x(), t0 + hours[i] * 3600000.0, 1.0);
+        EXPECT_NEAR(pts[i].y(), totals[i], 1e-9);
+    }
+    // At half of the first interval, half its depth has actually fallen.
+    EXPECT_NEAR((pts[0].y() + pts[1].y()) / 2.0, 1.0, 1e-9);
+    EXPECT_NEAR(pts.last().y(), RainfallSeriesModel::computeStats(g).totalDepth, 1e-9);
+}
