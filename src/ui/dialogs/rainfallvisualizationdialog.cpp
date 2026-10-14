@@ -496,7 +496,7 @@ void RainfallVisualizationDialog::rebuildStatsTable_()
 
         QString status;
         if (g.fileFailed)       status = tr("file failed to load (0 entries)");
-        else if (!g.hasData())  status = tr("no data in window");
+        else if (!g.hasData())  status = tr("no rainfall records");
         else                    status = tr("OK");
         auto *statusItem = put(11, status);
         if (!g.hasData())

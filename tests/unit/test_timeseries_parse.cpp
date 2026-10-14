@@ -112,3 +112,19 @@ TEST(TimeseriesParse, ParseRow_RejectsRowWithoutValueCells)
     EXPECT_FALSE(ts::parseRow(QStringLiteral("just-one-cell"),
                                QLatin1Char(','), t, vals, std::nan("")));
 }
+
+// Boston design storms use 00 AM and 13..23 PM alongside ordinary AM/PM.
+TEST(TimeseriesParse, TsfRedundantMeridiemKeeps24HourClock)
+{
+    for (int hour : {0, 1, 11, 12, 13, 20, 23}) {
+        const QString stamp = QStringLiteral("01/01/2019 %1:15:00 %2")
+            .arg(hour, 2, 10, QLatin1Char('0'))
+            .arg(hour < 12 ? QStringLiteral("AM") : QStringLiteral("PM"));
+        double actual = 0.0;
+        ASSERT_TRUE(ts::tryParseTimestamp(stamp, actual, std::nan("")))
+            << stamp.toStdString();
+        const double expected = openswmmvis::core::qDateTimeToSwmmDateTime(
+            QDateTime(QDate(2019, 1, 1), QTime(hour, 15), Qt::UTC));
+        EXPECT_DOUBLE_EQ(actual, expected) << stamp.toStdString();
+    }
+}

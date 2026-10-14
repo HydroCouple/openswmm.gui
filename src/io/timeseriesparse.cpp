@@ -52,7 +52,15 @@ bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase)
         QStringLiteral("M/d/yyyy h:mm"),
     };
 
-    const QString trimmed = s.trimmed();
+    QString trimmed = s.trimmed();
+    // TSF exports can use a 24-hour clock with a redundant AM/PM suffix.
+    // Keep ordinary 1..12 AM/PM conversion, including midnight and noon.
+    static const QRegularExpression redundantMeridiem(
+        QStringLiteral("^\\d{1,2}/\\d{1,2}/\\d{4}\\s+(0{1,2}|1[3-9]|2[0-3]):\\d{2}(?::\\d{2})?\\s+(AM|PM)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    const auto meridiem = redundantMeridiem.match(trimmed);
+    if (meridiem.hasMatch())
+        trimmed = trimmed.left(meridiem.capturedStart(2)).trimmed();
     for (const QString& fmt : kFormats) {
         QDateTime dt = QDateTime::fromString(trimmed, fmt);
         if (!dt.isValid()) continue;

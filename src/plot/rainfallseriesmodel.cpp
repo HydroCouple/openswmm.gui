@@ -156,8 +156,12 @@ QVector<QPointF> RainfallSeriesModel::buildStepSeries(const RainGageRainfall &g,
         double y = g.intensity[i];
         if (b == Basis::DepthPerInterval) y = y * durSec / 3600.0;
         else if (b == Basis::CumulativeDepth) {
+            // Accumulation grows during the interval, then stays constant
+            // through any dry gap. Crediting it at tBeg shifts rain early.
+            pts.push_back(QPointF(tBeg, cumulative));
             cumulative += g.intensity[i] * durSec / 3600.0;
-            y = cumulative;
+            pts.push_back(QPointF(tEnd, cumulative));
+            continue;
         }
 
         pts.push_back(QPointF(tBeg, y));

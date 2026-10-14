@@ -29,6 +29,7 @@
 #include <QTest>
 
 #include <memory>
+#include <cmath>
 
 using openswmmvis::plot::RainfallSeriesModel;
 using openswmmvis::ui::RainfallVisualizationDialog;
@@ -76,6 +77,40 @@ class TestRainfallVisualizationDialog : public QObject
     Q_OBJECT
 
 private slots:
+
+    void fullFilePlotsOutsideSimulationDates()
+    {
+        auto layer = openLayer(QStringLiteral("full_rain_record/rain_full_record.inp"));
+        QVERIFY(layer);
+        RainfallVisualizationDialog dlg(layer.get());
+        dlg.show();
+        QTest::qWait(30);
+        QCOMPARE(dlg.model()->gages().size(), 6);
+        for (const auto &g : dlg.model()->gages()) {
+            QVERIFY(!g.fileFailed);
+            QCOMPARE(g.timesOA.size(), 5);
+            const auto stats = RainfallSeriesModel::computeStats(g);
+            QCOMPARE(stats.first.date(), QDate(2019, 1, 1));
+            QCOMPARE(stats.last.date(), QDate(2019, 1, 10));
+        }
+        dlg.setFocusGage(QStringLiteral("TSF_CUMULATIVE"));
+        auto *combo = dlg.findChild<QComboBox *>(QStringLiteral("basisCombo"));
+        QVERIFY(combo);
+        combo->setCurrentIndex(2);
+        auto *line = qobject_cast<QLineSeries *>(dlg.overlayChart()->series().first());
+        QVERIFY(line);
+        const auto points = line->points();
+        QCOMPARE(points.first().y(), 0.0);
+        QVERIFY(std::abs(points.last().y() - 17.0) < 1e-8);
+        // The first ten inches accrue from 00:00 to 00:15, including when
+        // those records are years outside the simulation period.
+        QVERIFY(std::abs(points[1].x() - points[0].x() - 900000.0) < 1.0);
+        QCOMPARE(points[1].y(), 10.0);
+        auto *stats = dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
+        QVERIFY(stats);
+        for (int row = 0; row < stats->rowCount(); ++row)
+            QCOMPARE(stats->item(row, 11)->text(), QStringLiteral("OK"));
+    }
 
     void assemblesAllThreeSourceKinds()
     {
