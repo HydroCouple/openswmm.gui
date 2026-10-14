@@ -58,6 +58,11 @@ public:
         RemovalFPerv,
         RemovalFImelt,
         RemovalFSubcatch,
+        UebForest,
+        UebDrift,
+        UebGroundHeat,
+        UebExtinctionDepth,
+        UebInitialEnergy,
         ParamCount
     };
 
@@ -75,6 +80,10 @@ public:
     void setName(QString newName);
     void setParam(int k, double v);
     void setRemovalSubcatch(QString name);
+    int modelKind() const noexcept { return m_modelKind; } // -1 project default
+    int effectiveModel() const noexcept { return m_modelKind < 0 ? m_defaultModel : m_modelKind; }
+    void setModelKind(int kind);
+    void setDefaultModel(int kind);
 
 signals:
     void nameChanged(QString prev, QString now);
@@ -84,6 +93,8 @@ private:
     QString m_name;
     QString m_removalSubcatch;
     double  m_param[ParamCount] = {};
+    int m_modelKind = -1;
+    int m_defaultModel = 0;
 };
 
 } // namespace openswmmvis::snowpack

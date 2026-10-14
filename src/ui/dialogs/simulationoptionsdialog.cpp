@@ -7,6 +7,14 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include "ui/uiscrollhelpers.h"
+#include "ui/dialogs/climatologydialog.h"
+#ifdef OPENSWMM_HAS_2D
+#include "ui/dialogs/meshsnowdialog.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "map/mapcanvas.h"
+#endif
+#include <QFileInfo>
+#include <QInputDialog>
 #include "layers/swmmmodellayer.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/simoptions/simoptionscontext.h"
@@ -141,6 +149,20 @@ void SimulationOptionsDialog::buildUi()
     addPage(new openswmmvis::ui::TitleNotesPage(*m_ctx, this));
     m_modelsPage = new openswmmvis::ui::ModelsPage(*m_ctx, this);
     addPage(m_modelsPage);
+    connect(m_modelsPage, &openswmmvis::ui::ModelsPage::showSnowSettingsRequested,
+            this, [this] {
+        if (!m_engine) return;
+        ClimatologyDialog dialog(m_engine, m_layer, this);
+        if (m_layer) dialog.setProjectAnchor(QFileInfo(m_layer->modelFilePath()).absolutePath());
+        dialog.setCurrentTab(ClimatologyDialog::TabSnowMelt);
+        dialog.exec();
+        if (dialog.wroteAnyChanges()) {
+            m_wroteChanges = true;
+            emit changesApplied();
+        }
+        // Refresh only the mirror; preserve all unapplied options drafts.
+        m_modelsPage->refreshSnowSummary();
+    });
     m_datesPage = new openswmmvis::ui::DatesPage(*m_ctx, this);
     addPage(m_datesPage);
     m_hydraulicsPage = new openswmmvis::ui::HydraulicsPage(*m_ctx, this);
@@ -189,6 +211,34 @@ void SimulationOptionsDialog::buildUi()
 
 #ifdef OPENSWMM_HAS_2D
     m_twoDPage = new openswmmvis::ui::TwoDPage(*m_ctx, this);
+    connect(m_twoDPage, &openswmmvis::ui::TwoDPage::showSnowAssignmentsRequested,
+            this, [this] {
+        if (!m_projectWindow || !m_layer || !m_engine) return;
+        auto *canvas = m_projectWindow->canvas();
+        QList<SWMM2DMeshLayer *> meshes;
+        QStringList names;
+        for (auto *layer : canvas->layers()) {
+            if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+                meshes.append(mesh);
+                names.append(tr("%1 — %2").arg(meshes.size()).arg(mesh->sourcePath()));
+            }
+        }
+        if (meshes.isEmpty()) {
+            QMessageBox::information(this, tr("Mesh snow"), tr("Add a mesh to the project before assigning snow."));
+            return;
+        }
+        int index = 0;
+        if (meshes.size() > 1) {
+            bool ok = false;
+            const auto name = QInputDialog::getItem(this, tr("Mesh snow"), tr("Mesh:"), names, 0, false, &ok);
+            if (!ok) return;
+            index = names.indexOf(name);
+        }
+        openswmmvis::ui::MeshSnowDialog dialog(m_layer, meshes[index], canvas,
+                                             m_projectWindow->selectionManager(), this);
+        dialog.exec();
+        m_modelsPage->refreshSnowSummary();
+    });
     // Two of the 2D page's steps mirror the project schedule, and its
     // output-size estimate multiplies by the run length — read through the
     // owning page's accessors, never its widgets (PLAN §4.1).

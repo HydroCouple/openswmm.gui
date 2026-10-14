@@ -88,6 +88,7 @@ public slots:
     void scheduleChanged();
 
 signals:
+    void showSnowAssignmentsRequested();
     /*! \brief A TRANSPORT_* box moved — the Models page's matrix is stale. */
     void transportSelectionChanged();
     /*! \brief A sub-dialog wrote straight to the engine; the project is

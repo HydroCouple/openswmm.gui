@@ -17,6 +17,8 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QSettings>
+#include <openswmm/engine/openswmm_snow.h>
+#include <openswmm/engine/openswmm_snow2d.h>
 #include <QSignalBlocker>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -141,6 +143,12 @@ void ModelsPage::buildUi()
             [this](const QString &) { emit showFlowRoutingPageRequested(); });
     procForm->addRow(tr("Flow routing:"), m_routingMirror);
 
+    m_snowSummary = new QLabel(procGroup);
+    m_snowSummary->setObjectName(QStringLiteral("snowProcessSummary"));
+    m_snowSummary->setWordWrap(true);
+    connect(m_snowSummary, &QLabel::linkActivated, this,
+            [this] { emit showSnowSettingsRequested(); });
+    procForm->addRow(tr("Snow model:"), m_snowSummary);
     domLay->addWidget(procGroup);
 
     // Process activation. Checked = process runs (engine writes IGNORE_X NO);
@@ -401,13 +409,11 @@ void ModelsPage::read()
     // value; it just cannot be edited. Counts come from the engine C API.
     if (SWMM_Engine e = ctx_.engine()) {
         const int nGages     = swmm_gage_count(e);
-        const int nSnowpacks = swmm_snowpack_count(e);
         const int nAquifers  = swmm_aquifer_count(e);
         const int nLinks     = swmm_link_count(e);
         const int nPolluts   = swmm_pollutant_count(e);
         const int nHydros    = swmm_hydrograph_count(e);
         m_ignoreRainfallBox   ->setEnabled(nGages > 0);
-        m_ignoreSnowmeltBox   ->setEnabled(nSnowpacks > 0);
         m_ignoreGroundwaterBox->setEnabled(nAquifers > 0);
         m_ignoreRDIIBox       ->setEnabled(nGages > 0 && nHydros > 0);
         m_ignoreQualityBox    ->setEnabled(nPolluts > 0);
@@ -449,7 +455,25 @@ void ModelsPage::read()
     }
 
     refreshTransportMatrix();
+    refreshSnowSummary();
     emit gateInputsChanged();
+}
+
+void ModelsPage::refreshSnowSummary()
+{
+    auto e = ctx_.engine();
+    int model = 0;
+    double step = 0;
+    if (!e || swmm_snow_get_model(e, &model) != SWMM_OK ||
+        swmm_snow_get_step(e, &step) != SWMM_OK) {
+        m_snowSummary->setText(tr("Unavailable"));
+        return;
+    }
+    m_ignoreSnowmeltBox->setEnabled(swmm_snowpack_count(e) > 0 ||
+        swmm_snow2d_defaults_count(e) > 0 || swmm_snow2d_cells_count(e) > 0);
+    m_snowSummary->setText(tr("%1 · %2 s — <a href=\"#\">edit snow and radiation…</a>")
+        .arg(model == 1 ? tr("UEB energy balance") : tr("Degree day"))
+        .arg(step));
 }
 
 int ModelsPage::write()

@@ -128,6 +128,7 @@ signals:
      * @param twoDErrFrac       cumulative 2D surface continuity error so far;
      *                          NaN when the run has no active 2D model
      */
+    void snowLedgerChanged(int jobId,QStringList rows);
     void progressChanged(int jobId, double fraction, QDateTime currentSimDate,
                          double runoffErrFrac, double routingErrFrac,
                          double avgTimestepSec, double twoDErrFrac);

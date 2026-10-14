@@ -107,6 +107,15 @@ enum class PlotAttribute {
 
     // ----- More system-wide inflows (engine SWMM_OUT_SYS_*) ----------------
     SystemRdiiInflow  = 45, ///< m³/s / ft³/s — SYS_RDII_INFLOW (total)
+    SubcatchSnowSWE = 47, ///< m; SI, accepted snow clock
+    SubcatchSnowEnergy = 48, ///< kJ/m²; SI, accepted snow clock
+    SubcatchSnowSurfaceTemp = 49, ///< °C; SI, accepted snow clock
+    SubcatchSnowBulkTemp = 50, ///< °C; SI, accepted snow clock
+    SubcatchSnowAlbedo = 51, ///< fraction; SI, accepted snow clock
+    SubcatchSnowCover = 52, ///< fraction; SI, accepted snow clock
+    SubcatchSnowMelt = 53, ///< m/s; SI, accepted snow clock
+    SubcatchSnowInput = 54, ///< m/s; SI, accepted snow clock
+    SubcatchSnowSublimation = 55, ///< m/s; SI, accepted snow clock
     SystemExtInflow   = 46, ///< m³/s / ft³/s — SYS_EXT_INFLOW  (total)
 };
 

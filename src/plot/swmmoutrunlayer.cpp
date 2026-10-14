@@ -13,6 +13,7 @@
 #include <openswmm/engine/openswmm_output.h>
 
 #include <cmath>
+#include <algorithm>
 #include <vector>
 
 namespace openswmmvis::plot {
@@ -75,6 +76,9 @@ bool SwmmOutRunLayer::supportsAttribute(PlotAttribute attr) const
     // 1D .out files don't carry 2D mesh quantities.
     if (isMesh2DAttribute(attr))
         return false;
+    const int code=variableCodeFor(attr,ObjectRef::Kind::Subcatch);
+    if(code>=SWMM_OUT_SUBCATCH_SNOW_SWE)
+        return m_layer && m_layer->outputHandle() && swmm_output_has_subcatch_variable(m_layer->outputHandle(),code)==1;
     return attr != PlotAttribute::Unknown;
 }
 
@@ -174,6 +178,13 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
     }
     const double step_days = static_cast<double>(stepSec) / 86400.0;
 
+    std::vector<float> snowTimes;
+    if(ref.kind==ObjectRef::Kind::Subcatch && varCode>=SWMM_OUT_SUBCATCH_SNOW_SWE) {
+        snowTimes.resize(count);
+        if(swmm_output_get_subcatch_series(handle,objIdx,SWMM_OUT_SUBCATCH_SNOW_TIME,from,n_periods-1,snowTimes.data())!=0) {
+            out.errorMessage=QStringLiteral("Snow history has no accepted process clock");return;
+        }
+    }
     out.timesJulian.resize(static_cast<std::size_t>(count));
     out.values.resize(static_cast<std::size_t>(count));
     for (int i = 0; i < count; ++i) {
@@ -183,7 +194,7 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
         // to time t0 + (p+1) * stepSec (the engine writes at the END of each
         // reporting interval — same convention TimeSeriesPlotDialog uses).
         const int p = from + i;
-        out.timesJulian[i] = t0 + (p + 1) * step_days;
+        out.timesJulian[i] = snowTimes.empty()?t0+(p+1)*step_days:t0+snowTimes[i]/86400.;
         out.values[i]      = static_cast<double>(values[i]);
     }
     out.ok = true;
@@ -232,7 +243,10 @@ QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(
     QStringList species;
     if (m_layer)
         species = m_layer->speciesNames();
-    return plot::resultDescriptorsForKind(kind, species);
+    auto result=plot::resultDescriptorsForKind(kind, species);
+    result.erase(std::remove_if(result.begin(),result.end(),[&](const auto& d){
+        return !d.isSpecies() && !supportsAttribute(d.attr);
+    }),result.end());return result;
 }
 
 } // namespace openswmmvis::plot

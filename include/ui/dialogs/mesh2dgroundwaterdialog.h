@@ -34,9 +34,12 @@
 
 #include <QDialog>
 #include <QMap>
+#include <QPointer>
+#include <functional>
 
 #include <openswmm/engine/openswmm_engine.h>
 
+class QUndoStack;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -61,7 +64,9 @@ class Mesh2DGroundwaterDialog : public QDialog
 
 public:
     /*! \brief Which page opens first. */
-    enum class Page { AquiferProperties, InitialConditions, Options, State };
+    enum class Page { AquiferProperties, InitialConditions, Options, State, NodeBeds };
+    void focusNode(const QString& node);
+    void setNodeUndoStack(QUndoStack*,std::function<bool()> current,std::function<void()> edited);
 
     explicit Mesh2DGroundwaterDialog(SWMM_Engine engine,
                                      QWidget *parent = nullptr,
@@ -75,6 +80,7 @@ public:
 
 public slots:
     void invalidateContext();
+    void updateBottomConnection();
 
 signals:
     /*! Authoring writes are about to start; a later refusal may be partial. */
@@ -105,6 +111,9 @@ private:
     bool    applyChanges();
     void    setEditable(bool on, const QString &whyNot);
 
+    QPointer<QUndoStack> m_nodeUndo;
+    std::function<bool()> m_undoCurrent;
+    std::function<void()> m_undoEdited;
     SWMM_Engine                    m_engine = nullptr;
     const UnitSystem              *m_units  = nullptr;
 
@@ -127,6 +136,10 @@ private:
     QComboBox      *m_gwEtCombo      = nullptr;
 
     // Tables
+    QComboBox* m_bottomNode=nullptr;
+    QComboBox* m_bottomDestination=nullptr;
+    QLabel* m_bottomSummary=nullptr;
+    QPushButton* m_useFootprint=nullptr;
     QTableView             *m_aquiferView = nullptr;
     Mesh2DAquiferModel     *m_aquifer     = nullptr;
     QTableView             *m_nodeView    = nullptr;

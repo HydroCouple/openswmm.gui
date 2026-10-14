@@ -864,6 +864,10 @@ set(
         include/ui/dialogs/crschangedialog.h
         include/ui/dialogs/aboutdialog.h
         include/ui/dialogs/mesh2daquifermodel.h
+        include/ui/dialogs/meshsnowdialog.h
+        include/ui/models/meshsnowmodel.h
+        include/ui/models/snowclimatesettings.h
+        include/simulation/snowledger.h
         include/ui/dialogs/mesh2dgroundwaterdialog.h
         include/ui/dialogs/assignraingagesdialog.h
         include/ui/dialogs/meshattributeassigndialog.h
@@ -1590,6 +1594,8 @@ set(
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp
         src/ui/dialogs/mesh2daquifermodel.cpp
+        src/ui/dialogs/meshsnowdialog.cpp
+        src/ui/models/meshsnowmodel.cpp
         src/ui/dialogs/mesh2dgroundwaterdialog.cpp
         src/ui/dialogs/assignraingagesdialog.cpp
         src/ui/dialogs/meshattributeassigndialog.cpp

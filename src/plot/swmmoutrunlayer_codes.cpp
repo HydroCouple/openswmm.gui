@@ -44,6 +44,15 @@ int SwmmOutRunLayer::variableCodeFor(PlotAttribute attr, ObjectRef::Kind kind)
     // 1D subcatchment variables
     if (kind == ObjectRef::Kind::Subcatch) {
         switch (attr) {
+        case PlotAttribute::SubcatchSnowSWE: return SWMM_OUT_SUBCATCH_SNOW_SWE;
+        case PlotAttribute::SubcatchSnowEnergy: return SWMM_OUT_SUBCATCH_SNOW_ENERGY;
+        case PlotAttribute::SubcatchSnowSurfaceTemp: return SWMM_OUT_SUBCATCH_SNOW_SURFACE_TEMP;
+        case PlotAttribute::SubcatchSnowBulkTemp: return SWMM_OUT_SUBCATCH_SNOW_BULK_TEMP;
+        case PlotAttribute::SubcatchSnowAlbedo: return SWMM_OUT_SUBCATCH_SNOW_ALBEDO;
+        case PlotAttribute::SubcatchSnowCover: return SWMM_OUT_SUBCATCH_SNOW_COVER;
+        case PlotAttribute::SubcatchSnowMelt: return SWMM_OUT_SUBCATCH_SNOW_MELT;
+        case PlotAttribute::SubcatchSnowInput: return SWMM_OUT_SUBCATCH_SNOW_INPUT;
+        case PlotAttribute::SubcatchSnowSublimation: return SWMM_OUT_SUBCATCH_SNOW_SUBLIMATION;
         case PlotAttribute::SubcatchRainfall:  return SWMM_OUT_SUBCATCH_RAINFALL;
         case PlotAttribute::SubcatchSnowDepth: return SWMM_OUT_SUBCATCH_SNOW_DEPTH;
         case PlotAttribute::SubcatchEvap:      return SWMM_OUT_SUBCATCH_EVAP;

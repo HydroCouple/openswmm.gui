@@ -36,6 +36,11 @@ using Mesh2DLiveVariablesPtr = std::shared_ptr<const Mesh2DLiveVariables>;
 // table/base elevations, even without chemical species. Units come
 // from public authoring metadata matched to actual runtime species identities.
 // Unknown units remain explicit; raw values can still be inspected.
+// Capture all optional mesh processes into one frame, so adding snow does not
+// replace groundwater variables on the receiving results layer.
+Mesh2DLiveVariablesPtr captureSurfaceProcessVariables(SWMM_Engine engine,
+                                                      int expectedCells,
+                                                      QString *error = nullptr);
 Mesh2DLiveVariablesPtr captureGroundwaterVariables(SWMM_Engine engine,
                                                   int expectedCells,
                                                   QString *error = nullptr);

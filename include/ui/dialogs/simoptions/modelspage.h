@@ -72,10 +72,12 @@ public slots:
     /*! \brief Re-ask the engine for the matrix. Also called by the dialog when
      *         the 2D page reports a TRANSPORT_* change. */
     void refreshTransportMatrix();
+    void refreshSnowSummary();
 
 signals:
     /*! \brief The mirror's link was clicked — show Routing & Hydraulics. */
     void showFlowRoutingPageRequested();
+    void showSnowSettingsRequested();
 
 private:
     void buildUi();
@@ -85,6 +87,7 @@ private:
 
     QComboBox      *m_infiltrationCombo = nullptr;
     QLabel         *m_routingMirror     = nullptr;
+    QLabel         *m_snowSummary       = nullptr;
     QCheckBox      *m_allowPondingBox   = nullptr;
     QCheckBox      *m_ignoreRainfallBox = nullptr;
     QCheckBox      *m_ignoreSnowmeltBox = nullptr;

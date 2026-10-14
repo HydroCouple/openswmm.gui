@@ -65,6 +65,7 @@ signals:
     void runStarted(const QString& label,const QString& input);
     void runTimeline(double startDate,double endDate);
     void runProgress(double acceptedSeconds);
+    void runSnowLedgerChanged(const QStringList& rows);
     void runFinished(const CheckpointResult&);
 private:
     QString m_catalog,m_status,m_ioEntry,m_recipe,m_runRecipe,m_lineage;

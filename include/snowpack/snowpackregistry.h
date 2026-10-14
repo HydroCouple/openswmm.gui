@@ -43,6 +43,7 @@ public:
     int loadFromEngine(void *engineHandle);
     int saveToEngine(void *engineHandle);
     int saveToEngine();
+    QString lastSaveError()const{return m_saveError;}
 
     void *engineHandle() const noexcept { return m_engineHandle; }
 
@@ -54,6 +55,7 @@ signals:
     void providerParamsChanged(openswmmvis::snowpack::SnowpackProvider *provider);
 
 private:
+    QString m_saveError;
     void wireProviderSignals_(SnowpackProvider *p);
 
     QVector<SnowpackProvider *>        m_providers;

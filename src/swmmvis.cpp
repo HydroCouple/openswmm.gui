@@ -247,6 +247,7 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
+#include "ui/dialogs/meshsnowdialog.h"
 #include "ui/dialogs/assignraingagesdialog.h"
 #include "ui/dialogs/meshattributeassigndialog.h"
 #include "ui/dialogs/infilassigntoselectiondialog.h"
@@ -1486,6 +1487,24 @@ void SWMMVis::initializeMeshEditingToolBar()
     if (mMeshEditingToolbar) mMeshEditingToolbar->addCellAction(assignGroundwater);
     if (ui->menuModel) ui->menuModel->addAction(assignGroundwater);
 
+    auto* assignSnow=new QAction(tr("Assign snow…"),this);
+    assignSnow->setObjectName("actionMeshSnow");assignSnow->setToolTip(tr("Assign shared snowpacks to mesh cells, region tags or the whole mesh."));
+    connect(assignSnow,&QAction::triggered,this,[this]{
+        auto* pw=activeProjectWindow();auto* mesh=mMeshEditingToolbar?mMeshEditingToolbar->activeMesh():nullptr;
+        if(!pw||!pw->modelLayer())return;
+        if(!mesh||!pw->canvas()->layers().contains(mesh)) {
+            mesh=nullptr;
+            for(auto* layer:pw->canvas()->layers())if(auto* candidate=qobject_cast<SWMM2DMeshLayer*>(layer)) {
+                if(mesh){QMessageBox::information(pw,tr("Mesh snow"),tr("Select the mesh layer to assign snow."));return;}
+                mesh=candidate;
+            }
+        }
+        if(!mesh){QMessageBox::information(pw,tr("Mesh snow"),tr("Add a mesh to the project before assigning snow."));return;}
+        openswmmvis::ui::MeshSnowDialog dialog(pw->modelLayer(),mesh,pw->canvas(),pw->selectionManager(),pw);dialog.exec();
+    });
+    if(mMeshEditingToolbar)mMeshEditingToolbar->addCellAction(assignSnow);
+    if(ui->menuModel)ui->menuModel->addAction(assignSnow);
+
     // ── Groundwater (2D) ─────────────────────────────────────────────────
     // G1 (2026-09-07): the two-zone kernel is in the engine, so this editor
     // is live — [2D_AQUIFER_OPTIONS], the per-scope [2D_AQUIFER] rows, the
@@ -1499,6 +1518,19 @@ void SWMMVis::initializeMeshEditingToolBar()
                 engine, this, page, pw ? pw->unitSystem() : nullptr);
             if (pw) {
                 if (pw->modelLayer()) {
+                    QPointer<SWMMModelLayer> owner=pw->modelLayer();
+                    QList<QPair<QPointer<SWMM2DMeshLayer>,quint64>> geometry;
+                    for(auto* layer:pw->canvas()->layers())if(auto* mesh=qobject_cast<SWMM2DMeshLayer*>(layer)) {
+                        geometry.append({mesh,mesh->geomRevision()});
+                        connect(mesh,&SWMM2DMeshLayer::meshEditsChanged,&dlg,[mesh,&dlg,revision=mesh->geomRevision()]{
+                            if(mesh->geomRevision()!=revision)(&dlg)->invalidateContext();
+                        });
+                    }
+                    dlg.setNodeUndoStack(pw->canvas()->undoStack(),[owner,engine,geometry]{
+                        if(!owner||owner->engine()!=engine)return false;
+                        for(const auto& item:geometry)if(!item.first||item.first->geomRevision()!=item.second)return false;
+                        return true;
+                    },[owner]{if(owner)owner->markEdited();});
                     connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose,
                             &dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
                     connect(pw->modelLayer(), &QObject::destroyed,
@@ -8233,6 +8265,9 @@ void SWMMVis::showCheckpoints()
             mSimStatusModel->updateProgress(job->id,fraction,openswmmvis::core::swmmDateTimeToMilliseconds(job->start+seconds/86400),qQNaN(),qQNaN());
             mRunningSimProgress[job->id]=fraction;updateSimulationProgressBar();
         });
+        connect(model,&CheckpointModel::runSnowLedgerChanged,this,[this,pw,job](const QStringList& rows) {
+            if(pw&&!pw->isClosing())mSimStatusModel->updateSnowLedger(job->id,rows);
+        });
         connect(model,&CheckpointModel::runFinished,this,[this,pw,job](const CheckpointResult& result) {
             mRunningSimProgress.remove(job->id);updateSimulationProgressBar();
             if(!pw||pw->isClosing())return;
@@ -8398,6 +8433,7 @@ void SWMMVis::onEditHeatConfig(int tab)
     }
 
     OpenSWMMVis::HeatConfigDialog dlg(pw->modelLayer()->engine(), this);
+    bool editRadiation=false;connect(&dlg,&OpenSWMMVis::HeatConfigDialog::radiationEditorRequested,&dlg,[&]{editRadiation=true;});
     if (tab >= 0) dlg.setCurrentTab(tab);
     connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
     connect(pw->modelLayer(), &QObject::destroyed, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
@@ -8407,6 +8443,7 @@ void SWMMVis::onEditHeatConfig(int tab)
     dlg.exec();
     if (pw && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
+    if(pw && editRadiation)onClimatology(ClimatologyDialog::TabRadiation);
 }
 
 void SWMMVis::onEditReactionSystem()
@@ -9643,6 +9680,8 @@ void SWMMVis::onRunSimulation()
 
     connect(runner, &SimulationRunner::progressChanged,
             mSimStatusModel, &SimulationStatusModel::updateProgress);
+    connect(runner, &SimulationRunner::snowLedgerChanged,
+            mSimStatusModel, &SimulationStatusModel::updateSnowLedger);
     // 2D backend / momentum closure / LTS tier occupancy columns.
     connect(runner, &SimulationRunner::twoDSolverStats,
             mSimStatusModel, &SimulationStatusModel::updateTwoDSolverStats);
@@ -10067,7 +10106,7 @@ void SWMMVis::onRunSimulation()
                 auto *source = dynamic_cast<EngineMesh2DSource *>(layer->source());
                 if (!source) return;
                 if (!source->pushFaceVariables(std::move(frame), simTime, elapsedSec)) {
-                    self->onLogMessage(tr("Live groundwater frame rejected: its mesh or metadata changed."));
+                    self->onLogMessage(tr("Live mesh process frame rejected: its mesh or metadata changed."));
                     return;
                 }
                 if (layer->isVisible()) layer->refreshTimeRange();

@@ -173,6 +173,7 @@ public:
      *  ("from S1, S3" / "(none)"); the button opens
      *  GroundwaterExchangeDialog for the picked subcatchment. */
     [[nodiscard]] NodeCompoundEditRef groundwaterSourcesRef() const;
+    [[nodiscard]] NodeCompoundEditRef lidBottomConnectionRef() const;
 
     /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
      *  user-flag assignments row. Same compound-ref pattern as the
@@ -292,6 +293,7 @@ public slots:
     void setRdiiRef(const NodeCompoundEditRef &)      { emit changed(); }
     void setTreatmentRef(const NodeCompoundEditRef &) { emit changed(); }
     void setGroundwaterSourcesRef(const NodeCompoundEditRef &) { emit changed(); }
+    void setLidBottomConnectionRef(const NodeCompoundEditRef &) { emit changed(); }
     void setUserFlagsRef(const UserFlagsEditRef &)    { emit changed(); }
     void setInitialQualityRef(const InitialQualityEditRef &ref) {
         if (ref.wroteChanges) emit changed();
@@ -605,6 +607,7 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_OBJECT
     Q_PROPERTY(DataObjectRef lidControl READ lidControlRef WRITE setLidControlRef NOTIFY changed)
     Q_PROPERTY(double lidInitialSaturation READ lidInitialSaturation WRITE setLidInitialSaturation NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef lidBottomConnection READ lidBottomConnectionRef WRITE setLidBottomConnectionRef NOTIFY changed)
     Q_PROPERTY(double maxDepth        READ maxDepth        WRITE setMaxDepth        NOTIFY changed)
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)

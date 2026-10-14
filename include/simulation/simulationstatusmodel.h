@@ -71,6 +71,7 @@ struct SimulationJobRecord {
     qint64          twoDSteps    = 0;        ///< cumulative marcher substeps
     QVector<qint64> twoDTierCells;           ///< rebuild-sampled cells per LTS tier
 
+    QStringList snowLedger;          ///< SI snow process balance rows, updated from accepted worker state
     QStringList warnings;           ///< "[code] message" entries
     int         droppedWarnings = 0; ///< oldest entries trimmed past the per-job cap
 };
@@ -119,6 +120,7 @@ public:
 
     // ── Public mutators (called from GUI thread via queued signals) ──────────
     /** Add a new job row; returns the job id. */
+    void updateSnowLedger(int jobId,const QStringList &rows);
     int  addJob(const QString &instanceName, const QString &inpPath,
                 const QString &engineVersion = QString());
 

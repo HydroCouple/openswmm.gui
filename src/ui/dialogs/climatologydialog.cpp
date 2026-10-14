@@ -16,6 +16,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateEdit>
+#include <QDateTime>
+#include <QTimeZone>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -24,6 +26,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMessageBox>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QStackedWidget>
@@ -31,6 +34,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <cmath>
 
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -121,13 +125,14 @@ void ClimatologyDialog::buildUi()
     buildSnowTab(m_tabs);
     buildAdcTab(m_tabs);
     buildAdjustmentsTab(m_tabs);
+    buildRadiationTab(m_tabs);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                     this);
     outer->addWidget(bb);
     connect(bb, &QDialogButtonBox::accepted, this, &ClimatologyDialog::onAccept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    resize(560, 460);
+    resize(840, 720);
 }
 
 // ---------------------------------------------------------------------------
@@ -411,10 +416,174 @@ void ClimatologyDialog::onHumidityVarChanged()
 // Snow Melt
 // ---------------------------------------------------------------------------
 
+
+void ClimatologyDialog::buildRadiationTab(QTabWidget *tabs)
+{
+    auto *page = new QWidget;
+    auto *form = new QFormLayout(page);
+    m_radiationSite = new QCheckBox(tr("Use one explicit site for snow and heat"), page);
+    m_radiationSite->setObjectName(QStringLiteral("clim_radiationSite"));
+    form->addRow(m_radiationSite);
+    const char *labels[] = {"Latitude (° north):", "Longitude (° east):", "UTC offset (hours):", "Elevation (m):"};
+    const double lower[] = {-90, -180, -14, -500}, upper[] = {90, 180, 14, 10000};
+    for (int i = 0; i < 4; ++i) {
+        auto *spin = m_siteValues[i] = new QDoubleSpinBox(page);
+        spin->setObjectName(QStringLiteral("clim_site%1").arg(i));
+        spin->setRange(lower[i], upper[i]); spin->setDecimals(8);
+        form->addRow(tr(labels[i]), spin);
+        connect(m_radiationSite, &QCheckBox::toggled, spin, &QWidget::setEnabled);
+    }
+    for (int i = 0; i < 2; ++i) {
+        auto *mode = m_radiationModes[i] = new QComboBox(page);
+        mode->setObjectName(QStringLiteral("clim_radiationMode%1").arg(i));
+        mode->addItem(i ? tr("Default (computed)") : tr("Use existing heat configuration"), -1);
+        mode->addItem(tr("Computed"), 0); mode->addItem(tr("Time series"), 1); mode->addItem(tr("Hourly met file"), 2);
+        form->addRow(i ? tr("Longwave source:") : tr("Shortwave source:"), mode);
+        auto *series = m_radiationSeries[i] = new QComboBox(page);
+        series->setObjectName(QStringLiteral("clim_radiationSeries%1").arg(i));
+        series->setEditable(true); populateTimeseriesCombo(series);
+        form->addRow(i ? tr("Longwave series (W/m²):") : tr("Shortwave series (W/m²):"), series);
+        connect(mode, &QComboBox::currentIndexChanged, this, [mode, series] { series->setEnabled(mode->currentData().toInt() == 1); });
+    }
+    m_metFile = new openswmmvis::ui::RelativePathPicker(page);
+    m_metFile->setObjectName(QStringLiteral("clim_metFile"));
+    m_metFile->setFileFilter(tr("Meteorology (*.dat *.txt *.met);;All files (*)"));
+    form->addRow(tr("Hourly meteorology:"), m_metFile);
+    auto *preview=new QPushButton(tr("Preview meteorology and coverage…"),page);
+    preview->setObjectName(QStringLiteral("clim_metPreview"));form->addRow(preview);
+    connect(preview,&QPushButton::clicked,this,[this] {
+        SWMM_ClimateMetSummary summary{};char error[1024]{};
+        if(swmm_climate_preview_meteorology(m_engine,m_metFile->absolutePath().toUtf8().constData(),&summary,error,sizeof(error))!=SWMM_OK) {
+            QMessageBox::warning(this,tr("Hourly meteorology"),QString::fromUtf8(error));return;
+        }
+        const auto date=[](double oa) {
+            const auto day=qint64(std::floor(oa));const auto seconds=qint64(std::round((oa-day)*86400));
+            return QDateTime(QDate(1899,12,30).addDays(day),QTime(0,0),QTimeZone::UTC).addSecs(seconds).toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        };
+        QString text=tr("%1 hourly records\nCoverage: %2 to %3 (end excluded)\n\nThis file supplies temperature, humidity, wind, shortwave and longwave. Its radiation overrides selected series and computed values.\n\n")
+            .arg(summary.records).arg(date(summary.first_date),date(summary.last_date));
+        const char* names[]{"Temperature (°C)","Humidity (%)","Wind (m/s)","Shortwave (W/m²)","Longwave (W/m²)"};
+        for(int i=0;i<5;++i)text+=tr("%1: %2 to %3\n").arg(tr(names[i])).arg(summary.minimum[i],0,'g',8).arg(summary.maximum[i],0,'g',8);
+        QMessageBox::information(this,tr("Hourly meteorology preview"),text);
+    });
+    m_cloudMode = new QComboBox(page); m_cloudMode->setObjectName(QStringLiteral("clim_cloudMode"));
+    m_cloudMode->addItem(tr("Default (UEB atmospheric transmissivity)"), 0);
+    m_cloudMode->addItem(tr("Constant fraction"), 1); m_cloudMode->addItem(tr("Time series"), 2);
+    form->addRow(tr("Shared cloud cover:"), m_cloudMode);
+    m_cloudSeries = new QComboBox(page); m_cloudSeries->setObjectName(QStringLiteral("clim_cloudSeries"));
+    m_cloudSeries->setEditable(true); populateTimeseriesCombo(m_cloudSeries);
+    form->addRow(tr("Cloud fraction series:"), m_cloudSeries);
+    const char* cloudLabels[]{"Cloud fraction (0–1):", "Shortwave attenuation coefficient:", "Shortwave attenuation exponent:", "Longwave cloud coefficient:"};
+    for(int i=0;i<4;++i) {
+        auto *spin=m_cloudValues[i]=new QDoubleSpinBox(page);spin->setDecimals(8);spin->setRange(0,i?1e6:1);
+        spin->setObjectName(QStringLiteral("clim_cloud%1").arg(i));form->addRow(tr(cloudLabels[i]),spin);
+    }
+    connect(m_cloudMode,&QComboBox::currentIndexChanged,this,[this] {
+        const int mode=m_cloudMode->currentData().toInt();m_cloudSeries->setEnabled(mode==2);
+        for(int i=0;i<4;++i)m_cloudValues[i]->setEnabled(i?mode!=0:mode==1);
+    });
+    auto *description = new QLabel(tr("Met-file values take precedence over the selected time series or computed radiation. Columns: MM/DD/YYYY HH:00, temperature (°C), humidity (%), wind (m/s), shortwave and longwave (W/m²). Each row represents the following hour. Coverage is checked before applying. Cloud settings are shared with Heat Configuration. Measured radiation already includes cloud effects."), page);
+    description->setWordWrap(true); form->addRow(description);
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("Radiation"));
+}
+
+void ClimatologyDialog::editUebParameters()
+{
+    QDialog dialog(this); dialog.setWindowTitle(tr("UEB parameters"));
+    dialog.setObjectName(QStringLiteral("UebOptionsDialog"));
+    auto *outer = new QVBoxLayout(&dialog);
+    auto *tabs = new QTabWidget(&dialog); outer->addWidget(tabs);
+    QMap<QString, QFormLayout*> groups;
+    QMap<QString, QDoubleSpinBox*> spins;
+    for (const auto& field : openswmmvis::ui::uebFields) {
+        const QString group = QString::fromUtf8(field.group);
+        if (!groups.contains(group)) {
+            auto *page = new QWidget; auto *form = new QFormLayout(page); groups[group] = form;
+            tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr(field.group));
+        }
+        auto *spin = new QDoubleSpinBox;
+        spin->setObjectName(QStringLiteral("ueb_") + QString::fromLatin1(field.key));
+        spin->setDecimals(8); spin->setRange(field.minimum, field.maximum);
+        spin->setValue(m_snowDraft.options.value(QString::fromLatin1(field.key)).toDouble());
+        spin->setProperty("initialValue", spin->value());
+        groups[group]->addRow(tr(field.label), spin); spins[QString::fromLatin1(field.key)] = spin;
+    }
+    auto *scheme = new QComboBox;
+    scheme->addItem(tr("Modified force-restore"), QStringLiteral("MODIFIED_FORCE_RESTORE"));
+    scheme->addItem(tr("Equilibrium (1996 reference)"), QStringLiteral("EQUILIBRIUM"));
+    scheme->setCurrentIndex(scheme->findData(m_snowDraft.options.value(QStringLiteral("SURFACE_TEMP"))));
+    groups[QStringLiteral("Temperature scheme")]->insertRow(0, tr("Surface temperature"), scheme);
+    auto *split = new QComboBox;
+    split->addItem(tr("UEB linear temperature transition"), QStringLiteral("UEB"));
+    split->addItem(tr("Legacy division temperature"), QStringLiteral("DIVT"));
+    split->setCurrentIndex(split->findData(m_snowDraft.options.value(QStringLiteral("PRECIP_SPLIT"))));
+    groups[QStringLiteral("Precipitation")]->insertRow(0, tr("Rain / snow partition"), split);
+    auto *monthlyPage = new QWidget; auto *monthly = new QFormLayout(monthlyPage);
+    std::array<QDoubleSpinBox*, 12> ranges{};
+    for (int i = 0; i < 12; ++i) {
+        auto *spin = ranges[i] = new QDoubleSpinBox;
+        spin->setRange(0, 100); spin->setDecimals(6); spin->setSpecialValueText(tr("From temperature source"));
+        spin->setValue(m_snowDraft.ranges[i]); monthly->addRow(tr(kMonths[i]), spin);
+    }
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(monthlyPage, tabs), tr("Monthly temperature range (°C)"));
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    outer->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialog.resize(840, 550);
+    if (dialog.exec() != QDialog::Accepted) return;
+    for (auto it = spins.cbegin(); it != spins.cend(); ++it)
+        if (it.value()->value() != it.value()->property("initialValue").toDouble())
+            m_snowDraft.options[it.key()] = QString::number(it.value()->value(), 'g', 17);
+    m_snowDraft.options[QStringLiteral("SURFACE_TEMP")] = scheme->currentData().toString();
+    m_snowDraft.options[QStringLiteral("PRECIP_SPLIT")] = split->currentData().toString();
+    for (int i = 0; i < 12; ++i) m_snowDraft.ranges[i] = ranges[i]->value();
+}
+
+void ClimatologyDialog::updateSnowDraft()
+{
+    m_snowDraft.model = m_snowModel->currentData().toInt(); m_snowDraft.step = m_snowStep->value();
+    auto& site = m_snowDraft.radiation;
+    site.explicit_site = m_radiationSite->isChecked();
+    double *values[] = {&site.latitude, &site.longitude, &site.timezone, &site.elevation_m};
+    for (int i = 0; i < 4; ++i)
+        if (m_siteValues[i]->value() != m_siteValues[i]->property("initialValue").toDouble()) *values[i] = m_siteValues[i]->value();
+    site.shortwave_authored = m_radiationModes[0]->currentData().toInt() >= 0;
+    site.longwave_authored = m_radiationModes[1]->currentData().toInt() >= 0;
+    site.shortwave_mode = qMax(0, m_radiationModes[0]->currentData().toInt());
+    site.longwave_mode = qMax(0, m_radiationModes[1]->currentData().toInt());
+    for (int i = 0; i < 2; ++i) m_snowDraft.sources[i] = m_radiationSeries[i]->currentText().trimmed();
+    if (m_metFile->absolutePath() != m_metFile->property("initialPath").toString())
+        m_snowDraft.sources[2] = m_metFile->displayPath();
+    auto& cloud=m_snowDraft.cloud;cloud.mode=m_cloudMode->currentData().toInt();
+    m_snowDraft.cloudSeries=m_cloudSeries->currentText().trimmed();
+    double* cloudValues[]{&cloud.fraction,&cloud.shortwave_k,&cloud.shortwave_n,&cloud.longwave_k};
+    for(int i=0;i<4;++i)if(m_cloudValues[i]->value()!=m_cloudValues[i]->property("initialValue").toDouble())
+        *cloudValues[i]=m_cloudValues[i]->value();
+}
+
 void ClimatologyDialog::buildSnowTab(QTabWidget *tabs)
 {
     auto *page = new QWidget;
     auto *form = new QFormLayout(page);
+
+    m_snowModel = new QComboBox(page);
+    m_snowModel->setObjectName(QStringLiteral("clim_snowModel"));
+    m_snowModel->addItem(tr("Degree day"), 0);
+    m_snowModel->addItem(tr("UEB energy balance"), 1);
+    form->addRow(tr("Default snow model:"), m_snowModel);
+    m_snowStep = new QDoubleSpinBox(page);
+    m_snowStep->setObjectName(QStringLiteral("clim_snowStep"));
+    m_snowStep->setRange(0.000001, 3600); m_snowStep->setDecimals(6); m_snowStep->setSuffix(tr(" s"));
+    m_snowStep->setToolTip(tr("UEB update interval for subcatchments and mesh cells. Degree-day snow retains the runoff timestep."));
+    form->addRow(tr("UEB update interval:"), m_snowStep);
+    auto *uebOptions = new QPushButton(tr("UEB parameters…"), page);
+    uebOptions->setObjectName(QStringLiteral("clim_uebOptions"));
+    connect(uebOptions, &QPushButton::clicked, this, &ClimatologyDialog::editUebParameters);
+    form->addRow(uebOptions);
+    auto *legacyNote = new QLabel(tr("The settings below apply to degree-day snowpacks. Site values also provide defaults when no explicit shared site is set on Radiation."), page);
+    legacyNote->setWordWrap(true);
+    form->addRow(legacyNote);
 
     const QString tUnit = isSI() ? tr("deg C") : tr("deg F");
     const QString eUnit = isSI() ? tr("meters") : tr("feet");
@@ -562,10 +731,16 @@ void ClimatologyDialog::populatePatternCombo(QComboBox *combo) const
 
 void ClimatologyDialog::setProjectAnchor(const QString &dir)
 {
+    const bool unchanged = serialize() == m_initialSig;
     m_projectAnchor = dir;
     // The picker exists by the time any caller can reach this (buildUi runs in
     // the constructor) and re-renders its display on anchor change.
     if (m_tempFile) m_tempFile->setProjectAnchor(dir);
+    if (m_metFile) m_metFile->setProjectAnchor(dir);
+    if (unchanged) {
+        m_metFile->setProperty("initialPath", m_metFile->absolutePath());
+        m_initialSig = serialize();
+    }
 }
 
 void ClimatologyDialog::readFromEngine()
@@ -684,6 +859,34 @@ void ClimatologyDialog::readFromEngine()
         }
     }
 
+    m_snowDraft.load(m_engine);
+    m_cloudMode->setCurrentIndex(m_cloudMode->findData(m_snowDraft.cloud.mode));
+    m_cloudSeries->setCurrentText(m_snowDraft.cloudSeries);
+    const double cloudValues[]{m_snowDraft.cloud.fraction,m_snowDraft.cloud.shortwave_k,m_snowDraft.cloud.shortwave_n,m_snowDraft.cloud.longwave_k};
+    for(int i=0;i<4;++i) {
+        m_cloudValues[i]->setValue(cloudValues[i]);m_cloudValues[i]->setProperty("initialValue",m_cloudValues[i]->value());
+        m_cloudValues[i]->setEnabled(i?m_snowDraft.cloud.mode!=0:m_snowDraft.cloud.mode==1);
+    }
+    m_cloudSeries->setEnabled(m_snowDraft.cloud.mode==2);
+    m_snowModel->setCurrentIndex(m_snowModel->findData(m_snowDraft.model));
+    m_snowStep->setValue(m_snowDraft.step);
+    const auto& site = m_snowDraft.radiation;
+    m_radiationSite->setChecked(site.explicit_site);
+    const double values[] = {site.latitude, site.longitude, site.timezone, site.elevation_m};
+    for (int k = 0; k < 4; ++k) {
+        m_siteValues[k]->setValue(values[k]);
+        m_siteValues[k]->setProperty("initialValue", m_siteValues[k]->value());
+        m_siteValues[k]->setEnabled(site.explicit_site);
+    }
+    for (int k = 0; k < 2; ++k) {
+        const int mode = k ? (site.longwave_authored ? site.longwave_mode : -1) : (site.shortwave_authored ? site.shortwave_mode : -1);
+        m_radiationModes[k]->setCurrentIndex(m_radiationModes[k]->findData(mode));
+        m_radiationSeries[k]->setCurrentText(m_snowDraft.sources[k]);
+        m_radiationSeries[k]->setEnabled(mode == 1);
+    }
+    m_metFile->setPath(m_snowDraft.sources[2]);
+    m_metFile->setProperty("initialPath", m_metFile->absolutePath());
+    m_initialSnowSig = m_snowDraft.signature();
     onTempSourceChanged();
 }
 
@@ -793,6 +996,14 @@ void ClimatologyDialog::writeToEngine()
 QString ClimatologyDialog::serialize() const
 {
     QString s;
+    s += m_snowDraft.optionRows() + '|';
+    s += QString::number(m_snowModel->currentIndex()) + '|' + QString::number(m_snowStep->value(), 'g', 17) + '|';
+    s += QString::number(m_radiationSite->isChecked()) + '|';
+    for (auto *value : m_siteValues) s += QString::number(value->value(), 'g', 17) + '|';
+    for (int i = 0; i < 2; ++i) s += QString::number(m_radiationModes[i]->currentIndex()) + '|' + m_radiationSeries[i]->currentText() + '|';
+    s += m_metFile->absolutePath() + '|';
+    s += QString::number(m_cloudMode->currentIndex()) + '|' + m_cloudSeries->currentText() + '|';
+    for(auto* value:m_cloudValues)s += QString::number(value->value(),'g',17)+'|';
     s += QString::number(m_tempSource->currentIndex()) + '|';
     s += m_tempTs->currentText() + '|';
     s += m_tempFile->absolutePath() + '|';
@@ -832,6 +1043,11 @@ QString ClimatologyDialog::serialize() const
 void ClimatologyDialog::onAccept()
 {
     if (serialize() != m_initialSig) {
+        updateSnowDraft();
+        if (m_snowDraft.signature() != m_initialSnowSig) {
+            const auto error = m_snowDraft.apply(m_engine);
+            if (!error.isEmpty()) { QMessageBox::warning(this, tr("Snow and radiation"), error); return; }
+        }
         writeToEngine();
         m_wroteChanges = true;
     }

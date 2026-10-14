@@ -7,6 +7,10 @@
 #include "ui/dialogs/mesh2daquifermodel.h"
 
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 #include <QBrush>
 #include <QColor>
@@ -456,7 +460,7 @@ QVariant Mesh2DAquiferNodeModel::data(const QModelIndex &index, int role) const
         switch (index.column()) {
         case ColKc:
             return tr("Conductivity of the semi-confining bed between the "
-                      "pipe and the aquifer, in %1. Leave at 0 for a direct "
+                      "node and the aquifer, in %1. Leave at 0 for a direct "
                       "Darcy connection with no bed.").arg(m_rateLabel);
         case ColDc:
             return tr("Bed thickness in %1. Required whenever a bed "
@@ -487,6 +491,10 @@ QVariant Mesh2DAquiferNodeModel::data(const QModelIndex &index, int role) const
         if (r.area <= 0.0 && role == Qt::DisplayRole) return tr("(cell area)");
         return r.area;
     case ColExchange: return role == Qt::EditRole ? QVariant(bool(r.exchange)) : QVariant();
+    case ColBottom: {
+        const int mode=bottomDestination(r.node);
+        return mode<0?QVariant(tr("No storage LID")):role==Qt::EditRole?QVariant(mode):QVariant(bottomLabels().at(mode));
+    }
     default: break;
     }
     return {};
@@ -538,6 +546,7 @@ bool Mesh2DAquiferNodeModel::setData(const QModelIndex &index,
         r.area = v;
         break;
     }
+    case ColBottom: return setBottomDestination(r.node,value.toInt());
     case ColExchange:
         r.exchange = role == Qt::CheckStateRole ? value.toInt() == Qt::Checked : value.toBool();
         break;
@@ -560,6 +569,7 @@ QVariant Mesh2DAquiferNodeModel::headerData(int section,
     case ColDc:   return tr("Bed thickness (%1)").arg(m_lengthLabel);
     case ColArea: return tr("Exchange area (%1)").arg(m_areaLabel);
     case ColExchange: return tr("Exchange");
+    case ColBottom: return tr("LID bottom destination");
     default: break;
     }
     return {};
@@ -569,6 +579,7 @@ Qt::ItemFlags Mesh2DAquiferNodeModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid()) return Qt::NoItemFlags;
     if (m_rows.at(index.row()).automatic) return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    if (index.column() == ColBottom && bottomDestination(m_rows.at(index.row()).node)<0) return Qt::ItemIsEnabled|Qt::ItemIsSelectable;
     if (index.column() == ColExchange) return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
 }
@@ -589,7 +600,7 @@ void Mesh2DAquiferNodeModel::load(SWMM_Engine engine)
 {
     beginResetModel();
     m_rows.clear();
-    m_loadError.clear();
+    m_loadError.clear();m_bottoms.clear();m_footprints.clear();m_controls.clear();m_geometry.clear();
     if (engine) {
         int n = 0;
         if (swmm_gw2d_node_count(engine, &n) == SWMM_OK) {
@@ -606,11 +617,40 @@ void Mesh2DAquiferNodeModel::load(SWMM_Engine engine)
             }
         }
     }
-    m_loaded = m_rows;
+    if(engine)for(int node=0;node<swmm_node_count(engine);++node) {
+        int control=-1,mode=0;double sat=0,area=0;
+        if(swmm_node_get_lid(engine,node,&control,&sat)!=SWMM_OK||control<0)continue;
+        const QString name=QString::fromUtf8(swmm_node_id(engine,node));
+        if(swmm_node_get_lid_bottom(engine,node,&mode)!=SWMM_OK){m_loadError=tr("Cannot read LID bottom ownership.");break;}
+        m_bottoms[name]=mode;
+        if(swmm_lid_node_base_area(engine,node,&area)==SWMM_OK)m_footprints[name]=area;
+        SWMM_LidRichardsOptions options{};swmm_lid_richards_options_get(engine,control,&options);
+        m_controls[name]=tr("%1 · %2").arg(QString::fromUtf8(swmm_lid_id(engine,control)),options.model?tr("Richards 1D"):tr("Existing formulation with backwater"));
+        QList<double> signature{double(node),double(control),sat,area,double(options.model),double(options.cells_per_layer),options.atol,options.rtol,options.max_step};
+        double invert=0,depth=0;swmm_node_get_invert_elev(engine,node,&invert);swmm_node_get_max_depth(engine,node,&depth);signature<<invert<<depth;
+        double x=0,y=0;const int located=swmm_spatial_get_node_coord(engine,node,&x,&y);signature<<double(located);
+        if(located==SWMM_OK)signature<<x<<y;
+        int shape=0,curve=-1;double a=0,b=0,c=0;
+        swmm_node_get_storage_shape(engine,node,&shape);swmm_node_get_storage_curve(engine,node,&curve);
+        signature<<double(shape)<<double(curve);
+        swmm_node_get_storage_functional(engine,node,&a,&b,&c);signature<<a<<b<<c;
+        swmm_node_get_storage_geometry(engine,node,&a,&b,&c);signature<<a<<b<<c;
+        if(curve>=0){int points=0;swmm_table_get_point_count(engine,curve,&points);signature<<double(points);
+            for(int k=0;k<points;++k){swmm_table_get_point(engine,curve,k,&x,&y);signature<<x<<y;}}
+        const int count=swmm_lid_node_layer_count(engine,control);
+        for(int k=0;k<count;++k){SWMM_LidNodeLayer layer{};SWMM_LidRichardsMaterial material{};
+            if(swmm_lid_node_layer_get(engine,control,k,&layer)!=SWMM_OK){m_loadError=tr("Cannot read LID layers.");break;}
+            signature<<double(layer.kind);for(double v:layer.params)signature<<v;
+            if(options.model&&(layer.kind==1||layer.kind==2)&&swmm_lid_richards_material_get(engine,control,k,&material)==SWMM_OK)
+                signature<<material.theta_r<<material.alpha<<material.n<<material.l<<material.specific_storage;
+        }
+        m_geometry[name]=signature;
+    }
+    m_loaded = m_rows;m_loadedBottoms=m_bottoms;
     endResetModel();
 }
 
-QString Mesh2DAquiferNodeModel::replaceRows(SWMM_Engine engine,const QList<Row>&expected,const QList<Row>&rows,bool apply)const
+QString Mesh2DAquiferNodeModel::replaceRows(SWMM_Engine engine,const QList<Row>&expected,const QList<Row>&rows,const QMap<QString,int>&expectedBottoms,const QMap<QString,int>&bottoms,bool apply)const
 {
     QList<QByteArray> names;names.reserve(expected.size()+rows.size());
     QList<SWMM_GwNodeBed> before,after;before.reserve(expected.size());after.reserve(rows.size());
@@ -618,33 +658,46 @@ QString Mesh2DAquiferNodeModel::replaceRows(SWMM_Engine engine,const QList<Row>&
         for(const auto&r:source){names.append(r.node.toUtf8());out.append({names.back().constData(),r.cell,r.locate,r.exchange,r.automatic,r.kc,r.dc,r.area});}
     };
     snapshot(expected,before);snapshot(rows,after);
-    const auto rc=swmm_gw2d_node_replace(engine,before.constData(),before.size(),after.constData(),after.size(),nullptr,0,apply?1:0);
+    QList<SWMM_LidNodeBottomEdit> edits;
+    if(expectedBottoms.keys()!=bottoms.keys())return tr("LID assignments changed. Reopen this editor.");
+    for(auto it=bottoms.cbegin();it!=bottoms.cend();++it) {
+        const int node=swmm_node_index(engine,it.key().toUtf8().constData());
+        if(node<0)return tr("A LID node was removed. Reopen this editor.");
+        edits.append({node,expectedBottoms.value(it.key()),it.value()});
+    }
+    const auto rc=swmm_gw2d_node_replace(engine,before.constData(),before.size(),after.constData(),after.size(),edits.constData(),edits.size(),apply?1:0);
     return rc==SWMM_OK?QString{}:tr("Node-bed transaction refused. Check node names, duplicate connections, positive bed thickness and newer edits. No node beds were changed.");
 }
-QString Mesh2DAquiferNodeModel::validateCommit(SWMM_Engine engine)const
+QString Mesh2DAquiferNodeModel::validateCommit(SWMM_Engine engine,bool validateReceiver)const
 {
     if(!engine)return tr("No engine.");if(!m_loadError.isEmpty())return m_loadError;
     int state=0;if(swmm_engine_get_state(engine,&state)!=SWMM_OK||(state!=SWMM_STATE_BUILDING&&state!=SWMM_STATE_OPENED))return tr("Reset the run before editing node beds.");
     Mesh2DAquiferNodeModel current;current.load(engine);if(!current.m_loadError.isEmpty())return current.m_loadError;
-    if(current.m_rows!=m_loaded)return tr("Node beds changed outside this editor. Reopen it to preserve newer edits.");
-    QSet<QString> names;for(const auto&r:m_rows){if(r.node.trimmed().isEmpty()||names.contains(r.node))return tr("Node beds require unique node names.");names.insert(r.node);if(!std::isfinite(r.kc)||!std::isfinite(r.dc)||!std::isfinite(r.area))return tr("Node-bed values must be finite.");}
-    if(!isDirty())return {};return replaceRows(engine,m_loaded,m_rows,false);
+    if(current.m_rows!=m_loaded||current.m_bottoms!=m_loadedBottoms||current.m_geometry!=m_geometry)return tr("Node beds, LID assignments or geometry changed outside this editor. Reopen it to preserve newer edits.");
+    QSet<QString> names;for(const auto&r:m_rows){
+        if(r.node.trimmed().isEmpty()||names.contains(r.node))return tr("Node beds require unique node names.");names.insert(r.node);
+        if(swmm_node_index(engine,r.node.toUtf8().constData())<0)return tr("Unknown node %1.").arg(r.node);
+        if(!std::isfinite(r.kc)||!std::isfinite(r.dc)||!std::isfinite(r.area)||r.kc<0||r.dc<0||r.area<0||
+            (r.kc>0&&r.dc<=0)||r.cell<-1||(!r.locate&&r.cell<0))return tr("Check node-bed area, conductivity, thickness and cell.");
+    }
+    if(!isDirty() || !validateReceiver)return {};return replaceRows(engine,m_loaded,m_rows,m_loadedBottoms,m_bottoms,false);
 }
 QString Mesh2DAquiferNodeModel::commit(SWMM_Engine engine,bool advanceBaseline)
 {
     if(!isDirty())return {};auto error=validateCommit(engine);if(!error.isEmpty())return error;
-    error=replaceRows(engine,m_loaded,m_rows);if(!error.isEmpty())return error;
+    error=replaceRows(engine,m_loaded,m_rows,m_loadedBottoms,m_bottoms);if(!error.isEmpty())return error;
     if(advanceBaseline)acceptChanges();return {};
 }
 QString Mesh2DAquiferNodeModel::restoreLoaded(SWMM_Engine engine)const{
     Mesh2DAquiferNodeModel current;current.load(engine);
     if(!current.m_loadError.isEmpty())return current.m_loadError;
-    if(current.m_rows==m_loaded)return {};
-    return replaceRows(engine,m_rows,m_loaded);
+    if(current.m_rows==m_loaded&&current.m_bottoms==m_loadedBottoms)return {};
+    if(current.m_geometry!=m_geometry)return tr("LID geometry changed after this edit. Reopen the connection editor.");
+    return replaceRows(engine,m_rows,m_loaded,m_bottoms,m_loadedBottoms);
 }
-void Mesh2DAquiferNodeModel::acceptChanges(){m_loaded=m_rows;}
+void Mesh2DAquiferNodeModel::acceptChanges(){m_loaded=m_rows;m_loadedBottoms=m_bottoms;}
 
-bool Mesh2DAquiferNodeModel::isDirty() const { return m_rows != m_loaded; }
+bool Mesh2DAquiferNodeModel::isDirty() const { return m_rows != m_loaded||m_bottoms!=m_loadedBottoms; }
 
 int Mesh2DAquiferNodeModel::appendRow(const QString &node, int cell)
 {
@@ -657,6 +710,45 @@ int Mesh2DAquiferNodeModel::appendRow(const QString &node, int cell)
     m_rows.append(r);
     endInsertRows();
     return at;
+}
+
+std::shared_ptr<Mesh2DAquiferNodeModel> Mesh2DAquiferNodeModel::transactionCopy()const {
+    auto copy=std::make_shared<Mesh2DAquiferNodeModel>();
+    copy->m_rows=m_rows;copy->m_loaded=m_loaded;copy->m_bottoms=m_bottoms;copy->m_loadedBottoms=m_loadedBottoms;
+    copy->m_geometry=m_geometry;copy->m_footprints=m_footprints;copy->m_controls=m_controls;copy->m_loadError=m_loadError;
+    return copy;
+}
+QStringList Mesh2DAquiferNodeModel::bottomLabels() {
+    return {tr("Keep current behavior"),tr("Sealed"),tr("Mesh aquifer")};
+}
+int Mesh2DAquiferNodeModel::bedRow(const QString& node)const {
+    for(int i=0;i<m_rows.size();++i)if(m_rows[i].node==node)return i;
+    return -1;
+}
+bool Mesh2DAquiferNodeModel::setBottomDestination(const QString& node,int mode) {
+    if(!m_bottoms.contains(node)||mode<0||mode>2)return false;
+    m_bottoms[node]=mode;const int row=bedRow(node);
+    if(row>=0)emit dataChanged(index(row,0),index(row,ColCount-1));
+    return true;
+}
+QString Mesh2DAquiferNodeModel::useLidFootprint(const QString& node) {
+    const double area=m_footprints.value(node,0);
+    if(!std::isfinite(area)||area<=0)return tr("This LID base has no positive geometric area. Enter an explicit positive contact area.");
+    int row=bedRow(node);
+    if(row<0)row=appendRow(node,-1);
+    if(m_rows[row].automatic)return tr("An automatic row is read-only. Use authored ROWS enrollment before reviewing a connection.");
+    m_rows[row].area=area;emit dataChanged(index(row,0),index(row,ColCount-1));return {};
+}
+QString Mesh2DAquiferNodeModel::connectionSummary(const QString& node)const {
+    if(!m_bottoms.contains(node))return tr("Assign a storage LID control to edit its bottom destination.");
+    const int mode=m_bottoms.value(node),row=bedRow(node);
+    QString text=tr("%1. LID base footprint: %2 %3. Bottom: %4 → %5.").arg(m_controls.value(node),QString::number(m_footprints.value(node,0),'g',12),m_areaLabel,bottomLabels().value(m_loadedBottoms.value(node)),bottomLabels().value(mode));
+    if(row<0)return text+tr(" No aquifer bed is assigned.");
+    const auto& r=m_rows[row];
+    text+=tr(" Receiver: %1; contact: %2; %3; exchange %4.").arg(r.locate?tr("by coordinates"):QString::number(r.cell+1),r.area>0?QString::number(r.area,'g',12)+" "+m_areaLabel:tr("existing whole-cell area"),r.kc>0?tr("semi-confining bed"):tr("direct aquifer contact"),r.exchange?tr("enabled"):tr("disabled"));
+    if(mode==1)text+=tr(" Sealed masks aquifer and outside bottom loss.");
+    if(mode==2)text+=tr(" Aquifer exchange replaces local BOTTOM loss. Positive area and enabled exchange are required; the single-cell contact is a lumped representation.");
+    return text;
 }
 
 void Mesh2DAquiferNodeModel::setUnitLabels(const QString &lengthLabel,

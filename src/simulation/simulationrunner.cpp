@@ -6,12 +6,15 @@
  */
 #include "simulation/simulationrunner.h"
 #include "simulation/runpathlease.h"
+#include "simulation/snowledger.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_massbalance.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_callbacks.h>
 #include <openswmm/engine/openswmm_2d.h>
+#include <openswmm/engine/openswmm_snow2d.h>
+#include <cmath>
 
 #include "core/preferencesmanager.h"
 #include "core/swmmdatetime.h"
@@ -119,6 +122,12 @@ struct TestFault {
 // swmm_2d_get_run_stats → SimulationRunner::twoDSolverStats, queued onto the
 // GUI thread. Called from the worker with the engine still open; a refused
 // read (2D not active, solver finalised) simply emits nothing.
+void emitSnowLedger(SimulationRunner* self,int jobId,SWMM_Engine eng)
+{
+    const auto rows = openswmmvis::simulation::snowLedgerRows(eng);
+    QMetaObject::invokeMethod(self,[self,jobId,rows]{emit self->snowLedgerChanged(jobId,rows);},Qt::QueuedConnection);
+}
+
 void emitTwoDSolverStats(SimulationRunner *self, int jobId, SWMM_Engine eng)
 {
     SWMM_2DRunStats st{};
@@ -905,6 +914,7 @@ void SimulationRunner::start()
                 // the solver is chosen at start — show them before the first
                 // step, which on a large mesh can take a while.
                 if (twoD_active) emitTwoDSolverStats(rawSelf, jobId, eng);
+                emitSnowLedger(rawSelf,jobId,eng);
             }
 
             // NOTE on units: swmm_engine_step()'s out-parameter is the
@@ -987,6 +997,7 @@ void SimulationRunner::start()
                     Qt::QueuedConnection);
                 // Marcher substeps + LTS tier occupancy, same cadence.
                 if (twoD_active) emitTwoDSolverStats(rawSelf, jobId, eng);
+                emitSnowLedger(rawSelf,jobId,eng);
 
                 // ── Slice CF.MVP — per-tick 2D depth slice ─────────────────
                 // Rate-limited by the surrounding kTickIntervalMs gate. Pulls
@@ -1142,7 +1153,7 @@ void SimulationRunner::start()
                     // Read while the worker owns the initialized engine; the
                     // GUI receives only immutable values, never a live handle.
                     QString groundwaterError;
-                    auto groundwater = openswmmvis::io::captureGroundwaterVariables(
+                    auto groundwater = openswmmvis::io::captureSurfaceProcessVariables(
                         eng, twoD_n_tri, &groundwaterError);
                     if (groundwater) {
                         QMetaObject::invokeMethod(rawSelf,
@@ -1202,6 +1213,7 @@ void SimulationRunner::start()
             if (stepFailCode == SWMM_OK) *phase = QStringLiteral("end");
             runLog->line(QStringLiteral("end"));
             swmm_engine_end(eng);
+            emitSnowLedger(rawSelf,rawSelf->m_jobId,eng);
 
             // Continuity errors (available after end)
             double runoffErr  = 0.0;
