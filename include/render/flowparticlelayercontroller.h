@@ -4,7 +4,8 @@
 #include <QDateTime>
 class SWMM2DResultsLayer;
 namespace OpenSWMM::Render {
-// Owns GUI-side residency, bounded native captures and the serial integrator.
+// Owns bounded GUI-side native captures and the serial integrator. The worker
+// supplies immutable trail/head residency; this facade adds the current view.
 class FlowParticleLayerController : public QObject {
     Q_OBJECT
 public:

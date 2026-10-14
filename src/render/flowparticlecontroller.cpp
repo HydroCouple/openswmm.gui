@@ -16,6 +16,7 @@ struct FlowParticleController::State {
     double seedCutoff=-1,birthsDue=0,gain=-1;
     bool fillPopulation=true;
     FlowParticleDiagnostics diagnostics;
+    std::shared_ptr<const FlowParticleResidencySupport> residency;
 };
 FlowParticleController::FlowParticleController(QObject *parent):QObject(parent),m_state(std::make_shared<State>()) {
     m_thread.setObjectName(QStringLiteral("Flow particles"));
@@ -28,8 +29,9 @@ void FlowParticleController::request(std::shared_ptr<const FlowParticleNativeInp
     m_requestedMesh=input?input->mesh:nullptr;
     m_pending=std::move(input);m_reset|=reset;dispatch();
 }
-void FlowParticleController::configure(const FlowParticleSettings &settings,QRectF seeds,int population,FlowParticleView view,std::optional<FlowParticleAppearance> appearance) {
+void FlowParticleController::configure(const FlowParticleSettings &settings,QRectF seeds,int population,FlowParticleView view,std::optional<FlowParticleAppearance> appearance,FlowParticleResidencyGrid grid) {
     m_settings=settings;m_seeds=seeds;m_population=std::clamp(population,0,settings.maxParticles);m_view=view;m_appearance=std::move(appearance);
+    m_grid=grid;
 }
 void FlowParticleController::setPresentedRevision(quint64 revision) {
     if(m_presentedRevision==revision)return;
@@ -45,11 +47,12 @@ void FlowParticleController::dispatch() {
     const auto input=std::exchange(m_pending,{});const bool reset=std::exchange(m_reset,false);
     const double elapsed=std::exchange(m_elapsed,0.);
     QMetaObject::invokeMethod(m_worker,[this,state=m_state,input,reset,elapsed,
-        settings=m_settings,seeds=m_seeds,population=m_population,view=m_view,appearance=m_appearance,presented=m_presentedRevision]() mutable {
+        settings=m_settings,seeds=m_seeds,population=m_population,view=m_view,appearance=m_appearance,grid=m_grid,presented=m_presentedRevision]() mutable {
         const auto work=[&]() -> Result {
             if(reset) {
                 state->system=FlowParticleSystem();state->field.reset();state->pending.reset();
                 state->seeds={};state->seedCutoff=-1;state->birthsDue=0;state->gain=-1;state->fillPopulation=true;
+                state->residency.reset();
             }
             state->system.setSettings(settings);
             if(input)state->pending=buildFlowParticleField(*input,state->cancelled);
@@ -97,6 +100,15 @@ void FlowParticleController::dispatch() {
             }
             if(int(state->system.particles().size())>=population && population>0)state->fillPopulation=false;
             QElapsedTimer publication;publication.start();state->system.advance(elapsed,32768);
+            const auto frame=state->system.frame();
+            const double clock=state->system.clock();
+            if(state->field && !grid.isEmpty() && (accepted || !state->residency || clock-state->residency->clock>=.25)) {
+                auto support=std::make_shared<FlowParticleResidencySupport>();
+                support->geometry=state->field->geometry;support->clock=clock;
+                support->required=flowParticleResidencyForParticles(seeds,grid,state->system.particles(),.5,false);
+                support->prefetch=flowParticleResidencyForParticles(seeds,grid,state->system.particles(),2,false);
+                state->residency=std::move(support);
+            }
             state->diagnostics.integrationMs=publication.nsecsElapsed()/1e6;
             state->diagnostics.publicationMs=state->system.frame()?state->system.frame()->publicationMs:0;
             state->diagnostics.wetFraction=seeds.isValid()?state->seeds.wetArea/(seeds.width()*seeds.height()):0;
@@ -106,7 +118,7 @@ void FlowParticleController::dispatch() {
             state->diagnostics.referencePixelsPerSecond=view.scale*settings.speed*state->seeds.referenceSpeed;
             state->diagnostics.metresPerPixelSecond=settings.speedExponent==1 && view.scale>0 && settings.speed>0 && state->seeds.referenceSpeed>0
                 ?state->seeds.referenceSpeedSI/(view.scale*settings.speed*state->seeds.referenceSpeed):0;
-            return Result{state->system.frame(),state->system.interpolation(),state->system.lagSeconds(),accepted,state->diagnostics};
+            return Result{frame,state->system.interpolation(),state->system.lagSeconds(),accepted,state->diagnostics,state->residency};
         };
         auto result=work();
         {
@@ -128,7 +140,7 @@ void FlowParticleController::complete() {
         if(m_current && m_current->revision!=result.frame->revision)m_previous=m_current;
         m_current=result.frame;
     }
-    m_interpolation=result.interpolation;m_lag=result.lag;m_diagnostics=result.diagnostics;
+    m_interpolation=result.interpolation;m_lag=result.lag;m_diagnostics=result.diagnostics;m_residency=std::move(result.residency);
     const QPointer<FlowParticleController> guard(this);
     emit ready();if(!guard)return;
     if(m_pending || m_presentationChanged || m_elapsed>0 || m_lag>=m_settings.timestep)dispatch();

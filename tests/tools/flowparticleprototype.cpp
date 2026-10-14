@@ -69,7 +69,7 @@ protected:
     struct Root:QSGTransformNode {QSGSimpleTextureNode *base=nullptr;FlowParticleNode *trails=nullptr;qint64 imageKey=0;};
     QSGNode *updatePaintNode(QSGNode *old,UpdatePaintNodeData *) override {
         auto *root=old?static_cast<Root*>(old):new Root;
-        if(!root->trails) {root->trails=new FlowParticleNode;root->appendChildNode(root->trails);}
+        if(!root->trails) {root->trails=new FlowParticleNode(window());root->appendChildNode(root->trails);}
         if(!base.isNull() && root->imageKey!=base.cacheKey()) {
             if(root->base) {root->removeChildNode(root->base);delete root->base;}
             root->base=new QSGSimpleTextureNode;root->base->setTexture(window()->createTextureFromImage(base));

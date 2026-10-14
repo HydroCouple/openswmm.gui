@@ -3,16 +3,20 @@
 #include <QPointF>
 #include <QRectF>
 #include <QColor>
+#include <array>
 #include <functional>
 #include <vector>
 
 namespace OpenSWMM::Render {
 struct FlowParticleFrame;
 struct FlowParticleVertex {
-    float x,y,nx,ny,age,previous,current,lifetime,side,stoppedAt,tailStart;
+    float x,y,nx,ny,age,particle;
     unsigned char r,g,b,a;
 };
-static_assert(sizeof(FlowParticleVertex)==48);
+static_assert(sizeof(FlowParticleVertex)==28);
+// Exact float bits in RGBA8 texels avoid float-texture/backend requirements.
+// The first five columns are previous age, age, life, stop clock and tail age.
+using FlowParticleTiming=std::array<std::array<unsigned char,4>,8>;
 // All fields are copied on the GUI thread. A palette callback must own its
 // data; it must never borrow a mutable QObject from the worker thread.
 struct FlowParticleAppearance {
@@ -27,6 +31,7 @@ struct FlowParticleAppearance {
 };
 struct FlowParticleRibbon {
     std::vector<FlowParticleVertex> vertices;
+    std::vector<FlowParticleTiming> timing;
     QPointF anchor;
     QRectF viewport;
     QColor color;
@@ -34,6 +39,7 @@ struct FlowParticleRibbon {
     quint64 revision=0,trackedId=0;
     int particles=0,history=0;
 };
+float flowParticleTimingValue(const FlowParticleTiming &,size_t column);
 void buildFlowParticleRibbon(const FlowParticleFrame &,double scale,quint64 trackedId,
                             const FlowParticleAppearance &,FlowParticleRibbon &);
 } // namespace OpenSWMM::Render

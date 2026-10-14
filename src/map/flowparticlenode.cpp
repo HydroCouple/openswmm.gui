@@ -2,6 +2,8 @@
 #include "map/flowparticlenode.h"
 #include <QSGMaterial>
 #include <QSGMaterialShader>
+#include <QSGTexture>
+#include <QQuickWindow>
 #include <QElapsedTimer>
 #include <cstring>
 #include <cmath>
@@ -12,14 +14,15 @@ const QSGGeometry::AttributeSet &attributes() {
     static const QSGGeometry::Attribute attrs[]={
         QSGGeometry::Attribute::create(0,2,QSGGeometry::FloatType,true),
         QSGGeometry::Attribute::create(1,2,QSGGeometry::FloatType),
-        QSGGeometry::Attribute::create(2,4,QSGGeometry::FloatType),
-        QSGGeometry::Attribute::create(3,3,QSGGeometry::FloatType),
-        QSGGeometry::Attribute::createWithAttributeType(4,4,QSGGeometry::UnsignedByteType,QSGGeometry::ColorAttribute)};
-    static const QSGGeometry::AttributeSet set={5,sizeof(Vertex),attrs};return set;
+        QSGGeometry::Attribute::create(2,2,QSGGeometry::FloatType),
+        QSGGeometry::Attribute::createWithAttributeType(3,4,QSGGeometry::UnsignedByteType,QSGGeometry::ColorAttribute)};
+    static const QSGGeometry::AttributeSet set={4,sizeof(Vertex),attrs};return set;
 }
 class Material : public QSGMaterial {
 public:
     Material() {setFlag(Blending,true);setFlag(RequiresFullMatrix,true);}
+    ~Material() override {delete timing;}
+    QSGTexture *timing=nullptr;
     float interpolation=1,clock=0,tail=1,width=1.5,head=2,fade=.5;
     float opacity=1,softFade=1,taper=1;
     QPointF anchorOffset;
@@ -41,12 +44,19 @@ public:
         const float values[]={state.opacity()*m->opacity,m->interpolation,m->clock,m->tail,m->width,m->head,m->fade,m->softFade,m->taper};
         std::memcpy(buf->data()+64,values,sizeof(values));
         const float anchor[]={float(m->anchorOffset.x()),float(m->anchorOffset.y())};
-        std::memcpy(buf->data()+104,anchor,sizeof(anchor));return true;
+        std::memcpy(buf->data()+104,anchor,sizeof(anchor));
+        const float rows=m->timing?float(m->timing->textureSize().height()):1;
+        std::memcpy(buf->data()+112,&rows,sizeof(rows));return true;
+    }
+    void updateSampledImage(RenderState &state,int binding,QSGTexture **texture,QSGMaterial *material,QSGMaterial *) override {
+        if(binding!=1)return;
+        auto *timing=static_cast<Material*>(material)->timing;
+        if(timing) {timing->commitTextureOperations(state.rhi(),state.resourceUpdateBatch());*texture=timing;}
     }
 };
 QSGMaterialShader *Material::createShader(QSGRendererInterface::RenderMode) const {return new Shader;}
 }
-FlowParticleNode::FlowParticleNode() {
+FlowParticleNode::FlowParticleNode(QQuickWindow *window):m_window(window) {
     auto *g=new QSGGeometry(attributes(),0,0,QSGGeometry::UnsignedIntType);g->setDrawingMode(QSGGeometry::DrawTriangles);
     g->setVertexDataPattern(QSGGeometry::DynamicPattern);
     g->setIndexDataPattern(QSGGeometry::StaticPattern);
@@ -85,5 +95,14 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
     }
     if(ribbon && !ribbon->vertices.empty())
         std::memcpy(geometry()->vertexData(),ribbon->vertices.data(),ribbon->vertices.size()*sizeof(Vertex));
+    if(m_window && ribbon && !ribbon->timing.empty()) {
+        // Preserve raw RGBA8 bytes: Qt uploads this format directly, without
+        // premultiplication or colour conversion. The worker's storage stays
+        // immutable; the texture owns its small render-thread copy.
+        const QImage data(reinterpret_cast<const uchar*>(ribbon->timing.data()),8,ribbon->particles,
+                          32,QImage::Format_RGBA8888_Premultiplied);
+        delete m->timing;m->timing=m_window->createTextureFromImage(data.copy());
+        if(m->timing)m->timing->setFiltering(QSGTexture::Nearest);
+    }
     m_geometryBuildMs=build.nsecsElapsed()/1e6;++m_uploads;geometry()->markVertexDataDirty();markDirty(DirtyGeometry);
 }

@@ -6,12 +6,13 @@
 #include <functional>
 
 using FlowParticleAppearance=OpenSWMM::Render::FlowParticleAppearance;
+class QQuickWindow;
 
 // Joined history ribbons. Completed simulation frames update geometry;
 // presentation interpolation changes only uniforms between those frames.
 class FlowParticleNode : public QSGGeometryNode {
 public:
-    FlowParticleNode();
+    explicit FlowParticleNode(QQuickWindow *window=nullptr);
     void sync(std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame>,
               double interpolation,double scale,double trailSeconds=1,double width=1.5,
               double headWidth=2,double fadeSeconds=.5,quint64 trackedId=0,
@@ -20,6 +21,7 @@ public:
     int indexUploads() const { return m_indexUploads; }
     double geometryBuildMs() const { return m_geometryBuildMs; }
 private:
+    QQuickWindow *m_window=nullptr;
     std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> m_frame;
     OpenSWMM::Render::FlowParticleRibbon m_ribbon;
     double m_scale=0;
