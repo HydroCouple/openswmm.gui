@@ -38,7 +38,10 @@ const QStringList &variableSet() {
         QStringLiteral("VOLUME"), QStringLiteral("INFLOW"), QStringLiteral("SETTING"),
         QStringLiteral("STATUS"), QStringLiteral("CLOCKTIME"), QStringLiteral("DATE"),
         QStringLiteral("MONTH"), QStringLiteral("DAY"), QStringLiteral("TIME"),
-        QStringLiteral("OVERFLOW")
+        QStringLiteral("OVERFLOW"), QStringLiteral("INTENSITY"),
+        QStringLiteral("1-HR_DEPTH"), QStringLiteral("6-HR_DEPTH"),
+        QStringLiteral("12-HR_DEPTH"), QStringLiteral("24-HR_DEPTH"),
+        QStringLiteral("48-HR_DEPTH")
     };
     return kw;
 }
@@ -163,6 +166,19 @@ void RuleSyntaxHighlighter::highlightBlock(const QString &text)
         if (c.isDigit() ||
             (c == QLatin1Char('.') && i + 1 < contentEnd && text.at(i + 1).isDigit()))
         {
+            // A gage depth is one parameterized attribute, including its
+            // numeric prefix. The engine validator enforces the 48-hour cap.
+            int end = i;
+            while (end < contentEnd && !text.at(end).isSpace() &&
+                   text.at(end) != QLatin1Char('=') && text.at(end) != QLatin1Char('<') &&
+                   text.at(end) != QLatin1Char('>')) ++end;
+            static const QRegularExpression rainDepth(
+                QStringLiteral("^[0-9]+-HR_DEPTH$"), QRegularExpression::CaseInsensitiveOption);
+            if (rainDepth.match(text.mid(i, end - i)).hasMatch()) {
+                setFormat(i, end - i, m_fmtVariable);
+                i = end;
+                continue;
+            }
             int j = i;
             while (j < contentEnd) {
                 const QChar cj = text.at(j);

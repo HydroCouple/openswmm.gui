@@ -16,7 +16,8 @@
  *   - Variable      (`DEPTH`, `HEAD`, `FLOW`, `VOLUME`,
  *                    `INFLOW`, `SETTING`, `STATUS`,
  *                    `CLOCKTIME`, `DATE`, `MONTH`, `DAY`,
- *                    `TIME`, `OVERFLOW`)                     — italic, Link
+ *                    `TIME`, `OVERFLOW`, `INTENSITY`,
+ *                    `n-HR_DEPTH`)                          — italic, Link
  *   - Operator      (`=`, `<`, `>`, `<=`, `>=`, `<>`, `IS`)  — WindowText
  *   - Number        (decimal + clock `HH:MM[:SS]`)           — Text
  *   - Comment       (`;` to EOL)                             — italic, Placeholder
@@ -59,7 +60,7 @@ public:
 
     static QStringList blockKeywords();   ///< RULE, IF, THEN, ELSE, AND, OR, NOT, PRIORITY
     static QStringList objectTypes();     ///< NODE, LINK, CONDUIT, PUMP, ORIFICE, WEIR, OUTLET, SUBCATCH, SIMULATION, GAGE
-    static QStringList variableNames();   ///< DEPTH, HEAD, FLOW, VOLUME, INFLOW, SETTING, STATUS, CLOCKTIME, DATE, MONTH, DAY, TIME, OVERFLOW
+    static QStringList variableNames();   ///< Includes INTENSITY and representative n-HR_DEPTH attributes
     static QStringList operatorTokens();  ///< =, <, >, <=, >=, <>, IS
 
     /*! \brief Every keyword the completer can offer (block + object +

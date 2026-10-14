@@ -1755,6 +1755,12 @@ add_swmmvis_gui_test(test_dataobjectnaming
 # add_swmmvis_gui_test(test_control_rule_models test_control_rule_models.cpp …)
 # add_swmmvis_gui_test(test_rules_editor_dialog test_rules_editor_dialog.cpp …)
 
+add_swmmvis_gui_test(test_rule_rain_syntax
+    test_rule_rain_syntax.cpp
+    ${CMAKE_SOURCE_DIR}/src/controls/rulesyntaxhighlighter.cpp
+    ${CMAKE_SOURCE_DIR}/include/controls/rulesyntaxhighlighter.h
+)
+
 # Slice DA.2 — non-spatial property-adapter round-trip tests
 # Exercises the rich-coverage adapters (Pollutant, LandUse, RainGage)
 # against a real engine handle. The thin adapters (Aquifer, Snowpack,
