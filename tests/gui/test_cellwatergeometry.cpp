@@ -1,6 +1,9 @@
 #include "layers/cellwatergeometry.h"
 #include "contour/marchingtriangles.h"
 #include <QtTest>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <random>
 
 namespace {
@@ -44,6 +47,9 @@ private slots:
     void clippedStorageDerivativeMatchesGeometry();
     void irregularMovingSheetStaysContinuous();
     void neighborhoodClosesVolumeWithoutCrossingDryGap();
+    void roadOnsetKeepsWetFlatCells();
+    void roadFitIndependentOfFilmVisibility();
+    void roadFitClosesStorage();
 };
 
 namespace {
@@ -83,6 +89,92 @@ struct SlopeStrip {
             CellWaterGeometry::smoothTopology(cells),depths,flux,{0.001,false});
     }
 };
+
+struct RoadOnset {
+    std::vector<double> x,y,z;
+    std::vector<Cell> cells;
+    QJsonArray frames;
+    std::vector<float> depths,flux;
+    std::vector<CellWaterGeometry::Surface> surfaces;
+    CellWaterGeometry::SmoothTopology topology;
+    RoadOnset() {
+        QFile file(QFINDTESTDATA("data/road_culvert_onset.json"));
+        if(!file.open(QIODevice::ReadOnly))return;
+        const auto data=QJsonDocument::fromJson(file.readAll()).object();
+        for(const auto v:data["vertices"].toArray()) {
+            const auto a=v.toArray();x.push_back(a[0].toDouble());
+            y.push_back(a[1].toDouble());z.push_back(a[2].toDouble());
+        }
+        for(const auto v:data["cells"].toArray()) {
+            const auto a=v.toArray();Cell c;c.v={a[0].toInt(),a[1].toInt(),a[2].toInt(),-1};
+            c.sub[0]={c.v[0],c.v[1],c.v[2]};
+            const int i=c.v[0],j=c.v[1],k=c.v[2];
+            c.area[0]=.5*std::abs((x[j]-x[i])*(y[k]-y[i])-(x[k]-x[i])*(y[j]-y[i]));
+            cells.push_back(c);
+        }
+        topology=CellWaterGeometry::smoothTopology(cells);frames=data["frames"].toArray();
+    }
+    void load(int frame) {
+        const auto data=frames[frame].toObject();const auto h=data["depth"].toArray(),q=data["flux"].toArray();
+        depths.resize(cells.size());flux.assign(4*cells.size(),0);surfaces.resize(cells.size());
+        for(size_t i=0;i<cells.size();++i) {
+            depths[i]=float(h[int(i)].toDouble());const auto edges=q[int(i)].toArray();
+            for(int k=0;k<3;++k)flux[4*i+k]=float(edges[k].toDouble());
+            surfaces[i]=CellWaterGeometry::reconstruct(cells[i],depths[i],z);
+        }
+    }
+    auto fit(CellWaterGeometry::VisibilityPolicy policy={.001,false}) {
+        return CellWaterGeometry::flowingCornerDepths(cells,surfaces,x,y,z,topology,depths,flux,policy);
+    }
+};
+}
+
+void TestCellWaterGeometry::roadOnsetKeepsWetFlatCells()
+{
+    RoadOnset road;QCOMPARE(road.cells.size(),size_t(2000));QCOMPARE(road.frames.size(),5);
+    for(int frame=2;frame<5;++frame) {
+        road.load(frame);const auto field=road.fit();QCOMPARE(field.size(),road.cells.size());
+        for(size_t c=0;c<road.cells.size();++c) {
+            const auto& cell=road.cells[c];const double x=(road.x[cell.v[0]]+road.x[cell.v[1]]+road.x[cell.v[2]])/3;
+            if(!(x>440 && x<480))continue;
+            for(int k=0;k<3;++k) {
+                QVERIFY2(field[c][k]>.001,qPrintable(QString("frame %1 cell %2 corner %3: artificial dry pocket %4").arg(frame).arg(c).arg(k).arg(field[c][k])));
+                // The one-hour strip contains 10.7–10.9 mm of stored water.
+                // Permit a small resolved gradient, not the original 27 mm peaks.
+                if(frame==4)QVERIFY2(field[c][k]<.012,qPrintable(QString("cell %1: unsupported peak %2").arg(c).arg(field[c][k])));
+            }
+        }
+    }
+}
+
+void TestCellWaterGeometry::roadFitIndependentOfFilmVisibility()
+{
+    RoadOnset road;QCOMPARE(road.frames.size(),5);
+    for(int f=0;f<5;++f) {
+        road.load(f);const auto hidden=road.fit(),shown=road.fit({.001,true}),threshold=road.fit({.005,false});
+        QCOMPARE(hidden.size(),road.cells.size());QCOMPARE(shown.size(),hidden.size());QCOMPARE(threshold.size(),hidden.size());
+        for(size_t c=0;c<hidden.size();++c)for(int k=0;k<3;++k) {
+            QCOMPARE(hidden[c][k],shown[c][k]);QCOMPARE(hidden[c][k],threshold[c][k]);
+        }
+    }
+    road.load(0);const auto before=road.fit();road.load(1);const auto after=road.fit();
+    QVERIFY(std::abs(after[1092][1]-before[1092][1])<.0002);
+}
+
+void TestCellWaterGeometry::roadFitClosesStorage()
+{
+    using namespace CellWaterGeometry;
+    RoadOnset road;QCOMPARE(road.frames.size(),5);
+    for(int f=0;f<5;++f) {
+        road.load(f);const auto field=road.fit();QCOMPARE(field.size(),road.cells.size());
+        double stored=0,shown=0;
+        for(size_t c=0;c<field.size();++c) {
+            const auto& cell=road.cells[c];std::array<double,3> derivative;
+            stored+=cell.area[0]*road.depths[c];
+            shown+=cell.area[0]*NeighborhoodFit::triangleStorage({field[c][0],field[c][1],field[c][2]},derivative);
+        }
+        QVERIFY(std::abs(shown-stored)<1e-9*stored);
+    }
 }
 
 void TestCellWaterGeometry::inclinedSurfaceConservesStorage()

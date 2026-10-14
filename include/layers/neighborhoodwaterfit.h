@@ -70,13 +70,14 @@ struct Stats {
 
 // Small matrix-free Gauss-Newton fit. One variable belongs to one connected
 // vertex fan, shared by BOTH traces of every supported edge. Storage rows use
-// original volumes and the original quad diagonal. A weak neighborhood prior
-// selects the unsupported degrees of freedom; it is not a temporal filter.
+// original volumes and the original quad diagonal. Local wet-cell envelopes
+// bound the alternating vertex modes that cell volumes cannot identify.
 inline std::vector<CornerDepths> reconstruct(
     const std::vector<VertexDepthReconstruct::CellSplit>& cells,
-    const std::vector<Surface>& surfaces,const std::vector<double>& z,
+    const std::vector<Surface>& surfaces,const std::vector<double>& x,
+    const std::vector<double>& y,const std::vector<double>& z,
     const SmoothTopology& topology,const std::vector<float>& depths,
-    const std::vector<float>& flux,VisibilityPolicy policy,Stats* stats=nullptr)
+    const std::vector<float>& flux,VisibilityPolicy /*policy*/,Stats* stats=nullptr)
 {
     const size_t n=cells.size();
     if(depths.size()!=n || surfaces.size()!=n || flux.size()!=4*n)return {};
@@ -95,7 +96,9 @@ inline std::vector<CornerDepths> reconstruct(
     double bound=0;
     for(size_t c=0;c<n;++c) {
         const auto& cell=cells[c];
-        if(!visible(displayState(cell,surfaces[c],z,policy),policy))continue;
+        // Visibility is applied AFTER fitting. A display threshold must not
+        // add/remove hydraulic neighbours or change this objective's weights.
+        if(surfaces[c].state!=State::Wet)continue;
         const double area=cell.area[0]+(cell.nSub==2?cell.area[1]:0);
         if(!(area>0) || !std::isfinite(area) || !(depths[c]>0))continue;
         eligible[c]=true;
@@ -149,7 +152,7 @@ inline std::vector<CornerDepths> reconstruct(
         const auto& source=cells[c];Cell row;
         row.source=int(c);row.count=source.vertexCount();row.halves=source.nSub;
         row.area=source.area[0]+(source.nSub==2?source.area[1]:0);row.depth=depths[c];
-        const double scale=std::max({row.depth,policy.filmDepth,1e-6});
+        const double scale=std::max(row.depth,1e-6);
         row.weight=row.area/(scale*scale);
         const int comp=root(component,int(c));
         if(group[size_t(comp)]<0)group[size_t(comp)]=groups++;
@@ -193,7 +196,90 @@ inline std::vector<CornerDepths> reconstruct(
         const double moving=total>0?pondCost[v]/total:0;
         reference[v]=pond[v]+moving*(flow[v]-pond[v]);
     }
+
+    // A fully wet cell supplies a local surface envelope, independent of the
+    // large VFR pool depths on a nearby partly wet slope. Reconstruct its
+    // stage gradient from supported, fully wet neighbours so a resolved slope
+    // is retained. Work at local coordinate/elevation differences for datum
+    // invariance. Partly wet cells still retain signed, negative dry corners.
+    struct Plane { double x=0,y=0,xx=0,xy=0,yy=0,bx=0,by=0,gx=0,gy=0; bool wet=false; };
+    std::vector<Plane> planes(n);
+    for(const auto& row:rows) {
+        const auto& cell=cells[size_t(row.source)];auto& plane=planes[size_t(row.source)];
+        const int origin=cell.v[0];plane.wet=true;
+        for(int s=0;s<row.halves;++s)for(int k=0;k<3;++k) {
+            const int v=cell.sub[s][k];
+            plane.x+=row.fraction[s]*(x[size_t(v)]-x[size_t(origin)])/3;
+            plane.y+=row.fraction[s]*(y[size_t(v)]-y[size_t(origin)])/3;
+        }
+        plane.x+=x[size_t(origin)];plane.y+=y[size_t(origin)];
+        for(int k=0;k<row.count;++k)plane.wet=plane.wet && result[size_t(row.source)][k]>0;
+    }
+    auto observe=[&](int a,int b) {
+        auto& p=planes[size_t(a)];const auto& q=planes[size_t(b)];
+        if(!p.wet || !q.wet)return;
+        const double dx=q.x-p.x,dy=q.y-p.y,d2=dx*dx+dy*dy;if(!(d2>0))return;
+        const auto &sa=surfaces[size_t(a)],&sb=surfaces[size_t(b)];
+        const double dh=(sb.datum-sa.datum)+(sb.level-sa.level);
+        p.xx+=dx*dx/d2;p.xy+=dx*dy/d2;p.yy+=dy*dy/d2;
+        p.bx+=dx*dh/d2;p.by+=dy*dh/d2;
+    };
+    for(const auto& e:topology.edges) {
+        // Same endpoint fan means this edge has hydraulic support. Merely
+        // sharing a vertex or belonging to a distant component is not enough.
+        if(root(parent,e.a0)!=root(parent,e.a1) || root(parent,e.b0)!=root(parent,e.b1))continue;
+        observe(e.a0/4,e.a1/4);observe(e.a1/4,e.a0/4);
+    }
+    for(auto& p:planes) {
+        const double det=p.xx*p.yy-p.xy*p.xy;
+        if(det>1e-12*(p.xx+p.yy)*(p.xx+p.yy)) {
+            p.gx=(p.yy*p.bx-p.xy*p.by)/det;p.gy=(p.xx*p.by-p.xy*p.bx)/det;
+        }
+    }
+    const double inf=std::numeric_limits<double>::infinity();
+    std::vector<double> lower(pond.size(),inf),upper(pond.size(),-inf);
+    std::vector<double> storageLower(pond.size(),inf),storageUpper(pond.size(),-inf);
+    for(const auto& row:rows) {
+        const auto c=size_t(row.source);const auto& cell=cells[c];const auto& plane=planes[c];
+        for(int k=0;k<row.count;++k) {
+            const size_t v=size_t(row.variable[k]);const double q=result[c][k];
+            // This wider envelope always brackets each original cell volume,
+            // including disconnected shorelines and variable-depth quads.
+            storageLower[v]=std::min({storageLower[v],q,row.depth});
+            storageUpper[v]=std::max({storageUpper[v],q,row.depth});
+            if(plane.wet) {
+                const size_t vertex=size_t(cell.v[k]);
+                const double projected=std::clamp(q+plane.gx*(x[vertex]-plane.x)+plane.gy*(y[vertex]-plane.y),0.0,bound);
+                lower[v]=std::min({lower[v],row.depth,projected});
+                upper[v]=std::max({upper[v],row.depth,projected});
+            }
+        }
+    }
+    // A signed dry trace is shoreline evidence even when another incident
+    // cell contains a film. Do not force such a crest corner above the bed:
+    // its extra storage would otherwise have to be taken from the wet plain.
+    for(size_t v=0;v<lower.size();++v)if(!std::isfinite(lower[v]) || storageLower[v]<0) {
+        lower[v]=storageLower[v];upper[v]=storageUpper[v];
+    }
+    // A wet-cell bound can conflict with the storage of an attached partial
+    // pool. Detect feasibility per component before solving; only that
+    // component uses the wider, storage-supported envelope in that case.
+    std::vector<double> minMass(size_t(groups),0),maxMass(size_t(groups),0);
+    for(const auto& row:rows) {
+        std::array<double,4> derivative;
+        minMass[size_t(row.component)]+=row.area*storage(row,lower,derivative);
+        maxMass[size_t(row.component)]+=row.area*storage(row,upper,derivative);
+    }
+    for(size_t v=0;v<lower.size();++v) {
+        const size_t g=size_t(variableGroup[v]);
+        if(minMass[g]>target[g] || maxMass[g]<target[g]) {
+            lower[v]=storageLower[v];upper[v]=storageUpper[v];
+            if(stats)stats->fallback=true;
+        }
+    }
+    auto bounded=[&](size_t v,double value){return std::clamp(value,lower[v],upper[v]);};
     std::vector<double> field=reference;
+    for(size_t v=0;v<field.size();++v)field[v]=bounded(v,field[v]);
     std::vector<std::array<double,4>> jacobian(rows.size());
     const size_t nv=field.size();
     if(stats){stats->rows=rows.size();stats->variables=nv;stats->groups=size_t(groups);}
@@ -275,7 +361,7 @@ inline std::vector<CornerDepths> reconstruct(
         const double previous=merit(field);bool accepted=false;double acceptedMerit=previous;
         for(double step=1;step>=1.0/128;step*=0.5) {
             if(stats)++stats->lineSearch;
-            for(size_t v=0;v<nv;++v)candidate[v]=std::min(bound,field[v]+step*delta[v]);
+            for(size_t v=0;v<nv;++v)candidate[v]=bounded(v,field[v]+step*delta[v]);
             acceptedMerit=merit(candidate);
             if(acceptedMerit<previous){field.swap(candidate);accepted=true;break;}
         }
@@ -283,12 +369,12 @@ inline std::vector<CornerDepths> reconstruct(
         if(!accepted || previous-acceptedMerit<1e-10*std::max(previous,1e-10))break;
     }
 
-    // Close total stored volume per neighborhood. Scale its positive depth
-    // field rather than adding a blanket film to every shallow cell. Negative
-    // corners approach zero only when more storage is required. This monotone
-    // closure retains shared traces and the frame's original depth bound.
-    auto scaled=[&](double q,double scale) {
-        return q>=0?std::min(bound,q*scale):q/std::max(1.0,scale);
+    // Close component volume INSIDE the same envelope used by the solve.
+    // A common monotone interpolation toward the lower/upper field retains
+    // shared traces and cannot recreate a forbidden peak or dry pocket.
+    auto scaled=[&](size_t v,double fraction) {
+        return fraction<0 ? field[v]+fraction*(field[v]-lower[v])
+                          : field[v]+fraction*(upper[v]-field[v]);
     };
     auto massFor=[&](const std::vector<double>& scale,std::vector<double>& mass) {
         std::fill(mass.begin(),mass.end(),0);
@@ -296,37 +382,14 @@ inline std::vector<CornerDepths> reconstruct(
             double mean=0;
             for(int s=0;s<row.halves;++s) {
                 std::array<double,3> q{},derivative{};
-                for(int k=0;k<3;++k)q[k]=scaled(field[size_t(row.variable[row.local[s][k]])],scale[size_t(row.component)]);
+                for(int k=0;k<3;++k)q[k]=scaled(size_t(row.variable[row.local[s][k]]),scale[size_t(row.component)]);
                 mean+=row.fraction[s]*triangleStorage(q,derivative);
             }
             mass[size_t(row.component)]+=row.area*mean;
         }
     };
-    std::vector<double> lo(size_t(groups),0),hi(size_t(groups),1),scale(size_t(groups),1),mass(size_t(groups),0);
-    for(int iteration=0;iteration<40;++iteration) {
-        if(stats)++stats->bracket;
-        massFor(hi,mass);bool bracketed=true;
-        for(int g=0;g<groups;++g)if(mass[size_t(g)]<target[size_t(g)]) {
-            hi[size_t(g)]*=2;bracketed=false;
-        }
-        if(bracketed)break;
-    }
-    massFor(hi,mass);
-    bool fallback=false;
-    for(size_t v=0;v<nv;++v) {
-        const size_t g=size_t(variableGroup[v]);
-        if(mass[g]<target[g]){field[v]=flow[v];hi[g]=1;fallback=true;}
-    }
-    if(stats)stats->fallback=fallback;
-    if(fallback)for(int iteration=0;iteration<40;++iteration) {
-        if(stats)++stats->bracket;
-        massFor(hi,mass);bool bracketed=true;
-        for(int g=0;g<groups;++g)if(mass[size_t(g)]<target[size_t(g)]) {
-            hi[size_t(g)]*=2;bracketed=false;
-        }
-        if(bracketed)break;
-    }
-    for(int iteration=0;iteration<40;++iteration) {
+    std::vector<double> lo(size_t(groups),-1),hi(size_t(groups),1),scale(size_t(groups),0),mass(size_t(groups),0);
+    for(int iteration=0;iteration<48;++iteration) {
         if(stats)++stats->bisection;
         for(int g=0;g<groups;++g)scale[size_t(g)]=(lo[size_t(g)]+hi[size_t(g)])/2;
         massFor(scale,mass);
@@ -335,7 +398,7 @@ inline std::vector<CornerDepths> reconstruct(
         }
     }
     for(const auto& row:rows)for(int k=0;k<row.count;++k)
-        result[size_t(row.source)][k]=scaled(field[size_t(row.variable[k])],scale[size_t(row.component)]);
+        result[size_t(row.source)][k]=scaled(size_t(row.variable[k]),scale[size_t(row.component)]);
     return result;
 }
 } // namespace NeighborhoodFit
