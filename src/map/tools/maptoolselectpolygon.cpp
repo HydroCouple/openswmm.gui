@@ -7,6 +7,7 @@
 #include "map/tools/maptoolselectpolygon.h"
 #include "map/mapcanvas.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
 
 #include <QKeyEvent>
@@ -185,6 +186,22 @@ void OpenSWMMVisMapToolSelectPolygon::finalizeSelection(Qt::KeyboardModifiers mo
     {
         if (!l->isVisible())
             continue;
+        if (auto *vl = qobject_cast<GISVectorLayer *>(l))
+        {
+            const QSet<long long> hit = vl->featureIdsInPolygon(mapPoly, m_canvas->canvasSRS());
+            QSet<long long> ids;
+            if (mods & Qt::ControlModifier)
+                ids = vl->selectedFeatureIds() - hit;
+            else if (mods & Qt::ShiftModifier)
+                ids = vl->selectedFeatureIds() + hit;
+            else
+                ids = hit;
+            if (ids != vl->selectedFeatureIds()) {
+                vl->setSelectedFeatureIds(ids);
+                emit selectionChanged(vl);
+            }
+            continue;
+        }
         auto *sl = qobject_cast<SWMMModelLayer *>(l);
         if (!sl)
             continue;

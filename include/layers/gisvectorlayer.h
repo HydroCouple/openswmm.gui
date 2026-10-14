@@ -19,6 +19,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QPainterPath>
+#include <QPolygonF>
 #include <QPen>
 #include <QBrush>
 #include <QString>
@@ -314,6 +315,13 @@ public:
      */
     [[nodiscard]] QSet<long long> featureIdsInRect(
         const MapExtent &rectCanvasCrs) const;
+
+    /*! \brief FIDs of features whose geometry intersects the polygon in
+     *         canvas CRS, including boundary touches. Applies the inverse
+     *         layer transform and preserves the existing spatial filter. */
+    [[nodiscard]] QSet<long long> featureIdsInPolygon(
+        const QPolygonF &polygonCanvasCrs,
+        const SpatialReferenceSystem *canvasSRS = nullptr) const;
 
     /*!
      * \brief Scene-space centres of the selected features' items — beacon

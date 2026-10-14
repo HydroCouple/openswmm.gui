@@ -3,7 +3,7 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Interactive polygon (lasso) feature-selection tool for SWMM layers.
+ * \brief  Interactive polygon (lasso) selection for SWMM and vector layers.
  */
 
 #ifndef MAPTOOLSELECTPOLYGON_H
@@ -19,17 +19,18 @@ class OpenSWMMVisLayer;
 
 /*!
  * \class OpenSWMMVisMapToolSelectPolygon
- * \brief Selects SWMM model features enclosed by a user-drawn polygon.
+ * \brief Selects SWMM model objects and vector features by a drawn polygon.
  * \details Left-click drops polygon vertices on the map. The growing polygon is
  *          rendered as an overlay with a rubber-band edge tracking the cursor.
  *          Right-click, double-click, or Enter closes the polygon and selects
  *          every node, link, subcatchment, and rain gage whose representative
- *          point falls inside it. Escape cancels the in-progress polygon.
+ *          point falls inside it, plus GIS and editable features whose
+ *          geometry intersects it. Escape cancels the in-progress polygon.
  *
  *          Holding Shift adds the enclosed objects to the current selection;
  *          holding Ctrl removes them. With no modifier the selection is
- *          replaced. Selection is applied through SWMMModelLayer so the
- *          Attribute Panel, Object Browser, and map highlight all stay in sync.
+ *          replaced. Selection is applied through SWMMModelLayer and
+ *          GISVectorLayer so the other views and map highlights stay in sync.
  */
 class OpenSWMMVisMapToolSelectPolygon : public OpenSWMMVisMapTool
 {

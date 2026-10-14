@@ -100,11 +100,15 @@ on top of the link's own pen.
    overlay with a rubber-band edge that tracks the cursor.
 2. **Right-click**, **double-click** or **Enter** closes the polygon and
    selects every node, link, subcatchment and rain gage whose representative
-   point falls inside it.
+   point falls inside it. Imported vector and editable feature layers select
+   every feature whose geometry touches or overlaps the polygon, including
+   points and lines. A lasso entirely inside a polygon feature's hole does
+   not select that feature.
 3. **Esc** cancels the in-progress polygon.
 
 **Shift** adds the enclosed objects to the current selection; **Ctrl** removes
-them; no modifier replaces.
+them; no modifier replaces. Only visible layers participate, and feature
+highlights and Attribute Table row selections follow the same selection.
 
 \figtodo{09_select_by_polygon.png, A lasso being drawn across a sewer network with the enclosed objects highlighted}
 
