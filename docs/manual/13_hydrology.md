@@ -150,6 +150,7 @@ nodes move to a copy.
 | **Dstore-Imperv** / **Dstore-Perv** | Depression storage depths | `[SUBAREAS]` |
 | **% Zero Imperv** | Impervious area with no depression storage | `[SUBAREAS]` |
 | **Rainfall Scale Factor** / **Snow Scale Factor** | Per-subcatchment multipliers | `[SUBCATCHMENTS]` |
+| **Snow Pack** | Assign a named snowpack; clearing the picker removes the assignment | `[SUBCATCHMENTS]` / `[SNOWPACKS]` |
 | **Infil. Model** and its parameters | See below | `[INFILTRATION]` |
 | **Aquifer** | Aquifer picker; clearing it removes the `[GROUNDWATER]` row | `[GROUNDWATER]` |
 | **Groundwater** | Summary + **Edit…** → Groundwater Exchange dialog | `[GROUNDWATER]` / `[GWF]` |
@@ -264,24 +265,43 @@ which writes `[LID_USAGE]`.
 ### Snow pack editor
 
 **Model → Data Objects → Snowpacks…** opens a two-pane editor (list + form) over
-the twenty-seven `[SNOWPACKS]` parameters, grouped exactly as the engine groups
-them:
+the `[SNOWPACKS]` parameters and optional UEB site fields. The **Model** picker
+selects **Project default**, **Degree day**, or **UEB energy balance**. Project
+default follows the Climatology dialog's **Default snow model**. Changes to a named
+snowpack affect every subcatchment and mesh cell assigned to it.
+
+The classic parameter groups are:
 
 | Group | Fields |
 |---|---|
-| **Plowable Snow** | Min. / Max. Melt Coefficient; Base Temperature; Free Water Capacity; Initial Snow Depth; Initial Free Water; **Fraction of Impervious Area Plowable** |
+| **Plowable Snow** | Min. / Max. Melt Coefficient; Base Temperature; Free Water Capacity; Initial Snow Water Equivalent; Initial Free Water; **Fraction of Impervious Area Plowable** |
 | **Impervious Area** | The same six surface values, then **Depth at 100% Cover** |
 | **Pervious Area** | The same six surface values, then **Depth at 100% Cover** |
 | **Snow Removal** | **Depth at Which Removal Begins**; fractions transferred **Out of Watershed**, **to Impervious Area**, **to Pervious Area**, **Converted to Immediate Melt**, **Transferred to Subcatchment**; and the **Destination Subcatchment** for that last fraction |
 
-**Not exposed in this release:** there is no per-subcatchment snow-pack
-assignment row in the Properties panel or the subcatchment attribute table. Snow
-packs can be defined and edited here, but binding one to a subcatchment must be
-done in the `.inp`. The global snowmelt settings (dividing temperature, ATI
-weight, negative melt ratio, elevation, latitude, longitude correction) and the
-areal depletion curves live in the Climatology dialog — see \ref manual_climate.
+Initial snow values are water equivalent, in the displayed inches or
+millimetres. Under UEB, the degree-day melt coefficients, base temperature and
+free-water-capacity controls are retained but disabled. The **UEB site** group
+adds forest fraction, snow drift factor, ground heat flux (W/m²), albedo extinction
+depth (m), and initial snow energy (kJ/m²); these fields enable only for UEB.
+Shared UEB material and solver settings, radiation sources and depletion curves
+live in Climatology — see \ref manual_climate.
 
-\fig{13_snowpack_editor.png, SP1 with all four parameter groups; snowmelt is disabled in this editor example}
+Assign the named pack through the subcatchment's **Snow Pack** property or its
+attribute-table cell before running. Clear the picker to remove the assignment.
+Its editor button can create or edit a pack and return the selected name.
+
+For mesh cells, select the mesh layer and choose **Assign snow…** from its cell
+actions. The assignment editor accepts whole-mesh defaults, region tags, and
+selected-cell overrides, in that precedence order from least to most specific.
+Review the **Effective pack**, **Assignment source**, and **Terrain** preview,
+then press **Apply**. **Automatic — enabled when assigned** activates mesh snow
+when assignments exist; **Enabled** and **Disabled** are explicit choices. A zero
+UEB update interval uses the global snow step. Mesh assignments preserve the
+pack's existing subcatchment assignments and support Undo; stop and reset a run
+before editing them.
+
+\fig{13_snowpack_editor.png, SP1 showing the classic four parameter groups in the earlier editor; snowmelt is disabled in this example}
 
 ### Aquifer editor
 
@@ -441,8 +461,9 @@ or seasonal recovery.
   disabled, set the subcatchment's **Aquifer** row first.
 - **Modified Horton / Modified Green-Ampt reuse their base model's parameter
   rows.** The row labels do not change; only the model code does.
-- **Snow-pack assignment is not in the GUI.** You can author and edit
-  `[SNOWPACKS]`, but the subcatchment→snowpack binding is not surfaced.
+- **A snowpack must be assigned to act.** Use the subcatchment's **Snow Pack**
+  row or the mesh's **Assign snow…** action; defining a named pack alone does
+  not assign it to either domain.
 - **Season "All" versus per-month rows.** Editing the RTK table with the season
   on *All* while per-month rows exist prompts first; accepting clears the
   per-month entries.

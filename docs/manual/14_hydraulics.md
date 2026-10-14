@@ -196,8 +196,29 @@ first two parameters are the **full** axes, not semi-axes.
 
 Assign a **LID Control** and **LID Initial Saturation (%)** to the storage
 node, then use **Model → LID Control** to edit its ordered layers. The node
-footprint supplies layer areas; MEDIA has five numerical cells per authored
-layer. Dynamic Wave routes ordinary network links and downstream heads.
+footprint supplies layer areas. **Existing formulation (with backwater)** uses
+five numerical cells per MEDIA layer; **Richards 1D** uses the configured
+**Numerical cells per porous layer**. Dynamic Wave routes ordinary network links
+and downstream heads.
+
+The storage node's **Bottom Connection** row opens the **Node Beds** page of
+**2D Groundwater**, focused on that node. Assign a storage-node **LID Control**
+first; a node without one shows **No storage LID**. Choose **Bottom destination**:
+
+| Choice | Meaning |
+|---|---|
+| **Keep current behavior** | Preserve the existing bottom-drainage and aquifer-bed behavior |
+| **Sealed** | Prevent both local bottom loss and aquifer exchange |
+| **Mesh aquifer** | Route bottom exchange through the assigned mesh-aquifer bed instead of local BOTTOM loss |
+
+For **Mesh aquifer**, select the receiving cell, enable **Exchange**, and enter a
+positive **Exchange area** in the displayed project area units. **Use current LID
+footprint** copies the node's current geometric base area into that contact area;
+use it again after changing the footprint. Review **Bed Kc** and **Bed thickness**:
+a positive conductivity represents a semi-confining bed; zero represents direct
+aquifer contact. Automatic bed rows are read-only. Press **Apply** to save the
+reviewed connection before initializing the simulation. A single receiving cell
+is a lumped contact, and Richards mesh coupling uses the CPU water-only solver.
 
 Conventional subcatchment LIDs use one underdrain definition, with one
 opening/closing threshold pair and an optional head-based discharge curve.

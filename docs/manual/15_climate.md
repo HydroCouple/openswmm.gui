@@ -9,7 +9,7 @@ up the solar and radiative configuration that drives it.
 
 ## Where to find it
 
-All five entries under **Model → Climate** open the **same** modal
+Four entries under **Model → Climate** open the **same** modal
 **Climatology** dialog, each on a different tab:
 
 The same five buttons sit in the **Climate** group of the **Model** ribbon tab.
@@ -22,7 +22,7 @@ The same five buttons sit in the **Climate** group of the **Model** ribbon tab.
 | **Model → Climate → Snow** | **Snow Melt** |
 | **Model → Climate → Solar Radiation** | Heat Configuration dialog, **Solar** tab |
 
-The **Humidity**, **Areal Depletion** and **Adjustments** tabs have no menu
+The **Humidity**, **Radiation**, **Areal Depletion** and **Adjustments** tabs have no menu
 entry of their own — reach them by opening any of the four Climatology entries
 and switching tabs.
 
@@ -127,9 +127,18 @@ the model. Heat-process activation and heat-source settings are separate
 
 ### Snow Melt tab
 
-The global snowmelt parameters, written to the `SNOWMELT` line. Per-surface
-melt coefficients, initial snow depths and snow removal live on the individual
-snow packs — see \ref manual_hydrology.
+Choose **Default snow model** as **Degree day** or **UEB energy balance**.
+Named snowpacks may follow this default or override it. **UEB update interval**
+is in seconds and controls subcatchment and mesh UEB updates; degree-day snow
+continues to use the runoff timestep. **UEB parameters…** opens grouped controls
+for turbulence, snow and soil, the surface-temperature scheme, rain/snow
+partition, albedo/radiation, and monthly temperature ranges. Zero monthly range
+uses the temperature source. UEB fields show their own SI units even in a US-unit
+project. Accept the parameter draft, then press **OK** in Climatology to apply it.
+
+The following classic degree-day parameters are written to the `SNOWMELT` line.
+Per-surface melt coefficients, initial snow water equivalent and snow removal
+live on the individual snowpacks — see \ref manual_hydrology.
 
 | Control | What it does |
 |---|---|
@@ -142,9 +151,27 @@ snow packs — see \ref manual_hydrology.
 
 Elevation, latitude and longitude are the classic snowmelt-model site fields.
 They are *not* the same fields the heat-transport solar model uses — those are
-separate, and in different units; see below.
+separate from the explicit shared site on **Radiation**, and use different
+units; see below.
 
 \fig{15_snowmelt_tab.png, The Snow Melt tab}
+
+### Radiation tab — shared snow and heat forcing
+
+**Use one explicit site for snow and heat** enables latitude (degrees north),
+longitude (degrees east), UTC offset (hours), and elevation (m). **Shortwave
+source** and **Longwave source** select computed values, a named time series in
+W/m², or an hourly meteorology file. The shortwave default keeps the existing heat
+configuration; the longwave default is computed.
+
+**Hourly meteorology** supplies temperature (°C), humidity (%), wind (m/s), and
+shortwave/longwave radiation (W/m²). Each dated `HH:00` row describes the following
+hour. **Preview meteorology and coverage…** shows the record count, time range
+(end excluded), and value ranges before applying. File radiation overrides
+selected time series or computed radiation. **Shared cloud cover** selects the
+UEB default, a constant fraction, or a fraction time series, with shortwave
+attenuation and longwave coefficients. Measured radiation already includes cloud
+effects. Press **OK** to validate and apply the shared draft.
 
 ### Areal Depletion tab — `[ADC]`
 
@@ -174,12 +201,13 @@ applied to infiltration.
 
 ### Solar radiation and heat transport {#climate_solar}
 
-Heat transport uses its own meteorology, written to `[SOLAR_RADIATION]`,
-`[RADIATIVE_FLUXES]` and `[CLOUD_COVER]` alongside `[HEAT_SOURCES]` and
-`[HEAT_FLUXES]`. It is edited in the **Heat Configuration** dialog
-(**Model → Heat Configuration…**, ribbon **Model ▸ Data Objects ▸ Heat**), *not* in the Climatology
-dialog, and is documented fully in \ref manual_water_quality. The summary here is
-only so you know where to go.
+Heat-specific sources, exchange modules and radiative parameters are edited
+in **Heat Configuration** (**Model → Heat Configuration…**, ribbon **Model ▸ Data
+Objects ▸ Heat**) and documented in \ref manual_water_quality. The shared snow/heat
+site, cloud and forcing sources are edited on Climatology's **Radiation** tab.
+**Edit shared snow and radiation forcing…** in Heat Configuration applies the
+heat settings and opens that shared editor. The summary here describes the
+heat-specific controls.
 
 The dialog's five tabs are **Sources**, **Fluxes**, **Radiative**, **Solar** and
 **Cloud**.
@@ -204,17 +232,15 @@ The dialog's five tabs are **Sources**, **Fluxes**, **Radiative**, **Solar** and
 
 Two things to keep straight:
 
-1. **The site fields are duplicated, not shared.** The Climatology dialog's
-   snowmelt latitude, longitude correction and elevation drive the classic
-   snowmelt model; the Heat Configuration dialog's latitude, longitude, timezone
-   and elevation drive the Bird clear-sky shortwave computation. They are
-   separate inputs in separate sections, in different units (minutes of longitude
-   correction versus degrees east; project length units versus metres). Set both
-   if you are running both.
-2. **Known API gap.** The engine exposes the shortwave and cloud timeseries
-   *mode* but not the bound series *name*, so those two combos rebind rather
-   than display what is currently set. Their "(keep current series)" entry is the
-   no-op position — leave it alone unless you mean to change the binding.
+1. **Classic snow site fields differ from the shared site.** The degree-day
+   fields use longitude correction in minutes and elevation in project length
+   units. The explicit shared site on **Radiation** uses longitude in degrees
+   east, UTC offset in hours, and elevation in metres. It supplies one site for
+   snow and heat; the classic fields provide defaults when no shared site is set.
+2. **Series bindings are shown by name.** Heat Configuration preselects the
+   current shortwave and cloud series and writes only changed bindings.
+   "(none bound)" means no series is assigned. Use Climatology's **Radiation**
+   tab to inspect or edit the shared forcing sources.
 
 \fig{15_heat_solar_tab.png, The Solar tab of the Heat Configuration dialog}
 

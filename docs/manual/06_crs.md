@@ -103,7 +103,7 @@ Reprojection is best-effort and batched: a single object that fails to transform
 is logged and skipped, and the rest still get done. The Message Logs panel
 reports the counts — nodes, link vertices, polygon vertices.
 
-\figtodo{06_crs_change_dialog.png, The CRS change dialog offering Assign CRS, Reproject stored coordinates or Re-render only}
+\figtodo{06_crs_change_dialog.png, The CRS change dialog offering Assign CRS; Reproject stored coordinates or Re-render only}
 
 ### What gets written to the `.inp`
 
