@@ -417,6 +417,77 @@ SWMMVis::SWMMVis(QWidget *parent)
     if (auto *capture =
             openswmmvis::ui::FigureCapture::createIfRequested(this, this))
         capture->start();
+
+    // Dev/testing hook (pairs with SWMMVIS_OPEN_ON_STARTUP) — time Flow
+    // Balance on an existing output with nobody at the keyboard:
+    //   SWMMVIS_TRACE_PERF="out=<.out>;rpt=<.rpt>;seed=<node>;upstream=1;repeat=2"
+    // Registers the output as a completed run of the opened model with the
+    // same registry calls a finished simulation makes, analyzes the seed,
+    // logs per-stage timings under openswmm.trace.perf, repeats on the saved
+    // package, then quits. No-op unless the env var is set.
+    const QString tracePerf = qEnvironmentVariable("SWMMVIS_TRACE_PERF");
+    if (!tracePerf.isEmpty()) {
+        QHash<QString, QString> spec;
+        for (const auto &pair : tracePerf.split(';', Qt::SkipEmptyParts))
+            spec.insert(pair.section('=', 0, 0).trimmed(), pair.section('=', 1).trimmed());
+        auto *poll = new QTimer(this);
+        poll->setInterval(250);
+        auto ready = std::make_shared<int>(0);
+        connect(poll, &QTimer::timeout, this, [this, poll, spec, ready]() {
+            auto *pw = activeProjectWindow();
+            auto *model = pw ? pw->modelLayer() : nullptr;
+            if (!model || !model->engine() || swmm_node_count(model->engine()) <= 0 ||
+                ++*ready < 4)
+                return;
+            poll->stop();
+            poll->deleteLater();
+            using namespace openswmmvis::trace;
+            const QString out = spec.value("out"), rpt = spec.value("rpt"),
+                          seed = spec.value("seed");
+            const bool upstream = spec.value("upstream", "1") != "0";
+            auto remaining = std::make_shared<int>(qMax(1, spec.value("repeat", "1").toInt()));
+            auto *registry = pw->statsRegistry();
+            QElapsedTimer timer;
+            timer.start();
+            const QString runId =
+                registry->beginRun(out, Snapshot::capture(model, nullptr).toJson(), rpt);
+            registry->finishRun(runId, true, false);
+            qCInfo(lcTracePerf).noquote()
+                << QStringLiteral("trace.perf run=%1 stage=hookRegisterRun ms=%2")
+                       .arg(runId).arg(timer.restart());
+            auto *output = findOrCreateResultsLayer(pw, out, rpt);
+            QList<QString> warnings, errors;
+            if (!output || !output->openResults(warnings, errors)) {
+                qWarning().noquote() << "SWMMVIS_TRACE_PERF: cannot open" << out
+                                     << errors.join('\n');
+                QTimer::singleShot(0, qApp, &QCoreApplication::quit);
+                return;
+            }
+            pw->setActiveResultsLayer(output);
+            qCInfo(lcTracePerf).noquote()
+                << QStringLiteral("trace.perf run=%1 stage=hookOpenResults ms=%2")
+                       .arg(runId).arg(timer.restart());
+            auto *controller = TraceController::forProject(pw);
+            auto wall = std::make_shared<QElapsedTimer>();
+            auto launch = std::make_shared<std::function<void()>>();
+            *launch = [pw, output, seed, upstream, wall]() {
+                wall->start();
+                TraceAnalysisDialog::showFor(pw, upstream, false, seed, output);
+            };
+            connect(controller, &TraceController::finished, this,
+                    [this, wall, remaining, launch](const QString &id, bool cancelled) {
+                        qCInfo(lcTracePerf).noquote()
+                            << QStringLiteral("trace.perf run=%1 stage=wall ms=%2 cancelled=%3")
+                                   .arg(id).arg(wall->elapsed()).arg(cancelled);
+                        if (--*remaining > 0)
+                            QTimer::singleShot(1000, this, [launch]() { (*launch)(); });
+                        else
+                            QTimer::singleShot(1500, qApp, &QCoreApplication::quit);
+                    });
+            (*launch)();
+        });
+        poll->start();
+    }
 }
 
 SWMMVis::~SWMMVis()

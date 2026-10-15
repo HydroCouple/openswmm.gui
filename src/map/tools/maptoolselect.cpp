@@ -1702,13 +1702,16 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                 if (!pw) return;
                 QString seed = ref.name;
                 if (ref.objectType == SWMMObjectRef::Link) {
-                    const auto snapshot = openswmmvis::trace::Snapshot::capture(hitLayer, nullptr);
-                    for (const auto &link : snapshot.links) if (link.id == ref.name) {
+                    // Endpoint IDs straight from the engine; a whole-model
+                    // snapshot is not needed to offer two node names.
+                    const int link = hitLayer->linkIndex(ref.name);
+                    const char *from = link >= 0 ? swmm_node_id(hitLayer->engine(), hitLayer->linkFromNodeIdx(link)) : nullptr;
+                    const char *to = link >= 0 ? swmm_node_id(hitLayer->engine(), hitLayer->linkToNodeIdx(link)) : nullptr;
+                    if (from && to) {
                         bool ok = false;
                         seed = QInputDialog::getItem(m_canvas, tr("Choose seed endpoint"), ref.name,
-                            {snapshot.nodes[link.from].id, snapshot.nodes[link.to].id}, 0, false, &ok);
+                            {QString::fromUtf8(from), QString::fromUtf8(to)}, 0, false, &ok);
                         if (!ok) return;
-                        break;
                     }
                 }
                 openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, travel, seed);

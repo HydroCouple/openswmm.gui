@@ -19,6 +19,7 @@
 #include <QCompleter>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include "ui/util/fileopendialog.h"
 #include <QFontDialog>
@@ -114,10 +115,15 @@ TraceAnalysisDialog *TraceAnalysisDialog::showFor(SWMMVisProjectWindow *p, bool 
     d->setWindowTitle(travel ? tr("Travel time") : tr("Flow balance"));
     d->m_prompt->setText(
         tr("%1\nClick a node on the map, or enter node IDs below.").arg(output->name()));
-    const auto snapshot = run.snapshot.isEmpty() ? Snapshot::capture(p->modelLayer(), nullptr)
-                                                 : Snapshot::fromJson(run.snapshot);
+    QElapsedTimer timer;
+    timer.start();
+    // start() and the map-click picker reuse this instead of walking the model again.
+    d->m_snapshot = run.snapshot.isEmpty() ? Snapshot::capture(p->modelLayer(), nullptr)
+                                           : Snapshot::fromJson(run.snapshot);
+    qCInfo(lcTracePerf).noquote() << QStringLiteral("trace.perf run=%1 stage=dialogSnapshot ms=%2 captured=%3")
+                                         .arg(d->m_runId).arg(timer.elapsed()).arg(run.snapshot.isEmpty());
     QStringList ids;
-    for (const auto &node : snapshot.nodes)
+    for (const auto &node : d->m_snapshot.nodes)
         ids << node.id;
     auto *completer = new QCompleter(ids, d->m_nodes);
     completer->setCaseSensitivity(Qt::CaseInsensitive);
@@ -235,8 +241,9 @@ void TraceAnalysisDialog::start()
                                  ? tr("Preparing average flows for this output…")
                                  : tr("Using saved flow analysis…"));
     m_progress->show();
-    m_controller->run(m_runId, seeds, m_upstream ? 1 : 0, {},
-                      Snapshot::capture(m_project->modelLayer(), nullptr));
+    if (m_snapshot.nodes.isEmpty() && run.snapshot.isEmpty())
+        m_snapshot = Snapshot::capture(m_project->modelLayer(), nullptr);
+    m_controller->run(m_runId, seeds, m_upstream ? 1 : 0, {}, m_snapshot);
 }
 bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
 {
@@ -252,10 +259,13 @@ bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
     if (mouse->button() != Qt::LeftButton)
         return false;
     const auto click = canvas->mapFromGlobal(mouse->globalPosition().toPoint());
-    const auto run = m_project->statsRegistry()->run(m_runId);
-    const auto snapshot = run.snapshot.isEmpty()
-                              ? Snapshot::capture(m_project->modelLayer(), nullptr)
-                              : Snapshot::fromJson(run.snapshot);
+    if (m_snapshot.nodes.isEmpty())
+    {
+        const auto run = m_project->statsRegistry()->run(m_runId);
+        m_snapshot = run.snapshot.isEmpty() ? Snapshot::capture(m_project->modelLayer(), nullptr)
+                                            : Snapshot::fromJson(run.snapshot);
+    }
+    const auto &snapshot = m_snapshot;
     std::unique_ptr<SpatialReferenceSystem> crs(
         SpatialReferenceSystem::fromWktOrProj(snapshot.wkt));
     auto *ct =

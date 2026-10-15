@@ -16,6 +16,9 @@ class AnalysisStore
     static std::shared_ptr<Dataset> readDataset(const QString &path, QString *error);
     static QVector<QJsonObject> analyses(const QString &path, QString *error);
     static std::shared_ptr<Result> read(const QString &path, const QString &id, QString *error);
+    // Same, reusing averages already in memory instead of reading them again.
+    static std::shared_ptr<Result> read(const QString &path, const QString &id,
+                                        std::shared_ptr<const Dataset>, QString *error);
     static bool saveStyle(const QString &path, const QString &id, const QJsonObject &,
                           QString *error);
 };

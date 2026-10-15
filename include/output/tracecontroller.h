@@ -2,6 +2,7 @@
 #pragma once
 #include "output/tracedata.h"
 #include <QFutureWatcher>
+#include <QLoggingCategory>
 #include <QObject>
 #include <QPointer>
 #include <atomic>
@@ -9,6 +10,7 @@ class SWMMVisProjectWindow;
 class SWMMResultsLayer;
 namespace openswmmvis::trace
 {
+Q_DECLARE_LOGGING_CATEGORY(lcTracePerf)
 class TraceSublayer;
 struct JobReply
 {

@@ -10,18 +10,22 @@
 #include "output/traceanalysisstore.h"
 #include "output/tracecontroller.h"
 #include "swmmvisprojectwindow.h"
-#include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QLoggingCategory>
 #include <QSaveFile>
 #include <QUuid>
 #include <QtConcurrent>
+#include <openssl/evp.h>
 #include <stdexcept>
+#include <thread>
 
 namespace openswmmvis::trace
 {
+Q_LOGGING_CATEGORY(lcTracePerf, "openswmm.trace.perf")
 namespace
 {
 QString fingerprint(const QString &path, std::atomic_bool &cancel)
@@ -29,22 +33,38 @@ QString fingerprint(const QString &path, std::atomic_bool &cancel)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
         throw std::runtime_error("Cannot read source output");
-    QCryptographicHash hash(QCryptographicHash::Sha256);
+    // Same SHA-256 digest as QCryptographicHash, but OpenSSL uses the CPU's
+    // SHA extensions. This Qt build hashes in plain C at ~100 MB/s, which made
+    // a 0.5 GB output cost 4.5 s per pass.
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+    if (!ctx || EVP_DigestInit_ex(ctx.get(), EVP_sha256(), nullptr) != 1)
+        throw std::runtime_error("Cannot initialize the output fingerprint");
+    QByteArray buffer(4 * 1024 * 1024, Qt::Uninitialized);
     while (!f.atEnd())
     {
         if (cancel.load())
             throw std::runtime_error("Analysis cancelled");
-        auto bytes = f.read(4 * 1024 * 1024);
-        if (bytes.isEmpty() && f.error() != QFile::NoError)
+        const qint64 n = f.read(buffer.data(), buffer.size());
+        if (n < 0 || (n == 0 && f.error() != QFile::NoError) ||
+            (n > 0 && EVP_DigestUpdate(ctx.get(), buffer.constData(), size_t(n)) != 1))
             throw std::runtime_error("Cannot fingerprint source output");
-        hash.addData(bytes);
     }
-    return QString::fromLatin1(hash.result().toHex());
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int length = 0;
+    if (EVP_DigestFinal_ex(ctx.get(), digest, &length) != 1)
+        throw std::runtime_error("Cannot fingerprint source output");
+    return QString::fromLatin1(
+        QByteArray(reinterpret_cast<const char *>(digest), int(length)).toHex());
 }
 void require(bool ok, const QString &message)
 {
     if (!ok)
         throw std::runtime_error(message.toStdString());
+}
+void perf(const QString &run, const QString &stage, qint64 ms, const QString &detail = {})
+{
+    qCInfo(lcTracePerf).noquote()
+        << QStringLiteral("trace.perf run=%1 stage=%2 ms=%3 %4").arg(run, stage).arg(ms).arg(detail);
 }
 } // namespace
 TraceController::TraceController(SWMMVisProjectWindow *p) : QObject(p), m_project(p)
@@ -59,6 +79,8 @@ TraceController::TraceController(SWMMVisProjectWindow *p) : QObject(p), m_projec
                 emit busyChanged(false);
                 if (!m_project)
                     return;
+                QElapsedTimer gui;
+                gui.start();
                 if (reply.dataset)
                 {
                     m_project->statsRegistry()->attachAnalysis(
@@ -66,9 +88,14 @@ TraceController::TraceController(SWMMVisProjectWindow *p) : QObject(p), m_projec
                         reply.dataset->snapshot.toJson());
                     m_project->setHasChanges(true);
                     emit prepared(reply.dataset);
+                    perf(reply.runId, QStringLiteral("attachAnalysis"), gui.restart());
                 }
                 for (auto &r : reply.results)
+                {
                     emit resultReady(r);
+                    perf(reply.runId, QStringLiteral("attachResult"), gui.restart(),
+                         QStringLiteral("seed=%1").arg(r->seed));
+                }
                 if (!reply.error.isEmpty() && !reply.cancelled)
                     emit failed(reply.error);
                 emit finished(reply.runId, reply.cancelled);
@@ -234,6 +261,11 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
         {
             JobReply reply;
             reply.runId = source.id;
+            QElapsedTimer total, step;
+            total.start();
+            step.start();
+            auto mark = [&](const QString &stage, const QString &detail = {})
+            { perf(source.id, stage, step.restart(), detail); };
             struct Progress
             {
                 std::shared_ptr<std::atomic_bool> cancel;
@@ -270,6 +302,7 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                 {
                     d = AnalysisStore::readDataset(path, &error);
                     require(bool(d), error);
+                    mark(QStringLiteral("readDataset"));
                     require(d->runId == source.id, tr("This package belongs to a different "
                                                       "run. Choose another destination."));
                     if (!source.fingerprint.isEmpty())
@@ -290,30 +323,52 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                     if (source.native)
                         d->provenance =
                             QStringLiteral("Captured model snapshot for this simulation execution");
-                    d->fingerprint = fingerprint(scanPath, *cancelFlag);
-                    if (!source.fingerprint.isEmpty())
-                        require(source.fingerprint == d->fingerprint,
-                                tr("The output file has changed. Reload it as a new result "
-                                   "version."));
                     require(QDir().mkpath(QFileInfo(path).absolutePath()),
                             tr("Cannot create the analysis folder."));
                     handle.reset(createHandle(d->snapshot, d->options, &error));
                     require(bool(handle), error);
-                    QString cache =
-                        QFileInfo(path).absolutePath() + QStringLiteral("/hydraulics.trace.nc");
+                    mark(QStringLiteral("createHandle"));
+                    // The digest and the engine scan each read the whole
+                    // output. Run them together so the wall time is the longer
+                    // of the two, not their sum. No engine cache is written:
+                    // the GeoPackage keeps the averages, and a cache key would
+                    // need the digest before the scan could start. The engine
+                    // still rejects an output whose size or mtime changed
+                    // during its scan.
+                    QString digest, digestError;
+                    std::thread hasher(
+                        [&]
+                        {
+                            try
+                            {
+                                digest = fingerprint(scanPath, *cancelFlag);
+                            }
+                            catch (const std::exception &e)
+                            {
+                                digestError = QString::fromUtf8(e.what());
+                            }
+                        });
                     int code = swmm_trace_prepare(handle.get(), scanPath.toUtf8().constData(),
-                                                  cache.toUtf8().constData(),
-                                                  d->fingerprint.toUtf8().constData(), cb, &p);
+                                                  nullptr, nullptr, cb, &p);
+                    hasher.join();
+                    mark(QStringLiteral("prepare+fingerprint"),
+                         QStringLiteral("bytes=%1").arg(QFileInfo(scanPath).size()));
                     require(code == 0, QString::fromUtf8(swmm_trace_error(handle.get())));
-                    require(fingerprint(scanPath, *cancelFlag) == d->fingerprint,
-                            tr("Source output changed during analysis preparation."));
+                    require(digestError.isEmpty(), digestError);
+                    d->fingerprint = digest;
+                    if (!source.fingerprint.isEmpty())
+                        require(source.fingerprint == d->fingerprint,
+                                tr("The output file has changed. Reload it as a new result "
+                                   "version."));
                     d->nodes.resize(d->snapshot.nodes.size());
                     d->links.resize(d->snapshot.links.size());
                     swmm_trace_get_info(handle.get(), &d->info);
                     require(swmm_trace_get_averages(handle.get(), d->nodes.data(), d->nodes.size(),
                                                     d->links.data(), d->links.size()) == 0,
                             tr("Cannot retrieve hydraulic averages."));
+                    mark(QStringLiteral("getAverages"));
                     require(AnalysisStore::prepare(path, *d, &error, cancelFlag.get()), error);
+                    mark(QStringLiteral("gpkgPrepare"));
                 }
                 reply.dataset = d;
                 if (!handle)
@@ -324,6 +379,7 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                                                     d->links.data(), d->links.size(),
                                                     &d->info) == 0,
                             tr("Saved averages are invalid."));
+                    mark(QStringLiteral("setAverages"));
                 }
                 QVector<int> indices;
                 QStringList missing;
@@ -353,6 +409,7 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                 // different node only solves from averages; the .out is not rescanned.
                 auto saved = AnalysisStore::analyses(path, &error);
                 require(error.isEmpty(), error);
+                mark(QStringLiteral("analyses"));
                 for (int seed : indices)
                 {
                     if (cancelFlag->load())
@@ -366,8 +423,9 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                                 cachedId = row.value("id").toString();
                         if (!cachedId.isEmpty())
                         {
-                            auto cached = AnalysisStore::read(path, cachedId, &error);
+                            auto cached = AnalysisStore::read(path, cachedId, d, &error);
                             require(bool(cached), error);
+                            mark(QStringLiteral("cachedRead"), QStringLiteral("seed=%1").arg(seed));
                             reply.results.append(cached);
                             continue;
                         }
@@ -390,10 +448,12 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                                                    r->nodes.size(), r->links.data(),
                                                    r->links.size(), &r->summary, cb, &p);
                     require(code == 0, QString::fromUtf8(swmm_trace_error(handle.get())));
+                    mark(QStringLiteral("estimate"), QStringLiteral("seed=%1").arg(seed));
                     // Retain computed work for a save retry even if the writer fails.
                     reply.results.append(r);
                     require(AnalysisStore::save(path, *r, &error, cancelFlag.get()), error);
                     r->saved = true;
+                    mark(QStringLiteral("save"), QStringLiteral("seed=%1").arg(seed));
                 }
             }
             catch (const std::exception &e)
@@ -401,6 +461,13 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                 reply.error = QString::fromUtf8(e.what());
             }
             reply.cancelled = cancelFlag->load();
+            perf(source.id, QStringLiteral("total"), total.elapsed(),
+                 reply.dataset ? QStringLiteral("nodes=%1 links=%2 periods=%3 results=%4")
+                                     .arg(reply.dataset->nodes.size())
+                                     .arg(reply.dataset->links.size())
+                                     .arg(reply.dataset->info.periods)
+                                     .arg(reply.results.size())
+                               : QStringLiteral("error=%1").arg(reply.error));
             return reply;
         }));
 }

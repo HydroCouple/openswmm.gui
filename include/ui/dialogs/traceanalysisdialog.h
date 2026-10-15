@@ -40,6 +40,7 @@ class TraceAnalysisDialog final : public QDialog
     QLabel *m_prompt;
     QProgressDialog *m_progress;
     QString m_runId;
+    Snapshot m_snapshot; // captured once per picker session
     bool m_upstream = false, m_travel = false, m_pending = false;
 };
 } // namespace openswmmvis::trace

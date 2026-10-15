@@ -334,17 +334,24 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
                 "Analysis package belongs to another run");
         require(d->StartTransaction() == OGRERR_NONE, "Cannot start analysis transaction");
         auto *a = table(d.get(), "analyses");
+        // tableName validates the ID as a UUID, so it is safe inside the filter.
+        // SQLite does the lookup; diagnostics hold one row per flagged object
+        // per saved analysis, too many to materialize on every save.
+        (void)tableName(r.id, true);
+        const QString filter = QStringLiteral("analysis_id = '%1'").arg(r.id);
         for (auto name : {"analyses", "analysis_summary", "analysis_diagnostics"})
         {
             auto *l = table(d.get(), name);
+            require(l->SetAttributeFilter(filter.toUtf8().constData()) == OGRERR_NONE,
+                    "Cannot filter saved analysis rows");
             l->ResetReading();
             QVector<GIntBig> old;
             while (auto *raw = l->GetNextFeature())
             {
                 Feature f(raw, OGRFeature::DestroyFeature);
-                if (str(f.get(), "analysis_id") == r.id)
-                    old.append(f->GetFID());
+                old.append(f->GetFID());
             }
+            l->SetAttributeFilter(nullptr);
             for (auto fid : old)
                 require(l->DeleteFeature(fid) == OGRERR_NONE, "Cannot replace saved analysis");
         }
@@ -453,6 +460,9 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
         for (bool nodes : {true, false})
         {
             auto *layer = table(d.get(), nodes ? "average_nodes" : "average_links");
+            // Geometry is restored from the snapshot JSON, not from these rows.
+            const char *ignored[] = {"OGR_GEOMETRY", nullptr};
+            layer->SetIgnoredFields(ignored);
             QSet<int> seen;
             int count = nodes ? data->nodes.size() : data->links.size();
             while (auto *raw = layer->GetNextFeature())
@@ -527,9 +537,14 @@ QVector<QJsonObject> AnalysisStore::analyses(const QString &path, QString *error
 }
 std::shared_ptr<Result> AnalysisStore::read(const QString &path, const QString &id, QString *error)
 {
+    auto data = readDataset(path, error);
+    return data ? read(path, id, data, error) : nullptr;
+}
+std::shared_ptr<Result> AnalysisStore::read(const QString &path, const QString &id,
+                                            std::shared_ptr<const Dataset> data, QString *error)
+{
     try
     {
-        auto data = readDataset(path, error);
         require(bool(data), "Cannot read saved analysis averages");
         auto d = open(path, false);
         require(bool(d), "Cannot open analysis package");
