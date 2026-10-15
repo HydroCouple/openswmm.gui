@@ -344,13 +344,8 @@ bool readCellSlice(hid_t file, const char* name, int cells, int rank,
     count.back() = hsize_t(cells);
     if (rank > 1) offset[0] = hsize_t(time);
     if (rank == 3) offset[1] = hsize_t(row);
-    if (H5Sselect_hyperslab(fileSpace.id, H5S_SELECT_SET, offset.data(), nullptr, count.data(), nullptr) < 0)
+    if (fileSpace.id < 0)
         return fail(QStringLiteral("cannot select requested slice"));
-    const hsize_t cellCount = hsize_t(cells);
-    DataSpaceGuard memory(H5Screate_simple(1, &cellCount, nullptr));
-    std::vector<double> raw(std::size_t(cells), 0.);
-    if (memory.id < 0 || H5Dread(data, H5T_NATIVE_DOUBLE, memory.id, fileSpace.id, H5P_DEFAULT, raw.data()) < 0)
-        return fail(QStringLiteral("cannot read requested slice"));
     double fill = 0., missing = 0., scale = 1., add = 0.;
     const bool hasFill = readDoubleAttr(data, "_FillValue", fill);
     const bool hasMissing = readDoubleAttr(data, "missing_value", missing);
@@ -362,16 +357,31 @@ bool readCellSlice(hid_t file, const char* name, int cells, int rank,
         || (H5Aexists(data, "add_offset") > 0 && !hasOffset))
         return fail(QStringLiteral("nonnumeric or nonscalar missing/scale metadata"));
     if (!std::isfinite(scale) || !std::isfinite(add)) return fail(QStringLiteral("invalid scale/offset metadata"));
-    std::vector<float> out(std::size_t(cells), std::numeric_limits<float>::quiet_NaN());
-    std::vector<Mesh2DValueStatus> flags(std::size_t(cells), Mesh2DValueStatus::Valid);
-    for (int cell = 0; cell < cells; ++cell) {
-        const double v = raw[std::size_t(cell)];
-        const double decoded = v * scale + add;
-        if (!std::isfinite(v) || !std::isfinite(decoded)
-            || std::abs(decoded) > std::numeric_limits<float>::max()
-            || (hasFill && v == fill) || (hasMissing && v == missing))
-            flags[std::size_t(cell)] = Mesh2DValueStatus::Missing;
-        else out[std::size_t(cell)] = float(decoded);
+    // Keep atomic outputs on failure while reusing the caller's cleared
+    // capacity. Decode in double, with the same missing/scale arithmetic,
+    // through a bounded scratch row rather than a full-domain double copy.
+    std::vector<float> out;out.swap(values);
+    std::vector<Mesh2DValueStatus> flags;flags.swap(status);
+    out.assign(std::size_t(cells),std::numeric_limits<float>::quiet_NaN());
+    flags.assign(std::size_t(cells),Mesh2DValueStatus::Valid);
+    constexpr size_t blockCells=65536;
+    std::vector<double> raw(std::min(size_t(cells),blockCells),0.);
+    auto blockOffset=offset,blockCount=count;
+    for(size_t first=0;first<size_t(cells);first+=blockCells) {
+        const hsize_t n=std::min(blockCells,size_t(cells)-first);
+        blockOffset.back()=hsize_t(first);blockCount.back()=n;
+        DataSpaceGuard memory(H5Screate_simple(1,&n,nullptr));
+        if(memory.id<0 || H5Sselect_hyperslab(fileSpace.id,H5S_SELECT_SET,blockOffset.data(),nullptr,blockCount.data(),nullptr)<0
+            || H5Dread(data,H5T_NATIVE_DOUBLE,memory.id,fileSpace.id,H5P_DEFAULT,raw.data())<0)
+            return fail(QStringLiteral("cannot read requested slice"));
+        for(size_t local=0;local<size_t(n);++local) {
+            const double v=raw[local],decoded=v*scale+add;
+            if(!std::isfinite(v) || !std::isfinite(decoded)
+                || std::abs(decoded)>std::numeric_limits<float>::max()
+                || (hasFill && v==fill) || (hasMissing && v==missing))
+                flags[first+local]=Mesh2DValueStatus::Missing;
+            else out[first+local]=float(decoded);
+        }
     }
     // Lazy engine variables use zero default fill. A wholly unallocated chunk
     // is unreported data, even though HDF5 returns zeros for that chunk.

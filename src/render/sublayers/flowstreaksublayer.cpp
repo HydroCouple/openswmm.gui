@@ -33,7 +33,7 @@ void FlowStreakStyle::setTrailDurationSeconds(double value) {
     if(m_trailDurationSeconds==value) return;m_trailDurationSeconds=value;setDirty();
 }
 void FlowStreakStyle::setSpacingPx(double value) {
-    if(!std::isfinite(value)) return; value=std::clamp(value,8.,maximumNumericValue());
+    if(!std::isfinite(value)) return; value=std::clamp(value,2.,maximumNumericValue());
     if(m_spacingPx==value) return; m_spacingPx=value; setDirty();
 }
 void FlowStreakStyle::setAnimated(bool value) {

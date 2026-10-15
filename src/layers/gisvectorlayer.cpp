@@ -20,6 +20,7 @@
 #include "core/preferencesmanager.h"
 #include "render/symbolstyle.h"
 #include "render/featureref.h"
+#include "render/maskclipresolver.h"
 
 #include <QGraphicsScene>
 #include <QDebug>
@@ -375,6 +376,7 @@ void GISVectorLayer::setFilterExpression(const QString &expr)
         return;
 
     m_filterExpr = expr;
+    OpenSWMM::Render::invalidateMaskClipCache(layerId());
 
     if (m_ogrLayer)
     {
@@ -1094,6 +1096,7 @@ void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
 
 void GISVectorLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
 {
+    OpenSWMM::Render::invalidateMaskClipCache(layerId());
     // Drop the cache key so ensureTransform() rebuilds against the new CRS.
     m_transformCanvasWkt.clear();
     ensureTransform(newCanvasSRS);
@@ -1267,6 +1270,7 @@ GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
 
 void GISVectorLayer::applyOpenResult(const OpenResult &r)
 {
+    OpenSWMM::Render::invalidateMaskClipCache(layerId());
     closeDataset();          // drop any previously-open dataset (re-open case)
 
     m_dataset  = r.dataset;

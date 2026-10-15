@@ -317,11 +317,15 @@ struct FlowParticleWork {
 class FlowParticleSystem {
 public:
     FlowParticleSystem();
+    // Clear hydraulic/time state while retaining bounded reusable storage.
+    // Publications held by a display remain immutable.
+    void reset();
     bool setSettings(const FlowParticleSettings &);
     bool setField(std::shared_ptr<const FlowParticleSnapshot>,double transitionSeconds=0);
     quint64 spawn(QPointF position,quint64 randomSeed=0,bool publishImmediately=true,int cellHint=-1,double initialAgeFraction=0);
     FlowParticleWork advance(double elapsed,int stepBudget=16384);
     void eraseFinished();
+    int releaseOffscreen(const QRectF &view,int requestedSlots);
     void setAppearance(double scale,FlowParticleAppearance appearance) {m_renderScale=scale;m_appearance=std::move(appearance);}
     std::shared_ptr<const FlowParticleFrame> frame() const { return m_frame; }
     const FlowParticleStorage &particles() const { return m_particles; }

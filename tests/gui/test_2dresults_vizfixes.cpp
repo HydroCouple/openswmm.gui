@@ -58,6 +58,18 @@
 
 namespace {
 
+// Compare rendered triangles regardless of whether their vertices are
+// expanded or shared through exact GPU attribute indices.
+struct ColoredVertexView {
+    const QSGGeometry* geometry;
+    int size() const { return geometry->indexCount()?geometry->indexCount():geometry->vertexCount(); }
+    const QSGGeometry::ColoredPoint2D& operator[](int i) const {
+        if(geometry->indexCount())i=geometry->indexType()==QSGGeometry::UnsignedIntType
+            ?int(geometry->indexDataAsUInt()[i]):int(geometry->indexDataAsUShort()[i]);
+        return geometry->vertexDataAsColoredPoint2D()[i];
+    }
+};
+
 // Minimal synthetic source: a unit square split into two triangles sharing the
 // 0–2 diagonal. Flat bed (z = 0) so the free-surface reconstruction reduces to
 // η = depth and per-vertex blends are exact. Depth is spatially uniform per
@@ -274,7 +286,11 @@ private slots:
     void smoothProfilesAndContoursShareOneSurface();
     void smoothMaximumContainsEveryFrame();
     void mapFillsStopAtExactShoreline();
+    void waterSnapshotTracksWetArea();
+    void unchangedSyncKeepsSceneOrder();
+    void largeDirectFillKeepsPrimitiveChunks();
     void contourAnimationPublishesCompleteFrames();
+    void contourSnapshotsSurviveStyleAndFrameChanges();
     void largeContoursNeverMarchDuringSync();
     void depthClassificationRemainsStableDuringPlayback();
     void cpuContoursStopAtExactShoreline();
@@ -303,6 +319,7 @@ private slots:
     void surfaceWorkerMatchesSynchronousFit();
     void surfaceWorkerPublishesInRequestOrder();
     void surfaceWorkerEnvelopeAndStations();
+    void surfaceWorkerRetainsOnlyRequestedHistory();
     void surfaceWorkerLimitsLiveFits();
     void bellingeWorkerEqualityAndLatency();
 };
@@ -631,6 +648,69 @@ void Test2DResultsVizFixes::surfaceWorkerEnvelopeAndStations()
     ready.clear();async->requestEnvelope();
     QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,20000);
     QVERIFY(sameField(async->maxSurfaceDepths(),sync->maxSurfaceDepths()));
+}
+
+void Test2DResultsVizFixes::surfaceWorkerRetainsOnlyRequestedHistory()
+{
+    auto sync=flowingLayer(false),async=flowingLayer(true);
+    async->setSurfaceCacheBytes(0);
+    for(int frame:{0,4,1,3}) {
+        sync->setCurrentTimeIndex(frame);async->setCurrentTimeIndex(frame);
+        QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy() && async->currentTimeIndex()==frame,10000);
+        QVERIFY(sameSceneCorners(*sync,*async));
+        // Playback and station-only queries do not own a historical envelope
+        // or an uncached copy of a previously published full frame.
+        QCOMPARE(async->surfaceAuxiliaryBytes(),size_t(0));
+        QVERIFY(async->waterVisibilityBytes()*2<sync->waterVisibilityBytes());
+        for(int cell=0;cell<sync->cellCount();++cell)
+            QCOMPARE(async->cellWaterDisplayState(cell),sync->cellWaterDisplayState(cell));
+    }
+    const size_t workingBytes=async->surfaceWorkingBytes();
+    for(int frame:{0,4,1,3}) {
+        sync->setCurrentTimeIndex(frame);async->setCurrentTimeIndex(frame);
+        QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy() && async->currentTimeIndex()==frame,10000);
+        QCOMPARE(async->surfaceWorkingBytes(),workingBytes);
+        // Reused velocity scratch must be fully overwritten on every frame,
+        // including backward seeks, just like the independent synchronous fit.
+        QCOMPARE(async->m_sceneTris.size(),sync->m_sceneTris.size());
+        for(int i=0;i<sync->m_sceneTris.size();++i) {
+            const auto& a=async->m_sceneTris[i];const auto& b=sync->m_sceneTris[i];
+            QCOMPARE(a.vx,b.vx);QCOMPARE(a.vy,b.vy);QCOMPARE(a.vmag,b.vmag);
+            float ax=0,ay=0,bx=0,by=0;
+            QCOMPARE(async->velocityAtScene(a.centroid,ax,ay),sync->velocityAtScene(b.centroid,bx,by));
+            QCOMPARE(ax,bx);QCOMPARE(ay,by);
+        }
+    }
+    QSignalSpy ready(async.get(),&SWMM2DResultsLayer::envelopeReady);
+    async->requestEnvelope();
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count()>0,20000);
+    QVERIFY(async->envelopeComplete());
+    QVERIFY(sameField(async->maxSurfaceDepths(),sync->maxSurfaceDepths()));
+    // An uncached current frame may be transferred while requested history
+    // remains valid across subsequent publications.
+    async->setCurrentTimeIndex(2);sync->setCurrentTimeIndex(2);
+    QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy() && async->currentTimeIndex()==2,10000);
+    QVERIFY(sameSceneCorners(*sync,*async));
+    QVERIFY(sameField(async->maxSurfaceDepths(),sync->maxSurfaceDepths()));
+    // Changing policy while the replacement fit is pending must classify
+    // the displayed frame using the new threshold, not a cached enum.
+    const auto revision=async->frameRevision();
+    async->setThinFilmDepth(100);
+    QCOMPARE(async->frameRevision(),revision);
+    QVERIFY(async->surfaceBusy());
+    for(int cell=0;cell<async->cellCount();++cell)
+        QCOMPARE(async->cellWaterDisplayState(cell),CellWaterGeometry::DisplayState::ThinFilm);
+    sync->setThinFilmDepth(100);
+    QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy(),10000);
+    for(double film:{0.,0.001,0.05})for(bool show:{true,false}) {
+        sync->setThinFilmDepth(film);sync->setShowThinFilms(show);
+        async->setThinFilmDepth(film);async->setShowThinFilms(show);
+        QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy(),10000);
+        QVERIFY(sameSceneCorners(*sync,*async));
+        for(int cell=0;cell<sync->cellCount();++cell)
+            QCOMPARE(async->cellWaterDisplayState(cell),sync->cellWaterDisplayState(cell));
+        QVERIFY(async->waterVisibilityBytes()*2<sync->waterVisibilityBytes());
+    }
 }
 
 void Test2DResultsVizFixes::surfaceWorkerLimitsLiveFits()
@@ -1055,6 +1135,113 @@ void Test2DResultsVizFixes::smoothMaximumContainsEveryFrame()
     QVERIFY(std::abs(reduced[0][0]-1.0)<1e-12);
 }
 
+void Test2DResultsVizFixes::unchangedSyncKeepsSceneOrder()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public: QSGNode* sync(QSGNode* old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    SWMM2DResultsLayer layer;layer.setSource(std::make_unique<VfrSource>());layer.setVisible(true);
+    for(auto* sub:layer.sublayers())sub->setVisible(false);
+    layer.smoothDepthFillSublayer()->setVisible(true);
+    Renderer renderer;renderer.setWidth(400);renderer.setHeight(400);
+    renderer.setMapExtent(MapExtent(0,0,1,1));renderer.setLayer(&layer);
+    std::unique_ptr<QSGNode> root(renderer.sync());
+    const auto mutations=renderer.sceneOrderMutationCount();QVERIFY(mutations>0);
+    for(int i=0;i<5;++i)root.reset(renderer.sync(root.release()));
+    QCOMPARE(renderer.sceneOrderMutationCount(),mutations);
+    layer.setCurrentTimeIndex(0);root.reset(renderer.sync(root.release()));
+    QCOMPARE(renderer.sceneOrderMutationCount(),mutations);
+    renderer.setMapExtent(MapExtent(.1,0,1.1,1));root.reset(renderer.sync(root.release()));
+    QCOMPARE(renderer.sceneOrderMutationCount(),mutations);
+}
+
+void Test2DResultsVizFixes::largeDirectFillKeepsPrimitiveChunks()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public: QSGNode* sync(QSGNode* old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    SWMM2DResultsLayer layer;layer.setSource(std::make_unique<VfrSource>());layer.setVisible(true);
+    for(auto* sub:layer.sublayers())sub->setVisible(false);
+    layer.smoothDepthFillSublayer()->setVisible(true);
+    constexpr int cols=300,rows=200;
+    layer.m_sceneTris.resize(cols*rows);
+    for(int i=0;i<cols*rows;++i) {
+        auto& t=layer.m_sceneTris[i];const double x=i%cols,y=-(i/cols);
+        t.a={x,y};t.b={x+1,y};t.c={x,y-1};t.centroid=(t.a+t.b+t.c)/3;
+        t.depth=t.dv0=t.dv1=t.dv2=i%2?.75f:.25f;
+    }
+    auto* style=layer.smoothDepthFillSublayer()->fillStyle();
+    style->setUseCustomRange(true);style->setRangeMin(0);style->setRangeMax(1);
+    style->setColorRampName(QString());style->setLowColor(Qt::blue);style->setHighColor(Qt::red);
+    layer.smoothDepthFillSublayer()->setOpacity(1);
+    layer.m_sceneBBox=QRectF(0,-rows,cols,rows);
+    Renderer renderer;renderer.setWidth(600);renderer.setHeight(400);
+    renderer.setMapExtent(MapExtent(0,0,cols,rows));renderer.setLayer(&layer);
+    std::unique_ptr<QSGNode> root(renderer.sync());
+    size_t uniqueVertices=0;
+    auto measure=[&](bool complete=false) {
+        size_t vertices=0;double area=0;uniqueVertices=0;
+        std::array<std::array<unsigned char,4>,2> colors{};
+        auto visit=[&](auto&& self,QSGNode* node)->void {
+            if(node->type()==QSGNode::GeometryNodeType) {
+                const auto* g=static_cast<QSGGeometryNode*>(node)->geometry();
+                if(g && g->attributeCount()==2) {
+                    const ColoredVertexView v{g};
+                    QVERIFY(g->vertexCount()<=65532);QCOMPARE(v.size()%3,0);
+                    uniqueVertices+=size_t(g->vertexCount());
+                    if(complete && vertices==0 && v.size()>=6) {
+                        colors[0]={v[1].r,v[1].g,v[1].b,v[1].a};
+                        colors[1]={v[4].r,v[4].g,v[4].b,v[4].a};
+                        QVERIFY(colors[0]!=colors[1]);
+                    }
+                    for(int i=0;i<v.size();i+=3) {
+                        area+=.5*std::abs(double(v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
+                            -double(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x));
+                        if(complete)for(int k=0;k<3;++k) {
+                            const int triangle=int(vertices/3)+i/3;
+                            QCOMPARE(v[i+k].x,float(triangle%cols+(k==1)-cols/2));
+                            QCOMPARE(v[i+k].y,float(-(triangle/cols)-(k==2)+rows/2));
+                            QCOMPARE((std::array<unsigned char,4>{v[i+k].r,v[i+k].g,v[i+k].b,v[i+k].a}),colors[size_t(triangle%2)]);
+                        }
+                    }
+                    vertices+=size_t(v.size());
+                }
+            }
+            for(auto* child=node->firstChild();child;child=child->nextSibling())self(self,child);
+        };
+        visit(visit,root.get());return std::make_pair(vertices,area);
+    };
+    const auto full=measure(true);QCOMPARE(full.first,size_t(cols*rows*3));
+    QCOMPARE(full.second,.5*cols*rows);
+    QVERIFY2(uniqueVertices<full.first,"Direct fills still duplicate every GPU vertex");
+    renderer.setMapExtent(MapExtent(0,0,2,2));root.reset(renderer.sync(root.release()));
+    const auto small=measure();QVERIFY(small.first>0);QVERIFY(small.first<65532);
+    renderer.setMapExtent(MapExtent(0,0,cols,rows));root.reset(renderer.sync(root.release()));
+    QCOMPARE(measure(true),full);
+}
+
+void Test2DResultsVizFixes::waterSnapshotTracksWetArea()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public: QSGNode* sync(QSGNode* old=nullptr) { return updatePaintNode(old,nullptr); }
+    };
+    auto source=std::make_unique<VfrSource>();
+    source->frames={{0.4921875f,0},{0,0},{0,0.0703125f},{0.4921875f,0.0703125f}};
+    SWMM2DResultsLayer layer;layer.setSource(std::move(source));layer.setVisible(true);
+    for(auto* sub:layer.sublayers())sub->setVisible(false);
+    layer.smoothDepthFillSublayer()->setVisible(true);
+    Renderer renderer;renderer.setWidth(400);renderer.setHeight(400);
+    renderer.setMapExtent(MapExtent(0,0,1,1));renderer.setLayer(&layer);
+    std::unique_ptr<QSGNode> root;
+    const size_t counts[]={1,0,1,2};
+    for(int frame:{0,1,2,3,0}) {
+        layer.setCurrentTimeIndex(frame);root.reset(renderer.sync(root.release()));
+        QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+        QCOMPARE(renderer.retainedWaterTriangleCount(),counts[frame]);
+        QCOMPARE(renderer.retainedWaterAttributeBytes(),size_t(0));
+    }
+}
+
 void Test2DResultsVizFixes::mapFillsStopAtExactShoreline()
 {
     class Renderer : public SWMM2DResultsQSGRenderer {
@@ -1086,8 +1273,8 @@ void Test2DResultsVizFixes::mapFillsStopAtExactShoreline()
                 if (child->type()!=QSGNode::GeometryNodeType) continue;
                 const auto* g=static_cast<QSGGeometryNode*>(child)->geometry();
                 if (!g || g->vertexCount()==0 || g->attributeCount()!=2) continue;
-                const auto* v=g->vertexDataAsColoredPoint2D();
-                for (int i=0;i<g->vertexCount();i+=3) {
+                const ColoredVertexView v{g};
+                for (int i=0;i<v.size();i+=3) {
                     for (int k=0;k<3;++k) minY=std::min(minY,double(v[i+k].y));
                     area+=0.5*std::abs(double(v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
                         - double(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x));
@@ -1204,6 +1391,55 @@ void Test2DResultsVizFixes::contourAnimationPublishesCompleteFrames()
     QTRY_VERIFY_WITH_TIMEOUT(ready.count()>4,5000);
     root.reset(renderer.sync(root.release()));
     QCOMPARE(signature(true),otherFill); QCOMPARE(signature(false),otherLines);
+    renderer.finishPendingCapture();root.reset(renderer.sync(root.release()));
+    const int settled=ready.count();QTest::qWait(75);
+    QCOMPARE(ready.count(),settled);QVERIFY(renderer.captureReady());
+}
+
+void Test2DResultsVizFixes::contourSnapshotsSurviveStyleAndFrameChanges()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer {
+    public: QSGNode* sync(QSGNode* old=nullptr) {return updatePaintNode(old,nullptr);}
+    };
+    SWMM2DResultsLayer layer;
+    auto source=std::make_unique<FlowVfrSource>();auto* raw=source.get();
+    layer.setSource(std::move(source));layer.setMaxDepth(2);layer.setVisible(true);
+    const auto setup=[&](Renderer& r) {
+        r.setWidth(400);r.setHeight(400);r.setMapExtent(MapExtent(0,0,1,1));r.setLayer(&layer);
+    };
+    const auto signature=[](QSGNode* root) {
+        QByteArray bytes;
+        auto visit=[&](auto&& self,QSGNode* node)->void {
+            if(node->type()==QSGNode::GeometryNodeType) {
+                const auto* g=static_cast<QSGGeometryNode*>(node)->geometry();
+                if(g) {
+                    bytes.append(reinterpret_cast<const char*>(g->vertexData()),g->vertexCount()*g->sizeOfVertex());
+                    bytes.append(reinterpret_cast<const char*>(g->indexData()),g->indexCount()*g->sizeOfIndex());
+                }
+            }
+            for(auto* child=node->firstChild();child;child=child->nextSibling())self(self,child);
+        };
+        visit(visit,root);return bytes;
+    };
+    Renderer renderer;setup(renderer);std::unique_ptr<QSGNode> root;
+    // Alternate immediate fills, contour-only snapshots, and companion fills
+    // through dry/re-wet frames. Reused storage must match a fresh renderer.
+    for(int round=0;round<3;++round)for(int mode:{0,1,2,1}) {
+        for(auto* sub:layer.sublayers())sub->setVisible(false);
+        layer.contourBandSublayer()->setVisible(mode!=0);
+        layer.smoothDepthFillSublayer()->setVisible(mode!=1);
+        for(float depth:{0.15f,0.0f,0.7f,0.35f}) {
+            raw->frames[0][0]=depth;layer.refreshCurrentFrame();
+            root.reset(renderer.sync(root.release()));
+            renderer.finishPendingCapture();root.reset(renderer.sync(root.release()));
+            QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+            if(mode!=2)QCOMPARE(renderer.retainedWaterAttributeBytes(),size_t(0));
+            else if(renderer.retainedWaterTriangleCount()>0)QVERIFY(renderer.retainedWaterAttributeBytes()>0);
+            Renderer fresh;setup(fresh);std::unique_ptr<QSGNode> reference(fresh.sync());
+            fresh.finishPendingCapture();reference.reset(fresh.sync(reference.release()));
+            QCOMPARE(signature(root.get()),signature(reference.get()));
+        }
+    }
 }
 
 // Renderer-only scale fixture: fitted corners are supplied directly so this
@@ -1268,6 +1504,32 @@ void Test2DResultsVizFixes::largeContoursNeverMarchDuringSync()
         QTest::qWait(20);root.reset(renderer.sync(root.release()));
     }
     QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+    // Supersede a coverage request before delivering its completion. Reject
+    // the old packet, then show only the newly requested side of the mesh.
+    for(int pass=0;pass<3;++pass) {
+        const double finalX=40+40*pass;
+        int before=ready.count();renderer.setMapExtent(MapExtent(800,0,816,10));
+        root.reset(renderer.sync(root.release()));
+        renderer.setMapExtent(MapExtent(finalX,0,finalX+16,10));root.reset(renderer.sync(root.release()));
+        QTRY_VERIFY_WITH_TIMEOUT(ready.count()>before,10000);
+        before=ready.count();root.reset(renderer.sync(root.release()));
+        QTRY_VERIFY_WITH_TIMEOUT(ready.count()>before,10000);
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(renderer.displayedFrameRevision(),layer.frameRevision());
+        QVERIFY(renderer.captureReady());
+        size_t vertices=0;
+        auto check=[&](auto&& self,QSGNode* node)->void {
+            if(node->type()==QSGNode::GeometryNodeType) {
+                const auto* g=static_cast<QSGGeometryNode*>(node)->geometry();
+                if(g && g->attributeCount()==2)for(int i=0;i<g->vertexCount();++i) {
+                    const double x=g->vertexDataAsColoredPoint2D()[i].x+layer.m_sceneBBox.center().x();
+                    QVERIFY(x>=finalX-10 && x<=finalX+26);++vertices;
+                }
+            }
+            for(auto* child=node->firstChild();child;child=child->nextSibling())self(self,child);
+        };
+        check(check,root.get());QVERIFY(vertices>0);
+    }
     // Pan outside the prepared coverage: recompute the newly exposed area.
     renderer.setMapExtent(MapExtent(800,0,816,10));
     const int before=ready.count();root.reset(renderer.sync(root.release()));
@@ -1423,8 +1685,8 @@ void Test2DResultsVizFixes::directFillRangesClipAndSaturateQsg()
             if(node->type()!=QSGNode::GeometryNodeType) continue;
             const auto *g=static_cast<QSGGeometryNode*>(node)->geometry();
             if(!g || g->attributeCount()!=2) continue;
-            const auto *v=g->vertexDataAsColoredPoint2D();
-            for(int i=0;i+2<g->vertexCount();i+=3) {
+            const ColoredVertexView v{g};
+            for(int i=0;i+2<v.size();i+=3) {
                 const double a=std::abs((v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
                                      -(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x))*0.5;
                 area+=a;
@@ -1499,8 +1761,8 @@ void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
                 if(n->type()!=QSGNode::GeometryNodeType) continue;
                 auto *g=static_cast<QSGGeometryNode*>(n)->geometry();
                 if(!g || g->attributeCount()!=2) continue;
-                const auto *v=g->vertexDataAsColoredPoint2D();
-                for(int i=0;i+2<g->vertexCount();i+=3)
+                const ColoredVertexView v{g};
+                for(int i=0;i+2<v.size();i+=3)
                     area+=std::abs((v[i+1].x-v[i].x)*(v[i+2].y-v[i].y)
                                 -(v[i+1].y-v[i].y)*(v[i+2].x-v[i].x))*0.5;
             }

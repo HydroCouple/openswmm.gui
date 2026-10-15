@@ -161,14 +161,18 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_MACOS
     if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND"))
         qputenv("QSG_RHI_BACKEND", "opengl");
-    if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP"))
-        qputenv("QSG_RENDER_LOOP", "threaded");
 #endif
+
+    // Map renderers synchronize GUI-owned layer state. A native visible map
+    // supplies vsync-paced frame swaps while retaining GUI-thread sync. An
+    // explicitly requested alternate loop uses the widget surface instead.
+    if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP"))
+        qputenv("QSG_RENDER_LOOP", "basic");
 
     // The engine sizes its OpenMP team against the machine's logical CPUs
     // and then spin-waits between barriers whenever that team "fits". In
-    // this process it shares the CPUs with the GUI thread, the threaded
-    // scene-graph render thread and its own IO thread — say so
+    // this process it shares the CPUs with the GUI thread, visualization
+    // preparation workers and its own IO thread — say so
     // (OPENSWMM_HOST_RESERVED_THREADS is read by the engine's
     // oversubscription check), so a THREADS = all-cores deck falls back to
     // passive waits with a warning instead of stalling every barrier on a

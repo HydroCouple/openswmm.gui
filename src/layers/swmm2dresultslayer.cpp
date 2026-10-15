@@ -259,6 +259,7 @@ public:
         setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, true);
         setCacheMode(QGraphicsItem::NoCache);
         setZValue(layer->layerZValue());
+        setData(0,QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
     }
 
     void geometryChanged() { prepareGeometryChange(); update(); }
@@ -949,6 +950,7 @@ public:
         setCacheMode(QGraphicsItem::NoCache);
         // Render above the depth fill (which uses layerZValue()).
         setZValue(layer->layerZValue() + 0.5);
+        setData(0,QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
     }
 
     void geometryChanged() { prepareGeometryChange(); update(); }
@@ -1873,7 +1875,13 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireArrowRepaint(m_velocityVectorSublayer);
     m_flowStreakSublayer = new OpenSWMM::Render::FlowStreakSublayer(this);
     m_particleController = new OpenSWMM::Render::FlowParticleLayerController(this);
-    wireMeshRepaint(m_flowStreakSublayer);
+    connect(m_flowStreakSublayer,&OpenSWMM::Render::ISublayer::invalidated,this,[this] {
+        // Keep the ordinary UI/CPU repaint signal, but let the separate
+        // particle presentation preserve hydraulic geometry and scene caches.
+        const QScopedValueRollback<bool> flowOnly(m_flowOnlyRepaint,true);
+        if(!m_qsgOwnsRendering && graphics_item_)graphics_item_->geometryChanged();
+        emit repaintRequested();
+    });
     surface_pool_.setMaxThreadCount(1);
 }
 
@@ -2082,14 +2090,15 @@ void foldSurfaceMaximum(const std::vector<CellWaterGeometry::CornerDepths>& fiel
 }
 template<class Job> size_t surfaceJobBytes(const Job& job)
 {
-    size_t bytes=(job.depths.size() + job.flux.size()) * sizeof(float)
-         + (job.flow.size() + job.smooth.size()) * sizeof(CellWaterGeometry::CornerDepths);
+    size_t bytes=job.surfaces.capacity()*sizeof(CellWaterGeometry::Surface)
+         +(job.depths.capacity() + job.flux.capacity()) * sizeof(float)
+         + (job.flow.capacity() + job.smooth.capacity()) * sizeof(CellWaterGeometry::CornerDepths);
     // Charge shared region geometry per owner conservatively; the budget must
     // also hold when a pan leaves older coverage alive in the frame cache.
     if(job.region) bytes+=(job.region->cells.size()+job.region->vertices.size())*sizeof(int)
         + job.region->splits.size()*sizeof(VertexDepthReconstruct::CellSplit)
         + job.region->topology.edges.size()*sizeof(CellWaterGeometry::SmoothTopology::Edge);
-    bytes+=job.reference.size()*sizeof(CellWaterGeometry::CornerDepths);
+    bytes+=job.reference.capacity()*sizeof(CellWaterGeometry::CornerDepths);
     if(job.region && job.region->checkRegion) {
         const auto& check=*job.region->checkRegion;
         bytes+=check.cells.size()*sizeof(int)+check.splits.size()*sizeof(VertexDepthReconstruct::CellSplit)
@@ -2180,9 +2189,12 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
             emit repaintRequested();          // other sublayers may have new data
             return true;
         }
-        std::shared_ptr<const SurfaceJob> ready = cachedSurface_(key);
+        std::shared_ptr<SurfaceJob> ready = cachedSurface_(key);
         if (!ready) {
-            auto job = std::make_shared<SurfaceJob>();
+            // Each request keeps its own identity: a capture may consume a
+            // completion before its queued callback is delivered. Only the
+            // underlying uncached buffers are reused, never the job object.
+            auto job=std::make_shared<SurfaceJob>();
             job->key = key;
             job->region = surface_region_;
             job->seq = seq;
@@ -2199,7 +2211,9 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
                 return true;
             }
             ++surface_fit_count_;
-            fitSurface_(*job);
+            fitSurface_(*job,&surface_workspace_);
+            job->workspaceBytes=surface_workspace_.bytes();
+            surface_workspace_bytes_=job->workspaceBytes;
             if(job->region) {
                 regional_error_=job->regionalError;
                 if(!job->acceptable) {
@@ -2212,6 +2226,7 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
         }
         pending_surface_.reset();
         publishSurface_(*ready, seq);
+        retainSurfaceBuffers_(ready);
         scheduleFit_();
         return true;
     }
@@ -2249,7 +2264,7 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
 
 // Install a fitted frame: every per-frame member changes here, together, so
 // queries, profiles and both renderers always see one coherent frame.
-void SWMM2DResultsLayer::publishSurface_(const SurfaceJob& job, quint64 seq)
+void SWMM2DResultsLayer::publishSurface_(SurfaceJob& job, quint64 seq)
 {
     const int t = job.key.frame;
     current_time_idx_ = t;
@@ -2260,18 +2275,32 @@ void SWMM2DResultsLayer::publishSurface_(const SurfaceJob& job, quint64 seq)
     if (job.region) publishRegionalSurface_(job);
     else {
         published_region_.reset();
-        current_depths_ = job.depths;
-        current_flux_ = job.flux;
+        // Oversized jobs cannot enter the byte-bounded frame cache. Transfer
+        // their buffers to the display rather than retaining a second full
+        // frame. Requested newest-envelope jobs remain immutable owners.
+        const bool transfer=surfaceJobBytes(job)>max_surface_cache_bytes_
+            && envelope_newest_.get()!=&job;
+        auto install=[transfer](auto& target,auto& input) {
+            if(transfer) target.swap(input);else target=input;
+        };
+        job.buffersTransferred=transfer;
+        install(current_depths_,job.depths);
+        install(current_flux_,job.flux);
         if (!max_depth_user_set_ && !current_depths_.empty()) {
             const float peak = *std::max_element(current_depths_.begin(),
                                                   current_depths_.end());
             if (std::isfinite(peak) && peak > max_depth_) max_depth_ = peak;
         }
-        cellSurfaces_.resize(cells_.size());
-        for (size_t c = 0; c < cells_.size(); ++c)
-            cellSurfaces_[c] = surfaceForDepth(int(c),current_depths_[c]);
-        cellFlowDepths_ = job.flow;
-        surfaceDepths_ = job.smooth;
+        install(cellSurfaces_,job.surfaces);
+        cellFlowMaxDepths_.resize(job.flow.size());
+        cellFlowFlags_.resize(job.flow.size());
+        for (size_t c=0;c<job.flow.size();++c) {
+            const auto summary=CellWaterGeometry::summarizeDepths(job.flow[c],cellSplit_[c].vertexCount());
+            cellFlowMaxDepths_[c]=summary.deepest;
+            cellFlowFlags_[c]=summary.flags;
+        }
+        std::vector<CellWaterGeometry::CornerDepths>().swap(cellFlowDepths_);
+        install(surfaceDepths_,job.smooth);
         fillSceneCorners_();
         applyCurrentFlux_();
     }
@@ -2288,9 +2317,12 @@ void SWMM2DResultsLayer::publishSurface_(const SurfaceJob& job, quint64 seq)
     emit repaintRequested();
 }
 
-void SWMM2DResultsLayer::fitSurface_(SurfaceJob& job) const
+void SWMM2DResultsLayer::fitSurface_(SurfaceJob& job, CellWaterGeometry::NeighborhoodFit::Workspace* workspace) const
 {
     if(!job.inputPath.isEmpty()) {
+        // Reused input storage must not expose an older frame after a failed
+        // file open or read. clear() retains its allocation for the next job.
+        job.depths.clear();job.flux.clear();
         openswmmvis::io::Mesh2DH5Reader reader;
         bool ok=reader.open(job.inputPath);
         if(job.region) ok=ok && reader.readHydraulicCellsAt(job.key.frame,job.region->cells,job.depths,job.flux);
@@ -2299,9 +2331,9 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob& job) const
         if(!ok || job.depths.size()!=count) job.depths.assign(count,std::numeric_limits<float>::quiet_NaN());
         for(float& d:job.depths) if(!std::isfinite(d) || d<0) d=std::numeric_limits<float>::quiet_NaN();
     }
-    std::vector<CellWaterGeometry::Surface> surfaces;
+    auto& surfaces=job.surfaces;
     if (!job.region) {
-        fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth);
+        fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth, workspace);
         return;
     }
     const auto& region=*job.region;
@@ -2309,7 +2341,7 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob& job) const
     for(size_t i=0;i<surfaces.size();++i)
         surfaces[i]=CellWaterGeometry::reconstruct(region.splits[i],job.depths[i],vz_);
     job.flow=CellWaterGeometry::flowingCornerDepths(region.splits,surfaces,vx_,vy_,vz_,
-        region.topology,job.depths,job.flux,job.policy);
+        region.topology,job.depths,job.flux,job.policy,nullptr,workspace,std::move(job.flow));
     CellWaterGeometry::smoothCornerDepths(region.splits,surfaces,vz_,region.topology,
         job.smooth,job.policy,job.flow);
     if(!region.checkRegion) return;
@@ -2319,7 +2351,7 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob& job) const
         check.depths.push_back(job.depths[i]);
         if(!job.flux.empty()) check.flux.insert(check.flux.end(),job.flux.begin()+4*i,job.flux.begin()+4*i+4);
     }
-    fitSurface_(check);
+    fitSurface_(check,workspace);
     auto compare=[&](double a,double b) {
         if(std::isfinite(a)!=std::isfinite(b)) {job.acceptable=false;return;}
         if(!std::isfinite(a)) return;
@@ -2360,11 +2392,24 @@ void SWMM2DResultsLayer::scheduleFit_()
     }
     if (job->live) live_fit_clock_.start();
     if (job == pending_surface_) pending_surface_.reset();
+    if(!job->region && spare_surface_ && spare_surface_!=job) {
+        // A request may have arrived while the previous frame was fitting.
+        // Its inputs stay intact; take only reusable output buffers (and
+        // saved-file input capacity that the worker is about to overwrite).
+        auto take=[](auto& target,auto& spare) {if(target.capacity()<spare.capacity())target.swap(spare);};
+        take(job->surfaces,spare_surface_->surfaces);take(job->flow,spare_surface_->flow);
+        take(job->smooth,spare_surface_->smooth);
+        if(!job->inputPath.isEmpty()) {
+            take(job->depths,spare_surface_->depths);take(job->flux,spare_surface_->flux);
+        }
+        spare_surface_.reset();
+    }
     surface_busy_ = true;
     active_surface_ = job;
     ++surface_fit_count_;
     surface_future_ = QtConcurrent::run(&surface_pool_, [this, job] {
-        fitSurface_(*job);
+        fitSurface_(*job,&surface_workspace_);
+        job->workspaceBytes=surface_workspace_.bytes();
         QMetaObject::invokeMethod(this, [this, job] { onSurfaceFinished_(job); },
                                   Qt::QueuedConnection);
     });
@@ -2375,6 +2420,7 @@ void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& j
     if (job->epoch != surface_epoch_ || active_surface_ != job) return;
     active_surface_.reset();   // capture may deliver completion before the queued callback
     surface_busy_ = false;
+    surface_workspace_bytes_=job->workspaceBytes;
     auto expected=surfaceKey_(job->key.frame);
     if(job->forEnvelope) expected.regionRev=0;
     const bool valid = source_ && job->key.frame < source_->timeCount() && job->key == expected;
@@ -2397,7 +2443,7 @@ void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& j
         }
         cacheSurface_(job);
         const int count = source_->timeCount();
-        if (!job->region) {
+        if (!job->region && (envelope_wanted_ || surfaceMaxSource_)) {
             resetEnvelopeIfStale_();
             if (job->key.frame == surfaceMaxFramesDone_ && job->key.frame < count - 1) {
                 foldSurfaceMaximum(job->smooth, surfaceMaxCache_);
@@ -2407,12 +2453,28 @@ void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& j
         }
         // Frames are shown in request order; one that finished after a newer
         // request was already displayed is kept in the cache only.
-        if (!job->forEnvelope && job->seq > published_seq_) publishSurface_(*job, job->seq);
+        if (!job->forEnvelope && job->seq > published_seq_) {
+            publishSurface_(*job, job->seq);
+            retainSurfaceBuffers_(job);
+        }
     } else if (!job->forEnvelope && !pending_surface_ && job->seq == request_seq_) {
         loadFrame_(requested_time_idx_);   // its frame changed while it was being fitted
         return;
     }
     scheduleFit_();
+}
+
+void SWMM2DResultsLayer::retainSurfaceBuffers_(const std::shared_ptr<SurfaceJob>& job)
+{
+    if(!job->buffersTransferred)return;
+    // Coherent publication swapped the old displayed buffers into this
+    // uncached job. Bootstrap has no old frame, so establish the normal
+    // second buffer now; subsequent worker fits re-use it without growing.
+    job->depths.resize(current_depths_.size());job->flux.resize(current_flux_.size());
+    job->surfaces.resize(cellSurfaces_.size());job->flow.resize(cellSurfaces_.size());
+    job->smooth.resize(surfaceDepths_.size());
+    spare_surface_=job;
+    surface_buffer_bytes_=surfaceJobBytes(*job);
 }
 
 void SWMM2DResultsLayer::cancelSurfaceJobs_()
@@ -2424,6 +2486,7 @@ void SWMM2DResultsLayer::cancelSurfaceJobs_()
         surface_busy_ = false;
     }
     active_surface_.reset();
+    spare_surface_.reset();surface_workspace_={};surface_workspace_bytes_=surface_buffer_bytes_=0;
     ++surface_epoch_;   // a result already queued for delivery is ignored
     surface_cache_.clear();
     surface_cache_bytes_ = 0;
@@ -2438,7 +2501,7 @@ void SWMM2DResultsLayer::setAsyncSurface(bool on)
     async_surface_ = on;
 }
 
-std::shared_ptr<const SWMM2DResultsLayer::SurfaceJob>
+std::shared_ptr<SWMM2DResultsLayer::SurfaceJob>
 SWMM2DResultsLayer::cachedSurface_(const SurfaceKey& key) const
 {
     for (auto it = surface_cache_.rbegin(); it != surface_cache_.rend(); ++it)
@@ -2446,12 +2509,33 @@ SWMM2DResultsLayer::cachedSurface_(const SurfaceKey& key) const
     return {};
 }
 
-void SWMM2DResultsLayer::cacheSurface_(const std::shared_ptr<const SurfaceJob>& job)
+void SWMM2DResultsLayer::cacheSurface_(const std::shared_ptr<SurfaceJob>& job)
 {
     if (cachedSurface_(job->key)) return;
     surface_cache_.push_back(job);
     surface_cache_bytes_ += surfaceJobBytes(*job);
     setSurfaceCacheBytes(max_surface_cache_bytes_);
+}
+
+size_t SWMM2DResultsLayer::surfaceAuxiliaryBytes() const
+{
+    size_t bytes=surface_cache_bytes_+surfaceMaxCache_.capacity()*sizeof(CellWaterGeometry::CornerDepths);
+    if(envelope_newest_ && !cachedSurface_(envelope_newest_->key))
+        bytes+=surfaceJobBytes(*envelope_newest_);
+    return bytes;
+}
+
+size_t SWMM2DResultsLayer::surfaceWorkingBytes() const
+{
+    size_t bytes=surface_workspace_bytes_+surface_buffer_bytes_;
+    for(const auto& values:velocity_scratch_)bytes+=values.capacity()*sizeof(float);
+    return bytes;
+}
+
+size_t SWMM2DResultsLayer::waterVisibilityBytes() const
+{
+    return cellFlowDepths_.capacity()*sizeof(CellWaterGeometry::CornerDepths)
+        +cellFlowMaxDepths_.capacity()*sizeof(double)+cellFlowFlags_.capacity();
 }
 
 void SWMM2DResultsLayer::setSurfaceCacheBytes(size_t bytes)
@@ -2671,6 +2755,7 @@ void SWMM2DResultsLayer::closeSource()
     current_depths_.clear();
     current_flux_.clear();
     cellFlowDepths_.clear();
+    cellFlowMaxDepths_.clear();cellFlowFlags_.clear();
     // Per-tri animated state is cleared on next setSource via
     // rebuildSceneGeometry_(); for the moment, just blank the canvas.
     for (auto &t : m_sceneTris) {
@@ -2681,6 +2766,7 @@ void SWMM2DResultsLayer::closeSource()
     m_sceneEdges.clear();   // Issue 3 — drop the wireframe with the source
     vvx_.clear();           // V1 — drop the per-vertex velocity field
     vvy_.clear();
+    velocity_scratch_={};
     have_velocity_ = false;
     if (graphics_item_) graphics_item_->geometryChanged();
     if (arrows_item_)   arrows_item_->geometryChanged();
@@ -3276,10 +3362,15 @@ CellWaterGeometry::DisplayState SWMM2DResultsLayer::cellWaterDisplayState(int ce
         return CellWaterGeometry::DisplayState::Invalid;
     const auto raw=CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
         cellSurfaces_[size_t(cell)],vz_,waterVisibilityPolicy());
-    if (!CellWaterGeometry::visible(raw,waterVisibilityPolicy()) || size_t(cell)>=cellFlowDepths_.size())
-        return raw;
-    return CellWaterGeometry::displayState(cellFlowDepths_[size_t(cell)],
-        cellSplit_[size_t(cell)].vertexCount(),waterVisibilityPolicy());
+    if (!CellWaterGeometry::visible(raw,waterVisibilityPolicy())) return raw;
+    if (size_t(cell)<cellFlowDepths_.size())
+        return CellWaterGeometry::displayState(cellFlowDepths_[size_t(cell)],
+            cellSplit_[size_t(cell)].vertexCount(),waterVisibilityPolicy());
+    if (size_t(cell)<cellFlowMaxDepths_.size())
+        return CellWaterGeometry::displayState(
+            CellWaterGeometry::DepthSummary{cellFlowMaxDepths_[size_t(cell)],cellFlowFlags_[size_t(cell)]},
+            waterVisibilityPolicy());
+    return raw;
 }
 
 SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() const
@@ -3626,6 +3717,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     cellCentroidScene_.clear();
     vvx_.clear();
     vvy_.clear();
+    velocity_scratch_={};
     m_sceneEdges.clear();
     m_sceneVerts.clear();
     m_sceneBBox = QRectF();
@@ -3787,6 +3879,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         }
     }
     cellFlowDepths_.clear();
+    cellFlowMaxDepths_.clear();cellFlowFlags_.clear();
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
     int badTris = 0;
@@ -3917,13 +4010,14 @@ void SWMM2DResultsLayer::fitSurfaceFields_(const std::vector<float>& depths,
     const std::vector<float>& flux, CellWaterGeometry::VisibilityPolicy policy,
     std::vector<CellWaterGeometry::Surface>& surfaces,
     std::vector<CellWaterGeometry::CornerDepths>& flow,
-    std::vector<CellWaterGeometry::CornerDepths>& smooth) const
+    std::vector<CellWaterGeometry::CornerDepths>& smooth,
+    CellWaterGeometry::NeighborhoodFit::Workspace* workspace) const
 {
     surfaces.resize(cells_.size());
     for (size_t c = 0; c < cells_.size(); ++c)
         surfaces[c] = CellWaterGeometry::reconstruct(cellSplit_[c],depths[c],vz_);
     flow=CellWaterGeometry::flowingCornerDepths(
-        cellSplit_,surfaces,vx_,vy_,vz_,surfaceTopology_,depths,flux,policy);
+        cellSplit_,surfaces,vx_,vy_,vz_,surfaceTopology_,depths,flux,policy,nullptr,workspace,std::move(flow));
     CellWaterGeometry::smoothCornerDepths(cellSplit_,surfaces,vz_,surfaceTopology_,smooth,
                                          policy,flow);
 }
@@ -3934,6 +4028,8 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
     if (current_depths_.size() != cells_.size() || cellSplit_.size() != cells_.size()) return;
     fitSurfaceFields_(current_depths_,current_flux_,waterVisibilityPolicy(),
                       cellSurfaces_,cellFlowDepths_,surfaceDepths_);
+    std::vector<double>().swap(cellFlowMaxDepths_);
+    std::vector<unsigned char>().swap(cellFlowFlags_);
     fillSceneCorners_();
 }
 
@@ -3984,8 +4080,9 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
     const double    dryEps = dry_depth_;
 
     float running_max = 0.0f;
-    std::vector<float> cellVx(size_t(nCell), 0.0f), cellVy(size_t(nCell), 0.0f),
-                       cellVm(size_t(nCell), 0.0f);
+    auto& cellVx=velocity_scratch_[0];cellVx.assign(size_t(nCell),0.0f);
+    auto& cellVy=velocity_scratch_[1];cellVy.assign(size_t(nCell),0.0f);
+    auto& cellVm=velocity_scratch_[2];cellVm.assign(size_t(nCell),0.0f);
     for (int c = 0; c < nCell; ++c) {
         const float depth = current_depths_[size_t(c)];
         if (depth < dryEps || !cellHasSurface(c)) continue;
@@ -4028,7 +4125,7 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
     vvx_.assign(static_cast<size_t>(nVert), 0.0f);
     vvy_.assign(static_cast<size_t>(nVert), 0.0f);
     if (have_velocity_) {
-        std::vector<float> wsum(static_cast<size_t>(nVert), 0.0f);
+        auto& wsum=velocity_scratch_[3];wsum.assign(static_cast<size_t>(nVert),0.0f);
         for (int c = 0; c < nCell; ++c) {
             const float depth = current_depths_[size_t(c)];
             if (depth < dryEps || !cellHasSurface(c) || cellVm[size_t(c)] <= 0.0f) continue;

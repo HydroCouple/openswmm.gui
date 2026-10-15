@@ -949,7 +949,7 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         };
         connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,row,refresh);refresh();
     };
-    presets("flowDensity",tr("Density:"),{tr("Sparse"),tr("Normal"),tr("Dense")},{56,40,28},"spacingPx");
+    presets("flowDensity",tr("Density:"),{tr("Sparse"),tr("Normal"),tr("Dense"),tr("Very dense")},{56,40,28,14},"spacingPx");
     auto *motionRow=new QWidget(page);auto *motionLayout=new QHBoxLayout(motionRow);motionLayout->setContentsMargins(0,0,0,0);
     auto *motion=new QSlider(Qt::Horizontal,motionRow);motion->setObjectName("flowMotion");motion->setRange(25,400);motion->setTickPosition(QSlider::TicksBelow);motion->setTickInterval(100);
     auto *motionValue=new QLabel(motionRow);motionValue->setObjectName("flowMotionValue");motionLayout->addWidget(motion,1);motionLayout->addWidget(motionValue);
@@ -981,7 +981,7 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent)
         connect(box,qOverload<double>(&QDoubleSpinBox::valueChanged),st,[st,key](double value){st->setProperty(key,value);});
         connect(st,&OpenSWMM::Render::SublayerStyle::styleChanged,box,[st,key,box]{QSignalBlocker block(box);box->setValue(st->property(key).toDouble());});
     };
-    number("spacingPx",tr("Exact spacing:"),8,1,tr(" px"));
+    number("spacingPx",tr("Exact spacing:"),2,1,tr(" px"));
     auto *exactMotion=makeDSpin(advanced,0,48*OpenSWMM::Render::FlowStreakStyle::maximumNumericValue(),1,2,48*st->speedMultiplier(),tr(" px/s"));
     exactMotion->setObjectName("motionPixelsPerSecond");exactMotion->setKeyboardTracking(false);exactMotion->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);exactMotion->setMaximumWidth(220);
     details->addRow(tr("Reference motion:"),exactMotion);

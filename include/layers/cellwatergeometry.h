@@ -6,6 +6,7 @@
 #include "layers/vertexdepthreconstruct.h"
 #include <QPointF>
 #include <limits>
+#include <utility>
 
 namespace CellWaterGeometry {
 
@@ -64,22 +65,39 @@ struct VisibilityPolicy {
     bool showThinFilms = false;
 };
 
-inline DisplayState displayState(const CornerDepths& depths, int count,
-                                const VisibilityPolicy& policy)
+struct DepthSummary {
+    enum Flag : unsigned char { Negative = 1, Invalid = 2 };
+    double deepest = 0.0;
+    unsigned char flags = 0;
+};
+
+inline DepthSummary summarizeDepths(const CornerDepths& depths, int count)
 {
-    double deepest = 0.0, shallowest = std::numeric_limits<double>::infinity();
+    DepthSummary out;
     for (int k = 0; k < count; ++k) {
         const double depth = depths[k];
-        if (!std::isfinite(depth)) return DisplayState::Invalid;
-        deepest = std::max(deepest, depth);
-        shallowest = std::min(shallowest, depth);
+        if (!std::isfinite(depth)) { out.flags |= DepthSummary::Invalid; return out; }
+        out.deepest = std::max(out.deepest, depth);
+        if (depth < 0.0) out.flags |= DepthSummary::Negative;
     }
+    return out;
+}
+
+inline DisplayState displayState(const DepthSummary& depths, const VisibilityPolicy& policy)
+{
+    if (depths.flags & DepthSummary::Invalid) return DisplayState::Invalid;
     // Source depths are floats: allow four float ulps at the threshold,
     // independent of elevation datum or cell relief, never a fixed film width.
     const double tolerance = 4 * std::numeric_limits<float>::epsilon()
-                           * std::max(deepest, policy.filmDepth);
-    if (deepest <= policy.filmDepth + tolerance) return DisplayState::ThinFilm;
-    return shallowest < 0.0 ? DisplayState::PartiallyWet : DisplayState::Wet;
+                           * std::max(depths.deepest, policy.filmDepth);
+    if (depths.deepest <= policy.filmDepth + tolerance) return DisplayState::ThinFilm;
+    return depths.flags & DepthSummary::Negative ? DisplayState::PartiallyWet : DisplayState::Wet;
+}
+
+inline DisplayState displayState(const CornerDepths& depths, int count,
+                                const VisibilityPolicy& policy)
+{
+    return displayState(summarizeDepths(depths,count),policy);
 }
 
 inline DisplayState displayState(const VertexDepthReconstruct::CellSplit& cell,
@@ -174,10 +192,11 @@ inline std::vector<CornerDepths> flowingCornerDepths(
     const std::vector<double>& y, const std::vector<double>& z,
     const SmoothTopology& topology, const std::vector<float>& depths,
     const std::vector<float>& flux, VisibilityPolicy policy = {},
-    NeighborhoodFit::Stats* stats = nullptr)
+    NeighborhoodFit::Stats* stats = nullptr, NeighborhoodFit::Workspace* workspace = nullptr,
+    std::vector<CornerDepths> reuse = {})
 {
     if (x.size()!=z.size() || y.size()!=z.size()) return {};
-    return NeighborhoodFit::reconstruct(cells,surfaces,x,y,z,topology,depths,flux,policy,stats);
+    return NeighborhoodFit::reconstruct(cells,surfaces,x,y,z,topology,depths,flux,policy,stats,workspace,std::move(reuse));
 }
 
 // Continuous, bounded display projection of VFR stages on each connected

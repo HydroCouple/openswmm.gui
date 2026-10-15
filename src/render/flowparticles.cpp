@@ -93,6 +93,16 @@ const char *flowParticleStopName(FlowParticleStop reason) {
     }return "unknown";
 }
 FlowParticleSystem::FlowParticleSystem() {setSettings(FlowParticleSettings{});}
+void FlowParticleSystem::reset() {
+    m_frame.reset();m_stagingFrame.reset();
+    for(auto p:m_particles) {
+        p.history.clear();m_freeHistories.push_back(std::move(p.history));
+    }
+    m_particles.clear();m_reducedHistory.clear();m_field.reset();m_previousField.reset();
+    m_clock=m_elapsed=m_tick=m_publishedClock=m_previousPublishedClock=m_transitionClock=m_transitionSeconds=0;
+    m_cursor=m_historyIndex=0;m_inTick=false;m_historyError=-1;
+    m_nextId=1;m_births=m_deaths=m_unresolvedOrbits=m_deferredPublications=0;m_stopCounts.fill(0);
+}
 bool FlowParticleSystem::setSettings(const FlowParticleSettings &settings) {
     for(double value:{settings.timestep,settings.speed,settings.minimumLifetime,settings.maximumLifetime,
                       settings.trailSeconds,settings.fadeSeconds,settings.cutoff,settings.historyTolerance,
@@ -220,6 +230,13 @@ quint64 FlowParticleSystem::spawn(QPointF position,quint64 randomSeed,bool publi
        || !std::isfinite(wetDepth) || wetDepth<=m_settings.cutoff)return 0;
     FlowParticleState p;
     if(!m_freeHistories.empty()) {
+        // Preserve larger rings for a later return to ordinary trail quality.
+        // Reuse an adequate pool before allocating another one after a seek.
+        const size_t needed=size_t(m_settings.maxHistory)+1;
+        auto best=m_freeHistories.end();
+        for(auto it=m_freeHistories.begin();it!=m_freeHistories.end();++it)
+            if(it->capacity()>=needed && (best==m_freeHistories.end() || it->capacity()<best->capacity()))best=it;
+        if(best!=m_freeHistories.end())std::iter_swap(best,m_freeHistories.end()-1);
         p.history=std::move(m_freeHistories.back());m_freeHistories.pop_back();p.history.clear();
     }
     p.history.reserve(size_t(m_settings.maxHistory)+1);
@@ -452,7 +469,9 @@ void FlowParticleSystem::publish(std::shared_ptr<FlowParticleFrame> frame) {
         for(auto p:m_particles) {p.previousPublishedAge=p.publishedAge;p.publishedAge=p.age;}
         m_previousPublishedClock=m_publishedClock;m_publishedClock=m_clock;
     }
-    if(m_renderScale>0)buildFlowParticleRibbon(*frame,m_renderScale,0,m_appearance,frame->ribbon);
+    if(m_renderScale>0)buildFlowParticleRibbon(*frame,m_renderScale,0,m_appearance,frame->ribbon,
+        frame.get()!=m_frame.get()?m_frame.get():nullptr);
+    else frame->ribbon.scale=0; // A private packet must not reuse stale ribbon timing.
     // Worker preparation (including forced field snapshots) is counted in
     // its work time. Publication measures the completed-buffer handoff.
     QElapsedTimer publication;publication.start();auto *published=frame.get();
@@ -469,6 +488,23 @@ void FlowParticleSystem::eraseFinished() {
         } else m_particles.move(retained++,i);
     }
     m_particles.resize(retained);
+}
+int FlowParticleSystem::releaseOffscreen(const QRectF &view,int requestedSlots) {
+    if(m_inTick || !view.isValid() || requestedSlots<=0)return 0;
+    const int required=std::max(0,requestedSlots-(m_settings.maxParticles-int(m_particles.size())));
+    if(!required)return 0;
+    size_t retained=0;int released=0;
+    for(size_t i=0;i<m_particles.size();++i) {
+        auto p=m_particles[i];bool visible=view.contains(p.position);
+        if(!visible && released<required && !p.history.empty()) {
+            double left=p.position.x(),right=left,top=p.position.y(),bottom=top;
+            for(const auto &s:p.history){left=std::min(left,s.position.x());right=std::max(right,s.position.x());top=std::min(top,s.position.y());bottom=std::max(bottom,s.position.y());}
+            visible=right>=view.left() && left<=view.right() && bottom>=view.top() && top<=view.bottom();
+        }
+        if(released<required && !visible){m_freeHistories.push_back(std::move(p.history));++released;}
+        else m_particles.move(retained++,i);
+    }
+    m_particles.resize(retained);return released;
 }
 double FlowParticleSystem::interpolation() const {
     if(m_settings.publicationInterval==0)return std::clamp(m_elapsed/m_settings.timestep,0.,1.);

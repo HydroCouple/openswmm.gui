@@ -1789,6 +1789,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
             resources/shaders/scalarfill.frag
             resources/shaders/flowparticle.vert
             resources/shaders/flowparticle.frag
+            resources/shaders/mapmask.frag
     )
     qt_add_translation(QM_FILES ${TS_FILES})
 else()

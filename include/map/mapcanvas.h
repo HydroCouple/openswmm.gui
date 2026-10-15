@@ -24,6 +24,8 @@
 #include <QVector>
 #include <QWidget>
 #include <optional>
+#include <memory>
+#include <vector>
 
 class OpenSWMMVisScene;
 class OpenSWMMVisGraphicsView;
@@ -36,6 +38,8 @@ class MeshProfileOverlay;
 class ProfilePathOverlay;
 class SelectionBeaconOverlay;
 class QGestureEvent;
+struct MapCompositionEntry;
+struct MapCompositionTiming;
 
 /*!
  * \class MapCanvas
@@ -80,6 +84,7 @@ public:
 
     struct CompositionStats {
         bool active = false;
+        bool nativeSurface = false;
         quint64 renderedFrames = 0;
         quint64 textureUploads = 0;
         quint64 captureReadbacks = 0;
@@ -87,7 +92,7 @@ public:
         QVector<double> renderIntervalsMs;
         QVector<double> swapIntervalsMs;
     };
-    // Render-completion notifications, not OS display presentation times.
+    // Separate render completions and native queued-for-presentation swaps.
     [[nodiscard]] CompositionStats compositionStats() const;
 
     using QWidget::update;
@@ -449,7 +454,9 @@ private:
     void renderTerrainLabel(QPainter &painter) const;
     void paintForeground(QPainter &painter);
     void updateFlowAnimationTimer();
+    void advanceFlowAnimation();
     void initializeVisibleComposition();
+    void initializeLegacyRendering();
     bool renderVisibleComposition();
     void stopVisibleComposition();
 
@@ -584,22 +591,20 @@ private:
     // Complete opaque map composition: cached CPU images below/above native
     // geometry. A transparent native child cannot compose reliably in an MDI
     // host on macOS. Ordinary particle frames never read this surface back.
-    class QQuickWidget *m_compositionWidget = nullptr;
-    class SWMMLayerQSGRenderer *m_compositionNetwork = nullptr;
-    class SWMM2DResultsQSGRenderer *m_compositionResults = nullptr;
-    QPointer<class SWMM2DResultsLayer> m_compositionLayer;
-    class SWMM2DMeshQSGRenderer *m_compositionMesh = nullptr;
+    class MapCompositionSurface *m_compositionWidget = nullptr;
+    std::shared_ptr<MapCompositionTiming> m_compositionTiming;
+    std::vector<std::unique_ptr<MapCompositionEntry>> m_compositionEntries;
     class MapTextureItem *m_rasterTexture = nullptr;
     class MapTextureItem *m_sceneTexture = nullptr;
     class MapTextureItem *m_foregroundTexture = nullptr;
+    QSize m_compositionCachePixels;
+    qreal m_compositionCacheDpr = 0;
     bool m_compositionActive = false;
     bool m_compositionFailed = false;
     bool m_compositionCreationPending = false;
     bool m_compositionSyncPending = false;
     bool m_compositionOrderedFallback = false;
     CompositionStats m_compositionStats;
-    QElapsedTimer m_compositionSwapClock;
-    QElapsedTimer m_compositionClock;
 
     // Cached QSG framebuffer (re-grabbed only when something the QSG
     // renderer cares about actually changed — extent, layer, widget

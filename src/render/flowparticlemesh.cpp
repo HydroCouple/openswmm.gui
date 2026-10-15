@@ -179,6 +179,7 @@ size_t FlowParticleMesh::bytes() const
 {
     return size_t(vertices.capacity())*sizeof(QPointF)
         + sourceTriangles.capacity()*sizeof(int)
+        + seedWeights.capacity()*sizeof(double)
         + triangles.capacity()*sizeof(triangles[0])
         // Never inspect worker-owned neighbors on the UI thread. Account for
         // their eventual allocation and the temporary edge-sort buffer.

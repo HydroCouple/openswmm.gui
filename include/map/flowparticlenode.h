@@ -18,7 +18,7 @@ public:
               double headWidth=2,double fadeSeconds=.5,quint64 trackedId=0,
               const FlowParticleAppearance &appearance={});
     int uploads() const { return m_uploads; }
-    int indexUploads() const { return m_indexUploads; }
+    int indexUploads() const { return 0; } // Packed strips have no index buffer.
     double geometryBuildMs() const { return m_geometryBuildMs; }
 private:
     QQuickWindow *m_window=nullptr;
@@ -30,6 +30,6 @@ private:
     QRectF m_viewport;
     QColor m_color;
     quint64 m_appearanceRevision=0;
-    int m_uploads=0,m_indexUploads=0,m_particleCapacity=0,m_historyCapacity=0;
+    int m_uploads=0;
     double m_geometryBuildMs=0;
 };

@@ -9,6 +9,8 @@
 #include "layers/openswmmvislayer.h"
 
 #include <QGraphicsItem>
+#include <QScopedValueRollback>
+#include <QStyleOptionGraphicsItem>
 
 OpenSWMMVisScene::OpenSWMMVisScene(QObject *parent)
     : QGraphicsScene(parent)
@@ -17,6 +19,29 @@ OpenSWMMVisScene::OpenSWMMVisScene(QObject *parent)
 }
 
 OpenSWMMVisScene::~OpenSWMMVisScene() = default;
+
+void OpenSWMMVisScene::renderSlice(QPainter *painter, const QRectF &target,
+                                  const QRectF &source, qreal minimumZ, qreal maximumZ)
+{
+    QScopedValueRollback<qreal> minimum(m_minimumRenderZ, minimumZ);
+    QScopedValueRollback<qreal> maximum(m_maximumRenderZ, maximumZ);
+    render(painter, target, source, Qt::IgnoreAspectRatio);
+}
+
+void OpenSWMMVisScene::drawItems(QPainter *painter, int count, QGraphicsItem *items[],
+                                const QStyleOptionGraphicsItem options[], QWidget *widget)
+{
+    QList<QGraphicsItem *> selected;
+    QList<QStyleOptionGraphicsItem> selectedOptions;
+    selected.reserve(count); selectedOptions.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        const qreal z = items[i]->topLevelItem()->zValue();
+        if (z >= m_minimumRenderZ && z < m_maximumRenderZ) {
+            selected.append(items[i]); selectedOptions.append(options[i]);
+        }
+    }
+    QGraphicsScene::drawItems(painter, selected.size(), selected.data(), selectedOptions.data(), widget);
+}
 
 void OpenSWMMVisScene::removeItemsForLayer(OpenSWMMVisLayer *layer)
 {

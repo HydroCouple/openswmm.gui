@@ -23,6 +23,9 @@ struct FlowParticleMesh {
         const MeshSpatialGrid &grid,const QVector<QRectF> &regions);
     QRectF coverage;
     std::vector<int> sourceTriangles; // local -> global, ascending, includes dry cells
+    // Optional stratified overview seeding weights. Zero excludes support-only
+    // cells from births; integration always uses the unmodified native field.
+    std::vector<double> seedWeights;
     QVector<QPointF> vertices;
     std::vector<std::array<int,3>> triangles;
     MeshSpatialGrid grid;

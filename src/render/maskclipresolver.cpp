@@ -61,6 +61,11 @@ findLayerById(OpenSWMMVisWorkspace *workspace, const QString &id)
         if (auto *match = findLayerByIdRecursive(session, id))
             return match;
     }
+    // Current project windows also own layers directly through the workspace;
+    // those layers need not belong to a registered legacy session.
+    for (auto *layer : workspace->findChildren<OpenSWMMVisLayer *>()) {
+        if (auto *match = findLayerByIdRecursive(layer, id)) return match;
+    }
     return nullptr;
 }
 

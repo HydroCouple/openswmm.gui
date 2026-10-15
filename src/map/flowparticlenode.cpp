@@ -5,6 +5,7 @@
 #include <QSGTexture>
 #include <QQuickWindow>
 #include <QElapsedTimer>
+#include <algorithm>
 #include <cstring>
 #include <cmath>
 
@@ -57,14 +58,16 @@ public:
 QSGMaterialShader *Material::createShader(QSGRendererInterface::RenderMode) const {return new Shader;}
 }
 FlowParticleNode::FlowParticleNode(QQuickWindow *window):m_window(window) {
-    auto *g=new QSGGeometry(attributes(),0,0,QSGGeometry::UnsignedIntType);g->setDrawingMode(QSGGeometry::DrawTriangles);
+    auto *g=new QSGGeometry(attributes(),0,0,QSGGeometry::UnsignedIntType);g->setDrawingMode(QSGGeometry::DrawTriangleStrip);
     g->setVertexDataPattern(QSGGeometry::DynamicPattern);
-    g->setIndexDataPattern(QSGGeometry::StaticPattern);
     setGeometry(g);setFlag(OwnsGeometry);setMaterial(new Material);setFlag(OwnsMaterial);
 }
 void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> frame,
     double interpolation,double scale,double tail,double width,double head,double fade,quint64 trackedId,
     const FlowParticleAppearance &appearance) {
+    // An already empty node has no uniforms or geometry to present. In the
+    // separate-flow composition it lives inside the cached water subtree.
+    if(!frame && !m_frame && geometry()->vertexCount()==0)return;
     auto *m=static_cast<Material*>(material());m->interpolation=float(interpolation);
     m->clock=frame?float(frame->previousClock+(frame->clock-frame->previousClock)*interpolation):0;
     m->tail=float(tail);m->width=float(width);m->head=float(head);m->fade=float(fade);
@@ -73,6 +76,7 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
     if(frame==m_frame && scale==m_scale && trackedId==m_trackedId && appearance.anchor==m_anchor
        && appearance.color==m_color && appearance.revision==m_appearanceRevision && appearance.viewport==m_viewport)return;
     QElapsedTimer build;build.start();
+    const auto previous=m_frame;
     m_frame=std::move(frame);m_scale=scale;m_trackedId=trackedId;
     m_anchor=appearance.anchor;m_color=appearance.color;m_appearanceRevision=appearance.revision;m_viewport=appearance.viewport;
     const OpenSWMM::Render::FlowParticleRibbon *ribbon=nullptr;
@@ -80,20 +84,21 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
        && m_frame->ribbon.color==appearance.color && m_frame->ribbon.viewport==appearance.viewport
        && m_frame->ribbon.trackedId==trackedId)ribbon=&m_frame->ribbon;
     else if(m_frame) {
-        OpenSWMM::Render::buildFlowParticleRibbon(*m_frame,scale,trackedId,appearance,m_ribbon);ribbon=&m_ribbon;
-    }
-    const int particles=ribbon?ribbon->particles:0,history=ribbon?ribbon->history:0;
-    m->anchorOffset=ribbon?ribbon->anchor-appearance.anchor:QPointF();
-    if(particles!=m_particleCapacity || history!=m_historyCapacity) {
-        m_particleCapacity=particles;m_historyCapacity=history;
-        geometry()->allocate(2*particles*history,particles?6*particles*(history-1):0);
-        auto *indices=geometry()->indexDataAsUInt();
-        for(int p=0;p<particles;++p)for(int h=0;h<history-1;++h) {
-            const uint base=uint(2*(p*history+h));
-            for(uint i:{base,base+1,base+3,base,base+3,base+2})*indices++=i;
+        auto bounded=appearance;
+        if(m_frame->ribbon.scale>0) {
+            // A changed view may need local geometry before the worker's next
+            // packet. Keep its population/history shape: carrying the old long
+            // history into a newly dense packet multiplies CPU and GPU storage.
+            bounded.particleCapacity=std::max(bounded.particleCapacity,int(m_frame->particles.size()));
+            bounded.historyCapacity=std::max(bounded.historyCapacity,m_frame->ribbon.history);
+            for(const auto &p:m_frame->particles)
+                bounded.historyCapacity=std::max(bounded.historyCapacity,int(p.history.size()));
         }
-        ++m_indexUploads;geometry()->markIndexDataDirty();
+        OpenSWMM::Render::buildFlowParticleRibbon(*m_frame,scale,trackedId,bounded,m_ribbon,previous.get());ribbon=&m_ribbon;
     }
+    const int vertices=ribbon?int(ribbon->vertices.size()):0;
+    m->anchorOffset=ribbon?ribbon->anchor-appearance.anchor:QPointF();
+    if(vertices!=geometry()->vertexCount())geometry()->allocate(vertices);
     if(ribbon && !ribbon->vertices.empty())
         std::memcpy(geometry()->vertexData(),ribbon->vertices.data(),ribbon->vertices.size()*sizeof(Vertex));
     if(m_window && ribbon && !ribbon->timing.empty()) {

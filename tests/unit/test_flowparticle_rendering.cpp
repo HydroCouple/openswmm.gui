@@ -17,20 +17,135 @@ static std::shared_ptr<FlowParticleFrame> bend() {
 }
 class Preview:public QQuickItem {
 public:
-    std::shared_ptr<FlowParticleFrame> frame=bend();double alpha=1,fade=0;
+    std::shared_ptr<FlowParticleFrame> frame=bend();double alpha=1,fade=0,tail=4;
     std::vector<double> syncTimes;
     Preview(QQuickItem *parent):QQuickItem(parent) {setFlag(ItemHasContents);setSize({160,80});}
 protected:
     QSGNode *updatePaintNode(QSGNode *old,UpdatePaintNodeData *) override {
         auto *node=old?static_cast<FlowParticleNode*>(old):new FlowParticleNode(window());
         const auto uploads=node->uploads();
-        node->sync(frame,alpha,1,4,4,4,fade);
+        node->sync(frame,alpha,1,tail,4,4,fade);
         if(node->uploads()!=uploads)syncTimes.push_back(node->geometryBuildMs());return node;
     }
 };
 class FlowParticleRenderingTest:public QObject {
     Q_OBJECT
 private slots:
+    void spareHistoryStorageDoesNotMultiplyTheDrawWork() {
+        auto frame=bend();FlowParticleAppearance appearance;
+        appearance.particleCapacity=128;appearance.historyCapacity=512;
+        FlowParticleRibbon ribbon;buildFlowParticleRibbon(*frame,1,0,appearance,ribbon);
+        QVERIFY(ribbon.vertices.capacity()>=128*512*2);
+        QVERIFY2(ribbon.vertices.size()<128,"A short trail draws every unused reserved history slot");
+        // The smaller draw packet must still preserve all available detail
+        // when a curved trail fills its allowed history.
+        auto &p=frame->particles.front();p.history.clear();
+        for(int i=0;i<512;++i)p.history.push_back({{20.+i/10.,40.+std::sin(i/10.)},i/60.,0});
+        buildFlowParticleRibbon(*frame,1,0,appearance,ribbon);
+        QCOMPARE(ribbon.history,512);QCOMPARE(ribbon.vertices[size_t(2*511)].age,float(p.history.back().age));
+    }
+    void changingCapacityShapeDoesNotMultiplyTheReservation() {
+        auto frame=bend();auto &p=frame->particles.front();p.history.clear();
+        for(int i=0;i<512;++i)p.history.push_back({{20.+i/10.,40.+std::sin(i/10.)},i/60.,0});
+        FlowParticleAppearance appearance;appearance.particleCapacity=8;appearance.historyCapacity=64;
+        FlowParticleRibbon ribbon;buildFlowParticleRibbon(*frame,1,0,appearance,ribbon);
+        QCOMPARE(ribbon.history,512);
+        QVERIFY2(ribbon.vertices.capacity()<=2*512+2*7,"Changing density multiplies the old history limit by the new population limit");
+    }
+    void changedViewDoesNotKeepTheOldHistoryByTheNewPopulation() {
+        const auto packet=[](int count,int history) {
+            auto frame=std::make_shared<FlowParticleFrame>();
+            for(int i=0;i<count;++i) {
+                FlowParticle p;p.id=i+1;p.age=2;p.lifetime=100;
+                for(int h=0;h<history;++h)p.history.push_back({{20.+h/10.,40.+i},h/120.,0});
+                frame->particles.push_back(std::move(p));
+            }
+            FlowParticleAppearance appearance;appearance.particleCapacity=count;appearance.historyCapacity=history;
+            buildFlowParticleRibbon(*frame,1,0,appearance,frame->ribbon);return frame;
+        };
+        FlowParticleNode node;
+        node.sync(packet(8,512),1,2); // a changed view requires a local ribbon
+        node.sync(packet(32,64),1,2);
+        QVERIFY2(node.geometry()->vertexCount()<=2*32*64+2*31,
+                 "The view fallback draws the old history limit for the new dense population");
+    }
+    void unequalHistoriesDoNotPadEveryTrailToTheLongestOne() {
+        auto frame=bend();
+        for(int i=1;i<32;++i) {auto p=frame->particles.front();p.id=i+1;frame->particles.push_back(std::move(p));}
+        auto &p=frame->particles.front();p.history.clear();
+        for(int i=0;i<512;++i)p.history.push_back({{20.+i/10.,40.+std::sin(i/10.)},i/120.,0});
+        FlowParticleRibbon ribbon;buildFlowParticleRibbon(*frame,1,0,{},ribbon);
+        QVERIFY2(ribbon.vertices.size()<=2*(512+31*3)+2*31,
+                 "One long trail forces every short trail to draw hundreds of unused vertices");
+        for(size_t i=2;i<ribbon.vertices.size();++i) {
+            const auto &a=ribbon.vertices[i-2],&b=ribbon.vertices[i-1],&c=ribbon.vertices[i];
+            if(std::abs(a.particle)==std::abs(b.particle) && std::abs(b.particle)==std::abs(c.particle))continue;
+            QVERIFY2(!std::memcmp(&a,&b,sizeof(a)) || !std::memcmp(&b,&c,sizeof(b)) || !std::memcmp(&a,&c,sizeof(a)),
+                     "A strip join draws a triangle connecting independent particles");
+        }
+    }
+    void forcedPublicationsKeepThePreviousVisibilityEndpoint() {
+        auto prior=bend();prior->clock=1;prior->previousClock=0;
+        prior->particles.front().history={{{60,40},0,0},{{63,40},1,0}};
+        buildFlowParticleRibbon(*prior,1,0,{},prior->ribbon);
+        auto current=std::make_shared<FlowParticleFrame>(*prior);current->clock=2;current->previousClock=1;
+        current->particles.front().history={{{60,40},0,0},{{64,40},2,0}};
+        buildFlowParticleRibbon(*current,1,0,{},current->ribbon,prior.get());
+        auto forced=std::make_shared<FlowParticleFrame>(*current);
+        buildFlowParticleRibbon(*forced,1,0,{},forced->ribbon,current.get());
+        QCOMPARE(flowParticleTimingValue(forced->ribbon.timing.front(),5),.5f);
+        QCOMPARE(flowParticleTimingValue(forced->ribbon.timing.front(),6),1.f);
+    }
+    void nativeExtentVisibilityFadesBetweenPublications() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Native extent-fade interpolation");
+        auto old=bend();old->clock=1;old->previousClock=0;
+        auto &p=old->particles.front();p.age=p.previousAge=1;p.history={{{60,40},0,0},{{63,40},1,0}};
+        buildFlowParticleRibbon(*old,1,0,{},old->ribbon);
+        auto next=std::make_shared<FlowParticleFrame>(*old);next->previousClock=1;next->clock=2;
+        next->particles.front().history={{{60,40},0,0},{{61,40},1,0}};
+        buildFlowParticleRibbon(*next,1,0,{},next->ribbon,old.get());
+        QQuickWindow window;window.setColor(Qt::black);window.resize(160,80);auto *preview=new Preview(window.contentItem());preview->frame=next;
+        window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));std::vector<double> levels;
+        for(double alpha:{0.,.25,.5,.75,1.}) {
+            preview->alpha=alpha;preview->update();const auto image=window.grabWindow();double level=0;
+            for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)level+=qRed(image.pixel(x,y));
+            levels.push_back(level);
+        }
+        QVERIFY(levels.front()>50);QCOMPARE(levels.back(),0.);
+        for(size_t i=0;i<levels.size();++i)QVERIFY(std::abs(levels[i]/levels.front()-(1-double(i)/4))<.05);
+    }
+    void subpixelOrbitsDoNotBecomeFullWidthFlashes() {
+        auto frame=bend();auto &p=frame->particles.front();p.history.clear();
+        for(int i=0;i<90;++i)p.history.push_back({{80+.01*std::cos(i),40+.01*std::sin(i)},i/60.,0});
+        FlowParticleRibbon ribbon;buildFlowParticleRibbon(*frame,1,0,{},ribbon);
+        QCOMPARE(flowParticleTimingValue(ribbon.timing.front(),5),0.f);QCOMPARE(flowParticleTimingValue(ribbon.timing.front(),6),0.f);
+        // A normal moving trail retains its requested opacity.
+        frame=bend();buildFlowParticleRibbon(*frame,1,0,{},ribbon);QVERIFY(ribbon.vertices.front().a>200);
+    }
+    void repeatedPositionsDoNotCollapseTheRibbonNormal() {
+        auto frame=bend();auto &p=frame->particles.front();p.history.clear();p.age=2;p.previousAge=1.5;
+        p.history={{{20,40},0,0},{{100,40},1,0},{{100,40},1.5,0},{{100,40},2,0}};
+        FlowParticleRibbon ribbon;buildFlowParticleRibbon(*frame,1,0,{},ribbon);
+        const auto &incoming=ribbon.vertices[2];
+        for(int i=2;i<4;++i){QCOMPARE(ribbon.vertices[2*i].nx,incoming.nx);QCOMPARE(ribbon.vertices[2*i].ny,incoming.ny);}
+    }
+    void nativeSubpixelHeadCoverageChangesSmoothly() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Native subpixel head coverage");
+        QQuickWindow window;window.setColor(Qt::black);window.resize(160,80);auto *preview=new Preview(window.contentItem());
+        preview->frame=std::make_shared<FlowParticleFrame>();preview->frame->previousClock=1;preview->frame->clock=1+1./60.;
+        FlowParticle p;p.id=1;p.age=1+1./60.;p.previousAge=1;p.lifetime=100;
+        for(int i=60;i<=132;++i){const double t=i/120.;p.history.push_back({{20+60*t,40},t,0});}
+        preview->frame->particles.push_back(p);preview->tail=8./60.;preview->alpha=0;
+        window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+        preview->update();auto previous=window.grabWindow().convertToFormat(QImage::Format_ARGB32);int largest=0;
+        for(int step=1;step<=20;++step) {
+            preview->alpha=step/20.;preview->update();const auto image=window.grabWindow().convertToFormat(QImage::Format_ARGB32);
+            for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)
+                largest=std::max(largest,std::abs(qRed(image.pixel(x,y))-qRed(previous.pixel(x,y))));
+            previous=image;
+        }
+        QVERIFY2(largest<60,qPrintable(QString("A 0.05-pixel head step changes a pixel by %1/255").arg(largest)));
+    }
     void nativePublicationKeepsTheVisibleHeadAndBrightnessContinuous() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE"))QSKIP("Native publication continuity");
         QQuickWindow window;window.setFlags(window.flags()|Qt::WindowTransparentForInput|Qt::WindowDoesNotAcceptFocus);
@@ -141,12 +256,18 @@ private slots:
             {"vertexBytes",qint64(frame->ribbon.vertices.size()*sizeof(FlowParticleVertex))},
             {"timingBytes",qint64(frame->ribbon.timing.size()*sizeof(FlowParticleTiming))}}).toJson());
     }
+    void emptySynchronizationDoesNotUpload() {
+        FlowParticleNode node;node.sync({},1,1);QCOMPARE(node.uploads(),0);
+        node.sync({},.5,2);QCOMPARE(node.uploads(),0);
+        auto frame=bend();node.sync(frame,1,1);QVERIFY(node.geometry()->vertexCount()>0);
+        node.sync({},1,1);QCOMPARE(node.geometry()->vertexCount(),0);
+        const int uploads=node.uploads();node.sync({},1,1);QCOMPARE(node.uploads(),uploads);
+    }
     void adjacentSegmentsShareExactlyTheSameJoint() {
         FlowParticleNode node;const auto frame=bend();node.sync(frame,1,1,4,4,4,0);
         QCOMPARE(node.geometry()->vertexCount(),6);
-        QCOMPARE(node.geometry()->indexCount(),12);
-        const auto *indices=node.geometry()->indexDataAsUInt();
-        QCOMPARE(indices[5],indices[6]);QCOMPARE(indices[2],indices[7]);
+        QCOMPARE(node.geometry()->drawingMode(),QSGGeometry::DrawTriangleStrip);
+        QCOMPARE(node.geometry()->indexCount(),0);
         const int indexUploads=node.indexUploads();
         const int uploads=node.uploads();const auto *data=node.geometry()->vertexData();
         for(double alpha:{0.,.25,.5,.75,1.})node.sync(frame,alpha,1,4,4,4,0);
