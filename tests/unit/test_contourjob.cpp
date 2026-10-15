@@ -43,6 +43,61 @@ ContourJobInput makeSquareInput()
 
 } // namespace
 
+TEST(ContourJobTest, PackedBandsPreserveExpandedGeometryAndCoverage)
+{
+    using namespace OpenSWMM::Render;
+    ContourJobInput input;
+    auto positions=std::make_shared<std::vector<ContourJobInput::TriPos>>();
+    auto scalars=std::make_shared<std::vector<std::array<float,3>>>();
+    for(int y=0;y<120;++y)for(int x=0;x<180;++x) {
+        positions->push_back({float(x),float(y),float(x+1),float(y),float(x+1),float(y+1)});
+        positions->push_back({float(x),float(y),float(x+1),float(y+1),float(x),float(y+1)});
+        const float depth=(x+y)%2?.26f:.76f;
+        scalars->push_back((x+y)%11?std::array<float,3>{depth,depth,depth}:std::array<float,3>{-.1f,.5f,1.1f});
+        scalars->push_back((x+y)%11?std::array<float,3>{depth,depth,depth}:std::array<float,3>{-.1f,1.1f,.5f});
+    }
+    input.positions=positions;input.scalars=scalars;input.bandLevels={0,.25,.5,.75,1};
+    input.isoLevels={.4};input.minimumVisibleValue=.02;
+    const auto original=computeContourJob(input);
+    ContourJobOutput packed;
+    for(const QRectF coverage:{QRectF(),QRectF(30,20,60,40),QRectF(300,300,10,10),QRectF()}) {
+        std::vector<PackedBandVertex> expected;
+        for(const auto& polygon:original.bands) {
+            double left=polygon.verts[0].x(),right=left,top=polygon.verts[0].y(),bottom=top;
+            for(const auto& p:polygon.verts) {
+                left=std::min(left,p.x());right=std::max(right,p.x());
+                top=std::min(top,p.y());bottom=std::max(bottom,p.y());
+            }
+            if(coverage.isValid() && (right<coverage.left() || left>coverage.right()
+                || bottom<coverage.top() || top>coverage.bottom()))continue;
+            for(size_t k=1;k+1<polygon.verts.size();++k)for(size_t j:{size_t(0),k,k+1})
+                expected.push_back({float(polygon.verts[j].x()),float(polygon.verts[j].y()),quint32(polygon.bandIndex)});
+        }
+        input.packBands=true;input.bandCoverage=coverage;
+        computeContourJob(input,packed);
+        EXPECT_TRUE(packed.bands.empty());EXPECT_EQ(packed.segs.size(),original.segs.size());
+        size_t count=0,stored=0,bytes=0;
+        for(const auto& chunk:packed.packedBands) {
+            EXPECT_LE(chunk.vertices.size(),size_t(waterGeometryChunkLimit));
+            EXPECT_LE(chunk.indices.size(),size_t(waterGeometryChunkLimit));
+            EXPECT_EQ(chunk.indices.size()%3,0u);stored+=chunk.vertices.size();
+            bytes+=chunk.vertices.size()*sizeof(PackedBandVertex)+chunk.indices.size()*sizeof(quint16);
+            for(quint16 index:chunk.indices) {
+                ASSERT_LT(size_t(index),chunk.vertices.size());ASSERT_LT(count,expected.size());
+                const auto& vertex=chunk.vertices[index];const auto& reference=expected[count++];
+                EXPECT_EQ(vertex.x,reference.x);EXPECT_EQ(vertex.y,reference.y);EXPECT_EQ(vertex.bandIndex,reference.bandIndex);
+            }
+        }
+        EXPECT_EQ(count,expected.size());
+        if(!expected.empty()) {
+            EXPECT_LT(stored,expected.size());EXPECT_LT(bytes,expected.size()*sizeof(PackedBandVertex));
+            if(!coverage.isValid())EXPECT_GT(packed.packedBands.size(),1u);
+        }
+    }
+    computeContourJob({},packed);
+    EXPECT_TRUE(packed.bands.empty());EXPECT_TRUE(packed.segs.empty());EXPECT_TRUE(packed.packedBands.empty());
+}
+
 TEST(ContourJobTest, MatchesDirectMarchingOnSameSnapshot)
 {
     const ContourJobInput in = makeSquareInput();

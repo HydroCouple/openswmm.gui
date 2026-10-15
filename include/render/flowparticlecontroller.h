@@ -19,7 +19,7 @@ struct FlowParticleDiagnostics {
     double metresPerPixelSecond=0;
     double speedExponent=1,referencePixelsPerSecond=0;
     int targetPopulation=0;
-    quint64 birthAttempts=0,failedBirths=0;
+    quint64 birthAttempts=0,failedBirths=0,offscreenReplacements=0;
 };
 // GUI facade; the serial worker exclusively owns the integrator and immutable
 // hydraulic captures. New results coalesce while a bounded work slice runs.
@@ -30,7 +30,7 @@ public:
     ~FlowParticleController() override;
     void request(std::shared_ptr<const FlowParticleNativeInput>,bool reset=false);
     std::shared_ptr<const FlowParticleMesh> requestedMesh() const {return m_requestedMesh;}
-    void configure(const FlowParticleSettings &,QRectF seeds,int population,FlowParticleView view={},std::optional<FlowParticleAppearance> appearance={},FlowParticleResidencyGrid grid={});
+    void configure(const FlowParticleSettings &,QRectF seeds,int population,FlowParticleView view={},std::optional<FlowParticleAppearance> appearance={},FlowParticleResidencyGrid grid={},bool startWorker=true);
     void advance(double seconds);
     void setPresentedRevision(quint64 revision);
     void waitForDone();
@@ -49,7 +49,7 @@ private:
     struct Result {
         std::shared_ptr<const FlowParticleFrame> frame;
         double presentationClock=0,lag=0;
-        bool fieldAccepted=false,warming=false,reveal=false;
+        bool fieldAccepted=false,warming=false,reveal=false,refilling=false;
         FlowParticleDiagnostics diagnostics;
         std::shared_ptr<const FlowParticleResidencySupport> residency;
     };
@@ -74,6 +74,6 @@ private:
     double m_elapsed=0,m_presentationClock=0,m_revealClock=-1,m_lag=0;
     int m_population=2000;
     quint64 m_presentedRevision=~quint64(0);
-    bool m_busy=false,m_reset=false,m_presentationChanged=false,m_warming=false;
+    bool m_busy=false,m_reset=false,m_presentationChanged=false,m_configurationChanged=false,m_refilling=false,m_warming=false;
 };
 } // namespace OpenSWMM::Render

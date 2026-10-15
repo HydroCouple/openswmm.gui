@@ -228,5 +228,7 @@
          scene-graph renderer that MapCanvas hosts via QQuickWidget. -->
     <qresource prefix="/openswmm">
         <file alias="qml/swmmlayer.qml">qml/swmmlayer.qml</file>
+        <file alias="qml/mapcomposition.qml">qml/mapcomposition.qml</file>
+        <file alias="qml/mapcompositionlayer.qml">qml/mapcompositionlayer.qml</file>
     </qresource>
 </RCC>

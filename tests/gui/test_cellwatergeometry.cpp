@@ -38,9 +38,11 @@ private slots:
     void smoothLakeStaysLevelAtDryCorners();
     void smoothDoesNotCrossCrestsOrPointContacts();
     void thinFilmsAndPartialPoolsAreDistinct();
+    void compactVisibilityMatchesCornerClassification();
     void hiddenFilmCannotChangeNeighbourStage();
     void inclinedSurfaceConservesStorage();
     void flowingSlopeHasNoCellStacks();
+    void workspaceReuseDoesNotWarmStart();
     void flowReconstructionPreservesPoolsAndDryCells();
     void flowingSurfaceDepthsStayBounded();
     void flowingPatchHasNoCornerPockets();
@@ -305,6 +307,35 @@ void TestCellWaterGeometry::flowingPatchHasNoCornerPockets()
     }
 }
 
+void TestCellWaterGeometry::workspaceReuseDoesNotWarmStart()
+{
+    using namespace CellWaterGeometry;
+    NeighborhoodFit::Workspace workspace;
+    std::vector<CornerDepths> reused;
+    for(bool mixed:{false,true})for(int frame:{0,1,2,0,2,1,0}) {
+        SlopeStrip strip(mixed);
+        for(size_t c=0;c<strip.cells.size();++c)
+            strip.depths[c]=frame==1 && c%3==0?0:float(.004+.001*(c+1)*(frame+1));
+        strip.update();const auto topology=smoothTopology(strip.cells);
+        NeighborhoodFit::Stats directStats,reuseStats;
+        const auto direct=flowingCornerDepths(strip.cells,strip.surfaces,strip.x,strip.y,strip.z,
+            topology,strip.depths,strip.flux,{},&directStats);
+        reused=flowingCornerDepths(strip.cells,strip.surfaces,strip.x,strip.y,strip.z,
+            topology,strip.depths,strip.flux,{},&reuseStats,&workspace,std::move(reused));
+        QCOMPARE(reused.size(),direct.size());
+        for(size_t c=0;c<direct.size();++c)for(int k=0;k<4;++k) {
+            if(std::isnan(direct[c][k]))QVERIFY(std::isnan(reused[c][k]));
+            else QCOMPARE(reused[c][k],direct[c][k]);
+        }
+        QCOMPARE(reuseStats.gaussNewton,directStats.gaussNewton);
+        QCOMPARE(reuseStats.cgRhs,directStats.cgRhs);QCOMPARE(reuseStats.cgMass,directStats.cgMass);
+        const size_t bytes=workspace.bytes();
+        reused=flowingCornerDepths(strip.cells,strip.surfaces,strip.x,strip.y,strip.z,
+            topology,strip.depths,strip.flux,{},nullptr,&workspace,std::move(reused));
+        QCOMPARE(workspace.bytes(),bytes);
+    }
+}
+
 void TestCellWaterGeometry::clippedStorageDerivativeMatchesGeometry()
 {
     using namespace CellWaterGeometry;
@@ -417,6 +448,44 @@ void TestCellWaterGeometry::thinFilmsAndPartialPoolsAreDistinct()
     const std::vector<double> slope{0,0,4,4};
     const auto pool=reconstruct(quad,0.00001,slope);
     QCOMPARE(displayState(quad,pool,slope,policy),DisplayState::PartiallyWet);
+}
+
+void TestCellWaterGeometry::compactVisibilityMatchesCornerClassification()
+{
+    using namespace CellWaterGeometry;
+    // Independent pre-summary formula, including the original threshold math.
+    const auto reference=[](const CornerDepths& depths,int count,const VisibilityPolicy& policy) {
+        double deepest=0,shallowest=std::numeric_limits<double>::infinity();
+        for(int k=0;k<count;++k) {
+            if(!std::isfinite(depths[k]))return DisplayState::Invalid;
+            deepest=std::max(deepest,depths[k]);
+            shallowest=std::min(shallowest,depths[k]);
+        }
+        const double tolerance=4*std::numeric_limits<float>::epsilon()*std::max(deepest,policy.filmDepth);
+        if(deepest<=policy.filmDepth+tolerance)return DisplayState::ThinFilm;
+        return shallowest<0?DisplayState::PartiallyWet:DisplayState::Wet;
+    };
+    std::mt19937 random(20261015);
+    std::uniform_real_distribution<double> depth(-2,2);
+    const double nan=std::numeric_limits<double>::quiet_NaN(),inf=std::numeric_limits<double>::infinity();
+    const double ulp=std::numeric_limits<float>::epsilon();
+    const double special[]={-0.,0.,-1.,nan,inf,-inf,0.001,0.001*(1+3*ulp),
+        0.001*(1+4*ulp),0.001*(1+5*ulp),std::numeric_limits<double>::denorm_min()};
+    for(int sample=0;sample<10000;++sample) {
+        CornerDepths corners;
+        for(int k=0;k<4;++k)corners[k]=sample<1000?special[(sample+3*k)%11]:depth(random);
+        for(int count=0;count<=4;++count) {
+            const auto summary=summarizeDepths(corners,count);
+            // The same summary must survive later changes in visibility policy.
+            for(double film:{0.,0.001,0.5,2.})for(bool show:{false,true}) {
+                const VisibilityPolicy policy{film,show};
+                const auto expected=reference(corners,count,policy);
+                QCOMPARE(displayState(summary,policy),expected);
+                QCOMPARE(displayState(corners,count,policy),expected);
+                QCOMPARE(visible(displayState(summary,policy),policy),visible(expected,policy));
+            }
+        }
+    }
 }
 
 void TestCellWaterGeometry::hiddenFilmCannotChangeNeighbourStage()

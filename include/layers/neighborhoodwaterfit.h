@@ -68,6 +68,33 @@ struct Stats {
     size_t rows=0, variables=0, groups=0;
 };
 
+struct Plane { double x=0,y=0,xx=0,xy=0,yy=0,bx=0,by=0,gx=0,gy=0; bool wet=false; };
+
+// Owned by the serialized surface worker. Every field is reinitialized for
+// each fit: re-use is allocation reuse, never a numerical warm start.
+struct Workspace {
+    std::vector<bool> eligible,connected;
+    std::vector<int> parent,component,rootVariable,group,variableGroup;
+    std::vector<Cell> rows;
+    std::vector<Plane> planes;
+    std::vector<std::array<double,4>> jacobian;
+    std::vector<double> pond,flow,weight,prior,pondCost,flowCost,target,reference,
+        lower,upper,storageLower,storageUpper,minMass,maxMass,field,rhs,diagonal,
+        delta,r,p,product,preconditioned,massGradient,massDirection,massResidual,
+        numerator,denominator,candidate,meritResidual,lo,hi,scale,mass;
+    [[nodiscard]] size_t bytes() const {
+        size_t total=(eligible.capacity()+connected.capacity())/8;
+        auto count=[&]<class T>(const std::vector<T>& v){total+=v.capacity()*sizeof(T);};
+        count(parent);count(component);count(rootVariable);count(group);count(variableGroup);
+        count(rows);count(planes);count(jacobian);
+        for(const auto* v:{&pond,&flow,&weight,&prior,&pondCost,&flowCost,&target,&reference,
+            &lower,&upper,&storageLower,&storageUpper,&minMass,&maxMass,&field,&rhs,&diagonal,
+            &delta,&r,&p,&product,&preconditioned,&massGradient,&massDirection,&massResidual,
+            &numerator,&denominator,&candidate,&meritResidual,&lo,&hi,&scale,&mass})count(*v);
+        return total;
+    }
+};
+
 // Small matrix-free Gauss-Newton fit. One variable belongs to one connected
 // vertex fan, shared by BOTH traces of every supported edge. Storage rows use
 // original volumes and the original quad diagonal. Local wet-cell envelopes
@@ -77,14 +104,18 @@ inline std::vector<CornerDepths> reconstruct(
     const std::vector<Surface>& surfaces,const std::vector<double>& x,
     const std::vector<double>& y,const std::vector<double>& z,
     const SmoothTopology& topology,const std::vector<float>& depths,
-    const std::vector<float>& flux,VisibilityPolicy /*policy*/,Stats* stats=nullptr)
+    const std::vector<float>& flux,VisibilityPolicy /*policy*/,Stats* stats=nullptr,
+    Workspace* workspace=nullptr,std::vector<CornerDepths> result={})
 {
     const size_t n=cells.size();
     if(depths.size()!=n || surfaces.size()!=n || flux.size()!=4*n)return {};
     const double nan=std::numeric_limits<double>::quiet_NaN();
-    std::vector<CornerDepths> result(n,CornerDepths{nan,nan,nan,nan});
-    std::vector<bool> eligible(n,false),connected(n,false);
-    std::vector<int> parent(4*n),component(n);
+    result.assign(n,CornerDepths{nan,nan,nan,nan});
+    Workspace local;auto& w=workspace?*workspace:local;
+    auto& eligible=w.eligible;eligible.assign(n,false);
+    auto& connected=w.connected;connected.assign(n,false);
+    auto& parent=w.parent;parent.resize(4*n);
+    auto& component=w.component;component.resize(n);
     for(size_t i=0;i<parent.size();++i)parent[i]=int(i);
     for(size_t i=0;i<n;++i)component[i]=int(i);
     auto root=[](std::vector<int>& p,int i) {
@@ -142,10 +173,13 @@ inline std::vector<CornerDepths> reconstruct(
         connected[a]=connected[b]=true;
     }
 
-    std::vector<int> rootVariable(4*n,-1),group(n,-1);
-    std::vector<Cell> rows;
-    std::vector<double> pond,flow,weight,prior;
-    std::vector<int> variableGroup;
+    auto& rootVariable=w.rootVariable;rootVariable.assign(4*n,-1);
+    auto& group=w.group;group.assign(n,-1);
+    auto& rows=w.rows;rows.clear();
+    rows.reserve(size_t(std::count(connected.begin(),connected.end(),true)));
+    auto& pond=w.pond;pond.clear();auto& flow=w.flow;flow.clear();
+    auto& weight=w.weight;weight.clear();auto& prior=w.prior;prior.clear();
+    auto& variableGroup=w.variableGroup;variableGroup.clear();
     int groups=0;
     for(size_t c=0;c<n;++c) {
         if(!connected[c])continue;
@@ -176,7 +210,9 @@ inline std::vector<CornerDepths> reconstruct(
         rows.push_back(row);
     }
     for(size_t v=0;v<pond.size();++v){pond[v]/=weight[v];flow[v]/=weight[v];}
-    std::vector<double> pondCost(pond.size(),0),flowCost(pond.size(),0),target(size_t(groups),0);
+    auto& pondCost=w.pondCost;pondCost.assign(pond.size(),0);
+    auto& flowCost=w.flowCost;flowCost.assign(pond.size(),0);
+    auto& target=w.target;target.assign(size_t(groups),0);
     for(const auto& row:rows) {
         std::array<double,4> derivative;
         const double a=storage(row,pond,derivative)-row.depth,b=storage(row,flow,derivative)-row.depth;
@@ -190,7 +226,7 @@ inline std::vector<CornerDepths> reconstruct(
     // depth residual is zero. Blend the two neighborhood references by their
     // measured storage residuals on the incident cell fan. Continuous weights avoid a
     // mode switch when their relative quality changes between saved frames.
-    std::vector<double> reference(pond.size());
+    auto& reference=w.reference;reference.resize(pond.size());
     for(size_t v=0;v<reference.size();++v) {
         const double total=pondCost[v]+flowCost[v];
         const double moving=total>0?pondCost[v]/total:0;
@@ -202,10 +238,14 @@ inline std::vector<CornerDepths> reconstruct(
     // stage gradient from supported, fully wet neighbours so a resolved slope
     // is retained. Work at local coordinate/elevation differences for datum
     // invariance. Partly wet cells still retain signed, negative dry corners.
-    struct Plane { double x=0,y=0,xx=0,xy=0,yy=0,bx=0,by=0,gx=0,gy=0; bool wet=false; };
-    std::vector<Plane> planes(n);
-    for(const auto& row:rows) {
-        const auto& cell=cells[size_t(row.source)];auto& plane=planes[size_t(row.source)];
+    // Plane scratch belongs only to fitted cells. Dry regions never enter
+    // the solve; re-use the completed component map for cell-to-row lookup.
+    component.assign(n,-1);
+    for(size_t i=0;i<rows.size();++i)component[size_t(rows[i].source)]=int(i);
+    auto& planes=w.planes;planes.assign(rows.size(),Plane{});
+    for(size_t i=0;i<rows.size();++i) {
+        const auto& row=rows[i];
+        const auto& cell=cells[size_t(row.source)];auto& plane=planes[i];
         const int origin=cell.v[0];plane.wet=true;
         for(int s=0;s<row.halves;++s)for(int k=0;k<3;++k) {
             const int v=cell.sub[s][k];
@@ -216,7 +256,9 @@ inline std::vector<CornerDepths> reconstruct(
         for(int k=0;k<row.count;++k)plane.wet=plane.wet && result[size_t(row.source)][k]>0;
     }
     auto observe=[&](int a,int b) {
-        auto& p=planes[size_t(a)];const auto& q=planes[size_t(b)];
+        const int ai=component[size_t(a)],bi=component[size_t(b)];
+        if(ai<0 || bi<0)return;
+        auto& p=planes[size_t(ai)];const auto& q=planes[size_t(bi)];
         if(!p.wet || !q.wet)return;
         const double dx=q.x-p.x,dy=q.y-p.y,d2=dx*dx+dy*dy;if(!(d2>0))return;
         const auto &sa=surfaces[size_t(a)],&sb=surfaces[size_t(b)];
@@ -237,10 +279,12 @@ inline std::vector<CornerDepths> reconstruct(
         }
     }
     const double inf=std::numeric_limits<double>::infinity();
-    std::vector<double> lower(pond.size(),inf),upper(pond.size(),-inf);
-    std::vector<double> storageLower(pond.size(),inf),storageUpper(pond.size(),-inf);
+    auto& lower=w.lower;lower.assign(pond.size(),inf);
+    auto& upper=w.upper;upper.assign(pond.size(),-inf);
+    auto& storageLower=w.storageLower;storageLower.assign(pond.size(),inf);
+    auto& storageUpper=w.storageUpper;storageUpper.assign(pond.size(),-inf);
     for(const auto& row:rows) {
-        const auto c=size_t(row.source);const auto& cell=cells[c];const auto& plane=planes[c];
+        const auto c=size_t(row.source);const auto& cell=cells[c];const auto& plane=planes[size_t(component[c])];
         for(int k=0;k<row.count;++k) {
             const size_t v=size_t(row.variable[k]);const double q=result[c][k];
             // This wider envelope always brackets each original cell volume,
@@ -264,7 +308,8 @@ inline std::vector<CornerDepths> reconstruct(
     // A wet-cell bound can conflict with the storage of an attached partial
     // pool. Detect feasibility per component before solving; only that
     // component uses the wider, storage-supported envelope in that case.
-    std::vector<double> minMass(size_t(groups),0),maxMass(size_t(groups),0);
+    auto& minMass=w.minMass;minMass.assign(size_t(groups),0);
+    auto& maxMass=w.maxMass;maxMass.assign(size_t(groups),0);
     for(const auto& row:rows) {
         std::array<double,4> derivative;
         minMass[size_t(row.component)]+=row.area*storage(row,lower,derivative);
@@ -277,16 +322,32 @@ inline std::vector<CornerDepths> reconstruct(
             if(stats)stats->fallback=true;
         }
     }
+    // Setup fields no longer participate in any arithmetic below. Releasing
+    // them before solve allocation avoids overlapping full-domain scratch.
+    auto release=[]<class T>(std::vector<T>& values) { std::vector<T>().swap(values); };
+    if(!workspace) {
+        release(eligible);release(connected);release(parent);release(component);
+        release(rootVariable);release(group);release(pond);release(flow);release(weight);
+        release(pondCost);release(flowCost);release(planes);
+        release(storageLower);release(storageUpper);release(minMass);release(maxMass);
+    }
     auto bounded=[&](size_t v,double value){return std::clamp(value,lower[v],upper[v]);};
-    std::vector<double> field=reference;
+    auto& field=w.field;field=reference;
     for(size_t v=0;v<field.size();++v)field[v]=bounded(v,field[v]);
-    std::vector<std::array<double,4>> jacobian(rows.size());
+    auto& jacobian=w.jacobian;jacobian.resize(rows.size());
     const size_t nv=field.size();
     if(stats){stats->rows=rows.size();stats->variables=nv;stats->groups=size_t(groups);}
-    std::vector<double> rhs(nv),diagonal(nv),delta(nv),r(nv),p(nv),product(nv),preconditioned(nv);
-    std::vector<double> massGradient(nv),massDirection(nv),massResidual(size_t(groups),0);
-    std::vector<double> numerator(size_t(groups),0),denominator(size_t(groups),0),candidate(nv);
-    std::vector<double> meritResidual(size_t(groups),0);
+    auto& rhs=w.rhs;rhs.resize(nv);auto& diagonal=w.diagonal;diagonal.resize(nv);
+    auto& delta=w.delta;delta.resize(nv);auto& r=w.r;r.resize(nv);
+    auto& p=w.p;p.resize(nv);auto& product=w.product;product.resize(nv);
+    auto& preconditioned=w.preconditioned;preconditioned.resize(nv);
+    auto& massGradient=w.massGradient;massGradient.resize(nv);
+    auto& massDirection=w.massDirection;massDirection.resize(nv);
+    auto& massResidual=w.massResidual;massResidual.assign(size_t(groups),0);
+    auto& numerator=w.numerator;numerator.assign(size_t(groups),0);
+    auto& denominator=w.denominator;denominator.assign(size_t(groups),0);
+    auto& candidate=w.candidate;candidate.resize(nv);
+    auto& meritResidual=w.meritResidual;meritResidual.assign(size_t(groups),0);
     auto dot=[](const std::vector<double>& a,const std::vector<double>& b) {
         double sum=0;for(size_t i=0;i<a.size();++i)sum+=a[i]*b[i];return sum;
     };
@@ -388,7 +449,8 @@ inline std::vector<CornerDepths> reconstruct(
             mass[size_t(row.component)]+=row.area*mean;
         }
     };
-    std::vector<double> lo(size_t(groups),-1),hi(size_t(groups),1),scale(size_t(groups),0),mass(size_t(groups),0);
+    auto& lo=w.lo;lo.assign(size_t(groups),-1);auto& hi=w.hi;hi.assign(size_t(groups),1);
+    auto& scale=w.scale;scale.assign(size_t(groups),0);auto& mass=w.mass;mass.assign(size_t(groups),0);
     for(int iteration=0;iteration<48;++iteration) {
         if(stats)++stats->bisection;
         for(int g=0;g<groups;++g)scale[size_t(g)]=(lo[size_t(g)]+hi[size_t(g)])/2;

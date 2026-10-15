@@ -27,6 +27,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 using openswmmvis::io::Mesh2DH5Reader;
 
@@ -448,6 +449,93 @@ class TestMesh2DH5Reader : public QObject
     Q_OBJECT
 
 private slots:
+    void decodedRowsPreserveBlockBoundariesAndMissingChunks()
+    {
+        using S=openswmmvis::io::Mesh2DValueStatus;
+        constexpr size_t cells=3*65536+17,chunkSize=1000;
+        const QString path=QFileInfo(fixturePath_).absoluteDir().filePath("large_decoded_rows.h5");
+        struct Handle {
+            hid_t id;herr_t(*close)(hid_t);
+            ~Handle(){if(id>=0)close(id);}
+        };
+        Handle file{H5Fcreate(path.toUtf8().constData(),H5F_ACC_TRUNC,H5P_DEFAULT,H5P_DEFAULT),H5Fclose};
+        QVERIFY(file.id>=0);
+        const auto plain=[&](const char* name,std::vector<hsize_t> dims,const double* values) {
+            Handle space{H5Screate_simple(int(dims.size()),dims.data(),nullptr),H5Sclose};
+            Handle data{H5Dcreate2(file.id,name,H5T_NATIVE_DOUBLE,space.id,H5P_DEFAULT,H5P_DEFAULT,H5P_DEFAULT),H5Dclose};
+            return data.id>=0 && (!values || H5Dwrite(data.id,H5T_NATIVE_DOUBLE,H5S_ALL,H5S_ALL,H5P_DEFAULT,values)>=0);
+        };
+        const double times[]={0,60};
+        QVERIFY(plain("time",{2},times));
+        QVERIFY(plain("Mesh2_face_nodes",{cells,3},nullptr));
+        const std::vector<double> water(2*cells,1);
+        QVERIFY(plain("Mesh2_face_depth",{2,cells},water.data()));
+        const auto raw=[](size_t i,int frame) {
+            if(i%257==0)return -9999.;
+            if(i%263==0)return -777.;
+            if(i%269==0)return std::numeric_limits<double>::quiet_NaN();
+            if(i%271==0)return std::numeric_limits<double>::infinity();
+            if(i%277==0)return 1e300;
+            return i%37==0?0.:(double(i%79)-39)*.123456789012345+frame*.3125;
+        };
+        const char* names[]={"Mesh2_face_max_depth","Mesh2_face_decode_probe","Mesh2_face_species_conc"};
+        for(int rank=1;rank<=3;++rank) {
+            std::vector<hsize_t> dims(size_t(rank),1),chunks(size_t(rank),1);
+            dims.back()=cells;chunks.back()=chunkSize;if(rank>1)dims[0]=2;
+            Handle space{H5Screate_simple(rank,dims.data(),nullptr),H5Sclose};
+            Handle props{H5Pcreate(H5P_DATASET_CREATE),H5Pclose};
+            QVERIFY(H5Pset_chunk(props.id,rank,chunks.data())>=0);
+            Handle data{H5Dcreate2(file.id,names[rank-1],H5T_NATIVE_DOUBLE,space.id,H5P_DEFAULT,props.id,H5P_DEFAULT),H5Dclose};
+            QVERIFY(data.id>=0);writeStringAttr(data.id,"units","m");
+            if(rank==3) {writeStringAttr(data.id,"species_names","Tracer");writeStringAttr(data.id,"species_units","mg/L");}
+            Handle scalar{H5Screate(H5S_SCALAR),H5Sclose};
+            for(const auto& attribute:std::vector<std::pair<const char*,double>>{
+                    {"_FillValue",-9999},{"missing_value",-777},{"scale_factor",.125},{"add_offset",2.3}}) {
+                Handle a{H5Acreate2(data.id,attribute.first,H5T_NATIVE_DOUBLE,scalar.id,H5P_DEFAULT,H5P_DEFAULT),H5Aclose};
+                QVERIFY(a.id>=0);QVERIFY(H5Awrite(a.id,H5T_NATIVE_DOUBLE,&attribute.second)>=0);
+            }
+            for(int t=0;t<(rank==1?1:2);++t)for(size_t first=0;first<cells;first+=chunkSize) {
+                if(first/chunkSize==65 || first/chunkSize==193)continue;
+                const hsize_t count=std::min(chunkSize,cells-first);
+                std::vector<double> values(size_t(count),0);
+                for(size_t i=0;i<values.size();++i)values[i]=raw(first+i,t);
+                auto offset=std::vector<hsize_t>(size_t(rank),0),extent=std::vector<hsize_t>(size_t(rank),1);
+                if(rank>1)offset[0]=hsize_t(t);offset.back()=first;extent.back()=count;
+                QVERIFY(H5Sselect_hyperslab(space.id,H5S_SELECT_SET,offset.data(),nullptr,extent.data(),nullptr)>=0);
+                Handle memory{H5Screate_simple(1,&count,nullptr),H5Sclose};
+                QVERIFY(H5Dwrite(data.id,H5T_NATIVE_DOUBLE,memory.id,space.id,H5P_DEFAULT,values.data())>=0);
+            }
+        }
+        QCOMPARE(H5Fclose(file.id),herr_t(0));file.id=-1;
+        Mesh2DH5Reader reader;QVERIFY(reader.open(path));
+        QFile parity(qEnvironmentVariable("SWMMVIS_READER_DECODE_PARITY"));
+        if(!parity.fileName().isEmpty())QVERIFY(parity.open(QIODevice::WriteOnly));
+        std::vector<float> values;std::vector<S> status;
+        for(int rank=1;rank<=3;++rank) {
+            const auto variable=catalogVariable(reader,names[rank-1],rank==3?"Tracer":"");
+            QVERIFY(!variable.key().isEmpty());
+            for(int frame:{0,1,0}) {
+                QVERIFY(reader.readFaceVariableAt(variable,frame,values,status));
+                QCOMPARE(values.size(),cells);QCOMPARE(status.size(),cells);
+                for(size_t i=0;i<cells;++i) {
+                    const double v=raw(i,rank==1?0:frame),decoded=v*.125+2.3;
+                    const bool missing=i/chunkSize==65 || i/chunkSize==193 || !std::isfinite(v)
+                        || !std::isfinite(decoded) || std::abs(decoded)>std::numeric_limits<float>::max() || v==-9999 || v==-777;
+                    QCOMPARE(status[i],missing?S::Missing:S::Valid);
+                    if(missing)QVERIFY(std::isnan(values[i]));else QCOMPARE(values[i],float(decoded));
+                }
+                if(parity.isOpen()) {
+                    QCOMPARE(parity.write(reinterpret_cast<const char*>(values.data()),qint64(values.size()*sizeof(float))),qint64(values.size()*sizeof(float)));
+                    QCOMPARE(parity.write(reinterpret_cast<const char*>(status.data()),qint64(status.size()*sizeof(S))),qint64(status.size()*sizeof(S)));
+                }
+            }
+            if(rank>1) {
+                QVERIFY(!reader.readFaceVariableAt(variable,99,values,status));
+                QVERIFY(values.empty());QVERIFY(status.empty());
+            }
+        }
+    }
+
     void resultCatalogSeparatesIdentityUnitsAndTime()
     {
         using V = openswmmvis::io::Mesh2DResultVariable;

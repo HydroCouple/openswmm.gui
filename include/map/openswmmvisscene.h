@@ -9,6 +9,7 @@
 #define SWMMVISSCENE_H
 
 #include <QGraphicsScene>
+#include <limits>
 
 class OpenSWMMVisLayer;
 class MapCanvas;
@@ -40,6 +41,19 @@ public:
      * \brief Removes all items owned by a particular layer.
      */
     void removeItemsForLayer(OpenSWMMVisLayer *layer);
+
+    // Render a layer-stack band without changing item visibility, selection,
+    // or the scene's change notifications. Children follow their top-level item.
+    void renderSlice(QPainter *painter, const QRectF &target, const QRectF &source,
+                     qreal minimumZ, qreal maximumZ);
+
+protected:
+    void drawItems(QPainter *painter, int count, QGraphicsItem *items[],
+                   const QStyleOptionGraphicsItem options[], QWidget *widget = nullptr) override;
+
+private:
+    qreal m_minimumRenderZ = -std::numeric_limits<qreal>::infinity();
+    qreal m_maximumRenderZ = std::numeric_limits<qreal>::infinity();
 
 signals:
     void itemHovered(QGraphicsItem *item);

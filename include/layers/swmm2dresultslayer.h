@@ -962,6 +962,12 @@ public:
     /*! Latest frame asked for; equals currentTimeIndex() once it is shown. */
     [[nodiscard]] int requestedTimeIndex() const noexcept { return requested_time_idx_; }
     void setSurfaceCacheBytes(size_t bytes);
+    /*! Retained frame-cache and historical-envelope bytes, excluding the displayed frame. */
+    [[nodiscard]] size_t surfaceAuxiliaryBytes() const;
+    /*! Last settled fitter/worker-frame capacities, separate from cached history. */
+    [[nodiscard]] size_t surfaceWorkingBytes() const;
+    /*! Retained displayed flow-classification storage, excluding fitter/history. */
+    [[nodiscard]] size_t waterVisibilityBytes() const;
     /*! Fits run by the async path (worker and bootstrap), for tests. */
     [[nodiscard]] int surfaceFitCount() const noexcept { return surface_fit_count_; }
     /*! A fit is running or waiting on the worker. */
@@ -1190,6 +1196,10 @@ private:
 
     std::vector<CellWaterGeometry::Surface> cellSurfaces_;
     std::vector<CellWaterGeometry::CornerDepths> cellFlowDepths_; // before shared-corner projection
+    // Async display queries need only these policy-independent summaries;
+    // raw corners remain in the worker/cache for fitting and analysis.
+    std::vector<double> cellFlowMaxDepths_;
+    std::vector<unsigned char> cellFlowFlags_;
     CellWaterGeometry::SmoothTopology surfaceTopology_;
     std::vector<CellWaterGeometry::CornerDepths> surfaceDepths_;
     mutable std::vector<CellWaterGeometry::CornerDepths> surfaceMaxCache_;
@@ -1234,8 +1244,10 @@ private:
         double regionalError = 0;
         SurfaceKey key;
         quint64 seq = 0, epoch = 0;   // request order; cancellation epoch
-        bool forEnvelope = false, live = false;
+        bool forEnvelope = false, live = false, buffersTransferred = false;
+        size_t workspaceBytes = 0;
         CellWaterGeometry::VisibilityPolicy policy;
+        std::vector<CellWaterGeometry::Surface> surfaces;
         std::vector<float> depths, flux;                            // inputs
         std::vector<CellWaterGeometry::CornerDepths> flow, smooth;  // outputs
     };
@@ -1245,22 +1257,27 @@ private:
         CellWaterGeometry::VisibilityPolicy policy,
         std::vector<CellWaterGeometry::Surface>& surfaces,
         std::vector<CellWaterGeometry::CornerDepths>& flow,
-        std::vector<CellWaterGeometry::CornerDepths>& smooth) const;
-    void fitSurface_(SurfaceJob& job) const;
+        std::vector<CellWaterGeometry::CornerDepths>& smooth,
+        CellWaterGeometry::NeighborhoodFit::Workspace* workspace = nullptr) const;
+    void fitSurface_(SurfaceJob& job, CellWaterGeometry::NeighborhoodFit::Workspace* workspace = nullptr) const;
+    void retainSurfaceBuffers_(const std::shared_ptr<SurfaceJob>& job);
     void fillSceneCorners_();
-    void publishSurface_(const SurfaceJob& job, quint64 seq);
+    void publishSurface_(SurfaceJob& job, quint64 seq);
     void scheduleFit_();
     void onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& job);
     void cancelSurfaceJobs_();
-    [[nodiscard]] std::shared_ptr<const SurfaceJob> cachedSurface_(const SurfaceKey& key) const;
-    void cacheSurface_(const std::shared_ptr<const SurfaceJob>& job);
+    [[nodiscard]] std::shared_ptr<SurfaceJob> cachedSurface_(const SurfaceKey& key) const;
+    void cacheSurface_(const std::shared_ptr<SurfaceJob>& job);
     [[nodiscard]] std::shared_ptr<SurfaceJob> nextEnvelopeJob_();
     void resetEnvelopeIfStale_() const;
     void advanceEnvelope_() const;
     [[nodiscard]] const std::vector<CellWaterGeometry::CornerDepths>* newestSurface_(int frame) const;
 
-    std::vector<std::shared_ptr<const SurfaceJob>> surface_cache_;   // oldest first
+    std::vector<std::shared_ptr<SurfaceJob>> surface_cache_;   // oldest first
     size_t surface_cache_bytes_ = 0, max_surface_cache_bytes_ = size_t(128) << 20;
+    CellWaterGeometry::NeighborhoodFit::Workspace surface_workspace_;
+    size_t surface_workspace_bytes_ = 0, surface_buffer_bytes_ = 0; // published capacity; never inspect worker-owned vectors from the GUI
+    std::shared_ptr<SurfaceJob> spare_surface_; // uncached second-frame buffers, reused after coherent swaps
     std::shared_ptr<SurfaceJob> active_surface_;
     std::shared_ptr<SurfaceJob> pending_surface_;        // latest request not yet fitted
     std::shared_ptr<const SurfaceJob> envelope_newest_;  // newest frame; never frozen
@@ -1279,6 +1296,9 @@ private:
     // smoothly instead of stepping at each cell; the peer of vdepth_ for flow.
     std::vector<float>             vvx_;          ///< per-vertex velocity x (scene units)
     std::vector<float>             vvy_;          ///< per-vertex velocity y (scene units)
+    // GUI-owned cell x/y/magnitude and vertex weights. Reinitialize each
+    // publication; retain storage rather than allocating a full mesh per tick.
+    std::array<std::vector<float>,4> velocity_scratch_;
 
     // CF.2 — per-tick flux + time-invariant edge geometry pulled once from the source.
     std::vector<float>             current_flux_;     ///< [mesh::edgeSlot(cell, e)], m^3/s.
@@ -1376,6 +1396,7 @@ private:
     OpenSWMM::Render::SmoothDepthFillSublayer *m_smoothDepthFillSublayer = nullptr;
     OpenSWMM::Render::IsolineSublayer         *m_isolineSublayer        = nullptr;
     OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
+    bool m_flowOnlyRepaint = false;
     OpenSWMM::Render::FlowStreakSublayer *m_flowStreakSublayer = nullptr;
     friend class OpenSWMM::Render::FlowParticleLayerController;
     OpenSWMM::Render::FlowParticleLayerController *m_particleController = nullptr;
@@ -1456,6 +1477,8 @@ public:
     QString flowStreakStatus() const;
     QString flowStreakAvailability() const;
     bool flowStreaksEnabled() const;
+    /*! True only during the synchronous repaint for a particle-style edit. */
+    bool flowOnlyRepaint() const noexcept { return m_flowOnlyRepaint; }
 Q_SIGNALS:
     void flowStreaksChanged(); // particle publication only; never hydraulic invalidation
 public:

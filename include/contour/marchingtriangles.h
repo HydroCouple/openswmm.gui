@@ -303,17 +303,15 @@ inline void clipHalfplane(const std::vector<QPointF> &inPts,
  * Complexity O(|tris| * |bands|) with an early-out per (triangle, band) when
  * the band lies entirely outside the triangle's value range.
  */
-template <typename TriRange, typename Extract>
-std::vector<IsoBandPolygon>
-marchingTrianglesIsobands(const TriRange         &tris,
+template <typename TriRange, typename Extract, typename Consume>
+void forEachTriangleIsoband(const TriRange         &tris,
                           const std::vector<double> &levels,
                           Extract                  extract,
+                          Consume                  consume,
                           double                   minimumVisibleValue = -std::numeric_limits<double>::infinity())
 {
-    std::vector<IsoBandPolygon> out;
-    if (levels.size() < 2) return out;
+    if (levels.size() < 2) return;
     const double lowerLimit = std::max(levels.front(), minimumVisibleValue);
-    out.reserve(/* heuristic */ levels.size() * 32);
 
     QPointF p0, p1, p2;
     double  v0, v1, v2;
@@ -345,12 +343,8 @@ marchingTrianglesIsobands(const TriRange         &tris,
                                          vMin)
                         - (levels.begin() + 1));
             k = std::clamp(k, 0, nb - 1);
-            IsoBandPolygon bp;
-            bp.verts     = {p0, p1, p2};
-            bp.bandLo    = levels[size_t(k)];
-            bp.bandHi    = levels[size_t(k) + 1];
-            bp.bandIndex = k;
-            out.push_back(std::move(bp));
+            a = {p0, p1, p2};
+            consume(a, levels[size_t(k)], levels[size_t(k) + 1], k);
             continue;
         }
 
@@ -373,15 +367,29 @@ marchingTrianglesIsobands(const TriRange         &tris,
             detail::clipHalfplane(b, bV, upper, /*keepAbove=*/false, a, aV);
 
             if (a.size() >= 3) {
-                IsoBandPolygon bp;
-                bp.verts     = a;
-                bp.bandLo    = L1;
-                bp.bandHi    = L2;
-                bp.bandIndex = int(k);
-                out.push_back(std::move(bp));
+                consume(a, L1, L2, int(k));
             }
         }
     }
+}
+
+// Preserve the value-returning API; streaming consumers avoid retaining a
+// separate heap object and vertex vector for every polygon.
+template <typename TriRange, typename Extract>
+std::vector<IsoBandPolygon>
+marchingTrianglesIsobands(const TriRange& tris, const std::vector<double>& levels,
+                          Extract extract,
+                          double minimumVisibleValue = -std::numeric_limits<double>::infinity())
+{
+    std::vector<IsoBandPolygon> out;
+    if(levels.size()<2)return out;
+    out.reserve(levels.size()*32);
+    forEachTriangleIsoband(tris, levels, extract,
+        [&](const std::vector<QPointF>& points, double lo, double hi, int index) {
+            IsoBandPolygon polygon;
+            polygon.verts=points;polygon.bandLo=lo;polygon.bandHi=hi;polygon.bandIndex=index;
+            out.push_back(std::move(polygon));
+        }, minimumVisibleValue);
     return out;
 }
 

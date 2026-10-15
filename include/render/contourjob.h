@@ -29,6 +29,8 @@
 #define OPENSWMM_RENDER_CONTOURJOB_H
 
 #include "contour/marchingtriangles.h"
+#include "render/watergeometrychunks.h"
+#include <QRectF>
 
 #include <array>
 #include <memory>
@@ -67,16 +69,25 @@ struct ContourJobInput
     /*! Additional physical visibility cutoff; the color minimum also clips.
      *  Depth renderers mask films first, then clip at zero; upper values saturate. */
     double minimumVisibleValue = -std::numeric_limits<double>::infinity();
+    /*! Optional exact fan geometry for the GPU consumer; legacy callers
+     *  keep their polygon output. Coverage is anchor-relative, if valid. */
+    bool packBands = false;
+    QRectF bandCoverage;
 };
+
+struct PackedBandVertex {float x=0,y=0;quint32 bandIndex=0;};
 
 struct ContourJobOutput
 {
     std::vector<OpenSWMM::Contour::IsoBandPolygon> bands;
     std::vector<OpenSWMM::Contour::IsoLineSegment> segs;
+    std::vector<WaterGeometryChunk<PackedBandVertex>> packedBands;
 };
 
 /*! Pure worker: march the snapshot. Safe on any thread. */
 [[nodiscard]] ContourJobOutput computeContourJob(const ContourJobInput &in);
+/*! Reuse exclusively owned output storage; all logical output is replaced. */
+void computeContourJob(const ContourJobInput &in, ContourJobOutput &out);
 
 } // namespace OpenSWMM::Render
 

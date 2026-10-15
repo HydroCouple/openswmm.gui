@@ -18,7 +18,8 @@ float value(int column,int particle) {
     return exponent==0.0?signBit*mantissa*exp2(-149.0):signBit*exp2(exponent-127.0)*(1.0+mantissa/8388608.0);
 }
 void main() {
-    int particle=max(0,int(abs(sampleParticle.y))-1);
+    // GLSL 1.20 only has floating-point max(); clamp before converting.
+    int particle=int(max(0.0,abs(sampleParticle.y)-1.0));
     float age=mix(value(0,particle),value(1,particle),interpolation);
     float lifetime=value(2,particle),stoppedAt=value(3,particle),tailStart=value(4,particle);
     float visibleTail=tailStart<0.0?tail:min(tail,max(age-tailStart,0.000001));
@@ -29,6 +30,7 @@ void main() {
     float fadeTime=min(fade,lifetime*0.2);
     float life=fadeTime>0.0?smoothstep(0.0,fadeTime,age)*smoothstep(0.0,fadeTime,lifetime-age):1.0;
     float retired=stoppedAt<0.0?1.0:(fade>0.0?1.0-smoothstep(0.0,fade,clock-stoppedAt):0.0);
-    trail=vec4(age-sampleParticle.x,life*retired,visibleTail,opacity*mix(1.0,fraction,softFade));
+    float visibility=mix(value(5,particle),value(6,particle),interpolation);
+    trail=vec4(age-sampleParticle.x,life*retired*visibility,visibleTail,opacity*mix(1.0,fraction,softFade));
     vColor=color;
 }

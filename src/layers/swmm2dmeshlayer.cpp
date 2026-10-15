@@ -109,6 +109,7 @@ public:
         setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, true);
         setCacheMode(QGraphicsItem::NoCache);
         setZValue(layer->layerZValue());
+        setData(0,QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
     }
 
     void geometryChanged() { prepareGeometryChange(); update(); }

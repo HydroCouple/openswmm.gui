@@ -4192,7 +4192,8 @@ qt_add_shaders(test_flowstreaks "flowstreak_test_shaders"
         ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.vert
         ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.frag
         ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.vert
-        ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.frag)
+        ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.frag
+        ${CMAKE_SOURCE_DIR}/resources/shaders/mapmask.frag)
 
 # Shared checkpoint catalog, worker activation and actual Qt views.
 add_swmmvis_gui_test(test_checkpointmodel

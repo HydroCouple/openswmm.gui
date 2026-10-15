@@ -690,6 +690,26 @@ jobs:
         timeout-minutes: 110
         run: cmake --build --preset=${{ matrix.cmake_preset }}
 
+      # Keep a small regression gate active while the broad GUI suite below
+      # is disabled. Reuse the configured dependencies and build only these
+      # targets; enabling tests must not trigger an all-test-target build.
+      - name: Build flow and water checks
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          cmake -S . -B build/${{ matrix.build_subdir }} -DSWMMVIS_BUILD_TESTS=ON
+          cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 2 \
+            --target test_flowparticles test_contourjob test_cellwatergeometry test_flowparticle_rendering
+
+      - name: Test flow and water checks
+        timeout-minutes: 5
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ctest --test-dir build/${{ matrix.build_subdir }} -C Release --output-on-failure \
+            --timeout 120 -R '^(test_flowparticles|test_contourjob|test_cellwatergeometry|test_flowparticle_rendering)$'
+
       # ── Test ─────────────────────────────────────────────────────────────────
       # A batch of Windows-only GUI tests hangs (never returns — not slow) for a
       # reason not yet root-caused (chart/widget tests under offscreen QPA; the

@@ -21,13 +21,20 @@ public:
     size_t fieldBytes() const {return m_particleFieldBytes;}
     int captures() const {return m_particleCaptures;}
     int reads() const {return m_particleReads;}
-    QString status() const {return m_particleLimit.isEmpty()?m_worker->status():m_particleLimit;}
+    QString status() const {return !m_particleLimit.isEmpty()?m_particleLimit:
+        m_particleOverview?tr("Overview · %1").arg(m_worker->status()):m_worker->status();}
     QString availability() const {return !m_particleLimit.isEmpty()?m_particleLimit:
         !m_worker->latestFrame()?tr("Preparing flow streaks"):QString();}
 private:
     SWMM2DResultsLayer *m_layer;
     FlowParticleController *m_worker;
     std::array<int,3> neighbors(int triangle) const;
+    bool overview(const QRectF &) const;
+    bool isBackwardSeek() const;
+    int overviewCapacity(double scale,double trail,double speed) const;
+    FlowParticleResidencyGrid residencyGrid(bool overview) const;
+    bool prepareOverviewSeeds(const QRectF &,double scale,int capacity);
+    FlowParticleResidency seedResidency(const FlowParticleResidencyGrid &) const;
     std::shared_ptr<FlowParticleMesh> m_particleMesh;
     std::shared_ptr<const FlowParticleNativeInput> m_particleInput;
     std::vector<quint64> m_particleTiles;
@@ -36,6 +43,7 @@ private:
     size_t m_particleFieldBytes=0,m_particlePeakTriangles=0,m_particlePeakMeshBytes=0;
     int m_particleCaptures=0,m_particleReads=0;
     quint64 m_particleEpoch=~quint64(0),m_particleRevision=~quint64(0);
+    quint64 m_particleResetRevision=~quint64(0);
     double m_particleCutoff=-1,m_particleScale=0;
     int m_particleTime=-1,m_particleGeneration=-1;
     QDateTime m_particleSimTime;
@@ -43,5 +51,13 @@ private:
     QString m_particleLimit;
     quint64 m_paletteRevision=~quint64(0);
     std::function<QColor(double)> m_palette;
+    struct OverviewSeed {int triangle=-1;double weight=0;QPointF position,velocity;};
+    std::vector<OverviewSeed> m_overviewSeeds;
+    QRectF m_overviewView;
+    quint64 m_overviewRevision=~quint64(0);
+    quint64 m_overviewLayout=0,m_particleSeedLayout=~quint64(0);
+    double m_overviewScale=0,m_overviewSpeed=0,m_overviewCutoff=-1;
+    int m_overviewCapacity=0;
+    bool m_particleOverview=false;
 };
 } // namespace OpenSWMM::Render

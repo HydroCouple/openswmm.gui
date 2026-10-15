@@ -102,7 +102,19 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p,const QRectF &view)
                 *style->widthAtFraction(1-(age-points[i].age)/tail)*.5/scale;
             left.append(position-normal);right.prepend(position+normal);
         }
-        double opacity=1;const double birthFade=std::min(fade,particle.lifetime*.2);
+        double leftBound=points.front().position.x(),rightBound=leftBound,topBound=points.front().position.y(),bottomBound=topBound;
+        for(const auto &point:points){leftBound=std::min(leftBound,point.position.x());rightBound=std::max(rightBound,point.position.x());
+            topBound=std::min(topBound,point.position.y());bottomBound=std::max(bottomBound,point.position.y());}
+        double opacity=flowParticleTrailVisibility(std::hypot(rightBound-leftBound,bottomBound-topBound)*scale);
+        if(frame->ribbon.scale==scale) {
+            const auto &ids=frame->ribbon.particleIds;
+            const auto id=std::lower_bound(ids.begin(),ids.end(),particle.id);
+            if(id!=ids.end() && *id==particle.id) {
+                const auto &timing=frame->ribbon.timing[size_t(id-ids.begin())];
+                opacity=flowParticleTimingValue(timing,5)*(1-interpolation)+flowParticleTimingValue(timing,6)*interpolation;
+            }
+        }
+        const double birthFade=std::min(fade,particle.lifetime*.2);
         if(birthFade>0)opacity*=smooth(age/birthFade)*smooth((particle.lifetime-age)/birthFade);
         if(particle.stoppedAt>=0)opacity*=fade>0?1-smooth((clock-particle.stoppedAt)/fade):0;
         const auto color=style->colorForSpeed(points.back().speed);

@@ -100,6 +100,14 @@ public:
     // model packets or timer events. Normal rendering remains asynchronous.
     void finishPendingCapture();
     [[nodiscard]] bool captureReady() const;
+    /*! Dynamic water snapshot size; dry mesh geometry is not copied here. */
+    [[nodiscard]] size_t retainedWaterTriangleCount() const;
+    /*! Copied water attributes needed by deferred contour frames. */
+    [[nodiscard]] size_t retainedWaterAttributeBytes() const;
+    /*! Contour scratch and cached geometry, excluding displayed attributes. */
+    [[nodiscard]] size_t contourWorkingBytes() const;
+    /*! Actual scene-order mutations, for static-cache regression checks. */
+    [[nodiscard]] quint64 sceneOrderMutationCount() const { return m_orderMutations; }
 
     /*! Monotonic counter bumped every time an external change marks this
      *  renderer's content dirty. MapCanvas compares it against the value
@@ -114,6 +122,9 @@ public:
      *  the requested frame while its complete contour geometry is prepared. */
     [[nodiscard]] quint64 displayedFrameRevision() const noexcept
     { return m_lastRenderedFrame; }
+    // Composition can cache the water independently when flow is the top
+    // visible sublayer. The separate particle item follows this revision.
+    void setSeparateFlow(bool separate);
 
 signals:
     /*! QSG-2D-1M Phase 7 — emitted when an asynchronous derived-geometry
@@ -132,7 +143,9 @@ private:
     void noteContentChanged() { ++m_contentRev; update(); }
 
     QPointer<SWMM2DResultsLayer> m_layer;
+    bool m_separateFlow = false;
     quint64                      m_contentRev = 0;
+    quint64 m_orderMutations = 0;
     MapExtent                    m_extent;
 
     // Fixed scene-space anchor (bbox centre) — keeps float vertex coords
@@ -176,7 +189,7 @@ private:
         int time = -1;
         quint64 frameRev = 0, epoch = 0;
         double dryDepth = 0, maxDepth = 0;
-        bool velocity = false, smoothBands = false;
+        bool velocity = false, smoothBands = false, snapshotTriangles = false;
         std::vector<double> bandLevels, isoLevels;
         QJsonObject contourStyle;
         QRectF coverage;
@@ -185,6 +198,7 @@ private:
         bool samePresentation(const ContourJobKey& o) const {
             return epoch == o.epoch && dryDepth == o.dryDepth
                 && velocity == o.velocity && smoothBands == o.smoothBands
+                && snapshotTriangles == o.snapshotTriangles
                 && contourStyle == o.contourStyle && coverage == o.coverage;
         }
         bool compatible(const ContourJobKey& o) const {
@@ -198,13 +212,24 @@ private:
     };
     struct ContourFrame;
     std::shared_ptr<const ContourFrame> m_contourFrame;
+    std::shared_ptr<ContourFrame> m_directFrame; // no worker borrows non-marching snapshots
     QFutureWatcher<std::shared_ptr<const ContourFrame>> m_contourWatcher;
     ContourJobKey m_requestedContourKey;
     quint64 m_contourEpoch = 0;
     bool m_contourBusy = false; // includes a queued finished signal
-    std::shared_ptr<const std::vector<OpenSWMM::Render::ContourJobInput::TriPos>>
+    std::shared_ptr<std::vector<OpenSWMM::Render::ContourJobInput::TriPos>>
         m_contourPositions;
-    std::vector<int> m_contourTriangles;
+    std::shared_ptr<const std::vector<int>> m_contourTriangles;
+    std::vector<int> m_visibleCellsScratch, m_contourSelectionScratch;
+    // A buffer is writable only while the pool is its sole owner. Completed
+    // frames and workers may keep independent immutable readers across seeks.
+    std::vector<std::shared_ptr<std::vector<std::array<float, 3>>>> m_contourScalarBuffers;
+    struct ContourOutputBuffer {
+        std::shared_ptr<OpenSWMM::Render::ContourJobOutput> packet;
+        size_t completedBytes=0; // sampled only after the writer finishes
+    };
+    std::vector<ContourOutputBuffer> m_contourOutputBuffers;
+    void finishContourOutput(const OpenSWMM::Render::ContourJobOutput& packet, bool bootstrapSpare=true);
 
     // ── Isoline-label texture cache ────────────────────────────────────
     // Keyed by "text|fontPt|halo|color" so style edits re-rasterise.

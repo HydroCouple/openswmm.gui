@@ -81,6 +81,30 @@ private slots:
         retired.eraseFinished();QCOMPARE(retired.particles().size(),size_t(1));
         QVERIFY(!retired.advance(.05).pending);retired.eraseFinished();QVERIFY(retired.particles().empty());
     }
+    void fadingTrailsDoNotBlockTheNextActiveBirth() {
+        const auto snapshot=field(100,2);
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={2,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        FlowParticleSettings settings;settings.maxParticles=16;settings.minimumLifetime=settings.maximumLifetime=.2;
+        settings.fadeSeconds=.6;settings.publicationInterval=1./30.;
+        FlowParticleController controller;controller.configure(settings,{10,0,20,2},1);
+        controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        int longestGap=0,gap=0;bool witnessedFadingAndActive=false;
+        for(int i=0;i<72;++i) {
+            controller.advance(1./60.);controller.waitForDone();
+            const auto frame=controller.frame(1);QVERIFY(frame);int active=0,fading=0;
+            for(const auto &p:frame->particles) {active+=p.stop==FlowParticleStop::None;fading+=p.stop!=FlowParticleStop::None;}
+            gap=active?0:gap+1;longestGap=std::max(longestGap,gap);witnessedFadingAndActive|=active && fading;
+            QVERIFY(active<=1);QVERIFY(frame->particles.size()<=size_t(settings.maxParticles));
+        }
+        QVERIFY2(longestGap<=2,"Retired trails blocked replacement heads during their fade");
+        QVERIFY(witnessedFadingAndActive);QVERIFY(controller.frame(1)->births>=5);
+    }
     void prewarmPublishesMatureTrailsWithStaggeredAges() {
         const auto snapshot=field(200,2);
         auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
@@ -121,6 +145,45 @@ private slots:
         QVERIFY(std::abs(controller.frame(1)->clock-2)<1e-8);
         controller.configure(settings,{10,0,20,2},200,paused,appearance,snapshot->mesh->grid);
         controller.request(input,true);controller.waitForDone();QCOMPARE(controller.opacity(),1.);
+    }
+    void aNewViewFillsWithoutWaitingForOffscreenLifetimes() {
+        const auto snapshot=field(200,20,{.01,0});
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={.01,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        FlowParticleSettings settings;settings.maxParticles=200;settings.maxHistory=64;
+        settings.minimumLifetime=settings.maximumLifetime=100;settings.publicationInterval=1./30.;
+        FlowParticleController controller;const QRectF original(10,2,20,10),panned(150,2,20,10);
+        controller.configure(settings,original,50,{10,40});controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        const auto first=controller.frame(1);QVERIFY(first);const auto survivor=first->particles.front().id;
+        controller.configure(settings,panned,50,{10,40});
+        for(int i=0;i<12;++i){controller.advance(1./60.);controller.waitForDone();}
+        const auto next=controller.frame(1);QVERIFY(next);int visible=0;bool retained=false;
+        for(const auto &p:next->particles){visible+=p.stop==FlowParticleStop::None && panned.contains(p.position);retained|=p.id==survivor;}
+        QVERIFY2(visible>=49,qPrintable(QString("Only %1 heads reached the new view after 0.2 seconds").arg(visible)));
+        QVERIFY(retained);QVERIFY(next->particles.size()<=size_t(settings.maxParticles));
+        // The same view change must finish all bounded birth batches even
+        // when each batch first has to reclaim an invisible full-pool slot.
+        controller.configure(settings,original,200,{100,40});controller.waitForDone();
+        controller.configure(settings,panned,200,{100,40});controller.waitForDone();
+        visible=0;for(const auto &p:controller.frame(1)->particles)visible+=p.stop==FlowParticleStop::None && panned.contains(p.position);
+        QVERIFY(visible>=199);QVERIFY(controller.diagnostics().offscreenReplacements>0);
+        QVERIFY(controller.frame(1)->particles.size()<=size_t(settings.maxParticles));
+    }
+    void fullPoolsRecycleOnlyInvisibleTrajectories() {
+        FlowParticleSystem system;auto settings=longLife();settings.maxParticles=3;settings.maxHistory=64;
+        QVERIFY(system.setSettings(settings));QVERIFY(system.setField(field(200,20,{1,0})));
+        const auto invisible=system.spawn({10,5}),visible=system.spawn({155,5}),crossing=system.spawn({145,5});
+        QVERIFY(invisible && visible && crossing);QVERIFY(!system.advance(10).pending);
+        // The second head is outside this small view, but its trail crosses it.
+        const QRectF view(150,0,10,10);QCOMPARE(system.releaseOffscreen(view,2),1);
+        for(const auto &p:system.particles())QVERIFY(p.id!=invisible);
+        QCOMPARE(system.particles().size(),size_t(2));QCOMPARE(system.frame()->deaths,quint64(0));
+        QVERIFY(system.spawn({152,5}));QCOMPARE(system.particles().size(),size_t(3));
     }
     void agedBirthRetainsAnExactForwardTrajectory() {
         const auto snapshot=field(200,2,{1,0});FlowParticleSystem young,aged;
@@ -170,6 +233,27 @@ private slots:
         QVERIFY(std::abs(p.previousAge+(p.age-p.previousAge)*controller.interpolation()-queued)<1e-8);
         controller.request(next,true);controller.waitForDone();QCOMPARE(controller.frame(2)->clock,0.);
         QCOMPARE(controller.interpolation(),0.);
+    }
+    void resetUnpinsTheOldFrameAfterItsLastReader() {
+        const auto snapshot=field(200,2);
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={2,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        auto settings=longLife();settings.maxParticles=8;settings.maxHistory=64;
+        FlowParticleAppearance appearance;
+        FlowParticleController controller;controller.configure(settings,{10,0,20,2},4,{16,10},appearance);
+        controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        controller.advance(1);controller.waitForDone();auto held=controller.frame(1);QVERIFY(held);
+        QVERIFY2(held->ribbon.vertices.capacity()>=8*64*2,"The packet reserves only active heads, forcing reallocations for fading trails");
+        auto next=std::make_shared<FlowParticleNativeInput>(*input);next->revision=2;
+        controller.setPresentedRevision(2);controller.request(next,true);controller.waitForDone();
+        QVERIFY(controller.frame(2));QCOMPARE(controller.frame(1),held);
+        held.reset();controller.advance(1./60.);controller.waitForDone();
+        QVERIFY2(!controller.frame(1),"An unobserved pre-seek frame remains pinned instead of returning to its pool");
     }
     void partialTicksKeepTheCompletedFramePrivateFromStaging() {
         FlowParticleSystem system;auto settings=longLife();settings.maxHistory=64;
@@ -300,6 +384,28 @@ private slots:
         const auto work=system.advance(.5,1000000);
         countTickAllocations=false;
         QVERIFY(!work.pending);QCOMPARE(tickAllocations,size_t(0));
+    }
+    void warmedResetsReuseBuffersAndKeepReadersImmutable() {
+        FlowParticleSystem system;auto settings=longLife();settings.maxParticles=8;settings.maxHistory=64;
+        const auto snapshot=field(100,2,{1,0});QVERIFY(system.setSettings(settings));QVERIFY(system.setField(snapshot));
+        FlowParticleAppearance appearance;appearance.particleCapacity=8;appearance.historyCapacity=64;
+        system.setAppearance(1,appearance);
+        for(int p=0;p<8;++p)QVERIFY(system.spawn({20+p*.1,.5},p,false));
+        std::array<std::shared_ptr<const FlowParticleFrame>,4> warm;
+        for(auto &frame:warm){QVERIFY(!system.advance(.1,100000).pending);frame=system.frame();}
+        const auto held=warm.front();const auto original=held->particles.front().history.front().position;warm={};
+        const auto reset=[&] {system.reset();};
+        bool complete=true;tickAllocations=0;countTickAllocations=true;
+        for(int cycle=0;cycle<8;++cycle) {
+            reset();complete&=system.clock()==0 && system.lagSeconds()==0 && system.particles().empty();
+            complete&=system.setField(snapshot);
+            for(int p=0;p<8;++p)complete&=system.spawn({40+cycle+p*.1,.5},p,false)!=0;
+            complete&=!system.advance(.1,100000).pending;
+        }
+        countTickAllocations=false;QVERIFY(complete);QCOMPARE(tickAllocations,size_t(0));
+        QCOMPARE(held->particles.front().history.front().position,original);
+        QCOMPARE(system.frame()->particles.front().id,quint64(1));QCOMPARE(system.frame()->births,quint64(8));
+        QCOMPARE(system.frame()->deaths,quint64(0));QVERIFY(std::abs(system.clock()-.1)<1e-10);
     }
     void retainedFramesApplyBoundedPublicationBackpressure() {
         FlowParticleSystem system;auto settings=longLife();settings.maxParticles=1;settings.maxHistory=64;
@@ -572,6 +678,28 @@ private slots:
         frame.particles.front().position={155,10};frame.particles.front().history.push_back({{155,10},11,0});
         const auto needed=flowParticleResidency({1,1,5,5},source->mesh->grid,&frame,.5);
         QVERIFY(!needed.limited);QVERIFY(std::includes(captured.tiles.begin(),captured.tiles.end(),needed.tiles.begin(),needed.tiles.end()));
+    }
+    void diagonalResidencyPinsTheCorridorWithoutItsWholeBoundingBox() {
+        FlowParticleResidencyGrid grid;grid.extent={0,0,100,100};grid.cellW=grid.cellH=1;grid.cols=grid.rows=100;
+        FlowParticleFrame frame;FlowParticle p;p.position={90,90};
+        p.history={{{10,10},0,0},{{90,90},10,0}};frame.particles.push_back(p);
+        const auto support=flowParticleResidency({0,0,1,1},grid,&frame,2,false);
+        QVERIFY(!support.limited);QVERIFY(support.tiles.size()<3000);
+        for(int i=10;i<100;++i)QVERIFY(std::any_of(support.rectangles.begin(),support.rectangles.end(),
+            [&](const QRectF &r){return r.contains(QPointF(i,i));}));
+        QVERIFY(std::none_of(support.rectangles.begin(),support.rectangles.end(),[](const QRectF &r){return r.contains(QPointF(10,90));}));
+        const auto horizontal=flowParticleResidency(QRectF(1,1,10,1),grid,nullptr);
+        QVERIFY(horizontal.rectangles.size()<int(horizontal.tiles.size()));
+    }
+    void overviewWeightsLimitBirthsToNativeSeedCells() {
+        auto source=field(10,2);auto mesh=std::make_shared<FlowParticleMesh>(*source->mesh);
+        mesh->seedWeights.assign(mesh->triangles.size(),0);mesh->seedWeights.front()=100;source->mesh=mesh;
+        const auto seeds=buildFlowParticleSeeds(*source,{0,0,10,2},.001);
+        QVERIFY(seeds.wetArea>0);QVERIFY(!seeds.triangles.empty());
+        for(int i=0;i<100;++i)QCOMPARE(seeds.sample(i).second,0);
+        for(const auto &seed:seeds.triangles)QCOMPARE(seed.cell,0);
+        const auto &tri=mesh->triangles.front();const auto a=mesh->vertices[tri[1]]-mesh->vertices[tri[0]],b=mesh->vertices[tri[2]]-mesh->vertices[tri[0]];
+        QCOMPARE(seeds.wetArea,std::abs(a.x()*b.y()-a.y()*b.x())*50);
     }
     void aLayoutReplacementStartsFromTheCurrentTemporalBlend() {
         auto initial=field(20,2,{2,0});auto ids=std::make_shared<FlowParticleMesh>(*initial->mesh);

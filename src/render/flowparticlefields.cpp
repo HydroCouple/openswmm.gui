@@ -80,13 +80,16 @@ std::shared_ptr<const FlowParticleSnapshot> buildFlowParticleField(
 FlowParticleSeedDistribution buildFlowParticleSeeds(const FlowParticleSnapshot &field,QRectF view,double cutoff) {
     FlowParticleSeedDistribution out;
     if(!field.mesh || !view.isValid() || !std::isfinite(cutoff)
-       || field.fields.size()!=field.mesh->triangles.size())return out;
+       || field.fields.size()!=field.mesh->triangles.size()
+       || (!field.mesh->seedWeights.empty() && field.mesh->seedWeights.size()!=field.fields.size()))return out;
     struct Corner {QPointF point;double depth;};
     struct Speed {double scene,si,area;};
     std::vector<Speed> speeds;
     std::vector<double> areas,sceneSpeeds;
     for(size_t i=0;i<field.fields.size();++i) {
         const auto &f=field.fields[i];if(!f.available)continue;
+        const double seedWeight=field.mesh->seedWeights.empty()?1:field.mesh->seedWeights[i];
+        if(seedWeight<=0)continue;
         std::vector<Corner> polygon;
         bool finite=true;
         for(int k=0;k<3;++k) {
@@ -131,8 +134,8 @@ FlowParticleSeedDistribution buildFlowParticleSeeds(const FlowParticleSnapshot &
             const double speed=std::hypot(velocity.x(),velocity.y());
             const double si=f.speed[0]*w[0]+f.speed[1]*w[1]+f.speed[2]*w[2];
             if(!std::isfinite(speed) || !std::isfinite(si))continue;
-            out.triangles.push_back({points,int(i),0});areas.push_back(area);sceneSpeeds.push_back(speed);
-            out.wetArea+=area;speeds.push_back({speed,si,area});
+            out.triangles.push_back({points,int(i),0});areas.push_back(area*seedWeight);sceneSpeeds.push_back(speed);
+            out.wetArea+=area*seedWeight;speeds.push_back({speed,si,area*seedWeight});
         }
     }
     const auto percentile=[&](bool si) {
