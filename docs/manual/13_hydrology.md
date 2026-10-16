@@ -62,7 +62,7 @@ not a design recommendation or a snowmelt validation case.
 
 A rain gage is a placed object: it has `[SYMBOLS]` map coordinates and a
 `[RAINGAGES]` definition. Select one and edit it in the Properties panel or the
-rain-gage attribute table — both drive the same adapter, so they stay in sync.
+rain-gage attribute table — both edit the same values, so they stay in sync.
 
 | Property | What it does | Writes |
 |---|---|---|
@@ -107,7 +107,7 @@ spatially, in one undoable step. Nothing is written until you press **Apply**;
 | Control | What it does |
 |---|---|
 | **Nearest gage (Thiessen area majority)** | Assigns the gage whose Thiessen (Voronoi) cell covers the largest share of the subcatchment's *polygon* — not of a representative point. An RDII node, being a point, takes its nearest gage |
-| **Natural-neighbour interpolation (creates gages)** | Area-averages natural-neighbour weights over the gage network per subcatchment (and takes the weights at the node for RDII); clusters objects whose weight vectors agree and materialises one generated gage plus a generated time series per cluster |
+| **Natural-neighbour interpolation (creates gages)** | Area-averages natural-neighbour weights over the gage network per subcatchment (and takes the weights at the node for RDII); groups objects whose weights agree and creates one generated gage plus a generated time series per cluster |
 | **Weighting** | *Sibson (area stealing)* or *Laplace (Voronoi facet)* — interpolated method only |
 | **Group weights within** | Percent tolerance for treating two weight vectors as the same cluster |
 | **Subcatchments** / **RDII inflows** | What to assign. RDII is checked by default when the model has `[RDII]` entries |
@@ -164,7 +164,7 @@ nodes move to a copy.
 
 ### Infiltration models
 
-The **Infil. Model** row is a five-value enum, and the parameter rows that follow
+The **Infil. Model** row offers five models, and the parameter rows that follow
 it are the ones the chosen model actually uses.
 
 | Model | Parameter rows |
@@ -176,9 +176,9 @@ it are the ones the chosen model actually uses.
 | `CurveNumber` | **Curve Number**; **Drying Time (days)** |
 
 Modified Horton and Modified Green-Ampt share their predecessors' parameter
-slots — the model code is what differs. The adapters re-read and re-write the
-whole parameter group and then restore the model code, so editing one number on
-a Mod-Horton subcatchment cannot silently demote it to plain Horton.
+rows — only the model differs. Editing one number rewrites the whole parameter
+group and keeps the chosen model, so editing one number on a Mod-Horton
+subcatchment cannot silently demote it to plain Horton.
 
 The project-wide default infiltration model is an `[OPTIONS]` key set in the
 Simulation Options dialog (\ref manual_simulation_options); the object-creation
@@ -248,10 +248,10 @@ All four tabs are always present; which layers a type actually has is what the
 diagram shows (a rain barrel has no soil layer, a green roof has a drainage mat
 rather than storage).
 
-**Engine limitation, stated in the dialog itself:** the engine exposes LID layer
-*setters* but no getters, so a control loaded from an existing `.inp` displays
-defaults rather than its stored values, and editing it overwrites all four
-layers. Only new or user-edited controls are written back. Treat the editor as
+**Engine limitation, stated in the dialog itself:** the engine lets the editor
+*write* LID layer values but not read them back, so a control loaded from an
+existing `.inp` displays defaults rather than its stored values, and editing it
+overwrites all four layers. Only new or user-edited controls are written back. Treat the editor as
 authoritative for controls you create in SWMMVis, and check `[LID_CONTROLS]` when
 round-tripping someone else's model.
 
@@ -447,8 +447,9 @@ or seasonal recovery.
 
 ## Tips and gotchas
 
-- **LID controls loaded from an existing model show defaults.** The engine has no
-  LID getters. If you open the LID Control editor on an imported model, do not
+- **LID controls loaded from an existing model show defaults.** The engine
+  cannot read LID layer values back. If you open the LID Control editor on an
+  imported model, do not
   assume the numbers on screen are the ones in the file — and be aware that
   touching any field rewrites all four layers.
 - **One gage per subcatchment.** The interpolated assignment method exists

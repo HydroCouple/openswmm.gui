@@ -477,7 +477,7 @@ this engine, so there is no solver selector and these settings are always live.
 | **Momentum θ** | θ-weighting of the face discharge in the momentum update; 1.0 is the classic Bates scheme, below 1 damps thin-film checkerboarding | `THETA` |
 | **CFL number** | Courant safety factor α on each cell's stable step | `CFL_NUMBER` |
 | **LTS tiers** | Local-timestepping tiers; cells march at power-of-two multiples of the finest step. 1 = a global timestep | `LTS_TIERS` |
-| **Movement threshold** | Cells shallower than this stay in the lazy source-only set — rain over thin films costs nothing until water must move | `H_MOVE` |
+| **Movement threshold** | Cells shallower than this exchange no flow with their neighbours; rain, infiltration and evaporation still act on them, so thin films cost nothing until water must move. A cell starts moving water a little above the threshold and stops a little below it | `H_MOVE` |
 | **Max Froude number** | Froude cap on face discharge — the supercritical guard | `FROUDE_MAX` |
 | **Convective momentum flux (ADVECTION)** | Local inertial only: optionally include convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind). Full shallow-water includes it automatically; diffusive wave omits it. The checkbox is replaced by an explanatory message for those equations. | `ADVECTION` |
 
@@ -577,7 +577,7 @@ variable overrides this setting.
 
 | Control | Meaning | Writes |
 | --- | --- | --- |
-| **Write 2D results to output (REPORT_2D)** | Emit 2D results at all | `REPORT_2D` |
+| **Write 2D results to output (REPORT_2D)** | Write 2D results to the output file at all | `REPORT_2D` |
 | **2D results file** | HDF5 file receiving 2D results; relative paths resolve against the input file's folder. Blank uses `<model>.2d.h5` next to the input | `OUTPUT_FILE` |
 
 **Retired keys.** `MIN_TIMESTEP`, `REL_TOLERANCE`, `ABS_TOLERANCE`,
@@ -664,7 +664,7 @@ selected writer plugin advertises.
 
 | Column | Contents |
 | --- | --- |
-| Plugin | A plugin id from the discovery registry, an `id:version` pin, or a shared-library path |
+| Plugin | The id of an installed plugin, an `id:version` pin, or a shared-library path |
 | Arguments | Free-form whitespace-tokenised arguments passed to the plugin's initialisation |
 
 **Add** appends a blank row; **Remove** drops the current one. A row naming a

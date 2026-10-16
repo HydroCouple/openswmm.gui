@@ -52,15 +52,14 @@ project opens.
   positions and vertices can be dragged. With **Select** active, click text
   in any visible text layer to edit it, or drag the text to move it.
 
-The state follows the project across tab switches. In the action catalog this
-is the `RequiresEditSession` idea; the add-object actions instead carry
-`RequiresProject`, which is why they never grey out while a project is open.
+The state follows the project across tab switches. The add-object tools only
+need a project to be open, which is why they never grey out while one is.
 
 ### Inline editing: handles on the Select tool
 
 With an edit session open, activate **Select** and double-click an object.
-Handles appear in the map overlay — not as scene items — and you stay on the
-Select tool throughout.
+Handles appear as an overlay on the map, and you stay on the Select tool
+throughout.
 
 | Object | Handles |
 |---|---|
@@ -86,10 +85,14 @@ and cancelled cleanly with **Esc**.
 
 \figtodo{12_inline_vertex_edit.png, A conduit in edit mode with interior vertex handles and two selected}
 
-A subcatchment must keep at least three vertices. Deleting more than that is
-refused with an explanation, and the single-vertex delete is disabled with a
-tooltip when only three remain; where the whole polygon would be destroyed you
-are offered the option of deleting the subcatchment instead.
+A conduit may lose any number of interior vertices — down to a straight line
+between its two nodes — one at a time or as a group. Only subcatchments keep a
+minimum: a polygon must keep at least three vertices, so deleting more than
+that is refused with an explanation, the single-vertex delete is disabled with
+a tooltip when only three remain, and where the whole polygon would be
+destroyed you are offered the option of deleting the subcatchment instead.
+
+\figtodo{12_delete_single_vertex.png, Right-click on a single conduit bend showing Delete vertex — the bend removed in the inset}
 
 ### Snapping
 
@@ -143,6 +146,9 @@ next unused number:
 
 Prefixes are edited on **Tools → Preferences… → Naming**.
 
+What each node type is, when to use it and what its property rows mean is in
+\ref manual_hydraulics "node types".
+
 If a DTM is selected on the **Terrain** toolbar, the node's invert elevation is
 filled from the raster: `invert = terrain Z × unit factor + node offset`, with
 the offset (negative for "below ground") set on that toolbar and the factor
@@ -167,8 +173,9 @@ node *into* a conduit when you click on one, instead of dropping it beside it:
    conduit's gradient, and any interior vertices are shared out between the
    two halves.
 3. A **Storage** or **Flow Divider** placed this way is converted from the
-   inserted junction and receives its creation defaults (a divider carries the
-   engine's "two links" warning until you draw its third link).
+   inserted junction and receives its creation defaults (a divider inserted
+   this way has only one outgoing link, so it carries a warning until you draw
+   the second one).
 
 **Outfall** is the exception: an outfall must end the network, so clicking a
 conduit with it puts a hint in the status bar (and draws the marker as a dotted
@@ -194,15 +201,16 @@ placed freely. **Virtual Junction** is a *split* tool:
 
 The insertion is one undoable step, and undoing it re-fuses the two conduits.
 Deleting a virtual junction — or either of its conduits — offers **Re-fuse
-Conduits** as the default action.
+Conduits** as the default action. What a virtual junction is and the rules it
+must satisfy are in \ref manual_hydraulics "virtual junction".
 
 ### Inlet junctions
 
 **Inlet Junction** is the same split tool with two additions:
 
 - the hit must be a **`STREET`** conduit. An inlet junction models a gutter
-  inlet, so a pipe is not a legal host; clicking one emits a status hint
-  instead of splitting. (A drop inlet on a `RECT_OPEN` or `TRAPEZOIDAL`
+  inlet, so a pipe is not a legal host; clicking one shows a hint in the
+  status bar instead of splitting. (A drop inlet on a `RECT_OPEN` or `TRAPEZOIDAL`
   channel is an inlet-*usage* case, edited from the conduit's **Inlets** row.)
 - the insertion is configured **before** it happens. A floating **New Inlet
   Junction** panel collects the inlet design, the capture (underdrain) node and
@@ -212,7 +220,9 @@ Conduits** as the default action.
   split happens when you press **OK**. Virtual and inlet junctions are already excluded from the
   capture-node list, and so are the host conduit's own two end nodes.
 
-Undo re-fuses the conduits and drops the `[INLET_USAGE]` row.
+Undo re-fuses the conduits and removes the inlet assignment. What the inlet
+rows mean, and the rules an inlet junction must satisfy, are in
+\ref manual_hydraulics "inlet junction".
 
 \figtodo{12_inlet_junction_setup.png, The Inlet Junction Setup dialog collecting a design and a capture node}
 
@@ -229,6 +239,9 @@ Activate **Pipe**, **Pump**, **Orifice**, **Weir** or **Outlet**.
 4. **Right-click** removes the last intermediate vertex, or cancels when there
    is none. **Esc** cancels outright.
 
+Which link type to draw, and what each type's property rows mean, is in
+\ref manual_hydraulics "link types".
+
 \figtodo{12_add_conduit_snap.png, Drawing a conduit with the snap indicator ringing the target node}
 
 ### Adding a subcatchment
@@ -243,19 +256,23 @@ Activate **Subcatchment** and draw a polygon:
 | Right-click | Remove the last vertex, or cancel when fewer than two remain |
 | **Esc** | Cancel |
 
-The subcatchment's **Outlet** is not assigned by drawing — set it on the
-Properties panel's Outlet row or the attribute table's Outlet column, both of
-which are closed pickers over the project's nodes and subcatchments.
+The name uses the prefix from **Tools → Preferences… → Naming** (default
+`Sub`) plus the next free number. The subcatchment's **Outlet** is not assigned
+by drawing — set it on the Properties panel's Outlet row or the attribute
+table's Outlet column, both of which are closed pickers over the project's
+nodes and subcatchments; the subcatchment's property rows are described in
+\ref manual_hydrology.
 
 To bind subcatchments to gages spatially rather than one at a time, use
 **Model → Assign Rain Gages…** — see \ref manual_hydrology.
 
 ### Adding a rain gage
 
-Activate **Rain Gage** and click. The gage is placed with the next free `RG`
-name and the creation defaults for gages. Configure the rainfall source — inline
-time series, or a rain file with its format, station id, column and interval —
-in the Properties panel or the Rain Gages attribute table.
+Activate **Rain Gage** and click. The name uses the prefix from **Tools →
+Preferences… → Naming** (default `RG`) plus the next free number, and the gage
+receives the creation defaults for gages. Configure the rainfall source — an
+inline time series, or a rain file — in the Properties panel or the Rain Gages
+attribute table; the gage's property rows are described in \ref manual_hydrology.
 
 ### Text layers and callouts
 
@@ -336,8 +353,8 @@ preferences, and drives two behaviours:
 
 - **Auto-Length** — a conduit's length is computed from its polyline whenever it
   is created, whenever a node it touches is moved, and whenever its vertices are
-  edited. The length is written through the engine's conduit length field as
-  part of the same undoable command.
+  edited. The length is written to the conduit as part of the same undoable
+  step.
 - **Auto-Area** — a subcatchment's area is computed from its polygon on
   creation, converted from square map units to the SWMM area unit (hectares for
   SI flow units, acres for US customary).
@@ -360,15 +377,15 @@ open the dialog.
 | **Attribute Mapping** | One row per mappable attribute of the target type — bind it to a source field or a constant. **Auto-match** binds every unmapped attribute to an identically named source column. **Preset:** saves, loads and deletes named mappings, and reports any preset column that is missing from this layer. A validation line names anything required that is still unbound |
 | **Link Endpoints** (link targets only) | Resolution order: **use the mapped From Node / To Node columns**, then **snap endpoints to existing nodes within** *N* map units, then **create junctions at unresolved endpoints** with a given prefix |
 | **Existing Objects** | **Skip — leave existing objects unchanged**, or **Update existing objects (matched by name)** with separate **Overwrite mapped attributes** and **Overwrite geometry** checkboxes |
-| **Preview** / **Import** | **Preview** runs a dry run on a worker thread and fills a per-feature results table with what would happen and why. Any edit invalidates the plan and you must preview again before importing |
+| **Preview** / **Import** | **Preview** runs a dry run in the background and fills a per-feature results table with what would happen and why. Any edit invalidates the plan and you must preview again before importing |
 
 Coordinates are transformed from the source layer's CRS to the model layer's CRS
 during the read, so a layer in a different projection imports in the right place
 — but if either CRS is unknown the dialog says so rather than guessing. See
 \ref manual_crs.
 
-The import runs on the GUI thread with a progress dialog and lands as **one undo
-macro**: a single `Ctrl+Z` reverts the whole import. It reuses the ordinary
+The import runs with a progress dialog and lands as **one undo step**: a
+single `Ctrl+Z` reverts the whole import. It reuses the ordinary
 add-object commands, so creation defaults apply and the mapped attributes are
 written afterwards — mapped values always win over a default.
 
@@ -419,8 +436,8 @@ What is undoable:
   SI set; **Apply** writes whichever values each page currently holds for both.
 - Auto-Length also governs Auto-Area. There is one switch, not two.
 - On very large models, prefer selecting and deleting in one batch over
-  repeated single deletes — the batch path takes one engine call and one
-  repaint. See \ref manual_performance.
+  repeated single deletes — a batch is one operation and one repaint. See
+  \ref manual_performance.
 
 ## Related
 

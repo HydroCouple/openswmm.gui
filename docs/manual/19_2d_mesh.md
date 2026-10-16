@@ -80,7 +80,7 @@ editing, in three groups:
 **Model → Generate Mesh** opens a tabbed dialog — **Sources**, **Quality**,
 and **Hydraulics** — with the output destination in a fixed
 footer. Generation runs
-on a worker thread with a progress bar and a live stage label; **Cancel
+in the background with a progress bar and a live stage label; **Cancel
 Generation** stops it cleanly at the next stage boundary.
 
 \fig{19_generate_mesh_sources.png, The Generate 2D Mesh dialog on the Sources tab}
@@ -260,7 +260,7 @@ always present and always first. Columns: **Region**, **Manning's n**,
 - Infiltration follows the engine's inheritance rule — *per-cell override →
   region tag row → `*` row → none* — so region rows go to
   `[2D_INFILTRATION_DEFAULTS]` verbatim and are never flattened into per-cell
-  rows. A table where every row is **None** emits no `[2D_INFILTRATION*]`
+  rows. A table where every row is **None** writes no `[2D_INFILTRATION*]`
   section at all.
 - A row that names a method but leaves one of that method's parameters blank is
   rejected with a message naming the region.
@@ -429,8 +429,8 @@ The editable per-cell parameters are:
 
 Values read back **resolved**, not raw: a cell with no override reads its region
 tag's numbers (or the `*` row's), which is what the engine will run. Editing one
-materialises a per-cell override; undoing that edit puts the cell back to
-*inheriting*, not to a materialised override carrying the same numbers.
+creates a per-cell override; undoing that edit puts the cell back to
+*inheriting*, not to an override carrying the same numbers.
 
 The legacy cell-parameter selector still disables its groundwater entries.
 Use **Model → Assign Groundwater…** for aquifer properties, initial water state,
@@ -438,8 +438,7 @@ SAT/UNSAT initial species concentrations and injection/extraction sources.
 These values use the engine's groundwater authoring records and project undo.
 
 Every cell edit goes onto the project undo stack and refreshes the map, the
-Properties panel and the attribute table through the layer's change signal, so
-no view can drift.
+Properties panel and the attribute table together, so no view can drift.
 
 ### Assigning cell data from a raster or a shapefile
 
@@ -489,7 +488,7 @@ CSV…**, so an agency standard table can be reused across projects. A trailing
 `(unmatched)` row applies to every key the table does not list.
 
 **Preview** samples without writing and reports what it found; **Apply** writes.
-Sampling runs on a worker thread and the mesh is untouched until it finishes
+Sampling runs in the background and the mesh is untouched until it finishes
 successfully, so cancelling mid-run leaves the mesh exactly as it was.
 
 ### Boundary conditions

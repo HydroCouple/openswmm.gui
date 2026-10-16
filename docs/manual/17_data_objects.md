@@ -43,6 +43,19 @@ toggles between sessions.
 
 ## Step-by-step
 
+### Naming rules
+
+Every data-object name — a time series, curve, pattern, pollutant, land use,
+aquifer, snowpack, transect, street, inlet or LID control — is a SWMM
+identifier: it is written to the `.inp` as a single whitespace-delimited word.
+A name must therefore contain no spaces and none of `;`, `[` or `]`; use `_`
+or CamelCase instead (`Total_Nitrogen`, `TotalN`, never `Total Nitrogen`). The
+editors refuse a name that would not survive saving to `.inp` and say why, so
+a space in a name is caught when you type it rather than when the file is
+reopened with the name cut short.
+
+\figtodo{17_name_validation.png, The Pollutant editor refusing "Total Nitrogen" with the explanatory message}
+
 ### The time series editor — `[TIMESERIES]`
 
 **Model → Data Objects → Time Series…** opens a three-pane editor: the list of
@@ -63,7 +76,7 @@ example's simulation limitations.
 
 **List pane.** A filter box narrows the list by case-insensitive substring.
 **New**, **Delete** and **Rename** act on the selection; renaming is also
-available in place (the registry enforces case-insensitive uniqueness).
+available in place (names must be unique, ignoring case).
 Selecting a different series rebinds the grid, the chart and the source card.
 
 **Creating a series.** **New** shows a create card above the splitter with a
@@ -80,7 +93,7 @@ and explains why) and a **Source** combo:
 time vector the grid widens to `Time | V0 | V1 | …`, one value column per
 series — the layout you get when one CSV feeds several series. When the time
 vectors differ, the grid falls back to `Time | Value` for the selected series
-only. Times must be strictly increasing; a mutation that would break that is
+only. Times must be strictly increasing; an edit that would break that is
 rejected and the reason appears in the status bar.
 
 | Toolbar action | What it does |

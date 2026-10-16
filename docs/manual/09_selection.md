@@ -50,7 +50,7 @@ The bus supports four modes:
 | **Toggle** | Flip each entry's membership. |
 | **Subtract** | Remove each entry from the current selection. |
 
-Selection is **per project**: switching MDI tabs swaps the active bus, so two
+Selection is **per project**: switching project tabs swaps the active selection, so two
 open projects carry independent selections. Selection is **not a model edit** —
 changing or clearing it never marks the project dirty and never deletes
 anything.
@@ -114,7 +114,7 @@ highlights and Attribute Table row selections follow the same selection.
 
 ### Selecting in the Object Browser and the Attribute Table
 
-Both docks are two-way bound to the same bus.
+Both docks share the same selection: a pick in either shows in the other.
 
 - **Object Browser** — the tree uses extended selection: click replaces,
   `Ctrl`-click toggles a row, `Shift`-click extends a contiguous range. A
@@ -136,8 +136,8 @@ dock and puts the caret in its **Filter by name…** box with the existing text
 selected, so you can type straight over it.
 
 Filtering is case-insensitive, substring-based and recursive — a category stays
-visible while any object under it matches — and it is debounced, so typing into
-a million-object project does not rebuild the filter on every keystroke. The
+visible while any object under it matches — and it waits until you pause
+typing, so a million-object project is not re-filtered on every keystroke. The
 `(x)` clear button restores the full tree.
 
 The filter **hides rows; it does not select them**. Selecting an object whose
@@ -273,7 +273,7 @@ refs from every GIS layer on the canvas so one layer's picks do not drop
 another's.
 
 Feature attributes are read in the **Attribute Table**; the Properties panel
-does not yet carry a GIS feature adapter.
+does not yet show GIS features.
 
 ### Select by attribute from the Attribute Table
 
@@ -339,16 +339,15 @@ What happens:
    **Delete Conduit**. For an inlet junction the dialog also names the
    `[INLET_USAGE]` row that will be removed.
 4. A node that receives groundwater from subcatchments is called out in the
-   confirmation text — the engine nulls those subcatchments' groundwater node.
-5. You confirm, then everything is deleted as **one batch**: one engine
-   `delete_many` call per kind, one cache rebuild, one repaint, and one entry
-   on the undo stack. Selecting thousands of objects and pressing Delete is a
-   single undoable step.
+   confirmation text — those subcatchments lose their groundwater node.
+5. You confirm, then everything is deleted as **one batch**: one operation per
+   kind, one repaint, and one entry on the undo stack. Selecting thousands of
+   objects and pressing Delete is a single undoable step.
 
 \figtodo{09_confirm_bulk_delete.png, The Confirm Delete prompt for a multi-object selection}
 
 Data objects (curves, time series, transects, …) are deleted from the Object
-Browser's data section. Kinds whose engine delete API is not wired show a
+Browser's data section. Kinds that cannot yet be deleted from there show a
 disabled **Delete…** with a tooltip saying so, rather than pretending.
 
 ### Edit Existing
@@ -367,8 +366,8 @@ are described in \ref manual_map_editing.
 
 ## Tips and gotchas
 
-- The bus is re-entrancy guarded in both directions, so a change pushed from
-  one view does not bounce back and produce double events.
+- A selection made in one view never bounces back from the others as a second
+  change.
 - Selecting rows in the Attribute Table **replaces** the whole selection.
   Switching between two tables and selecting rows in each will not accumulate a
   mixed set.

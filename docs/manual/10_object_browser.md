@@ -26,9 +26,9 @@ tab switch.
 
 ### The object tree
 
-The tree is virtualised: only the category rows materialise, and leaf names are
-fetched through the layer's O(1) accessors as rows scroll into view. A
-million-object project costs nothing at rest.
+The tree is built on demand: only the category rows exist up front, and object
+names are fetched as rows scroll into view, so a million-object project costs
+nothing at rest.
 
 It has two sections, separated by a bold italic **Data Objects** divider row
 (inert — it has no menu and cannot be selected):
@@ -63,15 +63,17 @@ Data-object rows carry no checkbox — the canvas only paints spatial objects.
 
 Type into **Filter by name…**. The filter is case-insensitive, substring-based
 and recursive (a category stays visible while any of its objects match), and it
-is debounced so typing into a huge project does not rebuild the filter map on
-every keystroke. The `(x)` button clears it.
+waits until you pause typing, so a huge project is not re-filtered on every
+keystroke. The `(x)` button clears it.
 
 The filter changes what is *shown*, never what is *selected*.
 
 #### Reordering categories
 
 Category rows can be dragged to reorder the tree; leaves cannot. The order is
-part of the project and the change is undoable.
+part of the project and the change is undoable. **Move Up** / **Move Down** on
+a category's context menu step past categories that are hidden because they
+are empty, so one step always produces a visible change.
 
 #### Double-click
 
@@ -114,10 +116,14 @@ Right-click behaviour depends on the row.
 | Item | What it does |
 |---|---|
 | **Edit…** | Open the category's comprehensive editor with this object pre-selected |
-| **Properties…** | Select the object so the Properties panel shows it |
-| **Delete…** | Delete it. Enabled only for kinds whose engine delete path is wired (curves, time series, transects); the rest show the action disabled with a tooltip |
+| **Delete…** | Delete it. Enabled only for the kinds that can be deleted from here (curves, time series, transects); the rest show the action disabled with a tooltip |
 
-\figtodo{10_browser_context_menu.png, The Object Browser leaf context menu on a junction}
+A left-click already selects the object and the Properties panel follows it,
+so there is no separate **Properties…** entry.
+
+\figtodo{10_browser_context_menu.png, The Object Browser context menu on a conduit}
+
+\figtodo{10_data_object_edit_menu.png, Right-click on a pollutant showing Edit… and Delete…}
 
 #### Comprehensive editors
 
@@ -148,10 +154,9 @@ never end up with two views onto the same object. They are covered in
 ### The Properties panel
 
 Selecting an object anywhere populates the Properties panel with a property
-tree. Rows come from a typed *property adapter* per object kind, and the tree's
-delegate resolves an editor from each property's type — so a numeric row gets a
-spin box, a boolean a checkbox, an enumeration a combo, a colour a colour
-picker.
+tree. The rows are fixed per object kind, and each property's type decides its
+editor — a numeric row gets a spin box, a boolean a checkbox, an enumeration a
+combo, a colour a colour picker.
 
 The panel header carries:
 
@@ -168,7 +173,7 @@ The panel header carries:
 
 | Row kind | Editor | Notes |
 |---|---|---|
-| Number | Double spin box | Range and decimals come from the adapter; the header carries the unit resolved from the project's flow-unit system |
+| Number | Double spin box | Range and decimals are fixed per property, and the editor steps by an amount suited to the field — whole units for lengths, 0.001 for roughness; the header carries the unit resolved from the project's flow-unit system |
 | Integer | Spin box | e.g. barrels; number of inlets |
 | Boolean | Checkbox | e.g. flap gate |
 | Enumeration | Combo | e.g. outfall type; divider type; storage shape; inlet placement |
@@ -296,9 +301,8 @@ Offered targets:
 | Node | Junction, Outfall, Storage, Divider, **Virtual Junction**, and **Inlet Junction** when the engine supports it |
 | Link | Conduit, Pump, Orifice, Weir, Outlet |
 
-Virtual and inlet junctions are engine-side ordinary junctions carrying flags
-rather than separate node types, so they appear in this list as their own
-targets. Both are offered **greyed out with the violated rule as a tooltip**
+Virtual and inlet junctions are junctions with extra rules rather than
+separate node types, so they appear in this list as their own targets. Both are offered **greyed out with the violated rule as a tooltip**
 when the engine's usage rules are not met — a virtual junction needs exactly two
 identical conduits, zero offsets and no 2D coupling; an inlet junction needs all
 of that plus both conduits being `STREET` sections. Point inflows do not
@@ -318,9 +322,9 @@ link's upstream and downstream nodes without moving it.
 ### Section View
 
 The **Section View** dock draws the current selection to scale. It follows the
-same selection dispatch as the Properties panel and repaints on the model
-layer's attribute-changed signal, so an edit made in the property grid, the
-attribute table or the cross-section dialog shows up immediately.
+selection exactly as the Properties panel does and repaints whenever an
+attribute changes, so an edit made in the property grid, the attribute table
+or the cross-section dialog shows up immediately.
 
 | Selected | What is drawn |
 |---|---|
@@ -357,18 +361,18 @@ and 35 ft wide at the crown. Its longitudinal preview runs from J1 to J5.
 
 ### How edits propagate
 
-All three docks and the map are views onto one model. The synchronisation is
-explicit rather than incidental:
+All three docks and the map are views onto one model, and they stay in step:
 
-- Selection travels on the per-project selection bus (\ref manual_selection).
-- A cell edit in the Attribute Table emits an *object edited* signal that
-  refreshes the same object's rows in the Properties panel — and the reverse.
-  Both directions are guarded so a refresh never bounces back as a second edit.
-- The Section View listens to the layer's attribute-changed signal and redraws.
-- Geometry changes refresh the Object Browser through the layer's
-  geometry-changed signal, so counts and rows track adds and deletes.
-- Property edits and cell edits are pushed onto the same canvas undo stack as
-  map edits, so `Ctrl+Z` steps back through everything in one history.
+- Selection is shared per project (\ref manual_selection): select in one place
+  and every view follows.
+- A cell edit in the Attribute Table refreshes the same object's rows in the
+  Properties panel — and the reverse. A refresh never bounces back as a second
+  edit.
+- The Section View redraws whenever an attribute of the selected object changes.
+- Adding or deleting objects refreshes the Object Browser, so counts and rows
+  track the model.
+- Property edits and cell edits go onto the same undo stack as map edits, so
+  `Ctrl+Z` steps back through everything in one history.
 
 
 ## Tips and gotchas
