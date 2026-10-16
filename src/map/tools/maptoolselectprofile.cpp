@@ -13,11 +13,14 @@
 #include "map/mapcanvas.h"
 #include "map/openswmmvisscene.h"
 #include "map/mapextent.h"
+#include "map/spatialreferencesystem.h"
 #include "map/profilepathoverlay.h"
 #include "plot/profilenetworkadapter.h"
 #include "ui/dialogs/profilepathpickerdialog.h"
 
 #include <limits>
+#include <cmath>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <QApplication>
 #include <QFuture>
@@ -344,6 +347,30 @@ int OpenSWMMVisMapToolSelectProfile::resolveNodeAt(double mapX,
     if (!model) return -1;
 
     const auto hit = model->pickAt(mapX, mapY, tolerance);
+
+    // A geographic coordinate can have more than one longitude spelling:
+    // the inverse projection returns -160 for a node authored at 200.
+    // Recover those misses against the forward-projected node positions,
+    // which are also what the map draws. Keep the indexed pick for normal
+    // clicks and avoid this scan for projected/local coordinate systems.
+    if (!hit.valid && model->srs() && model->srs()->isGeographic()) {
+        double bestDist2 = tolerance * tolerance;
+        int nearest = -1;
+        for (int i = 0; i < model->cachedNodeCount(); ++i) {
+            double x = 0.0, y = 0.0;
+            if (!model->cachedNodeCoord(i, &x, &y)
+                || !model->transformLayerToCanvas(x, y, x, y)) continue;
+            const double dx = x - mapX, dy = y - mapY;
+            const double d2 = dx * dx + dy * dy;
+            if (!std::isfinite(d2) || d2 >= bestDist2) continue;
+            const QString name = QString::fromUtf8(swmm_node_id(model->engine(), i));
+            // All node categories share the typed node visibility bit.
+            if (!model->isObjectVisible(name, SWMMModelLayer::CatJunctions)) continue;
+            bestDist2 = d2;
+            nearest = i;
+        }
+        if (nearest >= 0) return nearest;
+    }
     if (!hit.valid) return -1;
 
     // Node hit: resolve by name → engine node index.
@@ -372,6 +399,8 @@ int OpenSWMMVisMapToolSelectProfile::resolveNodeAt(double mapX,
     if (!fromOk && !toOk) return -1;
     if (!fromOk) return toNode;
     if (!toOk)   return fromNode;
+    model->transformLayerToCanvas(fx, fy, fx, fy);
+    model->transformLayerToCanvas(tx, ty, tx, ty);
     const double df2 = (fx - mapX) * (fx - mapX) + (fy - mapY) * (fy - mapY);
     const double dt2 = (tx - mapX) * (tx - mapX) + (ty - mapY) * (ty - mapY);
     return (df2 <= dt2) ? fromNode : toNode;

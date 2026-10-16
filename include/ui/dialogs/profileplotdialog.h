@@ -132,6 +132,7 @@ private slots:
      *        AnimationController's tick.
      */
     void onAnimationTimeChanged(const QDateTime &dt);
+    void refreshLidWaterStates();
 
     /*!
      * \brief Toggle a single result layer on/off in the Sources dropdown.
@@ -240,6 +241,8 @@ private:
     quint64 m_surface2DGeometryRevision = 0;
     QPointer<class SWMM2DResultsLayer>    m_surface2DLayer;
     QAction                              *m_actShow2D = nullptr;
+    QAction                              *m_actLidWater = nullptr;
+    QAction                              *m_actLidHead = nullptr;
 
     QPointer<SWMMModelLayer>              m_model;
     QPointer<MapCanvas>                   m_canvas;

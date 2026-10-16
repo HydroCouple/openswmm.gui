@@ -1303,6 +1303,7 @@ set(
         src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
         src/io/mesh2dlivevariables.cpp
+        src/io/lidstates.cpp
         src/io/mesh2dvariablegisexport.cpp
         src/ui/dialogs/resultvariableexportdialog.cpp
         src/render/resultscalargeometry.cpp

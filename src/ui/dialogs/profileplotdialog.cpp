@@ -35,6 +35,7 @@
 #include "selection/selectionmanager.h"
 
 #include <ogr_spatialref.h>
+#include <openswmm/engine/openswmm_engine.h>
 
 #include <algorithm>
 #include <limits>
@@ -150,8 +151,11 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
     populateSourcesPanel();
     rebindSources();
 
+    refreshLidWaterStates();
+
     // Initial cursor from the controller.
     if (m_anim) {
+        connect(m_anim, &AnimationController::primaryLayerChanged, this, &ProfilePlotDialog::refreshLidWaterStates);
         connect(m_anim, &AnimationController::currentTimeChanged,
                 this,   &ProfilePlotDialog::onAnimationTimeChanged);
         // Push the current time so the lines render on dialog open.
@@ -276,6 +280,22 @@ void ProfilePlotDialog::buildLayout()
     m_sourceMenu = new QMenu(m_sourceButton);
     m_sourceButton->setMenu(m_sourceMenu);
     toolbar->addWidget(m_sourceButton);
+    const bool haveLid = std::any_of(m_pathStatic.nodes.cbegin(), m_pathStatic.nodes.cend(),
+        [](const auto &node) { return !node.lidLayers.isEmpty(); });
+    m_actLidWater = toolbar->addAction(tr("LID water states"));
+    m_actLidWater->setObjectName(QStringLiteral("showLidWaterStates"));
+    m_actLidWater->setCheckable(true);
+    m_actLidWater->setChecked(true);
+    m_actLidWater->setVisible(haveLid);
+    m_actLidWater->setToolTip(tr("Blue intensity shows pore saturation. Solid cyan marks a resolved water table; dashed cyan marks the base of a perched saturated zone. Uses the primary results source."));
+    m_actLidHead = toolbar->addAction(tr("Outlet-layer head"));
+    m_actLidHead->setObjectName(QStringLiteral("showLidOutletHead"));
+    m_actLidHead->setCheckable(true);
+    m_actLidHead->setVisible(haveLid);
+    m_actLidHead->setToolTip(tr("Show Richards total head in the porous cell at the lowest outgoing connection on this profile (or the lowest outgoing connection if none is on the profile). Hover over the LID for the connection and layer."));
+    connect(m_actLidWater, &QAction::toggled, this, &ProfilePlotDialog::refreshLidWaterStates);
+    connect(m_actLidHead, &QAction::toggled, this, &ProfilePlotDialog::refreshLidWaterStates);
+
     // Quick toggle for the 2D inundation overlay; mirrors the
     // show2DInundation option (also in Display Options).
     m_actShow2D = toolbar->addAction(
@@ -499,6 +519,7 @@ void ProfilePlotDialog::buildLayout()
         Q_UNUSED(actSelect);
         m_plot->setMode(want);
     });
+    actFit->setToolTip(tr("Fit the full profile with automatic vertical exaggeration"));
     connect(actFit, &QAction::triggered, m_plot, &ProfilePlotWidget::fitToExtent);
     // Display Options dialog — non-modal, QPropertyModel-backed editor
     // for visibility / theming / legend / labels.  Owned by `this` so it
@@ -617,6 +638,36 @@ void ProfilePlotDialog::buildLayout()
         connect(m_model, &SWMMModelLayer::selectionChanged,
                 m_plot,  &ProfilePlotWidget::setSelectedElementNames);
         m_plot->setSelectedElementNames(m_model->selectedElementNames());
+        // Applied LID edits synchronise the storage depth in the engine.
+        // Refresh the snapshot on the GUI queue after that edit completes.
+        connect(m_model, &SWMMModelLayer::modelEdited, this, [this] {
+            if (!m_model) return;
+            auto route = m_routerPath;
+            if (route.nodes.size() != m_pathStatic.nodes.size()
+                || route.linkIds.size() != m_pathStatic.links.size()) return;
+            for (int i = 0; i < route.nodes.size(); ++i) {
+                const int index = ProfileNetworkAdapter::findNodeIndex(m_model, m_pathStatic.nodes[i].name);
+                if (index < 0) return;
+                route.nodes[i] = index;
+            }
+            for (int i = 0; i < route.linkIds.size(); ++i) {
+                const int index = ProfileNetworkAdapter::findLinkIndex(m_model, m_pathStatic.links[i].name);
+                if (index < 0) return;
+                route.linkIds[i] = index;
+            }
+            auto fresh = ProfileNetworkAdapter::buildPathStaticFromModel(m_model, route);
+            if (fresh.nodes.size() != m_pathStatic.nodes.size()) return;
+            fresh.terrainSamples = m_pathStatic.terrainSamples;
+            m_pathStatic = std::move(fresh);
+            m_routerPath = route;
+            m_plot->setPath(m_pathStatic);
+            m_sourceCache.clear();
+            m_sourceSeriesCache.clear();
+            m_attrCache.clear();
+            rebindSources();
+            syncTracksAxes();
+            rebuildTracks();
+        }, Qt::QueuedConnection);
     }
 
     // Live terrain refresh — when the user loads, swaps, or changes
@@ -1137,6 +1188,7 @@ bool ProfilePlotDialog::pushEditedPlotStylesToSources()
 
 void ProfilePlotDialog::rebindSources()
 {
+    refreshLidWaterStates();
     if (!m_sourceMenu) {
         m_plot->setSeries({});
         return;
@@ -1373,6 +1425,7 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
             this, [this, layer]() {
                 invalidateSourceCacheFor(layer);
                 refreshTracksMenuSpecies();
+                refreshLidWaterStates();
             });
     // Layer pointed at a different results file.
     connect(layer, &SWMMResultsLayer::resultsFilePathChanged,
@@ -1382,6 +1435,7 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
     // dropping the cache (which would refetch the whole file every tick).
     connect(layer, &SWMMResultsLayer::periodsAppended,
             this, [this, layer](int, int) { appendLivePeriods(layer); });
+    connect(layer, &SWMMResultsLayer::resultsFinalized, this, &ProfilePlotDialog::refreshLidWaterStates);
     // Layer destroyed → drop the cache entry AND the wired flag so the
     // hash never holds a dangling key.
     connect(layer, &QObject::destroyed,
@@ -1400,6 +1454,7 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
 void ProfilePlotDialog::appendLivePeriods(SWMMResultsLayer *layer)
 {
     if (!layer || !m_plot) return;
+    refreshLidWaterStates();
     // A worker may be reading the cached SourceDerived right now; mutating
     // it here would race. Skip — the next tick's appendTail starts from
     // series.periodCount and catches up on everything missed.
@@ -1726,6 +1781,38 @@ void ProfilePlotDialog::refreshSurface2DDepths()
     m_plot->setSurface2DSamples(out);
 }
 
+void ProfilePlotDialog::refreshLidWaterStates()
+{
+    if (!m_plot || !m_actLidWater || !m_actLidHead) return;
+    QStringList names;
+    for (const auto &node : m_pathStatic.nodes)
+        if (!node.lidLayers.isEmpty()) names.append(node.name);
+    m_actLidWater->setVisible(!names.isEmpty());
+    m_actLidHead->setVisible(!names.isEmpty());
+    openswmmvis::io::LidStateFrame frame;
+    auto *primary = m_anim ? m_anim->primaryLayer() : nullptr;
+    const bool enabled = m_actLidWater->isChecked() || m_actLidHead->isChecked();
+    if (!names.isEmpty() && enabled && primary) {
+        // Respect source visibility: do not silently show another run's LID
+        // states when the primary source has been unchecked.
+        bool selected = true;
+        for (auto it = m_actionLayer.cbegin(); it != m_actionLayer.cend(); ++it)
+            if (it.value() == primary) selected = it.key()->isChecked();
+        if (selected) {
+            frame = primary->lidStateAt(primary->currentDateTime(), names);
+            int units = 0;
+            if (m_model && m_model->engine()) swmm_get_flow_units(m_model->engine(), &units);
+            const bool si = units >= 3;
+            const double scale = frame.si == si ? 1.0 : si ? .3048 : 1.0 / .3048;
+            for (auto &node : frame.nodes) for (auto &cell : node.cells) {
+                cell.bottom *= scale; cell.top *= scale; cell.pressure *= scale; cell.head *= scale;
+            }
+            frame.si = si;
+        } else frame.status = tr("Primary results source is hidden.");
+    } else if (!primary) frame.status = tr("Open results or run the model to view LID water states.");
+    m_plot->setLidWaterState(frame, m_actLidWater->isChecked(), m_actLidHead->isChecked());
+}
+
 void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
 {
     if (!m_anim) return;
@@ -1734,6 +1821,7 @@ void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
     const int period = primary->periodIndexForDateTime(dt);
     m_plot->setCurrentPeriod(/*sourceIdx=*/0, period);
     m_plot->setCurrentDateTime(dt);
+    refreshLidWaterStates();
     if (m_tracks)
         m_tracks->setCurrentPeriod(period);
     // Advance the 2D layer ourselves: the canvas only steps VISIBLE 2D

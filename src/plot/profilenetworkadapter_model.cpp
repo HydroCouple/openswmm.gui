@@ -18,6 +18,7 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 
 #include <cmath>
 
@@ -158,6 +159,10 @@ void collectNodeBranches(SWMMModelLayer *model,
 
             ProfileBuilder::BranchLink b;
             b.name     = QString::fromUtf8(swmm_link_id(eng, l));
+            if (!path.nodes[pathIdx].lidLayers.isEmpty()) {
+                int layer = 0, top = 0;
+                if (swmm_lid_node_outlet_get(eng, l, &layer, &top) == SWMM_OK) b.lidLayer = layer;
+            }
             b.intoNode = !isFrom;                  // this node is the To-node
             b.onPath   = pathLinks.contains(l);
 
@@ -204,6 +209,10 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
 
     QVector<NodeInfo> nodes;
     nodes.reserve(routerPath.nodes.size());
+    int flowUnits = 0;
+    swmm_get_flow_units(eng, &flowUnits);
+    // LID thickness is stored in mm/in; node elevations are in m/ft.
+    const double layerDepthScale = flowUnits >= 3 ? 0.001 : 1.0 / 12.0;
     for (int engNodeIdx : routerPath.nodes) {
         NodeInfo n;
         n.engineNodeIdx = engNodeIdx;
@@ -224,6 +233,29 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         // An inlet junction keeps the VirtualJunction kind (it IS one) and
         // adds the flag the renderer uses for its extra glyph.
         n.isInlet        = (isInlet != 0);
+        if (n.kind == ProfileBuilder::NodeKind::Storage) {
+            int control = -1;
+            double saturation = 0.0;
+            if (swmm_node_get_lid(eng, engNodeIdx, &control, &saturation) == SWMM_OK
+                && control >= 0) {
+                double top = n.invertElev + n.maxDepth;
+                const int count = swmm_lid_node_layer_count(eng, control);
+                for (int row = 0; row < count; ++row) {
+                    SWMM_LidNodeLayer layer{};
+                    if (swmm_lid_node_layer_get(eng, control, row, &layer) != SWMM_OK)
+                        break;
+                    if (layer.kind == SWMM_LID_NODE_BOTTOM) continue;
+                    const double depth = layer.params[0] * layerDepthScale;
+                    if (!std::isfinite(depth) || depth < 0.0) break;
+                    using Layer = ProfileBuilder::NodeLidLayer;
+                    const auto kind = layer.kind == SWMM_LID_NODE_SURFACE ? Layer::Surface
+                                    : layer.kind == SWMM_LID_NODE_MEDIA ? Layer::Media
+                                    : Layer::Aggregate;
+                    n.lidLayers.push_back({kind, top, top - depth});
+                    top -= depth;
+                }
+            }
+        }
         nodes.push_back(n);
     }
 

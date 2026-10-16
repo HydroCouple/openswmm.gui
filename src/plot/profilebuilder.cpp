@@ -195,16 +195,8 @@ SourceDerived compute(const PathStatic &path,
     for (int p = 0; p < P; ++p)
         accumulatePeriod(path, src, p, gravity, out);
 
-    // Zero-period guard: leave min/max at +inf/-inf so callers can detect
-    // "no envelope data" rather than show misleading defaults.
-    if (P == 0) {
-        out.minHgl.fill(0.0, N);
-        out.maxHgl.fill(0.0, N);
-        out.minEgl.fill(0.0, N);
-        out.maxEgl.fill(0.0, N);
-        out.minWaterSurface.fill(0.0, N);
-        out.maxWaterSurface.fill(0.0, N);
-    }
+    // With no readable periods, retain the non-finite envelope sentinels.
+    // Zero is a real elevation and would flatten a live profile at startup.
 
     return out;
 }
@@ -283,8 +275,7 @@ bool appendPeriods(const PathStatic &path,
         return false;
     if (P == Pold) return true;
 
-    // A derived built over zero periods carries compute()'s 0.0 envelope
-    // placeholders; restart the running min/max exactly as compute() would.
+    // Initialise an empty derived snapshot exactly as compute() would.
     if (Pold == 0) {
         derived.minHgl.fill(kPosInf, N);
         derived.maxHgl.fill(kNegInf, N);

@@ -89,6 +89,7 @@ ProfileBuilder::PathStatic buildPathStatic(
         ns.surchargeDepth = n.surchargeDepth;
         ns.kind           = n.kind;
         ns.isInlet        = n.isInlet;
+        ns.lidLayers      = n.lidLayers;
         out.nodes.push_back(ns);
     }
     for (const PathLinkInfo &l : links) {

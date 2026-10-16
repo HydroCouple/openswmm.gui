@@ -70,6 +70,7 @@ struct NodeInfo
     ProfileBuilder::NodeKind  kind           = ProfileBuilder::NodeKind::Junction;
     /*! Inlet junction — see ProfileBuilder::NodeStatic::isInlet. */
     bool                      isInlet        = false;
+    QVector<ProfileBuilder::NodeLidLayer> lidLayers;
 };
 
 /*!

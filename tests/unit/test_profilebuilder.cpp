@@ -532,3 +532,23 @@ TEST(ProfileBuilder, AppendPeriods_RejectsShrunkOrForeignInput)
     EXPECT_FALSE(appendPeriods(path, other, kGravityFps2, live));
     expectDerivedEqual(live, before);
 }
+
+TEST(ProfileBuilder, EmptyLiveResultsKeepEnvelopeMissingUntilFirstPeriod)
+{
+    const auto path = linearPath(2, 100.0, 2.0, 1000.0);
+    const auto empty = constantSource(path, {100.5, 100.5}, {0.0}, 0);
+    auto derived = compute(path, empty, kGravityFps2);
+    for (const auto *values : {&derived.minHgl, &derived.maxHgl,
+                              &derived.minEgl, &derived.maxEgl,
+                              &derived.minWaterSurface, &derived.maxWaterSurface}) {
+        ASSERT_EQ(values->size(), 2);
+        for (double value : *values) EXPECT_FALSE(std::isfinite(value));
+    }
+    const auto first = constantSource(path, {100.5, 100.75}, {0.0}, 1);
+    ASSERT_TRUE(appendPeriods(path, first, kGravityFps2, derived));
+    const auto complete = compute(path, first, kGravityFps2);
+    EXPECT_EQ(derived.minHgl, complete.minHgl);
+    EXPECT_EQ(derived.maxHgl, complete.maxHgl);
+    EXPECT_EQ(derived.minWaterSurface, complete.minWaterSurface);
+    EXPECT_EQ(derived.hglByPeriod, complete.hglByPeriod);
+}
