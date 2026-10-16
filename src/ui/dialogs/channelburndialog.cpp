@@ -26,6 +26,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QDialogButtonBox>
 #include <QFileInfo>
 #include <QVBoxLayout>
@@ -89,6 +91,15 @@ ChannelBurnDialog::ChannelBurnDialog(SWMMVisProjectWindow *project,QWidget *pare
     const QString lengthUnit = project && project->unitSystem() && project->unitSystem()->isSI() ? tr(" m") : tr(" ft");
     m_cellSize->setSuffix(lengthUnit);
     m_halfWidth->setSuffix(lengthUnit);
+    m_connectorLength = spin(0, 0, 1e9, 4);
+    m_connectorLength->setSpecialValueText(tr("Automatic (routing step)"));
+    m_connectorLength->setSuffix(lengthUnit);
+    m_connectorLength->setToolTip(tr("When a truncation node would keep two or more conduits, this much of the "
+                                     "burned channel stays in 1D as a connector and the new coupled outfall sits at "
+                                     "its end, so the outfall carries one link. Automatic: routing step × √(g × section "
+                                     "depth), at least two channel cells."));
+    form->addRow(tr("Connector length:"), m_connectorLength);
+    connect(m_removeFromModel, &QCheckBox::toggled, m_connectorLength, &QWidget::setEnabled);
     m_aspect->setToolTip(tr("Minimum channel spacing = channel cell size / this value. Default 4. This limits narrow walls; it is not a guarantee for every final cell's aspect ratio."));
     m_maxIncision = spin(0, 0, 1e9, 4);
     m_maxIncision->setSuffix(lengthUnit);
@@ -175,6 +186,7 @@ ChannelBurnDialog::ChannelBurnDialog(SWMMVisProjectWindow *project,QWidget *pare
     connect(m_apply,&QPushButton::clicked,this,&ChannelBurnDialog::startBurn);connect(m_cancel,&QPushButton::clicked,this,&ChannelBurnDialog::cancelBurn);connect(&m_watcher,&QFutureWatcher<Result>::finished,this,&ChannelBurnDialog::finishBurn);
     if(project){auto settings=project->channelBurnSettings();m_query->setText(settings.selector.query);m_ids->setText(settings.selector.conduitIds.join(QStringLiteral(", ")));m_selectionMode->setCurrentIndex(m_selectionMode->findData(int(settings.selector.mode)));m_cellSize->setValue(settings.options.channelCellSize);m_aspect->setValue(settings.options.channelAspectMax);m_halfWidth->setValue(settings.options.forceHalfWidth);m_quads->setChecked(settings.options.quadCorridor);m_removeFromModel->setChecked(settings.options.removeBurnedFrom1D);
         m_maxIncision->setValue(settings.options.maxIncision);
+        m_connectorLength->setValue(settings.options.connectorLength);
         m_tolerance->setValue(settings.options.geometryTolerance);
         m_maxCells->setValue(settings.maxMeshCells);
         m_exportRaster->setChecked(settings.exportRaster);
@@ -182,6 +194,7 @@ ChannelBurnDialog::ChannelBurnDialog(SWMMVisProjectWindow *project,QWidget *pare
         m_outputDirectory->setText(settings.exportDirectory);
         m_demZToSI->setValue(settings.exportRasterZToSI);
     }
+    m_connectorLength->setEnabled(m_removeFromModel->isChecked());
     if(!m_mesh){m_status->setText(tr("No active 2D mesh is available. Generate or import a mesh first."));m_apply->setEnabled(false);}else m_status->setText(tr("The active mesh will be updated. The channel surface is built from model sections and the existing mesh; no DEM is needed."));
 }
 ChannelBurnDialog::~ChannelBurnDialog()
@@ -204,6 +217,7 @@ void ChannelBurnDialog::setBusy(bool busy)
                              m_maxIncision, m_tolerance, m_maxCells, m_exportRaster})
         control->setEnabled(!busy);
     m_exportOptions->setEnabled(!busy && m_exportRaster->isChecked());
+    m_connectorLength->setEnabled(!busy && m_removeFromModel->isChecked());
     m_apply->setEnabled(!busy && m_mesh);
     m_apply->setText(busy ? tr("Burning…") : tr("Burn Channels"));
     m_cancel->setEnabled(true);
@@ -346,8 +360,24 @@ bool ChannelBurnDialog::collectInputs(mesh::ChannelMeshBurnInputs *out, QString 
     out->options.truncateAtBoundary = true;
     out->options.sectionBlend = 0;
     out->options.maxIncision = m_maxIncision->value();
+    out->options.connectorLength = m_connectorLength->value();
+    double routingStep = 0;
+    if (swmm_get_routing_step(eng, &routingStep) == SWMM_OK && routingStep > 0)
+        out->options.routingStepSeconds = routingStep;
+    out->horizontalUnitToSI = meshUnitToSI;
     out->options.geometryTolerance = m_tolerance->value();
     out->maxCells = m_maxCells->value();
+    if (out->options.removeBurnedFrom1D) {
+        // A connector or interface outfall at the downstream end of a burned
+        // reach keeps an outlet link; only dynamic-wave routing accepts that.
+        QString routing = model->getOption(QByteArrayLiteral("FLOW_ROUTING"), {});
+        if (routing.isEmpty()) routing = model->getOption(QByteArrayLiteral("ROUTING_MODEL"), {});
+        routing = routing.toUpper();
+        if (!routing.isEmpty() && routing != QLatin1String("DYNWAVE") && routing != QLatin1String("FV"))
+            out->warnings << tr("Flow routing is %1: an outfall created at the downstream end of a burned reach "
+                                "keeps an outlet link, which only dynamic-wave routing accepts (engine error 141).")
+                                 .arg(routing);
+    }
     mesh::BurnSelector selector;
     selector.mode = static_cast<mesh::BurnSelector::Mode>(m_selectionMode->currentData().toInt());
     selector.query = m_query->text().trimmed();
@@ -395,7 +425,8 @@ bool ChannelBurnDialog::collectInputs(mesh::ChannelMeshBurnInputs *out, QString 
     }
     const auto candidates = mesh::resolveBurnSet(eng, selector, out->options, lines, si, rows, &out->warnings);
     for (double *value : {&out->options.forceHalfWidth, &out->options.maxHalfWidth, &out->options.bankPad,
-                          &out->options.chainageStep, &out->options.lateralStep, &out->options.channelCellSize})
+                          &out->options.chainageStep, &out->options.lateralStep, &out->options.channelCellSize,
+                          &out->options.connectorLength})
         *value *= xyScale;
     out->options.maxIncision *= zScale;
     auto preparation = out->options;
@@ -523,6 +554,7 @@ void ChannelBurnDialog::startBurn()
         settings.options.removeBurnedFrom1D = m_removeFromModel->isChecked();
         settings.options.convertInterfaceNodes = m_removeFromModel->isChecked();
         settings.options.maxIncision = m_maxIncision->value();
+        settings.options.connectorLength = m_connectorLength->value();
         settings.options.geometryTolerance = m_tolerance->value();
         settings.maxMeshCells = m_maxCells->value();
         settings.exportRaster = exportRaster;
@@ -642,7 +674,24 @@ void ChannelBurnDialog::finishBurn()
         adoption->setText(tr("Burn channels into mesh"));
         pending.release(); // The command now owns detached layers, including failure paths.
         QString error;
-        if (!adoption->prepare(result.surgery, &error)) {
+        QElapsedTimer refresh;
+        refresh.start();
+        bool firstStep = true;
+        // The surgery runs here, on the GUI thread, inside one bulk edit: model
+        // signals are blocked and the cache rebuild is deferred, so a repaint
+        // shows a consistent pre-surgery state. Pump non-input events so the bar
+        // and stage text move between 95 % and 100 %.
+        const auto applyProgress = [&](int done, int total, const QString &stage) {
+            m_progress->setValue(95 + (total > 0 ? std::min(4, 4 * done / total) : 0));
+            m_status->setText(stage);
+            m_progress->setAccessibleDescription(stage);
+            if (firstStep || refresh.elapsed() >= 50) {
+                firstStep = false;
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                refresh.restart();
+            }
+        };
+        if (!adoption->prepare(result.surgery, &error, applyProgress)) {
             m_progress->setFormat(tr("Failed"));
             m_status->setText(error);
             QMessageBox::warning(this, tr("Channel Burn"), error);

@@ -119,6 +119,9 @@ struct BurnOptions
     bool   removeBurnedFrom1D    = true;
     bool   convertInterfaceNodes = true;
     bool   truncateAtBoundary    = true;
+    double connectorLength       = 0.0; ///< 1D stretch kept before a connector outfall; 0 = automatic
+                                        ///<     (routing step × √(g·D), at least two channel cells).
+    double routingStepSeconds    = 0.0; ///< Model routing step for the automatic length; not persisted.
 };
 
 /*!

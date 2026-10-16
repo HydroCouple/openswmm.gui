@@ -351,3 +351,141 @@ TEST(ChannelBurnNetwork, ReferencedInteriorNodeIsKept)
     auto n=chain();n.nodes[1].preserve=true;
     EXPECT_EQ(planFor(classifyBurnNodes(n,{"L1","L2"}),"B").role,BurnNodeRole::CoupledJunction);
 }
+
+// ─────────────── D-J refined: connectors at truncation nodes ───────────────
+
+namespace {
+
+/*! A straight creek wholly inside the domain, bank height 1 above the thalweg. */
+BurnProfile creekProfile(const QString &id = QStringLiteral("creek"), double x0 = -8, double x1 = 8)
+{
+    ChannelInput input; input.conduitId = id; input.centerline = {{x0, 0}, {x1, 0}};
+    input.zUp = 10; input.zDn = 9;
+    input.section = sectionFromWidths({0, 1}, {2, 4});
+    BurnOptions options; options.chainageStep = 0; options.clipToBanks = false;
+    return buildBurnProfile(input, options);
+}
+
+BurnConnectorRule fixedRule(double length)
+{
+    BurnConnectorRule r; r.enabled = true; r.fixedLength = length; return r;
+}
+
+} // namespace
+
+TEST(ChannelBurnConnector, ANodeKeepingTwoPipesGetsAConnectorAndTheSplitBecomesTheOutfall)
+{
+    // P --pipe1--> A --creek--> B, Q --pipe2--> A: A would keep two links.
+    BurnNetwork n; n.nodes = {{"A"}, {"B"}, {"P"}, {"Q"}};
+    n.links = {{"creek", 0, 1}, {"pipe1", 2, 0}, {"pipe2", 3, 0}};
+    const auto plan = planBurnReplacement({creekProfile()}, n, unitSquare(), fixedRule(4));
+    ASSERT_TRUE(plan.error.isEmpty());
+    ASSERT_EQ(plan.splits.size(), 1);
+    EXPECT_TRUE(plan.splits[0].connector);
+    EXPECT_EQ(plan.splits[0].linkId, QString("creek"));
+    EXPECT_NEAR(plan.splits[0].t, 4.0 / 16.0, 1e-12);
+    EXPECT_NEAR(plan.splits[0].xy.x(), -4.0, 1e-9);
+    // The connector keeps the original conduit (same section and roughness);
+    // only the downstream piece is burned.
+    EXPECT_FALSE(plan.replacedIds.contains("creek"));
+    EXPECT_EQ(plan.replacedIds.size(), 1);
+    ASSERT_EQ(plan.profiles.size(), 1);
+    EXPECT_DOUBLE_EQ(plan.profiles[0].length(), 12);
+    EXPECT_EQ(planFor(plan.nodes, plan.splits[0].nodeId).role, BurnNodeRole::Outfall);
+    EXPECT_EQ(planFor(plan.nodes, "A").role, BurnNodeRole::Untouched); // not in the plans at all
+    EXPECT_EQ(planFor(plan.nodes, "B").role, BurnNodeRole::Removed);
+    bool noted = false;
+    for (const auto &note : plan.notes) noted |= note.contains("connector");
+    EXPECT_TRUE(noted);
+}
+
+TEST(ChannelBurnConnector, AChannelThroughSuchAJunctionGetsAConnectorOnEachSide)
+{
+    // A --creek1--> J --creek2--> B with pipes P->J and Q->J.
+    BurnNetwork n; n.nodes = {{"A"}, {"J"}, {"B"}, {"P"}, {"Q"}};
+    n.links = {{"creek1", 0, 1}, {"creek2", 1, 2}, {"pipe1", 3, 1}, {"pipe2", 4, 1}};
+    const auto plan = planBurnReplacement({creekProfile("creek1", -8, 8), creekProfile("creek2", -8, 8)},
+                                          n, unitSquare(), fixedRule(4));
+    ASSERT_TRUE(plan.error.isEmpty());
+    ASSERT_EQ(plan.splits.size(), 2);
+    EXPECT_EQ(plan.splits[0].linkId, QString("creek1"));
+    EXPECT_NEAR(plan.splits[0].t, 12.0 / 16.0, 1e-12); // last 4 of creek1 stay as the connector
+    EXPECT_EQ(plan.splits[1].linkId, QString("creek2"));
+    EXPECT_NEAR(plan.splits[1].t, 4.0 / 16.0, 1e-12);  // first 4 of creek2 stay as the connector
+    EXPECT_TRUE(plan.replacedIds.contains("creek1"));   // upstream burned piece keeps the id
+    EXPECT_FALSE(plan.replacedIds.contains("creek2"));  // creek2's head is the connector
+    int outfalls = 0;
+    for (const auto &node : plan.nodes) if (node.role == BurnNodeRole::Outfall) ++outfalls;
+    EXPECT_EQ(outfalls, 2);
+    EXPECT_EQ(planFor(plan.nodes, "J").role, BurnNodeRole::Untouched);
+    EXPECT_EQ(planFor(plan.nodes, "A").role, BurnNodeRole::Removed);
+    EXPECT_EQ(planFor(plan.nodes, "B").role, BurnNodeRole::Removed);
+}
+
+TEST(ChannelBurnConnector, AnIntervalTooShortForAConnectorStaysIn1D)
+{
+    BurnNetwork n; n.nodes = {{"A"}, {"B"}, {"P"}, {"Q"}};
+    n.links = {{"creek", 0, 1}, {"pipe1", 2, 0}, {"pipe2", 3, 0}};
+    // 16 long, connector 8 leaves 8 < 1.5 x 8.
+    const auto plan = planBurnReplacement({creekProfile()}, n, unitSquare(), fixedRule(8));
+    ASSERT_TRUE(plan.error.isEmpty());
+    EXPECT_TRUE(plan.splits.isEmpty());
+    EXPECT_TRUE(plan.profiles.isEmpty());
+    EXPECT_TRUE(plan.replacedIds.isEmpty());
+    EXPECT_TRUE(plan.nodes.isEmpty());
+    bool noted = false;
+    for (const auto &note : plan.notes) noted |= note.contains("too short");
+    EXPECT_TRUE(noted);
+}
+
+TEST(ChannelBurnConnector, ANodeKeepingOneLinkIsStillRetypedDirectly)
+{
+    BurnNetwork n; n.nodes = {{"A"}, {"B"}, {"P"}};
+    n.links = {{"creek", 0, 1}, {"pipe", 2, 0}};
+    const auto plan = planBurnReplacement({creekProfile()}, n, unitSquare(), fixedRule(4));
+    ASSERT_TRUE(plan.error.isEmpty());
+    EXPECT_TRUE(plan.splits.isEmpty());
+    EXPECT_EQ(planFor(plan.nodes, "A").role, BurnNodeRole::Outfall);
+    EXPECT_TRUE(plan.replacedIds.contains("creek"));
+}
+
+TEST(ChannelBurnConnector, SpecialNodesKeepTodaysCoupledJunction)
+{
+    BurnNetwork n; n.nodes = {{"A", false, true, true}, {"B"}, {"P"}, {"Q"}}; // A preserved
+    n.links = {{"creek", 0, 1}, {"pipe1", 2, 0}, {"pipe2", 3, 0}};
+    const auto plan = planBurnReplacement({creekProfile()}, n, unitSquare(), fixedRule(4));
+    EXPECT_TRUE(plan.splits.isEmpty());
+    EXPECT_EQ(planFor(plan.nodes, "A").role, BurnNodeRole::CoupledJunction);
+}
+
+TEST(ChannelBurnConnector, AutomaticLengthIsCourantAtTheRoutingStepFlooredAtTwoCells)
+{
+    BurnNetwork n; n.nodes = {{"A"}, {"B"}, {"P"}, {"Q"}};
+    n.links = {{"creek", 0, 1}, {"pipe1", 2, 0}, {"pipe2", 3, 0}};
+    BurnConnectorRule rule; rule.enabled = true; rule.routingStepS = 1; rule.cellSize = 1;
+    auto plan = planBurnReplacement({creekProfile()}, n, unitSquare(), rule);
+    ASSERT_EQ(plan.splits.size(), 1);
+    EXPECT_NEAR(plan.splits[0].t, std::sqrt(9.81 * 1.0) / 16.0, 1e-9); // bank height 1 m
+    rule.cellSize = 2; // two cells = 4 > 3.13
+    plan = planBurnReplacement({creekProfile()}, n, unitSquare(), rule);
+    ASSERT_EQ(plan.splits.size(), 1);
+    EXPECT_NEAR(plan.splits[0].t, 4.0 / 16.0, 1e-12);
+    rule.horizontalUnitToSI = 0.5; rule.cellSize = 0; // mesh units are half a metre
+    plan = planBurnReplacement({creekProfile()}, n, unitSquare(), rule);
+    ASSERT_EQ(plan.splits.size(), 1);
+    EXPECT_NEAR(plan.splits[0].t, 2 * std::sqrt(9.81) / 16.0, 1e-9);
+}
+
+TEST(ChannelBurnConnector, ADisabledRuleReproducesTheBoundaryPartition)
+{
+    BurnNetwork n; n.nodes = {{"A"}, {"B"}, {"P"}, {"Q"}};
+    n.links = {{"creek", 0, 1}, {"pipe1", 2, 0}, {"pipe2", 3, 0}};
+    const auto plain = planBurnReplacement({creekProfile()}, n, unitSquare());
+    BurnConnectorRule off; off.fixedLength = 4;
+    const auto same = planBurnReplacement({creekProfile()}, n, unitSquare(), off);
+    EXPECT_EQ(plain.splits.size(), same.splits.size());
+    EXPECT_EQ(plain.replacedIds, same.replacedIds);
+    EXPECT_EQ(plain.notes, same.notes);
+    EXPECT_EQ(planFor(plain.nodes, "A").role, BurnNodeRole::CoupledJunction);
+}
+

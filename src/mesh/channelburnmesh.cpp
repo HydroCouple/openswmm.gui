@@ -71,9 +71,16 @@ ChannelMeshBurnResult burnChannelsIntoMesh(const MeshResult &old,ChannelMeshBurn
     report(8,QStringLiteral("Planning channel intervals and network changes…"));
     // Monotonic re-planning: each rejected source is removed, so chains of
     // inflow-fed headwaters terminate without an arbitrary iteration limit.
+    BurnConnectorRule connectors;
+    connectors.enabled=in.options.removeBurnedFrom1D;
+    connectors.fixedLength=in.options.connectorLength;
+    connectors.routingStepS=in.options.routingStepSeconds;
+    connectors.cellSize=spacing;
+    connectors.verticalUnitToSI=in.verticalUnitToSI;
+    connectors.horizontalUnitToSI=in.horizontalUnitToSI;
     for(;;) {
         if(stop())return out;
-        plan=planBurnReplacement(in.profiles,in.options.removeBurnedFrom1D?in.network:BurnNetwork{},top.domain);
+        plan=planBurnReplacement(in.profiles,in.options.removeBurnedFrom1D?in.network:BurnNetwork{},top.domain,connectors);
         if(!plan.error.isEmpty()) {out.error=plan.error;return out;}
         QSet<QString> rejected;lattices.clear();qint64 vertices=0;
         for(const auto &profile:plan.profiles) {

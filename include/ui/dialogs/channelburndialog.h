@@ -70,6 +70,7 @@ private:
     QDoubleSpinBox *m_cellSize = nullptr;
     QDoubleSpinBox *m_aspect = nullptr;
     QDoubleSpinBox *m_halfWidth = nullptr;
+    QDoubleSpinBox *m_connectorLength = nullptr;
     QCheckBox *m_quads = nullptr;
     QCheckBox *m_removeFromModel = nullptr;
     QDoubleSpinBox *m_maxIncision = nullptr;

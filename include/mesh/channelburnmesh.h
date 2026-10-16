@@ -21,6 +21,7 @@ struct ChannelMeshBurnInputs {
     QVector<QPair<QString,QPointF>> nodes;
     QVector<MeshEdgeBC> edgeBCs;
     double verticalUnitToSI=1;
+    double horizontalUnitToSI=1;
     double clearance=1.5;
     int maxCells=2000000;
 };

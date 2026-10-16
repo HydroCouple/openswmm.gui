@@ -55,6 +55,7 @@ ChannelBurnSettings authored()
     s.options.removeBurnedFrom1D    = false;
     s.options.convertInterfaceNodes = false;
     s.options.truncateAtBoundary    = false;
+    s.options.connectorLength       = 12.5;
     return s;
 }
 
@@ -84,6 +85,7 @@ void expectSame(const ChannelBurnSettings &a, const ChannelBurnSettings &b)
     EXPECT_EQ(a.options.removeBurnedFrom1D,    b.options.removeBurnedFrom1D);
     EXPECT_EQ(a.options.convertInterfaceNodes, b.options.convertInterfaceNodes);
     EXPECT_EQ(a.options.truncateAtBoundary,    b.options.truncateAtBoundary);
+    EXPECT_DOUBLE_EQ(a.options.connectorLength, b.options.connectorLength);
 }
 
 } // namespace

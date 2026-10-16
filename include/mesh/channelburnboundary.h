@@ -85,6 +85,30 @@ struct BurnSplit
     double t = 0.0; ///< Position on the remaining link at the time of this split.
     QPointF xy;
     double bedZ = 0.0;
+    bool connector = false; ///< The node ends a 1D connector kept for a coupled outfall.
+};
+
+/*!
+ * \brief How much burned channel to keep in 1D as a connector (D-J refined,
+ *        2026-10-15).
+ *
+ * An outfall may carry one link. A node that would keep two or more surviving
+ * links therefore cannot become the outfall itself; instead the first stretch
+ * of the burned channel stays in 1D — same conduit, so same section and
+ * roughness — and the split at its end is the outfall. The stretch must not be
+ * so short that it throttles 1D routing: automatic = routing step × √(g·D)
+ * for the section's bank height D (SWMM's own lengthening criterion), never
+ * below two channel cells. A burned interval left shorter than 1.5 connector
+ * lengths is kept in 1D instead. Lengths are in mesh xy units, like chainage.
+ */
+struct BurnConnectorRule
+{
+    bool   enabled = false;
+    double fixedLength = 0.0;        ///< > 0 overrides the automatic length.
+    double routingStepS = 0.0;       ///< Model routing step, seconds.
+    double cellSize = 0.0;           ///< Channel cell size (floor is two of these).
+    double verticalUnitToSI = 1.0;   ///< Metres per mesh z unit.
+    double horizontalUnitToSI = 1.0; ///< Metres per mesh xy unit.
 };
 
 struct BurnReplacementPlan
@@ -104,7 +128,8 @@ struct BurnReplacementPlan
  * Outside intervals retain their 1D conveyance. Generated names avoid existing IDs. */
 [[nodiscard]] BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
                                                        const BurnNetwork &network,
-                                                       const BurnDomain &domain);
+                                                       const BurnDomain &domain,
+                                                       const BurnConnectorRule &rule = {});
 
 /*! \brief Every crossing along \p path, in path order. */
 [[nodiscard]] QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path,
