@@ -159,6 +159,7 @@ public:
         op[QStringLiteral("removeBurnedFrom1D")]    = b.removeBurnedFrom1D;
         op[QStringLiteral("convertInterfaceNodes")] = b.convertInterfaceNodes;
         op[QStringLiteral("truncateAtBoundary")]    = b.truncateAtBoundary;
+        op[QStringLiteral("connectorLength")]       = b.connectorLength;
         o[QStringLiteral("options")] = op;
         return o;
     }
@@ -214,6 +215,7 @@ public:
             op.value(QStringLiteral("convertInterfaceNodes")).toBool(b.convertInterfaceNodes);
         b.truncateAtBoundary =
             op.value(QStringLiteral("truncateAtBoundary")).toBool(b.truncateAtBoundary);
+        b.connectorLength = op.value(QStringLiteral("connectorLength")).toDouble(b.connectorLength);
         return s;
     }
 

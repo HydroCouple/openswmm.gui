@@ -329,8 +329,32 @@ bool truncationCrossing(const QVector<QPointF> &path, const BurnDomain &domain,
     return true;
 }
 
-BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
-                                         const BurnNetwork &network, const BurnDomain &domain)
+// The open section's full depth at chainage c: bank height above the thalweg.
+static double bankHeightAt(const BurnProfile &p, double c)
+{
+    const double bed = bedZAt(p, c);
+    double top = 0;
+    for (double offset : p.offsets) top = std::max(top, sectionZAt(p, c, offset) - bed);
+    return top;
+}
+
+static double connectorLengthFor(const BurnProfile &p, double c, const BurnConnectorRule &rule)
+{
+    if (rule.fixedLength > 0) return rule.fixedLength;
+    double length = 0;
+    if (rule.routingStepS > 0 && rule.horizontalUnitToSI > 0) {
+        const double depth = bankHeightAt(p, c) * rule.verticalUnitToSI;
+        if (depth > 0) length = rule.routingStepS * std::sqrt(9.81 * depth) / rule.horizontalUnitToSI;
+    }
+    return std::max(length, 2 * rule.cellSize);
+}
+
+// One partition of every profile into burned and retained intervals. With an
+// empty connectorNodes set this is the original boundary partition; otherwise
+// the burned end meeting each listed node keeps a connector stretch in 1D.
+static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles, const BurnNetwork &network,
+                                     const BurnDomain &domain, const BurnConnectorRule &rule,
+                                     const QSet<QString> &connectorNodes)
 {
     BurnReplacementPlan plan;
     plan.network = network;
@@ -352,6 +376,10 @@ BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
         names.insert(name.toUpper());
         return name;
     };
+    auto nodeName = [&](int n) {
+        return n >= 0 && n < network.nodes.size() ? network.nodes[n].id : QString();
+    };
+    struct Interval { double start, end; bool burned, connector, tooShort; };
     for (const auto &p : profiles) {
         bool valid=p.isValid() && p.length()>0;
         for(int i=1;i<p.offsets.size();++i) valid=valid && p.offsets[i]>p.offsets[i-1];
@@ -365,11 +393,11 @@ BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
         for (const auto &c : boundaryCrossings(p.centerline, domain))
             if (c.chainage > eps && c.chainage < p.length() - eps) bounds.append(c.chainage);
         bounds.append(p.length());
-        QVector<bool> inside;
+        QVector<Interval> intervals;
         bool anyInside = false;
         for (int i = 0; i + 1 < bounds.size(); ++i) {
             const bool in = domain.contains(pointAt(p.centerline, p.chainage, (bounds[i]+bounds[i+1])*0.5));
-            inside.append(in);
+            intervals.append({bounds[i], bounds[i+1], in, false, false});
             anyInside |= in;
         }
         if (!anyInside) {
@@ -382,18 +410,62 @@ BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
                 .arg(p.conduitId, network.links[li].replacementError);
             return plan;
         }
+        if (li >= 0 && !connectorNodes.isEmpty()) {
+            const double startLength = intervals.first().burned
+                && connectorNodes.contains(nodeName(network.links[li].from)) ? connectorLengthFor(p, 0, rule) : 0;
+            const double endLength = intervals.last().burned
+                && connectorNodes.contains(nodeName(network.links[li].to)) ? connectorLengthFor(p, p.length(), rule) : 0;
+            const bool same = intervals.size() == 1;
+            double headReserved = 0, tailReserved = 0;
+            if (startLength > 0) {
+                Interval &iv = intervals.first();
+                const double other = same ? endLength : 0;
+                if (iv.end - iv.start - startLength - other < 1.5 * std::max(startLength, other)) {
+                    iv.burned = false; iv.tooShort = true;
+                } else headReserved = startLength;
+            }
+            if (endLength > 0 && intervals.last().burned) {
+                Interval &iv = intervals.last();
+                // When both ends share one interval the head check above
+                // already covered both connectors, so this only fails for a
+                // separate tail interval.
+                if (iv.end - iv.start - (same ? headReserved : 0) - endLength < 1.5 * endLength) {
+                    iv.burned = false; iv.tooShort = true;
+                } else tailReserved = endLength;
+            }
+            if (tailReserved > 0) {
+                const double end = intervals.last().end;
+                intervals.last().end = end - tailReserved;
+                intervals.append({end - tailReserved, end, false, true, false});
+            }
+            if (headReserved > 0) {
+                const double start = intervals.first().start;
+                intervals.first().start = start + headReserved;
+                intervals.prepend({start, start + headReserved, false, true, false});
+            }
+            bool anyBurned = false;
+            for (const auto &iv : intervals) anyBurned |= iv.burned;
+            if (!anyBurned) {
+                plan.notes << QStringLiteral("%1: kept in 1D; too short for a connector to a coupled outfall").arg(p.conduitId);
+                continue;
+            }
+        }
         plan.originalIds.insert(p.conduitId);
         QString currentId = p.conduitId;
-        int currentLink = li;
-        for (int i = 0; i < inside.size(); ++i) {
-            if (i + 1 < inside.size()) {
+        int currentLink = li, ordinal = 0;
+        double linkStart = 0;
+        for (int i = 0; i < intervals.size(); ++i) {
+            const Interval &iv = intervals[i];
+            const bool splitAfter = i + 1 < intervals.size() && iv.burned != intervals[i+1].burned;
+            if (splitAfter) {
                 BurnSplit split;
                 split.linkId = currentId;
-                split.nodeId = uniqueName(p.conduitId, i+1, "N");
-                split.downstreamId = uniqueName(p.conduitId, i+1, "L");
-                split.t = (bounds[i+1]-bounds[i])/(p.length()-bounds[i]);
-                split.xy = pointAt(p.centerline, p.chainage, bounds[i+1]);
-                split.bedZ = bedZAt(p, bounds[i+1]);
+                split.nodeId = uniqueName(p.conduitId, ++ordinal, "N");
+                split.downstreamId = uniqueName(p.conduitId, ordinal, "L");
+                split.t = (iv.end-linkStart)/(p.length()-linkStart);
+                split.xy = pointAt(p.centerline, p.chainage, iv.end);
+                split.bedZ = bedZAt(p, iv.end);
+                split.connector = iv.connector || intervals[i+1].connector;
                 plan.splits.append(split);
                 if (currentLink >= 0) {
                     const int node = plan.network.nodes.size();
@@ -403,17 +475,17 @@ BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
                     plan.network.links.append({split.downstreamId, node, to, {}});
                 }
             }
-            if (inside[i]) {
+            if (iv.burned) {
                 BurnProfile slice = p;
                 slice.conduitId = currentId;
                 slice.centerline.clear(); slice.chainage.clear(); slice.bedZ.clear(); slice.relZ.clear();
-                QVector<double> stations{bounds[i]};
+                QVector<double> stations{iv.start};
                 for (double c : p.chainage)
-                    if (c > bounds[i]+eps && c < bounds[i+1]-eps) stations.append(c);
-                stations.append(bounds[i+1]);
+                    if (c > iv.start+eps && c < iv.end-eps) stations.append(c);
+                stations.append(iv.end);
                 for (double c : stations) {
                     slice.centerline.append(pointAt(p.centerline, p.chainage, c));
-                    slice.chainage.append(c-bounds[i]);
+                    slice.chainage.append(c-iv.start);
                     const double bed = bedZAt(p,c);
                     slice.bedZ.append(bed);
                     QVector<double> row;
@@ -425,16 +497,42 @@ BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
                 plan.intervalSource.insert(currentId, p.conduitId);
             }
             plan.notes << QStringLiteral("%1 [%2, %3]: %4 (%5)").arg(p.conduitId)
-                .arg(bounds[i],0,'g',12).arg(bounds[i+1],0,'g',12)
-                .arg(inside[i]?QStringLiteral("replace with mesh"):QStringLiteral("retain in 1D"),currentId);
-            if (i+1 < inside.size()) {
+                .arg(iv.start,0,'g',12).arg(iv.end,0,'g',12)
+                .arg(iv.burned ? QStringLiteral("replace with mesh")
+                     : iv.connector ? QStringLiteral("retain in 1D as a connector to a coupled outfall")
+                     : iv.tooShort ? QStringLiteral("retain in 1D; too short for a connector")
+                     : QStringLiteral("retain in 1D"), currentId);
+            if (splitAfter) {
                 currentId = plan.splits.last().downstreamId;
                 if (currentLink >= 0) currentLink = plan.network.links.size()-1;
+                linkStart = iv.end;
             }
         }
     }
     plan.nodes = classifyBurnNodes(plan.network, plan.replacedIds);
     return plan;
+}
+
+BurnReplacementPlan planBurnReplacement(const QVector<BurnProfile> &profiles,
+                                         const BurnNetwork &network, const BurnDomain &domain,
+                                         const BurnConnectorRule &rule)
+{
+    // Connectors are decided from a connector-free partition: a node that would
+    // keep two or more surviving links cannot be the outfall (one link each), so
+    // the burned channel's first stretch stays in 1D and the split ending it is.
+    QSet<QString> connectorNodes;
+    if (rule.enabled) {
+        BurnReplacementPlan first = partition(profiles, network, domain, rule, {});
+        if (!first.error.isEmpty()) return first;
+        for (const auto &node : first.nodes) {
+            const int i = network.indexOfNode(node.nodeId);
+            if (node.role == BurnNodeRole::CoupledJunction && node.survivingLinks >= 2 && i >= 0
+                && network.nodes[i].isJunction && !network.nodes[i].preserve)
+                connectorNodes.insert(node.nodeId);
+        }
+        if (connectorNodes.isEmpty()) return first;
+    }
+    return partition(profiles, network, domain, rule, connectorNodes);
 }
 
 } // namespace mesh

@@ -25,6 +25,8 @@
 #include <QSpinBox>
 #include <QPromise>
 #include <QtConcurrent/QtConcurrentRun>
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
 #include <QTest>
 #include <QTimer>
 
@@ -94,11 +96,76 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy,30000);
         QVERIFY2(errors.isEmpty(),qPrintable(errors.join('\n')));
         QVERIFY(!updates.isEmpty()); QCOMPARE(bar->value(),100);
+        bool applyFeedback=false;
+        for(const auto &update:updates) {const int v=update.at(0).toInt(); applyFeedback|=v>95&&v<100;}
+        QVERIFY2(applyFeedback,"the apply phase should move the bar between 95 and 100");
         QCOMPARE(bar->format(),QString("Complete — %p%"));
         QCoreApplication::processEvents(); // Late queued progress cannot undo completion.
         QCOMPARE(bar->value(),100);
         dialog.show();
         dialog.grab().save(directory.filePath("progress-complete.png"));
+    }
+    void aNodeKeepingTwoPipesGetsAConnectorAndAnOutfall()
+    {
+        // D would keep DE and a new pipe PD, so the burned channel CD keeps a
+        // 2 m connector into D and the split ending it becomes the outfall.
+        auto *model = window->modelLayer();
+        auto *engine = model->engine();
+        int p = -1, pd = -1;
+        QVERIFY(model->applyNodeAdd("P", SWMM_NODE_JUNCTION, 24, 30, &p));
+        QVERIFY(model->applyLinkAdd("PD", SWMM_LINK_CONDUIT, "P", "D", {}, &pd));
+        QVERIFY(model->applyLinkXsect(pd, SWMM_XSECT_CIRCULAR, 1, 0, 0, 0)); // closed: not a burn candidate
+        ChannelBurnDialog dialog(window);
+        dialog.m_connectorLength->setValue(2);
+        dialog.startBurn();
+        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy, 30000);
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
+        QCOMPARE(window->canvas()->undoStack()->count(), 1);
+        QVERIFY(swmm_link_index(engine, "CD") < 0); // the burned upstream piece
+        const int d = swmm_node_index(engine, "D");
+        QVERIFY(d >= 0);
+        int type = -1;
+        swmm_node_get_type(engine, d, &type);
+        QCOMPARE(type, int(SWMM_NODE_JUNCTION)); // D keeps its pipes
+        int connector = -1, linksAtD = 0;
+        for (int i = 0, n = swmm_link_count(engine); i < n; ++i) {
+            int from = -1, to = -1;
+            swmm_link_get_from_node(engine, i, &from);
+            swmm_link_get_to_node(engine, i, &to);
+            if (from == d || to == d) ++linksAtD;
+            const QString id = QString::fromUtf8(swmm_link_id(engine, i));
+            if (to == d && id != "PD") connector = i;
+        }
+        QCOMPARE(linksAtD, 3); // DE, PD and the connector
+        QVERIFY(connector >= 0);
+        double length = 0;
+        swmm_link_get_length(engine, connector, &length);
+        QVERIFY2(qAbs(length - 2) < 1e-6, qPrintable(QString::number(length)));
+        int shape = -1;
+        double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+        swmm_link_get_xsect(engine, connector, &shape, &g1, &g2, &g3, &g4);
+        QCOMPARE(shape, int(SWMM_XSECT_TRAPEZOIDAL)); // CD's open section carried over
+        QCOMPARE(g1, 2.);
+        int outfall = -1;
+        swmm_link_get_from_node(engine, connector, &outfall);
+        swmm_node_get_type(engine, outfall, &type);
+        QCOMPARE(type, int(SWMM_NODE_OUTFALL));
+        char tag[64] = {};
+        swmm_node_get_tag(engine, outfall, tag, sizeof(tag));
+        QCOMPARE(QString::fromUtf8(tag), QString("burn:outfall"));
+        int linksAtOutfall = 0;
+        for (int i = 0, n = swmm_link_count(engine); i < n; ++i) {
+            int from = -1, to = -1;
+            swmm_link_get_from_node(engine, i, &from);
+            swmm_link_get_to_node(engine, i, &to);
+            if (from == outfall || to == outfall) ++linksAtOutfall;
+        }
+        QCOMPARE(linksAtOutfall, 1); // an outfall carries one link
+        window->canvas()->undoStack()->undo();
+        QVERIFY(swmm_link_index(engine, "CD") >= 0);
+        QVERIFY(swmm_link_index(engine, "PD") >= 0);
+        QVERIFY(swmm_node_index(engine, "C") >= 0);
+        window->setHasChanges(false);
     }
     void initTestCase()
     {

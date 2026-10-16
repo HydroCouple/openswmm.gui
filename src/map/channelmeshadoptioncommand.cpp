@@ -57,10 +57,21 @@ public:
         for(const auto &old:previous)
             if(old.remove && old.mesh && !canvas->layers().contains(old.mesh)) old.mesh->deleteLater();
     }
-    bool prepare(const mesh::ChannelBurnSurgery &plan,QString *error) {
+    bool prepare(const mesh::ChannelBurnSurgery &plan,QString *error,
+                 const std::function<void(int,int,const QString &)> &progress) {
         if(!current()) {if(error)*error=QObject::tr("The model is unavailable.");return false;}
         SWMMModelLayer::BulkEdit guard(model);
         changes.reserve(plan.splits.size()+plan.nodePlans.size()+2);
+        int outfalls=0,removed=0;
+        for(const auto &node:plan.nodePlans) {
+            if(node.role==mesh::BurnNodeRole::Outfall) ++outfalls;
+            if(node.role==mesh::BurnNodeRole::Removed) ++removed;
+        }
+        // Steps: splits, the two delete batches, outfall conversions, and the
+        // one-shot model rebuild when the bulk edit closes.
+        const int total=plan.splits.size()+(plan.burnedConduits.isEmpty()?0:1)+(removed?1:0)+outfalls+1;
+        int done=0;
+        auto step=[&](const QString &stage) {if(progress) progress(done,total,stage);++done;};
         auto rollback=qScopeGuard([&] {
             if(networkApplied) return;
             for(auto it=changes.rbegin();it!=changes.rend();++it) (*it)->undo();
@@ -73,6 +84,7 @@ public:
             command->redo();changes.push_back(std::move(command));
         };
         for(const auto &split:plan.splits) {
+            step(QObject::tr("Splitting channel %1…").arg(split.linkId));
             auto command=std::make_unique<InsertNodeSplitCommand>(model,split.linkId,split.t,
                 split.nodeId,split.downstreamId,SWMM_NODE_JUNCTION,canvas);
             auto *raw=command.get();execute(std::move(command));
@@ -81,13 +93,19 @@ public:
         // Separate batches avoid duplicate cascade snapshots on Undo.
         QList<BatchDeleteCommand::Target> links,nodes;
         for(const auto &id:plan.burnedConduits) links.append({id,DeleteObjectCommand::DeleteLink});
-        if(!links.isEmpty()) execute(std::make_unique<BatchDeleteCommand>(model,links,canvas,QObject::tr("Remove replaced channel intervals")));
+        if(!links.isEmpty()) {
+            step(QObject::tr("Removing %1 replaced channel intervals…").arg(links.size()));
+            execute(std::make_unique<BatchDeleteCommand>(model,links,canvas,QObject::tr("Remove replaced channel intervals")));
+        }
         for(const auto &id:plan.burnedConduits)
             if(swmm_link_index(model->engine(),id.toUtf8().constData())>=0)
                 return fail(QObject::tr("Cannot remove replaced interval %1.").arg(id));
         for(const auto &node:plan.nodePlans)
             if(node.role==mesh::BurnNodeRole::Removed) nodes.append({node.nodeId,DeleteObjectCommand::DeleteNode});
-        if(!nodes.isEmpty()) execute(std::make_unique<BatchDeleteCommand>(model,nodes,canvas,QObject::tr("Remove redundant channel nodes")));
+        if(!nodes.isEmpty()) {
+            step(QObject::tr("Removing %1 redundant channel nodes…").arg(nodes.size()));
+            execute(std::make_unique<BatchDeleteCommand>(model,nodes,canvas,QObject::tr("Remove redundant channel nodes")));
+        }
         for(const auto &node:plan.nodePlans) {
             const int index=swmm_node_index(model->engine(),node.nodeId.toUtf8().constData());
             if(node.role==mesh::BurnNodeRole::Removed) {
@@ -98,6 +116,7 @@ public:
             if(node.role!=mesh::BurnNodeRole::Outfall) continue;
             int type=-1;swmm_node_get_type(model->engine(),index,&type);
             if(type!=SWMM_NODE_JUNCTION) return fail(QObject::tr("Refusing to change special node %1.").arg(node.nodeId));
+            step(QObject::tr("Creating coupled outfall %1…").arg(node.nodeId));
             GeneratedOutfallSpec spec;spec.applyOutfall=true;spec.tag=QStringLiteral("burn:outfall");
             // Keep invert and offsets: preserve the connected pipe's physical elevation.
             auto command=std::make_unique<ConvertNodeTypeCommand>(model,node.nodeId,SWMM_NODE_OUTFALL,spec,canvas);
@@ -105,6 +124,7 @@ public:
             if(!raw->converted()) return fail(QObject::tr("Cannot create coupled outfall %1.").arg(node.nodeId));
         }
         networkApplied=true;
+        step(QObject::tr("Rebuilding the model display…")); // endBulkEdit runs when guard closes
         return true;
     }
     void restoreBurnOwnership(SWMM2DMeshLayer *layer) {
@@ -159,7 +179,8 @@ ChannelMeshAdoptionCommand::ChannelMeshAdoptionCommand(SWMMVisProjectWindow *pw,
     : QUndoCommand(QObject::tr("Replace mesh and channel intervals")),
       d(std::make_unique<Impl>(pw, layer, std::move(sources), replaced)) {}
 ChannelMeshAdoptionCommand::~ChannelMeshAdoptionCommand() = default;
-bool ChannelMeshAdoptionCommand::prepare(const mesh::ChannelBurnSurgery &plan, QString *error)
-{ return d->prepare(plan, error); }
+bool ChannelMeshAdoptionCommand::prepare(const mesh::ChannelBurnSurgery &plan, QString *error,
+                                         const std::function<void(int, int, const QString &)> &progress)
+{ return d->prepare(plan, error, progress); }
 void ChannelMeshAdoptionCommand::redo() { if (d->current()) d->redo(); else setObsolete(true); }
 void ChannelMeshAdoptionCommand::undo() { if (d->current()) d->undo(); else setObsolete(true); }
