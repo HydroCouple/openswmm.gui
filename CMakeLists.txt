@@ -16,6 +16,12 @@ project(
     DESCRIPTION "A SWMM model setup, analysis, and visualization tool"
 )
 
+# An unspecified single-configuration build otherwise disables optimization,
+# making interactive water reconstruction and flow playback visibly stall.
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
+endif()
+
 # ---------------------------------------------------------------------------
 # Compile cache. The gui test targets each compile their own copies of the
 # app sources they list (330+ targets; single TUs recompiled up to ~27x per
