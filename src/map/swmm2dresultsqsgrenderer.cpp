@@ -421,6 +421,7 @@ bool asyncContoursEnabled(int nTri)
 
 struct SWMM2DResultsQSGRenderer::ContourFrame {
     ContourJobKey key;
+    std::shared_ptr<const OpenSWMM::Render::FlowParticleNativeInput> particles;
     bool immediate=false;
     std::shared_ptr<const std::vector<std::array<float, 3>>> scalars;
     // Only dynamic attributes are retained; geometry stays shared by revision.
@@ -550,7 +551,10 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
                 noteContentChanged();
             });
         connect(m_layer, &SWMM2DResultsLayer::flowStreaksChanged, this, [this] {
-            if (!m_separateFlow) { noteContentChanged(); emit contentReady(); }
+            if (!m_separateFlow || m_waitingForParticles) {
+                if(m_waitingForParticles)m_dirty.noteDataChanged();
+                noteContentChanged(); emit contentReady();
+            }
         });
         connect(m_layer, &SWMM2DResultsLayer::waterDisplayPolicyChanged,
                 this, &SWMM2DResultsQSGRenderer::forceRebuild);
@@ -1299,6 +1303,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             // until this contour is presented can otherwise leave no matching
             // velocity data when the producer is ahead of the display.
             m_layer->flowParticles(viewRect,logicalScale,key.frameRev,false);
+            frame->particles=m_layer->flowStreaksEnabled()
+                ?m_layer->captureFlowParticleInput(viewRect,logicalScale):nullptr;
             frame->contourPacket=output;
             auto compute = [frame, output, input = std::move(input)]() mutable -> std::shared_ptr<const ContourFrame> {
                 computeContourJob(input,*output);
@@ -1334,6 +1340,17 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             syncStreaks(); return root;
         }
         const auto& frame = *m_contourFrame;
+        // Publish a depth change and its wet-supported trails together. The
+        // old coherent pair stays visible while the serial worker prepares;
+        // no GUI wait or blank particle node is needed at the handoff.
+        m_waitingForParticles=frame.key.frameRev!=m_lastRenderedFrame
+            && m_lastRenderedFrame!=~quint64(0) && !(bits & D::Geometry)
+            && m_layer->flowStreaksEnabled() && frame.particles
+            && !m_layer->prepareFlowParticlesForPresentation(frame.particles);
+        if(m_waitingForParticles) {
+            m_dirty.noteDataChanged();
+            applyTransform();syncStreaks();return root;
+        }
         const auto& frameTriangles=frame.triangles();
         // A fast producer often synchronizes repeatedly without a newly
         // completed contour frame. Reuse its GPU buffers rather than clipping

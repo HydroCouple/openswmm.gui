@@ -638,6 +638,83 @@ private slots:
         QCOMPARE(updated->particles.front().position,current->particles.front().position);
         QCOMPARE(controller.diagnostics().failedBirths,quint64(0));
     }
+    void depthFrameHandoffKeepsTheDisplayedTrailsUntilBothPacketsAreReady() {
+        const auto snapshot=field(200,2);
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={2,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        auto settings=longLife();settings.maxParticles=32;settings.maxHistory=128;
+        FlowParticleController controller;controller.configure(settings,{10,0,20,2},20);
+        controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        controller.advance(1);controller.waitForDone();auto shown=controller.frame(1);QVERIFY(shown);
+        const auto id=shown->particles.front().id, births=shown->births;
+        const auto position=shown->particles.front().position;
+        const auto nextPacket=[&](quint64 revision) {
+            auto next=std::make_shared<FlowParticleNativeInput>(*input);next->revision=revision;
+            for(auto &t:next->triangles) {t.meanDepth=.5;t.depth={.5,.5,.5};}
+            return next;
+        };
+        auto next=nextPacket(2);
+        controller.request(next);controller.waitForDone();
+        // A prepared hydraulic packet alone does not produce a matching
+        // display frame: publishing the new water here would blank streaks.
+        QVERIFY(!controller.frame(2));
+        controller.prepareForPresentation(next);
+        QCOMPARE(controller.frame(1),shown); // No wait on the GUI path.
+        controller.waitForDone();auto ready=controller.frame(2);QVERIFY(ready);
+        QCOMPARE(ready->particles.front().id,id);QCOMPARE(ready->particles.front().position,position);
+        QCOMPARE(ready->births,births);QCOMPARE(ready->particles.front().history.size(),shown->particles.front().history.size());
+        // A newer source packet cannot steal the handoff from the water
+        // frame which is actually ready. Keep the old frame without a reader.
+        auto newer=nextPacket(3);controller.request(newer);
+        shown.reset();controller.advance(.05);controller.waitForDone();
+        QVERIFY(controller.frame(1));QVERIFY(controller.frame(2));QVERIFY(!controller.frame(3));
+        controller.setPresentedRevision(2);controller.waitForDone();
+        QVERIFY(controller.frame(2));QVERIFY(!controller.frame(1));
+        controller.prepareForPresentation(newer);controller.waitForDone();QVERIFY(controller.frame(3));
+        controller.setPresentedRevision(3);controller.waitForDone();
+        for(quint64 revision=4;revision<=20;++revision) {
+            auto packet=nextPacket(revision);controller.request(packet);controller.waitForDone();
+            QVERIFY(controller.frame(revision-1));QVERIFY(!controller.frame(revision));
+            controller.prepareForPresentation(packet);controller.waitForDone();
+            const auto frame=controller.frame(revision);QVERIFY(frame);
+            QCOMPARE(frame->particles.front().id,id);QCOMPARE(frame->births,births);
+            QVERIFY(frame->particles.front().history.size()>1);
+            controller.setPresentedRevision(revision);controller.advance(1./60.);controller.waitForDone();
+        }
+        // A water candidate can itself be superseded before display. Keep
+        // the actually displayed frame, rather than the intermediate one.
+        controller.prepareForPresentation(nextPacket(21));controller.waitForDone();QVERIFY(controller.frame(21));
+        controller.prepareForPresentation(nextPacket(22));controller.waitForDone();
+        QVERIFY(controller.frame(20));QVERIFY(controller.frame(22));
+        controller.setPresentedRevision(22);controller.waitForDone();QVERIFY(!controller.frame(20));
+    }
+    void depthFrameHandoffNeverShowsOldTrailsOnNewlyDryWater() {
+        const auto snapshot=field(100,2);
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={2,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        auto settings=longLife();settings.maxParticles=8;settings.maxHistory=128;
+        FlowParticleController controller;controller.configure(settings,{10,0,20,2},4);
+        controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        controller.advance(1);controller.waitForDone();const auto old=controller.frame(1);QVERIFY(old);
+        QVERIFY(old->particles.front().history.size()>1);
+        auto dry=std::make_shared<FlowParticleNativeInput>(*input);dry->revision=2;
+        for(auto &t:dry->triangles) {t.meanDepth=0;t.depth={0,0,0};}
+        controller.prepareForPresentation(dry);QCOMPARE(controller.frame(1),old);
+        controller.waitForDone();const auto ready=controller.frame(2);QVERIFY(ready);
+        QCOMPARE(controller.frame(1),old);QVERIFY(old->particles.front().history.size()>1);
+        for(const auto &p:ready->particles)QVERIFY(p.history.empty());
+        controller.setPresentedRevision(2);controller.waitForDone();QCOMPARE(controller.frame(2),ready);
+    }
     void sparseCaptureExcludesTheGapAndIncludesSharedBoundaryFaces() {
         const auto source=field(100,10);
         auto mesh=FlowParticleMesh::captureRegions(source->mesh->vertices,source->mesh->triangles,source->mesh->grid,

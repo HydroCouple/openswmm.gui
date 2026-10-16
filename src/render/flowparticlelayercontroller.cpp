@@ -49,6 +49,36 @@ bool FlowParticleLayerController::isBackwardSeek() const {
     return m_particleSimTime.isValid() && time.isValid()?time<m_particleSimTime:
         m_particleTime>=0 && m_layer->current_time_idx_<m_particleTime && m_layer->source_->historyGeneration()==m_particleGeneration;
 }
+bool FlowParticleLayerController::canUsePublishedHydraulics() const {
+    if(!m_layer->source_ || !m_layer->source_->isLive() || isBackwardSeek()
+       || m_layer->published_region_ || !m_layer->m_edgeFluxAvailable
+       || m_layer->current_time_idx_<0 || m_layer->current_time_idx_>=m_layer->source_->timeCount()
+       || m_layer->current_depths_.size()!=m_layer->cells_.size()
+       || m_layer->current_flux_.size()!=4*m_layer->cells_.size())return false;
+    auto current=m_layer->surfaceKey_(m_layer->current_time_idx_);
+    // A live packet can replace this time frame before its water fit is
+    // displayed. The retained native arrays still belong to the shown tick.
+    current.tickRev=m_layer->published_key_.tickRev;
+    return current==m_layer->published_key_;
+}
+std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
+FlowParticleLayerController::readHydraulicCells(const std::vector<int> &cells) {
+    if(canUsePublishedHydraulics() && m_layer->published_key_.tickRev
+       !=m_layer->source_->frameContentRevision(m_layer->current_time_idx_)) {
+        auto raw=std::make_shared<openswmmvis::io::Mesh2DHydraulicFrame>();
+        raw->time=m_layer->published_key_.frame;raw->revision=m_layer->published_key_.tickRev;
+        raw->generation=m_layer->published_key_.generation;raw->cells=cells;
+        raw->depths.reserve(cells.size());raw->flux.reserve(4*cells.size());
+        for(int cell:cells) {
+            raw->depths.push_back(m_layer->current_depths_[size_t(cell)]);
+            const auto begin=m_layer->current_flux_.begin()+4*size_t(cell);
+            raw->flux.insert(raw->flux.end(),begin,begin+4);
+        }
+        return raw;
+    }
+    ++m_particleReads;
+    return m_layer->source_->readHydraulicCellsAt(m_layer->current_time_idx_,cells);
+}
 FlowParticleResidencyGrid FlowParticleLayerController::residencyGrid(bool sparse) const {
     FlowParticleResidencyGrid grid(m_layer->m_triGrid);
     if(sparse) {
@@ -104,7 +134,7 @@ bool FlowParticleLayerController::prepareOverviewSeeds(const QRectF &view,double
     std::vector<int> cells;cells.reserve(probes.size());
     for(const auto &probe:probes)cells.push_back(probe.cell);
     std::sort(cells.begin(),cells.end());cells.erase(std::unique(cells.begin(),cells.end()),cells.end());
-    const auto raw=m_layer->source_->readHydraulicCellsAt(m_layer->current_time_idx_,cells);++m_particleReads;
+    const auto raw=readHydraulicCells(cells);
     if(!raw || raw->time!=m_layer->current_time_idx_ || raw->revision!=m_layer->published_key_.tickRev
        || raw->generation!=m_layer->published_key_.generation || raw->cells!=cells || raw->depths.size()!=cells.size())return false;
     std::vector<float> vx,vy;
@@ -237,9 +267,9 @@ std::shared_ptr<const FlowParticleNativeInput> FlowParticleLayerController::capt
     }
     const bool modeChanged=m_particleOverview!=sparse;
     const auto grid=residencyGrid(sparse);
-    const auto coherent=[&] {return m_layer->published_key_.frame==m_layer->current_time_idx_
+    const auto coherent=[&] {return (m_layer->published_key_.frame==m_layer->current_time_idx_
         && m_layer->published_key_.tickRev==m_layer->source_->frameContentRevision(m_layer->current_time_idx_)
-        && m_layer->published_key_.generation==m_layer->source_->historyGeneration();};
+        && m_layer->published_key_.generation==m_layer->source_->historyGeneration()) || canUsePublishedHydraulics();};
     if(!coherent())return {};
     if(sparse && (!prepareOverviewSeeds(visible,scale,capacity) || !coherent()))return {};
     const auto base=sparse?seedResidency(grid):flowParticleResidency(visible,grid,nullptr,2,true,padding);
@@ -319,7 +349,7 @@ std::shared_ptr<const FlowParticleNativeInput> FlowParticleLayerController::capt
     }
     std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame> raw;
     if(!missing.empty() && m_layer->source_->supportsHydraulicCells()) {
-        raw=m_layer->source_->readHydraulicCellsAt(m_layer->current_time_idx_,missing);++m_particleReads;
+        raw=readHydraulicCells(missing);
         if(!raw || raw->time!=m_layer->current_time_idx_ || raw->revision!=m_layer->published_key_.tickRev
             || raw->generation!=m_layer->published_key_.generation || raw->cells!=missing
             || raw->depths.size()!=missing.size() || !coherent())return {};
@@ -388,6 +418,13 @@ std::shared_ptr<const FlowParticleNativeInput> FlowParticleLayerController::capt
     return input;
 }
 
+bool FlowParticleLayerController::prepareForPresentation(std::shared_ptr<const FlowParticleNativeInput> input) {
+    const auto epoch=m_layer->geomRevision()*0x9e3779b97f4a7c15ULL+m_layer->source_revision_;
+    if(!input || input->geometry!=epoch)return true;
+    m_worker->prepareForPresentation(input);
+    const auto prepared=m_worker->frame(input->revision);
+    return prepared && prepared->geometry==epoch;
+}
 std::shared_ptr<const FlowParticleFrame> FlowParticleLayerController::frame(
     const QRectF &view,double scale,quint64 displayedRevision,bool presented)
 {

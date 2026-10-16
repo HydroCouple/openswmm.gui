@@ -3,6 +3,7 @@
 #include "render/flowparticlecontroller.h"
 #include <QDateTime>
 class SWMM2DResultsLayer;
+namespace openswmmvis::io { struct Mesh2DHydraulicFrame; }
 namespace OpenSWMM::Render {
 // Owns bounded GUI-side native captures and the serial integrator. The worker
 // supplies immutable trail/head residency; this facade adds the current view.
@@ -12,6 +13,7 @@ public:
     explicit FlowParticleLayerController(SWMM2DResultsLayer *);
     std::shared_ptr<const FlowParticleNativeInput> capture(const QRectF &,double scale);
     std::shared_ptr<const FlowParticleFrame> frame(const QRectF &,double scale,quint64 revision,bool presented=true);
+    bool prepareForPresentation(std::shared_ptr<const FlowParticleNativeInput>);
     void advance(double seconds);
     void waitForDone() {m_worker->waitForDone();}
     bool busy() const {return m_worker->busy();}
@@ -31,6 +33,8 @@ private:
     std::array<int,3> neighbors(int triangle) const;
     bool overview(const QRectF &) const;
     bool isBackwardSeek() const;
+    bool canUsePublishedHydraulics() const;
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame> readHydraulicCells(const std::vector<int> &);
     int overviewCapacity(double scale,double trail,double speed) const;
     FlowParticleResidencyGrid residencyGrid(bool overview) const;
     bool prepareOverviewSeeds(const QRectF &,double scale,int capacity);

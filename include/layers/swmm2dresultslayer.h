@@ -1464,6 +1464,9 @@ public:
         const QRectF &view,double pixelsPerSceneUnit);
     std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> flowParticles(
         const QRectF &view,double pixelsPerSceneUnit,quint64 displayedRevision,bool presented=true);
+    bool prepareFlowParticlesForPresentation(std::shared_ptr<const OpenSWMM::Render::FlowParticleNativeInput> input) {
+        return m_particleController->prepareForPresentation(std::move(input));
+    }
     double flowParticleInterpolation(const std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> &frame={}) const { return m_particleController->interpolation(frame); }
     double flowParticleOpacity() const { return m_particleController->opacity(); }
     OpenSWMM::Render::FlowParticleDiagnostics flowParticleDiagnostics() const {return m_particleController->diagnostics();}
