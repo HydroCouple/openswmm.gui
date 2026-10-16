@@ -7,6 +7,7 @@
 #include <QAction>
 #include "plot/profilenetworkadapter.h"
 #include "plot/profileplotwidget.h"
+#include "plot/profilesourcefetcher.h"
 #include "ui/dialogs/profileplotdialog.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
@@ -26,6 +27,9 @@
 #include <QTest>
 #include <QToolBar>
 #include <QProgressBar>
+#include <atomic>
+#include <thread>
+#include <openswmm/engine/openswmm_output.h>
 
 class TestProfileLidModel : public QObject
 {
@@ -425,6 +429,42 @@ private slots:
         QVERIFY(toolbar->actions().indexOf(hgl)<toolbar->actions().indexOf(egl));
         QVERIFY(toolbar->actions().indexOf(egl)<toolbar->actions().indexOf(flood));
         QVERIFY(dialog.grab().save(stem+"-dialog.png"));
+
+        // Reading a profile on a worker must not share the map's file
+        // cursor: seek/read pairs can otherwise interleave during playback.
+        const auto staticPath=ProfileNetworkAdapter::buildPathStaticFromModel(&model,route);
+        const auto expected=ProfileSourceFetcher::fetch(&results,staticPath,"expected");
+        QVERIFY(expected.periodCount>1);
+        QVERIFY(!expected.nodeHead.isEmpty() && !expected.nodeHead[0].isEmpty());
+        std::atomic<bool> reading{true};
+        std::atomic<int> mapReads{0};
+        std::thread mapReader([&] {
+            QVector<float> depths(swmm_output_get_node_count(results.outputHandle()));
+            while(reading.load()) {
+                swmm_output_get_node_result(results.outputHandle(),0,SWMM_OUT_NODE_DEPTH,depths.data());
+                ++mapReads;
+            }
+        });
+        while(mapReads.load()<10) std::this_thread::yield();
+        int corruptReads=0;
+        int corruptAppends=0;
+        for(int attempt=0;attempt<100;++attempt) {
+            const auto actual=ProfileSourceFetcher::fetch(&results,staticPath,"concurrent");
+            if(actual.nodeHead!=expected.nodeHead || actual.nodeDepth!=expected.nodeDepth
+                || actual.linkVelocity!=expected.linkVelocity) ++corruptReads;
+            auto partial=expected;
+            partial.periodCount=1;
+            for(auto &row:partial.nodeHead) if(!row.isEmpty()) row.resize(1);
+            for(auto &row:partial.nodeDepth) if(!row.isEmpty()) row.resize(1);
+            for(auto &row:partial.linkVelocity) if(!row.isEmpty()) row.resize(1);
+            if(!ProfileSourceFetcher::appendTail(&results,staticPath,partial)
+                || partial.periodCount!=expected.periodCount
+                || partial.nodeHead!=expected.nodeHead || partial.nodeDepth!=expected.nodeDepth
+                || partial.linkVelocity!=expected.linkVelocity) ++corruptAppends;
+        }
+        reading=false; mapReader.join();
+        QCOMPARE(corruptReads,0);
+        QCOMPARE(corruptAppends,0);
     }
 
 private:

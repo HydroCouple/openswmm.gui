@@ -9,11 +9,27 @@
 #include "layers/swmmresultslayer.h"
 
 #include <openswmm/engine/openswmm_output.h>
+#include <memory>
 
 namespace ProfileSourceFetcher
 {
 
 namespace {
+
+// Profile fetches run on workers while map playback and other plots also
+// read results. An output reader owns a seekable file cursor, so sharing
+// the layer's reader can interleave a seek with another consumer's read.
+// A private reader also keeps this fetch alive if the layer closes its
+// reader during a run change. open_live accepts completed and growing files.
+using OutputReader = std::unique_ptr<void, decltype(&swmm_output_close)>;
+
+OutputReader openProfileReader(SWMMResultsLayer *layer)
+{
+    if (!layer || !layer->outputHandle())
+        return OutputReader(nullptr, &swmm_output_close);
+    const QByteArray path = layer->resultsFilePath().toUtf8();
+    return OutputReader(swmm_output_open_live(path.constData()), &swmm_output_close);
+}
 
 // Pulls a full-range time-series for one (node, var) into the given row.
 // Leaves the row empty when the output handle / index / period count is
@@ -62,7 +78,8 @@ ProfileBuilder::SourceSeries fetch(SWMMResultsLayer *resultsLayer,
     out.sourceId = sourceId;
     if (!resultsLayer) return out;
 
-    SWMM_Output handle = resultsLayer->outputHandle();
+    const auto reader = openProfileReader(resultsLayer);
+    SWMM_Output handle = reader.get();
     if (!handle) return out;
 
     const int periodCount = resultsLayer->totalTimeSteps();
@@ -115,7 +132,8 @@ bool appendTail(SWMMResultsLayer *resultsLayer,
                 ProfileBuilder::SourceSeries &series)
 {
     if (!resultsLayer) return false;
-    SWMM_Output handle = resultsLayer->outputHandle();
+    const auto reader = openProfileReader(resultsLayer);
+    SWMM_Output handle = reader.get();
     if (!handle) return false;
 
     const int periodCount = resultsLayer->totalTimeSteps();

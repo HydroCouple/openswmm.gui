@@ -34,10 +34,12 @@ namespace ProfileSourceFetcher
  *
  *        Resolves engine indices via name (`path.nodes[i].name` /
  *        `path.links[i].name`) into the layer's output-index maps.  Nodes
- *        or links not present in the output file get zero-filled series.
+ *        or links not present in the output file get empty series.
+ *        Uses a private output reader so worker reads cannot interfere
+ *        with the map's file cursor during playback.
  *
  *        Returns an empty SourceSeries (with `periodCount = 0`) if the
- *        layer has no open output handle.
+ *        layer has no open output handle or its file cannot be reopened.
  */
 [[nodiscard]] ProfileBuilder::SourceSeries fetch(
     SWMMResultsLayer *resultsLayer,
