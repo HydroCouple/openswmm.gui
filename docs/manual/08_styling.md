@@ -56,9 +56,15 @@ panel that changes with the selection:
 | **Categorized** | One symbol per distinct attribute value. | Needs at least one attribute. |
 | **Rule-based** | An ordered list of rules, each with its own renderer. | Needs at least one attribute. |
 
-Switching the dropdown installs that renderer class on the layer and mounts the
-matching editor. If a renderer is swapped from somewhere else — an embedded mode
-combo, undo, a style import — the tab notices and resyncs.
+Switching the dropdown changes the layer's renderer and shows its editor. If
+the renderer is changed from somewhere else — undo, or a style import — the
+tab follows.
+
+Whichever renderer you choose, the **Base symbol & labels** group — size or
+line width, outline, marker shape and the label settings — is available under
+it; the renderer only decides where the *colour* comes from: a single colour,
+the ramp, or the category. With **Size by value** on, the static size is greyed
+out because the value drives it.
 
 #### Per-attribute theming for SWMM object kinds
 
@@ -120,6 +126,16 @@ Graduated rendering classifies a numeric attribute. Its editor is the shared
 | **Min** / **Max** | The size or width range the values map into. |
 | **Size by** | The attribute driving size, or *(same as color)*. |
 | **Flow direction arrows** | For link kinds: **Show flow arrows**, **Length**, **Width**, **Colour**. |
+
+The **Color by** attribute shown in the combo is the one the layer stores and
+**Export style…** writes. On a results layer the attributes are named as they
+appear on screen — **flow (m³/s)**, **depth (m)**, **velocity (m/s)** and
+**capacity** for links; **depth (m)**, **head (m)**, **volume (m³)**, **inflow
+(m³/s)**, **overflow (m³/s)** and **lateral inflow (m³/s)** for nodes; **runoff
+(m³/s)** and the rest for subcatchments — plus one entry per pollutant or
+species.
+
+\figtodo{08_graduated_base_symbol.png, Junctions under the Graduated renderer with the Base symbol & labels group expanded}
 
 #### The classification editor
 
@@ -209,6 +225,7 @@ The **Labels** tab configures how a layer's features are labelled.
 | Group | Controls |
 |-------|----------|
 | **Labels** | **Show labels**; **Field** — a combo of the layer's attributes for kinds that have them, or a free-text field (blank = the element's name). |
+| **Decimals** | *Auto* (6 significant digits) or 0–10 fixed decimals, applied to numeric fields and to numeric `{tokens}` in expressions. |
 | **Expression** | A label template with `{token}` placeholders, plus a button that opens the expression builder. |
 | **Font** | **Family**, **Size**, **Bold**, **Italic**, **Colour**. |
 | **Halo (outline around text)** | **Enable halo**, **Colour**, **Radius**. |
@@ -216,6 +233,8 @@ The **Labels** tab configures how a layer's features are labelled.
 | **Visibility scale window** | **Hide when 1: ≥** (hide when zoomed further out than this denominator) and **Hide when 1: ≤** (hide when zoomed further in). `0` or *none* means no limit. |
 | **Background frame** | **Draw background behind labels**, **Colour**, **Padding**, **Corner radius**. |
 | **Per-feature priority** | An attribute name; higher values win label collisions. |
+
+\figtodo{08_labels_decimals.png, The Labels tab with Field = Slope and Decimals = 3}
 
 #### The expression builder
 
@@ -250,7 +269,7 @@ of `.swmm-rule.json` files, one per saved rule list, created on first use.
 | **Style library** list | Every file in the library. |
 | **Open folder…** | Reveals the library folder in the file manager. |
 | **Preview** | Text summary of the selected style: rules loaded, rules skipped, per-rule names and renderer classes, hidden rules, and any warnings. |
-| **Apply to layer** | Applies the selected style to the active layer and reports how many rules were loaded and how many skipped for unknown renderer ids. |
+| **Apply to layer** | Applies the selected style to the active layer and reports how many rules were loaded and how many skipped for unknown renderer ids. The map repaints immediately and the applied rules are what Layer Properties shows afterwards. |
 | **Save current…** | Prompts for a name and saves the active layer's current rule list into the library, asking before overwriting. |
 | **Import…** | Copies a `.swmm-rule.json` or a QGIS `.qml` into the library. |
 | **Export…** | Writes the selected library entry to a path of your choosing. |
@@ -322,8 +341,8 @@ A 2D results layer gets the same treatment.
 | **Mesh Edges** | **Colour**, **Width**, **Stroke style** — the wireframe drawn once for the whole layer. |
 | **Mesh Vertices** | **Colour**, **Marker size**, **Outline colour**, **Outline width**. |
 
-Every control writes straight into the owning sublayer's style bag, so the map
-repaints immediately and the setting survives a project round-trip.
+Every control applies straight to its sublayer, so the map repaints
+immediately and the setting survives a project round-trip.
 
 \fig{08_2d_results_style_panel.png, The 2D results style panel on the Depth Isolines tab}
 
@@ -391,10 +410,17 @@ annotation commit as you make them — Cancel does not roll them back.
 Styling lives in the project's `.oswp` sidecar, not in the `.inp` — SWMM's input
 format has nowhere to put it. The sidecar records each layer's renderer, the
 per-kind renderers for model and results layers, rule lists and their metadata,
-label configuration, per-sublayer visibility, opacity and style bags, the legend
-overlay style, and basemap connection details. Custom colour ramps and the style
-library are stored per user, outside the project, so they follow you between
-projects. See \ref manual_projects.
+label configuration, per-sublayer visibility, opacity and style settings, the
+legend overlay style, and basemap connection details. Custom colour ramps and
+the style library are stored per user, outside the project, so they follow you
+between projects. See \ref manual_projects.
+
+Two file formats are easy to confuse. A `.swmm-style.json`, written by **Export
+style…** in Layer Properties, holds *one layer's full style* — renderer,
+attribute, classification, labels — and is read back with **Import style…**. A
+`.swmm-rule.json` is the Style Manager's library format: a *rule list* saved
+with **Save current…** and applied to any layer of the same kind with **Apply
+to layer**.
 
 ## Tips and gotchas
 

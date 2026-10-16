@@ -45,7 +45,7 @@ the dialog (there is no Cancel — a mistake is undone with **Edit → Undo**).
 
 | Control | What it does | Writes |
 | --- | --- | --- |
-| **Name** | Pollutant id — must be unique; a duplicate is refused with a warning | `[POLLUTANTS]` name |
+| **Name** | Pollutant id — must be unique, and a SWMM identifier: no spaces, `;`, `[` or `]` (`Total_N` or `TotalN`, never `Total N`). A duplicate or an invalid name is refused with a message — see the naming rules in \ref manual_data_objects | `[POLLUTANTS]` name |
 | **Concentration Units** | `MG/L`, `UG/L` or `#/L` | units column |
 | **Rain Concentration** | Concentration in rainfall | rain conc. column |
 | **GW Concentration** | Concentration in groundwater inflow | GW conc. column |
@@ -252,8 +252,8 @@ compiles. It highlights and completes:
   `COS`, `TAN` (one argument) and `MIN`, `MAX`, `POW` (two arguments).
 
 Press **Ctrl+Space** — or just type two characters — for the completion list.
-Validation runs debounced as you type and again on commit; the authoritative
-verdict is the engine's own expression compiler.
+Validation runs as you type and again on commit; the authoritative verdict is
+the engine's own expression compiler.
 
 **Initial Quality** tab — writes `[REACTION_QUALITY]`. The upper table sets a
 `GLOBAL` initial value per species; the lower one adds `NODE` / `LINK`
@@ -494,4 +494,5 @@ rate; the shared-mobile weighting above belongs to the existing flow model.
 Fixed removal still acts once at an authored-layer exit. Evaporation retains
 solute, and dry surface mass redissolves with later supply. Richards does
 not add dispersion, sorption or new kinetic laws. Check every exit and final
-cell/surface inventory; water age, heat and MSX adapters are pending.
+cell/surface inventory; water age, heat and MSX support for these layers is
+pending.

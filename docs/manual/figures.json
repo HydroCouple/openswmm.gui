@@ -30,7 +30,8 @@
     "fv": "examples/swashes_bump_shock/1d_fv.inp",
     "slope": "docs/manual/tutorials/models/vfr_slope.inp",
     "bowl": "docs/manual/tutorials/models/terrain_bowl.inp",
-    "plaza": "docs/manual/tutorials/models/coupled_plaza.inp"
+    "plaza": "docs/manual/tutorials/models/coupled_plaza.inp",
+    "divider": "docs/manual/tutorials/models/divider_demo.inp"
   },
   "figures": [
     {
@@ -669,7 +670,8 @@
       "action": "view.styleManager",
       "size": "1100x720",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "lane": "offscreen"
+      "lane": "offscreen",
+      "_build": "after-fix C1"
     },
     {
       "name": "07_add_basemap_wms_tab.png",
@@ -1165,7 +1167,8 @@
     {
       "name": "10_browser_context_menu.png",
       "lane": "human",
-      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path."
+      "_note": "lane:human \u2014 see tests/manual/manual_figures/README.md for the click path.",
+      "_build": "after-fix C5/C6"
     },
     {
       "name": "10_convert_to_menu.png",
@@ -1361,7 +1364,8 @@
     {
       "name": "12_inline_vertex_edit.png",
       "lane": "human",
-      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7."
+      "_note": "lane:human \u2014 pointer on the canvas; see tests/manual/manual_figures/README.md \u00a72.7.",
+      "_build": "after-fix C15"
     },
     {
       "name": "12_add_node_terrain.png",
@@ -1887,8 +1891,9 @@
       "page": "Symbology",
       "size": "1350x900",
       "_model": "examples/site_drainage/site_drainage_model.inp",
-      "_note": "Use a disposable, freshly executed example with its sibling .oswp and results; visually review before publication.",
-      "select": "Conduits"
+      "_note": "RECAPTURE of the existing figure: Renderer Graduated, Color by flow (m\u00b3/s), Range Fixed over run. Replace the existing PNG.",
+      "select": "Conduits",
+      "_build": "after-fix C3"
     },
     {
       "name": "t01_plot_variables.png",
@@ -2513,6 +2518,160 @@
       "_model": "examples/site_drainage/site_drainage_model.inp",
       "_captureCommand": "python3 tests/manual/manual_figures/capture_table_queries.py",
       "_note": "Use the dedicated offscreen production-widget capture helper documented in tests/manual/manual_figures/README.md; it validates the two matched conduits and includes the actual completion popup. Review both captures before publication."
+    },
+    {
+      "name": "14_flow_divider_concept.png",
+      "lane": "live",
+      "window": true,
+      "hostSize": "1600x1000",
+      "maxWidth": 1400,
+      "page": "divider_demo",
+      "hostSelect": "C3",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "prepareActions": [
+        "map.zoomExtent"
+      ],
+      "_model": "docs/manual/tutorials/models/divider_demo.inp",
+      "_note": "Diverted link C3 selected so it is highlighted; labels on. Add numbered callouts 1=inflow, 2=divider, 3=diverted link in post."
+    },
+    {
+      "name": "14_flow_divider_properties.png",
+      "lane": "live",
+      "window": true,
+      "hostSelect": "D1",
+      "hostSelectIn": "ObjectBrowserPanel",
+      "show": [
+        "dockWidgetPropertiesPanel"
+      ],
+      "hide": [
+        "dockWidgetAnalysisToolBox",
+        "dockWidgetSimulationStatus"
+      ],
+      "hostSize": "1600x1000",
+      "maxWidth": 1400,
+      "_model": "docs/manual/tutorials/models/divider_demo.inp",
+      "_note": "Crop to the Properties dock; Divider Type row must read Weir."
+    },
+    {
+      "name": "14_node_types_gallery.png",
+      "lane": "live",
+      "window": true,
+      "hostSize": "1600x1000",
+      "maxWidth": 1400,
+      "prepareActions": [
+        "map.zoomExtent"
+      ],
+      "_model": "docs/manual/tutorials/models/divider_demo.inp",
+      "_note": "Zoom so every node marker is legible; labels on. If the fixture lacks virtual/inlet junctions, add one of each in the disposable copy before capture."
+    },
+    {
+      "name": "12_delete_single_vertex.png",
+      "lane": "human",
+      "_build": "after-fix C15",
+      "_note": "Site drainage, disposable copy. Select tool; click conduit C4 (has one bend); right-click the square bend handle; capture with the context menu showing Delete vertex. Inset (second capture) after choosing it."
+    },
+    {
+      "name": "08_labels_decimals.png",
+      "lane": "live",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Labels",
+      "size": "1350x900",
+      "_build": "after-fix C4",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Field = Slope (rise/run), Decimals = 3, Show labels on."
+    },
+    {
+      "name": "08_graduated_base_symbol.png",
+      "lane": "live",
+      "action": "actionSetStyle",
+      "hostSelect": "site_drainage_model",
+      "page": "Symbology",
+      "select": "Junctions",
+      "size": "1350x900",
+      "_build": "after-fix C2",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Renderer = Graduated, Color by = Max Depth; expand the Base symbol & labels group."
+    },
+    {
+      "name": "10_data_object_edit_menu.png",
+      "lane": "human",
+      "_build": "after-fix C6",
+      "_note": "transport_demo. Object Browser > Data objects > Pollutants > right-click TSS. Capture the menu: Edit\u2026, Delete\u2026; no Properties\u2026 row."
+    },
+    {
+      "name": "04_preferences_network_symbols.png",
+      "action": "app.preferences",
+      "page": "Rendering",
+      "tab": "Network Symbols",
+      "size": "980x760",
+      "lane": "offscreen",
+      "_build": "after-fix C14"
+    },
+    {
+      "name": "17_name_validation.png",
+      "lane": "live",
+      "action": "data.newPollutant",
+      "size": "1100x760",
+      "_build": "after-fix C10",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "_note": "Type the name 'Total Nitrogen' and tab out so the refusal message is visible."
+    },
+    {
+      "name": "11_query_between_add.png",
+      "lane": "live",
+      "action": "view.dock.attributeTable",
+      "widget": "AttributeTablePanel",
+      "page": "Conduits",
+      "size": "1400x500",
+      "hostSize": "1800x1000",
+      "floatDock": true,
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Pre-select C1 and C2 on the map. Query: Length BETWEEN 10 AND 100. Radio: Add. Apply. Capture table + map so both the prior and matched selections are visible."
+    },
+    {
+      "name": "t01_slope_labels.png",
+      "lane": "live",
+      "window": true,
+      "hostSize": "2000x1150",
+      "maxWidth": 1600,
+      "page": "site_drainage_model",
+      "prepareActions": [
+        "map.zoomExtent"
+      ],
+      "_build": "after-fix C4",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Apply the Labels settings from 08_labels_decimals.png first; crop to the network."
+    },
+    {
+      "name": "t01_style_export_json.png",
+      "lane": "human",
+      "_build": "after-fix C3",
+      "_note": "From the state of t01_results_style.png click Export style\u2026, save site_drainage_results.swmm-style.json, open it in a plain text editor, highlight the classifyAttribute line. Crop to ~30 lines."
+    },
+    {
+      "name": "t01_style_manager_apply.png",
+      "lane": "live",
+      "action": "view.styleManager",
+      "size": "1200x760",
+      "_build": "after-fix C1",
+      "_model": "examples/site_drainage/site_drainage_model.inp",
+      "_note": "Save current\u2026 as 'Site drainage flow' first (human step), then capture with that entry selected and Apply to layer enabled."
+    },
+    {
+      "name": "t01_delete_vertex.png",
+      "lane": "human",
+      "_build": "after-fix C15",
+      "_note": "Same steps as 12_delete_single_vertex.png on conduit C4; one capture with the menu open."
+    },
+    {
+      "name": "t07_pollutant_name_rule.png",
+      "lane": "live",
+      "action": "data.newPollutant",
+      "size": "1100x760",
+      "_build": "after-fix C10",
+      "_model": "docs/manual/tutorials/models/transport_demo.inp",
+      "_note": "Two-state capture: refused 'Total Nitrogen' (top) and accepted 'Total_N' (bottom); compose vertically."
     }
   ]
 }

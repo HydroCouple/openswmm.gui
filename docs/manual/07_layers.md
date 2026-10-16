@@ -243,7 +243,7 @@ vectors, the filter reflects the registered drivers:
 
 NetCDF and HDF appear only when the optional GDAL modules are compiled in.
 
-The GDAL open and the statistics pass run on a worker thread. The renderer a
+The file is opened and its statistics computed in the background. The renderer a
 raster opens with follows its content: a band carrying an embedded colour table
 (land use, classified outputs) opens as **Paletted / unique values** with the
 file's colours; three- and four-band 8-bit datasets open as **Multiband colour**
@@ -384,7 +384,7 @@ There is no import wizard in this release: no delimiter chooser, no X/Y column
 mapping and no time-column parsing. The layer participates in the layer tree
 (visibility, order, properties) and its rows are readable from the attribute
 table, but it draws nothing on the map. `.xlsx` is recognised and refused —
-Excel import needs a QXlsx-enabled build.
+Excel import is only available in builds compiled with Excel support.
 
 ### Add 2D Mesh…
 

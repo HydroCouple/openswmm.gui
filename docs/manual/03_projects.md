@@ -153,7 +153,7 @@ A project is *dirty* from the moment anything changes the engine state — a
 property edit, a drawn object, a dialog applied with changes, a flow-unit switch,
 an offset-mode flip. Two things show it:
 
-- the MDI tab and the project window's title gain a trailing `*`;
+- the project's tab and window title gain a trailing `*`;
 - the main window's title bar, which reads `OpenSWMM — <project title>`, follows
   the same marker for the active project.
 
@@ -331,7 +331,7 @@ every connection.
 
 **When the engine wants a file, not a row.** The solver still expects to open the
 legacy on-disk formats (HSF binary for hot-start, SWMM 5 text for the routing
-interface, CSV for time series). To bridge that, opening a GeoPackage materialises
+interface, CSV for time series). To bridge that, opening a GeoPackage writes
 a scratch file for each role in a sibling directory named after the project:
 
 ```

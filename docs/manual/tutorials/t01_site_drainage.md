@@ -131,6 +131,23 @@ section between its end nodes with `Rim`, `Inv` and `Crown` annotations. The
 **V:H** combo (**Auto**, **1:1**, **2:1**, **5:1**, **10:1**, **20:1**,
 **50:1**) sets the vertical exaggeration.
 
+**Label conduits by slope.** Right-click the model layer in **Layers** →
+**Properties…**, pick **Conduits** in the kind tree and open the **Labels**
+tab. Tick **Show labels**, set **Field** to **Slope (rise/run)** and
+**Decimals** to **3**, then **Apply**: every conduit carries a three-decimal
+slope. *Auto* would show six significant digits, which is more than a slope
+needs.
+
+\figtodo{t01_slope_labels.png, Conduits labelled by slope at three decimals on the site drainage model}
+
+**Edit geometry.** Turn on **Edit → Edit Existing** (`Ctrl+E`), activate
+**Select** and double-click `C4`, which has one bend: a square handle appears
+on the bend. Right-click the handle → **Delete vertex** and the conduit
+straightens between its two nodes. **Edit → Undo** (`Ctrl+Z`) puts the bend
+back. The editing gestures are in \ref manual_map_editing.
+
+\figtodo{t01_delete_vertex.png, Right-click on a conduit bend in edit mode showing Delete vertex}
+
 ### 4. Inspect the rain gage and its time series
 
 Select `RainGage` in the Object Browser. The Properties dock shows
@@ -301,8 +318,10 @@ sortable, filterable with the **Query:** box, and exportable with
 The **Results** ribbon tab drives playback.
 
 1. Select the results layer, then **Set Style → Symbology**. Choose
-   **Conduits** in the left tree and **Color by: LinkFlow**, or choose
-   **Junctions** and **NodeDepth**. In **Classification**, choose a
+   **Conduits** in the left tree and **Color by: flow (m³/s)**, or choose
+   **Junctions** and **Color by: depth (m)** — the attribute names are the
+   ones on screen, and the one shown is the one the layer stores. In
+   **Classification**, choose a
    **Colour ramp:**, a **Method:**
    (**Equal interval**, **Quantile**, **Natural breaks (Jenks)**,
    **Standard deviation**, **Logarithmic**, **Exponential** or **Manual**)
@@ -317,6 +336,22 @@ The **Results** ribbon tab drives playback.
    animation. Scrub to 12:00 on 1 January to catch the storm peak.
 
 \fig{t01_results_style.png, The results style editor classifying link flow with a fixed range}
+
+**Export the style.** **Export style…** on the dialog's button bar writes the
+renderer, its attribute and the classification to a `.swmm-style.json` you can
+**Import style…** onto another run. Open the file in a text editor: the
+attribute is stored under `classifyAttribute`.
+
+\figtodo{t01_style_export_json.png, The exported .swmm-style.json opened in a text editor with classifyAttribute = "flow" highlighted}
+
+**Save the style to the library.** **Tools → Style Manager** → **Save
+current…** → name it *Site drainage flow*. To see the round trip, set the
+Conduits renderer back to **Single Symbol** and **Apply**, then select the
+results layer in **Layers**, pick the saved entry in the Style Manager and
+**Apply to layer**: the classified colours return immediately, and Layer
+Properties shows the applied rules.
+
+\figtodo{t01_style_manager_apply.png, The Style Manager with the saved site-drainage style selected and Apply to layer enabled}
 
 \figtodo{t01_animation_peak.png, The map at the storm peak with links coloured by flow and the legend showing}
 
@@ -461,8 +496,9 @@ Work with the finished model open in a second window as your reference.
 1. **File → New**. For this synthetic reconstruction choose local feet in
    **Model → Set Project CRS…**. Only add georeferenced GIS data when you know
    how the coordinates relate. See \ref manual_crs.
-2. **Set the defaults before you draw.** **Preferences → Naming** sets ID
-   prefixes; **Preferences → Object Defaults** sets the values for newly
+2. **Set the defaults before you draw.** **Preferences → Naming** sets the ID
+   prefixes for every Add tool — nodes, links, subcatchments (`Sub`) and rain
+   gages (`RG`); **Preferences → Object Defaults** sets the values for newly
    drawn objects: node invert
    elevation and max depth, conduit length, roughness and geometry, subcatchment
    area, width, slope and imperviousness. Filling these in first is much faster
@@ -471,7 +507,9 @@ Work with the finished model open in a second window as your reference.
    **conduits** between them, and finally the **outfall**. The drawing tools, the
    snapping rules and the double-click-to-finish convention are documented in
    \ref manual_map_editing — including the useful one: dropping a node onto an
-   existing conduit splits it in two.
+   existing conduit splits it in two. If the subcatchment outlines are hard to
+   see over a basemap, raise their **Outline width** under Layer Properties →
+   **Symbology → Subcatchments** (\ref manual_styling).
 4. **Add a rain gage** and point each subcatchment's **Rain Gage** property at
    it. A gage carries either an inline time series or an external rain file; see
    \ref manual_hydrology.

@@ -53,8 +53,8 @@ so meanwhile.
 | **Copy (Ctrl+C)** | Put the selection on the clipboard as TSV |
 | **Export CSV…** | Write what is visible to a `.csv` or `.tsv` file |
 
-`Ctrl+C` is registered once on the main window and routed to whichever panel
-has focus, so the toolbar action deliberately carries no shortcut of its own.
+`Ctrl+C` always goes to the panel that has keyboard focus, so the toolbar
+button deliberately carries no shortcut of its own.
 
 ### Columns
 
@@ -158,7 +158,7 @@ Boundary = 'Yes' AND Length > 12
 | `LIKE` | Case-insensitive pattern match on a string column. `%` matches any sequence including none; `_` matches exactly one character |
 | `IN` | Match any of a list — `Type IN ('Junction','Outfall')` |
 | Negation | `NOT (condition)`, `Name NOT LIKE 'OUT%'`, `Name NOT IN ('J1', 'J2')` |
-| Ranges | `Area BETWEEN 0.5 AND 2` includes both endpoints; `Area NOT BETWEEN 0.5 AND 2` excludes the range |
+| Ranges | `Area BETWEEN 0.5 AND 2` includes both endpoints; `Area NOT BETWEEN 0.5 AND 2` excludes the range. `Length BETWEEN 10 AND 100` works as typed; when you quote the full header with its unit, use brackets — `[Length (ft)] BETWEEN 10 AND 100` |
 | Missing values | `Field IS NULL`, `Field IS NOT NULL`; an empty string is a value, not NULL |
 | Booleans | `TRUE`, `FALSE`; enumerations use the displayed labels, for example `'Yes'` |
 | Combining | `AND`, `OR`, `NOT`, grouped with `( )`; precedence is comparison, `NOT`, `AND`, then `OR` |
@@ -254,7 +254,7 @@ until the corrected clause succeeds or you press **Clear**.
 
 ### Selection
 
-The table is two-way bound to the project's selection bus: picking rows selects
+The table shares the project's selection both ways: picking rows selects
 the objects everywhere, and a selection made on the map or in the Object
 Browser highlights the matching rows.
 
@@ -263,7 +263,10 @@ element (plus the rest of the selection). It sits on the vertical header, so
 the double-click-to-edit affordance on cells is untouched.
 
 The **Selection:** radios decide what **Apply** does with the rows matched by
-the query:
+the query. The sequence is: type the query, choose **Replace**, **Add**,
+**Subtract** or **Intersect**, then press **Apply**. Typing a query leaves the
+map selection unchanged; **Apply** filters the rows and then applies the chosen
+radio to the matched rows:
 
 | Radio | Effect |
 |---|---|
@@ -273,8 +276,15 @@ the query:
 | **Intersect** | Keep only rows that are in both matched and selected |
 | **Invert** | Replace the selection with every row in this category that is *not* selected — ignores the query |
 
-The selection ops always run against the full population of the category; the
-"show selected only" filter does not narrow them.
+**Add** and **Subtract** act on the existing map selection: Add gives the
+union of the prior selection and the matched rows, Subtract removes the matched
+rows from it. With nothing selected, Add gives the same result as Replace and
+Subtract removes nothing. Select the objects on the map (or with a first Replace query), then
+run the second query with Add or Subtract. The selection ops always run
+against the full population of the category; the "show selected only" filter
+does not narrow them.
+
+\figtodo{11_query_between_add.png, A BETWEEN query on Conduits with Add selected — matched rows highlighted on the map alongside the previous selection}
 
 \fig{11_query_and_selection.png, Name LIKE 'C1%' matches C1; C10 and C11 in the eleven-conduit drainage example; Replace selects the three matches}
 
@@ -305,12 +315,12 @@ metadata:
 | Read-only | Not editable — derived values and the dynamics block |
 
 Every commit goes onto the canvas undo stack, so `Ctrl+Z` round-trips a cell
-edit, and it emits an *object edited* signal that refreshes the Properties
-panel and the Section View for the same object. The reverse holds too.
+edit, and it refreshes the Properties panel and the Section View for the same
+object. The reverse holds too.
 
 Two edits are deliberately atomic: setting a rain gage's **Rain File** path also
 commits the column selector and the file-format flip that a column implies, as
-one undo macro — otherwise undo would restore the path and keep a stale column.
+one undo step — otherwise undo would restore the path and keep a stale column.
 
 ### Applying one value to many rows
 
@@ -353,8 +363,8 @@ what the query and show-selected-only filters leave.
 separator: `.tsv` writes tab-separated with no quoting convention, anything else
 writes RFC-4180-style CSV — values containing a comma, a quote or a newline are
 wrapped in quotes and internal quotes are doubled. The header row uses the
-proxy's column headers, so a re-sorted or re-ordered view exports the way you
-see it, and the "show selected only" filter is honoured.
+column headers as you see them, so a re-sorted or re-ordered view exports the
+way you see it, and the "show selected only" filter is honoured.
 
 ### The attribute calculator
 
@@ -376,10 +386,9 @@ elsewhere, and bring the result back as a user flag or by editing the `.inp`.
 
 ### 2D mesh tables
 
-Selecting one of the `△ Mesh …` entries lists that mesh's elements. The model is
-fully virtual — rows read straight out of the mesh on every call and write
-through the same undoable commands the mesh-editing toolbar pushes — so a
-multi-million-cell mesh costs only a one-time edge index.
+Selecting one of the `△ Mesh …` entries lists that mesh's elements. Rows are
+read straight from the mesh and written through the same undoable edits as
+the mesh-editing toolbar, so even a multi-million-cell mesh opens quickly.
 
 | Table | Read-only columns | Editable columns |
 |---|---|---|
@@ -391,8 +400,8 @@ Coordinates are **not** editable here — move a vertex on the map. The same goe
 for the other derived columns (edge length, cell area, centroid): they are
 computed from the geometry, so an edit would have nowhere to write.
 
-The per-cell parameter columns come from a registry, so a new parameter appears
-here the moment it is added. Today they are Manning's n and Initial Depth
+The per-cell parameter columns follow the mesh's parameter list, so a new
+parameter appears here the moment it is added. Today they are Manning's n and Initial Depth
 (`[2D_TRIANGLES]`), the per-cell infiltration set — Infiltration Method plus its
 positional parameters (`[2D_INFILTRATION]`) — and a greyed-out 2D groundwater
 block (Saturated Conductivity, Aquifer Thickness, Porosity, initial unsaturated
@@ -492,8 +501,8 @@ Two write targets:
 The region route is the in-map way to edit a *default* instead of minting
 overrides, so a later region-level edit still reaches the cells. Undo restores
 the cells' original **provenance** — undoing an assignment made over an
-inheriting cell restores inheritance rather than a materialised copy carrying
-identical numbers.
+inheriting cell restores inheritance rather than leaving a per-cell override
+carrying identical numbers.
 
 Parameter fields are masked by the chosen method, and destinations the engine
 does not accept in this release are shown disabled — the same two rules the
@@ -531,8 +540,9 @@ they are edited only in their own editors (\ref manual_data_objects).
 ### GIS feature layers
 
 An imported vector layer's table lists its OGR features, keyed by feature id.
-It is **read-only** — there are no engine setters behind a shapefile — but
-sorting, the query bar, copy, export and two-way selection all work.
+It is **read-only** — a shapefile is not part of the model, so there is
+nothing to write to — but sorting, the query bar, copy, export and two-way
+selection all work.
 
 To turn features into SWMM objects, use **Model → Import Feature Layer…**; see
 \ref manual_map_editing.
@@ -541,7 +551,7 @@ To turn features into SWMM objects, use **Model → Import Feature Layer…**; s
 
 A CSV or TSV added with **File → Import → Add Delimited Data…** appears as
 `▾ Table: <name>`. It is read-only by design — tabular layers are observation
-data, and engine setters do not apply. The query bar still filters it, and copy
+data, not model objects. The query bar still filters it, and copy
 and export behave as elsewhere. Selection ops are no-ops for this source: the
 layer carries no SWMM object references.
 

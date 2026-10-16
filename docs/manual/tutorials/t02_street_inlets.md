@@ -221,7 +221,8 @@ Select `IJ1`. Its Properties dock carries the same eight inlet rows —
 **Local Depression Width (ft)**, **Placement** — plus a read-only
 **Approach Street**, and a **Street Max Depth (ft)** row where an ordinary
 junction shows its rim depth. `IJ1`'s max depth of 0.5 ft *is* the curb: once
-the gutter fills to the top of the curb the node floods.
+the gutter fills to the top of the curb the node floods. What each row means
+is in \ref manual_hydraulics "inlet junction".
 
 \fig{t02_inlet_junction_properties.png, The Properties dock for inlet junction IJ1}
 
@@ -247,12 +248,11 @@ node in the map or Object Browser.
 
 \figtodo{t02_new_inlet_junction.png, The New Inlet Junction dialog with a design and capture node chosen}
 
-An inlet junction is a *node*. It sits at a real point on the street, so the
-gutter depth at the inlet is the node depth, it can flood above the curb, the
-momentum of the street flow passes through it, and backflow from a surcharging
-capture node re-enters the street at that point rather than at an abstract
-node. That is exactly what a virtual junction is — zero storage, momentum
-transmitting — which is why it inherits every `[VIRTUAL_JUNCTIONS]` rule.
+An inlet junction is a *node*: it sits at a real point on the street, so the
+gutter depth at the inlet is the node depth, it can flood above the curb, and
+backflow from a surcharging capture node re-enters the street there. Why that
+makes it a virtual junction, and the rules it inherits, are explained in
+\ref manual_hydraulics "inlet junction".
 
 ### 7. Run
 

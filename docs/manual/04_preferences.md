@@ -37,7 +37,7 @@ so neither is a single long scrolling column:
 
 | Page | Tabs |
 | --- | --- |
-| **Rendering** | Labels / Links & Nodes / GPU / 2D Mesh Edges |
+| **Rendering** | Labels / Network Symbols / GPU / 2D Mesh Edges |
 | **Simulation Defaults** | Processes & Modules / Hydraulics & Schedule / Time Steps & Tolerances / Dynamic Wave / 2D Solver / 2D Coupling & Rainfall / 2D Mesh |
 
 *Simulation Defaults* absorbed what used to be two separate sidebar rows,
@@ -61,9 +61,8 @@ Pens & Fills, Link Pens, Node Symbols, 2D Mesh Boundary-Condition Edges), the
 from the View menu instead. For those, **Cancel** and **Reset to defaults** have
 nothing to undo.
 
-Every write emits a change notification, so bound call sites refresh without a
-restart — pen edits repaint open canvases immediately, a shortcut rebind is live
-on the next keypress.
+Every change takes effect without a restart — pen edits repaint open canvases
+immediately, a shortcut rebind is live on the next keypress.
 
 ### General
 
@@ -104,21 +103,31 @@ See \ref manual_crs and \ref manual_map_editing.
 
 ### Rendering
 
-Four tabs: **Labels**, **Links & Nodes**, **GPU** and **2D Mesh Edges** — one
+Four tabs: **Labels**, **Network Symbols**, **GPU** and **2D Mesh Edges** — one
 per group in the table below.
 
 | Control | What it does |
 |---|---|
 | **Label Rendering → Label zoom-out threshold (m11)** | Minimum view-transform scale at which labels are drawn. Higher hides labels sooner when zooming out; lower keeps them at coarse zoom, at a performance cost |
-| **Link Pens** | A property tree with a full `QPen` per link type — colour, width, line style, cap, join, dash offset. Expand a row for the individual attributes. Changes apply immediately to open project views |
+| **Link Pens** | A property tree with a full pen per link type — colour, width, line style, cap, join, dash offset. Expand a row for the individual attributes. Changes apply immediately to open project views |
 | **Node Symbols** | The same treatment per node type (Junction, Outfall, Storage, Divider, Virtual Junction, Inlet Junction): marker size, fill brush, and outline pen |
+| **Rain Gage** | Marker size, fill, and outline pen for rain gages |
+| **Subcatchment** | Fill, outline colour and outline width for subcatchment polygons |
 | **GPU Rendering → Use GPU rendering for SWMM layers (recommended)** | Draws nodes, links, subcatchments and gages through the scene-graph overlay. The CPU painter path is skipped while this is on so the two pipelines never double-paint. Turn it off only for GPU-driver problems |
 | … → **Use GPU rendering for 2D terrain mesh layers (recommended)** | Same for the 2D mesh — elevation fill, wireframe and contours. Required for smooth pan and zoom on large meshes. There is also an application-wide kill switch, the environment variable `OPENSWMM_QSG_MESH=0` |
 | **2D Mesh Boundary-Condition Edges** | Default colour and width for the mesh's Boundary Conditions sublayer, one entry per BC type, plus a *Colour by type* toggle that shows or hides the sublayer on open meshes immediately. Wall edges are the interior wireframe and use the layer's own edge width. Edits apply live to open meshes you have not styled individually; a layer styled through its own Boundary Conditions tab keeps those settings and saves them with the project |
 
+On the **Network Symbols** tab the node, rain-gage and subcatchment rows sit
+in the group **Node, Rain Gage & Subcatchment Symbols**. The **Rain Gage** and
+**Subcatchment** rows seed *new* layers: a model layer
+opened after you change them starts from these values, while a layer you have
+already styled keeps its own.
+
 See \ref manual_styling and \ref manual_performance.
 
-\fig{04_preferences_rendering.png, The Rendering page on the Links & Nodes tab with the Link Pens and Node Symbols trees — GPU rendering has its own tab}
+\fig{04_preferences_rendering.png, The Rendering page on the tab now named Network Symbols (captured under its former name Links & Nodes) with the Link Pens and Node Symbols trees — GPU rendering has its own tab}
+
+\figtodo{04_preferences_network_symbols.png, The Rendering page on the Network Symbols tab with the new Rain Gage and Subcatchment rows}
 
 ### Simulation
 
@@ -259,7 +268,8 @@ still override the format in their own chart-properties dialog — see
 
 Prefixes for auto-generated element names. Each newly placed element takes its
 prefix followed by the next sequential number (`J1`, `J2`, …), and a change takes
-effect for the very next element you place.
+effect for the very next element you place. The prefixes apply to every Add
+tool, including **Subcatchment** (`Sub`) and **Rain Gage** (`RG`).
 
 | Element | Default prefix |
 |---|---|
@@ -286,9 +296,8 @@ Leaving a field blank falls back to the default shown as its placeholder.
 | **Dark** | Always dark |
 
 This is the same setting as **View → Appearance ▸**; changing it in one place
-updates the other. The mode drives a token-based palette and a small style-sheet
-overlay on Qt's Fusion style, and action icons are re-tinted through the
-theme-aware icon factory.
+updates the other. The palette, the widget style and the action icons all
+follow the chosen mode.
 
 \fig{04_preferences_appearance.png, The Appearance page with the System; Light and Dark radio buttons}
 
@@ -316,10 +325,9 @@ the command holding it; a platform-reserved sequence only warns. See
 
 ### Where settings are stored
 
-Everything is stored through `QSettings` using the application identity set at
-startup — organisation `hydrocouple`, organisation domain
-`calebbuahin.github.io`, application name `OpenSWMM Stormwater Management Model`.
-That resolves to the platform's native store:
+Everything is stored in the platform's native settings store under the
+application identity — organisation `hydrocouple`, organisation domain
+`calebbuahin.github.io`, application name `OpenSWMM Stormwater Management Model`:
 
 | Platform | Location |
 |---|---|
@@ -341,9 +349,9 @@ Inside that store, keys are grouped by purpose:
 | `SWMMVis::ShowWelcomeOnStartup` | The Welcome-page toggle |
 | `Preferences/AutoCreateOswpOnOpen` | Whether opening a `.inp` with no sidecar creates one. On by default; no control in this dialog |
 
-Other application data lives outside `QSettings`: the seeded example projects and
-the per-user style library are under `QStandardPaths::AppLocalDataLocation`
-(`…/examples` and `…/styles`).
+Other application data lives outside the settings store: the seeded example
+projects and the per-user style library are in the per-user application data
+folder (`…/examples` and `…/styles`).
 
 ### Dialog layout persistence
 

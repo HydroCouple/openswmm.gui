@@ -154,8 +154,8 @@ rows. More than 500 series raises a confirmation first.
   regenerated or refined triangulation renumbers cells. For mesh-independent
   comparison, compare the 1D coupling nodes instead.
 - **Live.** While a simulation is running, cell picks attach to the live tick
-  stream: new series start empty and grow as the engine emits depth, flux and
-  rainfall packets, so the rainfall entries are enabled during the run and not
+  stream: new series start empty and grow as the engine reports depth, flux and
+  rainfall, so the rainfall entries are enabled during the run and not
   only after the HDF5 file is swapped in. The animation cursor sweeps every chart
   row in step with the map.
 - 1D node **Depth** and 2D cell **Depth** are deliberately different quantities and
@@ -181,8 +181,9 @@ the map, **Zoom to Selected**, and CSV export. It is covered in full in
 - **Read coverage and reversal diagnostics.** Partial or unavailable travel times
   must not be interpreted as zero. Circulating networks can have passage ratios
   greater than one.
-- **Rainfall Visualization is a singleton.** Opening it again from a different
-  entry point raises the same window and re-focuses it on the gage you picked.
+- **There is only one Rainfall Visualization window.** Opening it again from a
+  different entry point raises the same window and re-focuses it on the gage
+  you picked.
 - **A gage with `file failed to load`** will contribute no rainfall to a run.
   Check the **Source** column for the path or station the model asked for.
 - **Greyed-out mesh attributes mean an older results file**, not a broken model.

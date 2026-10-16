@@ -107,8 +107,7 @@ reports the counts — nodes, link vertices, polygon vertices.
 
 ### What gets written to the `.inp`
 
-Committing a CRS sets the engine's CRS string, which the input writer emits in
-`[OPTIONS]`:
+Committing a CRS sets the model's CRS string, which is saved in `[OPTIONS]`:
 
 ```
 [OPTIONS]
@@ -219,8 +218,8 @@ converted into a new one.
 
 - **Reproject is destructive to the in-memory model but not to the file** until
   you Save. Quit without saving and the `.inp` on disk is unchanged.
-- **Re-render is free.** It writes nothing and costs no engine calls, so you can
-  flip between CRSes to compare views.
+- **Re-render is free.** It writes nothing and changes nothing in the model, so
+  you can flip between CRSes to compare views.
 - **The status-bar button always shows the *canvas* CRS.** After a re-render the
   canvas and the model CRS differ on purpose; after a reproject they match.
 - **A geographic model keeps a projected canvas.** Don't be surprised that the

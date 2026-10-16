@@ -65,7 +65,7 @@ analysis tool acts on:
 | **2D results:** | Mesh-cell time series, mesh profiles, 2D cell picking, 2D animation |
 
 Choosing **— none —** returns the project to model editing. The 1D list is drawn
-from the project's output registry, so each entry is the `.out` basename (with
+from the project's loaded outputs, so each entry is the `.out` basename (with
 `(2)`, `(3)` … appended when two runs share a basename) and its tooltip is the
 full path. A combo is disabled while the project has nothing of that kind loaded.
 Setting the active layer from the Layers dock context menu keeps the combos in

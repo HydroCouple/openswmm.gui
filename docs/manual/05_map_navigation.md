@@ -31,23 +31,23 @@ the canvas opens a context menu that depends on what is under the cursor.
 
 The canvas composites three stacked surfaces into one picture. A background
 worker renders every *raster* layer — basemaps, XYZ/WMS/WMTS tiles, GIS
-rasters — into an off-screen image buffer. A transparent `QGraphicsScene`
-overlay holds the *interactive vector* items (GIS vector features, 2D-mesh
-graphics, annotations) and provides hit-testing. A hardware-accelerated scene
-graph surface (Metal on macOS, Vulkan on Linux, Direct3D 11 on Windows) draws
-the heavy content: the 2D terrain mesh at the bottom, the 2D flood map above
-it, and the SWMM network on top.
+rasters — into an off-screen image buffer. A transparent overlay holds the
+*interactive vector* items (GIS vector features, 2D-mesh graphics,
+annotations) and handles clicks on them. A hardware-accelerated surface
+(Metal on macOS, Vulkan on Linux, Direct3D 11 on Windows) draws the heavy
+content: the 2D terrain mesh at the bottom, the 2D flood map above it, and the
+SWMM network on top.
 
 What this means in practice:
 
 - During a pan or zoom gesture the previous buffers are shown shifted and
   scaled so the map never goes blank; the sharp version arrives when the drag
   stops (and, for tiles, part-way through a long drag).
-- Redraws are debounced per channel, so cheap changes (a selection highlight)
-  never wait behind expensive ones (a basemap recomposite). The tuning knobs
+- The basemap, the layers and the selection highlight redraw separately, so
+  cheap changes (a selection highlight) never wait behind expensive ones (a
+  basemap redraw). The tuning knobs
   and how to trace a slow redraw are in \ref manual_performance.
-- Hidden layers cost nothing — they are skipped by both the raster job and the
-  scene pass.
+- Hidden layers cost nothing — they are skipped entirely when the map redraws.
 
 ### Navigating
 

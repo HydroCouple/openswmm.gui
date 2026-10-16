@@ -97,6 +97,12 @@ and a form on the right:
 | **Co-Pollutant** | CoPollut |
 | **Co-Fraction** | CoFrac |
 
+> **Names are SWMM identifiers: no spaces.** The `.inp` is
+> whitespace-delimited, so `Total Nitrogen` would be saved as `Total`; use
+> `Total_N`. The editor refuses names with spaces (and `;`, `[`, `]`).
+
+\figtodo{t07_pollutant_name_rule.png, The Pollutant editor showing a refused name with a space and the accepted Total_N}
+
 The dialog has no OK button — edits go straight to the model through the
 pollutant provider and the **Close** button just dismisses it. One gotcha: the
 **units** of a pollutant are write-once at engine creation, so the combo only
@@ -484,10 +490,13 @@ require verification for this example.
 ### 11. Colour the map by species
 
 Open the results layer's style dialog and set **Renderer:** to **Graduated**.
-The **Attribute:** combo now lists the fixed result attributes (flow, depth,
-velocity, capacity) *and* one entry per species, showing **TRACER**,
-**DECAY**, **Water age (hours)** and **Temperature (°C)**. Pick one, choose a
-ramp and a classification, then step the animation.
+The **Color by** combo now lists the fixed result attributes — **flow
+(m³/s)**, **depth (m)**, **velocity (m/s)**, **capacity** — *and* one entry per
+species, showing **TRACER**, **DECAY**, **Water age (hours)** and
+**Temperature (°C)**. Pick one, choose a ramp and a classification, then step
+the animation. The attribute shown is the one the layer stores; **Export
+style…** writes it with the renderer and the classification to a
+`.swmm-style.json` you can **Import style…** onto another run.
 
 Behind the display name the stored value is the `qual:<name>` token, and that
 token is what goes into the `.oswp` project file — so a saved theme survives a

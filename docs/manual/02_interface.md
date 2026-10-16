@@ -323,7 +323,7 @@ Built at run time, so the middle of the menu changes as you work.
 
 | Item | Shortcut | What it does |
 |---|---|---|
-| **Minimize** | `Ctrl+M` | Minimizes the main window. MDI sub-windows are deliberately not minimizable |
+| **Minimize** | `Ctrl+M` | Minimizes the main window. Individual project tabs cannot be minimized |
 | **Zoom** | | Toggles the main window between maximized and normal |
 | *(project list)* | | One checkable entry per open project sub-window; the active one is checked. Selecting one activates and focuses it |
 | *(open dialog list)* | | One entry per open modeless dialog; most recently used first. Selecting one first clamps the dialog back onto a connected screen; then raises it — this is the recovery path for a dialog left on a monitor you have since unplugged |
@@ -341,9 +341,9 @@ Built at run time, so the middle of the menu changes as you work.
 
 \figtodo{02_menu_model_expanded.png, The Model menu expanded with the Add Node; Add Link; Climate; Data Objects and Mesh submenus}
 
-### The MDI workspace and its tabs
+### The document area and its tabs
 
-The centre of the window is a tabbed MDI area. Each tab is one document:
+The centre of the window is a tabbed document area. Each tab is one document:
 
 - the **Welcome** tab (see \ref manual_introduction);
 - one **project window** per open model, titled by the file name, with a trailing
@@ -359,7 +359,7 @@ dock, and the status-bar widgets to the newly active project — including its f
 units, offset mode, engine version and CRS. Two projects with different unit
 systems can therefore be open side by side without interfering.
 
-The MDI backdrop and the Welcome tab track the application theme
+The document area's background and the Welcome tab track the application theme
 (`mdiworkspacechrome`), so the workspace does not flash a light panel in dark mode.
 
 ### Dock panels
