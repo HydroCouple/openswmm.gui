@@ -36,6 +36,41 @@
 #include "ui/toolbars/mesheditingtoolbar.h"
 #include "ui/models/userflagsmodel.h"
 #include "ui/widgets/labelconfigeditor.h"
+// Batch 3 (C1–C15)
+#include "core/editgeometry.h"
+#include "core/noderenderingprefs.h"
+#include "core/swmmidentifier.h"
+#include "map/mapundostack.h"
+#include "map/tools/maptooladdgage.h"
+#include "map/tools/maptooladdsubcatchment.h"
+#include "pollutant/pollutantregistry.h"
+#include "render/renderers/graduatedrenderer.h"
+#include "render/rulelistio.h"
+#include "ui/dialogs/pollutanteditordialog.h"
+#include "ui/panels/attributedelegates.h"
+#include "ui/panels/attributetablepanel.h"
+#include "ui/panels/objectbrowserpanel.h"
+#include "ui/panels/propertiespanel.h"
+#include "ui/panels/swmmattributetablemodel.h"
+#include "ui/panels/swmmobjecttreemodel.h"
+#include "ui/properties/swmmlinkpropertyadapter.h"
+#include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
+#include <qpropertymodel.h>
+#include <QAbstractItemDelegate>
+#include <QCheckBox>
+#include <QDoubleSpinBox>
+#include <QKeyEvent>
+#include <QMenu>
+#include <QMouseEvent>
+#include <QRadioButton>
+#include <QSignalSpy>
+#include <QSpinBox>
+#include <QStyleOptionViewItem>
+#include <QTreeView>
+#include <functional>
 #include <QApplication>
 #include <QAbstractButton>
 #include <QQmlEngine>
@@ -197,6 +232,52 @@ QString fixture() {
 QString meshEdgeArtifact(const QString &name) {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
         .absoluteFilePath("../../../workplans/artifacts/mesh-edge-rendering/"+name);
+}
+// Batch 3 helpers -------------------------------------------------------------
+QString examplePath(const QString &rel) {
+    return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA")).absoluteFilePath("../../../examples/"+rel);
+}
+QString tutorialModelPath(const QString &name) {
+    return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
+        .absoluteFilePath("../../../docs/manual/tutorials/models/"+name);
+}
+// Context menus block inside QMenu::exec(): pick the named action from the
+// next popup, recording every action text it offered when asked.
+void pickMenuAction(const QString &text, QStringList *seen=nullptr, int attempts=80) {
+    QTimer::singleShot(25,[text,seen,attempts]{
+        auto *menu=qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        if (!menu) { if (attempts>0) pickMenuAction(text,seen,attempts-1); return; }
+        for (QAction *action:menu->actions()) {
+            if (seen && !action->isSeparator()) seen->append(action->text());
+        }
+        for (QAction *action:menu->actions()) {
+            if (action->text()!=text) continue;
+            menu->setActiveAction(action); QTest::keyClick(menu,Qt::Key_Return); return;
+        }
+        menu->close();
+    });
+}
+void closeNextMessageBox(int attempts=80) {
+    QTimer::singleShot(25,[attempts]{
+        if (auto *box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) { box->close(); return; }
+        if (attempts>0) closeNextMessageBox(attempts-1);
+    });
+}
+QModelIndex findRow(QAbstractItemModel *model,const std::function<bool(const QModelIndex &)> &accept,
+                    const QModelIndex &parent={}) {
+    for (int r=0;r<model->rowCount(parent);++r) {
+        const QModelIndex idx=model->index(r,0,parent);
+        if (accept(idx)) return idx;
+        if (model->hasChildren(idx)) { const QModelIndex found=findRow(model,accept,idx); if (found.isValid()) return found; }
+    }
+    return {};
+}
+QModelIndex categoryRow(QAbstractItemModel *model,SWMMModelLayer::Category cat) {
+    return findRow(model,[cat](const QModelIndex &idx){
+        return !idx.data(SWMMObjectTreeModel::RoleIsLeaf).toBool()
+            && idx.data(SWMMObjectTreeModel::RoleSection).toInt()==SWMMObjectTreeModel::SectionNetwork
+            && idx.data(SWMMObjectTreeModel::RoleCategory).toInt()==int(cat);
+    });
 }
 }
 
@@ -640,6 +721,313 @@ private slots:
         style->setColor(red);
         QCOMPARE(renderer.contentRevision(),detachedRevision);
         layer.depopulateScene(&scene);
+    }
+
+    // ── Batch 3 — USER_FEEDBACK_BATCH3_2026-10-15 (C1–C15) ──────────────────
+    void styleManagerApplyReachesModelLayer() {   // C1
+        SWMMModelLayer layer(fixture()); QList<QString> warnings,errors;
+        QVERIFY(layer.loadModel(warnings,errors));
+        auto graduated=std::make_unique<OpenSWMM::Render::GraduatedRenderer>();
+        graduated->setClassifyAttribute("length");
+        layer.setKindRenderer(SWMMModelLayer::CatConduits,std::move(graduated));
+        const QString path=artifactPath("batch3/conduits_graduated.swmm-rule.json");
+        QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+        QVERIFY(OpenSWMM::Render::RuleListIO::save(layer.ruleList(),path).ok);
+        layer.resetKindRendererToDefaults(SWMMModelLayer::CatConduits);
+        QCOMPARE(layer.kindRenderer(SWMMModelLayer::CatConduits)->rendererId(),QString("single"));
+        auto *list=layer.ruleList();
+        QSignalSpy repaint(&layer,&SWMMModelLayer::repaintRequested);
+        QVERIFY(OpenSWMM::Render::RuleListIO::load(path,list).ok);   // what Style Manager → Apply does
+        QCOMPARE(layer.kindRenderer(SWMMModelLayer::CatConduits)->rendererId(),QString("graduated"));
+        QVERIFY(repaint.count()>0);
+        QCOMPARE(layer.ruleList(),list);   // the applied list is kept, not rebuilt over
+    }
+    void styleManagerApplyReachesResultsLayer() {   // C1
+        const QString out=artifactPath("run.out"), rpt=artifactPath("run.rpt");
+        QCOMPARE(swmm_engine_run(fixture().toUtf8(),rpt.toUtf8(),out.toUtf8(),nullptr),SWMM_OK);
+        SWMMModelLayer model(fixture()); QList<QString> warnings,errors;
+        QVERIFY(model.loadModel(warnings,errors));
+        SWMMResultsLayer results(out,&model); QVERIFY(results.openResults(warnings,errors));
+        auto categorized=std::make_unique<OpenSWMM::Render::CategorizedRenderer>();
+        categorized->setClassifyAttribute("flow");
+        results.setKindRenderer(SWMMModelLayer::CatConduits,std::move(categorized));
+        const QString path=artifactPath("batch3/results_conduits.swmm-rule.json");
+        QVERIFY(OpenSWMM::Render::RuleListIO::save(results.ruleList(),path).ok);
+        results.resetKindRendererToDefaults(SWMMModelLayer::CatConduits);
+        QVERIFY(results.kindRenderer(SWMMModelLayer::CatConduits)->rendererId()!=QString("categorized"));
+        QVERIFY(OpenSWMM::Render::RuleListIO::load(path,results.ruleList()).ok);
+        QCOMPARE(results.kindRenderer(SWMMModelLayer::CatConduits)->rendererId(),QString("categorized"));
+    }
+    void classifiedRenderersKeepBaseSymbolControls() {   // C2
+        SWMMModelLayer layer(fixture()); QList<QString> warnings,errors;
+        QVERIFY(layer.loadModel(warnings,errors));
+        auto graduated=std::make_unique<OpenSWMM::Render::GraduatedRenderer>();
+        graduated->setClassifyAttribute("maxDepth");
+        layer.setKindRenderer(SWMMModelLayer::CatJunctions,std::move(graduated));
+        const auto *entry=RendererPanelRegistry::instance().find("graduated"); QVERIFY(entry);
+        std::unique_ptr<IRendererPanel> panel(entry->factory(
+            RendererPanelContext::resolve(&layer,SWMMModelLayer::CatJunctions),nullptr)); QVERIFY(panel);
+        auto *group=panel->findChild<QWidget *>("baseSymbolGroup"); QVERIFY(group);
+        auto *size=group->findChild<QDoubleSpinBox *>("baseSymbolSize"); QVERIFY(size);
+        QCOMPARE(layer.junctionSymbol().size,8.);
+        size->setValue(12);
+        QCOMPARE(layer.junctionSymbol().size,12.);   // painted size follows without leaving Graduated
+        QVERIFY(size->isEnabled());
+        QCheckBox *axis=nullptr;
+        for (auto *box:panel->findChildren<QCheckBox *>()) if (box->text()=="Size by value") { axis=box; break; }
+        QVERIFY(axis); axis->setChecked(true); QVERIFY(!size->isEnabled());
+        axis->setChecked(false); QVERIFY(size->isEnabled());
+        const auto *categorized=RendererPanelRegistry::instance().find("categorized"); QVERIFY(categorized);
+        layer.setKindRenderer(SWMMModelLayer::CatJunctions,std::make_unique<OpenSWMM::Render::CategorizedRenderer>());
+        std::unique_ptr<IRendererPanel> catPanel(categorized->factory(
+            RendererPanelContext::resolve(&layer,SWMMModelLayer::CatJunctions),nullptr)); QVERIFY(catPanel);
+        QVERIFY(catPanel->findChild<QWidget *>("baseSymbolGroup"));
+    }
+    void graduatedPanelStoresTheShownAttribute() {   // C3
+        const QString out=artifactPath("run.out");
+        SWMMModelLayer model(fixture()); QList<QString> warnings,errors;
+        QVERIFY(model.loadModel(warnings,errors));
+        SWMMResultsLayer results(out,&model); QVERIFY(results.openResults(warnings,errors));
+        results.setKindRenderer(SWMMModelLayer::CatConduits,std::make_unique<OpenSWMM::Render::GraduatedRenderer>());
+        auto current=[&]{ return dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(results.kindRenderer(SWMMModelLayer::CatConduits)); };
+        QVERIFY(current()); QVERIFY(current()->classifyAttribute().isEmpty());
+        const auto *entry=RendererPanelRegistry::instance().find("graduated"); QVERIFY(entry);
+        std::unique_ptr<IRendererPanel> panel(entry->factory(
+            RendererPanelContext::resolve(&results,SWMMModelLayer::CatConduits),nullptr)); QVERIFY(panel);
+        QComboBox *picker=nullptr;
+        for (auto *combo:panel->findChildren<QComboBox *>())
+            if (combo->findData("flow")>=0 && combo->findData(QString())<0) { picker=combo; break; }
+        QVERIFY(picker); QVERIFY(current());
+        QVERIFY(!current()->classifyAttribute().isEmpty());
+        QCOMPARE(current()->classifyAttribute(),picker->currentData().toString());
+        QCOMPARE(current()->toJson().value("classifyAttribute").toString(),picker->currentData().toString());
+    }
+    void labelDecimalsFormatNumbers() {   // C4
+        using OpenSWMM::Render::LabelConfig;
+        QCOMPARE(LabelConfig::formatValue(0.004123456789012345,-1),QString("0.00412346"));
+        QCOMPARE(LabelConfig::formatValue(0.004123456789012345,3),QString("0.004"));
+        QCOMPARE(LabelConfig::formatValue(QString("J1"),3),QString("J1"));
+        QCOMPARE(LabelConfig::formatValue(7,2),QString("7"));
+        LabelConfig cfg; cfg.decimals=3; LabelConfig back; back.fromJson(cfg.toJson()); QCOMPARE(back.decimals,3);
+        back.fromJson(LabelConfig().toJson()); QCOMPARE(back.decimals,-1);
+        LabelConfigEditor editor; auto *spin=editor.findChild<QSpinBox *>("labelDecimals"); QVERIFY(spin);
+        QCOMPARE(spin->value(),-1); spin->setValue(2); QCOMPARE(editor.config().decimals,2);
+        const QString out=artifactPath("run.out");
+        SWMMModelLayer model(fixture()); QList<QString> warnings,errors;
+        QVERIFY(model.loadModel(warnings,errors));
+        SWMMResultsLayer results(out,&model); QVERIFY(results.openResults(warnings,errors));
+        QGraphicsScene scene;
+        auto config=results.labelConfig(); config.enabled=true; config.fieldName="head"; config.decimals=3;
+        results.setLabelConfig(config);
+        results.populateScene(&scene,MapExtent(0,0,100,100),model.srs());
+        const auto texts=[&]{ QStringList labels;
+            for (auto *item:scene.items())
+                if (auto *label=dynamic_cast<QGraphicsSimpleTextItem *>(item))
+                    if (label->isVisible()) labels.append(label->text());
+            return labels; };
+        QVERIFY2(texts().contains("100.000"),qPrintable(texts().join(", ")));
+        config.expression="{name}: {head}"; config.decimals=1; results.setLabelConfig(config);
+        results.refreshScene(&scene,MapExtent(0,0,100,100),model.srs());
+        QVERIFY2(texts().contains("J1: 100.0"),qPrintable(texts().join(", ")));
+        results.depopulateScene(&scene);
+    }
+    void objectBrowserMoveUpStepsPastHiddenCategories() {   // C5
+        SWMMModelLayer layer(fixture()); QList<QString> warnings,errors;
+        QVERIFY(layer.loadModel(warnings,errors)); SelectionManager selection;
+        ObjectBrowserPanel panel; panel.setProject(&layer,&selection,nullptr); panel.resize(360,480); panel.show();
+        auto *view=panel.findChild<QTreeView *>(); QVERIFY(view); auto *model=view->model(); QVERIFY(model);
+        QApplication::processEvents();
+        QModelIndex conduits=categoryRow(model,SWMMModelLayer::CatConduits); QVERIFY(conduits.isValid());
+        QCOMPARE(conduits.row(),2);   // Junctions, Outfalls, Conduits visible; Storage/Dividers hidden
+        pickMenuAction("Move Up");
+        QMetaObject::invokeMethod(&panel,"onContextMenuRequested",Qt::DirectConnection,
+                                  Q_ARG(QPoint,view->visualRect(conduits).center()));
+        QTRY_COMPARE(categoryRow(model,SWMMModelLayer::CatConduits).row(),1);
+        const auto order=layer.categoryOrder();
+        QVERIFY(order.indexOf(SWMMModelLayer::CatConduits)<order.indexOf(SWMMModelLayer::CatOutfalls));
+        conduits=categoryRow(model,SWMMModelLayer::CatConduits);
+        pickMenuAction("Move Down");
+        QMetaObject::invokeMethod(&panel,"onContextMenuRequested",Qt::DirectConnection,
+                                  Q_ARG(QPoint,view->visualRect(conduits).center()));
+        QTRY_COMPARE(categoryRow(model,SWMMModelLayer::CatConduits).row(),2);
+    }
+    void numericEditorsStepByField() {   // C7
+        using openswmmvis::columnSpecForProperty; using openswmmvis::columnStep;
+        const auto length=columnSpecForProperty("length"); QVERIFY(length);
+        QCOMPARE(columnStep(*length),1.0); QCOMPARE(length->decimals,2);
+        const auto roughness=columnSpecForProperty("roughness"); QVERIFY(roughness);
+        QCOMPARE(columnStep(*roughness),0.001); QCOMPARE(roughness->decimals,4);
+        const auto nImperv=columnSpecForProperty("nImperv"); QVERIFY(nImperv); QCOMPARE(columnStep(*nImperv),0.001);
+        const auto area=columnSpecForProperty("area"); QVERIFY(area); QCOMPARE(area->setter,QString("subcatch_area"));
+        const auto startup=columnSpecForProperty("startupDepth"); QVERIFY(startup);
+        QCOMPARE(startup->setter,QString("link_pump_startup_depth"));
+        QVERIFY(!columnSpecForProperty("noSuchProperty"));
+        QWidget host;
+        openswmmvis::NumericDelegate tableDelegate(nullptr,0,1e9,2,1.0);
+        std::unique_ptr<QWidget> tableEditor(tableDelegate.createEditor(&host,QStyleOptionViewItem(),QModelIndex()));
+        auto *tableSpin=qobject_cast<QDoubleSpinBox *>(tableEditor.get()); QVERIFY(tableSpin);
+        QCOMPARE(tableSpin->singleStep(),1.0);
+        SWMMModelLayer layer(fixture()); QList<QString> warnings,errors;
+        QVERIFY(layer.loadModel(warnings,errors));
+        PropertiesPanel panel; auto *tree=panel.findChild<QTreeView *>(); QVERIFY(tree);
+        auto *delegate=tree->itemDelegate(); QVERIFY(delegate);
+        SWMMConduitPropertyAdapter adapter(layer.engine(),"C_MAIN");
+        QPropertyModel properties(nullptr); properties.setData(QVariant::fromValue<QObject *>(&adapter));
+        auto rowFor=[&](const QString &property){
+            const QString label=adapter.displayLabelFor(property);
+            return findRow(&properties,[&](const QModelIndex &idx){ return idx.data(Qt::DisplayRole).toString()==label; }); };
+        const QModelIndex lengthRow=rowFor("length"); QVERIFY(lengthRow.isValid());
+        std::unique_ptr<QWidget> lengthEditor(delegate->createEditor(&host,QStyleOptionViewItem(),lengthRow.sibling(lengthRow.row(),1)));
+        auto *lengthSpin=lengthEditor->findChild<QDoubleSpinBox *>(); QVERIFY(lengthSpin);
+        QCOMPARE(lengthSpin->singleStep(),1.0); QCOMPARE(lengthSpin->decimals(),2);
+        const QModelIndex roughRow=rowFor("roughness"); QVERIFY(roughRow.isValid());
+        std::unique_ptr<QWidget> roughEditor(delegate->createEditor(&host,QStyleOptionViewItem(),roughRow.sibling(roughRow.row(),1)));
+        auto *roughSpin=roughEditor->findChild<QDoubleSpinBox *>(); QVERIFY(roughSpin);
+        QCOMPARE(roughSpin->singleStep(),0.001); QCOMPARE(roughSpin->decimals(),4);
+    }
+    void objectBrowserEditOpensPollutantEditor() {   // C8 (+ C6: no Properties… row)
+        SWMMModelLayer layer(tutorialModelPath("transport_demo.inp")); QList<QString> warnings,errors;
+        QVERIFY(layer.loadModel(warnings,errors)); SelectionManager selection;
+        ObjectBrowserPanel panel; panel.setProject(&layer,&selection,nullptr); panel.resize(360,600); panel.show();
+        auto *view=panel.findChild<QTreeView *>(); QVERIFY(view); auto *model=view->model(); QVERIFY(model);
+        QApplication::processEvents();
+        const QModelIndex pollutants=findRow(model,[](const QModelIndex &idx){
+            return !idx.data(SWMMObjectTreeModel::RoleIsLeaf).toBool()
+                && idx.data(SWMMObjectTreeModel::RoleSection).toInt()==SWMMObjectTreeModel::SectionData
+                && idx.data(SWMMObjectTreeModel::RoleDataCategory).toInt()==int(SWMMModelLayer::DataPollutants); });
+        QVERIFY(pollutants.isValid()); view->expand(pollutants); QApplication::processEvents();
+        const QModelIndex tracer=model->index(0,0,pollutants); QVERIFY(tracer.isValid());
+        QCOMPARE(tracer.data(Qt::DisplayRole).toString(),QString("TRACER"));
+        view->scrollTo(tracer); QApplication::processEvents();
+        QStringList offered; pickMenuAction("Edit…",&offered);
+        QMetaObject::invokeMethod(&panel,"onContextMenuRequested",Qt::DirectConnection,
+                                  Q_ARG(QPoint,view->visualRect(tracer).center()));
+        QTRY_VERIFY(panel.findChild<PollutantEditorDialog *>()!=nullptr);
+        auto *dialog=panel.findChild<PollutantEditorDialog *>();
+        QTRY_VERIFY(dialog->isVisible());
+        QCOMPARE(dialog->nameEdit()->text(),QString("TRACER"));
+        QVERIFY(offered.contains("Edit…")); QVERIFY(!offered.contains("Properties…"));
+        dialog->close();
+    }
+    void dataObjectNamesMustBeSwmmIdentifiers() {   // C10
+        QVERIFY(!openswmmvis::swmmIdentifierProblem("Total Nitrogen").isEmpty());
+        QVERIFY(!openswmmvis::swmmIdentifierProblem("a;b").isEmpty());
+        QVERIFY(!openswmmvis::swmmIdentifierProblem("[x]").isEmpty());
+        QVERIFY(openswmmvis::swmmIdentifierProblem("Total_Nitrogen").isEmpty());
+        QVERIFY(openswmmvis::swmmIdentifierProblem("TotalN").isEmpty());
+        SWMMModelLayer layer(tutorialModelPath("transport_demo.inp")); QList<QString> warnings,errors;
+        QVERIFY(layer.loadModel(warnings,errors));
+        auto *registry=qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer.ensurePollutantRegistry()); QVERIFY(registry);
+        PollutantEditorDialog dialog(registry,&layer); dialog.openForPollutant("TRACER");
+        QCOMPARE(dialog.nameEdit()->text(),QString("TRACER"));
+        dialog.nameEdit()->setText("Total Nitrogen"); closeNextMessageBox();
+        emit dialog.nameEdit()->editingFinished();
+        QVERIFY(!registry->hasName("Total Nitrogen")); QVERIFY(registry->hasName("TRACER"));
+        QCOMPARE(dialog.nameEdit()->text(),QString("TRACER"));
+        dialog.nameEdit()->setText("Total_Nitrogen"); emit dialog.nameEdit()->editingFinished();
+        QVERIFY(registry->hasName("Total_Nitrogen"));
+        const QString saved=artifactPath("batch3/transport_renamed.inp");
+        QVERIFY(QDir().mkpath(QFileInfo(saved).absolutePath()));
+        QCOMPARE(swmm_model_write(layer.engine(),saved.toUtf8().constData()),SWMM_OK);
+        SWMMModelLayer reopened(saved); QVERIFY(reopened.loadModel(warnings,errors));
+        QVERIFY(swmm_pollutant_index(reopened.engine(),"Total_Nitrogen")>=0);
+        SWMMAttributeTableModel table; table.setSource(&reopened,SWMMModelLayer::CatJunctions);
+        QStringList headers;
+        for (int c=0;c<table.columnCount();++c) headers<<table.headerData(c,Qt::Horizontal).toString();
+        QVERIFY2(headers.contains("Init. Total_Nitrogen"),qPrintable(headers.join(" | ")));
+        dialog.close();
+        SWMMModelLayer network(fixture()); QVERIFY(network.loadModel(warnings,errors));
+        QVERIFY(!network.applyRename("J1","J 1",SWMMModelLayer::kKindNode));
+        QVERIFY(network.applyRename("J1","J_1",SWMMModelLayer::kKindNode));
+    }
+    void attributeTableAddAndSubtractCombineWithMapSelection() {   // C11
+        SWMMModelLayer model(examplePath("site_drainage/site_drainage_model.inp")); QList<QString> warnings,errors;
+        QVERIFY(model.loadModel(warnings,errors));
+        SelectionManager selection; AttributeTablePanel panel;
+        panel.setProject(&model,&selection,nullptr);
+        panel.showModelCategory(&model,int(SWMMModelLayer::CatConduits));
+        const QSet<SWMMObjectRef> prior={SWMMObjectRef(SWMMObjectRef::Link,"C1"),SWMMObjectRef(SWMMObjectRef::Link,"C2")};
+        selection.select(prior,SelectionManager::Replace);
+        auto *query=panel.findChild<QLineEdit *>("attributeQuery"); QVERIFY(query);
+        query->setText("Length BETWEEN 10 AND 100");
+        QCOMPARE(selection.selection(),prior);   // typing the filter alone leaves the map selection alone
+        QRadioButton *add=nullptr,*subtract=nullptr;
+        for (auto *radio:panel.findChildren<QRadioButton *>()) {
+            if (radio->text()=="Add") add=radio; else if (radio->text()=="Subtract") subtract=radio;
+        }
+        QVERIFY(add); QVERIFY(subtract);
+        const QSet<SWMMObjectRef> matched={SWMMObjectRef(SWMMObjectRef::Link,"C7"),SWMMObjectRef(SWMMObjectRef::Link,"C11")};
+        add->setChecked(true);
+        QVERIFY(QMetaObject::invokeMethod(&panel,"onQueryApplyClicked",Qt::DirectConnection));
+        QCOMPARE(selection.selection(),prior|matched);
+        subtract->setChecked(true);
+        QVERIFY(QMetaObject::invokeMethod(&panel,"onQueryApplyClicked",Qt::DirectConnection));
+        QCOMPARE(selection.selection(),prior);
+    }
+    void addToolsHonourNamingPrefixes() {   // C12
+        auto *prefs=PreferencesManager::instance();
+        const QString gagePrefix=prefs->elementNamePrefix("raingage"), subPrefix=prefs->elementNamePrefix("subcatchment");
+        const auto restore=qScopeGuard([&]{ prefs->setElementNamePrefix("raingage",gagePrefix);
+                                            prefs->setElementNamePrefix("subcatchment",subPrefix); });
+        prefs->setElementNamePrefix("raingage","RGX"); prefs->setElementNamePrefix("subcatchment","SCX");
+        MapCanvas canvas; canvas.resize(800,600);
+        auto *layer=new SWMMModelLayer(fixture()); QList<QString> warnings,errors;
+        QVERIFY(layer->loadModel(warnings,errors)); canvas.addLayer(layer,false);
+        OpenSWMMVisMapToolAddGage gage(&canvas);
+        QMouseEvent press(QEvent::MouseButtonPress,QPointF(120,120),QPointF(120,120),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        gage.mousePressEvent(&press);
+        QVERIFY(swmm_gage_index(layer->engine(),"RGX1")>=0);
+        OpenSWMMVisMapToolAddSubcatchment subcatch(&canvas);
+        for (const QPointF &p:{QPointF(200,200),QPointF(300,200),QPointF(250,300)}) {
+            QMouseEvent click(QEvent::MouseButtonPress,p,p,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            subcatch.mousePressEvent(&click);
+        }
+        QKeyEvent finish(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier); subcatch.keyPressEvent(&finish);
+        QVERIFY(swmm_subcatch_index(layer->engine(),"SCX1")>=0);
+    }
+    void qsgSubcatchmentOutlineHonoursWidth() {   // C13
+        MapCanvas canvas; canvas.resize(800,600);
+        auto *layer=new SWMMModelLayer(examplePath("site_drainage/site_drainage_model.inp")); QList<QString> warnings,errors;
+        QVERIFY(layer->loadModel(warnings,errors)); canvas.addLayer(layer,false);
+        layer->setGlRenderingEnabled(true);
+        auto outlineWidthPx=[&](double width){
+            auto symbol=layer->subcatchmentSymbol(); symbol.outlineWidth=width; layer->setSubcatchmentSymbol(symbol);
+            FeedbackRenderer renderer; renderer.setWidth(800); renderer.setHeight(600);
+            renderer.setLayer(layer); renderer.setMapExtent(canvas.extent());
+            std::unique_ptr<QSGNode> root(renderer.updatePaintNode(nullptr,nullptr));
+            auto *edge=meshEdgePass(root.get(),2);   // catchFill, catchSelFill, catchEdge
+            if (!edge || edge->geometry()->vertexCount()<6) return 0.;
+            return meshStrokeWidth(static_cast<QSGTransformNode *>(root.get()),edge); };
+        const double one=outlineWidthPx(1), four=outlineWidthPx(4);
+        QVERIFY(one>0); QVERIFY2(qAbs(four/one-4)<.05,qPrintable(QString("1 px → %1, 4 px → %2").arg(one).arg(four)));
+        QCOMPARE(outlineWidthPx(0),0.);
+    }
+    void preferencesSeedGageAndSubcatchmentSymbols() {   // C14
+        auto *prefs=PreferencesManager::instance();
+        const auto restore=qScopeGuard([&]{ prefs->resetNodeStyleToDefault("subcatchment"); prefs->resetNodeStyleToDefault("raingage"); });
+        SWMMModelLayer customized(""); auto symbol=customized.subcatchmentSymbol(); symbol.outlineWidth=7; customized.setSubcatchmentSymbol(symbol);
+        QPen pen=prefs->nodePen("subcatchment"); pen.setWidthF(3); prefs->setNodePen("subcatchment",pen);
+        SWMMModelLayer fresh("");
+        QCOMPARE(fresh.subcatchmentSymbol().outlineWidth,3.);
+        QCOMPARE(customized.subcatchmentSymbol().outlineWidth,7.);
+        SWMMModelLayer inherited(""); prefs->setNodeSize("raingage",14);
+        QCOMPARE(inherited.rainGageSymbol().size,14.);
+        NodeRenderingPrefs bridge; QCOMPARE(bridge.subcatchmentPen().widthF(),3.); QCOMPARE(bridge.rainGageSize(),14.);
+    }
+    void singleBendVertexCanBeDeleted() {   // C15
+        const QString bend=artifactPath("batch3/bend.inp");
+        QVERIFY(QDir().mkpath(QFileInfo(bend).absolutePath()));
+        QFile base(fixture()); QVERIFY(base.open(QIODevice::ReadOnly));
+        QFile out(bend); QVERIFY(out.open(QIODevice::WriteOnly));
+        QVERIFY(out.write(base.readAll()+"\n[VERTICES]\nC_MAIN 50 30\n")>0); out.close();
+        SWMMModelLayer layer(bend); QList<QString> warnings,errors;
+        QVERIFY(layer.loadModel(warnings,errors));
+        const int idx=layer.linkIndex("C_MAIN"); QVERIFY(idx>=0);
+        const QVector<QPointF> interior=layer.cachedLinkInteriorVertices(idx); QCOMPARE(interior.size(),1);
+        const QVector<QPointF> none=EditGeometry::removedAt(interior,0); QVERIFY(none.isEmpty());
+        EditVertexCommand command(&layer,idx,interior,none,0,0,false,nullptr);
+        command.redo(); QCOMPARE(layer.cachedLinkInteriorVertices(idx).size(),0);
+        command.undo(); QCOMPARE(layer.cachedLinkInteriorVertices(idx).size(),1);
     }
 };
 

@@ -110,8 +110,10 @@ constexpr double kCoincidenceTol = 1e-6;
 
 /*!
  * \brief Remove the vertex at \p index, producing a new polyline of size-1.
- * \returns A copy of \p vertices when \p index is out of range or when
- *          removal would leave fewer than two vertices.
+ * \returns A copy of \p vertices when \p index is out of range. Callers
+ *          that need a minimum vertex count (subcatchment polygons) enforce
+ *          it themselves; a link's interior list may legitimately become
+ *          empty.
  */
 [[nodiscard]] QVector<QPointF> removedAt(const QVector<QPointF> &vertices,
                                          int index);

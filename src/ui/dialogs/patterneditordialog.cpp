@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/patterneditordialog.h"
+#include "core/swmmidentifier.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -1152,11 +1153,13 @@ void PatternEditorDialog::onCreateNewNameChanged_(const QString &text)
         m_nameEdit->setStyleSheet(QString());
         return;
     }
+    const QString why = openswmmvis::swmmIdentifierProblem(trimmed);   // feedback C10
     const bool collides = m_registry && m_registry->hasName(trimmed);
-    if (collides) {
+    if (!why.isEmpty() || collides) {
         m_createBtn->setEnabled(false);
         m_nameValidationLabel->setText(
-            tr("A pattern named “%1” already exists.").arg(trimmed));
+            !why.isEmpty() ? why
+                           : tr("A pattern named “%1” already exists.").arg(trimmed));
         m_nameValidationLabel->show();
         m_nameEdit->setStyleSheet(openswmmvis::ui::theme::errorBorderStyle());
     } else {
@@ -1170,7 +1173,8 @@ void PatternEditorDialog::onCreateNewSubmit_()
 {
     if (!m_registry || !m_nameEdit) return;
     const QString name = m_nameEdit->text().trimmed();
-    if (name.isEmpty() || m_registry->hasName(name)) return;
+    if (name.isEmpty() || m_registry->hasName(name)
+        || !openswmmvis::isValidSwmmIdentifier(name)) return;
     const auto type = static_cast<PatternType>(
         m_typeCombo ? m_typeCombo->currentData().toInt() : 0);
 

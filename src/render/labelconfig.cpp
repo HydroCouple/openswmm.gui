@@ -8,6 +8,8 @@
 
 #include <QJsonArray>
 
+#include <cmath>
+
 namespace OpenSWMM::Render {
 
 QJsonObject LabelConfig::toJson() const
@@ -40,7 +42,25 @@ QJsonObject LabelConfig::toJson() const
         j[QStringLiteral("backgroundRadiusPx")]  = backgroundRadiusPx;
     if (!priorityField.isEmpty())
         j[QStringLiteral("priorityField")]    = priorityField;
+    // Feedback C4 — absent key = automatic, so older sidecars read unchanged.
+    if (decimals >= 0)
+        j[QStringLiteral("decimals")]         = decimals;
     return j;
+}
+
+QString LabelConfig::formatValue(const QVariant &v, int decimals)
+{
+    switch (v.typeId()) {
+    case QMetaType::Double:
+    case QMetaType::Float: {
+        const double d = v.toDouble();
+        if (!std::isfinite(d)) return QString();
+        return decimals < 0 ? QString::number(d, 'g', 6)
+                            : QString::number(d, 'f', decimals);
+    }
+    default:
+        return v.toString();
+    }
 }
 
 void LabelConfig::fromJson(const QJsonObject &j)
@@ -88,6 +108,7 @@ void LabelConfig::fromJson(const QJsonObject &j)
         backgroundRadiusPx  = j.value(QStringLiteral("backgroundRadiusPx")).toDouble(3.0);
     if (j.contains(QStringLiteral("priorityField")))
         priorityField = j.value(QStringLiteral("priorityField")).toString();
+    decimals = j.value(QStringLiteral("decimals")).toInt(-1);
 }
 
 } // namespace OpenSWMM::Render

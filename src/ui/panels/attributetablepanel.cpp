@@ -1684,7 +1684,8 @@ void AttributeTablePanel::installColumnDelegates(
             del = new openswmmvis::NumericDelegate(this,
                                                      spec.minValue,
                                                      spec.maxValue,
-                                                     spec.decimals);
+                                                     spec.decimals,
+                                                     openswmmvis::columnStep(spec));
             break;
         case openswmmvis::EditorKind::Integer:
             del = new openswmmvis::IntegerDelegate(this,

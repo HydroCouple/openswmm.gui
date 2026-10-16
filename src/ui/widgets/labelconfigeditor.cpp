@@ -21,6 +21,7 @@
 #include <QLineEdit>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QToolButton>
 
 namespace openswmmvis::ui {
@@ -86,6 +87,18 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     m_hintLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     m_hintLabel->setVisible(false);
     form->addRow(tr("Fields:"), m_hintLabel);
+
+    // Feedback C4 — numeric format. "Auto" (the special value at -1) keeps
+    // 6 significant digits; 0–10 fixes the decimals. Applies to numeric
+    // fields and to numeric {tokens} in expressions.
+    m_decimalsSpin = new QSpinBox(this);
+    m_decimalsSpin->setObjectName(QStringLiteral("labelDecimals"));
+    m_decimalsSpin->setRange(-1, 10);
+    m_decimalsSpin->setSpecialValueText(tr("Auto"));
+    m_decimalsSpin->setValue(-1);
+    m_decimalsSpin->setToolTip(tr("Decimal places for numeric labels. Auto "
+                                  "shows 6 significant digits."));
+    form->addRow(tr("&Decimals:"), m_decimalsSpin);
 
     // Font family + size + bold/italic on one row pair.
     m_fontCombo = new QFontComboBox(this);
@@ -197,6 +210,7 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent)
     connect(m_exprEdit, &QLineEdit::editingFinished, this, changed);
     connect(m_exprBuildBtn, &QToolButton::clicked, this,
             [this]() { openExpressionBuilder(); });
+    connect(m_decimalsSpin, qOverload<int>(&QSpinBox::valueChanged), this, changed);
     connect(m_fontCombo, &QFontComboBox::currentFontChanged, this,
             [this](const QFont &) { emitChanged(); });
     connect(m_fontSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
@@ -232,6 +246,7 @@ void LabelConfigEditor::setConfig(const LabelConfig &cfg)
     m_enabledChk->setChecked(cfg.enabled);
     selectField(m_fieldCombo, cfg.fieldName);
     m_exprEdit->setText(cfg.expression);
+    m_decimalsSpin->setValue(cfg.decimals);
     m_fontCombo->setCurrentFont(cfg.font);
     m_fontSizeSpin->setValue(cfg.fontSizePt);
     m_boldBtn->setChecked(cfg.font.bold());
@@ -258,6 +273,7 @@ LabelConfig LabelConfigEditor::config() const
     cfg.enabled    = m_enabledChk->isChecked();
     cfg.fieldName  = fieldKey(m_fieldCombo);
     cfg.expression = m_exprEdit->text();
+    cfg.decimals   = m_decimalsSpin->value();
     QFont f = m_fontCombo->currentFont();
     f.setBold(m_boldBtn->isChecked());
     f.setItalic(m_italicBtn->isChecked());

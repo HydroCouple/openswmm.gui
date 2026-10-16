@@ -815,6 +815,11 @@ private:
      *  the mirror-refresh there doesn't bounce back into the Rule. */
     bool m_ruleKindSyncGuard = false;
     void buildRuleListLazy() const;
+    // Feedback C1 — Rule → kind plumbing shared by the lazy build and by
+    // lists repopulated in place (Style Manager "Apply to layer").
+    void attachRuleToKind(OpenSWMM::Render::Rule *rule, SWMMModelLayer::Category c);
+    void applyRuleToKind(OpenSWMM::Render::Rule *rule, SWMMModelLayer::Category c);
+    void onRuleListRepopulated();
 
     // Slice Z.7a — per-frame rebinning for Rules with rebinPerFrame=true.
     // Connected to currentTimeStepChanged in buildRuleListLazy.

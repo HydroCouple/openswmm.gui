@@ -75,6 +75,7 @@ private:
     struct LabelTextCache {
         quint64 editRev = ~0ull;                 // layer epoch at build time
         QString expression, fieldName, priorityField;
+        int     decimals = -1;                   // feedback C4 — text-affecting
         QVector<QString> text[4];                // 0=node 1=link 2=catch 3=gage
         QVector<double>  priority[4];
         void clear()

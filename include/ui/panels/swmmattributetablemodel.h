@@ -26,6 +26,8 @@
 #include <QStringList>
 #include <QVariantMap>
 
+#include <optional>
+
 class QUndoStack;
 
 #include "layers/swmmmodellayer.h"
@@ -103,9 +105,24 @@ struct ColumnSpec {
     QString      tooltip;      ///< Header tooltip override (user-flag
                                ///< description); empty = unit tooltip.
     QString      fileFilter;   ///< For FileBrowse: QFileDialog name filter.
+    /*! Feedback C7 — spin-box increment. 0 = derive one unit of the
+     *  second-to-last decimal (10^(1-decimals)); set explicitly where that
+     *  is still wrong for the field (Length 1.0, Manning's n 0.001). */
+    double       step = 0.0;
     int          scalarType = QMetaType::UnknownType; ///< Optional type for scalar values edited as text.
     bool         queryable = true; ///< Scalar references remain queryable even with a compound picker.
 };
+
+/*! Effective spin-box step for a numeric column (see ColumnSpec::step). */
+[[nodiscard]] double columnStep(const ColumnSpec &spec);
+
+/*! Feedback C7 — the attribute-table column that backs a Properties-panel
+ *  Q_PROPERTY, so both surfaces share one set of decimals, range and
+ *  step. Matched through the setter-tag convention: "offsetUp" is
+ *  "link_offset_up", "startupDepth" is "link_pump_startup_depth". The
+ *  category-stripped tag is tried first, then a suffix match. Empty when
+ *  no numeric column corresponds to the property. */
+[[nodiscard]] std::optional<ColumnSpec> columnSpecForProperty(const QString &propertyName);
 
 } // namespace openswmmvis
 

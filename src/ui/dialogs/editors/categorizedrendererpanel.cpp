@@ -30,6 +30,7 @@
 #include "render/rule.h"
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/symbolstyle.h"
+#include "ui/dialogs/editors/basesymbolgroup.h"   // feedback C2
 #include "ui/widgets/dashstylecombo.h"
 #include "ui/widgets/markershapecombo.h"
 #include "ui/theme/iconfactory.h"
@@ -300,6 +301,11 @@ public:
         auto *outer = new QVBoxLayout(this);
         outer->setContentsMargins(0, 0, 0, 0);
 
+        // Feedback C2 — size / outline / labels stay editable under a
+        // classified renderer (colour still comes from the categories).
+        if (QWidget *base = createBaseSymbolGroup(ctx, this))
+            outer->addWidget(base);
+
         auto *box = new QGroupBox(tr("Categorized rendering"), this);
         outer->addWidget(box);
 
@@ -432,6 +438,20 @@ public:
         }
 
         rebuildTable();
+
+        // Feedback C3 (categorized leg) — a renderer with no attribute shows
+        // the first field; store it so the renderer and its exports carry
+        // what the user sees. pushBack re-enters refreshFromModel through
+        // the host's rendererChanged, where the attribute is then set.
+        if (cz && cz->classifyAttribute().isEmpty() && m_attrCombo->count() > 0) {
+            const QString first = m_attrCombo->itemData(0).toString();
+            if (!first.isEmpty()) {
+                QSignalBlocker b(m_attrCombo);
+                m_attrCombo->setCurrentIndex(0);
+                cz->setClassifyAttribute(first);
+                pushBack(cz);
+            }
+        }
     }
 
     QString displayName() const override { return tr("Categorized"); }

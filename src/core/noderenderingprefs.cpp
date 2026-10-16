@@ -15,6 +15,8 @@ const QString kStorage  = QStringLiteral("storage");
 const QString kDivider  = QStringLiteral("divider");
 const QString kVirtualJunction = QStringLiteral("virtual_junction");
 const QString kInletJunction   = QStringLiteral("inlet_junction");
+const QString kRainGage        = QStringLiteral("raingage");       // feedback C14
+const QString kSubcatchment    = QStringLiteral("subcatchment");   // feedback C14
 } // anonymous
 
 NodeRenderingPrefs::NodeRenderingPrefs(QObject *parent)
@@ -158,4 +160,42 @@ void NodeRenderingPrefs::setInletJunctionSize(double sizePx)
     if (qFuzzyCompare(inletJunctionSize(), sizePx)) return;
     PreferencesManager::instance()->setNodeSize(kInletJunction, sizePx);
     emit inletJunctionSizeChanged(sizePx);
+}
+
+// Feedback C14 — rain gage + subcatchment rows share the node store.
+QPen   NodeRenderingPrefs::rainGagePen()      const { return PreferencesManager::instance()->nodePen(kRainGage); }
+QBrush NodeRenderingPrefs::rainGageFill()     const { return PreferencesManager::instance()->nodeBrush(kRainGage); }
+double NodeRenderingPrefs::rainGageSize()     const { return PreferencesManager::instance()->nodeSize(kRainGage); }
+QPen   NodeRenderingPrefs::subcatchmentPen()  const { return PreferencesManager::instance()->nodePen(kSubcatchment); }
+QBrush NodeRenderingPrefs::subcatchmentFill() const { return PreferencesManager::instance()->nodeBrush(kSubcatchment); }
+
+void NodeRenderingPrefs::setRainGagePen(const QPen &pen)
+{
+    if (rainGagePen() == pen) return;
+    PreferencesManager::instance()->setNodePen(kRainGage, pen);
+    emit rainGagePenChanged(pen);
+}
+void NodeRenderingPrefs::setRainGageFill(const QBrush &brush)
+{
+    if (rainGageFill() == brush) return;
+    PreferencesManager::instance()->setNodeBrush(kRainGage, brush);
+    emit rainGageFillChanged(brush);
+}
+void NodeRenderingPrefs::setRainGageSize(double sizePx)
+{
+    if (qFuzzyCompare(rainGageSize(), sizePx)) return;
+    PreferencesManager::instance()->setNodeSize(kRainGage, sizePx);
+    emit rainGageSizeChanged(sizePx);
+}
+void NodeRenderingPrefs::setSubcatchmentPen(const QPen &pen)
+{
+    if (subcatchmentPen() == pen) return;
+    PreferencesManager::instance()->setNodePen(kSubcatchment, pen);
+    emit subcatchmentPenChanged(pen);
+}
+void NodeRenderingPrefs::setSubcatchmentFill(const QBrush &brush)
+{
+    if (subcatchmentFill() == brush) return;
+    PreferencesManager::instance()->setNodeBrush(kSubcatchment, brush);
+    emit subcatchmentFillChanged(brush);
 }

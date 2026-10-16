@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/ruleseditordialog.h"
+#include "core/swmmidentifier.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
@@ -493,6 +494,11 @@ void RulesEditorDialog::onCreateNewNameChanged_(const QString &text)
     }
     if (reg && reg->hasName(name)) {
         m_createValidationLbl->setText(tr("Name already in use."));
+        m_createBtn->setEnabled(false);
+        return;
+    }
+    if (const QString why = openswmmvis::swmmIdentifierProblem(name); !why.isEmpty()) {
+        m_createValidationLbl->setText(why);   // feedback C10
         m_createBtn->setEnabled(false);
         return;
     }

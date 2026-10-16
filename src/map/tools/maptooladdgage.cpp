@@ -9,6 +9,7 @@
 #include "map/mapundostack.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "core/preferencesmanager.h"
 
 #include <openswmm/engine/openswmm_gages.h>
 
@@ -31,13 +32,17 @@ SWMMModelLayer *OpenSWMMVisMapToolAddGage::activeModelLayer() const
 
 QString OpenSWMMVisMapToolAddGage::nextAvailableName(SWMMModelLayer *layer) const
 {
+    // Feedback C12 — honour Preferences → Naming like the node/link tools
+    // do (this used to hard-code "RG").
+    const QString prefix = PreferencesManager::instance()->elementNamePrefix(
+        QStringLiteral("raingage"));
     for (int n = 1; n < 100000; ++n) {
-        const QString candidate = QStringLiteral("RG") + QString::number(n);
+        const QString candidate = prefix + QString::number(n);
         const QByteArray utf8 = candidate.toUtf8();
         if (swmm_gage_index(layer->engine(), utf8.constData()) < 0)
             return candidate;
     }
-    return QStringLiteral("RG_X");
+    return prefix + QStringLiteral("_X");
 }
 
 void OpenSWMMVisMapToolAddGage::mousePressEvent(QMouseEvent *event)

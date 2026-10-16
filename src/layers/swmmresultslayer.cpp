@@ -2387,103 +2387,137 @@ void SWMMResultsLayer::buildRuleListLazy() const
         auto *rule = m_ruleList->append(std::make_unique<OpenSWMM::Render::Rule>(
             SWMMModelLayer::kindKey(c), std::move(cloned)));
 
-        // Rule-side renderer swaps propagate back through the existing
-        // setKindRenderer setter — which rebuilds override caches +
-        // escalates structural dirtiness so the next animation tick
-        // picks up the new symbol geometry.
-        //
-        // Slice SS.5 — also back-propagate single-symbol attribute
-        // edits onto the matching FeatureSublayerStyle so the painter
-        // (which reads line/arrow/marker knobs from the style, not
-        // from per-feature override caches) renders the change. No-op
-        // when the renderer isn't SingleSymbol — Graduated /
-        // Categorized modes feed the painter via the per-feature
-        // override caches (see plan §4.5).
-        QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced,
-                         self, [self, c, rule]() {
-            if (auto *r = rule->renderer()) {
-                // Guard so setKindRenderer's mirror-refresh doesn't bounce
-                // straight back into this Rule (it already holds the new
-                // renderer — that's what fired this signal).
-                self->m_ruleKindSyncGuard = true;
-                self->setKindRenderer(c, r->clone());
-                self->m_ruleKindSyncGuard = false;
-            }
-
-            // Slice SS.5 — back-propagate to the per-category
-            // FeatureSublayerStyle. Marker / Line / Polygon archetypes
-            // each pick the matching prop subset.
-            using namespace OpenSWMM::Render;
-            auto *ssr = dynamic_cast<const SingleSymbolRenderer *>(
-                rule->renderer());
-            if (!ssr) return;
-            const SymbolStyle &style = ssr->symbol();
-            if (style.layers.isEmpty()) return;
-            const SymbolLayer &layer = style.layers.first();
-
-            auto *sub = self->featureSublayer(c);
-            if (!sub || !sub->featureStyle()) return;
-
-            // Common: base-style fallback color (used when neither
-            // override cache nor ramp resolves a feature colour).
-            // For point/polygon this is `fillColor`; for line it's
-            // the line `color`. Both flow into FeatureSublayerStyle::color.
-            switch (sub->archetype()) {
-            case FeatureSublayer::Archetype::Point: {
-                auto *st = sub->pointStyle();
-                if (!st) break;
-                const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
-                st->setColor(spec.fillColor);
-                st->setMarkerSizePx(spec.sizePx);
-                // PointFeatureSublayerStyle::MarkerShape only models 4
-                // shapes (Circle / Square / Triangle / Diamond /
-                // Star — int values 0..4). Richer Z.4 shapes round-
-                // trip through the SymbolLayer prop bag but fall back
-                // to Circle on the legacy sublayer; same convention as
-                // Slice Z.6a step 3 in swmm2dmeshlayer.cpp.
-                int shapeIdx = static_cast<int>(spec.shape);
-                if (shapeIdx < 0 || shapeIdx > 4) shapeIdx = 0;
-                st->setShape(static_cast<PointFeatureSublayerStyle::MarkerShape>(
-                    shapeIdx));
-                break;
-            }
-            case FeatureSublayer::Archetype::Line: {
-                auto *st = sub->lineStyle();
-                if (!st) break;
-                const auto spec = LineSymbolLayerSpec::fromSymbolLayer(layer);
-                st->setColor(spec.color);
-                st->setLineWidthPx(spec.width);
-                st->setDashPattern(spec.penStyle);
-                st->setShowFlowArrows(spec.drawArrows);
-                st->setArrowLengthPx(spec.arrows.lengthPx);
-                st->setArrowWidthPx(spec.arrows.widthPx);
-                st->setArrowColor(spec.arrows.color);
-                break;
-            }
-            case FeatureSublayer::Archetype::Polygon: {
-                auto *st = sub->polygonStyle();
-                if (!st) break;
-                // Polygon reuses marker keys for fill / outline. The
-                // dedicated fillOpacity knob comes from a direct prop
-                // read since MarkerSymbolLayerSpec doesn't carry it.
-                const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
-                st->setColor(spec.fillColor);
-                st->setOutlineColor(spec.outlineColor);
-                st->setOutlineWidthPx(spec.outlineWidth);
-                if (layer.props.contains(QStringLiteral("fillOpacity"))) {
-                    st->setFillOpacity(
-                        layer.props.value(QStringLiteral("fillOpacity"))
-                            .toDouble());
-                }
-                break;
-            }
-            }
-        });
+        // Rule-side renderer swaps propagate back through
+        // attachRuleToKind → applyRuleToKind, the hook the Style Manager's
+        // in-place reload path shares (feedback C1).
+        self->attachRuleToKind(rule, c);
     }
+
+    // Feedback C1 — RuleListIO::load repopulates THIS list in place
+    // (clear + fromJson), replacing every Rule object; without this the
+    // fresh Rules carried no hooks and the loaded renderers never reached
+    // the painter. Connected after the loop so the initial appends don't
+    // re-install their own clones.
+    QObject::connect(m_ruleList.get(), &OpenSWMM::Render::RuleList::ruleListChanged,
+                     self, &SWMMResultsLayer::onRuleListRepopulated);
 
     // Per-frame rebinning is wired in the constructor (gap A1.1) — it
     // drives off m_kindRenderers directly and must not depend on this
     // lazily-built rule-list mirror.
+}
+
+void SWMMResultsLayer::attachRuleToKind(OpenSWMM::Render::Rule *rule,
+                                        SWMMModelLayer::Category c)
+{
+    if (!rule || rule->property("swmmvis.kindAttached").toBool()) return;
+    rule->setProperty("swmmvis.kindAttached", true);
+    QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced,
+                     this, [this, c, rule]() { applyRuleToKind(rule, c); });
+}
+
+void SWMMResultsLayer::applyRuleToKind(OpenSWMM::Render::Rule *rule,
+                                       SWMMModelLayer::Category c)
+{
+    // Push the Rule's renderer through the existing setKindRenderer
+    // setter — which rebuilds override caches + escalates structural
+    // dirtiness so the next animation tick picks up the new symbol
+    // geometry.
+    //
+    // Slice SS.5 — also back-propagate single-symbol attribute edits onto
+    // the matching FeatureSublayerStyle so the painter (which reads
+    // line/arrow/marker knobs from the style, not from per-feature
+    // override caches) renders the change. No-op when the renderer isn't
+    // SingleSymbol — Graduated / Categorized modes feed the painter via
+    // the per-feature override caches (see plan §4.5).
+    if (!rule) return;
+    if (auto *r = rule->renderer()) {
+        // Guard so setKindRenderer's mirror-refresh doesn't bounce straight
+        // back into this Rule (it already holds the new renderer — that's
+        // what fired this signal).
+        m_ruleKindSyncGuard = true;
+        setKindRenderer(c, r->clone());
+        m_ruleKindSyncGuard = false;
+    }
+
+    // Slice SS.5 — back-propagate to the per-category FeatureSublayerStyle.
+    // Marker / Line / Polygon archetypes each pick the matching prop subset.
+    using namespace OpenSWMM::Render;
+    auto *ssr = dynamic_cast<const SingleSymbolRenderer *>(rule->renderer());
+    if (!ssr) return;
+    const SymbolStyle &style = ssr->symbol();
+    if (style.layers.isEmpty()) return;
+    const SymbolLayer &layer = style.layers.first();
+
+    auto *sub = featureSublayer(c);
+    if (!sub || !sub->featureStyle()) return;
+
+    // Common: base-style fallback color (used when neither override cache
+    // nor ramp resolves a feature colour). For point/polygon this is
+    // `fillColor`; for line it's the line `color`. Both flow into
+    // FeatureSublayerStyle::color.
+    switch (sub->archetype()) {
+    case FeatureSublayer::Archetype::Point: {
+        auto *st = sub->pointStyle();
+        if (!st) break;
+        const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
+        st->setColor(spec.fillColor);
+        st->setMarkerSizePx(spec.sizePx);
+        // PointFeatureSublayerStyle::MarkerShape only models 4 shapes
+        // (Circle / Square / Triangle / Diamond / Star — int values 0..4).
+        // Richer Z.4 shapes round-trip through the SymbolLayer prop bag but
+        // fall back to Circle on the legacy sublayer; same convention as
+        // Slice Z.6a step 3 in swmm2dmeshlayer.cpp.
+        int shapeIdx = static_cast<int>(spec.shape);
+        if (shapeIdx < 0 || shapeIdx > 4) shapeIdx = 0;
+        st->setShape(static_cast<PointFeatureSublayerStyle::MarkerShape>(shapeIdx));
+        break;
+    }
+    case FeatureSublayer::Archetype::Line: {
+        auto *st = sub->lineStyle();
+        if (!st) break;
+        const auto spec = LineSymbolLayerSpec::fromSymbolLayer(layer);
+        st->setColor(spec.color);
+        st->setLineWidthPx(spec.width);
+        st->setDashPattern(spec.penStyle);
+        st->setShowFlowArrows(spec.drawArrows);
+        st->setArrowLengthPx(spec.arrows.lengthPx);
+        st->setArrowWidthPx(spec.arrows.widthPx);
+        st->setArrowColor(spec.arrows.color);
+        break;
+    }
+    case FeatureSublayer::Archetype::Polygon: {
+        auto *st = sub->polygonStyle();
+        if (!st) break;
+        // Polygon reuses marker keys for fill / outline. The dedicated
+        // fillOpacity knob comes from a direct prop read since
+        // MarkerSymbolLayerSpec doesn't carry it.
+        const auto spec = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
+        st->setColor(spec.fillColor);
+        st->setOutlineColor(spec.outlineColor);
+        st->setOutlineWidthPx(spec.outlineWidth);
+        if (layer.props.contains(QStringLiteral("fillOpacity"))) {
+            st->setFillOpacity(
+                layer.props.value(QStringLiteral("fillOpacity")).toDouble());
+        }
+        break;
+    }
+    }
+}
+
+void SWMMResultsLayer::onRuleListRepopulated()
+{
+    if (!m_ruleList) return;
+    for (int i = 0; i < m_ruleList->count(); ++i) {
+        auto *rule = m_ruleList->at(i);
+        if (!rule || rule->property("swmmvis.kindAttached").toBool()) continue;
+        for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
+            const auto c = static_cast<SWMMModelLayer::Category>(k);
+            if (rule->name() != SWMMModelLayer::kindKey(c)) continue;  // foreign rule
+            attachRuleToKind(rule, c);
+            applyRuleToKind(rule, c);
+            break;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2708,9 +2742,15 @@ void SWMMResultsLayer::refreshRuleMirror(SWMMModelLayer::Category c)
         || i >= static_cast<int>(m_kindRenderers.size())
         || !m_kindRenderers[static_cast<size_t>(i)])
         return;
-    if (auto *rule = m_ruleList->at(i)) {
+    // Locate the kind's Rule by name rather than by index: a list reloaded
+    // from a library file (feedback C1) carries the file's rule order.
+    const QString key = SWMMModelLayer::kindKey(c);
+    for (int r = 0; r < m_ruleList->count(); ++r) {
+        auto *rule = m_ruleList->at(r);
+        if (!rule || rule->name() != key) continue;
         QSignalBlocker block(rule);
         rule->setRenderer(m_kindRenderers[static_cast<size_t>(i)]->clone());
+        break;
     }
 }
 
@@ -4245,7 +4285,10 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
     const QStringList species = speciesNames();
     // Resolve any result field's current value for one feature in a scope
     // (0=node, 1=link, 2=subcatch). Empty when no data / non-finite.
-    auto fieldValueStr = [&](int scope, const QString &field, const QString &name) -> QString {
+    // Feedback C4 — \p decimals is the effective LabelConfig's setting
+    // (-1 = 6 significant digits).
+    auto fieldValueStr = [&](int scope, const QString &field, const QString &name,
+                             int decimals) -> QString {
         const QVector<float> *vec = nullptr;
         if (scope == 0) {
             const int oc = nodeOutCodeForAttribute(field, species);
@@ -4266,11 +4309,12 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
                                     : subcatchOutputIndex(name);
         if (oi < 0 || oi >= vec->size()) return QString();
         const float v = (*vec)[oi];
-        return std::isfinite(v) ? QString::number(double(v), 'g', 4) : QString();
+        return OpenSWMM::Render::LabelConfig::formatValue(double(v), decimals);
     };
 
     // Substitute {token} placeholders in an expression.
-    auto evalExpr = [&](const QString &expr, int scope, const QString &name) -> QString {
+    auto evalExpr = [&](const QString &expr, int scope, const QString &name,
+                        int decimals) -> QString {
         QString out;
         int i = 0;
         while (i < expr.size()) {
@@ -4281,7 +4325,7 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
                 if (tok.compare(QLatin1String("name"), Qt::CaseInsensitive) == 0)
                     out += name;
                 else
-                    out += fieldValueStr(scope, tok, name);
+                    out += fieldValueStr(scope, tok, name, decimals);
                 i = j + 1;
             } else {
                 out += expr.at(i);
@@ -4374,11 +4418,11 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
             const QString name = m_modelLayer->objectNameAt(cat, row);
             QString text;
             if (!lc.expression.isEmpty()) {
-                text = evalExpr(lc.expression, scope, name);
+                text = evalExpr(lc.expression, scope, name, lc.decimals);
             } else {
                 // An explicit field displays its value. With no field,
                 // retain the default "name: themed value unit" text.
-                const QString v = fieldValueStr(scope, attr, name);
+                const QString v = fieldValueStr(scope, attr, name, lc.decimals);
                 if (!lc.fieldName.isEmpty()) {
                     text = lc.fieldName == QLatin1String("name") ? name : v;
                 } else {

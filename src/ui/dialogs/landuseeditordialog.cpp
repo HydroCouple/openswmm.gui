@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/landuseeditordialog.h"
+#include "core/swmmidentifier.h"
 
 #include "landuse/landuseprovider.h"
 #include "landuse/landuseregistry.h"
@@ -312,6 +313,11 @@ void LandUseEditorDialog::onNameEdited_()
     if (m_suppressFieldSync || !m_registry || !m_current) return;
     const QString newName = m_nameEdit->text().trimmed();
     if (newName.isEmpty() || newName == m_current->name()) return;
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("Rename Land Use"), why);   // feedback C10
+        m_nameEdit->setText(m_current->name());
+        return;
+    }
     if (!m_registry->rename(m_current, newName)) {
         QMessageBox::warning(this, tr("Rename Land Use"),
             tr("A land use named \"%1\" already exists.").arg(newName));

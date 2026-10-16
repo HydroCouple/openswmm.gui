@@ -960,6 +960,7 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
     ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
     ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
@@ -1022,6 +1023,7 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
     ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
     ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
@@ -1133,6 +1135,7 @@ add_swmmvis_gui_test(test_landuse_unified_editor
     ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/landuseeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/models/landuselistmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/models/qualityfunctiontablemodels.cpp
     # Dialog buttons go through IconFactory (themed SVG icons).
@@ -1194,6 +1197,7 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/pattern/patternregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/patternfactortablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/patterneditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
@@ -1243,6 +1247,7 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/curvepointtablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/curveeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
@@ -1300,6 +1305,7 @@ add_swmmvis_gui_test(test_transect_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/transectchartview.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transectpropertybag.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transecteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
@@ -1683,6 +1689,7 @@ add_swmmvis_gui_test(test_pollutanteditordialog
     test_pollutanteditordialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/pollutanteditordialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/pollutanteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantprovider.h
     ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
     ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantregistry.h

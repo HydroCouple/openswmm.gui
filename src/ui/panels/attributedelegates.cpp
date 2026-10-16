@@ -40,11 +40,12 @@ namespace openswmmvis {
 // ---------------------------------------------------------------------------
 
 NumericDelegate::NumericDelegate(QObject *parent, double minimum,
-                                  double maximum, int decimals)
+                                  double maximum, int decimals, double step)
     : QStyledItemDelegate(parent)
     , m_min(minimum)
     , m_max(maximum)
     , m_decimals(decimals)
+    , m_step(step)
 {
 }
 
@@ -55,7 +56,7 @@ QWidget *NumericDelegate::createEditor(QWidget *parent,
     auto *spin = new QDoubleSpinBox(parent);
     spin->setDecimals(m_decimals);
     spin->setRange(m_min, m_max);
-    spin->setSingleStep(std::pow(10.0, -m_decimals + 1));
+    spin->setSingleStep(m_step > 0.0 ? m_step : std::pow(10.0, -m_decimals + 1));
     spin->setKeyboardTracking(false);
     QObject::connect(spin, &QDoubleSpinBox::valueChanged, spin, [spin] {
         spin->setProperty("attributeValueEdited", true);

@@ -10,6 +10,7 @@
 #include "map/snapengine.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "core/preferencesmanager.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 
@@ -52,13 +53,17 @@ SWMMModelLayer *OpenSWMMVisMapToolAddSubcatchment::activeModelLayer() const
 
 QString OpenSWMMVisMapToolAddSubcatchment::nextAvailableName(SWMMModelLayer *layer) const
 {
+    // Feedback C12 — honour Preferences → Naming like the node/link tools
+    // do (this used to hard-code "Sub").
+    const QString prefix = PreferencesManager::instance()->elementNamePrefix(
+        QStringLiteral("subcatchment"));
     for (int n = 1; n < 100000; ++n) {
-        const QString candidate = QStringLiteral("Sub") + QString::number(n);
+        const QString candidate = prefix + QString::number(n);
         const QByteArray utf8 = candidate.toUtf8();
         if (swmm_subcatch_index(layer->engine(), utf8.constData()) < 0)
             return candidate;
     }
-    return QStringLiteral("Sub_X");
+    return prefix + QStringLiteral("_X");
 }
 
 void OpenSWMMVisMapToolAddSubcatchment::mousePressEvent(QMouseEvent *event)

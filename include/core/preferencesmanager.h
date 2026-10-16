@@ -192,8 +192,11 @@ public:
      *  style and dash are all user-tunable via the Preferences dialog's
      *  Rendering page (a QPropertyModel-backed editor).
      *
-     *  \p nodeType is one of: "junction", "outfall", "storage", "divider"
-     *  (case-insensitive). Unknown keys fall back to the junction default.
+     *  \p nodeType is one of: "junction", "outfall", "storage", "divider",
+     *  "virtual_junction", "inlet_junction", or — sharing the same store
+     *  since feedback C14 — "raingage" (marker) and "subcatchment"
+     *  (polygon fill + outline; the size slot is unused). Case-insensitive;
+     *  unknown keys fall back to the junction default.
      *
      *  Stored under SWMMVis/Preferences/Rendering/NodePen/<Type>. */
     [[nodiscard]] QPen   nodePen(const QString &nodeType) const;

@@ -298,6 +298,12 @@ OpenSWMM::Render::IFeatureRenderer *KindRendererPanel::currentRenderer() const
     return nullptr;
 }
 
+bool KindRendererPanel::sizeByValueEnabled() const
+{
+    return m_axisRow && m_axisRow->isVisibleTo(m_axisRow->parentWidget())
+        && m_axisCheck && m_axisCheck->isChecked();
+}
+
 OpenSWMMVisLayer *KindRendererPanel::attributeProviderHost() const
 {
     if (m_hostLayer) return m_hostLayer;
@@ -336,6 +342,12 @@ void KindRendererPanel::refreshFromModel()
     const bool showAttrRow = provider && modeRow == kModeGraduated;
     m_attrRow->setVisible(showAttrRow);
     m_attrCombo->clear();
+    // Feedback C3 — when the renderer carries no attribute, the combo
+    // auto-selects row 0 and the user sees "flow (m³/s)" while the renderer
+    // (and every export of it) still says "". Remember to store the shown
+    // row; the write happens at the very end, after every use of `r`,
+    // because installing a renderer replaces the object `r` points at.
+    bool storeShownAttribute = false;
     if (provider) {
         const auto fields = provider->availableAttributes(m_category);
         for (const auto &f : fields) {
@@ -357,6 +369,10 @@ void KindRendererPanel::refreshFromModel()
         }
         if (idx >= 0)
             m_attrCombo->setCurrentIndex(idx);
+        else if (modeRow == kModeGraduated && m_attrCombo->count() > 0) {
+            m_attrCombo->setCurrentIndex(0);
+            storeShownAttribute = true;
+        }
     }
 
     m_graduatedBox->setVisible(modeRow == kModeGraduated);
@@ -424,6 +440,14 @@ void KindRendererPanel::refreshFromModel()
     // Arrows live on the kind, not the renderer, so they re-seed here too —
     // this is also the path the dialog calls after a Cancel rollback.
     syncArrowsFromHost();
+
+    emit outputAxisToggled(sizeByValueEnabled());   // feedback C2
+
+    // Feedback C3 — last, so nothing above touches the renderer `r` that
+    // this replaces. onAttributeChanged no-ops when the stored attribute
+    // already equals the shown one, so a re-entrant refresh stops here.
+    if (storeShownAttribute)
+        onAttributeChanged(0);
 }
 
 namespace {
@@ -544,6 +568,7 @@ void KindRendererPanel::onOutputAxisChanged()
     m_axisMinSpin->setEnabled(on);
     m_axisMaxSpin->setEnabled(on);
     if (m_sizeAttrCombo) m_sizeAttrCombo->setEnabled(on);
+    emit outputAxisToggled(on);   // feedback C2
 
     auto fresh = g->clone();
     if (auto *gf = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {

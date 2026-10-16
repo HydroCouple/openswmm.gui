@@ -1230,9 +1230,13 @@ void SWMMLayerItem::paint(QPainter *painter,
             const bool needsAttrs = exprNeedsAttrs
                                  || !labelCfg.fieldName.isEmpty()
                                  || !labelCfg.priorityField.isEmpty();
-            auto resolveExpression = [](const QString &expr,
-                                        const QString &name,
-                                        const QVariantMap &attrs) {
+            // Feedback C4 — numeric values go through LabelConfig::formatValue
+            // (6 significant digits by default, or the configured decimals)
+            // instead of QVariant::toString()'s 17-digit dump.
+            const int decimals = labelCfg.decimals;
+            auto resolveExpression = [decimals](const QString &expr,
+                                                const QString &name,
+                                                const QVariantMap &attrs) {
                 QString out;
                 out.reserve(expr.size());
                 int i = 0;
@@ -1243,7 +1247,8 @@ void SWMMLayerItem::paint(QPainter *painter,
                             const QString token = expr.mid(i + 1, close - i - 1);
                             out += (token == QLatin1String("name"))
                                        ? name
-                                       : attrs.value(token).toString();
+                                       : OpenSWMM::Render::LabelConfig::formatValue(
+                                             attrs.value(token), decimals);
                             i = close + 1;
                             continue;
                         }
@@ -1262,6 +1267,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     || m_labelCache.expression    != labelCfg.expression
                     || m_labelCache.fieldName     != labelCfg.fieldName
                     || m_labelCache.priorityField != labelCfg.priorityField
+                    || m_labelCache.decimals      != labelCfg.decimals
                     // SoA size drift (model reload / geometry rebuild paths
                     // that don't emit modelEdited) — indices would shift.
                     || m_labelCache.text[0].size() != m_layer->m_nodes.size()
@@ -1273,6 +1279,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     m_labelCache.expression    = labelCfg.expression;
                     m_labelCache.fieldName     = labelCfg.fieldName;
                     m_labelCache.priorityField = labelCfg.priorityField;
+                    m_labelCache.decimals      = labelCfg.decimals;
                     m_labelCache.text[0].resize(m_layer->m_nodes.size());
                     m_labelCache.text[1].resize(m_layer->m_links.size());
                     m_labelCache.text[2].resize(m_layer->m_catchments.size());
@@ -1314,7 +1321,8 @@ void SWMMLayerItem::paint(QPainter *painter,
                         if (!labelCfg.expression.isEmpty())
                             pl.text = resolveExpression(labelCfg.expression, name, attrs);
                         else if (!labelCfg.fieldName.isEmpty())
-                            pl.text = attrs.value(labelCfg.fieldName).toString();
+                            pl.text = OpenSWMM::Render::LabelConfig::formatValue(
+                                attrs.value(labelCfg.fieldName), decimals);
                         if (pl.text.isEmpty())
                             pl.text = name;
                         if (!labelCfg.priorityField.isEmpty())
