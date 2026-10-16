@@ -49,6 +49,7 @@ class MapCanvas;   // setEditCanvas() — undo-stack host for mediated edits
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
 class GraduatedRenderer;   // classifyGraduatedIfNeeded — data-derived breaks.
+class Rule;
 class RuleList;   // Slice B.4 — see ruleList() override below.
 enum class ClassEditKind;   // X4 — legend-as-editor facade (full def in ifeaturerenderer.h)
 }

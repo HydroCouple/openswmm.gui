@@ -45,6 +45,7 @@ class QGraphicsSimpleTextItem;   // L-1 — m_labelByFeature stores label items
 
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
+class Rule;
 class RuleList;   // Slice B.5 — see ruleList() override below.
 enum class ClassEditKind;   // Gap B1 — legend facade (full def in ifeaturerenderer.h)
 }

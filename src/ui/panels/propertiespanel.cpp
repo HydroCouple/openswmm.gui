@@ -5,6 +5,7 @@
  */
 
 #include "ui/panels/propertiespanel.h"
+#include "ui/panels/swmmattributetablemodel.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"     // active-run stats binding
