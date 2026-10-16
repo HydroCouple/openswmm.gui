@@ -153,6 +153,8 @@ protected:
         if (watched == m_view) switch (event->type()) {
         case QEvent::MouseButtonPress: case QEvent::MouseButtonRelease: case QEvent::MouseButtonDblClick:
         case QEvent::MouseMove: case QEvent::Wheel: case QEvent::KeyPress: case QEvent::KeyRelease:
+        case QEvent::Gesture: case QEvent::GestureOverride: case QEvent::NativeGesture:
+        case QEvent::TouchBegin: case QEvent::TouchUpdate: case QEvent::TouchEnd: case QEvent::TouchCancel:
         case QEvent::Enter: case QEvent::Leave:
             if (auto *canvas = parentWidget()) { QCoreApplication::sendEvent(canvas, event); return true; }
             break;
@@ -193,8 +195,16 @@ struct MapCompositionTiming
 // drawing millions of unchanged water triangles on every animation frame.
 class MapFlowParticleItem final : public QQuickItem
 {
+    Q_OBJECT
+    Q_PROPERTY(quint64 displayedFrameRevision READ displayedFrameRevision)
 public:
-    explicit MapFlowParticleItem(QQuickItem *parent) : QQuickItem(parent) { setFlag(ItemHasContents); }
+    explicit MapFlowParticleItem(QQuickItem *parent) : QQuickItem(parent) {
+        setFlag(ItemHasContents);setObjectName(QStringLiteral("flowParticleItem"));
+        connect(this,&QQuickItem::windowChanged,this,&MapFlowParticleItem::trackWindow);
+        trackWindow(window());
+    }
+    ~MapFlowParticleItem() override { disconnect(m_syncConnection); }
+    quint64 displayedFrameRevision() const { return m_displayedRevision; }
     void setLayer(SWMM2DResultsLayer *layer, SWMM2DResultsQSGRenderer *water = nullptr) {
         if (m_layer == layer && m_water == water) return;
         if (m_layer) disconnect(m_layer, nullptr, this, nullptr);
@@ -213,31 +223,65 @@ public:
 protected:
     QSGNode *updatePaintNode(QSGNode *old, UpdatePaintNodeData *) override {
         if (!m_layer || !m_layer->source() || !m_water || !m_extent.isValid() || width() <= 0 || !m_layer->flowStreaksEnabled()
-            || (m_layer->source()->isLive() && !m_layer->liveRenderEnabled())) { delete old; return nullptr; }
+            || (m_layer->source()->isLive() && !m_layer->liveRenderEnabled())) {
+            delete old;m_displayedRevision=~quint64(0);m_syncNeeded=false;return nullptr;
+        }
         auto *root = static_cast<QSGTransformNode *>(old);
-        if (!root) { root = new QSGTransformNode; root->appendChildNode(new FlowParticleNode(window())); }
-        const double scale = width()/m_extent.width(), margin = 2/scale;
-        const QRectF view = QRectF(m_extent.xMin(),-m_extent.yMax(),m_extent.width(),m_extent.height())
-            .adjusted(-margin,-margin,margin,margin);
+        if (!root) root = new Root(window(),m_nodeHandle);
+        const double scale = width()/m_extent.width();
         const auto anchor = m_layer->m_sceneBBox.center();
         QMatrix4x4 matrix; matrix.scale(float(scale),float(height()/m_extent.height()));
         matrix.translate(float(anchor.x()-m_extent.xMin()),float(anchor.y()+m_extent.yMax()));root->setMatrix(matrix);
+        m_syncNeeded=true;
+        return root;
+    }
+private:
+    // The render tree can outlive its item. Share only a weak node handle;
+    // deleting a released tree must not dereference the destroyed QObject.
+    using NodeHandle=std::shared_ptr<FlowParticleNode*>;
+    struct Root final : QSGTransformNode {
+        NodeHandle handle;
+        Root(QQuickWindow *window,NodeHandle node):handle(std::move(node)) {
+            *handle=new FlowParticleNode(window);appendChildNode(*handle);
+        }
+        ~Root() override { if(*handle==firstChild())*handle=nullptr; }
+    };
+    void trackWindow(QQuickWindow *window) {
+        disconnect(m_syncConnection);
+        if(window)m_syncConnection=connect(window,&QQuickWindow::afterSynchronizing,this,
+            &MapFlowParticleItem::syncParticles,Qt::DirectConnection);
+    }
+    void syncParticles() {
+        auto *node=*m_nodeHandle;
+        if(!node || !m_layer || !m_water) {m_displayedRevision=~quint64(0);return;}
+        if(!m_syncNeeded && m_displayedRevision==m_water->displayedFrameRevision())return;
+        m_syncNeeded=false;
+        // Dirty QQuickItems have no water-before-particles ordering. Select
+        // their shared revision after every updatePaintNode has finished,
+        // while Qt still holds the GUI thread, before this frame is rendered.
+        const double scale=width()/m_extent.width(),margin=2/scale;
+        const QRectF view=QRectF(m_extent.xMin(),-m_extent.yMax(),m_extent.width(),m_extent.height())
+            .adjusted(-margin,-margin,margin,margin);
+        const auto anchor=m_layer->m_sceneBBox.center();
         auto *sub = m_layer->flowStreakSublayer();const auto *style = sub->streakStyle();
         const auto frame = m_layer->flowParticles(view,scale,m_water->displayedFrameRevision());
+        m_displayedRevision=frame?frame->revision:~quint64(0);
         OpenSWMM::Render::FlowParticleAppearance appearance;appearance.anchor=anchor;
         const double stroke=2*std::max(style->widthPx(),style->headWidthPx())/scale;
         appearance.viewport=view.adjusted(-stroke,-stroke,stroke,stroke);appearance.color=style->color();
         appearance.opacity=sub->opacity()*m_layer->flowParticleOpacity();appearance.fade=true;appearance.taper=true;
         appearance.revision=qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));
         if(style->colorByMagnitude())appearance.colorForSpeed=[style](double speed){return style->colorForSpeed(speed);};
-        static_cast<FlowParticleNode *>(root->firstChild())->sync(frame,m_layer->flowParticleInterpolation(frame),scale,
+        node->sync(frame,m_layer->flowParticleInterpolation(frame),scale,
             style->trailDurationSeconds(),style->widthPx(),style->headWidthPx(),style->lifetimeFadeSeconds(),0,appearance);
-        return root;
     }
-private:
     QPointer<SWMM2DResultsLayer> m_layer;
     QPointer<SWMM2DResultsQSGRenderer> m_water;
     MapExtent m_extent;
+    quint64 m_displayedRevision=~quint64(0);
+    NodeHandle m_nodeHandle=std::make_shared<FlowParticleNode*>(nullptr);
+    QMetaObject::Connection m_syncConnection;
+    bool m_syncNeeded=false;
 };
 
 struct MapCompositionEntry
@@ -3705,3 +3749,5 @@ void MapCanvas::renderCoordinates(QPainter &painter, double mapX, double mapY) c
     painter.setPen(Qt::black);
     painter.drawText(x, y, text);
 }
+
+#include "mapcanvas.moc"

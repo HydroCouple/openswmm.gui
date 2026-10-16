@@ -173,6 +173,7 @@ private:
      *  racing the canvas framebuffer grab). */
     int  m_lastRenderedTime = -1;
     quint64 m_lastRenderedFrame = ~quint64(0);
+    bool m_waitingForParticles = false;
 
     /*! Render chunk index over tri/edge bboxes, keyed by geomRevision. */
     OpenSWMM::Render::MeshRenderChunkIndex m_chunks;

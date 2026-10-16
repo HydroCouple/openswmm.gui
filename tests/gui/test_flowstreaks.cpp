@@ -9,6 +9,7 @@
 #include "map/openswmmvisgraphicsview.h"
 #include "map/tools/maptool.h"
 #include "render/smoothfillraster.h"
+#include "render/flowparticlecontroller.h"
 #include <QGraphicsRectItem>
 #include "project/projectserializer.h"
 #include "swmmvis.h"
@@ -44,6 +45,8 @@
 #include <QTextStream>
 #include <QPainter>
 #include <QMouseEvent>
+#include <QGestureEvent>
+#include <QPinchGesture>
 #include <QSettings>
 #include <QtQml/qqml.h>
 #include <QQuickWidget>
@@ -795,6 +798,14 @@ private slots:
             QMouseEvent click(QEvent::MouseButtonPress,QPointF(100,100),QPointF(canvas.mapToGlobal(QPoint(100,100))),
                               Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
             QCoreApplication::sendEvent(native,&click);QCOMPARE(tool.presses,2);
+            const auto original=canvas.extent();
+            QPinchGesture pinch;pinch.setScaleFactor(1.25);
+            pinch.setChangeFlags(QPinchGesture::ScaleFactorChanged);
+            pinch.setCenterPoint(canvas.mapToGlobal(QPoint(240,240)));
+            QGestureEvent gesture({&pinch});
+            QCoreApplication::sendEvent(native,&gesture);
+            QVERIFY(qFuzzyCompare(canvas.extent().width(),original.width()/1.25));
+            canvas.setExtent(original,false);
         }
         QTest::qWait(500);initial=canvas.compositionStats();
         QTest::qWait(1000);auto ordinary=canvas.compositionStats();
@@ -976,6 +987,58 @@ private slots:
         // Real hydraulic styling still refreshes the water texture.
         layer.smoothDepthFillSublayer()->setOpacity(.4);
         QTRY_VERIFY(changed.count()>0);
+        canvas.takeLayer(0,false);
+    }
+    void nativeDepthUpdatesNeverPublishWaterWithoutMatchingStreaks_data() {
+        QTest::addColumn<bool>("live");QTest::addColumn<bool>("bands");
+        for(bool live:{false,true})for(bool bands:{false,true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(live?"live":"saved",bands?"bands":"cell")))<<live<<bands;
+    }
+    void nativeDepthUpdatesNeverPublishWaterWithoutMatchingStreaks() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Native depth-frame and particle handoff");
+        QFETCH(bool,live);QFETCH(bool,bands);
+        auto source=std::make_unique<FlowSource>();auto *raw=source.get();raw->live=live;
+        raw->depths={.25f,.55f,.35f,.65f,.3f,.6f,.4f,.7f};
+        SWMM2DResultsLayer layer;layer.setAsyncSurface(true);layer.setSource(std::move(source));
+        for(auto *sub:layer.sublayers())sub->setVisible(false);
+        if(bands)layer.contourBandSublayer()->setVisible(true);else layer.cellDepthFillSublayer()->setVisible(true);
+        layer.flowStreakSublayer()->setVisible(true);
+        layer.flowStreakSublayer()->streakStyle()->setSpeedMultiplier(.02);
+        ParticleReviewCanvas canvas;canvas.resize(640,480);canvas.setShowScaleBar(false);
+        canvas.addLayer(&layer,false);canvas.setExtent({-10,-10,110,110},false);
+        showNativeReview(canvas);QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);
+        QQuickWindow *window=nullptr;
+        for(auto *candidate:QGuiApplication::allWindows())if(candidate->objectName()=="flowMapNativeWindow")
+            window=qobject_cast<QQuickWindow*>(candidate);
+        QVERIFY(window);
+        const auto renderers=window->contentItem()->findChildren<SWMM2DResultsQSGRenderer*>();QCOMPARE(renderers.size(),1);
+        auto *renderer=renderers.front();auto *controller=layer.findChild<FlowParticleController*>();QVERIFY(controller);
+        const auto items=window->contentItem()->findChildren<QQuickItem*>("flowParticleItem");QCOMPARE(items.size(),1);
+        auto *particles=items.front();
+        QTRY_VERIFY_WITH_TIMEOUT(controller->frame(renderer->displayedFrameRevision())!=nullptr,10000);
+        QTRY_COMPARE_WITH_TIMEOUT(particles->property("displayedFrameRevision").toULongLong(),renderer->displayedFrameRevision(),10000);
+        std::atomic_int samples=0,missing=0,mismatched=0;
+        // Qt keeps the GUI thread locked during afterSynchronizing. Inspect
+        // the actual scene-graph handoff, before another worker completion
+        // can conceal a blank frame. Capture settlement is deliberately absent.
+        const auto monitor=connect(window,&QQuickWindow::afterSynchronizing,window,[&] {
+            ++samples;
+            if(!controller->frame(renderer->displayedFrameRevision()))++missing;
+            if(particles->property("displayedFrameRevision").toULongLong()!=renderer->displayedFrameRevision())++mismatched;
+        },Qt::DirectConnection);
+        const auto disconnectMonitor=qScopeGuard([&]{disconnect(monitor);});
+        for(int i=1;i<8;++i) {
+            const auto previous=layer.frameRevision();
+            if(live) {raw->depths[0]=raw->depths[size_t(i)];++raw->revision;layer.refreshCurrentFrame();}
+            else layer.setCurrentTimeIndex(i);
+            QTRY_VERIFY_WITH_TIMEOUT(layer.frameRevision()!=previous,5000);
+            QTRY_COMPARE_WITH_TIMEOUT(renderer->displayedFrameRevision(),layer.frameRevision(),5000);
+            QTest::qWait(50);
+        }
+        QVERIFY(samples.load()>7);
+        QCOMPARE(missing.load(),0);
+        QCOMPARE(mismatched.load(),0);
+        disconnect(monitor);
         canvas.takeLayer(0,false);
     }
     void nativeIndexedWaterMatchesCpu_data() {
@@ -1554,17 +1617,21 @@ private slots:
             QCOMPARE(canvas.width(),1920);QCOMPARE(canvas.height(),1080);QCOMPARE(canvas.devicePixelRatioF(),2.);
         }
         const auto before=canvas.compositionStats();const int fullReads=source?source->reads:0;
+        const auto* flowTimer=canvas.findChild<QTimer*>("flowAnimationTimer");
+        const auto* published=layer.findChild<FlowParticleController*>();QVERIFY(published);
+        bool exposedThroughout=mapWindow->isExposed();
         QElapsedTimer elapsed;elapsed.start();int tick=-1,noMovingHeads=0,observations=0;
         double noHeadSince=-1,longestNoHeadSeconds=0,previousShownClock=-1;QJsonArray motionSamples;
         // Observe through the ordinary event dispatcher. qWait's polling
         // sleeps can delay frame timers and must not become display timings.
         QEventLoop observation;QTimer observationTimer;observationTimer.setInterval(100);
         connect(&observationTimer,&QTimer::timeout,&observation,[&] {
+            exposedThroughout&=mapWindow->isExposed();
             if(live && int(elapsed.elapsed()/3000)!=tick) {
                 tick=int(elapsed.elapsed()/3000);source->speed=tick%2?2:3;++source->revision;layer.refreshCurrentFrame();
             }
             const auto shownRevision=displayed->displayedFrameRevision();
-            const auto observed=layer.flowParticles(view,scale,shownRevision,false);
+            const auto observed=published->frame(shownRevision);
             const double shownClock=observed?observed->previousClock+(observed->clock-observed->previousClock)*layer.flowParticleInterpolation(observed):-1;
             const bool clockAdvanced=observed && (previousShownClock<0 || shownClock>previousShownClock+1e-8);
             if(observed)previousShownClock=shownClock;
@@ -1574,7 +1641,8 @@ private slots:
                 movingHead|=clockAdvanced && std::hypot(delta.x(),delta.y())*scale>1e-5;
             }
             motionSamples.append(QJsonObject{{"seconds",elapsed.elapsed()/1000.},{"requestedRevision",qint64(layer.frameRevision())},
-                {"displayedRevision",qint64(shownRevision)},{"particleClock",shownClock},{"movingHead",movingHead}});
+                {"displayedRevision",qint64(shownRevision)},{"particleClock",shownClock},{"movingHead",movingHead},
+                {"nativeWindowExposed",mapWindow->isExposed()}});
             ++observations;
             if(!movingHead) {
                 ++noMovingHeads;if(noHeadSince<0)noHeadSince=elapsed.elapsed()/1000.;
@@ -1585,6 +1653,34 @@ private slots:
         observation.exec();observationTimer.stop();
         const double observedSeconds=elapsed.elapsed()/1000.;
         const auto after=canvas.compositionStats();
+        const int observationFullReads=source?source->reads-fullReads:0;
+        auto intervals=after.renderIntervalsMs;
+        const auto count=after.renderedFrames-before.renderedFrames;
+        if(count<quint64(intervals.size()))intervals=intervals.mid(intervals.size()-int(count));
+        std::sort(intervals.begin(),intervals.end());
+        auto swaps=after.swapIntervalsMs;
+        if(count<quint64(swaps.size()))swaps=swaps.mid(swaps.size()-int(count));
+        std::sort(swaps.begin(),swaps.end());
+        // Preserve the measured window even if a later capture is incomplete.
+        QFile observationReport(folder+"/observation.json");QVERIFY(observationReport.open(QIODevice::WriteOnly));
+        observationReport.write(QJsonDocument(QJsonObject{{"observedSeconds",observedSeconds},
+            {"observationScope","Read-only published controller frames; ordinary map renderer drives preparation and dispatch"},
+            {"framesBefore",qint64(before.renderedFrames)},{"framesAfter",qint64(after.renderedFrames)},
+            {"nativeWindowExposedThroughout",exposedThroughout},{"nativeWindowExposedAfter",mapWindow->isExposed()},
+            {"nativeWindowVisible",mapWindow->isVisible()},{"surfaceBusyAfter",layer.surfaceBusy()},
+            {"canvasVisible",canvas.isVisible()},{"canvasMinimized",canvas.window()->isMinimized()},
+            {"animationTimerActive",flowTimer && flowTimer->isActive()},
+            {"motionEnabled",layer.flowStreaksEnabled()},{"motionAnimated",layer.flowStreakSublayer()->streakStyle()->animated()},
+            {"requestedRevision",qint64(layer.frameRevision())},{"displayedRevision",qint64(displayed->displayedFrameRevision())},
+            {"motionSamples",motionSamples},{"longestNoMovingHeadSeconds",longestNoHeadSeconds},
+            {"frameSwappedSamples",swaps.size()},
+            {"frameSwappedP95Ms",swaps.isEmpty()?QJsonValue():QJsonValue(swaps[int(.95*(swaps.size()-1))])},
+            {"frameSwapWithinTarget",swaps.isEmpty()?QJsonValue():QJsonValue(swaps[int(.95*(swaps.size()-1))]<=(fraction<1?16.7:33.0))},
+            {"status",layer.flowStreakStatus()}}).toJson());observationReport.close();
+        QVERIFY(!intervals.isEmpty());
+        // A final live tick may still be fitting when observation ends.
+        // Settle only the subsequent field/image capture, after saving timing.
+        QVERIFY2(layer.prepareFlowStreaksForCapture(view,scale),qPrintable(layer.flowStreakStatus()));
         const auto frame=layer.flowParticles(view,scale,layer.frameRevision(),false);QVERIFY(frame);
         int moving=0,waiting=0;
         for(const auto &p:frame->particles) {
@@ -1594,13 +1690,6 @@ private slots:
                 moving+=std::hypot(distance.x(),distance.y())*scale>.25;
             }
         }
-        auto intervals=after.renderIntervalsMs;
-        const auto count=after.renderedFrames-before.renderedFrames;
-        if(count<quint64(intervals.size()))intervals=intervals.mid(intervals.size()-int(count));
-        std::sort(intervals.begin(),intervals.end());QVERIFY(!intervals.isEmpty());
-        auto swaps=after.swapIntervalsMs;
-        if(count<quint64(swaps.size()))swaps=swaps.mid(swaps.size()-int(count));
-        std::sort(swaps.begin(),swaps.end());
         const auto diagnostics=layer.flowParticleDiagnostics();
         const auto input=layer.captureFlowParticleInput(view,scale);QVERIFY2(input,qPrintable(layer.flowStreakStatus()));
         QString error;const auto image=canvas.captureMap(&error);QVERIFY2(!image.isNull(),qPrintable(error));
@@ -1609,6 +1698,7 @@ private slots:
         QVERIFY2(particlePixels>20,"The scale fixture has no visible particle pixels");
         QFile report(folder+"/scale.json");QVERIFY(report.open(QIODevice::WriteOnly));
         report.write(QJsonDocument(QJsonObject{{"kind",quad?"quad":"triangle"},{"source",sourcePath.isEmpty()?QString(live?"synthetic live":"synthetic held"):sourcePath},
+            {"observationScope","Read-only published controller frames; ordinary map renderer drives preparation and dispatch"},
             {"nativeCells",layer.source()->triangleCount()},{"displayTriangles",layer.m_sceneTris.size()},
             {"wetFraction",wet},{"requestedViewFraction",fraction},{"observedSeconds",observedSeconds},
             {"logicalWidth",canvas.width()},{"logicalHeight",canvas.height()},{"devicePixelRatio",canvas.devicePixelRatioF()},
@@ -1630,7 +1720,7 @@ private slots:
             {"osPresentationP95Ms",QJsonValue()},{"cadenceScope","Separate Qt render completions and native queued-for-presentation swaps; OS scanout not directly measured"},
             {"steadyFallbackReadbacks",qint64(after.fallbackReadbacks-before.fallbackReadbacks)},
             {"steadyCaptureReadbacks",qint64(after.captureReadbacks-before.captureReadbacks)},
-            {"fullReadsDuringObservation",source?QJsonValue(source->reads-fullReads):QJsonValue()},
+            {"fullReadsDuringObservation",source?QJsonValue(observationFullReads):QJsonValue()},
             {"fieldWorkingUpperBoundBytes",qint64(layer.flowParticleFieldBytes())},{"status",layer.flowStreakStatus()}}).toJson());report.close();
         QVERIFY2(moving>0,qPrintable(layer.flowStreakStatus()));QVERIFY(!layer.flowStreakStatus().contains("Zoom in"));
         QCOMPARE(waiting,0);QVERIFY2(longestNoHeadSeconds<.5,"The overview repeatedly lost all moving heads");
@@ -1904,6 +1994,45 @@ private slots:
         --raw->revision;QVERIFY(layer.prepareFlowStreaksForCapture(view,128));
         const auto after=layer.flowParticles(view,128,layer.frameRevision());QVERIFY(after && !after->particles.empty());
         QVERIFY(after->particles.front().history.capacity()>=512);
+    }
+    void liveResidencyExtendsFromTheDisplayedHydraulicSnapshot_data() {
+        QTest::addColumn<bool>("quad");QTest::addColumn<bool>("overview");
+        QTest::newRow("triangle-region")<<false<<false;
+        QTest::newRow("triangle-overview")<<false<<true;
+        QTest::newRow("quad-region")<<true<<false;
+        QTest::newRow("quad-overview")<<true<<true;
+    }
+    void liveResidencyExtendsFromTheDisplayedHydraulicSnapshot() {
+        QFETCH(bool,quad);QFETCH(bool,overview);
+        const auto source=[&]() -> std::unique_ptr<GridFlowSource> {
+            if(quad)return std::make_unique<QuadGridFlowSource>(400,200);
+            return std::make_unique<GridFlowSource>(400,200);
+        };
+        SWMM2DResultsLayer layer,reference;layer.setAsyncSurface(true);reference.setAsyncSurface(true);
+        auto live=source();auto *raw=live.get();layer.setSource(std::move(live));reference.setSource(source());
+        layer.flowStreakSublayer()->setVisible(true);reference.flowStreakSublayer()->setVisible(true);
+        const QRectF view=overview?layer.m_sceneBBox:QRectF(60,-160,16,12);
+        const QRectF nextView=overview?view.translated(10,0):view.translated(80,0);
+        const double scale=overview?4:16,nextScale=scale*1.25;
+        const auto initial=layer.captureFlowParticleInput(view,scale);QVERIFY(initial);
+        const auto expected=reference.captureFlowParticleInput(nextView,nextScale);QVERIFY(expected);
+        const auto displayedRevision=layer.frameRevision();const int subsetReads=raw->regionalReads;
+        // A mutable live packet advances before its replacement surface is
+        // published. New residency must use the same old values as the water.
+        raw->speed=-3;raw->depths[0]=.75f;++raw->revision;layer.refreshCurrentFrame();
+        const auto extended=layer.captureFlowParticleInput(nextView,nextScale);
+        QVERIFY2(extended,"A newer live packet prevents extending the displayed native field");
+        QCOMPARE(layer.frameRevision(),displayedRevision);QCOMPARE(extended->revision,displayedRevision);
+        QCOMPARE(raw->regionalReads,subsetReads);
+        QCOMPARE(extended->mesh->sourceTriangles,expected->mesh->sourceTriangles);
+        QCOMPARE(extended->triangles.size(),expected->triangles.size());
+        for(size_t i=0;i<expected->triangles.size();++i) {
+            const auto &a=extended->triangles[i],&b=expected->triangles[i];
+            QCOMPARE(a.meanDepth,b.meanDepth);QVERIFY(a.depth==b.depth);QVERIFY(a.flux==b.flux);
+            QVERIFY(a.metres==b.metres);QCOMPARE(a.available,b.available);
+        }
+        ++raw->generation;
+        QVERIFY(!layer.captureFlowParticleInput(nextView.translated(5,0),nextScale*1.1));
     }
     void overviewCullPaddingDoesNotReloadTheField() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<GridFlowSource>(700,200));

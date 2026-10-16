@@ -38,7 +38,14 @@ void FlowParticleController::configure(const FlowParticleSettings &settings,QRec
 }
 void FlowParticleController::setPresentedRevision(quint64 revision) {
     if(m_presentedRevision==revision)return;
+    m_preparingRevision.reset();
+    if(m_stagedInput && m_stagedInput->revision!=revision)m_stagedInput.reset();
     m_presentedRevision=revision;m_presentationChanged=true;dispatch();
+}
+void FlowParticleController::prepareForPresentation(std::shared_ptr<const FlowParticleNativeInput> input) {
+    if(!input || (m_current && m_current->revision==input->revision && m_current->geometry==input->geometry)
+       || m_preparingRevision==input->revision)return;
+    m_preparingRevision=input->revision;m_stagedInput=std::move(input);dispatch();
 }
 void FlowParticleController::advance(double seconds) {
     if(!std::isfinite(seconds) || seconds<0)return;
@@ -50,14 +57,17 @@ void FlowParticleController::advance(double seconds) {
     if(guard)dispatch();
 }
 void FlowParticleController::dispatch() {
-    if(m_busy || (!m_pending && !m_presentationChanged && !m_configurationChanged && !m_refilling && !m_warming
+    const bool consumePending=!m_preparingRevision;
+    if(m_busy || (!m_stagedInput && !(consumePending && m_pending) && !m_presentationChanged && !m_configurationChanged && !m_refilling && !m_warming
         && m_elapsed<=0 && m_lag+1e-12<m_settings.timestep))return;
     m_busy=true;
     m_presentationChanged=false;m_configurationChanged=false;m_refilling=false;
-    const auto input=std::exchange(m_pending,{});const bool reset=std::exchange(m_reset,false);
+    const auto input=m_stagedInput?std::exchange(m_stagedInput,{}):consumePending?std::exchange(m_pending,{}):nullptr;
+    const bool reset=input && (consumePending || (m_pending && m_pending->revision==input->revision))
+        ?std::exchange(m_reset,false):false;
     const double elapsed=std::exchange(m_elapsed,0.);
     QMetaObject::invokeMethod(m_worker,[this,state=m_state,input,reset,elapsed,
-        settings=m_settings,seeds=m_seeds,population=m_population,view=m_view,appearance=m_appearance,grid=m_grid,presented=m_presentedRevision]() mutable {
+        settings=m_settings,seeds=m_seeds,population=m_population,view=m_view,appearance=m_appearance,grid=m_grid,presented=m_presentedRevision,preparing=m_preparingRevision]() mutable {
         const auto work=[&]() -> Result {
             if(reset) {
                 state->system.reset();state->field.reset();state->pending.reset();
@@ -67,7 +77,7 @@ void FlowParticleController::dispatch() {
             state->system.setSettings(settings);
             if(input)state->pending=buildFlowParticleField(*input,state->cancelled);
             bool accepted=false;
-            if(state->pending && (!state->field || state->pending->revision==presented)) {
+            if(state->pending && (!state->field || state->pending->revision==presented || preparing==state->pending->revision)) {
                 // Finish a partial tick with its original field before applying the
                 // newest packet. Normal updates blend velocity over 0.25 seconds.
                 const bool replacement=state->field && state->field->geometry!=state->pending->geometry;
@@ -198,7 +208,8 @@ void FlowParticleController::complete() {
     }
     m_busy=false;
     if(result.frame) {
-        if(m_current && m_current->revision!=result.frame->revision)m_previous=m_current;
+        if(m_current && m_current->revision!=result.frame->revision
+           && (!m_previous || m_current->revision==m_presentedRevision))m_previous=m_current;
         m_current=result.frame;
         // Include GUI time queued during this job. Taking a completed frame
         // must not undo movement already presented between worker messages.
@@ -207,8 +218,9 @@ void FlowParticleController::complete() {
     }
     m_warming=result.warming;m_refilling=result.refilling;m_lag=result.lag;m_diagnostics=result.diagnostics;m_residency=std::move(result.residency);
     // The permanent publication pool owns one reference, this backup another.
-    // Release the backup once no display reader needs the previous revision.
-    if(m_previous && m_previous.use_count()==2)m_previous.reset();
+    // Keep the displayed revision through an asynchronous water handoff,
+    // even if no renderer currently holds a frame handle.
+    if(m_previous && m_previous->revision!=m_presentedRevision && m_previous.use_count()==2)m_previous.reset();
     const QPointer<FlowParticleController> guard(this);
     emit ready();if(!guard)return;
     if(m_pending || m_presentationChanged || m_configurationChanged || m_refilling || m_warming || m_elapsed>0 || m_lag>=m_settings.timestep)dispatch();

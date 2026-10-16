@@ -33,6 +33,8 @@ public:
     void configure(const FlowParticleSettings &,QRectF seeds,int population,FlowParticleView view={},std::optional<FlowParticleAppearance> appearance={},FlowParticleResidencyGrid grid={},bool startWorker=true);
     void advance(double seconds);
     void setPresentedRevision(quint64 revision);
+    // Prepare a ready water frame's matching trails before either is shown.
+    void prepareForPresentation(std::shared_ptr<const FlowParticleNativeInput>);
     void waitForDone();
     bool busy() const { return m_busy || bool(m_pending); }
     std::shared_ptr<const FlowParticleFrame> frame(quint64 revision) const;
@@ -57,6 +59,8 @@ private:
     void complete();
     std::shared_ptr<State> m_state;
     std::shared_ptr<const FlowParticleNativeInput> m_pending;
+    std::shared_ptr<const FlowParticleNativeInput> m_stagedInput;
+    std::optional<quint64> m_preparingRevision;
     std::shared_ptr<const FlowParticleMesh> m_requestedMesh;
     std::shared_ptr<const FlowParticleFrame> m_current,m_previous;
     QThread m_thread;
