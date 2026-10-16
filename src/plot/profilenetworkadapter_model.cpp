@@ -161,7 +161,10 @@ void collectNodeBranches(SWMMModelLayer *model,
             b.name     = QString::fromUtf8(swmm_link_id(eng, l));
             if (!path.nodes[pathIdx].lidLayers.isEmpty()) {
                 int layer = 0, top = 0;
-                if (swmm_lid_node_outlet_get(eng, l, &layer, &top) == SWMM_OK) b.lidLayer = layer;
+                if (swmm_lid_node_outlet_get(eng, l, &layer, &top) == SWMM_OK) {
+                    b.lidLayer = layer;
+                    b.lidAnchorTop = top != 0;
+                }
             }
             b.intoNode = !isFrom;                  // this node is the To-node
             b.onPath   = pathLinks.contains(l);

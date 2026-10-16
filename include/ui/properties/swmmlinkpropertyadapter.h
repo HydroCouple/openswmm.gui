@@ -81,7 +81,7 @@ public:
     Q_ENUM(WeirType)
     Q_ENUM(OutletRatingType)
 
-    enum LidAnchorPosition { LayerBottom = 0, LayerTop = 1 };
+    enum LidAnchorPosition { NoLayerAnchor = -1, LayerBottom = 0, LayerTop = 1 };
     Q_ENUM(LidAnchorPosition)
     Q_PROPERTY(int lidOutletLayer READ lidOutletLayer WRITE setLidOutletLayer NOTIFY changed)
     Q_PROPERTY(LidAnchorPosition lidOutletPosition READ lidOutletPosition WRITE setLidOutletPosition NOTIFY changed)

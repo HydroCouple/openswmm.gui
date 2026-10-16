@@ -136,6 +136,7 @@ public:
     Q_PROPERTY(bool showNodeRoses    READ showNodeRoses    WRITE setShowNodeRoses    NOTIFY changed)
 
     // ── Flooding indicator (animated wedge above the rim) ───────────────
+    Q_PROPERTY(bool showFloodingGlyphs READ showFloodingGlyphs WRITE setShowFloodingGlyphs NOTIFY changed)
     Q_PROPERTY(double floodRadiusPx  READ floodRadiusPx   WRITE setFloodRadiusPx   NOTIFY changed)
     Q_PROPERTY(int    floodSweepDeg  READ floodSweepDeg   WRITE setFloodSweepDeg   NOTIFY changed)
     Q_PROPERTY(QColor floodColor     READ floodColor      WRITE setFloodColor      NOTIFY changed)
@@ -254,6 +255,7 @@ public:
     bool     showBranchStubs()  const { return m_showBranchStubs; }
     bool     showNodeRoses()    const { return m_showNodeRoses; }
 
+    bool     showFloodingGlyphs() const { return m_showFloodingGlyphs; }
     double   floodRadiusPx()    const { return m_floodRadiusPx; }
     int      floodSweepDeg()    const { return m_floodSweepDeg; }
     QColor   floodColor()       const { return m_floodColor; }
@@ -332,6 +334,7 @@ public slots:
     void setInundation2DFillBrush(const QBrush &b);
     void setShowBranchStubs (bool v);
     void setShowNodeRoses   (bool v);
+    void setShowFloodingGlyphs(bool v);
     void setFloodRadiusPx (double r);
     void setFloodSweepDeg (int deg);
     void setFloodColor    (const QColor &c);
@@ -418,6 +421,7 @@ private:
     // small zoom levels without crowding adjacent rim glyphs.  Colour is
     // a saturated warning red; outline is auto-derived as a 60 %-darker
     // tint of the fill so a single user setting keeps the glyph coherent.
+    bool             m_showFloodingGlyphs = true;
     double           m_floodRadiusPx    = 15.0;
     int              m_floodSweepDeg    = 60;
     QColor           m_floodColor       {0xE5, 0x21, 0x21};

@@ -19,6 +19,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPainterPathStroker>
 #include <QRect>
 #include <QResizeEvent>
 #include <QRubberBand>
@@ -474,7 +475,7 @@ void ProfilePlotWidget::setOptions(ProfilePlotOptions *options)
     m_options = options;
     if (m_options) {
         connect(m_options.data(), &ProfilePlotOptions::changed,
-                this, [this] { update(); });
+                this, [this] { recomputeBounds(); update(); });
     }
     update();
 }
@@ -718,14 +719,31 @@ void ProfilePlotWidget::recomputeBounds()
 
     const double rangeY = yMax - yMin;
     yMin -= rangeY * kPadFracY;
-    yMax += rangeY * kPadFracY;
+    // Rim symbols use screen pixels, so percentage-only padding clips them
+    // in short charts or at endpoint nodes. Reserve their full size for all
+    // periods, keeping playback extents steady and manual ranges untouched.
+    const bool showFlooding = !m_options || m_options->showFloodingGlyphs();
+    const double glyphMargin = showFlooding
+        ? (m_options ? m_options->floodRadiusPx() : 15.0) + 2.0 : 8.0;
+    // The default timestamp card otherwise covers the first node's glyph.
+    // Keep a clear header band; a manually dragged card keeps its placement.
+    using TP = ProfilePlotOptions::TimeLabelPosition;
+    const bool topTimeLabel = !m_options || (m_options->showTimeLabel()
+        && (m_options->timeLabelPosition() == TP::TimeTopLeft
+            || m_options->timeLabelPosition() == TP::TimeTopRight)
+        && m_options->timeLabelOffset().isNull());
+    const double headerMargin = topTimeLabel
+        ? QFontMetricsF(m_options ? m_options->timeLabelFont() : font()).height() + 20.0 : 0.0;
+    const double topMargin = glyphMargin + headerMargin;
+    yMax += std::max(rangeY * kPadFracY,
+                    (yMax - yMin) * topMargin
+                        / std::max(1.0, plotRect().height() - topMargin));
     const double rangeX = xMax - xMin;
     const bool haveLid = std::any_of(m_path.nodes.cbegin(), m_path.nodes.cend(),
         [](const auto &node) { return !node.lidLayers.isEmpty(); });
-    const double edgeMargin = kLidNodeHalfWidthPx + 3.0;
-    const double padX = haveLid
-        ? std::max(kPadFracX, edgeMargin / std::max(1.0, plotRect().width() - 2.0 * edgeMargin))
-        : kPadFracX;
+    const double edgeMargin = std::max(glyphMargin, haveLid ? kLidNodeHalfWidthPx + 3.0 : 8.0);
+    const double padX = std::max(kPadFracX,
+        edgeMargin / std::max(1.0, plotRect().width() - 2.0 * edgeMargin));
     xMin -= rangeX * padX;
     xMax += rangeX * padX;
 
@@ -773,6 +791,74 @@ double ProfilePlotWidget::nodeHalfWidthPx(int nodeIdx) const
         half = std::min(half, gap * 0.25);
     }
     return std::max(kDefaultNodeHalfWidthPx, half);
+}
+
+std::optional<ProfilePlotWidget::LidLinkDrawing> ProfilePlotWidget::lidLinkDrawing(int linkIdx) const
+{
+    if (linkIdx < 0 || linkIdx >= m_path.links.size()) return {};
+    const auto &link = m_path.links[linkIdx];
+    if (link.kind == ProfileBuilder::LinkKind::Conduit) return {};
+    for (int n : {linkIdx, linkIdx + 1}) {
+        const auto &node = m_path.nodes[n];
+        if (node.lidLayers.isEmpty()) continue;
+        const int other = n == linkIdx ? linkIdx + 1 : linkIdx;
+        const double direction = other > n ? 1.0 : -1.0;
+        const double x = dataToPixel(virtualX(n), 0).x();
+        QPointF end = dataToPixel(virtualX(other), m_path.nodes[other].invertElev
+            + (other == linkIdx ? link.offset1 : link.offset2));
+        end.rx() -= direction * nodeHalfWidthPx(other);
+        for (const auto &branch : node.branches) {
+            if (branch.name != link.name || branch.lidLayer < 1 || branch.lidAnchorTop
+                || branch.lidLayer > node.lidLayers.size()) continue;
+            const double level = node.lidLayers[branch.lidLayer - 1].bottomElev;
+            if (!isFinite(level)) continue;
+            const QPointF port = dataToPixel(virtualX(n), level);
+            // Only the port elevation is physical. This short downturned
+            // connector is a schematic drain, not a fictitious long barrel.
+            const double drop = std::clamp(plotRect().bottom() - port.y() - 4.0, 8.0, 18.0);
+            const double bend = port.y() + drop;
+            LidLinkDrawing drawing;
+            drawing.connection.moveTo(port);
+            drawing.connection.lineTo(QPointF(x, bend));
+            drawing.connection.lineTo(QPointF(end.x(), bend));
+            drawing.connection.lineTo(end);
+            drawing.body.addRect(QRectF(x - 4.0, port.y() + drop * .5 - 2.0, 8.0, 4.0));
+            return drawing;
+        }
+        // An overflow weir is a point structure at its inlet's crest. A
+        // zero-length weir must not become a solid wall across a LID profile.
+        const int inlet = link.reversed ? linkIdx + 1 : linkIdx;
+        if (link.kind == ProfileBuilder::LinkKind::Weir && n == inlet) {
+            const double crest = dataToPixel(0, node.invertElev + link.crestHeight).y();
+            const double floor = dataToPixel(0, node.invertElev).y();
+            const double edge = x + direction * nodeHalfWidthPx(n);
+            const double outer = edge + direction * 10.0;
+            LidLinkDrawing drawing;
+            drawing.body.addRect(QRectF(QPointF(edge, crest), QPointF(outer, floor)).normalized());
+            drawing.connection.moveTo(QPointF(outer, crest));
+            drawing.connection.lineTo(end);
+            return drawing;
+        }
+    }
+    return {};
+}
+
+void ProfilePlotWidget::paintLidConnections(QPainter &p) const
+{
+    p.save();
+    p.setClipRect(plotRect());
+    for (int i = 0; i < m_path.links.size(); ++i) {
+        const auto drawing = lidLinkDrawing(i);
+        if (!drawing) continue;
+        const auto &link = m_path.links[i];
+        QPen pen = themeLinkOutlinePen(link.kind);
+        pen.setJoinStyle(Qt::RoundJoin); pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen); p.setBrush(Qt::NoBrush);
+        p.drawPath(drawing->connection);
+        p.setBrush(themeLinkFill(link.kind));
+        p.drawPath(drawing->body);
+    }
+    p.restore();
 }
 
 void ProfilePlotWidget::hglEdgePixels(int linkIdx, qreal &pxU, qreal &pxD) const
@@ -1130,6 +1216,13 @@ int ProfilePlotWidget::linkIndexAt(const QPoint &widgetPos) const
     constexpr double kEndInsetPx  = 4.0;   // node tubes win near boundaries
     for (int i = 0; i < m_path.links.size(); ++i) {
         const auto  &l    = m_path.links[i];
+        if (const auto drawing = lidLinkDrawing(i)) {
+            QPainterPathStroker stroke; stroke.setWidth(8.0);
+            if (drawing->body.contains(widgetPos)
+                || stroke.createStroke(drawing->connection).contains(widgetPos)
+                || stroke.createStroke(drawing->body).contains(widgetPos)) return i;
+            continue;
+        }
         const double xU   = virtualX(i);
         const double xD   = virtualX(i + 1);
         // Effective invert elevations at each end.  Mirrors the rendering
@@ -1255,6 +1348,7 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
     }
 
     paintNodeLidLayers(p);
+    paintLidConnections(p);
     paintNodes(p);
     paintLabelAxis(p);
 
@@ -1847,7 +1941,7 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
     };
     auto isExcavatedLink = [&](int linkIdx) {
         if (linkIdx < 0 || linkIdx >= m_path.links.size()) return false;
-        return linkKindIsExcavated(m_path.links[linkIdx].kind);
+        return lidLinkDrawing(linkIdx).has_value() || linkKindIsExcavated(m_path.links[linkIdx].kind);
     };
     auto inletInvertOf = [&](int linkIdx) -> double {
         const auto &l = m_path.links[linkIdx];
@@ -1863,6 +1957,9 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
     // invert (handled by the rim / crown emit loops below).
     auto linkBottomOf = [&](int linkIdx) -> double {
         if (linkIdx < 0 || linkIdx >= m_path.links.size()) return std::nan("");
+        if (lidLinkDrawing(linkIdx))
+            return std::min(m_path.nodes[linkIdx].invertElev,
+                            m_path.nodes[linkIdx + 1].invertElev);
         return inletInvertOf(linkIdx) + m_path.links[linkIdx].offset1;
     };
     auto crownUpstream = [&](int linkIdx) -> double {
@@ -2147,6 +2244,7 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
 
     for (int i = 0; i < m_path.links.size(); ++i) {
         const auto &l = m_path.links[i];
+        if (lidLinkDrawing(i)) continue;
         const double xU = virtualX(i);
         const double xD = virtualX(i + 1);
         // Effective invert elevations at each end.  Orifices render with
@@ -2749,16 +2847,16 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
 
         // Flooding test — outfalls cannot flood (open boundary), so they
         // always render with the normal outfall glyph.  Any other node
-        // whose current HGL meets the surcharge threshold (in any visible
-        // HGL series) renders as a red sector instead of its kind-specific
-        // rim glyph.
+        // whose current HGL meets the surcharge threshold in any selected
+        // source renders as a red sector. This overlay has its own toggle;
+        // hiding the HGL line/fill must not hide its warning glyphs.
         bool flooding = false;
-        if (m_currentPeriod >= 0
+        if ((!m_options || m_options->showFloodingGlyphs()) && m_currentPeriod >= 0
             && n.kind != ProfileBuilder::NodeKind::Outfall) {
             const double surchargeElev =
                 n.invertElev + n.maxDepth + n.surchargeDepth;
             for (const auto &s : m_series) {
-                if (!s.visible || !s.derived) continue;
+                if (!s.derived) continue;
                 if (s.kind != ProfileBuilder::OutputKind::HGL) continue;
                 // SourceDerived is period-major: arr[period][node].
                 const auto &arr = s.derived->hglByPeriod;
@@ -2881,6 +2979,10 @@ void ProfilePlotWidget::paintSelectionHighlights(QPainter &p) const
         pen.setJoinStyle(Qt::RoundJoin);
         pen.setCapStyle(Qt::RoundCap);
         p.setPen(pen);
+        if (const auto drawing = lidLinkDrawing(i)) {
+            p.drawPath(drawing->connection); p.drawPath(drawing->body);
+            continue;
+        }
 
         if (linkKindRendersAsConduit(l.kind)) {
             const double zUcr = zUinv + l.maxDepth;
@@ -3069,6 +3171,7 @@ void ProfilePlotWidget::paintSeriesEnvelope(QPainter &p, int seriesIdx) const
     using K = ProfileBuilder::LinkKind;
     QPainterPath fill;
     for (int i = 0; i < m_path.links.size(); ++i) {
+        if (lidLinkDrawing(i)) continue;
         const auto &l = m_path.links[i];
         const double vU = (i     < arr.size()) ? arr[i]     : std::nan("");
         const double vD = (i + 1 < arr.size()) ? arr[i + 1] : std::nan("");
@@ -3198,6 +3301,7 @@ void ProfilePlotWidget::paintHglFill(QPainter &p, int seriesIdx) const
 
     using K = ProfileBuilder::LinkKind;
     for (int i = 0; i < m_path.links.size(); ++i) {
+        if (lidLinkDrawing(i)) continue;
         const auto &l = m_path.links[i];
         // Pumps & outlets have no physical water profile to fill — pumps
         // lift discharge without a continuous water surface, outlets are
