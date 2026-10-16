@@ -22,6 +22,7 @@
 #include <QFont>
 #include <QJsonObject>
 #include <QString>
+#include <QVariant>
 
 namespace OpenSWMM::Render {
 
@@ -119,6 +120,16 @@ struct LabelConfig
      *  lands). */
     QString priorityField;
 
+    /*! Feedback C4 — numeric formatting for field values and numeric
+     *  `{tokens}` in expressions. -1 = automatic (6 significant digits,
+     *  so a slope of 0.004123456789012 reads "0.00412346" instead of the
+     *  17 digits QVariant::toString() emits); 0–10 = that many fixed
+     *  decimals. Non-numeric values pass through unchanged. */
+    int     decimals      = -1;
+
+    /*! Render \p v as label text under \p decimals (see above). */
+    [[nodiscard]] static QString formatValue(const QVariant &v, int decimals);
+
     [[nodiscard]] QJsonObject toJson() const;
     void fromJson(const QJsonObject &j);
 
@@ -154,7 +165,8 @@ inline bool operator==(const LabelConfig &a, const LabelConfig &b)
         && a.backgroundColor      == b.backgroundColor
         && qFuzzyCompare(a.backgroundPaddingPx, b.backgroundPaddingPx)
         && qFuzzyCompare(a.backgroundRadiusPx,  b.backgroundRadiusPx)
-        && a.priorityField        == b.priorityField;
+        && a.priorityField        == b.priorityField
+        && a.decimals             == b.decimals;
 }
 inline bool operator!=(const LabelConfig &a, const LabelConfig &b) { return !(a == b); }
 

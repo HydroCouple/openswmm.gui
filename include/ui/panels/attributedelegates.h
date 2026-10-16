@@ -28,10 +28,13 @@ class NumericDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
 public:
+    /*! \p step 0 derives one unit of the second-to-last decimal
+     *  (10^(1-decimals)); a positive value is used as given (feedback C7). */
     explicit NumericDelegate(QObject *parent = nullptr,
                               double minimum = -std::numeric_limits<double>::infinity(),
                               double maximum =  std::numeric_limits<double>::infinity(),
-                              int    decimals = 4);
+                              int    decimals = 4,
+                              double step = 0.0);
 
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                           const QModelIndex &index) const override;
@@ -43,6 +46,7 @@ private:
     double m_min;
     double m_max;
     int    m_decimals;
+    double m_step;
 };
 
 /*! Integer editor with optional min/max. */

@@ -113,8 +113,12 @@ QVector<QPointF> removedAt(const QVector<QPointF> &vertices, int index)
 {
     if (index < 0 || index >= vertices.size())
         return vertices;
-    if (vertices.size() <= 2)
-        return vertices;
+    // No minimum-size guard here: link callers pass the INTERIOR vertex
+    // list, whose empty state is a valid straight conduit. The old
+    // `size() <= 2` guard silently refused to delete the only bend (or one
+    // of two) while the multi-select path, which bypasses this function,
+    // happily did. Subcatchments keep their own >= 3-vertex rule at the
+    // call site.
 
     QVector<QPointF> out = vertices;
     out.removeAt(index);

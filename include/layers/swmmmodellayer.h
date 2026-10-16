@@ -2790,6 +2790,12 @@ private:
     // so the const override can populate on first read.
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
     void buildRuleListLazy() const;
+    // Feedback C1 — Rule → kind plumbing shared by the lazy build and by
+    // lists repopulated in place (Style Manager "Apply to layer" loads a
+    // library file into the existing RuleList through RuleList::fromJson).
+    void attachRuleToKind(OpenSWMM::Render::Rule *rule, Category c);
+    void applyRuleToKind(OpenSWMM::Render::Rule *rule, Category c);
+    void onRuleListRepopulated();
     // M1 — set when a kind renderer changes after the RuleList was built, so
     // the next ruleList() rebuilds from the live per-kind renderers instead
     // of handing back a stale mirror (the "dialog doesn't match what's drawn

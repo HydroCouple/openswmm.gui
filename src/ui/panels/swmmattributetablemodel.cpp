@@ -218,13 +218,15 @@ ColumnSpec num(const QString &key, const QString &label,
                 double minVal = -std::numeric_limits<double>::infinity(),
                 double maxVal =  std::numeric_limits<double>::infinity(),
                 int decimals = 4,
-                UnitKind unit = UnitKind::None) {
+                UnitKind unit = UnitKind::None,
+                double step = 0.0) {
     ColumnSpec c;
     c.key = key; c.label = label;
     c.editor = EditorKind::Numeric;
     c.setter = setter;
     c.minValue = minVal; c.maxValue = maxVal; c.decimals = decimals;
     c.unit = unit;
+    c.step = step;
     return c;
 }
 
@@ -703,17 +705,17 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             ro("To node",      "To Node"),
             tagCol("link_tag"),
             num("Length",      "Length",        "link_length",
-                                                  0.0, 1e9, 2, UnitKind::Length),
+                                                  0.0, 1e9, 2, UnitKind::Length, 1.0),
             // Derived from the end-node inverts and offsets, so read-only.
             // The engine stores it as a rise/run fraction (not a percent),
             // and unlike the offsets it carries no unit conversion.
             roGet("Slope",     "Slope (rise/run)", "link_slope"),
             num("Roughness",   "Manning's n",   "link_roughness",
-                                                  1e-6, 1.0, 4),
+                                                  1e-6, 1.0, 4, UnitKind::None, 0.001),
             num("Offset up",   "Upstream Offset",   "link_offset_up",
-                                                  -1e6, 1e6, 4, UnitKind::Length),
+                                                  -1e6, 1e6, 4, UnitKind::Length, 0.1),
             num("Offset dn",   "Downstream Offset", "link_offset_dn",
-                                                  -1e6, 1e6, 4, UnitKind::Length),
+                                                  -1e6, 1e6, 4, UnitKind::Length, 0.1),
             num("Init flow",   "Initial Flow",  "link_initial_flow",
                                                   0.0, 1e9, 4, UnitKind::FlowRate),
             num("Max flow",    "Maximum Flow",  "link_max_flow",
@@ -786,9 +788,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — the
             // browser's weir adapter exposes both offsets.
             num("Offset up",   "Upstream Offset",   "link_offset_up",
-                                                  -1e6, 1e6, 4, UnitKind::Length),
+                                                  -1e6, 1e6, 4, UnitKind::Length, 0.1),
             num("Offset dn",   "Downstream Offset", "link_offset_dn",
-                                                  -1e6, 1e6, 4, UnitKind::Length),
+                                                  -1e6, 1e6, 4, UnitKind::Length, 0.1),
             num("Crest height", "Crest Height",   "link_crest_height",
                                                   0.0, 1e6, 4, UnitKind::Length),
             num("Discharge coeff", "Discharge Coefficient",
@@ -826,7 +828,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             enumCol("Orifice type", "Type", "link_orifice_type",
                                                   orificeTypeValues()),
             num("Offset up",   "Offset",   "link_offset_up",
-                                                  -1e6, 1e6, 4, UnitKind::Length),
+                                                  -1e6, 1e6, 4, UnitKind::Length, 0.1),
             num("Discharge coeff", "Discharge Coefficient",
                                                   "link_discharge_coeff",
                                                   0.0, 100.0, 4),
@@ -862,7 +864,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             ro("To node",      "To Node"),
             tagCol("link_tag"),
             num("Offset up",   "Offset",   "link_offset_up",
-                                                  -1e6, 1e6, 4, UnitKind::Length),
+                                                  -1e6, 1e6, 4, UnitKind::Length, 0.1),
             enumCol("Rating type", "Rating Curve", "link_outlet_rating_type",
                                                   outletRatingTypeValues()),
             num("Coefficient", "Coefficient",  "link_discharge_coeff",
@@ -896,9 +898,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                       "subcatch_pct_zero",
                                                        0.0, 100.0, 2, UnitKind::Percent),
             num("N-Imperv",  "Manning's n (Imperv.)", "subcatch_n_imperv",
-                                                       0.0, 1.0, 4),
+                                                       0.0, 1.0, 4, UnitKind::None, 0.001),
             num("N-Perv",    "Manning's n (Perv.)",   "subcatch_n_perv",
-                                                       0.0, 1.0, 4),
+                                                       0.0, 1.0, 4, UnitKind::None, 0.001),
             num("Ds-Imperv", "Depression Storage (Imperv.)",
                                                       "subcatch_ds_imperv",
                                                        0.0, 1e3, 4, UnitKind::Depression),
@@ -2086,6 +2088,50 @@ QVariantList culvertCodeValues() {
 }
 
 } // anonymous
+
+// ---------------------------------------------------------------------------
+// Feedback C7 — shared numeric-editor hints for the Properties panel
+// ---------------------------------------------------------------------------
+
+double openswmmvis::columnStep(const ColumnSpec &spec)
+{
+    if (spec.step > 0.0) return spec.step;
+    return std::pow(10.0, 1 - spec.decimals);
+}
+
+std::optional<ColumnSpec> openswmmvis::columnSpecForProperty(const QString &propertyName)
+{
+    // Q_PROPERTY names are camelCase ("offsetUp"); setter tags are snake_case
+    // behind a kind prefix ("link_offset_up", "link_pump_startup_depth").
+    QString snake;
+    for (const QChar ch : propertyName) {
+        if (ch.isUpper()) { snake += QLatin1Char('_'); snake += ch.toLower(); }
+        else              { snake += ch; }
+    }
+    if (snake.isEmpty()) return std::nullopt;
+
+    // Exact match on the category-stripped tag first ("area" must find
+    // subcatch_area, not node_ponded_area), then the suffix match that
+    // covers the deeper tags.
+    static const QStringList kPrefixes = { QStringLiteral("node_"),
+                                           QStringLiteral("link_"),
+                                           QStringLiteral("subcatch_") };
+    std::optional<ColumnSpec> bySuffix;
+    const QString suffix = QLatin1Char('_') + snake;
+    for (int k = 0; k < int(SWMMModelLayer::NumCategories); ++k) {
+        const auto specs = schemaForCategory(static_cast<SWMMModelLayer::Category>(k));
+        for (const ColumnSpec &spec : specs) {
+            if (spec.editor != EditorKind::Numeric) continue;
+            for (const QString &prefix : kPrefixes) {
+                if (spec.setter.startsWith(prefix) && spec.setter.mid(prefix.size()) == snake)
+                    return spec;
+            }
+            if (!bySuffix && spec.setter.endsWith(suffix))
+                bySuffix = spec;
+        }
+    }
+    return bySuffix;
+}
 
 SWMMAttributeTableModel::SWMMAttributeTableModel(QObject *parent)
     : QAbstractTableModel(parent)

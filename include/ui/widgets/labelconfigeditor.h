@@ -31,6 +31,7 @@ class QDoubleSpinBox;
 class QFontComboBox;
 class QLabel;
 class QLineEdit;
+class QSpinBox;
 class QToolButton;
 
 namespace openswmmvis::ui {
@@ -84,6 +85,7 @@ private:
     QComboBox      *m_fieldCombo   = nullptr;
     QLineEdit      *m_exprEdit     = nullptr;
     QToolButton    *m_exprBuildBtn = nullptr;
+    QSpinBox       *m_decimalsSpin = nullptr;   // feedback C4 — Auto / 0–10
     QFontComboBox  *m_fontCombo    = nullptr;
     QDoubleSpinBox *m_fontSizeSpin = nullptr;
     QToolButton    *m_boldBtn      = nullptr;

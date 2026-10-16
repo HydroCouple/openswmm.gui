@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/snowpackeditordialog.h"
+#include "core/swmmidentifier.h"
 
 #include "layers/swmmmodellayer.h"   // complete type for QPointer<SWMMModelLayer>
 #include "snowpack/snowpackprovider.h"
@@ -353,6 +354,11 @@ void SnowpackEditorDialog::onNameEdited_()
     if (m_suppressFieldSync || !m_registry || !m_current) return;
     const QString newName = m_nameEdit->text().trimmed();
     if (newName.isEmpty() || newName == m_current->name()) return;
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("Rename Snow Pack"), why);   // feedback C10
+        m_nameEdit->setText(m_current->name());
+        return;
+    }
     if (!m_registry->rename(m_current, newName)) {
         QMessageBox::warning(this, tr("Rename Snow Pack"),
             tr("A snow pack named \"%1\" already exists.").arg(newName));

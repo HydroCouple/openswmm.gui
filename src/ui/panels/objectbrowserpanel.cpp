@@ -313,9 +313,9 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
         // 2026-05-29 — leaves get an "Edit…" action that opens the
         // category's comprehensive editor with this object pre-selected.
         // For gap categories the action is disabled with the registry's
-        // tooltip naming the future slice. "Properties…" stays as the
-        // existing path that just routes the selection through the bus
-        // so the PropertiesPanel mirrors the click.
+        // tooltip naming the future slice. (A "Properties…" entry used to
+        // follow; it only replayed the selection a left-click already
+        // routes to the Properties panel, so it was dropped — feedback C6.)
         const auto &editorReg = ComprehensiveEditorRegistry::instance();
         const bool hasEditor  = editorReg.hasEditor(dc);
         QAction *actEdit = dmenu.addAction(QIcon(QStringLiteral(":/swmmvis/Layers")),
@@ -325,7 +325,6 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             actEdit->setToolTip(editorReg.gapTooltip(dc));
             dmenu.setToolTipsVisible(true);
         }
-        QAction *actProps = dmenu.addAction(tr("Properties…"));
 
         // Delete… — data objects with a registry-backed delete path
         // (curves, time series, transects) route through the undoable
@@ -354,13 +353,6 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
                 m_layer,
                 m_canvas ? m_canvas->undoStack() : nullptr,
                 refForProxyIndex(proxyIdx), this);
-        } else if (picked == actProps) {
-            // Future: dispatch through PropertyEditorRegistry. For now
-            // this just emits the existing selection signal so the
-            // attribute panel reflects the click.
-            const SWMMObjectRef ref = refForProxyIndex(proxyIdx);
-            if (m_selMgr && ref.objectType != SWMMObjectRef::Unknown)
-                m_selMgr->select(ref, SelectionManager::Replace);
         } else if (picked && picked == actDelete && canDelete) {
             const QString msg = tr("Delete \"%1\"?").arg(leafRef.name);
             if (QMessageBox::question(
@@ -424,10 +416,21 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             if (picked == actTop) {
                 newOrder.removeAt(fullPos);
                 newOrder.prepend(cat);
-            } else if (picked == actUp && fullPos > 0) {
-                newOrder.swapItemsAt(fullPos, fullPos - 1);
-            } else if (picked == actDown && fullPos < newOrder.size() - 1) {
-                newOrder.swapItemsAt(fullPos, fullPos + 1);
+            } else if (picked == actUp || picked == actDown) {
+                // Step past the VISIBLE neighbour, not the next entry of the
+                // full order: the tree hides empty categories, so swapping
+                // with a hidden one left the visible order unchanged
+                // (feedback C5 — "Move Up does nothing").
+                const auto neighbour = m_model->categoryAtTopRow(
+                    picked == actUp ? visPos - 1 : visPos + 1);
+                const int nbPos = newOrder.indexOf(neighbour);
+                if (neighbour == SWMMModelLayer::NumCategories || nbPos < 0)
+                    return;
+                newOrder.removeAt(fullPos);
+                // Up: land just before the neighbour (its index is unchanged
+                // by the removal above). Down: the neighbour shifted one slot
+                // left, so inserting at its OLD index lands just after it.
+                newOrder.insert(nbPos, cat);
             } else if (picked == actBot) {
                 newOrder.removeAt(fullPos);
                 newOrder.append(cat);

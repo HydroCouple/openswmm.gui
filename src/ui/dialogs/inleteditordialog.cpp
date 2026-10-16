@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/inleteditordialog.h"
+#include "core/swmmidentifier.h"
 
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
@@ -695,6 +696,13 @@ void InletEditorDialog::onNameEdited_()
     if (m_suppressSync || !m_current || !m_registry || !m_nameEdit) return;
     const QString newName = m_nameEdit->text().trimmed();
     if (newName.isEmpty() || newName == m_current->name()) {
+        const QSignalBlocker b(m_nameEdit);
+        m_nameEdit->setText(m_current->name());
+        return;
+    }
+    // Feedback C10 — refuse names that cannot survive an .inp round trip.
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        if (m_status) m_status->showMessage(why, 6000);
         const QSignalBlocker b(m_nameEdit);
         m_nameEdit->setText(m_current->name());
         return;

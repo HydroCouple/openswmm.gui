@@ -194,6 +194,7 @@ PointFeatureStyleEditor::PointFeatureStyleEditor(PointFeatureSublayerStyle *styl
     auto *form = new QFormLayout(symbolBox);
 
     m_sizeSpin = new QDoubleSpinBox(this);
+    m_sizeSpin->setObjectName(QStringLiteral("baseSymbolSize"));   // feedback C2
     m_sizeSpin->setRange(0.5, 60.0);
     m_sizeSpin->setDecimals(1);
     m_sizeSpin->setSingleStep(0.5);
@@ -250,6 +251,7 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
     auto *lineForm = new QFormLayout(lineBox);
 
     m_widthSpin = new QDoubleSpinBox(this);
+    m_widthSpin->setObjectName(QStringLiteral("baseSymbolSize"));   // feedback C2
     m_widthSpin->setRange(0.25, 30.0);
     m_widthSpin->setDecimals(2);
     m_widthSpin->setSingleStep(0.25);

@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/streeteditordialog.h"
+#include "core/swmmidentifier.h"
 
 #include "layers/swmmmodellayer.h"   // QPointer<SWMMModelLayer> needs the complete type
 #include "ui/models/streetlistmodel.h"
@@ -444,6 +445,11 @@ void StreetEditorDialog::onNameEdited_()
     if (m_suppressFieldSync || !m_registry || !m_current) return;
     const QString newName = m_nameEdit->text().trimmed();
     if (newName.isEmpty() || newName == m_current->name()) return;
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("Rename Street"), why);   // feedback C10
+        if (m_current) m_nameEdit->setText(m_current->name());
+        return;
+    }
     if (!m_registry->rename(m_current, newName)) {
         QMessageBox::warning(this, tr("Rename Street"),
             tr("A street named \"%1\" already exists.").arg(newName));

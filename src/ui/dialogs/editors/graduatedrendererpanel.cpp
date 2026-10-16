@@ -16,8 +16,10 @@
 
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "ui/dialogs/editors/basesymbolgroup.h"   // feedback C2
 #include "ui/dialogs/editors/kindrendererpanel.h"
 
+#include <QDoubleSpinBox>
 #include <QLabel>
 #include <QVBoxLayout>
 
@@ -33,26 +35,41 @@ public:
     {
         auto *lay = new QVBoxLayout(this);
         lay->setContentsMargins(0, 0, 0, 0);
+        // Feedback C2 — size / outline / labels stay editable under a
+        // classified renderer (colour still comes from the classes).
+        QWidget *base = createBaseSymbolGroup(ctx, this);
+        if (base) lay->addWidget(base);
+        KindRendererPanel *panel = nullptr;
         // Slice B.6a — Rule path takes priority. Hand it the kind context
         // when we have it: the renderer still goes through the Rule, but the
         // panel needs the layer + category to reach the per-kind flow-arrow
         // channel, which is not renderer state and so has no Rule mirror.
         if (ctx.rule && ctx.hostLayer && ctx.category.has_value()) {
-            auto *panel = new KindRendererPanel(ctx.rule, ctx.hostLayer,
-                                                *ctx.category, this);
+            panel = new KindRendererPanel(ctx.rule, ctx.hostLayer,
+                                          *ctx.category, this);
             lay->addWidget(panel, 1);
         } else if (ctx.rule) {
-            auto *panel = new KindRendererPanel(ctx.rule, this);
+            panel = new KindRendererPanel(ctx.rule, this);
             lay->addWidget(panel, 1);
         } else if (ctx.hostLayer && ctx.category.has_value()) {
-            auto *panel = new KindRendererPanel(
-                ctx.hostLayer, *ctx.category, this);
+            panel = new KindRendererPanel(ctx.hostLayer, *ctx.category, this);
             lay->addWidget(panel, 1);
         } else {
             lay->addWidget(new QLabel(
                 tr("Graduated rendering at the layer level is not yet "
                    "supported — pick a kind from the tree."), this));
             lay->addStretch();
+        }
+        // "Size by value" owns the size axis while it is on: grey the static
+        // size / line-width spin so the two don't fight.
+        if (base && panel) {
+            auto greyStaticSize = [base](bool sizeByValue) {
+                for (auto *spin : base->findChildren<QDoubleSpinBox *>(
+                         QStringLiteral("baseSymbolSize")))
+                    spin->setEnabled(!sizeByValue);
+            };
+            connect(panel, &KindRendererPanel::outputAxisToggled, base, greyStaticSize);
+            greyStaticSize(panel->sizeByValueEnabled());
         }
     }
 

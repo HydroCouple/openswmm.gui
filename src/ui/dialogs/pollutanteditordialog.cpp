@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/pollutanteditordialog.h"
+#include "core/swmmidentifier.h"
 
 #include "layers/swmmmodellayer.h"   // complete type for QPointer<SWMMModelLayer>
 #include "pollutant/pollutantprovider.h"
@@ -327,6 +328,13 @@ void PollutantEditorDialog::onNameEdited_()
     if (m_suppressFieldSync || !m_registry || !m_current) return;
     const QString newName = m_nameEdit->text().trimmed();
     if (newName.isEmpty() || newName == m_current->name()) return;
+    // Feedback C10 — "Total Nitrogen" saved as "Total": refuse names that
+    // cannot survive an .inp round trip and say which character is why.
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("Rename Pollutant"), why);
+        m_nameEdit->setText(m_current->name());
+        return;
+    }
     const QPointer<PollutantProvider> edited = m_current;
     if (!m_registry->rename(edited, newName)) {
         QMessageBox::warning(this, tr("Rename Pollutant"),

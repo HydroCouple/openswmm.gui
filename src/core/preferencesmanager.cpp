@@ -91,6 +91,12 @@ const NodeStyleDefault kDividerNodeDefault  = { QColor(0,   255, 0  ), Qt::darkB
 const NodeStyleDefault kVirtualJunctionNodeDefault = { QColor(0, 120, 255), Qt::darkBlue, 1.0, 8.0 };
 // Inlet junction — same blue, one pixel larger, drawn as a diamond (D-G7).
 const NodeStyleDefault kInletJunctionNodeDefault   = { QColor(0, 120, 255), Qt::darkBlue, 1.0, 9.0 };
+// Feedback C14 — rain gages and subcatchments ride the same pen / brush /
+// size store so Preferences → Rendering → Network Symbols can seed them.
+// Values mirror the SWMMModelLayer constructor's m_gageSym / m_subcatchSym
+// defaults; the subcatchment size slot is unused (polygons have no marker).
+const NodeStyleDefault kRainGageNodeDefault        = { QColor(Qt::cyan), Qt::darkBlue, 1.0, 10.0 };
+const NodeStyleDefault kSubcatchmentDefault        = { QColor(180, 220, 180), QColor(0, 60, 0), 1.5, 0.0 };
 
 constexpr int     kDefaultProgressTickMs        = 1000;
 constexpr double  kDefaultAnimationSpeed         = 1.0;
@@ -713,6 +719,14 @@ QString canonicalNodeType(const QString &nodeType)
     if (k == QLatin1String("inlet_junction") || k == QLatin1String("inletjunction")
         || k == QLatin1String("inlet junction") || k == QLatin1String("inlet junctions"))
         return QStringLiteral("InletJunction");
+    // Feedback C14 — non-node kinds sharing the store.
+    if (k == QLatin1String("raingage") || k == QLatin1String("raingages")
+        || k == QLatin1String("rain_gage") || k == QLatin1String("rain gage")
+        || k == QLatin1String("gage") || k == QLatin1String("gages"))
+        return QStringLiteral("RainGage");
+    if (k == QLatin1String("subcatchment") || k == QLatin1String("subcatchments")
+        || k == QLatin1String("subcatch"))
+        return QStringLiteral("Subcatchment");
     return QStringLiteral("Junction");
 }
 
@@ -723,6 +737,8 @@ const NodeStyleDefault &defaultNodeStyleForKey(const QString &canonicalKey)
     if (canonicalKey == QLatin1String("Divider")) return kDividerNodeDefault;
     if (canonicalKey == QLatin1String("VirtualJunction")) return kVirtualJunctionNodeDefault;
     if (canonicalKey == QLatin1String("InletJunction"))   return kInletJunctionNodeDefault;
+    if (canonicalKey == QLatin1String("RainGage"))        return kRainGageNodeDefault;
+    if (canonicalKey == QLatin1String("Subcatchment"))    return kSubcatchmentDefault;
     return kJunctionNodeDefault;
 }
 } // anonymous

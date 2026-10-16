@@ -27,6 +27,7 @@
 #include "core/crsreproject.h"
 #include "core/editgeometry.h"
 #include "core/preferencesmanager.h"
+#include "core/swmmidentifier.h"
 #include "core/unitsystem.h"
 #include "map/swmmlayeritem.h"
 #include "map/spatialreferencesystem.h"
@@ -563,6 +564,56 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
             }
         }
     });
+
+    // Feedback C14 — rain gage + subcatchment defaults come from Preferences
+    // → Rendering → Network Symbols with the same "inherited" semantics as
+    // the link pens above: a field still equal to the value it inherited
+    // follows later preference edits; an explicitly customised one stays.
+    {
+        const QString gageKey = QStringLiteral("raingage");
+        const QString subKey  = QStringLiteral("subcatchment");
+        m_gageSym.fillColor        = renderPrefs->nodeBrush(gageKey).color();
+        m_gageSym.outlineColor     = renderPrefs->nodePen(gageKey).color();
+        m_gageSym.outlineWidth     = renderPrefs->nodePen(gageKey).widthF();
+        m_gageSym.size             = renderPrefs->nodeSize(gageKey);
+        m_subcatchSym.fillColor    = renderPrefs->nodeBrush(subKey).color();
+        m_subcatchSym.outlineColor = renderPrefs->nodePen(subKey).color();
+        m_subcatchSym.outlineWidth = renderPrefs->nodePen(subKey).widthF();
+        connect(renderPrefs, &PreferencesManager::preferenceChanged, this,
+                [this, renderPrefs, gageKey, subKey,
+                 inheritedGage = m_gageSym, inheritedSub = m_subcatchSym]
+                (const QString &group, const QString &key) mutable {
+            if (group != QStringLiteral("Rendering")) return;
+            if (key.endsWith(QStringLiteral("/RainGage"))) {
+                const QPen   pen  = renderPrefs->nodePen(gageKey);
+                const QBrush fill = renderPrefs->nodeBrush(gageKey);
+                const double size = renderPrefs->nodeSize(gageKey);
+                SWMMElementSymbol sym = m_gageSym;
+                bool changed = false;
+                if (sym.fillColor == inheritedGage.fillColor)       { sym.fillColor    = fill.color();  changed = true; }
+                if (sym.outlineColor == inheritedGage.outlineColor) { sym.outlineColor = pen.color();   changed = true; }
+                if (qFuzzyCompare(sym.outlineWidth, inheritedGage.outlineWidth)) { sym.outlineWidth = pen.widthF(); changed = true; }
+                if (qFuzzyCompare(sym.size, inheritedGage.size))    { sym.size         = size;          changed = true; }
+                inheritedGage.fillColor    = fill.color();
+                inheritedGage.outlineColor = pen.color();
+                inheritedGage.outlineWidth = pen.widthF();
+                inheritedGage.size         = size;
+                if (changed) setRainGageSymbol(sym);
+            } else if (key.endsWith(QStringLiteral("/Subcatchment"))) {
+                const QPen   pen  = renderPrefs->nodePen(subKey);
+                const QBrush fill = renderPrefs->nodeBrush(subKey);
+                SWMMElementSymbol sym = m_subcatchSym;
+                bool changed = false;
+                if (sym.fillColor == inheritedSub.fillColor)       { sym.fillColor    = fill.color();  changed = true; }
+                if (sym.outlineColor == inheritedSub.outlineColor) { sym.outlineColor = pen.color();   changed = true; }
+                if (qFuzzyCompare(sym.outlineWidth, inheritedSub.outlineWidth)) { sym.outlineWidth = pen.widthF(); changed = true; }
+                inheritedSub.fillColor    = fill.color();
+                inheritedSub.outlineColor = pen.color();
+                inheritedSub.outlineWidth = pen.widthF();
+                if (changed) setSubcatchmentSymbol(sym);
+            }
+        });
+    }
 
     // Slice BI Phase 8.13.6.5 — initialise renderer so renderer() never
     // returns nullptr. Placeholder SingleSymbolRenderer is unused by the
@@ -3282,68 +3333,110 @@ void SWMMModelLayer::buildRuleListLazy() const
         auto *rule = m_ruleList->append(std::make_unique<OpenSWMM::Render::Rule>(
             kindKey(c), std::move(cloned)));
 
-        // Rule-side renderer swaps propagate back to the layer via
-        // setKindRenderer with a fresh clone of the Rule's renderer.
-        // This keeps the legacy paint-time override caches + signal
-        // dispatch intact.
-        //
-        // Slice SS.4 — also back-propagate single-symbol attribute
-        // edits onto the matching legacy SWMMElementSymbol so the
-        // painter (which still reads m_*Sym for fill / outline /
-        // markerShape / labels / arrows) renders the change. No-op
-        // when the renderer isn't SingleSymbol — Graduated /
-        // Categorized modes feed the painter via the per-feature
-        // override caches instead (see plan §4.5).
-        QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced,
-                         self, [self, c, rule]() {
-            if (auto *r = rule->renderer()) {
-                // Classify the Rule's own renderer in place so the editor —
-                // which reads the Rule's renderer (currentRenderer()) — sees
-                // the data-derived breaks + range. The clone below then
-                // inherits them, so paint + dialog stay in lockstep.
-                if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r))
-                    self->classifyGraduatedIfNeeded(c, g);
-                self->setKindRenderer(c, r->clone());
-            }
-
-            // Slice SS.4 — back-propagate to legacy struct.
-            using L = SWMMModelLayer;
-            auto applyAndWrite = [&](auto getter, auto setter) {
-                SWMMElementSymbol sym = (self->*getter)();
-                backPropRuleSymbolToElement(rule, c, sym);
-                (self->*setter)(sym);
-            };
-            switch (c) {
-            case L::CatJunctions:
-                applyAndWrite(&L::junctionSymbol,    &L::setJunctionSymbol);    break;
-            case L::CatOutfalls:
-                applyAndWrite(&L::outfallSymbol,     &L::setOutfallSymbol);     break;
-            case L::CatStorage:
-                applyAndWrite(&L::storageSymbol,     &L::setStorageSymbol);     break;
-            case L::CatDividers:
-                applyAndWrite(&L::dividerSymbol,     &L::setDividerSymbol);     break;
-            case L::CatConduits:
-                applyAndWrite(&L::conduitSymbol,     &L::setConduitSymbol);     break;
-            case L::CatPumps:
-                applyAndWrite(&L::pumpSymbol,        &L::setPumpSymbol);        break;
-            case L::CatOrifices:
-                applyAndWrite(&L::orificeSymbol,     &L::setOrificeSymbol);     break;
-            case L::CatWeirs:
-                applyAndWrite(&L::weirSymbol,        &L::setWeirSymbol);        break;
-            case L::CatOutlets:
-                // Outlets have their own symbol channel now — the whole
-                // struct (incl. the arrow fields the per-kind arrow paint
-                // reads from m_outletSym) writes through setOutletSymbol.
-                applyAndWrite(&L::outletSymbol,      &L::setOutletSymbol);
-                break;
-            case L::CatSubcatchments:
-                applyAndWrite(&L::subcatchmentSymbol, &L::setSubcatchmentSymbol); break;
-            case L::CatRainGages:
-                applyAndWrite(&L::rainGageSymbol,    &L::setRainGageSymbol);    break;
-            default: break;
-            }
-        });
+        // Rule-side renderer swaps propagate back to the layer through
+        // attachRuleToKind → applyRuleToKind, the same hook the Style
+        // Manager's in-place reload path uses (feedback C1).
+        self->attachRuleToKind(rule, c);
     }
+
+    // Feedback C1 — RuleListIO::load repopulates THIS list in place
+    // (clear + fromJson), replacing every Rule object. The fresh Rules
+    // carried no hooks, so the loaded renderers never reached the painter,
+    // and the next ruleList() rebuilt the list from the untouched live
+    // renderers and discarded the applied style. Connected after the loop
+    // above so the initial appends don't re-install their own clones.
+    QObject::connect(m_ruleList.get(), &OpenSWMM::Render::RuleList::ruleListChanged,
+                     self, &SWMMModelLayer::onRuleListRepopulated);
+}
+
+void SWMMModelLayer::attachRuleToKind(OpenSWMM::Render::Rule *rule, Category c)
+{
+    if (!rule || rule->property("swmmvis.kindAttached").toBool()) return;
+    rule->setProperty("swmmvis.kindAttached", true);
+    QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced,
+                     this, [this, c, rule]() { applyRuleToKind(rule, c); });
+}
+
+void SWMMModelLayer::applyRuleToKind(OpenSWMM::Render::Rule *rule, Category c)
+{
+    // Push the Rule's renderer onto the layer via setKindRenderer with a
+    // fresh clone. This keeps the legacy paint-time override caches +
+    // signal dispatch intact.
+    //
+    // Slice SS.4 — also back-propagate single-symbol attribute edits onto
+    // the matching legacy SWMMElementSymbol so the painter (which still
+    // reads m_*Sym for fill / outline / markerShape / labels / arrows)
+    // renders the change. No-op when the renderer isn't SingleSymbol —
+    // Graduated / Categorized modes feed the painter via the per-feature
+    // override caches instead (see plan §4.5).
+    if (!rule) return;
+    if (auto *r = rule->renderer()) {
+        // Classify the Rule's own renderer in place so the editor — which
+        // reads the Rule's renderer (currentRenderer()) — sees the
+        // data-derived breaks + range. The clone below then inherits them,
+        // so paint + dialog stay in lockstep.
+        if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r))
+            classifyGraduatedIfNeeded(c, g);
+        setKindRenderer(c, r->clone());
+    }
+
+    // Slice SS.4 — back-propagate to legacy struct.
+    using L = SWMMModelLayer;
+    auto applyAndWrite = [&](auto getter, auto setter) {
+        SWMMElementSymbol sym = (this->*getter)();
+        backPropRuleSymbolToElement(rule, c, sym);
+        (this->*setter)(sym);
+    };
+    switch (c) {
+    case L::CatJunctions:
+        applyAndWrite(&L::junctionSymbol,    &L::setJunctionSymbol);    break;
+    case L::CatOutfalls:
+        applyAndWrite(&L::outfallSymbol,     &L::setOutfallSymbol);     break;
+    case L::CatStorage:
+        applyAndWrite(&L::storageSymbol,     &L::setStorageSymbol);     break;
+    case L::CatDividers:
+        applyAndWrite(&L::dividerSymbol,     &L::setDividerSymbol);     break;
+    case L::CatConduits:
+        applyAndWrite(&L::conduitSymbol,     &L::setConduitSymbol);     break;
+    case L::CatPumps:
+        applyAndWrite(&L::pumpSymbol,        &L::setPumpSymbol);        break;
+    case L::CatOrifices:
+        applyAndWrite(&L::orificeSymbol,     &L::setOrificeSymbol);     break;
+    case L::CatWeirs:
+        applyAndWrite(&L::weirSymbol,        &L::setWeirSymbol);        break;
+    case L::CatOutlets:
+        // Outlets have their own symbol channel now — the whole struct
+        // (incl. the arrow fields the per-kind arrow paint reads from
+        // m_outletSym) writes through setOutletSymbol.
+        applyAndWrite(&L::outletSymbol,      &L::setOutletSymbol);
+        break;
+    case L::CatSubcatchments:
+        applyAndWrite(&L::subcatchmentSymbol, &L::setSubcatchmentSymbol); break;
+    case L::CatRainGages:
+        applyAndWrite(&L::rainGageSymbol,    &L::setRainGageSymbol);    break;
+    default: break;
+    }
+}
+
+void SWMMModelLayer::onRuleListRepopulated()
+{
+    if (!m_ruleList) return;
+    bool applied = false;
+    for (int i = 0; i < m_ruleList->count(); ++i) {
+        auto *rule = m_ruleList->at(i);
+        if (!rule || rule->property("swmmvis.kindAttached").toBool()) continue;
+        for (int k = 0; k < NumCategories; ++k) {
+            const Category c = static_cast<Category>(k);
+            if (rule->name() != kindKey(c)) continue;   // foreign rule: leave it
+            attachRuleToKind(rule, c);
+            applyRuleToKind(rule, c);
+            applied = true;
+            break;
+        }
+    }
+    // The list now mirrors the live renderers exactly, so the next
+    // ruleList() must not rebuild over the style that was just applied.
+    if (applied) m_ruleListDirty = false;
 }
 
 bool SWMMModelLayer::kindUsesOverrides(Category c) const
@@ -6115,6 +6208,9 @@ bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName,
 {
     if (oldName.isEmpty() || newName.isEmpty() || oldName == newName) return false;
     if (!m_engine) return false;
+    // Feedback C10 — a name with whitespace / ';' / brackets cannot survive
+    // an .inp round trip; the UI sites report why, this is the backstop.
+    if (!openswmmvis::isValidSwmmIdentifier(newName)) return false;
 
     const QByteArray oldUtf8 = oldName.toUtf8();
     const QByteArray newUtf8 = newName.toUtf8();

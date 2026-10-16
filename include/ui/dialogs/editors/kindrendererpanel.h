@@ -98,6 +98,15 @@ public:
      *  panel's controls. Called by the dialog after a Cancel rollback. */
     void refreshFromModel();
 
+    /*! True while the Graduated "Size by value" / "Width by value" axis is
+     *  on for this kind (feedback C2 — the base-symbol group greys its
+     *  static size while the renderer owns that axis). */
+    [[nodiscard]] bool sizeByValueEnabled() const;
+
+signals:
+    /*! Emitted whenever sizeByValueEnabled() may have changed. */
+    void outputAxisToggled(bool on);
+
 private slots:
     void onModeChanged(int comboRow);
     // Slice DM.2 — attribute picker. Populated from IAttributeProvider

@@ -1023,6 +1023,7 @@ set(
         src/core/loadprogress.cpp
         src/core/crsreproject.cpp
         src/core/editgeometry.cpp
+        src/core/swmmidentifier.cpp
         src/core/gageassignment.cpp
         src/core/gageblend.cpp
         src/core/gisdatapaths.cpp
@@ -1687,6 +1688,7 @@ set(
         src/ui/dialogs/editors/singlesymbolrendererpanel.cpp
         src/ui/dialogs/editors/markershapeeditor.cpp
         src/ui/dialogs/editors/graduatedrendererpanel.cpp
+        src/ui/dialogs/editors/basesymbolgroup.cpp
         src/ui/dialogs/editors/categorizedrendererpanel.cpp
         src/ui/dialogs/editors/rulebasedrendererpanel.cpp
         # Slice IO-10 — relative-path picker + portability normalizer.

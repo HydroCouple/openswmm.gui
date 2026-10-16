@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/transecteditordialog.h"
+#include "core/swmmidentifier.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
@@ -613,6 +614,13 @@ void TransectEditorDialog::onNameEdited_()
     const QString newName = m_nameEdit->text().trimmed();
     if (newName.isEmpty() || newName == m_current->name()) {
         if (m_nameEdit && m_current) m_nameEdit->setText(m_current->name());
+        return;
+    }
+    // Feedback C10 — refuse names that cannot survive an .inp round trip.
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        if (m_status) m_status->showMessage(why, 6000);
+        const QSignalBlocker b(m_nameEdit);
+        m_nameEdit->setText(m_current->name());
         return;
     }
     // Pre-check uniqueness so the undo command isn't pushed onto the stack

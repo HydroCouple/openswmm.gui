@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/timeserieseditordialog.h"
+#include "core/swmmidentifier.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
 
@@ -331,10 +332,13 @@ void TimeseriesEditorDialog::onCreateNewNameChanged_(const QString &text)
         m_nameEdit->setStyleSheet(QString());
         return;
     }
+    const QString why = openswmmvis::swmmIdentifierProblem(trimmed);   // feedback C10
     const bool collides = m_registry && m_registry->hasName(trimmed);
-    if (collides) {
+    if (!why.isEmpty() || collides) {
         m_createBtn->setEnabled(false);
-        m_nameValidationLabel->setText(tr("A time series named “%1” already exists.").arg(trimmed));
+        m_nameValidationLabel->setText(
+            !why.isEmpty() ? why
+                           : tr("A time series named “%1” already exists.").arg(trimmed));
         m_nameValidationLabel->show();
         m_nameEdit->setStyleSheet(openswmmvis::ui::theme::errorBorderStyle());
     } else {
@@ -348,7 +352,8 @@ void TimeseriesEditorDialog::onCreateNewSubmit_()
 {
     if (!m_registry || !m_nameEdit) return;
     const QString name = m_nameEdit->text().trimmed();
-    if (name.isEmpty() || m_registry->hasName(name)) return;
+    if (name.isEmpty() || m_registry->hasName(name)
+        || !openswmmvis::isValidSwmmIdentifier(name)) return;
 
     TimeseriesProvider *p = m_registry->create(name);
     if (!p) return;   // registry refused (race on uniqueness)

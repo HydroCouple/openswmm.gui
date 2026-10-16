@@ -509,16 +509,19 @@ QWidget *PreferencesDialog::buildRenderingPage()
     // routes every edit straight into PreferencesManager so there is no
     // pending-state to apply on OK and writeToManager() leaves these
     // alone.
-    auto *nodeGroup = new QGroupBox(tr("Node Symbols"), page);
+    auto *nodeGroup = new QGroupBox(tr("Node, Rain Gage && Subcatchment Symbols"), page);
     auto *nv        = new QVBoxLayout(nodeGroup);
     nv->setContentsMargins(8, 8, 8, 8);
 
     auto *nodeIntro = new QLabel(
         tr("Edit marker size, fill brush, and outline pen per node type "
            "(Junction, Outfall, Storage, Divider, Virtual Junction, Inlet "
-           "Junction). Expand "
-           "a row to access individual pen and brush attributes. Changes "
-           "apply immediately to open project views."),
+           "Junction), the Rain Gage marker, and the Subcatchment fill and "
+           "outline pen. Expand a row to access individual pen and brush "
+           "attributes. Node changes apply immediately to open project "
+           "views; rain gage and subcatchment values seed new layers and "
+           "layers that still carry the inherited value — a layer styled "
+           "on its own keeps its style."),
         nodeGroup);
     nodeIntro->setWordWrap(true);
     nv->addWidget(nodeIntro);
@@ -602,7 +605,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
     bcTabLay->addWidget(bcGroup, 1);
 
     tabs->addTab(labelsTab, tr("Labels"));
-    tabs->addTab(lnTab,     tr("Links && Nodes"));
+    tabs->addTab(lnTab,     tr("Network Symbols"));   // feedback C14 — was "Links && Nodes"
     tabs->addTab(gpuTab,    tr("GPU"));
     tabs->addTab(bcTab,     tr("2D Mesh Edges"));
 
@@ -2129,7 +2132,9 @@ void PreferencesDialog::onResetToDefaults()
                                    QStringLiteral("storage"),
                                    QStringLiteral("divider"),
                                    QStringLiteral("virtual_junction"),
-                                   QStringLiteral("inlet_junction") };
+                                   QStringLiteral("inlet_junction"),
+                                   QStringLiteral("raingage"),       // feedback C14
+                                   QStringLiteral("subcatchment") };
         for (const QString &k : keys) p->resetNodeStyleToDefault(k);
         if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
     }

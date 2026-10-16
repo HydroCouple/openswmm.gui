@@ -48,6 +48,14 @@ class NodeRenderingPrefs : public QObject
     Q_PROPERTY(QBrush inletJunctionFill   READ inletJunctionFill   WRITE setInletJunctionFill   NOTIFY inletJunctionFillChanged)
     Q_PROPERTY(double inletJunctionSize   READ inletJunctionSize   WRITE setInletJunctionSize   NOTIFY inletJunctionSizeChanged)
 
+    // Feedback C14 — rain gage marker + subcatchment polygon defaults.
+    Q_PROPERTY(QPen   rainGagePen         READ rainGagePen         WRITE setRainGagePen         NOTIFY rainGagePenChanged)
+    Q_PROPERTY(QBrush rainGageFill        READ rainGageFill        WRITE setRainGageFill        NOTIFY rainGageFillChanged)
+    Q_PROPERTY(double rainGageSize        READ rainGageSize        WRITE setRainGageSize        NOTIFY rainGageSizeChanged)
+
+    Q_PROPERTY(QPen   subcatchmentPen     READ subcatchmentPen     WRITE setSubcatchmentPen     NOTIFY subcatchmentPenChanged)
+    Q_PROPERTY(QBrush subcatchmentFill    READ subcatchmentFill    WRITE setSubcatchmentFill    NOTIFY subcatchmentFillChanged)
+
 public:
     explicit NodeRenderingPrefs(QObject *parent = nullptr);
 
@@ -75,6 +83,13 @@ public:
     [[nodiscard]] QBrush inletJunctionFill()   const;
     [[nodiscard]] double inletJunctionSize()   const;
 
+    [[nodiscard]] QPen   rainGagePen()         const;
+    [[nodiscard]] QBrush rainGageFill()        const;
+    [[nodiscard]] double rainGageSize()        const;
+
+    [[nodiscard]] QPen   subcatchmentPen()     const;
+    [[nodiscard]] QBrush subcatchmentFill()    const;
+
     void setJunctionPen(const QPen &pen);
     void setJunctionFill(const QBrush &brush);
     void setJunctionSize(double sizePx);
@@ -98,6 +113,13 @@ public:
     void setInletJunctionPen(const QPen &pen);
     void setInletJunctionFill(const QBrush &brush);
     void setInletJunctionSize(double sizePx);
+
+    void setRainGagePen(const QPen &pen);
+    void setRainGageFill(const QBrush &brush);
+    void setRainGageSize(double sizePx);
+
+    void setSubcatchmentPen(const QPen &pen);
+    void setSubcatchmentFill(const QBrush &brush);
 
 signals:
     void junctionPenChanged(const QPen &pen);
@@ -123,6 +145,13 @@ signals:
     void inletJunctionPenChanged(const QPen &pen);
     void inletJunctionFillChanged(const QBrush &brush);
     void inletJunctionSizeChanged(double sizePx);
+
+    void rainGagePenChanged(const QPen &pen);
+    void rainGageFillChanged(const QBrush &brush);
+    void rainGageSizeChanged(double sizePx);
+
+    void subcatchmentPenChanged(const QPen &pen);
+    void subcatchmentFillChanged(const QBrush &brush);
 };
 
 #endif // NODERENDERINGPREFS_H

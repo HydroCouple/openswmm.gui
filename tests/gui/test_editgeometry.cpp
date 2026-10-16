@@ -146,11 +146,23 @@ private slots:
         QCOMPARE(r[1], QPointF(2, 2));
     }
 
-    void removedAt_tooSmall_returnsCopy()
+    void removedAt_smallLists_shrinkToEmpty()
+    {
+        // Link callers pass the INTERIOR vertex list: a conduit with one or
+        // two bends must be able to lose a single bend (feedback C15); an
+        // empty interior is a straight conduit, not an error.
+        const QVector<QPointF> two{{0, 0}, {1, 1}};
+        const QVector<QPointF> expected{{1, 1}};
+        QCOMPARE(EditGeometry::removedAt(two, 0), expected);
+        const QVector<QPointF> one{{0, 0}};
+        QVERIFY(EditGeometry::removedAt(one, 0).isEmpty());
+    }
+
+    void removedAt_outOfRange_returnsCopy()
     {
         const QVector<QPointF> v{{0, 0}, {1, 1}};
-        const auto r = EditGeometry::removedAt(v, 0);
-        QCOMPARE(r, v); // size-2 input must not be trimmed
+        QCOMPARE(EditGeometry::removedAt(v, 2), v);
+        QCOMPARE(EditGeometry::removedAt(v, -1), v);
     }
 
     // distanceToPolyline -------------------------------------------------

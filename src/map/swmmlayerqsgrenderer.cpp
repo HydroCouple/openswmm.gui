@@ -648,12 +648,6 @@ void setNodeColor(QSGGeometryNode *node, QColor color)
     if (mat->color() != color) { mat->setColor(color); node->markDirty(QSGNode::DirtyMaterial); }
 }
 
-void setLineWidth(QSGGeometryNode *node, float w)
-{
-    auto *geo = node->geometry();
-    if (geo->lineWidth() != w) { geo->setLineWidth(w); node->markDirty(QSGNode::DirtyGeometry); }
-}
-
 // Selection helpers. The QSG renderer drives QSGFlatColorMaterial nodes,
 // which take a single QColor — so we surface pen colour for outlines /
 // line nodes and brush colour for fills. Width/cap/join from the
@@ -831,7 +825,11 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // can carry its own per-feature override colour (Graduated/Categorized).
         catchFill     = makeColoredNode(QSGGeometry::DrawTriangles);
         catchSelFill  = makeFlatColorNode(QSGGeometry::DrawTriangles, selPolyFill);
-        catchEdge     = makeFlatColorNode(QSGGeometry::DrawLines,     m_layer->subcatchmentSymbol().outlineColor, 1.0f);
+        // Feedback C13 — outlines are tessellated as pixel-width quads (same
+        // technique as the link bodies and the A1 node outlines) so the
+        // Symbology outline width applies; a DrawLines node with lineWidth
+        // 1 ignored it on every backend.
+        catchEdge     = makeFlatColorNode(QSGGeometry::DrawTriangles, m_layer->subcatchmentSymbol().outlineColor);
         catchSelEdge  = makeFlatColorNode(QSGGeometry::DrawTriangles, selPoly);
         // Subcatchment centroid→outlet connector lines (dashed, tessellated as
         // thick quads). Base grey + a bolder orange highlight for the selected
@@ -995,7 +993,6 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // baked into each vertex at upload time, so no material-level
         // setColor is needed (and would crash trying to static_cast).
         setNodeColor(gagesSel,      selGage);
-        setLineWidth(catchEdge, 1.0f);
 
         // ---- Subcatchments -------------------------------------------------
         // §QSG-1: only render kinds owned by the QSG scope; uploading
@@ -1024,6 +1021,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             std::vector<QSGGeometry::ColoredPoint2D> fillBase;
             std::vector<QSGGeometry::Point2D> fillSel,edgeBase,edgeSelTris;
             const float selEdgeHW = 1.5f * invView;
+            // Feedback C13 — half-width of the outline quads in scene units;
+            // zero or negative width draws no outline, matching the CPU pen.
+            const float edgeHW =
+                0.5f * float(m_layer->subcatchmentSymbol().outlineWidth) * invView;
             const QColor catchDef = m_layer->subcatchmentSymbol().fillColor;
             for (int i = 0; i < cps.size(); ++i) {
                 if (size_t(i)<cHid.size() && cHid[i]) continue;
@@ -1051,12 +1052,13 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     p.r=fR; p.g=fG; p.b=fB; p.a=fA;
                     fillBase.push_back(p);
                 }
-                for (int j = 0; j < poly.size(); ++j) {
-                    QSGGeometry::Point2D va,vb;
-                    va.x=float(poly[j].x()-ox); va.y=float(poly[j].y()-oy);
-                    vb.x=float(poly[(j+1)%poly.size()].x()-ox);
-                    vb.y=float(poly[(j+1)%poly.size()].y()-oy);
-                    edgeBase.push_back(va); edgeBase.push_back(vb);
+                if (edgeHW > 0.0f) {
+                    for (int j = 0; j < poly.size(); ++j) {
+                        const float ax=float(poly[j].x()-ox), ay=float(poly[j].y()-oy);
+                        const float bx=float(poly[(j+1)%poly.size()].x()-ox);
+                        const float by=float(poly[(j+1)%poly.size()].y()-oy);
+                        appendThickSegment(edgeBase,ax,ay,bx,by,edgeHW);
+                    }
                 }
                 if (sel) {
                     for (int idx : tris) {

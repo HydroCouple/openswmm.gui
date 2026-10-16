@@ -122,6 +122,35 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **Style Manager → Apply to layer now restyles the map** (user feedback batch 3, C1). The
+  library file was loaded into the layer's rule list in place, which replaced every rule with
+  fresh objects that carried none of the layer's hooks; the renderers never reached the painter
+  and the next read of the rule list rebuilt it from the untouched live renderers. Model and 1D
+  results layers now re-attach and apply whatever lands in the list, and keep that list.
+- **Graduated and Categorized panels store the attribute they show** (C3). With no attribute on
+  the renderer the combo auto-selected its first row ("flow (m³/s)") while the renderer, and every
+  exported `.swmm-style.json`, still carried an empty `classifyAttribute`.
+- **Labels no longer print 17-digit numbers** (C4). Numeric fields and numeric `{tokens}` default
+  to six significant digits (a slope reads `0.00412346`); Layer Properties → Labels → **Decimals**
+  fixes the places (`Auto`, `0`–`10`), is saved with the project, and 1D results labels honour it.
+- **Object Browser Move Up / Move Down step past hidden empty categories** (C5) instead of
+  swapping with one the tree does not show, which looked like nothing happening.
+- **Property-panel spin boxes step by the field** (C7): Length by 1, Manning's n by 0.001,
+  offsets by 0.1, with the field's decimals and range, matching the Attribute Table instead of
+  one 0.1 step and six decimals for every number.
+- **Names with spaces are refused where they are typed** (C10). `Total Nitrogen` was saved as
+  `Total` (the `.inp` format is whitespace-delimited), the GUI kept the long name, and every
+  lookup between the two failed. Pollutant, land use, aquifer, snow pack, LID control, street,
+  inlet, transect, curve, pattern, time series and control-rule names, and network renames,
+  now reject whitespace, `;`, `[` and `]` with a message naming the character.
+- **New subcatchments and rain gages honour Preferences → Naming** (C12); the two tools
+  hard-coded `Sub` and `RG`.
+- **GPU rendering applies the subcatchment outline width** (C13); outlines were a one-pixel
+  line regardless of the Symbology value. They are now pixel-width quads like link bodies and
+  node outlines, and a width of 0 draws no outline.
+- **A conduit's only bend (or one of two) can be deleted** (C15). A guard meant for whole
+  polylines refused to shorten a one- or two-vertex interior list, while deleting several
+  selected vertices at once bypassed it; subcatchments keep their three-vertex minimum.
 - **The documentation workflow never ran on `swmm6_gui`** — its push trigger listed only
   `main`, `master` and `dev`, so the published site had not been rebuilt from the working branch.
   Its `deploy-docs` job also had no event guard while `build-docs` runs on `pull_request`, so a
@@ -147,6 +176,17 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **Size, outline, marker and label controls under every renderer** (user feedback batch 3,
+  C2). The Graduated and Categorized panels gain a collapsed **Base symbol & labels** group
+  bound to the same per-kind style the Single Symbol panel edits; class colour still comes from
+  the ramp or categories, and **Size by value** greys the static size while it owns that axis.
+- **Preferences → Rendering → Network Symbols** (was *Links & Nodes*, C14) adds **Rain Gage**
+  (marker size, fill, outline pen) and **Subcatchment** (fill, outline colour and width) rows.
+  They seed new model layers and follow later edits only where a layer still carries the
+  inherited value; a layer styled on its own keeps its style.
+- **The Object Browser's data-object context menu drops "Properties…"** (C6): it only replayed
+  the selection a left-click already routes to the Properties panel. **Edit…** and **Delete…**
+  remain.
 - **Mesh regions read `h` and `cells`; corridors read `width`** (FEATURE_LAYER_ROLES plan §4).
   A Region layer now carries the target cell size `h` (older layers' `quad_spacing` is still read)
   and `cells` — "auto" (quads where the region is four-sided) or "triangles" — which the mesh

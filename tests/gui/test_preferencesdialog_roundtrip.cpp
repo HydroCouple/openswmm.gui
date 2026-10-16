@@ -186,7 +186,7 @@ void TestPreferencesDialogRoundtrip::structure()
     // "&&", since QTabBar reads a single "&" as a mnemonic (30e1c839).
     const struct { const char *tabs; QStringList titles; } kTabSets[] = {
         { "renderingTabs", { QStringLiteral("Labels"),
-                             QStringLiteral("Links && Nodes"),
+                             QStringLiteral("Network Symbols"),   // feedback C14 — was "Links && Nodes"
                              QStringLiteral("GPU"),
                              QStringLiteral("2D Mesh Edges") } },
         { "simulationDefaultsTabs",

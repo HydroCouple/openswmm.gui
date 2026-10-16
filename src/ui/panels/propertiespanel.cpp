@@ -78,6 +78,7 @@
 #include <qpropertymodel.h>
 #include <qpropertyitem.h>
 #include <qpropertyitemdelegate.h>
+#include <qvariantpropertyitem.h>
 #endif
 
 // 2026-05-29 — header "Open in <Editor>…" button reuses the object
@@ -89,6 +90,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDialog>
+#include <QDoubleSpinBox>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -104,6 +106,8 @@
 #include <QVBoxLayout>
 #include <QVariant>
 #include <QWidget>
+
+#include <cmath>
 
 #ifdef HAVE_QPROPERTYMODEL
 // ---------------------------------------------------------------------------
@@ -174,6 +178,41 @@ void setRowEditable(QPropertyModel *pm, QObject *adapter,
     QMetaObject::invokeMethod(pm, "onDataChanged", Qt::DirectConnection,
                               Q_ARG(QModelIndex, valIdx));
 }
+
+/*! Feedback C7 — numeric editors step by an amount suited to the field.
+ *  QPropertyItemDelegate hands every double the same 6-decimal, 0.1-step
+ *  spin box, so Length and Manning's n stepped identically. The attribute
+ *  table already knows each field's decimals, range and step (ColumnSpec);
+ *  look the row's property up there and apply them. Rows the table does
+ *  not describe keep the stock editor. */
+class PropertyStepDelegate : public QPropertyItemDelegate
+{
+public:
+    using QPropertyItemDelegate::QPropertyItemDelegate;
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override
+    {
+        QWidget *w = QPropertyItemDelegate::createEditor(parent, option, index);
+        // The library wraps the spin box in its own editor widget.
+        auto *spin = qobject_cast<QDoubleSpinBox *>(w);
+        if (!spin && w) spin = w->findChild<QDoubleSpinBox *>();
+        if (!spin) return w;
+        // Column 0 shows the adapter's display label ("Length (ft)"), so the
+        // raw Q_PROPERTY name comes from the item's meta-property.
+        auto *item = static_cast<QPropertyItem *>(index.internalPointer());
+        auto *varItem = dynamic_cast<QVariantPropertyItem *>(item);
+        if (!varItem) return w;
+        const QString property = QString::fromLatin1(varItem->metaProperty().name());
+        const auto spec = openswmmvis::columnSpecForProperty(property);
+        if (!spec) return w;
+        spin->setDecimals(spec->decimals);
+        if (std::isfinite(spec->minValue) && std::isfinite(spec->maxValue))
+            spin->setRange(spec->minValue, spec->maxValue);
+        spin->setSingleStep(openswmmvis::columnStep(*spec));
+        return w;
+    }
+};
 
 } // namespace
 #endif // HAVE_QPROPERTYMODEL
@@ -314,7 +353,7 @@ void PropertiesPanel::setupUi()
     // Property model / delegate
 #ifdef HAVE_QPROPERTYMODEL
     m_model    = new QPropertyModel(this);
-    auto *delegate = new QPropertyItemDelegate(this);
+    auto *delegate = new PropertyStepDelegate(this);   // feedback C7
     m_delegate = delegate;
 
     // Slice DB.2 — register the custom editor creator for the node

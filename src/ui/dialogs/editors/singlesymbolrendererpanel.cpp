@@ -15,14 +15,10 @@
 #include <QDebug>
 
 #include "layers/openswmmvislayer.h"
-#include "layers/swmmelementsymboladapter.h"   // persistent per-kind adapters
-#include "layers/swmmmodellayer.h"
-#include "layers/swmmresultslayer.h"
-#include "render/sublayers/feature/featuresublayer.h"
-#include "render/sublayers/feature/featuresublayerstyle.h"
 // Slice B.6c — Rule-aware Single Symbol panel.
 #include "render/rule.h"
 #include "render/symbolstyleadapter.h"
+#include "ui/dialogs/editors/basesymbolgroup.h"   // feedback C2 — shared style lookup
 #include "ui/dialogs/istyleeditorwidget.h"
 
 #include <QHeaderView>
@@ -73,37 +69,12 @@ public:
             style = m_styleAdapter.get();
         }
         else if (m_ctx.category.has_value()) {
-            if (auto *res = qobject_cast<SWMMResultsLayer *>(m_ctx.hostLayer)) {
-                if (auto *sub = res->featureSublayer(*m_ctx.category))
-                    style = sub->style();
-            }
-            // For SWMMModelLayer the per-kind subject is the layer's
-            // PERSISTENT SwmmElementSymbolAdapter — same instance the
-            // dialog's subjects wrap, so edits made here are covered by
-            // the dialog's Cancel snapshot and nothing leaks. (Previously
-            // this walked a freshly-allocated styleSubjects() set and
-            // orphaned the 11 unused adapters on the layer per mount.)
-            else if (auto *swmm = qobject_cast<SWMMModelLayer *>(m_ctx.hostLayer)) {
-                const QString suffix = [&]() -> QString {
-                    switch (*m_ctx.category) {
-                        case OpenSWMMVis::CatJunctions:     return QStringLiteral("junctions");
-                        case OpenSWMMVis::CatOutfalls:      return QStringLiteral("outfalls");
-                        case OpenSWMMVis::CatStorage:       return QStringLiteral("storage");
-                        case OpenSWMMVis::CatDividers:      return QStringLiteral("dividers");
-                        case OpenSWMMVis::CatConduits:      return QStringLiteral("conduits");
-                        case OpenSWMMVis::CatPumps:         return QStringLiteral("pumps");
-                        case OpenSWMMVis::CatOrifices:      return QStringLiteral("orifices");
-                        case OpenSWMMVis::CatWeirs:         return QStringLiteral("weirs");
-                        case OpenSWMMVis::CatOutlets:       return QStringLiteral("outlets");
-                        case OpenSWMMVis::CatSubcatchments: return QStringLiteral("subcatchments");
-                        case OpenSWMMVis::CatRainGages:     return QStringLiteral("raingages");
-                        default:                            return QString();
-                    }
-                }();
-                if (!suffix.isEmpty())
-                    style = swmm->elementSymbolAdapter(
-                        QStringLiteral("model.") + suffix);
-            }
+            // Results sublayer style, or the model layer's PERSISTENT
+            // SwmmElementSymbolAdapter (same instance the dialog's subjects
+            // wrap, so the Cancel snapshot covers edits made here). Shared
+            // with the Graduated / Categorized panels' "Base symbol &
+            // labels" group (feedback C2).
+            style = baseSymbolStyleFor(m_ctx.hostLayer, *m_ctx.category);
         }
 
         if (style) {
