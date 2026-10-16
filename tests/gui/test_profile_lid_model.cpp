@@ -2,6 +2,7 @@
 #include "layers/swmmresultslayer.h"
 #include "animation/animationcontroller.h"
 #include "simulation/simulationrunner.h"
+#include "ui/properties/swmmlinkpropertyadapter.h"
 #include <QSignalSpy>
 #include <QAction>
 #include "plot/profilenetworkadapter.h"
@@ -16,12 +17,15 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <cmath>
+#include <algorithm>
 #include <QDir>
 #include <QFile>
 #include <QSettings>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QTest>
+#include <QToolBar>
+#include <QProgressBar>
 
 class TestProfileLidModel : public QObject
 {
@@ -61,6 +65,12 @@ private slots:
         connect(&tool,&OpenSWMMVisMapToolSelectProfile::profilePathSelected,
                 &tool,[&](const ProfileRouter::Path &path) { accepted=path; });
         auto engine=model.engine();
+        SWMMLinkPropertyAdapter overflowProperties(engine,"W_B");
+        QCOMPARE(overflowProperties.lidOutletLayer(),0);
+        QCOMPARE(overflowProperties.lidOutletPosition(),SWMMLinkPropertyAdapter::NoLayerAnchor);
+        SWMMLinkPropertyAdapter drainProperties(engine,"V_BR");
+        QCOMPARE(drainProperties.lidOutletLayer(),3);
+        QCOMPARE(drainProperties.lidOutletPosition(),SWMMLinkPropertyAdapter::LayerBottom);
         const int a=swmm_node_index(engine,"A");
         auto scenePoint=[&](int node) {
             double x=0,y=0;
@@ -90,6 +100,12 @@ private slots:
             QVERIFY(!accepted.linkIds.isEmpty());
             const auto path=ProfileNetworkAdapter::buildPathStaticFromModel(&model,accepted);
             QCOMPARE(path.nodes.first().lidLayers.size(),3);
+            for(const auto &node:path.nodes) for(const auto &branch:node.branches) {
+                if(branch.name=="V_BR" && !node.lidLayers.isEmpty()) {
+                    QCOMPARE(branch.lidLayer,3); QVERIFY(!branch.lidAnchorTop);
+                }
+                if(branch.name=="W_B") QCOMPARE(branch.lidLayer,0);
+            }
             if(QString::fromLatin1(name)=="R") {
                 ProfilePlotDialog dialog(&model,nullptr,accepted,nullptr);
                 auto *plot=dialog.findChild<ProfilePlotWidget *>(); QVERIFY(plot);
@@ -129,6 +145,20 @@ private slots:
         QCOMPARE(accepted.nodes.first(),a);
         QCOMPARE(accepted.nodes.last(),swmm_node_index(engine,"R"));
         model.setSelectedElements({});
+
+        // The reported review path runs backwards through the overflow weir,
+        // then out through B's bottom drain (FB -> B -> R).
+        accepted={}; tool.clearSelection(); tool.activate();
+        click(scenePoint(swmm_node_index(engine,"FB")));
+        click(scenePoint(swmm_node_index(engine,"R")));
+        QTRY_COMPARE_WITH_TIMEOUT(accepted.linkIds.size(),2,3000);
+        const auto reviewPath=ProfileNetworkAdapter::buildPathStaticFromModel(&model,accepted);
+        QCOMPARE(reviewPath.links[0].name,QString("W_B"));
+        QVERIFY(reviewPath.links[0].reversed);
+        QCOMPARE(reviewPath.links[1].name,QString("V_BR"));
+        ProfilePlotWidget reviewPlot; reviewPlot.resize(1000,550);
+        reviewPlot.setPath(reviewPath); reviewPlot.fitToExtent();
+        QVERIFY(reviewPlot.grab().save(outputDir()+"/overflow-bottom-profile.png"));
 
         // A wrapped-coordinate fallback must respect hidden node state.
         model.setObjectVisible("R",false);
@@ -253,10 +283,22 @@ private slots:
         QString pathError;
         QVERIFY(!SimulationRunner::validateRunPaths(stem+".inp",stem+".rpt",stem+".out",
             {openswmmvis::io::lidStatePath(stem+".out")},{},&pathError));
+        auto hasHydraulicRows = [&] {
+            for (const auto &binding : plot->series()) {
+                if (binding.kind != ProfileBuilder::OutputKind::HGL || !binding.visible || !binding.derived) continue;
+                const auto &rows = binding.derived->hglByPeriod;
+                if (rows.size() != results.totalTimeSteps() || rows.isEmpty()) return false;
+                return std::all_of(rows.last().cbegin(), rows.last().cend(),
+                                   [](double value) { return std::isfinite(value); });
+            }
+            return false;
+        };
         runner.start();
         QTRY_VERIFY_WITH_TIMEOUT(finished.count()>0,120000);
         QVERIFY2(finished[0][1].toBool(),qPrintable(finished[0][3].toString()));
         QVERIFY2(!live.nodes.isEmpty(),"A live progress tick must expose recorded LID states");
+        results.refreshLive(); animation.seekToLast();
+        QTRY_VERIFY_WITH_TIMEOUT(hasHydraulicRows(),10000);
         results.closeResults(); errors.clear();
         QVERIFY2(results.openResults(warnings,errors),qPrintable(errors.join("\n")));
         const auto saved=results.lidStateAt(live.time,{"A","B"});
@@ -264,6 +306,7 @@ private slots:
         QCOMPARE(saved.nodes[0].cells[0].pressure,live.nodes[0].cells[0].pressure);
         animation.seekToLast();
         QTRY_COMPARE(plot->lidWaterState().nodes.size(),2);
+        QTRY_VERIFY_WITH_TIMEOUT(hasHydraulicRows(),10000);
         const auto last=plot->lidWaterState().time; QVERIFY(last.isValid());
         const auto range=plot->visibleDataRange();
         animation.seekToFirst();
@@ -274,6 +317,114 @@ private slots:
         QVERIFY(plot->grab().save(outputDir()+"/backwater-lid-water-profile.png"));
         animation.setPrimaryLayer(nullptr);
         QVERIFY(plot->lidWaterState().nodes.isEmpty());
+    }
+
+    void savedResultsOpenedAfterProfile_data()
+    {
+        QTest::addColumn<bool>("lid");
+        QTest::newRow("ordinary-conduit") << false;
+        QTest::newRow("lid-bottom-outlet") << true;
+    }
+    void savedResultsOpenedAfterProfile()
+    {
+        QFETCH(bool,lid);
+        QDir().mkpath(outputDir());
+        const QString stem=outputDir()+(lid?"/late-lid-results":"/late-conduit-results");
+        QByteArray input;
+        if(lid) {
+            QFile source(QFINDTESTDATA("data/profile_lid_active_backwater.inp"));
+            QVERIFY(source.open(QIODevice::ReadOnly)); input=source.readAll();
+            input.replace("END_DATE 01/02/2004","END_DATE 01/01/2004");
+            input.replace("END_TIME 00:00:00","END_TIME 00:10:00");
+        } else {
+            input="[OPTIONS]\nFLOW_UNITS CFS\nFLOW_ROUTING DYNWAVE\n"
+                  "START_DATE 01/01/2004\nEND_DATE 01/01/2004\nEND_TIME 00:10:00\n"
+                  "REPORT_STEP 00:01:00\nROUTING_STEP 1\n"
+                  "[JUNCTIONS]\nJ 10 1 0 0 0\n[OUTFALLS]\nO 9 FREE NO\n"
+                  "[CONDUITS]\nC J O 100 .013 0 0 0 0\n"
+                  "[XSECTIONS]\nC CIRCULAR .1 0 0 0 1\n"
+                  "[INFLOWS]\nJ FLOW Q FLOW 1 1 0\n"
+                  "[TIMESERIES]\nQ 01/01/2004 00:00 5\nQ 01/01/2004 00:10 5\n"
+                  "[REPORT]\nNODES ALL\nLINKS ALL\n"
+                  "[COORDINATES]\nJ 0 0\nO 100 0\n";
+        }
+        { QFile file(stem+".inp"); QVERIFY(file.open(QIODevice::WriteOnly)); file.write(input); }
+        SimulationRunner runner(987,"Profile result refresh",stem+".inp",stem+".rpt",stem+".out");
+        QSignalSpy finished(&runner,&SimulationRunner::finished); runner.start();
+        QTRY_VERIFY_WITH_TIMEOUT(!finished.isEmpty(),60000);
+        QVERIFY2(finished[0][1].toBool(),qPrintable(finished[0][3].toString()));
+        SWMMModelLayer model(stem+".inp"); QList<QString> warnings,errors;
+        QVERIFY2(model.loadModel(warnings,errors),qPrintable(errors.join("\n")));
+        SWMMResultsLayer results(stem+".out",&model);
+        results.setProfileHglLinePen(QPen(QColor(12,40,230),3));
+        results.setProfileEglLinePen(QPen(QColor(230,10,190),3,Qt::DashLine));
+        AnimationController animation; animation.setPrimaryLayer(&results);
+        ProfileRouter::Path route;
+        route.nodes={swmm_node_index(model.engine(),lid?"B":"J"),swmm_node_index(model.engine(),lid?"R":"O")};
+        route.linkIds={swmm_link_index(model.engine(),lid?"V_BR":"C")};
+        ProfilePlotDialog dialog(&model,&animation,route,nullptr);
+        auto *plot=dialog.findChild<ProfilePlotWidget *>(); QVERIFY(plot);
+        plot->options()->setLegendVisible(false); plot->options()->setShowNodeRoses(false);
+        plot->options()->setCurrentHglFill(false);
+        QTRY_COMPARE(plot->series().size(),4);
+        QVERIFY(plot->series()[0].derived->hglByPeriod.isEmpty());
+        QVERIFY2(results.openResults(warnings,errors),qPrintable(errors.join("\n")));
+        animation.seekToLast();
+        auto completeRows=[&] {
+            if(plot->series().size()!=4) return false;
+            const auto &data=*plot->series()[0].derived;
+            if(data.hglByPeriod.size()!=results.totalTimeSteps() || data.eglByPeriod.size()!=results.totalTimeSteps()) return false;
+            if(data.hglByPeriod.isEmpty() || data.hglByPeriod.last().size()!=2) return false;
+            return std::all_of(data.hglByPeriod.last().cbegin(),data.hglByPeriod.last().cend(),
+                               [](double value){return std::isfinite(value);});
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(completeRows(),5000);
+        const auto previous=plot->series()[0].derived;
+        results.closeResults();
+        QVERIFY2(results.openResults(warnings,errors),qPrintable(errors.join("\n")));
+        animation.seekToLast();
+        QTRY_VERIFY_WITH_TIMEOUT(plot->series()[0].derived!=previous,5000);
+        QTRY_VERIFY_WITH_TIMEOUT(completeRows(),5000);
+        dialog.resize(1000,650); dialog.show(); QCoreApplication::processEvents();
+        const auto automatic=plot->grab().toImage();
+        // An explicit cursor push must not be needed to reveal the lines.
+        plot->setCurrentPeriod(results.currentTimeStep());
+        QCOMPARE(plot->grab().toImage(),automatic);
+        QVERIFY(automatic.save(stem+"-profile.png"));
+        auto *hgl=dialog.findChild<QAction *>("showCurrentHgl");
+        auto *egl=dialog.findChild<QAction *>("showCurrentEgl");
+        auto *flood=dialog.findChild<QAction *>("showFloodingGlyphs");
+        QVERIFY(hgl && egl && flood);
+        for(auto *action : {hgl,egl,flood}) {
+            QVERIFY(action->isCheckable()); QVERIFY(action->isChecked());
+            QVERIFY(!action->icon().pixmap(20,20).isNull());
+        }
+        const auto sourceData=plot->series()[0].derived;
+        plot->zoomBy(.9); const auto manualRange=plot->visibleDataRange();
+        hgl->trigger();
+        QTRY_VERIFY(!plot->series()[0].visible);
+        QVERIFY(!plot->options()->currentHglLine());
+        QVERIFY(!plot->options()->currentHglFill());
+        QVERIFY(flood->isChecked());
+        hgl->trigger();
+        QTRY_VERIFY(plot->series()[0].visible);
+        QVERIFY(plot->options()->currentHglLine());
+        QVERIFY(!plot->options()->currentHglFill()); // restore line-only choice
+        egl->trigger(); QTRY_VERIFY(!plot->series()[1].visible);
+        plot->options()->setCurrentEgl(true); // Display Options → toolbar
+        QVERIFY(egl->isChecked()); QTRY_VERIFY(plot->series()[1].visible);
+        flood->trigger(); QVERIFY(!plot->options()->showFloodingGlyphs());
+        plot->options()->setShowFloodingGlyphs(true); QVERIFY(flood->isChecked());
+        const auto loadingBars=dialog.findChildren<QProgressBar *>();
+        QTRY_VERIFY(std::none_of(loadingBars.cbegin(),loadingBars.cend(),
+                                [](const auto *bar){return bar->isVisible();}));
+        QCOMPARE(plot->series()[0].derived,sourceData); // no file refetch on toggles
+        QCOMPARE(plot->visibleDataRange(),manualRange);
+        plot->fitToExtent(); QCoreApplication::processEvents();
+        auto *toolbar=dialog.findChild<QToolBar *>("profileToolbar"); QVERIFY(toolbar);
+        QVERIFY(toolbar->actions().indexOf(hgl)<toolbar->actions().indexOf(egl));
+        QVERIFY(toolbar->actions().indexOf(egl)<toolbar->actions().indexOf(flood));
+        QVERIFY(dialog.grab().save(stem+"-dialog.png"));
     }
 
 private:

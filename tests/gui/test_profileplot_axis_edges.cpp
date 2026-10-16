@@ -27,7 +27,10 @@ private slots:
     void profilePlotHitTestsAndSetsEdges();
     void liveFitIgnoresMissingAndHiddenOutputs();
     void lidLayersStayVisibleAndSelectable();
+    void lidBottomPortsAndCompactWeirs();
     void lidWaterStatesAnimateWithoutMovingAxes();
+    void hydraulicLinesAndFloodGlyphs_data();
+    void hydraulicLinesAndFloodGlyphs();
     void meshProfilePlotHitTestsAndSetsEdges();
     void inundationClipsToAnalyticShoreline();
     void inundationRespectsGroundKnotsAndDryGaps();
@@ -320,3 +323,151 @@ void TestProfilePlotAxisEdges::lidWaterStatesAnimateWithoutMovingAxes()
 
 QTEST_MAIN(TestProfilePlotAxisEdges)
 #include "test_profileplot_axis_edges.moc"
+
+void TestProfilePlotAxisEdges::hydraulicLinesAndFloodGlyphs_data()
+{
+    QTest::addColumn<bool>("lid");
+    QTest::newRow("ordinary-conduit") << false;
+    QTest::newRow("lid-bottom-outlet") << true;
+}
+
+void TestProfilePlotAxisEdges::hydraulicLinesAndFloodGlyphs()
+{
+    QFETCH(bool,lid);
+    using namespace ProfileBuilder;
+    ProfilePlotOptions options;
+    options.setLegendVisible(false); options.setShowNodeRoses(false);
+    options.setShowBranchStubs(false); options.setShowNodeLabels(false);
+    options.setShowLinkLabels(false); options.setCurrentHglFill(false);
+    const QColor hglColor(12,40,230), eglColor(230,10,190), floodColor(235,17,30);
+    options.setFloodColor(floodColor);
+    NodeStatic node; node.name="S"; node.invertElev=100; node.maxDepth=2.5;
+    node.kind=lid?NodeKind::Storage:NodeKind::Junction;
+    NodeStatic outfall=node; outfall.name="O"; outfall.kind=NodeKind::Outfall;
+    LinkStatic link; link.name="D"; link.length=100; link.maxDepth=.25;
+    link.kind=lid?LinkKind::Orifice:LinkKind::Conduit;
+    if(lid) {
+        node.lidLayers={{NodeLidLayer::Surface,102.5,102},
+                        {NodeLidLayer::Media,102,101},{NodeLidLayer::Aggregate,101,100}};
+        BranchLink drain; drain.name=link.name; drain.kind=link.kind;
+        drain.lidLayer=3; drain.onPath=true; node.branches={drain};
+    }
+    PathStatic path; path.nodes={node,outfall}; path.links={link}; path.chainage={0,100};
+    SourceSeries source; source.periodCount=2; source.reportStepSec=60;
+    source.nodeHead={{101.2f,102.7f},{101.2f,102.7f}};
+    source.linkVelocity={{5.f,5.f}};
+    auto derived=std::make_shared<SourceDerived>(compute(path,source,kGravityFps2));
+    ProfilePlotWidget::SeriesBinding hgl,egl;
+    hgl.kind=OutputKind::HGL; hgl.derived=derived; hgl.pen=QPen(hglColor,3);
+    egl.kind=OutputKind::EGL; egl.derived=derived; egl.pen=QPen(eglColor,3,Qt::DashLine);
+    ProfilePlotWidget plot; plot.resize(900,520); plot.setOptions(&options);
+    plot.setPath(path); plot.setSeries({hgl,egl}); plot.fitToExtent();
+    auto countColor=[](const QImage &image,const QColor &target,QRect area) {
+        int count=0; area=area.intersected(image.rect());
+        for(int y=area.top();y<=area.bottom();++y) for(int x=area.left();x<=area.right();++x) {
+            const auto c=image.pixelColor(x,y);
+            if(std::abs(c.red()-target.red())<5 && std::abs(c.green()-target.green())<5
+                && std::abs(c.blue()-target.blue())<5) ++count;
+        }
+        return count;
+    };
+    for(int period:{0,1,0}) {
+        plot.setCurrentPeriod(period);
+        QImage image(plot.size(),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);plot.render(&image);
+        QVERIFY(countColor(image,hglColor,image.rect())>200);
+        QVERIFY(countColor(image,eglColor,image.rect())>200);
+        const auto range=plot.visibleDataRange();
+        const int x=qRound(64+(0-range.left())/range.width()*(plot.width()-80));
+        const int y=qRound(16+(range.bottom()-102.5)/range.height()*(plot.height()-56));
+        const auto glyph=QRect(x-20,y-20,40,21);
+        if(period==1) QVERIFY(countColor(image,floodColor,glyph)>20);
+        else QCOMPARE(countColor(image,floodColor,glyph),0);
+        saveInundation(image,QString("hydraulics-%1-%2.png").arg(lid?"lid":"ordinary").arg(period));
+    }
+    // At the rim the data extent alone gives only a few pixels of padding.
+    // Fit must reserve the whole configured glyph, including endpoint nodes.
+    source.nodeHead={{102.5f,102.5f},{102.5f,102.5f}};
+    source.linkVelocity={{0.f,0.f}};
+    *derived=compute(path,source,kGravityFps2);
+    options.setFloodRadiusPx(24); plot.resize(420,240); plot.setSeries({hgl,egl});
+    plot.fitToExtent(); plot.setCurrentPeriod(1);
+    const auto compactRange=plot.visibleDataRange();
+    const double rimX=64+(0-compactRange.left())/compactRange.width()*(plot.width()-80);
+    const double rimY=16+(compactRange.bottom()-102.5)/compactRange.height()*(plot.height()-56);
+    QVERIFY(rimX-24>=65);
+    QVERIFY(rimY-24>=17);
+    QVERIFY(rimY-24>16+20+QFontMetricsF(options.timeLabelFont()).height());
+    // Surface indicators are independent of line visibility, and toggling
+    // them restores the normal node cap without disturbing manual zoom.
+    hgl.visible=false; egl.visible=false; plot.setSeries({hgl,egl});
+    plot.zoomBy(.9); const auto manualRange=plot.visibleDataRange();
+    QImage glyphImage(plot.size(),QImage::Format_ARGB32_Premultiplied);
+    glyphImage.fill(Qt::white); plot.render(&glyphImage);
+    QVERIFY(countColor(glyphImage,floodColor,glyphImage.rect())>20);
+    options.setShowFloodingGlyphs(false); plot.render(&glyphImage);
+    QCOMPARE(countColor(glyphImage,floodColor,glyphImage.rect()),0);
+    QCOMPARE(plot.visibleDataRange(),manualRange);
+    options.setShowFloodingGlyphs(true); plot.render(&glyphImage);
+    QVERIFY(countColor(glyphImage,floodColor,glyphImage.rect())>20);
+    QCOMPARE(plot.visibleDataRange(),manualRange);
+    plot.fitToExtent(); plot.render(&glyphImage);
+    saveInundation(glyphImage,QString("hydraulics-%1-compact-glyph.png").arg(lid?"lid":"ordinary"));
+}
+
+void TestProfilePlotAxisEdges::lidBottomPortsAndCompactWeirs()
+{
+    using namespace ProfileBuilder;
+    ProfilePlotOptions options; options.setLegendVisible(false);
+    options.setShowNodeRoses(false); options.setShowBranchStubs(false);
+    NodeStatic lid; lid.name="B"; lid.kind=NodeKind::Storage; lid.maxDepth=2.5;
+    lid.lidLayers={{NodeLidLayer::Surface,2.5,2},{NodeLidLayer::Media,2,1},
+                   {NodeLidLayer::Aggregate,1,0}};
+    BranchLink drain; drain.name="V_BR"; drain.kind=LinkKind::Orifice;
+    drain.maxDepth=.25; drain.lidLayer=3; drain.onPath=true;
+    lid.branches={drain};
+    NodeStatic outfall; outfall.name="R"; outfall.kind=NodeKind::Outfall;
+    LinkStatic link; link.name=drain.name; link.kind=drain.kind; link.length=100; link.maxDepth=.25;
+    ProfilePlotWidget plot; plot.resize(900,520); plot.setOptions(&options);
+    auto pixel=[&](double x,double y) {
+        const auto r=plot.visibleDataRange();
+        return QPoint(qRound(64+(x-r.left())/r.width()*(plot.width()-80)),
+                      qRound(16+(r.bottom()-y)/r.height()*(plot.height()-56)));
+    };
+    for(bool reversed:{false,true}) for(int layer:{2,3}) {
+        lid.branches[0].lidLayer=layer; lid.branches[0].lidAnchorTop=false;
+        link.reversed=reversed;
+        PathStatic path; path.nodes=reversed?QVector<NodeStatic>{outfall,lid}:QVector<NodeStatic>{lid,outfall};
+        path.links={link}; path.chainage={0,100}; plot.setPath(path); plot.fitToExtent();
+        const double x=reversed?1:0, level=lid.lidLayers[layer-1].bottomElev;
+        const QPoint port=pixel(x,level);
+        QCOMPARE(plot.linkIndexAt(port+QPoint(0,7)),0); // vertical drain through layer bottom
+        // Fit can shorten the schematic drop near the bottom edge. The
+        // horizontal connector must still run below the physical layer port.
+        bool belowPort = false;
+        for (int dy=8; dy<=18; ++dy)
+            belowPort |= plot.linkIndexAt(pixel(.5,level)+QPoint(0,dy))==0;
+        QVERIFY(belowPort);
+        if(layer==3) QCOMPARE(plot.linkIndexAt(pixel(.5,.125)),-1); // no fictitious long side barrel
+        plot.setSelectedElementNames({link.name});
+        QImage image(plot.size(),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);plot.render(&image);
+        const QColor selected=image.pixelColor(port+QPoint(0,7));
+        QVERIFY(selected.red()>220 && selected.green()<150 && selected.blue()<50);
+        saveInundation(image,QString("lid-bottom-%1-%2.png").arg(reversed).arg(layer));
+        plot.setSelectedElementNames({});
+        path.nodes[reversed?1:0].branches[0].lidAnchorTop=true; plot.setPath(path);plot.fitToExtent();
+        QCOMPARE(plot.linkIndexAt(pixel(x,level)+QPoint(0,7)),-1); // TOP retains its side-elevation connection
+    }
+    lid.branches[0].lidLayer=3;lid.branches[0].lidAnchorTop=false;
+    LinkStatic weir;weir.name="W_B";weir.kind=LinkKind::Weir;weir.length=100;weir.crestHeight=2.4;weir.reversed=true;
+    weir.offset1=2.4; // real reversed W_B has the overflow crest at this endpoint
+    BranchLink overflow;overflow.name="W_B";overflow.kind=LinkKind::Weir;overflow.onPath=true;
+    lid.branches.append(overflow);
+    PathStatic path; path.nodes={outfall,lid,outfall};path.links={weir,link};path.chainage={0,100,200};
+    plot.setPath(path);plot.fitToExtent();
+    QCOMPARE(plot.linkIndexAt(pixel(.5,1)), -1); // broad brown wall is gone
+    QCOMPARE(plot.linkIndexAt(pixel(1,1)+QPoint(-29,0)),0); // compact weir remains selectable
+    QImage image(plot.size(),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);plot.render(&image);
+    const auto openSpace=image.pixelColor(pixel(.5,1));
+    QVERIFY(openSpace.red()>240 && openSpace.green()>240 && openSpace.blue()>240);
+    saveInundation(image,"lid-overflow-bottom-drain.png");
+}

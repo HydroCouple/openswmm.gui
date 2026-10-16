@@ -74,6 +74,7 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("inundation2DLinePen"),   QObject::tr("2D water surface line pen") },
         { QStringLiteral("inundation2DFillBrush"), QObject::tr("2D inundation fill brush") },
         // Flooding indicator
+        { QStringLiteral("showFloodingGlyphs"), QObject::tr("Show surcharge / flooding glyphs") },
         { QStringLiteral("floodRadiusPx"),    QObject::tr("Flooding glyph radius (px)") },
         { QStringLiteral("floodSweepDeg"),    QObject::tr("Flooding glyph sweep angle (°)") },
         { QStringLiteral("floodColor"),       QObject::tr("Flooding glyph colour") },
@@ -195,6 +196,7 @@ void ProfilePlotOptions::setInundation2DLinePen  (const QPen   &p) { SET_OBJ(m_i
 void ProfilePlotOptions::setInundation2DFillBrush(const QBrush &b) { SET_OBJ(m_inundation2DFillBrush, b); }
 void ProfilePlotOptions::setShowBranchStubs (bool v)  { SET_PRIM(m_showBranchStubs, v); }
 void ProfilePlotOptions::setShowNodeRoses   (bool v)  { SET_PRIM(m_showNodeRoses, v); }
+void ProfilePlotOptions::setShowFloodingGlyphs(bool v) { SET_PRIM(m_showFloodingGlyphs, v); }
 void ProfilePlotOptions::setFloodRadiusPx (double r) {
     r = std::clamp(r, 4.0, 60.0);
     SET_PRIM(m_floodRadiusPx, r);

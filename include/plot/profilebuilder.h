@@ -152,6 +152,7 @@ struct BranchLink
                                        gets no stub (it is already drawn full
                                        length) but does get a rose spoke. */
     int lidLayer = 0; /*!< Optional one-based authored LID outlet anchor. */
+    bool lidAnchorTop = false; /*!< TOP versus BOTTOM of the authored layer. */
 };
 
 /*! One authored physical layer in a storage-node LID, ordered top to bottom.

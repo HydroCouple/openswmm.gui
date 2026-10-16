@@ -45,6 +45,7 @@
 #include "io/lidstates.h"
 #include <QDateTime>
 #include <QPen>
+#include <QPainterPath>
 #include <QPointer>
 #include <QSet>
 #include <QString>
@@ -411,6 +412,9 @@ private:
     // LID columns need room for their material patterns. Width is schematic;
     // elevations and layer thicknesses still use the physical Y axis.
     [[nodiscard]] double nodeHalfWidthPx(int nodeIdx) const;
+    struct LidLinkDrawing { QPainterPath connection, body; };
+    [[nodiscard]] std::optional<LidLinkDrawing> lidLinkDrawing(int linkIdx) const;
+    void paintLidConnections(QPainter &p) const;
     void paintNodeLidLayers(QPainter &p) const;
     void paintLidWaterLines(QPainter &p) const;
     const openswmmvis::io::LidNodeState *lidStateForNode(int node) const;

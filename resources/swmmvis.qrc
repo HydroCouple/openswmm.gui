@@ -49,6 +49,11 @@
         <file alias="ResultSources">images/result_sources.svg</file>
         <file alias="ChartProperties">images/chart_properties.svg</file>
         <!-- Profile plot toolbar toggles -->
+        <file alias="ProfileHgl">images/profile_hgl.svg</file>
+        <file alias="ProfileEgl">images/profile_egl.svg</file>
+        <file alias="ProfileFlooding">images/profile_flooding.svg</file>
+        <file alias="ProfileLidWater">images/profile_lid_water.svg</file>
+        <file alias="ProfileLidHead">images/profile_lid_head.svg</file>
         <file alias="AttributeTracks">images/attribute_tracks.svg</file>
         <file alias="Inundation2D">images/inundation_2d.svg</file>
         <!-- 2D surface profile — Analysis "2D Profile" and the Mesh 2D tab's trace tool. -->

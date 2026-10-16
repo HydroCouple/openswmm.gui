@@ -234,6 +234,7 @@ void ProfilePlotDialog::buildLayout()
     // Re-use the main app's SVG icons (defined in resources/swmmvis.qrc) so
     // the dialog matches the look of the map toolbar.
     auto *toolbar = new QToolBar(this);
+    toolbar->setObjectName(QStringLiteral("profileToolbar"));
     toolbar->setIconSize(QSize(20, 20));
     // Explicit Select (Identify) toggle: the default plot mode, but
     // implicit "no button checked = identify" was confusing for users.
@@ -246,7 +247,6 @@ void ProfilePlotDialog::buildLayout()
                                           tr("Zoom Out"));
     auto *actFit     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
                                           tr("Fit to Path"));
-    toolbar->addSeparator();
     auto *actPan     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),
                                           tr("Pan"));
     actSelect ->setCheckable(true);
@@ -280,15 +280,65 @@ void ProfilePlotDialog::buildLayout()
     m_sourceMenu = new QMenu(m_sourceButton);
     m_sourceButton->setMenu(m_sourceMenu);
     toolbar->addWidget(m_sourceButton);
+    toolbar->addSeparator();
+
+    // Hydraulic overlays share one group and the same options as the
+    // Display Options editor. HGL restores the user's line/fill combination.
+    auto *actHgl = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileHgl")), tr("HGL"));
+    actHgl->setObjectName(QStringLiteral("showCurrentHgl"));
+    actHgl->setCheckable(true);
+    actHgl->setChecked(m_options->currentHglLine() || m_options->currentHglFill());
+    actHgl->setToolTip(tr("Show hydraulic grade line (HGL) and its water fill. Line and fill styles can be set separately in Display Options."));
+    connect(actHgl, &QAction::toggled, this,
+            [this, line = true, fill = true](bool on) mutable {
+        if (!on) {
+            line = m_options->currentHglLine();
+            fill = m_options->currentHglFill();
+        }
+        {
+            QSignalBlocker block(m_options);
+            m_options->setCurrentHglLine(on && line);
+            m_options->setCurrentHglFill(on && fill);
+        }
+        emit m_options->changed();
+    });
+    auto *actEgl = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileEgl")), tr("EGL"));
+    actEgl->setObjectName(QStringLiteral("showCurrentEgl"));
+    actEgl->setCheckable(true);
+    actEgl->setChecked(m_options->currentEgl());
+    actEgl->setToolTip(tr("Show energy grade line (EGL), including velocity head."));
+    connect(actEgl, &QAction::toggled, m_options, &ProfilePlotOptions::setCurrentEgl);
+    auto *actFlooding = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileFlooding")), tr("Surcharge"));
+    actFlooding->setObjectName(QStringLiteral("showFloodingGlyphs"));
+    actFlooding->setCheckable(true);
+    actFlooding->setChecked(m_options->showFloodingGlyphs());
+    actFlooding->setToolTip(tr("Show surface surcharge / flooding glyphs when node head reaches the surcharge threshold. Independent of HGL visibility."));
+    connect(actFlooding, &QAction::toggled, m_options, &ProfilePlotOptions::setShowFloodingGlyphs);
+    for (auto *action : {actHgl, actEgl, actFlooding}) {
+        if (auto *button = qobject_cast<QToolButton *>(toolbar->widgetForAction(action)))
+            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    }
+    connect(m_options, &ProfilePlotOptions::changed, this, [this, actHgl, actEgl, actFlooding] {
+        const QSignalBlocker hglBlock(actHgl), eglBlock(actEgl), floodBlock(actFlooding);
+        actHgl->setChecked(m_options->currentHglLine() || m_options->currentHglFill());
+        actEgl->setChecked(m_options->currentEgl());
+        actFlooding->setChecked(m_options->showFloodingGlyphs());
+    });
+
     const bool haveLid = std::any_of(m_pathStatic.nodes.cbegin(), m_pathStatic.nodes.cend(),
         [](const auto &node) { return !node.lidLayers.isEmpty(); });
-    m_actLidWater = toolbar->addAction(tr("LID water states"));
+    m_actLidWater = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileLidWater")), tr("LID water states"));
     m_actLidWater->setObjectName(QStringLiteral("showLidWaterStates"));
     m_actLidWater->setCheckable(true);
     m_actLidWater->setChecked(true);
     m_actLidWater->setVisible(haveLid);
     m_actLidWater->setToolTip(tr("Blue intensity shows pore saturation. Solid cyan marks a resolved water table; dashed cyan marks the base of a perched saturated zone. Uses the primary results source."));
-    m_actLidHead = toolbar->addAction(tr("Outlet-layer head"));
+    m_actLidHead = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileLidHead")), tr("Outlet-layer head"));
     m_actLidHead->setObjectName(QStringLiteral("showLidOutletHead"));
     m_actLidHead->setCheckable(true);
     m_actLidHead->setVisible(haveLid);
@@ -310,12 +360,6 @@ void ProfilePlotDialog::buildLayout()
     connect(m_actShow2D, &QAction::toggled, this, [this](bool on) {
         m_options->setShow2DInundation(on);   // options.changed → rebuild
     });
-    toolbar->addSeparator();
-    auto *actExport  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
-                                          tr("Export PNG…"));
-    toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
-                                          tr("Display Options…"));
     root->addWidget(toolbar);
 
     // Header banner with the path summary.
@@ -387,6 +431,11 @@ void ProfilePlotDialog::buildLayout()
     centre->addWidget(m_profileSplit, /*stretch=*/1);
 
     buildAttributeTracksUi(toolbar);
+    toolbar->addSeparator();
+    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
+                                          tr("Display Options…"));
+    auto *actExport  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
+                                          tr("Export PNG…"));
 
     // Distance / elevation axis labels — pulled from the active project's
     // UnitSystem so the suffix matches the rest of the GUI.  Re-applied
@@ -1188,6 +1237,8 @@ bool ProfilePlotDialog::pushEditedPlotStylesToSources()
 
 void ProfilePlotDialog::rebindSources()
 {
+    // Even clearing the source set supersedes a worker already in flight.
+    const int cookie = ++m_loadCookie;
     refreshLidWaterStates();
     if (!m_sourceMenu) {
         m_plot->setSeries({});
@@ -1215,6 +1266,9 @@ void ProfilePlotDialog::rebindSources()
         if (!act || !act->isChecked()) continue;
         QPointer<SWMMResultsLayer> layer = m_actionLayer.value(act);
         if (!layer) continue;
+        // Subscribe before the first fetch: a live/file open can complete
+        // while that fetch is still returning an empty series.
+        ensureCacheInvalidationWired(layer);
         Job j;
         j.sourceId = layer->scenarioName().isEmpty()
                          ? QFileInfo(layer->resultsFilePath()).completeBaseName()
@@ -1246,9 +1300,6 @@ void ProfilePlotDialog::rebindSources()
     const bool optMaxHglLine     = m_options->maxHglLine();
     const bool optMaxEglLine     = m_options->maxEglLine();
 
-    // Increment the cookie so any in-flight watcher that returns after a
-    // newer rebind is ignored (Sources panel toggles can fire rapidly).
-    const int cookie = ++m_loadCookie;
     if (m_loadingBar) m_loadingBar->setVisible(true);
 
     const auto pathSnapshot = m_pathStatic;
@@ -1395,6 +1446,17 @@ void ProfilePlotDialog::rebindSources()
             syncTracksAxes();
             rebuildTracks();
         }
+        // periodsAppended can arrive during a fetch, including the final
+        // live update. Catch up once no worker can still read these arrays;
+        // waiting for another producer tick would leave the profile stale.
+        if (m_rebindsInFlight == 0) {
+            const auto layers = m_sourceSeriesCache.keys();
+            for (auto *layer : layers) {
+                const auto series = m_sourceSeriesCache.value(layer);
+                if (series && series->periodCount < layer->totalTimeSteps())
+                    appendLivePeriods(layer);
+            }
+        }
         watcher->deleteLater();
     });
     watcher->setFuture(future);
@@ -1425,7 +1487,7 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
             this, [this, layer]() {
                 invalidateSourceCacheFor(layer);
                 refreshTracksMenuSpecies();
-                refreshLidWaterStates();
+                rebindSources();
             });
     // Layer pointed at a different results file.
     connect(layer, &SWMMResultsLayer::resultsFilePathChanged,
@@ -1435,7 +1497,8 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
     // dropping the cache (which would refetch the whole file every tick).
     connect(layer, &SWMMResultsLayer::periodsAppended,
             this, [this, layer](int, int) { appendLivePeriods(layer); });
-    connect(layer, &SWMMResultsLayer::resultsFinalized, this, &ProfilePlotDialog::refreshLidWaterStates);
+    connect(layer, &SWMMResultsLayer::resultsFinalized,
+            this, [this, layer]() { appendLivePeriods(layer); });
     // Layer destroyed → drop the cache entry AND the wired flag so the
     // hash never holds a dangling key.
     connect(layer, &QObject::destroyed,
@@ -1456,8 +1519,8 @@ void ProfilePlotDialog::appendLivePeriods(SWMMResultsLayer *layer)
     if (!layer || !m_plot) return;
     refreshLidWaterStates();
     // A worker may be reading the cached SourceDerived right now; mutating
-    // it here would race. Skip — the next tick's appendTail starts from
-    // series.periodCount and catches up on everything missed.
+    // it here would race. The last fetch completion catches up from
+    // series.periodCount even when this was the final producer tick.
     if (m_rebindsInFlight > 0) return;
 
     auto series  = m_sourceSeriesCache.value(layer);

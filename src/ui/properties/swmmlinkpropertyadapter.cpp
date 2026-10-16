@@ -730,11 +730,11 @@ int SWMMLinkPropertyAdapter::lidOutletLayer() const {
 SWMMLinkPropertyAdapter::LidAnchorPosition SWMMLinkPropertyAdapter::lidOutletPosition() const {
     int layer = 0, top = 0;
     swmm_lid_node_outlet_get(m_engine, linkIdx(), &layer, &top);
-    return top ? LayerTop : LayerBottom;
+    return layer > 0 ? (top ? LayerTop : LayerBottom) : NoLayerAnchor;
 }
 void SWMMLinkPropertyAdapter::setLidOutletLayer(int layer) {
     if (swmm_lid_node_outlet_set(m_engine, linkIdx(), layer, lidOutletPosition() == LayerTop) == SWMM_OK) emit changed();
 }
 void SWMMLinkPropertyAdapter::setLidOutletPosition(LidAnchorPosition position) {
-    if (swmm_lid_node_outlet_set(m_engine, linkIdx(), lidOutletLayer(), position == LayerTop) == SWMM_OK) emit changed();
+    if (swmm_lid_node_outlet_set(m_engine, linkIdx(), position == NoLayerAnchor ? 0 : lidOutletLayer(), position == LayerTop) == SWMM_OK) emit changed();
 }
