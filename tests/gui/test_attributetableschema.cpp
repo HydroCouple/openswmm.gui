@@ -589,7 +589,7 @@ private slots:
         QCOMPARE(view->model()->rowCount(), 1);
         QVERIFY(!edit->styleSheet().isEmpty());
         for (const auto &spec : model->columnSpecs()) {
-            if (spec.editor != EditorKind::Compound) continue;
+            if (spec.queryable) continue;
             edit->setText(QString("[%1] = 1").arg(spec.key));
             QTest::keyClick(edit, Qt::Key_Return);
             QCOMPARE(view->model()->rowCount(), 1);
@@ -790,7 +790,7 @@ private slots:
         QVERIFY(model.flags(idx) & Qt::ItemIsEditable);
 
         // Unset reads blank — the global initial concentration applies.
-        QVERIFY(model.data(idx, Qt::EditRole).toString().isEmpty());
+        QVERIFY(!model.data(idx, Qt::DisplayRole).isValid());
 
         // Numeric commit upserts the element's [INITIAL_QUALITY] row.
         QVERIFY(model.commitValueDirect(idx, QStringLiteral("12.5")));
@@ -816,7 +816,7 @@ private slots:
         // Blank commit clears the override; a second blank is a no-op.
         QVERIFY(model.commitValueDirect(idx, QString()));
         QCOMPARE(swmm_init_quality_count(eng), 0);
-        QVERIFY(model.data(idx, Qt::EditRole).toString().isEmpty());
+        QVERIFY(!model.data(idx, Qt::DisplayRole).isValid());
         QVERIFY(!model.commitValueDirect(idx, QString()));
     }
 

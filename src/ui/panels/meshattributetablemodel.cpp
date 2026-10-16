@@ -4,6 +4,7 @@
  * \date   2026
  * \license GPL-3.0-or-later
  */
+#include "core/attributevalue.h"
 #include "ui/panels/meshattributetablemodel.h"
 
 #include "core/unitsystem.h"
@@ -185,7 +186,6 @@ bool edgeEndpoints(const mesh::MeshResult &m, int tri, int e, int *va, int *vb)
 
 /*! Placeholder shown in a cell that does not apply to this row (a BC field on
  *  an interior edge, a per-cell parameter awaiting engine support). */
-QString notApplicable() { return QStringLiteral("—"); }
 
 } // namespace
 
@@ -587,6 +587,11 @@ mesh::InfilProvenance MeshAttributeTableModel::cellInfilProvenance(int row) cons
 
 QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 {
+    if (role == openswmmvis::kAttributeSortRole && index.isValid()
+        && m_kind == Kind::Edge && index.column() == 0)
+        return slotForRow(index.row());
+    if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
+        return openswmmvis::attributeValue(data(index, Qt::DisplayRole));
     if (!index.isValid() || !m_layer) return {};
 
     // An infiltration value a cell INHERITS from its region tag (or from the
@@ -621,6 +626,9 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         return {};
     const ColumnSpec &spec = m_columnSpecs[col];
     const mesh::MeshResult &m = m_layer->mesh();
+    const auto missing = [role](const QString &reason) -> QVariant {
+        return role == Qt::ToolTipRole ? QVariant(reason) : QVariant();
+    };
 
     switch (m_kind) {
     case Kind::Vertex: {
@@ -640,21 +648,14 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
                 const QVariant ref = pickerRef(spec.key, v.coupledNode);
                 if (ref.isValid()) return ref;
             }
-            return v.coupledNode;
+            if (role == Qt::EditRole) return v.coupledNode;
+            return v.coupledNode.isEmpty() ? missing(tr("No coupled node assigned.")) : QVariant(v.coupledNode);
         }
-        // Cd / Area are meaningless without a coupling, and the layer refuses
-        // to write them there — render the same "not applicable" dash the BC
-        // columns use rather than a default that looks like real data.
-        if (spec.key == QLatin1String("couplingCd"))
-            return v.coupledNode.isEmpty()
-                       ? QVariant(role == Qt::EditRole ? QVariant()
-                                                       : QVariant(notApplicable()))
-                       : QVariant(v.couplingCd);
-        if (spec.key == QLatin1String("couplingArea"))
-            return v.coupledNode.isEmpty()
-                       ? QVariant(role == Qt::EditRole ? QVariant()
-                                                       : QVariant(notApplicable()))
-                       : QVariant(v.couplingArea);
+        // Coefficients have no physical meaning until a node is assigned.
+        if (spec.key == QLatin1String("couplingCd") || spec.key == QLatin1String("couplingArea")) {
+            if (v.coupledNode.isEmpty()) return missing(tr("Not applicable: no coupled node assigned."));
+            return spec.key == QLatin1String("couplingCd") ? v.couplingCd : v.couplingArea;
+        }
         return {};
     }
 
@@ -677,7 +678,7 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         if (spec.key == QLatin1String("conveyance")) return bc.conveyance;
         // Every remaining column is a boundary-condition field.
         if (!m_layer->isBoundaryEdge(tri, e))
-            return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
+            return missing(tr("Not applicable on an interior edge."));
         if (spec.key == QLatin1String("bcType")) {
             if (role == Qt::EditRole) return int(bc.type);
             return mesh::MeshBCTypes::label(bc.type);
@@ -685,7 +686,7 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         // A parameter this BC type does not read carries no meaning — show it
         // as inapplicable rather than as a stale number the engine ignores.
         if (!bcFieldApplies(bc.type, spec.key))
-            return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
+            return missing(tr("Not used by this boundary condition."));
         if (spec.key == QLatin1String("head"))    return bc.head;
         if (spec.key == QLatin1String("slope"))   return bc.slope;
         if (spec.key == QLatin1String("flow"))    return bc.flow;
@@ -697,7 +698,8 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
                 const QVariant ref = pickerRef(spec.key, cur);
                 if (ref.isValid()) return ref;
             }
-            return cur;
+            if (role == Qt::EditRole) return cur;
+            return cur.isEmpty() ? missing(tr("No reference assigned.")) : QVariant(cur);
         }
         if (spec.key == QLatin1String("group"))   return bc.group;
         return {};
@@ -725,32 +727,33 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         // Per-cell parameter: unset reads back as the registry default, which
         // is what the engine would use; engine-pending keys have no value.
         const QByteArray key = spec.key.toUtf8();
-        if (key=="infil.owner"||key=="infil.conflict") {
-            const double raw=mesh::cellParamValue(m,row,key);
-            const auto* cs=mesh::cellParamSpec(key);
-            return std::isfinite(raw)?QVariant(cs->enumLabels.value(int(raw))):QVariant(tr("Unavailable"));
-        }
-        if(key.startsWith("infil.")&&!m_layer->surfaceInfiltrationEditable(row))return role==Qt::EditRole?QVariant():QVariant(m_layer->mesh().infiltrationOwner.value(row)==0?tr("Infiltration OFF"):tr("Computed by aquifer"));
         const mesh::CellParamSpec *cs = mesh::cellParamSpec(key);
         if (!cs) return {};
-        if (!cs->enabled)
-            return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
+        const bool diagnostic = key == "infil.owner" || key == "infil.conflict"
+                             || key.startsWith("surface.");
+        if (!cs->enabled && !diagnostic)
+            return missing(cs->tooltip);
+        if (!diagnostic && key.startsWith("infil.") && !m_layer->surfaceInfiltrationEditable(row))
+            return missing(m.infiltrationOwner.value(row) == 0
+                ? tr("Not applicable: infiltration is disabled.")
+                : tr("Not applicable: infiltration is computed by the aquifer."));
+        if (!diagnostic && key.startsWith("infil.") && !cellInfilParamApplies(row, key))
+            return missing(tr("Not used by this infiltration method."));
+        const double value = mesh::cellParamValue(m, row, key);
+        if (diagnostic && !std::isfinite(value))
+            return missing(tr("Resolved ownership data is not available."));
         if (cs->kind == mesh::CellParamSpec::Kind::Enum) {
-            // Same split bcType uses: the combo edits the enum integer, the
-            // display / query bar / CSV export see the human label. The label
-            // index is the value's offset from the spec's min — the mapping
-            // enumCol() builds its {label, data} pairs from.
-            const int ev = int(mesh::cellParamValue(m, row, key));
+            if (!std::isfinite(value)) return missing(tr("No resolved value is available."));
+            const int ev = int(value), label = ev - int(cs->min);
+            if (label < 0 || label >= cs->enumLabels.size())
+                return missing(tr("Unknown value."));
             if (role == Qt::EditRole) return ev;
-            return cs->enumLabels.value(ev - int(cs->min), notApplicable());
+            return cs->enumLabels[label];
         }
-        // A parameter the row's resolved method does not read carries no
-        // meaning — show it inapplicable rather than as a stale number the
-        // engine ignores. Same idiom as the BC columns on an interior edge.
-        if (key.startsWith("infil.") && !cellInfilParamApplies(row, key))
-            return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
-        const double raw = mesh::cellParamValue(m, row, key);
-        return std::isfinite(raw) ? raw : cs->defaultValue;
+        if (key.startsWith("infil.") && !std::isfinite(value))
+            return missing(tr("No inherited or explicit value is available."));
+        // Manning's n and initial depth retain their established engine defaults.
+        return std::isfinite(value) ? value : cs->defaultValue;
     }
     }
     return {};

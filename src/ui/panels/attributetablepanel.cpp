@@ -4,6 +4,7 @@
  * \date   2026
  */
 
+#include "ui/panels/attributevalueproxy.h"
 #include "ui/panels/attributetablepanel.h"
 #include "ui/panels/attributedelegates.h"
 #include "ui/panels/dataobjectattributetablemodel.h"
@@ -281,6 +282,8 @@ public:
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
     {
+        if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
+            return openswmmvis::attributeValue(data(index, Qt::DisplayRole));
         if (!index.isValid()) return {};
         if (role != Qt::DisplayRole && role != Qt::EditRole && role != Qt::ToolTipRole)
             return {};
@@ -380,6 +383,8 @@ QList<openswmmvis::ColumnSpec> specsFor(const QAbstractItemModel *src)
 {
     if (auto *swmm = qobject_cast<const SWMMAttributeTableModel *>(src))
         return swmm->columnSpecs();
+    if (auto *objects = qobject_cast<const DataObjectAttributeTableModel *>(src))
+        return objects->columnSpecs();
     if (auto *mesh = qobject_cast<const MeshAttributeTableModel *>(src))
         return mesh->columnSpecs();
     return {};
@@ -418,12 +423,10 @@ public:
                 const auto cs = (pass == 0) ? Qt::CaseSensitive
                                             : Qt::CaseInsensitive;
                 for (int c = 0; c < nCol; ++c) {
-                    // Compound cells hand back a QVariant-wrapped edit-ref
-                    // struct that no predicate can compare against, and
-                    // reading one runs an engine-wide scan (LID usages,
-                    // land uses, pollutants).  Never resolve to one.
+                    // Action/summary cells have no scalar query value. Scalar
+                    // reference pickers are queryable independently of editor kind.
                     if (c < specs.size()
-                        && specs[c].editor == openswmmvis::EditorKind::Compound)
+                        && !specs[c].queryable)
                         continue;
                     const bool match =
                         (c < specs.size()
@@ -456,7 +459,7 @@ public:
             const QModelIndex idx = m_src->index(srcRow, col.first, parent);
             // Keyed by the name as the user typed it, so lookupField's
             // exact-key probe hits and its linear fallback never runs.
-            m.insert(col.second, m_src->data(idx, Qt::DisplayRole));
+            m.insert(col.second, m_src->data(idx, openswmmvis::kAttributeValueRole));
         }
         return openswmmvis::evaluateQuery(m_pred, m);
     }
@@ -478,10 +481,10 @@ private:
 // alternation over every selected name — `^(?:a|b|c|…)$` — which was
 // recompiled and re-matched against every row on each selection change.
 // A QSet probe is the same test without the quadratic blowup.
-class FilteringProxy : public QSortFilterProxyModel {
+class FilteringProxy : public openswmmvis::AttributeValueProxy {
 public:
     explicit FilteringProxy(QObject *parent = nullptr)
-        : QSortFilterProxyModel(parent) {}
+        : openswmmvis::AttributeValueProxy(parent) {}
 
     /*! `text` is the string `p` was parsed from; `queryText()` hands it
      *  back so callers can tell whether the proxy's visible rows are
@@ -521,13 +524,13 @@ public:
         // The proxy then stops seeing source resets entirely and its row
         // count freezes on the previous category.
         QObject::disconnect(m_resetConn);
-        QSortFilterProxyModel::setSourceModel(src);
         m_bound = false;
+        QSortFilterProxyModel::setSourceModel(src);
         // A category switch resets the model AND rebuilds its column
         // schema while the predicate persists, so cached column indices
         // would otherwise point into the previous category's schema.
         if (src)
-            m_resetConn = connect(src, &QAbstractItemModel::modelReset, this,
+            m_resetConn = connect(src, &QAbstractItemModel::modelAboutToBeReset, this,
                                   [this] { m_bound = false; });
     }
 
@@ -988,7 +991,7 @@ void AttributeTablePanel::buildUi()
             this, [this](const QString &name) {
                 if (!m_suppressEditForward) emit objectEdited(name);
             });
-    m_proxy->setSortRole(Qt::DisplayRole);
+    m_proxy->setSortRole(openswmmvis::kAttributeSortRole);
     m_proxy->setFilterKeyColumn(0);  // Name column drives "show selected only"
     // No setFilterCaseSensitivity: the name filter is a QSet probe now,
     // and both sides of it are the model's own spelling of the name
@@ -2245,7 +2248,7 @@ QString AttributeTablePanel::selectionAsTsv() const
         QStringList cells;
         cells.reserve(cols.size());
         for (int c : std::as_const(cols))
-            cells << flatten(m_proxy->data(m_proxy->index(r, c)).toString());
+            cells << flatten(m_proxy->data(m_proxy->index(r, c), openswmmvis::kAttributeValueRole).toString());
         lines << cells.join(QLatin1Char('\t'));
     }
 
@@ -2306,7 +2309,7 @@ void AttributeTablePanel::onExportCsvClicked()
     for (int r = 0; r < nRow; ++r) {
         QStringList cells;
         for (int c = 0; c < nCol; ++c)
-            cells << quoteCsv(m_proxy->data(m_proxy->index(r, c)).toString());
+            cells << quoteCsv(m_proxy->data(m_proxy->index(r, c), openswmmvis::kAttributeValueRole).toString());
         out << cells.join(sep) << '\n';
     }
     f.close();
@@ -2804,7 +2807,7 @@ void AttributeTablePanel::updateQueryFields()
     const auto specs = specsFor(source);
     QStringList fields;
     for (int column = 0; column < source->columnCount(); ++column) {
-        if (column < specs.size() && specs[column].editor == openswmmvis::EditorKind::Compound) continue;
+        if (column < specs.size() && !specs[column].queryable) continue;
         fields.append(source->headerData(column, Qt::Horizontal).toString());
         if (column < specs.size()) {
             fields.append(specs[column].key);

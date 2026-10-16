@@ -243,8 +243,7 @@ private slots:
             // Conveyance is orthogonal to the boundary/interior split.
             QVERIFY(model.flags(model.index(row, psiCol)) & Qt::ItemIsEditable);
             if (!isBoundary) {
-                QCOMPARE(model.data(model.index(row, typeCol)).toString(),
-                         QStringLiteral("—"));
+                QVERIFY(!model.data(model.index(row, typeCol)).isValid());
                 ++interior;
             } else {
                 ++boundary;
@@ -278,17 +277,16 @@ private slots:
             const int c = colFor(model, key);
             return c >= 0 && (model.flags(model.index(row, c)) & Qt::ItemIsEditable);
         };
-        const auto dash = [&](const char *key) {
+        const auto missing = [&](const char *key) {
             const int c = colFor(model, key);
-            return c >= 0 && model.data(model.index(row, c)).toString()
-                                 == QStringLiteral("—");
+            return c >= 0 && !model.data(model.index(row, c)).isValid();
         };
 
         using T = mesh::MeshBCTypes::Type;
         // Wall (the default): no parameter at all.
         for (const char *k : {"head", "slope", "flow", "tseries", "curve"}) {
             QVERIFY2(!editable(k), k);
-            QVERIFY2(dash(k), k);
+            QVERIFY2(missing(k), k);
         }
         // group is orthogonal to the type — always available on a boundary.
         QVERIFY(editable("group"));
@@ -309,7 +307,8 @@ private slots:
                 QVERIFY2(editable(k) == want,
                          qPrintable(QStringLiteral("type=%1 key=%2")
                                         .arg(int(c.type)).arg(k)));
-                QVERIFY2(dash(k) == !want,
+                const bool optionalRef = QLatin1String(k) == QLatin1String("tseries") || QLatin1String(k) == QLatin1String("curve");
+                QVERIFY2(missing(k) == (!want || optionalRef),
                          qPrintable(QStringLiteral("dash type=%1 key=%2")
                                         .arg(int(c.type)).arg(k)));
             }
@@ -348,8 +347,7 @@ private slots:
         QVERIFY(cdCol >= 0 && nodeCol >= 0);
 
         QVERIFY(!(model.flags(model.index(0, cdCol)) & Qt::ItemIsEditable));
-        QCOMPARE(model.data(model.index(0, cdCol)).toString(),
-                 QStringLiteral("—"));
+        QVERIFY(!model.data(model.index(0, cdCol)).isValid());
 
         QVERIFY(model.setData(model.index(0, nodeCol),
                               QStringLiteral("J1"), Qt::EditRole));

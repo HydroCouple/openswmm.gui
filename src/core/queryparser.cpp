@@ -4,6 +4,7 @@
  * \date   2026
  */
 
+#include "core/attributevalue.h"
 #include "core/queryparser.h"
 
 #include <QChar>
@@ -169,9 +170,17 @@ private:
         QVariant value;
         if (m_cur.kind == TokenKind::Number) {
             bool ok = false;
-            const double number = m_cur.text.toDouble(&ok);
-            if (!ok || !std::isfinite(number)) throwAt(QStringLiteral("Invalid number"));
-            value = number;
+            const auto integer = m_cur.text.toLongLong(&ok);
+            if (ok) value = integer;
+            else {
+                const auto unsignedInteger = m_cur.text.toULongLong(&ok);
+                if (ok) value = unsignedInteger;
+                else {
+                    const double number = m_cur.text.toDouble(&ok);
+                    if (!ok || !std::isfinite(number)) throwAt(QStringLiteral("Invalid number"));
+                    value = number;
+                }
+            }
         } else if (m_cur.kind == TokenKind::String) value = m_cur.text;
         else if (m_cur.kind == TokenKind::KwTrue) value = true;
         else if (m_cur.kind == TokenKind::KwFalse) value = false;
@@ -334,22 +343,23 @@ private:
 // Evaluator
 // ---------------------------------------------------------------------------
 
-// Compare two QVariants — try numeric first, fall back to string.
-// Returns one of {-1, 0, 1, INT_MIN} where INT_MIN means
-// "incomparable" (e.g. row missing the field).
+// Typed comparisons preserve text identifiers and 64-bit numeric identity.
+// INT_MIN denotes SQL unknown (missing or incompatible operands).
 int cmpVariants(const QVariant &a, const QVariant &b) {
-    if (!a.isValid() || a.isNull() || !b.isValid() || b.isNull()) return INT_MIN;
-    bool okA = false, okB = false;
-    const double da = a.toDouble(&okA);
-    const double db = b.toDouble(&okB);
-    if (okA && okB) {
-        if (da < db) return -1;
-        if (da > db) return  1;
-        return 0;
-    }
-    const QString sa = a.toString();
-    const QString sb = b.toString();
-    return QString::compare(sa, sb);
+    if (openswmmvis::isNullAttributeValue(a) || openswmmvis::isNullAttributeValue(b)) return INT_MIN;
+    const bool an = openswmmvis::isNumericValue(a), bn = openswmmvis::isNumericValue(b);
+    if (an && bn) return openswmmvis::compareAttributeNumbers(a, b);
+    if (!an && !bn) return QString::compare(a.toString(), b.toString());
+    // Preserve the existing convenience of quoted numeric operands, but never
+    // compare a failed conversion lexically against a numeric value.
+    const QString text = (an ? b : a).toString();
+    bool ok = false;
+    QVariant number = text.toLongLong(&ok);
+    if (!ok) number = text.toULongLong(&ok);
+    if (!ok) number = text.toDouble(&ok);
+    if (!ok || openswmmvis::isNullAttributeValue(number)) return INT_MIN;
+    return an ? openswmmvis::compareAttributeNumbers(a, number)
+              : openswmmvis::compareAttributeNumbers(number, b);
 }
 
 // SQL LIKE → regex.  `%` ⇒ `.*`, `_` ⇒ `.`.  Anchored.
@@ -426,7 +436,7 @@ Truth eval(const QueryNode &n, const QVariantMap &row) {
     }
     case QueryNode::IsNull: {
         const auto value = lookupField(row, n.fieldName);
-        return truth(!value.isValid() || value.isNull());
+        return truth(openswmmvis::isNullAttributeValue(value));
     }
     case QueryNode::Compare: {
         const int c = cmpVariants(lookupField(row, n.fieldName), n.literal);
@@ -441,12 +451,12 @@ Truth eval(const QueryNode &n, const QVariantMap &row) {
     }
     case QueryNode::Like: {
         const auto value = lookupField(row, n.fieldName);
-        if (!value.isValid() || value.isNull()) return Truth::Unknown;
+        if (openswmmvis::isNullAttributeValue(value)) return Truth::Unknown;
         return truth(n.likeRegex.match(value.toString()).hasMatch());
     }
     case QueryNode::In: {
         const auto value = lookupField(row, n.fieldName);
-        if (!value.isValid() || value.isNull()) return Truth::Unknown;
+        if (openswmmvis::isNullAttributeValue(value)) return Truth::Unknown;
         for (const auto &literal : n.inList)
             if (cmpVariants(value, literal) == 0) return Truth::True;
         return Truth::False;

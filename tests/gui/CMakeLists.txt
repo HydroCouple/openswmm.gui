@@ -3354,6 +3354,13 @@ add_swmmvis_gui_test(test_meshattributetable
 )
 swmmvis_link_full_app_deps(test_meshattributetable)
 
+add_swmmvis_gui_test(test_attributenulls
+    test_attributenulls.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_attributenulls)
+
+
 # Stale-render invalidation — vertex-Z edits must invalidate the renderer's
 # geomRevision-keyed shading caches, and layer changes must advance the
 # renderer content revision MapCanvas polls to regrab its framebuffer.

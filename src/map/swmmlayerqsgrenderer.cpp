@@ -24,6 +24,7 @@
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 #include "render/markershape.h"
+#include "render/linkstroke.h"
 #include "render/qsgpremultiply.h"
 
 #include <QDebug>
@@ -346,20 +347,6 @@ void appendThickSegment(std::vector<QSGGeometry::Point2D> &out,
     out.push_back(v(bx+nx,by+ny)); out.push_back(v(bx-nx,by-ny)); out.push_back(v(ax-nx,ay-ny));
 }
 
-// #33 Stage 1b — coloured thick segment (bakes a per-link colour into every
-// vertex) so the link `lines` node can carry per-feature Graduated/Categorized
-// colours on the GPU path, matching the CPU painter.
-void appendThickSegmentColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
-                               float ax, float ay, float bx, float by, float hw,
-                               uchar cr, uchar cg, uchar cb, uchar ca)
-{
-    const float dx=bx-ax, dy=by-ay, len=std::sqrt(dx*dx+dy*dy);
-    if (len < 1e-9f) return;
-    const float nx=-dy/len*hw, ny=dx/len*hw;
-    auto v=[&](float x,float y){QSGGeometry::ColoredPoint2D p;p.x=x;p.y=y;p.r=cr;p.g=cg;p.b=cb;p.a=ca;return p;};
-    out.push_back(v(ax+nx,ay+ny)); out.push_back(v(bx+nx,by+ny)); out.push_back(v(ax-nx,ay-ny));
-    out.push_back(v(bx+nx,by+ny)); out.push_back(v(bx-nx,by-ny)); out.push_back(v(ax-nx,ay-ny));
-}
 // Emit a dashed line as a run of thick quads (QSG has no native dash on a
 // flat-colour material, so we tessellate). dash_on / dash_off are in the same
 // (scene) units as the endpoints — callers scale pixel sizes by invView. This
@@ -417,48 +404,6 @@ void appendDashedRing(std::vector<QSGGeometry::Point2D> &out,
                            cx + r * std::cos(a0), cy + r * std::sin(a0),
                            cx + r * std::cos(a1), cy + r * std::sin(a1),
                            hw);
-    }
-}
-
-// Round-join / round-cap disc emitted as a triangle-fan-as-list (the link
-// nodes are DrawTriangles). The thick-segment quads above have flat ends, so
-// at an endpoint or interior polyline vertex the flat segment ends leave a
-// square cap or a wedge gap on the outer side of the bend. Stamping a disc of
-// radius = half-width at every source vertex mirrors the CPU painter's
-// RoundCap/RoundJoin link rendering. For opaque links it blends seamlessly
-// (same colour); under per-kind opacity < 1 the disc overlaps the two quads, so
-// bends read very slightly darker — an acceptable trade for smooth corners on
-// the batched GPU path.
-constexpr int kJoinDiscSegs = 12;
-
-void appendDiscColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
-                       float cx, float cy, float r,
-                       uchar cr, uchar cg, uchar cb, uchar ca)
-{
-    if (r <= 0.f) return;
-    auto v=[&](float x,float y){QSGGeometry::ColoredPoint2D p;p.x=x;p.y=y;p.r=cr;p.g=cg;p.b=cb;p.a=ca;return p;};
-    const float step = 6.28318531f / float(kJoinDiscSegs);
-    float px=cx+r, py=cy;
-    for (int s=1; s<=kJoinDiscSegs; ++s) {
-        const float a=step*float(s);
-        const float nx=cx+r*std::cos(a), ny=cy+r*std::sin(a);
-        out.push_back(v(cx,cy)); out.push_back(v(px,py)); out.push_back(v(nx,ny));
-        px=nx; py=ny;
-    }
-}
-
-void appendDisc(std::vector<QSGGeometry::Point2D> &out,
-                float cx, float cy, float r)
-{
-    if (r <= 0.f) return;
-    auto v=[](float x,float y){QSGGeometry::Point2D p;p.x=x;p.y=y;return p;};
-    const float step = 6.28318531f / float(kJoinDiscSegs);
-    float px=cx+r, py=cy;
-    for (int s=1; s<=kJoinDiscSegs; ++s) {
-        const float a=step*float(s);
-        const float nx=cx+r*std::cos(a), ny=cy+r*std::sin(a);
-        out.push_back(v(cx,cy)); out.push_back(v(px,py)); out.push_back(v(nx,ny));
-        px=nx; py=ny;
     }
 }
 
@@ -1303,7 +1248,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             std::vector<QSGGeometry::ColoredPoint2D> baseTri;
             std::vector<QSGGeometry::Point2D>        selTri;
             size_t baseSegs=0, selSegs=0;
-            size_t baseVerts=0, selVerts=0;
+            size_t baseLinks=0, selLinks=0;
             for (size_t i = 0; i < counts.size(); ++i) {
                 if (counts[i]<2) continue;
                 if (i<lHid.size()&&lHid[i]) continue;
@@ -1313,14 +1258,17 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                        bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
                 baseSegs += counts[i]-1;
-                baseVerts += counts[i];
+                ++baseLinks;
                 if (i<lSel.size()&&lSel[i]) {
                     selSegs += counts[i]-1;
-                    selVerts += counts[i];
+                    ++selLinks;
                 }
             }
-            baseTri.reserve(baseSegs*6 + baseVerts*kJoinDiscSegs*3);
-            selTri.reserve(selSegs*6 + selVerts*kJoinDiscSegs*3);
+            // Six vertices per segment, at most three per bevel, and two
+            // semicircular caps per visible link.
+            constexpr auto capVerts = OpenSWMM::Render::kLinkCapSegments * 6;
+            baseTri.reserve(baseSegs*9 + baseLinks*capVerts);
+            selTri.reserve(selSegs*9 + selLinks*capVerts);
 
             for (size_t i = 0; i < counts.size(); ++i) {
                 const uint32_t cnt=counts[i];
@@ -1357,19 +1305,19 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                             lB=premul(uchar(lc.blue()), lA);
                 const double *p=flat.data()+size_t(offsets[i])*2;
                 const bool sel=i<lSel.size()&&lSel[i];
-                for (uint32_t j=1; j<cnt; ++j) {
-                    const float ax=float(p[(j-1)*2]-ox), ay=float(p[(j-1)*2+1]-oy);
-                    const float bx=float(p[j*2]-ox),     by=float(p[j*2+1]-oy);
-                    appendThickSegmentColored(baseTri,ax,ay,bx,by,hw,lR,lG,lB,lA);
-                    if (sel) appendThickSegment(selTri,ax,ay,bx,by,selHW);
-                }
-                // Round caps/joins at every source vertex so endpoints and
-                // simple 2-point links match the CPU RoundCap rendering too.
-                for (uint32_t j=0; j<cnt; ++j) {
-                    const float vx=float(p[j*2]-ox), vy=float(p[j*2+1]-oy);
-                    appendDiscColored(baseTri,vx,vy,hw,lR,lG,lB,lA);
-                    if (sel) appendDisc(selTri,vx,vy,selHW);
-                }
+                OpenSWMM::Render::appendLinkStrokeTriangles(p, cnt, ox, oy, hw,
+                    [&](QPointF point) {
+                        QSGGeometry::ColoredPoint2D v;
+                        v.set(float(point.x()), float(point.y()), lR, lG, lB, lA);
+                        baseTri.push_back(v);
+                    });
+                if (sel)
+                    OpenSWMM::Render::appendLinkStrokeTriangles(p, cnt, ox, oy, selHW,
+                        [&](QPointF point) {
+                            QSGGeometry::Point2D v;
+                            v.set(float(point.x()), float(point.y()));
+                            selTri.push_back(v);
+                        });
                 // Flow-direction arrowhead (collected separately, drawn last).
                 if (anyArrows && astyle[lt].on
                     && !(astyle[lt].onlyFlowPos && m_layer->linkFlow(int(i)) <= 0.0))
@@ -1688,16 +1636,12 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 }
                 const double *p=flat.data()+size_t(offsets[i])*2;
                 const uint32_t cnt=counts[i];
-                for (uint32_t j=1; j<cnt; ++j) {
-                    const float ax=float(p[(j-1)*2]-ox), ay=float(p[(j-1)*2+1]-oy);
-                    const float bx=float(p[j*2]-ox),     by=float(p[j*2+1]-oy);
-                    appendThickSegment(selTri,ax,ay,bx,by,selHW);
-                }
-                // Round caps/joins on the selected-link halo.
-                for (uint32_t j=0; j<cnt; ++j) {
-                    const float vx=float(p[j*2]-ox), vy=float(p[j*2+1]-oy);
-                    appendDisc(selTri,vx,vy,selHW);
-                }
+                OpenSWMM::Render::appendLinkStrokeTriangles(p, cnt, ox, oy, selHW,
+                    [&](QPointF point) {
+                        QSGGeometry::Point2D v;
+                        v.set(float(point.x()), float(point.y()));
+                        selTri.push_back(v);
+                    });
             }
             setNodeColor(linesSel, selLine);
             uploadVerts(linesSel, selTri);

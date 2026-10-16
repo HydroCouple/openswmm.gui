@@ -4,6 +4,7 @@
  * \date   2026
  * \license GPL-3.0-or-later
  */
+#include "core/attributevalue.h"
 #include "ui/panels/dataobjectattributetablemodel.h"
 
 #include "aquifer/aquiferprovider.h"
@@ -655,6 +656,8 @@ int DataObjectAttributeTableModel::columnCount(const QModelIndex &parent) const
 
 QVariant DataObjectAttributeTableModel::data(const QModelIndex &index, int role) const
 {
+    if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
+        return openswmmvis::attributeValue(data(index, Qt::DisplayRole));
     if (!index.isValid() || index.row() >= m_rows.size()
         || index.column() >= m_fields.size())
         return {};
@@ -665,12 +668,18 @@ QVariant DataObjectAttributeTableModel::data(const QModelIndex &index, int role)
 
     switch (role) {
     case Qt::DisplayRole: {
-        if (!applies) return QStringLiteral("—");
+        if (!applies) return {};
         const QVariant v = f.get ? f.get(p) : QVariant();
+        // These enum editors contain optional object names, not enum states.
+        if ((f.spec.key == QLatin1String("coPollutant") || f.spec.key == QLatin1String("evapPattern")
+             || f.spec.key == QLatin1String("curveId"))
+            && v.toString().isEmpty()) return {};
         return f.spec.editor == EditorKind::Enum ? QVariant(enumLabel(f.spec, v)) : v;
     }
     case Qt::EditRole:
-        return f.get ? f.get(p) : QVariant();
+        return applies && f.get ? f.get(p) : QVariant();
+    case Qt::ToolTipRole:
+        return applies ? QVariant() : QVariant(tr("Not used by this inlet design."));
     case Qt::ForegroundRole:
         if (!applies)
             return QGuiApplication::palette().brush(QPalette::Disabled, QPalette::Text);
