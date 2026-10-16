@@ -7,6 +7,7 @@
 #include "simulation/simulationrunner.h"
 #include "simulation/runpathlease.h"
 #include "simulation/snowledger.h"
+#include "simulation/lidstaterecorder.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_massbalance.h>
@@ -446,6 +447,7 @@ QStringList SimulationRunner::runOutputPaths(const QString &inp, const QString &
         report.absoluteDir().filePath(report.completeBaseName() + QStringLiteral(".runlog.txt"))};
     const QString h5 = parseTwoDOutputFile(inp);
     if (!h5.isEmpty()) paths.append(QFileInfo(h5).absoluteFilePath());
+    paths.append(openswmmvis::io::lidStatePath(out));
     paths.append(knownRunReferences(inp).outputs);
     return paths;
 }
@@ -686,6 +688,9 @@ void SimulationRunner::start()
 
             // Use legacy worker for 5.x versions, refactored engine for 6.0.0+
             const bool useLegacy = engineVersion.startsWith("5.");
+            // This path is included in the run lease / overwrite preflight.
+            const QString lidPath = openswmmvis::io::lidStatePath(QString::fromUtf8(out));
+            auto removeOldLidStates = [&]() { return !QFile::exists(lidPath) || QFile::remove(lidPath); };
 
             if (!useLegacy) {
                 // ===== REFACTORED ENGINE PATH =====
@@ -859,6 +864,20 @@ void SimulationRunner::start()
                 return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
 
+            // Preserve prior results on an input/start failure; once the new
+            // output is open, invalidate its previous companion even without LIDs.
+            if (!removeOldLidStates())
+                return {false, SWMM_ERR_INTERNAL, tr("Cannot replace LID results: %1").arg(lidPath), 0.0, 0.0};
+            openswmmvis::simulation::LidStateRecorder lidRecorder;
+            auto warnLid = [&]() {
+                const QString message = tr("LID water states could not be saved: %1").arg(lidRecorder.errorString());
+                runLog->line(message);
+                QMetaObject::invokeMethod(rawSelf, [rawSelf, message] {
+                    emit rawSelf->warningReceived(rawSelf->m_jobId, 0, message);
+                }, Qt::QueuedConnection);
+            };
+            if (!lidRecorder.start(eng, QString::fromUtf8(out))) warnLid();
+
             // Step loop — polls m_cancel and m_paused on every iteration.
             // Pause parks in a short sleep rather than busy-waiting; the
             // step loop resumes as soon as setPaused(false) clears the
@@ -952,6 +971,7 @@ void SimulationRunner::start()
                     if (fault.kind == QLatin1String("bad_alloc")) throw std::bad_alloc();
                     if (fault.kind == QLatin1String("numerical")) rc = SWMM_ERR_NUMERICAL;
                 }
+                if (rc == SWMM_OK && !lidRecorder.sample(elapsed <= 0.0)) warnLid();
                 if (rc != SWMM_OK || elapsed <= 0.0)
                     break;
 
@@ -1209,6 +1229,8 @@ void SimulationRunner::start()
             // progress tick, and end() finalises the marcher's counters.
             if (twoD_active) emitTwoDSolverStats(rawSelf, rawSelf->m_jobId, eng);
 
+            if (rc == SWMM_OK && !lidRecorder.sample(true)) warnLid();
+
             // End
             if (stepFailCode == SWMM_OK) *phase = QStringLiteral("end");
             runLog->line(QStringLiteral("end"));
@@ -1242,8 +1264,10 @@ void SimulationRunner::start()
             // on big 2D models but threw away everything the run had
             // computed.)
             swmm_engine_report(eng);
-            // close + destroy: engineGuard, at scope exit (after the return
-            // value below is built — same order as the explicit calls were).
+            // Seal companion identity only after the output writer is closed.
+            swmm_engine_close(eng);
+            if (!lidRecorder.finish()) warnLid();
+            // engineGuard still owns destruction and exception cleanup.
 
             if (cancelled)
                 return {false, 0,
@@ -1276,6 +1300,8 @@ void SimulationRunner::start()
                             0.0, 0.0};
                 }
 
+                if (!removeOldLidStates())
+                    return {false, SWMM_ERR_INTERNAL, tr("Cannot replace LID results: %1").arg(lidPath), 0.0, 0.0};
                 QProcess worker;
                 worker.setProgram(workerPath);
                 worker.setWorkingDirectory(QFileInfo(QString::fromUtf8(inp)).absolutePath());

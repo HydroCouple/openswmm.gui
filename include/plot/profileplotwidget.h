@@ -42,6 +42,7 @@
 
 #include <QBrush>
 #include <QColor>
+#include "io/lidstates.h"
 #include <QDateTime>
 #include <QPen>
 #include <QPointer>
@@ -165,6 +166,9 @@ public:
      */
     void setCurrentPeriod(int period);
 
+    void setLidWaterState(const openswmmvis::io::LidStateFrame &frame, bool showWater, bool showHead);
+    const openswmmvis::io::LidStateFrame &lidWaterState() const { return m_lidWaterState; }
+
     void setLayerToggles(const LayerToggles &toggles);
     [[nodiscard]] LayerToggles layerToggles() const;
 
@@ -281,8 +285,11 @@ public:
     /*! Zoom the view rect by \p factor around its centre.  `< 1` zooms in. */
     void zoomBy(double factor);
 
-    /*! Reset the view rect to the auto-computed data extent (Fit). */
+    /*! Reset to the full extent with independently fitted axes (automatic
+     *  vertical exaggeration for long, shallow profiles). */
     void fitToExtent();
+
+    [[nodiscard]] double verticalExaggeration() const;
 
     /*!
      * \brief Marks a set of element names (nodes or links) as selected so
@@ -401,6 +408,14 @@ private:
         line instead). */
     [[nodiscard]] bool isVirtualNode(int nodeIdx) const;
 
+    // LID columns need room for their material patterns. Width is schematic;
+    // elevations and layer thicknesses still use the physical Y axis.
+    [[nodiscard]] double nodeHalfWidthPx(int nodeIdx) const;
+    void paintNodeLidLayers(QPainter &p) const;
+    void paintLidWaterLines(QPainter &p) const;
+    const openswmmvis::io::LidNodeState *lidStateForNode(int node) const;
+    const openswmmvis::io::LidCellState *lidOutletCell(int node, QString *outlet = nullptr) const;
+
     /*! Pixel-x endpoints for link \p linkIdx's in-pipe water graphics
         (HGL line / fill / envelope).  Each end is inset by the manhole
         tube half-width so the graphic stops at the tube edge, except at a
@@ -506,6 +521,8 @@ private:
                       ProfileBuilder::OutputKind kind);
 
     ProfileBuilder::PathStatic   m_path;
+    openswmmvis::io::LidStateFrame m_lidWaterState;
+    bool m_showLidWater = true, m_showLidHead = false;
     QVector<SeriesBinding>       m_series;
     QVector<Surface2DSample>     m_surface2D;      /*!< 2D inundation overlay stations */
     double                       m_surface2DMaxWse = std::numeric_limits<double>::quiet_NaN();

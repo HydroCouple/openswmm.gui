@@ -329,8 +329,11 @@ QVector<QPointF> ProfilePathOverlay::sceneCoordsForLink(int engineLinkIdx) const
     if (!m_model) return out;
     const QVector<QPointF> poly = m_model->cachedLinkPolyline(engineLinkIdx);
     out.reserve(poly.size());
-    for (const QPointF &p : poly)
-        out.push_back(toScene(p.x(), p.y()));
+    for (const QPointF &p : poly) {
+        double x = p.x(), y = p.y();
+        m_model->transformLayerToCanvas(p.x(), p.y(), x, y);
+        out.push_back(toScene(x, y));
+    }
     return out;
 }
 
@@ -339,5 +342,6 @@ QPointF ProfilePathOverlay::sceneCoordForNode(int engineNodeIdx) const
     if (!m_model) return QPointF();
     double x = 0.0, y = 0.0;
     if (!m_model->cachedNodeCoord(engineNodeIdx, &x, &y)) return QPointF();
+    m_model->transformLayerToCanvas(x, y, x, y);
     return toScene(x, y);
 }

@@ -1060,8 +1060,15 @@ void SWMMResultsLayer::openResultsAsync()
     }));
 }
 
+openswmmvis::io::LidStateFrame SWMMResultsLayer::lidStateAt(const QDateTime &time, const QStringList &nodes)
+{
+    if (!m_handle) { openswmmvis::io::LidStateFrame frame; frame.status = tr("No open results source."); return frame; }
+    return m_lidStateReader.frameAt(resultsFilePath(), isLive(), time, nodes);
+}
+
 void SWMMResultsLayer::closeResults()
 {
+    m_lidStateReader = {};
     if (m_handle)
     {
         swmm_output_close(m_handle);

@@ -12,6 +12,7 @@
 
 #include "layers/openswmmvislayer.h"
 #include "layers/speciesattributes.h"
+#include "io/lidstates.h"
 #include "layers/gisrasterlayer.h"   // RasterColorRamp
 #include "layers/swmmmodellayer.h"
 
@@ -269,6 +270,9 @@ public:
     [[nodiscard]] bool isLive() const noexcept { return m_live; }
 
     void closeResults();
+
+    // Same immutable frame source for live tail and saved profile playback.
+    openswmmvis::io::LidStateFrame lidStateAt(const QDateTime &time, const QStringList &nodes);
 
     // ----- Per-output node summary statistics (Slice QA.3 + QA-01) -------
     //
@@ -779,6 +783,7 @@ private:
     // Animation state -----------------------------------------------------
     int                  m_currentStep    = 0;
     int                  m_totalSteps     = 0;
+    openswmmvis::io::LidStateReader m_lidStateReader;
     bool                 m_live           = false;   ///< openResultsLive() until the footer lands
     QDateTime            m_startDateTime;
     QDateTime            m_endDateTime;

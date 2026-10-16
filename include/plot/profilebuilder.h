@@ -151,6 +151,18 @@ struct BranchLink
     bool     onPath     = false; /*!< The profile traverses this link, so it
                                        gets no stub (it is already drawn full
                                        length) but does get a rose spoke. */
+    int lidLayer = 0; /*!< Optional one-based authored LID outlet anchor. */
+};
+
+/*! One authored physical layer in a storage-node LID, ordered top to bottom.
+ *  Elevations use the same m/ft units as the node. BOTTOM is a boundary
+ *  condition and is not represented as a physical layer. */
+struct NodeLidLayer
+{
+    enum Kind { Surface, Media, Aggregate };
+    Kind kind = Media;
+    double topElev = 0.0;
+    double bottomElev = 0.0;
 };
 
 /*!
@@ -183,6 +195,7 @@ struct NodeStatic
      *  inputs without geometry — the renderer simply draws no stubs and no
      *  rose, exactly as before this field existed. */
     QVector<BranchLink> branches;
+    QVector<NodeLidLayer> lidLayers;
 };
 
 /*!

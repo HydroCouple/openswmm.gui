@@ -54,6 +54,7 @@ function(add_swmmvis_gui_test TEST_NAME)
 endfunction()
 
 # ── Self-contained tests (no app linkage required) ──────────────────────────
+add_swmmvis_gui_test(test_lidstates test_lidstates.cpp ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp)
 add_swmmvis_gui_test(test_traceanalysisstore
     test_traceanalysisstore.cpp
     ${CMAKE_SOURCE_DIR}/src/output/tracedata.cpp
@@ -2672,6 +2673,7 @@ add_swmmvis_gui_test(test_simstatus_2derr
     test_simstatus_2derr.cpp
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
@@ -2689,6 +2691,7 @@ add_swmmvis_gui_test(test_simrunner_failures
     test_simrunner_failures.cpp
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
@@ -2705,6 +2708,7 @@ add_swmmvis_gui_test(test_checkpointworker
     ${CMAKE_SOURCE_DIR}/include/simulation/checkpointworker.h
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
     ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
@@ -2720,6 +2724,7 @@ if(TARGET openswmm_legacy_worker_524)
         test_simrunner_legacy_524.cpp
         ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
         ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
         ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
         ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
         ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
@@ -3359,6 +3364,12 @@ add_swmmvis_gui_test(test_attributenulls
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_attributenulls)
+
+add_swmmvis_gui_test(test_profile_lid_model
+    test_profile_lid_model.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_profile_lid_model)
 
 
 # Stale-render invalidation — vertex-Z edits must invalidate the renderer's
@@ -4209,6 +4220,7 @@ add_swmmvis_gui_test(test_checkpointmodel
     ${CMAKE_SOURCE_DIR}/src/simulation/checkpointworker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/checkpointsdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
