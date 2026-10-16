@@ -111,17 +111,20 @@ private:
     qint64 m_uploadedKey = 0;
 };
 
-// The complete map is opaque, including its raster background and tools, so
-// an embedded native window no longer obscures separately painted map content.
-// The widget backend remains available for hosts using a threaded render loop;
-// the existing map renderers access GUI-owned layer state during sync.
+// Embedded maps participate in the widget host's clipping and stacking (MDI
+// tabs, splitters and dialogs). Keep them in that compositor: native child
+// windows can retain stale uncovered regions when those widgets move/hide.
+// Standalone maps can still use native presentation. Both surfaces retain the
+// same GPU scene graph and GUI-thread synchronization.
 class MapCompositionSurface final : public QWidget
 {
 public:
     explicit MapCompositionSurface(QWidget *parent) : QWidget(parent)
     {
+        const QString native = qEnvironmentVariable("OPENSWMM_FLOW_NATIVE_SURFACE");
         if (qEnvironmentVariable("QSG_RENDER_LOOP") == QLatin1String("basic")
-            && qEnvironmentVariable("OPENSWMM_FLOW_NATIVE_SURFACE") != QLatin1String("0")) {
+            && native != QLatin1String("0")
+            && (native == QLatin1String("1") || parent->isWindow())) {
             m_view = new QQuickView;
             m_view->setObjectName(QStringLiteral("flowMapNativeWindow"));
             auto format = m_view->format(); format.setSamples(4); m_view->setFormat(format);

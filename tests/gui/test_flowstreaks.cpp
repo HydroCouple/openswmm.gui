@@ -37,6 +37,7 @@
 #include <QToolButton>
 #include <QLabel>
 #include <QTabWidget>
+#include <QDialog>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -305,6 +306,17 @@ static void showNativeReview(QWidget &widget) {
     // DPR1 monitor. Keep native measurements on the primary Retina display.
     if(auto *screen=QGuiApplication::primaryScreen())widget.move(screen->availableGeometry().topLeft()+QPoint(16,16));
     widget.show();
+}
+static QQuickWindow *compositionWindow(MapCanvas &canvas) {
+    if(auto *widget=canvas.findChild<QQuickWidget*>())return widget->quickWindow();
+    for(auto *window:QGuiApplication::allWindows())if(window->objectName()=="flowMapNativeWindow")
+        return qobject_cast<QQuickWindow*>(window);
+    return nullptr;
+}
+static QQuickItem *compositionRoot(MapCanvas &canvas) {
+    if(auto *widget=canvas.findChild<QQuickWidget*>())return widget->rootObject();
+    auto *window=compositionWindow(canvas);
+    return window?window->contentItem():nullptr;
 }
 class FlowStreaksTest:public QObject {
     Q_OBJECT
@@ -750,6 +762,49 @@ private slots:
         QVERIFY(lower->isVisible());QVERIFY(upper->isVisible());QVERIFY(child->isVisible());
         const auto all=slice(-INFINITY,INFINITY);QVERIFY(all.pixelColor(40,40).red()>100);
     }
+    void embeddedCompositionSurvivesWidgetChanges() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Requires GPU widget composition");
+        const auto original=qgetenv("OPENSWMM_FLOW_NATIVE_SURFACE");
+        const auto restore=qScopeGuard([&]{if(original.isNull())qunsetenv("OPENSWMM_FLOW_NATIVE_SURFACE");else qputenv("OPENSWMM_FLOW_NATIVE_SURFACE",original);});
+        qunsetenv("OPENSWMM_FLOW_NATIVE_SURFACE");
+        SWMM2DResultsLayer layer;layer.setSource(std::make_unique<FlowSource>());
+        for(auto *sub:layer.sublayers())sub->setVisible(false);
+        auto *flow=layer.flowStreakSublayer();flow->setVisible(true);
+        flow->streakStyle()->setColor(Qt::transparent);
+        CompositionBackdrop raster(true);
+        QTabWidget host;host.resize(640,480);
+        MapCanvas canvas;canvas.setShowScaleBar(false);
+        canvas.addLayer(&raster,false);canvas.addLayer(&layer,false);
+        canvas.setExtent({-10,-10,110,110},false);
+        host.addTab(&canvas,"Map");host.addTab(new QWidget,"Other");showNativeReview(host);
+        QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);
+        QVERIFY(!canvas.compositionStats().nativeSurface);
+        auto *surface=canvas.findChild<QQuickWidget*>();QVERIFY(surface);
+        for(int step=0;step<4;++step) {
+            if(step==1) {
+                QDialog cover(&host);cover.resize(240,160);cover.show();QTest::qWait(100);cover.hide();
+                host.setCurrentIndex(1);QTest::qWait(100);host.setCurrentIndex(0);
+            }
+            if(step==2)host.resize(720,520);
+            if(step==3)canvas.pan(15,-8);
+            QTest::qWait(250);
+            // Grab the presented widget surface without captureMap's layer
+            // refresh, which could conceal a stale on-screen composition.
+            const auto frame=surface->grabFramebuffer();QVERIFY(!frame.isNull());
+            for(int y=8;y<frame.height()-8;y+=3)for(int x=8;x<frame.width()-8;x+=3)
+                QCOMPARE(frame.pixelColor(x,y),QColor(20,60,100));
+        }
+        const auto before=canvas.compositionStats();
+        const auto extent=canvas.extent();const QRectF view(extent.xMin(),-extent.yMax(),extent.width(),extent.height());
+        auto first=layer.flowParticles(view,canvas.width()/view.width(),layer.frameRevision(),false);QVERIFY(first);
+        const auto clock=first->clock;first.reset();QTest::qWait(400);
+        auto last=layer.flowParticles(view,canvas.width()/view.width(),layer.frameRevision(),false);QVERIFY(last);
+        QVERIFY(last->clock>clock);
+        const auto after=canvas.compositionStats();QVERIFY(after.renderedFrames>before.renderedFrames+3);
+        QCOMPARE(after.fallbackReadbacks,before.fallbackReadbacks);
+        QCOMPARE(after.captureReadbacks,before.captureReadbacks);
+        while(canvas.layerCount())canvas.takeLayer(0,false);
+    }
     void visibleCompositionCachesAndFallsBack() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Requires native GPU composition");
         OpenSWMMVisWorkspace workspace(static_cast<QObject *>(nullptr));
@@ -935,11 +990,9 @@ private slots:
         ParticleReviewCanvas canvas;canvas.resize(640,480);canvas.setShowScaleBar(false);
         canvas.addLayer(&layer,false);canvas.setExtent({-10,-10,110,110},false);
         showNativeReview(canvas);QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);
-        QQuickWindow* mapWindow=nullptr;
-        for(auto* window:QGuiApplication::allWindows())if(window->objectName()=="flowMapNativeWindow")
-            mapWindow=qobject_cast<QQuickWindow*>(window);
+        auto *mapWindow=compositionWindow(canvas);
         QVERIFY(mapWindow);QQuickItem* water=nullptr;
-        for(auto* item:mapWindow->contentItem()->findChildren<QQuickItem*>())
+        for(auto* item:compositionRoot(canvas)->findChildren<QQuickItem*>())
             if(item->property("cacheStaticContent").toBool())water=item->property("staticItem").value<QQuickItem*>();
         QVERIFY(water);QTest::qWait(500);auto* provider=water->textureProvider();QVERIFY(provider);
         const auto renderers=water->findChildren<SWMM2DResultsQSGRenderer*>();QCOMPARE(renderers.size(),1);
@@ -990,13 +1043,13 @@ private slots:
         canvas.takeLayer(0,false);
     }
     void nativeDepthUpdatesNeverPublishWaterWithoutMatchingStreaks_data() {
-        QTest::addColumn<bool>("live");QTest::addColumn<bool>("bands");
-        for(bool live:{false,true})for(bool bands:{false,true})
-            QTest::newRow(qPrintable(QString("%1-%2").arg(live?"live":"saved",bands?"bands":"cell")))<<live<<bands;
+        QTest::addColumn<bool>("live");QTest::addColumn<bool>("bands");QTest::addColumn<bool>("embedded");
+        for(bool live:{false,true})for(bool bands:{false,true})for(bool embedded:{false,true})
+            QTest::newRow(qPrintable(QString("%1-%2-%3").arg(live?"live":"saved",bands?"bands":"cell",embedded?"embedded":"standalone")))<<live<<bands<<embedded;
     }
     void nativeDepthUpdatesNeverPublishWaterWithoutMatchingStreaks() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))QSKIP("Native depth-frame and particle handoff");
-        QFETCH(bool,live);QFETCH(bool,bands);
+        QFETCH(bool,live);QFETCH(bool,bands);QFETCH(bool,embedded);
         auto source=std::make_unique<FlowSource>();auto *raw=source.get();raw->live=live;
         raw->depths={.25f,.55f,.35f,.65f,.3f,.6f,.4f,.7f};
         SWMM2DResultsLayer layer;layer.setAsyncSurface(true);layer.setSource(std::move(source));
@@ -1004,16 +1057,17 @@ private slots:
         if(bands)layer.contourBandSublayer()->setVisible(true);else layer.cellDepthFillSublayer()->setVisible(true);
         layer.flowStreakSublayer()->setVisible(true);
         layer.flowStreakSublayer()->streakStyle()->setSpeedMultiplier(.02);
+        QTabWidget host;host.resize(640,480);
         ParticleReviewCanvas canvas;canvas.resize(640,480);canvas.setShowScaleBar(false);
         canvas.addLayer(&layer,false);canvas.setExtent({-10,-10,110,110},false);
-        showNativeReview(canvas);QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);
-        QQuickWindow *window=nullptr;
-        for(auto *candidate:QGuiApplication::allWindows())if(candidate->objectName()=="flowMapNativeWindow")
-            window=qobject_cast<QQuickWindow*>(candidate);
+        if(embedded){host.addTab(&canvas,"Map");showNativeReview(host);}else showNativeReview(canvas);
+        QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active,10000);
+        auto *window=compositionWindow(canvas);
         QVERIFY(window);
-        const auto renderers=window->contentItem()->findChildren<SWMM2DResultsQSGRenderer*>();QCOMPARE(renderers.size(),1);
+        auto *root=compositionRoot(canvas);QVERIFY(root);
+        const auto renderers=root->findChildren<SWMM2DResultsQSGRenderer*>();QCOMPARE(renderers.size(),1);
         auto *renderer=renderers.front();auto *controller=layer.findChild<FlowParticleController*>();QVERIFY(controller);
-        const auto items=window->contentItem()->findChildren<QQuickItem*>("flowParticleItem");QCOMPARE(items.size(),1);
+        const auto items=root->findChildren<QQuickItem*>("flowParticleItem");QCOMPARE(items.size(),1);
         auto *particles=items.front();
         QTRY_VERIFY_WITH_TIMEOUT(controller->frame(renderer->displayedFrameRevision())!=nullptr,10000);
         QTRY_COMPARE_WITH_TIMEOUT(particles->property("displayedFrameRevision").toULongLong(),renderer->displayedFrameRevision(),10000);
