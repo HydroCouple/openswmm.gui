@@ -64,7 +64,7 @@ blocks so the table never shifts under you:
 | Block | Contents |
 |---|---|
 | **Inputs** | Name, object type, tag, coordinates or endpoints, and every editable engine attribute for that kind |
-| **Initial quality** | One editable column per constituent — `Init. <pollutant>`, plus `Init. Water Age (hr)` and `Init. Temperature (°C)` while those options are on. Blank means "no override": the global initial concentration applies, and clearing a cell removes the element's `[INITIAL_QUALITY]` row |
+| **Initial quality** | One editable column per constituent — `Init. <pollutant>`, plus `Init. Water Age (hr)` and `Init. Temperature (°C)` while those options are on. NULL means "no override": the global initial concentration applies, and clearing a cell removes the element's `[INITIAL_QUALITY]` row |
 | **User flags** | One editable column per defined user flag, with the flag's description as the header tooltip |
 | **Dynamics** | Read-only post-run statistics (see below) |
 
@@ -96,7 +96,7 @@ every column is at least as wide as its header.
 The right-hand block reads the project's **active 1D results layer** — the run
 chosen in the Analysis toolbar's Results combo — not the editing engine. It
 re-reads when that selection changes, so re-running into the same `.out`
-refreshes in place. With no results loaded the cells read zero.
+refreshes in place. With no results available the cells show NULL. A measured zero remains zero.
 
 | Category | Dynamics columns |
 |---|---|
@@ -122,6 +122,17 @@ Click a column header to sort; click again to reverse. Sorting is numeric for
 numeric columns, so the smallest value really is the first row. Sorting is a
 view operation — the model's row order (which matches the Object Browser) is
 untouched, and the copy/export honour the sort you see.
+
+Missing or inapplicable values display as muted **NULL** and sort last in both
+directions. Hover over one for its reason. Zero, NO/false and applicable
+inherited defaults remain real values. Copy and CSV/TSV export write NULL as an
+empty field; literal text such as `NULL` in an imported file remains text.
+
+Use `couplingCd IS NULL` to find uncoupled vertices, `couplingCd >= 0.65` to
+compare assigned coefficients, or `couplingArea BETWEEN 2 AND 10`. Reference
+fields also support queries, for example `[Coupled Node] IS NULL`. Numeric
+comparisons exclude NULL rows; use `IS NULL` or `IS NOT NULL` explicitly.
+
 
 ### The query bar
 
@@ -389,7 +400,7 @@ and saturated depths). Edit groundwater through **Model → Assign Groundwater�
 or the dedicated aquifer/initial-state dialog; the legacy table columns do not
 write groundwater records.
 
-A cell showing **—** does not apply to that row:
+A cell showing **NULL** has no applicable or available scalar value:
 
 - boundary-condition columns on an **interior** edge;
 - the BC parameters the row's current type does not read;
@@ -405,7 +416,7 @@ because the engine requires both halves to agree.
 #### One boundary condition, one parameter
 
 Set **BC Type** first; the column it reads becomes editable and the rest show
-**—**:
+**NULL**:
 
 | BC Type | Live parameter |
 |---|---|
@@ -505,7 +516,7 @@ section — with **Applying one value to many rows** above.
 - Reference columns (a pollutant's *Co-Pollutant*, an aquifer's *Upper Evap.
   Pattern*, an inlet's *Capture Curve*) are drop-downs listing the objects that
   exist, plus `(none)`.
-- On an inlet row, fields the inlet's type does not use show `—` and cannot be
+- On an inlet row, fields the inlet's type does not use show `NULL` and cannot be
   edited (for example, curb fields on a GRATE inlet).
 - Right-click a row → **Edit "<name>" in &lt;Editor&gt;…** opens the full editor on
   that object.
@@ -550,7 +561,7 @@ plots — see \ref manual_time_series_plots.
   length unit squared otherwise.
 - Dynamics values are report-step aggregates. Do not chase small differences
   against the `.rpt`.
-- A blank initial-quality cell is not zero — it means "no override", and the
+- A NULL initial-quality cell is not zero — it means "no override", and the
   global initial concentration applies.
 - Export writes the *visible* rows. Turn off **Show selected only** and clear
   the query first if you want the whole category.

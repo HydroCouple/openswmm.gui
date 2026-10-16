@@ -12,6 +12,7 @@
 // Labeling overhaul — shared screen-space label painter + scale gating.
 #include "map/mapcanvas.h"
 #include "render/labelpainter.h"
+#include "render/linkstroke.h"
 // Slice Z.14-paint — polygon clip mask.
 #include "render/maskclipresolver.h"
 // Slice Z.5b-paint — perpendicular polyline offset.
@@ -478,7 +479,7 @@ void SWMMLayerItem::paint(QPainter *painter,
     if (!qsgLinks && m_layer->m_showLinks)
     {
         // Per-link-type pen comes from PreferencesManager so colour,
-        // width, cap, join and dash are all user-tunable from the
+        // width and dash are user-tunable from the
         // Preferences dialog's Rendering page. Outlets (case 4) now
         // pull their own pen instead of falling back to the conduit
         // symbol.
@@ -513,16 +514,17 @@ void SWMMLayerItem::paint(QPainter *painter,
                 if (sym.fillColor.isValid()) pen.setColor(sym.fillColor);
                 if (sym.size > 0.0)          pen.setWidthF(sym.size);
             }
+            OpenSWMM::Render::configureLinkStrokePen(pen);
             return pen;
         };
 
         // Bucket by link type: 0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet.
-        std::array<QVector<QLineF>, 5> segsByType;
-        std::array<QVector<QLineF>, 5> selSegsByType;
+        std::array<QPainterPath, 5> pathsByType;
+        std::array<QPainterPath, 5> selPathsByType;
 
         // Phase 8.13.6.4 — when a link kind's renderer is Graduated /
-        // Categorized, group its segments into colour-keyed sub-buckets
-        // so drawLines() can still batch per colour (5 bins ⇒ 5 sub-
+        // Categorized, group its paths into colour-keyed sub-buckets
+        // so drawPath() can still batch per colour (5 bins ⇒ 5 sub-
         // buckets per kind). Selected links don't use override colours
         // (the selection halo wins).
         constexpr std::array<SWMMModelLayer::Category, 5> linkTypeToCategory = {
@@ -538,7 +540,7 @@ void SWMMLayerItem::paint(QPainter *painter,
         // Keyed by (colour, stroke width) — a Graduated theme can vary
         // BOTH per feature, and bucketing on colour alone silently
         // collapsed every width onto the kind's base pen.
-        std::array<QMap<quint64, QVector<QLineF>>, 5> overrideSegsByType;
+        std::array<QMap<quint64, QPainterPath>, 5> overridePathsByType;
 
         // Slice Z.5b-paint — perpendicular polyline offset per link kind.
         // Read once at setup (cheap — at most 5 SymbolLayer scans), then
@@ -632,15 +634,18 @@ void SWMMLayerItem::paint(QPainter *painter,
                     OpenSWMM::Render::offsetPolyline(input, offsetScene);
             }
 
-            auto emitSegments = [&](QVector<QLineF> &target) {
+            // Keep each link as a connected subpath. Independent QLineFs
+            // have end caps at every interior vertex and cannot form joins.
+            auto emitPath = [&](QPainterPath &target) {
                 if (offsetScene != 0.0) {
+                    if (offsetPoly.isEmpty()) return;
+                    target.moveTo(offsetPoly.front());
                     for (int j = 1; j < offsetPoly.size(); ++j)
-                        target.emplace_back(offsetPoly[j - 1], offsetPoly[j]);
+                        target.lineTo(offsetPoly[j]);
                 } else {
+                    target.moveTo(p[0], p[1]);
                     for (uint32_t j = 1; j < cnt; ++j) {
-                        target.emplace_back(
-                            QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
-                            QPointF(p[ j      * 2], p[ j      * 2 + 1]));
+                        target.lineTo(p[j * 2], p[j * 2 + 1]);
                     }
                 }
             };
@@ -649,7 +654,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             // kind feed the per-colour sub-bucket. Selected links bypass
             // overrides so the selection halo paints in its own colour.
             if (sel) {
-                emitSegments(selSegsByType[size_t(type)]);
+                emitPath(selPathsByType[size_t(type)]);
             } else if (typeUsesOverrides[size_t(type)]) {
                 const auto cat = linkTypeToCategory[size_t(type)];
                 const QColor col = m_layer->featureColor(cat, i);
@@ -661,27 +666,22 @@ void SWMMLayerItem::paint(QPainter *painter,
                 const quint32 wq = (wOv > 0.0)
                     ? quint32(std::lround(std::min(wOv, 256.0) * 16.0)) : 0u;
                 const quint64 key = (quint64(wq) << 32) | quint64(rgba);
-                emitSegments(overrideSegsByType[size_t(type)][key]);
+                emitPath(overridePathsByType[size_t(type)][key]);
             } else {
-                emitSegments(segsByType[size_t(type)]);
+                emitPath(pathsByType[size_t(type)]);
             }
         }
 
         painter->setBrush(Qt::NoBrush);
         // Large projected coordinates (e.g. State Plane ~2e6) feed QPainter's
         // raster engine garbage at low zoom — the conduit "flashing lines"
-        // bug. Project each segment to device pixels in double and stroke with
+        // bug. Project each path to device pixels in double and stroke with
         // the transform reset, so the rasteriser only ever sees small on-screen
         // coordinates. This is the CPU-path equivalent of the content anchor
         // the QSG renderer already uses.
         const QTransform xf = painter->transform();
-        auto drawDeviceLines = [&](const QVector<QLineF> &segs) {
-            if (segs.isEmpty()) return;
-            QVector<QLineF> dev;
-            dev.reserve(segs.size());
-            for (const QLineF &l : segs)
-                dev.append(QLineF(xf.map(l.p1()), xf.map(l.p2())));
-            painter->drawLines(dev);
+        auto drawDevicePath = [&](const QPainterPath &path) {
+            if (!path.isEmpty()) painter->drawPath(xf.map(path));
         };
         painter->save();
         painter->resetTransform();   // draw link strokes in device space
@@ -694,21 +694,21 @@ void SWMMLayerItem::paint(QPainter *painter,
                 return c;
             };
             // Legacy fast path — single pen per kind.
-            if (!segsByType[size_t(t)].isEmpty()) {
+            if (!pathsByType[size_t(t)].isEmpty()) {
                 QPen pen = linkPenForType(t);
                 pen.setColor(fade(pen.color()));
                 pen.setCosmetic(true);
                 painter->setPen(pen);
-                drawDeviceLines(segsByType[size_t(t)]);
+                drawDevicePath(pathsByType[size_t(t)]);
             }
             // Phase 8.13.6.4 override path — one pen per unique colour
             // within the kind. The pen's width / style / cap / join are
             // inherited from the kind's base pen so Graduated /
             // Categorized stays visually consistent with the kind.
-            if (!overrideSegsByType[size_t(t)].isEmpty()) {
+            if (!overridePathsByType[size_t(t)].isEmpty()) {
                 const QPen basePen = linkPenForType(t);
-                for (auto it = overrideSegsByType[size_t(t)].constBegin();
-                     it != overrideSegsByType[size_t(t)].constEnd(); ++it) {
+                for (auto it = overridePathsByType[size_t(t)].constBegin();
+                     it != overridePathsByType[size_t(t)].constEnd(); ++it) {
                     QPen pen = basePen;
                     pen.setCosmetic(true);
                     pen.setColor(fade(QColor::fromRgba(QRgb(it.key() & 0xffffffffULL))));
@@ -717,7 +717,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     if (const quint32 wq = quint32(it.key() >> 32); wq != 0u)
                         pen.setWidthF(double(wq) / 16.0);
                     painter->setPen(pen);
-                    drawDeviceLines(it.value());
+                    drawDevicePath(it.value());
                 }
             }
         }
@@ -726,19 +726,19 @@ void SWMMLayerItem::paint(QPainter *painter,
         // and is interpreted ADDITIVELY: its widthF() is added on top
         // of the per-link-type base pen, so the halo always projects
         // beyond the base line regardless of the link's own width. The
-        // link's cap/join/style is inherited so the halo tracks the
-        // user's pen choices unless they explicitly override.
+        // link's round caps and mitred joins are inherited so the halo
+        // follows the same continuous path through interior vertices.
         const QPen selPen = PreferencesManager::instance()->selectionPen(
             QStringLiteral("link"));
         for (int t = 0; t < 5; ++t) {
-            if (selSegsByType[size_t(t)].isEmpty()) continue;
+            if (selPathsByType[size_t(t)].isEmpty()) continue;
             QPen hi = linkPenForType(t);
             hi.setColor(selPen.color());
             hi.setWidthF(hi.widthF() + selPen.widthF());
             if (selPen.style() != Qt::SolidLine) hi.setStyle(selPen.style());
             hi.setCosmetic(true);
             painter->setPen(hi);
-            drawDeviceLines(selSegsByType[size_t(t)]);
+            drawDevicePath(selPathsByType[size_t(t)]);
         }
         painter->restore();   // back to scene transform
 

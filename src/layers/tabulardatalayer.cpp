@@ -6,6 +6,7 @@
 
 #include "layers/tabulardatalayer.h"
 
+#include <cmath>
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
@@ -142,12 +143,27 @@ bool TabularDataLayer::loadDelimited(const QString &path, QChar delimiter,
         for (int i = 0; i < tokens.size() && i < headers.size(); ++i) {
             const QString &h = headers[i];
             const QString &v = tokens[i];
-            // Try numeric promotion — falls back to string when it
-            // doesn't parse cleanly.  Keeps downstream filters /
-            // analytics simpler.
+            // Keep identifiers (including leading zeroes), literal "NULL" /
+            // "-", and explicit empty text. An absent trailing field stays NULL.
+            const QString token = v.trimmed();
+            const int first = token.startsWith('+') || token.startsWith('-') ? 1 : 0;
+            const bool leadingZero = token.size() > first + 1 && token[first] == '0'
+                && token[first + 1].isDigit();
             bool ok = false;
-            const double d = v.toDouble(&ok);
-            row.insert(h, ok ? QVariant(d) : QVariant(v));
+            QVariant value = v;
+            if (!leadingZero) {
+                const qlonglong integer = token.toLongLong(&ok);
+                if (ok) value = integer;
+                else {
+                    const qulonglong unsignedInteger = token.toULongLong(&ok);
+                    if (ok) value = unsignedInteger;
+                    else if (token.contains('.') || token.contains('e', Qt::CaseInsensitive)) {
+                        const double d = token.toDouble(&ok);
+                        if (ok && std::isfinite(d)) value = d;
+                    }
+                }
+            }
+            row.insert(h, value);
         }
         rows.append(std::move(row));
     }

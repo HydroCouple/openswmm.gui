@@ -209,7 +209,8 @@ void TestDataObjectAttributeTable::inletFieldsFollowType()
 
     QVERIFY(model.flags(model.index(grate, grateLen)) & Qt::ItemIsEditable);
     QVERIFY(!(model.flags(model.index(grate, curbLen)) & Qt::ItemIsEditable));
-    QCOMPARE(model.data(model.index(grate, curbLen)).toString(), QStringLiteral("—"));
+    QVERIFY(!model.data(model.index(grate, curbLen)).isValid());
+    QVERIFY(!model.data(model.index(grate, curbLen), Qt::EditRole).isValid());
 
     QVERIFY(model.flags(model.index(curb, curbLen)) & Qt::ItemIsEditable);
     QVERIFY(!(model.flags(model.index(curb, grateLen)) & Qt::ItemIsEditable));
@@ -234,7 +235,7 @@ void TestDataObjectAttributeTable::nameReferenceColumnRoundTrips()
     QCOMPARE(model.data(model.index(aq2, col), Qt::EditRole).toString(),
              QStringLiteral("EvapPat"));
     QCOMPARE(model.data(model.index(aq2, col)).toString(), QStringLiteral("EvapPat"));
-    QCOMPARE(model.data(model.index(aq1, col)).toString(), QStringLiteral("(none)"));
+    QVERIFY(!model.data(model.index(aq1, col)).isValid());
 
     QVERIFY(model.setData(model.index(aq1, col), QStringLiteral("EvapPat")));
     QCOMPARE(reg->findByName(QStringLiteral("AQ1"))->evapPattern(), QStringLiteral("EvapPat"));

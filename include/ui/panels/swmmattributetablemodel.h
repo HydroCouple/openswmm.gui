@@ -103,6 +103,8 @@ struct ColumnSpec {
     QString      tooltip;      ///< Header tooltip override (user-flag
                                ///< description); empty = unit tooltip.
     QString      fileFilter;   ///< For FileBrowse: QFileDialog name filter.
+    int          scalarType = QMetaType::UnknownType; ///< Optional type for scalar values edited as text.
+    bool         queryable = true; ///< Scalar references remain queryable even with a compound picker.
 };
 
 } // namespace openswmmvis

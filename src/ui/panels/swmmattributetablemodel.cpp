@@ -4,6 +4,7 @@
  * \date   2026
  */
 
+#include "core/attributevalue.h"
 #include "ui/panels/swmmattributetablemodel.h"
 
 #include "core/unitsystem.h"
@@ -312,6 +313,11 @@ ColumnSpec compoundCol(const QString &key, const QString &label,
     c.label  = label;
     c.editor = EditorKind::Compound;
     c.setter = setterTag;
+    c.queryable = QStringList{
+        "gage_series_ref", "link_pump_curve_ref", "node_outfall_route_to_ref", "node_storage_curve_ref",
+        "node_outfall_tidal_ref", "node_outfall_timeseries_ref", "subcatch_rain_gage_ref",
+        "subcatch_outlet_ref", "subcatch_snowpack_ref", "subcatch_aquifer_ref"
+    }.contains(setterTag);
     return c;
 }
 
@@ -2124,7 +2130,7 @@ void SWMMAttributeTableModel::setResultsSource(SWMMResultsLayer *layer)
     // the whole grid repaints the affected cells and leaves both alone.
     if (rowCount() > 0 && columnCount() > 0) {
         emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1),
-                         {Qt::DisplayRole});
+                         {Qt::DisplayRole, openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
     }
 }
 
@@ -2257,6 +2263,8 @@ void SWMMAttributeTableModel::appendUserFlagColumns()
         spec.setter  = QStringLiteral("userflag");  // marks editable; commit
                                                     // dispatches on the key
         spec.tooltip = def.description;
+        spec.scalarType = def.type == UserFlagsModel::FlagType::Integer ? QMetaType::LongLong
+                        : def.type == UserFlagsModel::FlagType::Real ? QMetaType::Double : QMetaType::QString;
         if (def.type == UserFlagsModel::FlagType::Boolean) {
             // Explicit (unset) entry so the user can return a boolean flag
             // to the unassigned state from the combo. Labels match the INP
@@ -2462,6 +2470,8 @@ QVariantMap SWMMAttributeTableModel::rowData(int row) const
 
 QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
 {
+    if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
+        return openswmmvis::attributeValue(data(index, Qt::DisplayRole));
     if (!index.isValid()) return {};
 
     const int row = index.row();
@@ -2503,6 +2513,10 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     // for columns that carry one.  Read-only / unitless columns return
     // an empty variant so Qt suppresses the tooltip entirely.
     if (role == Qt::ToolTipRole) {
+        if (spec.key.startsWith(kInitQualityKeyPrefix) && !data(index, Qt::DisplayRole).isValid())
+            return tr("No override: the pollutant's global initial concentration applies.");
+        if (spec.key.startsWith(kUserFlagKeyPrefix) && !data(index, Qt::DisplayRole).isValid())
+            return tr("This user flag has not been assigned.");
         // Inline geom cells carry a shape-specific tooltip ("Diameter",
         // "Max Depth", …) since the column header is the generic "Geom N".
         // Geoms the live shape doesn't consume are still shown and edited —
@@ -2583,7 +2597,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             char buf[256] = {};
             if (swmm_gage_get_timeseries(eng, gIdx, buf, sizeof(buf)) == SWMM_OK)
                 dref.currentName = QString::fromUtf8(buf);
-            return QVariant::fromValue(dref);
+            return role == Qt::EditRole ? QVariant::fromValue(dref)
+                : openswmmvis::optionalAttributeName(dref.currentName);
         }
 
         // §S.SC.1.c — Link-side compound (XSection / InletUsage).
@@ -2609,7 +2624,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                     if (const char *id = swmm_table_id(eng, curveIdx))
                         dref.currentName = QString::fromUtf8(id);
                 }
-                return QVariant::fromValue(dref);
+                return role == Qt::EditRole ? QVariant::fromValue(dref)
+                : openswmmvis::optionalAttributeName(dref.currentName);
             }
 
             LinkCompoundEditRef lref;
@@ -2645,7 +2661,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 if (const char *id = swmm_table_id(eng, curveIdx))
                     dref.currentName = QString::fromUtf8(id);
             }
-            return QVariant::fromValue(dref);
+            return role == Qt::EditRole ? QVariant::fromValue(dref)
+                : openswmmvis::optionalAttributeName(dref.currentName);
         }
 
         // [OUTFALLS] RouteTo — the discharge target subcatchment, or
@@ -2663,7 +2680,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 if (const char *id = swmm_subcatch_id(eng, sIdx))
                     dref.currentName = QString::fromUtf8(id);
             }
-            return QVariant::fromValue(dref);
+            return role == Qt::EditRole ? QVariant::fromValue(dref)
+                : openswmmvis::optionalAttributeName(dref.currentName);
         }
 
         // Parity pass — outfall stage-data pickers (DataObjectRef
@@ -2694,7 +2712,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                         dref.currentName = QString::fromUtf8(id);
                 }
             }
-            return QVariant::fromValue(dref);
+            return role == Qt::EditRole ? QVariant::fromValue(dref)
+                : openswmmvis::optionalAttributeName(dref.currentName);
         }
 
         // Phase 3 — subcatchment rain gage + outlet pickers (DataObjectRef
@@ -2726,7 +2745,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                             dref.currentName = QString::fromUtf8(id);
                 }
             }
-            return QVariant::fromValue(dref);
+            return role == Qt::EditRole ? QVariant::fromValue(dref)
+                : openswmmvis::optionalAttributeName(dref.currentName);
         }
 
         if (spec.setter == QStringLiteral("subcatch_snowpack_ref")) {
@@ -2736,7 +2756,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             ref.engine = eng; ref.layer = m_layer; ref.kind = DataObjectRef::Snowpack;
             if (const char* id = swmm_subcatch_get_snowpack(eng, sIdx))
                 ref.currentName = QString::fromUtf8(id);
-            return QVariant::fromValue(ref);
+            return role == Qt::EditRole ? QVariant::fromValue(ref)
+                : openswmmvis::optionalAttributeName(ref.currentName);
         }
 
         // G3 — receiving-aquifer picker. Mirrors
@@ -2752,7 +2773,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             if (swmm_subcatch_get_aquifer(eng, sIdx, &aq) == SWMM_OK && aq >= 0)
                 if (const char *id = swmm_aquifer_id(eng, aq))
                     dref.currentName = QString::fromUtf8(id);
-            return QVariant::fromValue(dref);
+            return role == Qt::EditRole ? QVariant::fromValue(dref)
+                : openswmmvis::optionalAttributeName(dref.currentName);
         }
 
         // Phase 3 — subcatchment compound cells (land use / groundwater / LID
@@ -2890,10 +2912,19 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             const int iv = !found ? -1
                          : (v == QStringLiteral("YES") ? 1 : 0);
             if (role == Qt::DisplayRole)
-                return found ? QVariant(v) : QVariant(QString());
+                return found ? QVariant(v) : QVariant();
             return iv;  // EditRole — combo data
         }
-        return v;  // blank when unset (both Display and Edit roles)
+        if (!found) return role == Qt::EditRole ? QVariant(v) : QVariant();
+        if (role == Qt::DisplayRole && spec.scalarType == QMetaType::LongLong) {
+            bool ok = false; const auto number = v.toLongLong(&ok);
+            return ok ? QVariant(number) : QVariant();
+        }
+        if (role == Qt::DisplayRole && spec.scalarType == QMetaType::Double) {
+            bool ok = false; const double number = v.toDouble(&ok);
+            return ok ? openswmmvis::attributeValue(number) : QVariant();
+        }
+        return v;
     }
 
     // Initial-quality columns (initial-quality UI round): values live in
@@ -2912,11 +2943,11 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         if (elemIdx < 0) return {};
         ensureInitQualityCacheBuilt();
         const auto it = m_initQualityByElem.constFind(elemIdx);
-        if (it == m_initQualityByElem.constEnd()) return QString();
+        if (it == m_initQualityByElem.constEnd()) return role == Qt::EditRole ? QVariant(QString()) : QVariant();
         const auto vit =
             it->constFind(spec.key.mid(kInitQualityKeyPrefix.size()));
-        if (vit == it->constEnd()) return QString();
-        return QString::number(*vit);  // blank when unset (both roles)
+        if (vit == it->constEnd()) return role == Qt::EditRole ? QVariant(QString()) : QVariant();
+        return role == Qt::EditRole ? QVariant(QString::number(*vit, 'g', 17)) : QVariant(*vit);
     }
 
     // Columns with an engine tag read through that tag's getter so the
@@ -2947,9 +2978,24 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         // simulation and so has no statistics at all). Tags with no output
         // counterpart — the three pump-only ones — fall through to the
         // engine path below and keep their existing behaviour.
-        if (m_resultsSource) {
-            if (const auto fn = resultsStatFor(spec.setter))
-                return (m_resultsSource->*fn)(objectNameAt(row));
+        if (spec.setter.contains(QLatin1String("_stat_"))) {
+            if (m_resultsSource) {
+                if (const auto fn = resultsStatFor(spec.setter)) {
+                    const QString name = objectNameAt(row);
+                    const int outputIndex = spec.setter.startsWith(QLatin1String("node_"))
+                        ? m_resultsSource->nodeOutputIndex(name)
+                        : spec.setter.startsWith(QLatin1String("link_"))
+                            ? m_resultsSource->linkOutputIndex(name)
+                            : m_resultsSource->subcatchOutputIndex(name);
+                    if (!m_resultsSource->outputHandle() || m_resultsSource->totalTimeSteps() == 0
+                        || outputIndex < 0) return {};
+                    return openswmmvis::attributeValue((m_resultsSource->*fn)(name));
+                }
+                return {}; // This run has no provider for the requested statistic.
+            }
+            int state = 0;
+            if (!m_layer->engine() || swmm_engine_get_state(m_layer->engine(), &state) != SWMM_OK
+                || (state != SWMM_STATE_RUNNING && state != SWMM_STATE_ENDED)) return {};
         }
         const auto entry = setterFor(spec.setter);
         const int entIdx = engineIndexFor(m_layer, m_category, row, entry.kind);
@@ -3094,7 +3140,8 @@ private:
         if (m_row >= 0 && m_row < m_model->rowCount()) {
             const QModelIndex nameIdx = m_model->index(m_row, 0);
             emit m_model->dataChanged(nameIdx, nameIdx,
-                                      {Qt::DisplayRole, Qt::EditRole});
+                                      {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         }
     }
     QPointer<SWMMAttributeTableModel> m_model;
@@ -3125,7 +3172,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             return false;
         if (row >= 0 && row < m_rowCacheValid.size())
             m_rowCacheValid[row] = false;
-        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(newName);
         return true;
     }
@@ -3159,7 +3207,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         }
         if (!ok) return false;
 
-        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(name);
         return true;
     }
@@ -3202,7 +3251,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
                 if (swmm_init_quality_remove(eng, i) != SWMM_OK) return false;
                 invalidateCompoundCache();
                 emit dataChanged(index, index,
-                                 {Qt::DisplayRole, Qt::EditRole});
+                                 {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
                 emit objectEdited(name);
                 return true;
             }
@@ -3216,7 +3266,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
                                   cons.toUtf8().constData(), v) != SWMM_OK)
             return false;
         invalidateCompoundCache();
-        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(name);
         return true;
     }
@@ -3344,7 +3395,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         // whole row so the Boundary Type cell tracks the change.
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
-                         {Qt::DisplayRole, Qt::EditRole});
+                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(name);
         return true;
     }
@@ -3366,7 +3418,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         invalidateCompoundCache();
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
-                         {Qt::DisplayRole, Qt::EditRole});
+                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(name);
         return true;
     }
@@ -3397,7 +3450,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         // re-issuing dataChanged keeps the view consistent).
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
-                         {Qt::DisplayRole, Qt::EditRole});
+                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(name);
         return true;
     }
@@ -3424,7 +3478,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             m_rowCacheValid[row] = false;
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
-                         {Qt::DisplayRole, Qt::EditRole});
+                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(name);
         return true;
     }
@@ -3447,7 +3502,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             m_rowCacheValid[row] = false;
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
-                         {Qt::DisplayRole, Qt::EditRole});
+                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(name);
         return true;
     }
@@ -3482,7 +3538,8 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
 
     if (row >= 0 && row < m_rowCacheValid.size())
         m_rowCacheValid[row] = false;
-    emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+    emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
     emit objectEdited(name);
     return true;
 }
@@ -3508,7 +3565,8 @@ void SWMMAttributeTableModel::refreshObject(const QString &name)
     const int lastCol = columnCount() - 1;
     if (lastCol < 0) return;
     emit dataChanged(index(row, 0), index(row, lastCol),
-                     {Qt::DisplayRole, Qt::EditRole});
+                     {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
+                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
 }
 
 int SWMMAttributeTableModel::columnForSetter(const QString &tag) const

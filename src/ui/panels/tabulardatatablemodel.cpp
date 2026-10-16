@@ -4,6 +4,7 @@
  * \date   2026
  */
 
+#include "core/attributevalue.h"
 #include "ui/panels/tabulardatatablemodel.h"
 #include "layers/tabulardatalayer.h"
 
@@ -53,6 +54,8 @@ int TabularDataTableModel::columnCount(const QModelIndex &parent) const
 
 QVariant TabularDataTableModel::data(const QModelIndex &index, int role) const
 {
+    if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
+        return openswmmvis::attributeValue(data(index, Qt::DisplayRole));
     if (!index.isValid() || !m_layer) return {};
     if (role != Qt::DisplayRole && role != Qt::EditRole &&
         role != Qt::ToolTipRole)

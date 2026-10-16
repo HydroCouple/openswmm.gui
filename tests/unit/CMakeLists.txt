@@ -683,6 +683,17 @@ add_swmmvis_unit_test(test_qsgpremultiply
     test_qsgpremultiply.cpp
 )
 
+# Portable SWMM link geometry plus optional native QSG base/selection checks.
+add_executable(test_linkstroke test_linkstroke.cpp)
+target_include_directories(test_linkstroke PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test_linkstroke PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test)
+add_test(NAME test_linkstroke COMMAND test_linkstroke)
+set_tests_properties(test_linkstroke PROPERTIES LABELS "unit" ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(SWMMVIS_TEST_ENV)
+    set_tests_properties(test_linkstroke PROPERTIES
+        ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
+endif()
+
 # Phase 3 — deterministic LOD policy.
 add_swmmvis_unit_test(test_qsg2d_lodpolicy
     test_qsg2d_lodpolicy.cpp
@@ -830,3 +841,13 @@ target_compile_definitions(test_flowparticle_rendering PRIVATE
 qt_add_shaders(test_flowparticle_rendering "flow_particle_rendering_shaders"
     BATCHABLE PREFIX "/" BASE "${PROJECT_SOURCE_DIR}"
     FILES ${PROJECT_SOURCE_DIR}/resources/shaders/flowparticle.vert ${PROJECT_SOURCE_DIR}/resources/shaders/flowparticle.frag)
+
+# Attribute Table scalar ordering and NULL/query behavior, independent of the engine.
+add_executable(test_attributevalues test_attributevalues.cpp ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp)
+target_include_directories(test_attributevalues PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test_attributevalues PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME test_attributevalues COMMAND test_attributevalues)
+set_tests_properties(test_attributevalues PROPERTIES LABELS "unit" ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(SWMMVIS_TEST_ENV)
+    set_tests_properties(test_attributevalues PROPERTIES ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
+endif()

@@ -31,6 +31,7 @@
 // Slice SS.5 — Rule → FeatureSublayerStyle back-propagation.
 #include "render/sublayers/feature/featuresublayerstyle.h"
 #include "render/linesymbollayer.h"
+#include "render/linkstroke.h"
 #include "render/markersymbollayer.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
@@ -3400,8 +3401,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         p.setCosmetic(true);
         p.setWidthF(widthPx);
         p.setStyle(dash);
-        p.setCapStyle(Qt::FlatCap);
-        p.setJoinStyle(Qt::RoundJoin);
+        OpenSWMM::Render::configureLinkStrokePen(p);
         return p;
     };
 
@@ -4080,8 +4080,7 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                         pen.setCosmetic(true);
                         pen.setWidthF(lineWidthPx);
                         pen.setStyle(dash);
-                        pen.setCapStyle(Qt::FlatCap);
-                        pen.setJoinStyle(Qt::RoundJoin);
+                        OpenSWMM::Render::configureLinkStrokePen(pen);
                         p->setPen(pen);
                     }
                 } else {

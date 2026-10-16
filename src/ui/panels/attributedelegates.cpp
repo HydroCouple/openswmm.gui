@@ -30,6 +30,7 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QSpinBox>
+#include <QSignalBlocker>
 #include <QToolButton>
 
 namespace openswmmvis {
@@ -56,6 +57,13 @@ QWidget *NumericDelegate::createEditor(QWidget *parent,
     spin->setRange(m_min, m_max);
     spin->setSingleStep(std::pow(10.0, -m_decimals + 1));
     spin->setKeyboardTracking(false);
+    QObject::connect(spin, &QDoubleSpinBox::valueChanged, spin, [spin] {
+        spin->setProperty("attributeValueEdited", true);
+    });
+    if (auto *line = spin->findChild<QLineEdit *>())
+        QObject::connect(line, &QLineEdit::textEdited, spin, [spin] {
+            spin->setProperty("attributeValueEdited", true);
+        });
     return spin;
 }
 
@@ -66,7 +74,11 @@ void NumericDelegate::setEditorData(QWidget *editor,
     if (!spin) return;
     bool ok = false;
     const double v = index.data(Qt::EditRole).toDouble(&ok);
+    const QSignalBlocker blocker(spin);
     spin->setValue(ok ? v : 0.0);
+    if (!ok) spin->clear();
+    spin->setProperty("attributeValueWasNull", !ok);
+    spin->setProperty("attributeValueEdited", false);
 }
 
 void NumericDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
@@ -74,6 +86,8 @@ void NumericDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
 {
     auto *spin = qobject_cast<QDoubleSpinBox *>(editor);
     if (!spin) return;
+    if (spin->property("attributeValueWasNull").toBool()
+        && !spin->property("attributeValueEdited").toBool()) return;
     spin->interpretText();  // flush any pending typed value
     model->setData(index, spin->value(), Qt::EditRole);
 }
@@ -96,6 +110,13 @@ QWidget *IntegerDelegate::createEditor(QWidget *parent,
     auto *spin = new QSpinBox(parent);
     spin->setRange(m_min, m_max);
     spin->setKeyboardTracking(false);
+    QObject::connect(spin, &QSpinBox::valueChanged, spin, [spin] {
+        spin->setProperty("attributeValueEdited", true);
+    });
+    if (auto *line = spin->findChild<QLineEdit *>())
+        QObject::connect(line, &QLineEdit::textEdited, spin, [spin] {
+            spin->setProperty("attributeValueEdited", true);
+        });
     return spin;
 }
 
@@ -106,7 +127,11 @@ void IntegerDelegate::setEditorData(QWidget *editor,
     if (!spin) return;
     bool ok = false;
     const int v = index.data(Qt::EditRole).toInt(&ok);
+    const QSignalBlocker blocker(spin);
     spin->setValue(ok ? v : 0);
+    if (!ok) spin->clear();
+    spin->setProperty("attributeValueWasNull", !ok);
+    spin->setProperty("attributeValueEdited", false);
 }
 
 void IntegerDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
@@ -114,6 +139,8 @@ void IntegerDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
 {
     auto *spin = qobject_cast<QSpinBox *>(editor);
     if (!spin) return;
+    if (spin->property("attributeValueWasNull").toBool()
+        && !spin->property("attributeValueEdited").toBool()) return;
     spin->interpretText();
     model->setData(index, spin->value(), Qt::EditRole);
 }
