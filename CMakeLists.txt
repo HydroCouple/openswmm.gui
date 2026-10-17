@@ -2278,10 +2278,14 @@ if(APPLE)
         VERBATIM
     )
 
-    install(TARGETS SWMMVis BUNDLE DESTINATION .)
+    # POST_BUILD deployment has already rewritten this bundle's load commands.
+    # Copy it as a directory so CMake does not replay its original RPATH edits
+    # against the deployed executable (duplicate @executable_path entries and
+    # attempts to delete build-tree paths that macdeployqt already removed).
+    install(DIRECTORY "$<TARGET_BUNDLE_DIR:SWMMVis>"
+        DESTINATION . USE_SOURCE_PERMISSIONS)
 
-    # INSTALL: macdeployqt must run again on the freshly-installed bundle because
-    # cmake --install copies a clean bundle (without the POST_BUILD modifications).
+    # INSTALL: refresh Qt deployment on the installed bundle before re-signing.
     # -qmldir must be repeated here for the same reason it is needed above: this
     # is the bundle CPack turns into the shipped DMG, so if QML is missing HERE
     # the released app is the one with the blank map.
