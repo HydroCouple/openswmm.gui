@@ -184,6 +184,15 @@ void TraceStyle::setArrows(bool v)
         setDirty();
     }
 }
+void TraceStyle::setMinContribution(double v)
+{
+    v = std::clamp(std::isfinite(v) ? v : 0., 0., 1.);
+    if (v != m_minContribution)
+    {
+        m_minContribution = v;
+        setDirty();
+    }
+}
 void TraceStyle::setLabels(bool v)
 {
     if (v != labels())
@@ -201,6 +210,7 @@ QJsonObject TraceStyle::toJson() const
             {"nodeSize", nodeSize.toJson()},
             {"taper", m_taper},
             {"arrows", m_arrows},
+            {"minContribution", m_minContribution},
             {"labels", labels()},
             {"linkLabels", linkLabels.toJson()},
             {"nodeLabels", nodeLabels.toJson()}};
@@ -215,6 +225,7 @@ void TraceStyle::fromJson(const QJsonObject &j)
     nodeSize = Channel::fromJson(j.value("nodeSize").toObject());
     m_taper = std::clamp(j.value("taper").toDouble(.3), .05, 1.);
     m_arrows = j.value("arrows").toBool(true);
+    m_minContribution = std::clamp(j.value("minContribution").toDouble(0.001), 0., 1.);
     linkLabels = TraceLabels::fromJson(j.value("linkLabels").toObject());
     nodeLabels = TraceLabels::fromJson(j.value("nodeLabels").toObject());
     if (!j.contains("nodeLabels"))
@@ -345,6 +356,34 @@ void TraceAnalysisLayer::restoreStyle(const QJsonObject &j)
     }
 }
 QString TraceAnalysisLayer::sourceDescription() const { return m_result->dataset->packagePath; }
+bool TraceAnalysisLayer::contributes(bool node, int i) const
+{
+    if (node && i == m_result->seed)
+        return true;
+    const auto &v = node ? m_result->nodes[i] : m_result->links[i];
+    if (v.flags & SWMM_TRACE_UNREACHABLE)
+        return false;
+    // Trapped circulation has no defined share (NaN) but is a reported condition.
+    if (!std::isfinite(v.ratio))
+        return true;
+    // A link with negligible flow gets a vanishingly small, not exactly zero, share.
+    return std::abs(v.ratio) > 0 && std::abs(v.ratio) >= m_style->minContribution();
+}
+void TraceAnalysisLayer::setResult(std::shared_ptr<Result> result)
+{
+    if (!result || result->dataset->snapshot.nodes.size() != m_result->dataset->snapshot.nodes.size() ||
+        result->dataset->snapshot.links.size() != m_result->dataset->snapshot.links.size())
+        return;
+    const auto style = savedStyle();
+    m_result = std::make_shared<Result>(*result);
+    m_result->style = style;
+    m_nodeColorCache = {};
+    m_linkColorCache = {};
+    m_highlight = -1;
+    for (auto *p : m_parts)
+        p->invalidate();
+    emit repaintRequested();
+}
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
 TraceAnalysisLayer::styleSubjects()
 {
@@ -449,7 +488,7 @@ QPair<double, double> TraceAnalysisLayer::range(bool node, const Channel &c) con
     for (int i = 0; i < count; ++i)
     {
         const auto &v = node ? m_result->nodes[i] : m_result->links[i];
-        if (v.ratio == 0)
+        if (!contributes(node, i))
             continue;
         double x = value(node, i, c.field);
         if (!std::isfinite(x))
@@ -468,7 +507,7 @@ QVector<double> TraceAnalysisLayer::samples(bool node, const Channel &c) const
     QVector<double> out;
     const auto &values = node ? m_result->nodes : m_result->links;
     for (int i = 0; i < values.size(); ++i)
-        if (values[i].ratio != 0 && std::isfinite(value(node, i, c.field)))
+        if (contributes(node, i) && std::isfinite(value(node, i, c.field)))
             out.append(value(node, i, c.field));
     return out;
 }
@@ -566,7 +605,7 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
     double alpha = p->opacity();
     for (int i = 0; i < links.size(); ++i)
     {
-        if (m_result->links[i].ratio == 0 || links[i].size() < 2)
+        if (!contributes(false, i) || links[i].size() < 2)
             continue;
         QVector<QPointF> line;
         bool valid = true;
@@ -649,7 +688,7 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
     }
     for (int i = 0; i < nodes.size(); ++i)
     {
-        if ((m_result->nodes[i].ratio == 0 && i != m_result->seed) || !std::isfinite(nodes[i].x()))
+        if (!contributes(true, i) || !std::isfinite(nodes[i].x()))
             continue;
         auto pt = tx.map(nodes[i]);
         double diameter = diameters[i];
@@ -796,7 +835,7 @@ bool TraceAnalysisLayer::hitTest(QPointF pixel, const QTransform &mapToPixel,
     if (m_parts[1]->isVisible())
         for (int i = 0; i < snapshot.nodes.size(); ++i)
         {
-            if (!snapshot.nodes[i].hasGeometry || m_result->nodes[i].ratio == 0)
+            if (!snapshot.nodes[i].hasGeometry || !contributes(true, i))
                 continue;
             double diameter = diameters[i];
             if (QLineF(pixel, convert(snapshot.nodes[i].point)).length() <= diameter * .5 + 3)
@@ -809,7 +848,7 @@ bool TraceAnalysisLayer::hitTest(QPointF pixel, const QTransform &mapToPixel,
     if (m_parts[0]->isVisible())
         for (int i = 0; i < snapshot.links.size(); ++i)
         {
-            if (m_result->links[i].ratio == 0)
+            if (!contributes(false, i))
                 continue;
             const auto &link = snapshot.links[i];
             QVector<QPointF> points;
@@ -840,7 +879,7 @@ double TraceAnalysisLayer::widthReference(const Channel &c) const
     double maximum = 0;
     for (int i = 0; i < d.links.size(); ++i)
     {
-        if (m_result->links[i].ratio == 0)
+        if (!contributes(false, i))
             continue;
         double v = value(false, i, c.field);
         if (!std::isfinite(v) || v < 0)
@@ -904,10 +943,13 @@ QString TraceSublayer::id() const
 QString TraceSublayer::displayName() const
 {
     const auto &r = *m_layer->result();
-    return tr("%1 — %2 %3")
-        .arg(m_travel ? tr("Travel time") : tr("Flow balance"),
-             r.direction ? tr("upstream of") : tr("downstream of"),
-             r.dataset->snapshot.nodes[r.seed].id);
+    QString name = tr("%1 — %2 %3")
+                       .arg(m_travel ? tr("Travel time") : tr("Flow balance"),
+                            r.direction ? tr("upstream of") : tr("downstream of"),
+                            r.dataset->snapshot.nodes[r.seed].id);
+    if (r.dataset->partial)
+        name += tr(" — partial results (%n reports)", nullptr, r.dataset->info.periods);
+    return name;
 }
 QList<LegendSymbolItem> TraceSublayer::legendSymbolItems() const
 {

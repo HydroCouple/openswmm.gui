@@ -7,6 +7,7 @@ class SWMMVisProjectWindow;
 class SWMMResultsLayer;
 class QLineEdit;
 class QLabel;
+class QCheckBox;
 class QProgressDialog;
 namespace openswmmvis::trace
 {
@@ -23,6 +24,9 @@ class TraceAnalysisDialog final : public QDialog
                                         SWMMResultsLayer *output = nullptr);
     static void showProperties(TraceSublayer *, QWidget *parent);
     static void showDetails(TraceSublayer *, QWidget *parent);
+    /*! Discard the run's saved analysis and recompute its estimates from the
+     *  current output, with the usual progress dialog. */
+    static void recalculate(SWMMVisProjectWindow *, const QString &runId);
     explicit TraceAnalysisDialog(SWMMVisProjectWindow *);
     void setSeedNodes(const QStringList &);
     QJsonObject state() const;
@@ -37,10 +41,12 @@ class TraceAnalysisDialog final : public QDialog
     SWMMVisProjectWindow *m_project;
     TraceController *m_controller;
     QLineEdit *m_nodes;
+    QCheckBox *m_recalculate = nullptr;
     QLabel *m_prompt;
     QProgressDialog *m_progress;
     QString m_runId;
     Snapshot m_snapshot; // captured once per picker session
     bool m_upstream = false, m_travel = false, m_pending = false;
+    bool m_recalculating = false; ///< Open layers refresh in place; only new seeds attach.
 };
 } // namespace openswmmvis::trace

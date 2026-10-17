@@ -42,6 +42,7 @@ struct Dataset
         QStringLiteral("User-supplied model pairing; original topology unverified");
     SWMM_TraceOptions options{};
     SWMM_TraceInfo info{};
+    bool partial = false; ///< Built from an incomplete output; never reused.
     QVector<SWMM_TraceNodeAverage> nodes;
     QVector<SWMM_TraceLinkAverage> links;
     Dataset() { swmm_trace_default_options(&options); }

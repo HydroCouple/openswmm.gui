@@ -45,7 +45,9 @@ struct OutputRun {
     int number=1;
     qint64 size=-1, modified=-1;
     bool native=false;
-    bool canAnalyze()const{return state==QStringLiteral("Complete")||state==QStringLiteral("Imported");}
+    // Running and Cancelled outputs are analyzed as partial results (whole periods written so far).
+    bool partial()const{return state==QStringLiteral("Running")||state==QStringLiteral("Cancelled");}
+    bool canAnalyze()const{return state==QStringLiteral("Complete")||state==QStringLiteral("Imported")||partial();}
 };
 
 /*! One row in the registry. Captures everything a consumer needs to
@@ -123,6 +125,8 @@ public:
     void adoptAnalysis(const QString&id,const QString&sourceId,const QString&path,const QString&label,
                        const QString&fingerprint,const QString&package,const QJsonObject&snapshot);
     void setRetainedPath(const QString&id,const QString&path);
+    /// Record the output file's current size and time for a run (its results were accepted anew).
+    void recordOutputFile(const QString&id);
     QJsonArray saveRuns(const QString&baseDirectory)const;
     void restoreRuns(const QJsonArray&,const QString&baseDirectory);
 

@@ -1845,6 +1845,8 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
                 tr("Properties…"));
             menu.addSeparator();
             auto *details = menu.addAction(tr("Result details…"));
+            auto *recalculate = menu.addAction(tr("Recalculate"));
+            recalculate->setToolTip(tr("Rescan this output and recompute its saved estimates"));
             auto *visible = menu.addAction(trace->isVisible() ? tr("Hide") : tr("Show"));
             menu.addSeparator();
             auto *remove = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Clear")),
@@ -1853,6 +1855,10 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             if (!guard) return;
             if (picked == properties) openswmmvis::trace::TraceAnalysisDialog::showProperties(trace, this);
             else if (picked == details) openswmmvis::trace::TraceAnalysisDialog::showDetails(trace, this);
+            else if (picked == recalculate)
+                openswmmvis::trace::TraceAnalysisDialog::recalculate(
+                    qobject_cast<SWMMVisProjectWindow *>(m_canvas ? m_canvas->parent() : nullptr),
+                    trace->layer()->result()->dataset->runId);
             else if (picked == visible) trace->setVisible(!trace->isVisible());
             else if (picked == remove) removeAnalysisSublayer(m_canvas, trace);
             return;
