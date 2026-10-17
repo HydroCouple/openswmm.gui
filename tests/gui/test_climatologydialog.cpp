@@ -12,6 +12,8 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_climate.h>
+#include <openswmm/engine/openswmm_heat.h>
+#include <openswmm/engine/openswmm_snow.h>
 
 #include <QComboBox>
 #include <QCheckBox>
@@ -19,7 +21,11 @@
 #include <QDoubleSpinBox>
 #include <QObject>
 #include <QPushButton>
+#include <QTableWidget>
 #include <QTest>
+#include <QTimer>
+#include <QApplication>
+#include <QMessageBox>
 
 #include "dialog_a11y_checks.h"
 
@@ -41,6 +47,7 @@ class TestClimatologyDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    void lateSetterFailureLeavesEngineUntouched();
     void unrelatedEditsPreserveClimatePrecision();
     void closedEngineCannotBeAccepted();
     void constantSourcesRetainUnusedMonthlyValues();
@@ -54,6 +61,69 @@ private slots:
     void snowAndRadiationRoundTrip();
 };
 
+
+namespace {
+// Every value the failing commit below would have written before the refusal.
+QString climateState(SWMM_Engine e)
+{
+    QString s;double v=0;int i=0;double m[12];double a[10];
+    swmm_climate_get_latitude(e,&v);s+=QString::number(v,'g',17)+'|';
+    swmm_climate_get_evap_type(e,&i);s+=QString::number(i)+'|';
+    const auto months=[&](int (*get)(SWMM_Engine,double*,int)){get(e,m,12);for(double x:m)s+=QString::number(x,'g',17)+',';};
+    months(swmm_climate_get_evap_monthly);months(swmm_climate_get_wind_monthly);months(swmm_climate_get_humidity_monthly);
+    months(swmm_climate_get_adjust_temperature);months(swmm_climate_get_adjust_evaporation);
+    swmm_climate_get_humidity_type(e,&i);s+=QString::number(i)+'|';
+    swmm_climate_get_snow_temp(e,&v);s+=QString::number(v,'g',17)+'|';
+    swmm_climate_get_adc_impervious(e,a,10);for(double x:a)s+=QString::number(x,'g',17)+',';
+    swmm_snow_get_model(e,&i);s+=QString::number(i)+'|';
+    unsigned flags=0;swmm_heat_get_authoring_flags(e,&flags);s+=QString::number(flags)+'|';
+    SWMM_RadiationConfig radiation{};swmm_climate_get_radiation(e,&radiation);
+    s+=QString::number(radiation.explicit_site)+QString::number(radiation.latitude,'g',17);
+    return s;
+}
+} // namespace
+
+void TestClimatologyDialog::lateSetterFailureLeavesEngineUntouched()
+{
+    // C1 (closure audit): the areal-depletion curve is written after the
+    // temperature, evaporation, wind, humidity, snow-melt and snow-model
+    // setters. An out-of-range curve value is refused by the engine itself,
+    // so every earlier accepted write must be rolled back.
+    auto e=makeClimateEngine();const QString before=climateState(e);
+    ClimatologyDialog dialog(e);
+    dialog.findChild<QDoubleSpinBox*>("clim_latitude")->setValue(47.75);
+    dialog.findChild<QDoubleSpinBox*>("clim_snowTemp")->setValue(31.5);
+    auto* humidity=dialog.findChild<QComboBox*>("clim_humType");
+    humidity->setCurrentIndex(humidity->findData(int(SWMM_HUMIDITY_CONSTANT)));
+    dialog.findChild<QDoubleSpinBox*>("clim_humConstant")->setValue(61);
+    auto* model=dialog.findChild<QComboBox*>("clim_snowModel");model->setCurrentIndex(model->findData(1));
+    auto* site=dialog.findChild<QCheckBox*>("clim_radiationSite");site->setChecked(true);
+    dialog.findChild<QDoubleSpinBox*>("clim_site0")->setValue(12);
+    auto* adc=dialog.findChild<QTableWidget*>("clim_adc");QVERIFY(adc);
+    adc->item(9,0)->setText(QStringLiteral("1.5"));
+    QString warning;int warnings=0;
+    QTimer closer;closer.setInterval(10);
+    QObject::connect(&closer,&QTimer::timeout,[&]{
+        if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){warning=box->text();++warnings;box->accept();}
+    });
+    closer.start();
+    dialog.show();
+    dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    closer.stop();
+    QCOMPARE(warnings,1);
+    QVERIFY2(warning.contains(QStringLiteral("adc impervious"))&&warning.contains(QStringLiteral("No changes were applied")),qPrintable(warning));
+    QVERIFY(dialog.isVisible());QCOMPARE(dialog.result(),int(QDialog::Rejected));
+    QVERIFY(!dialog.wroteAnyChanges());
+    QCOMPARE(climateState(e),before);
+    // The draft survives: correcting the one value commits every edit.
+    adc->item(9,0)->setText(QStringLiteral("1"));
+    dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dialog.result(),int(QDialog::Accepted));QVERIFY(dialog.wroteAnyChanges());
+    double value=0;swmm_climate_get_latitude(e,&value);QCOMPARE(value,47.75);
+    int mode=-1;swmm_snow_get_model(e,&mode);QCOMPARE(mode,1);
+    swmm_climate_get_humidity_type(e,&mode);QCOMPARE(mode,int(SWMM_HUMIDITY_CONSTANT));
+    swmm_engine_destroy(e);
+}
 
 void TestClimatologyDialog::unrelatedEditsPreserveClimatePrecision()
 {
