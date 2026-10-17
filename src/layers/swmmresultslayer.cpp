@@ -2045,6 +2045,36 @@ SWMMResultsLayer::sublayerLegendItems()
             }
         }
 
+        // Size channel — header + a min and a max swatch drawn at the
+        // channel's px limits, labelled with the value range the map was
+        // sized against this frame (rebuildKindFeatureOverrides).
+        if (const auto *ch = sublayerSizeChannel(sub); ch && ch->enabled) {
+            const SizeRange r = m_kindSizeRange[static_cast<int>(sub->category())];
+            if (std::isfinite(r.low) && std::isfinite(r.high)) {
+                const bool point = sub->archetype() == FeatureSublayer::Archetype::Point;
+                LegendSymbolItem header;
+                header.label = (point ? tr("%1 — size by %2") : tr("%1 — width by %2"))
+                                   .arg(sub->displayName(), ch->attribute);
+                if (ch->rangeMode == OpenSWMM::Render::RangeMode::PerFrameAutoStretch)
+                    header.label += tr(" (this frame)");
+                header.sublayerId = sublayerId;
+                out.append(header);
+                const QColor swatchCol = singleCol.isValid() ? singleCol : QColor(0x60, 0x60, 0x60);
+                for (const auto &[value, px] : { std::pair{r.low, ch->minPx},
+                                                 std::pair{r.high, ch->maxPx} }) {
+                    LegendSymbolItem item;
+                    item.label = QString::number(value, 'g', 3);
+                    item.sublayerId = sublayerId;
+                    SymbolLayer sl;
+                    sl.kind = point ? SymbolLayerKind::SimpleMarker : SymbolLayerKind::SimpleLine;
+                    OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), swatchCol);
+                    sl.props.insert(point ? QStringLiteral("size") : QStringLiteral("width"), px);
+                    item.symbol.layers.append(sl);
+                    out.append(item);
+                }
+            }
+        }
+
         // Optional: emit a Flow-arrows row when the line sublayer has
         // arrows enabled. Single swatch (single colour, single size).
         if (sub->archetype() == FeatureSublayer::Archetype::Line) {
@@ -3078,6 +3108,7 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     m_kindFeatureShapes[idx].clear();
     m_kindFeatureDashes[idx].clear();
     m_kindUsesOverrides[idx] = false;
+    m_kindSizeRange[idx] = {};
 
     if (!m_modelLayer || !m_handle)
         return;
@@ -3414,6 +3445,7 @@ void SWMMResultsLayer::applySizeChannel(SWMMModelLayer::Category c)
     // Runs after the renderer pass, so it takes precedence over any size
     // the renderer wrote.
     const int idx = static_cast<int>(c);
+    m_kindSizeRange[idx] = {};
     const OpenSWMM::Render::SizeChannel *ch = sublayerSizeChannel(featureSublayer(c));
     if (!ch || !ch->enabled || ch->attribute.isEmpty())
         return;
@@ -3458,6 +3490,7 @@ void SWMMResultsLayer::applySizeChannel(SWMMModelLayer::Category c)
     }
     if (!(hi >= lo))
         return;
+    m_kindSizeRange[idx] = { ch->effectiveLow(lo), hi };
 
     QVector<double> &sizes = point ? m_kindFeatureSizes[idx] : m_kindFeatureWidths[idx];
     const int count = m_modelLayer->categoryCount(c);
