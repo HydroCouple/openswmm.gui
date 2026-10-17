@@ -20,6 +20,10 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Land-use buildup and washoff tables list reaction species.** Bulk species of the
+  reactions component appear after the pollutants and are edited through the same
+  engine rows; wall species, which cannot build up, are not listed.
+
 - **Burn Channels…** is a separate operation on an existing generated or imported
   mesh. Local cavities and regularized channel quads replace the old burn stage
   in Generate Mesh. The tool preserves mesh attributes and boundary conditions,
