@@ -23,8 +23,13 @@ public:
     size_t fieldBytes() const {return m_particleFieldBytes;}
     int captures() const {return m_particleCaptures;}
     int reads() const {return m_particleReads;}
-    QString status() const {return !m_particleLimit.isEmpty()?m_particleLimit:
-        m_particleOverview?tr("Overview · %1").arg(m_worker->status()):m_worker->status();}
+    double lastCaptureMs() const {return m_lastCaptureMs;}
+    double captureMs() const {return m_captureMsTotal;}
+    QString status() const {
+        if(!m_particleLimit.isEmpty())return m_particleLimit;
+        const QString worker=m_particleOverview?tr("Overview · %1").arg(m_worker->status()):m_worker->status();
+        return m_particleCaptures?tr("%1 · capture %2 ms ×%3").arg(worker).arg(m_lastCaptureMs,0,'f',1).arg(m_particleCaptures):worker;
+    }
     QString availability() const {return !m_particleLimit.isEmpty()?m_particleLimit:
         !m_worker->latestFrame()?tr("Preparing flow streaks"):QString();}
 private:
@@ -46,6 +51,7 @@ private:
     QRectF m_particleCheckedView;
     size_t m_particleFieldBytes=0,m_particlePeakTriangles=0,m_particlePeakMeshBytes=0;
     int m_particleCaptures=0,m_particleReads=0;
+    double m_lastCaptureMs=0,m_captureMsTotal=0;
     quint64 m_particleEpoch=~quint64(0),m_particleRevision=~quint64(0);
     quint64 m_particleResetRevision=~quint64(0);
     double m_particleCutoff=-1,m_particleScale=0;

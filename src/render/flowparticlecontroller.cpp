@@ -2,8 +2,10 @@
 #include "render/flowparticlecontroller.h"
 #include <QElapsedTimer>
 #include <QPointer>
+#include <QLoggingCategory>
 #include <algorithm>
 #include <cmath>
+Q_DECLARE_LOGGING_CATEGORY(lcFlowPerf)
 
 namespace OpenSWMM::Render {
 struct FlowParticleController::State {
@@ -14,6 +16,7 @@ struct FlowParticleController::State {
     FlowParticleSeedDistribution seeds;
     QRectF seedView;
     double seedCutoff=-1,birthsDue=0,gain=-1,warmRemaining=0,deferredElapsed=0;
+    double lagScale=1,lagSustained=0;
     bool fillPopulation=true,initialAges=false,reveal=true;
     FlowParticleDiagnostics diagnostics;
     std::shared_ptr<const FlowParticleResidencySupport> residency;
@@ -73,9 +76,15 @@ void FlowParticleController::dispatch() {
                 state->system.reset();state->field.reset();state->pending.reset();
                 state->seeds={};state->seedCutoff=-1;state->birthsDue=0;state->gain=-1;state->fillPopulation=true;
                 state->residency.reset();state->warmRemaining=0;state->deferredElapsed=0;state->reveal=true;
+                state->lagScale=1;state->lagSustained=0;
             }
             state->system.setSettings(settings);
-            if(input)state->pending=buildFlowParticleField(*input,state->cancelled);
+            if(input) {
+                QElapsedTimer build;build.start();
+                state->pending=buildFlowParticleField(*input,state->cancelled);
+                auto &d=state->diagnostics;d.lastFieldBuildMs=build.nsecsElapsed()/1e6;d.fieldBuildMs+=d.lastFieldBuildMs;++d.fieldBuilds;
+                qCDebug(lcFlowPerf)<<"flow field build"<<input->triangles.size()<<"triangles"<<d.lastFieldBuildMs<<"ms";
+            }
             bool accepted=false;
             if(state->pending && (!state->field || state->pending->revision==presented || preparing==state->pending->revision)) {
                 // Finish a partial tick with its original field before applying the
@@ -90,12 +99,31 @@ void FlowParticleController::dispatch() {
                     }
                 }
             }
-            if(state->field && (accepted || seeds!=state->seedView || settings.cutoff!=state->seedCutoff)) {
+            // Culling jitter and small pans keep the current distribution: births
+            // a few percent off-view are recycled, while every rebuild clips the
+            // whole regional field. Zoom notches and longer pans exceed this.
+            const auto seedViewStale=[&] {
+                if(!seeds.isValid() || !state->seedView.isValid())return seeds!=state->seedView;
+                const double tx=.05*state->seedView.width(),ty=.05*state->seedView.height();
+                return std::abs(seeds.left()-state->seedView.left())>tx || std::abs(seeds.right()-state->seedView.right())>tx
+                    || std::abs(seeds.top()-state->seedView.top())>ty || std::abs(seeds.bottom()-state->seedView.bottom())>ty;
+            };
+            if(state->field && (accepted || settings.cutoff!=state->seedCutoff || seedViewStale())) {
+                QElapsedTimer build;build.start();
+                const char *reason=accepted?"field":settings.cutoff!=state->seedCutoff?"cutoff":"view";
                 state->seeds=buildFlowParticleSeeds(*state->field,seeds,settings.cutoff);
                 state->seedView=seeds;state->seedCutoff=settings.cutoff;
+                auto &d=state->diagnostics;d.lastSeedBuildMs=build.nsecsElapsed()/1e6;d.seedBuildMs+=d.lastSeedBuildMs;++d.seedBuilds;
+                qCDebug(lcFlowPerf)<<"flow seed build"<<reason<<state->field->fields.size()<<"triangles"
+                    <<state->seeds.triangles.size()<<"wet pieces"<<d.lastSeedBuildMs<<"ms";
             }
             if(view.scale>0 && state->field) {
                 population=state->seeds.population(view.scale,view.spacing,population);
+            }
+            // Under a growing integration backlog, lower the target rather than
+            // skip time. The ceiling restores geometrically once caught up.
+            if(state->lagScale<1)population=std::max(std::min(population,50),int(std::lround(population*state->lagScale)));
+            if(view.scale>0 && state->field) {
                 const double gain=state->seeds.motionGain(view.scale,view.motionPixelsPerSecond*settings.speed,view.speedFloorSI);
                 if(state->gain<0 || gain==0)state->gain=gain;
                 else state->gain+=(gain-state->gain)*(1-std::exp(-elapsed));
@@ -163,6 +191,25 @@ void FlowParticleController::dispatch() {
                 fill(std::min(64,std::max(0,int(state->birthsDue))),false);
                 state->system.advance(std::exchange(state->deferredElapsed,0.),std::max(1,budget));
             }
+            const double lag=state->system.lagSeconds();
+            if(!warming && population>0) {
+                // Catch-up jobs between GUI ticks always shrink the backlog a
+                // little, so judge it over animation time: half a second behind
+                // for half a second of animation halves the density. A field
+                // build's transient backlog clears before that.
+                if(lag>.5) {
+                    state->lagSustained+=elapsed;
+                    if(state->lagSustained>=.5) {
+                        state->lagSustained=0;state->lagScale=std::max(.0625,state->lagScale*.5);
+                        const int ceiling=std::max(std::min(population,50),int(std::lround(population*.5)));
+                        const int retired=state->system.retire(activePopulation()-ceiling);population=ceiling;
+                        qCDebug(lcFlowPerf)<<"flow lag"<<lag<<"s: density scale"<<state->lagScale<<"retired"<<retired;
+                    }
+                } else {
+                    state->lagSustained=0;
+                    if(lag<.1 && state->lagScale<1)state->lagScale=std::min(1.,state->lagScale*(1+.25*elapsed));
+                }
+            }
             if(activePopulation()>=population && population>0)state->fillPopulation=false;
             const auto frame=warming?nullptr:state->system.frame();
             const double clock=state->system.clock();
@@ -179,6 +226,7 @@ void FlowParticleController::dispatch() {
             state->diagnostics.wetFraction=seeds.isValid()?state->seeds.wetArea/(seeds.width()*seeds.height()):0;
             state->diagnostics.referenceSpeedSI=state->seeds.referenceSpeedSI;
             state->diagnostics.motionGain=settings.speed;state->diagnostics.targetPopulation=population;
+            state->diagnostics.lagSeconds=lag;state->diagnostics.populationScale=state->lagScale;
             state->diagnostics.speedExponent=settings.speedExponent;
             state->diagnostics.referencePixelsPerSecond=view.scale*settings.speed*state->seeds.referenceSpeed;
             state->diagnostics.metresPerPixelSecond=settings.speedExponent==1 && view.scale>0 && settings.speed>0 && state->seeds.referenceSpeed>0
@@ -257,6 +305,9 @@ QString FlowParticleController::status() const {
     QString status=tr("%1 particles · %2 births · %3 deaths · %4 waiting for data · %5 shortened tails · %6 s lag · %7% wet")
         .arg(m_current->particles.size()).arg(m_current->births).arg(m_current->deaths)
         .arg(waiting).arg(historyLimited).arg(m_lag,0,'f',3).arg(100*m_diagnostics.wetFraction,0,'f',1);
+    if(m_diagnostics.populationScale<1)status+=tr(" · density reduced to %1% while catching up").arg(qRound(100*m_diagnostics.populationScale));
+    if(m_diagnostics.fieldBuilds)status+=tr(" · field %1 ms ×%2 · seeds %3 ms ×%4").arg(m_diagnostics.lastFieldBuildMs,0,'f',1)
+        .arg(m_diagnostics.fieldBuilds).arg(m_diagnostics.lastSeedBuildMs,0,'f',1).arg(m_diagnostics.seedBuilds);
     if(m_diagnostics.metresPerPixelSecond>0)status+=tr(" · 1 px/s ≈ %1 m/s").arg(m_diagnostics.metresPerPixelSecond,0,'g',3);
     else if(m_diagnostics.referenceSpeedSI>0)status+=tr(" · %1 px/s at %2 m/s · slow flow boosted")
         .arg(m_diagnostics.referencePixelsPerSecond,0,'f',0).arg(m_diagnostics.referenceSpeedSI,0,'g',3);

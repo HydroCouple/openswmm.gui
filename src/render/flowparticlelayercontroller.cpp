@@ -4,8 +4,11 @@
 #include "layers/swmm2dresultslayer.h"
 #include "mesh/meshcellgeom.h"
 #include "render/flowparticleresidency.h"
+#include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <algorithm>
 #include <cmath>
+Q_DECLARE_LOGGING_CATEGORY(lcFlowPerf)
 namespace OpenSWMM::Render {
 FlowParticleLayerController::FlowParticleLayerController(SWMM2DResultsLayer *layer)
     :QObject(layer),m_layer(layer),m_worker(new FlowParticleController(this)) {
@@ -303,11 +306,13 @@ std::shared_ptr<const FlowParticleNativeInput> FlowParticleLayerController::capt
         }
     }
     if(!coherent())return {};
+    QElapsedTimer captureTimer;captureTimer.start();
     auto mesh=contains && !prune?m_particleMesh:
         FlowParticleMesh::captureRegions(m_layer->m_sceneVerts,m_layer->tris_,m_layer->m_triGrid,residency.rectangles);
     if(!mesh) {
         m_particleLimit=tr("Zoom in to render continuous particles: the regional geometry limit is 250,000 display triangles.");return {};
     }
+    const bool newMesh=mesh!=m_particleMesh;
     if(sparse && mesh!=m_particleMesh) {
         mesh->seedWeights.assign(mesh->triangles.size(),0);
         for(const auto &seed:m_overviewSeeds) {
@@ -415,6 +420,9 @@ std::shared_ptr<const FlowParticleNativeInput> FlowParticleLayerController::capt
     if(!contains || prune)m_particleTiles=residency.tiles;
     m_particleCaptureClock=clock;m_particleCheckClock=clock;m_particleCheckedView=checkedView;m_particleFieldBytes=peak;
     m_particlePeakTriangles=peakCount;m_particlePeakMeshBytes=peakMesh;++m_particleCaptures;m_particleLimit.clear();
+    m_lastCaptureMs=captureTimer.nsecsElapsed()/1e6;m_captureMsTotal+=m_lastCaptureMs;
+    qCDebug(lcFlowPerf)<<"flow capture"<<(newMesh?"new mesh":"reused mesh")<<count<<"triangles"<<residency.tiles.size()<<"tiles"
+        <<(sparse?"overview":"regional")<<m_lastCaptureMs<<"ms";
     return input;
 }
 

@@ -2,9 +2,15 @@
 #include "render/flowparticleribbons.h"
 #include "render/flowparticles.h"
 #include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <algorithm>
 #include <cmath>
 #include <bit>
+// Opt-in flow streak preparation profiling (capture, field/seed builds, ribbon
+// rebuilds, lag ceilings). Debug is off unless enabled with
+// QT_LOGGING_RULES="openswmm.flowstreaks.perf.debug=true"; the macro checks
+// the level before evaluating any argument.
+Q_LOGGING_CATEGORY(lcFlowPerf,"openswmm.flowstreaks.perf",QtWarningMsg)
 
 namespace OpenSWMM::Render {
 namespace {

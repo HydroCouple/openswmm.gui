@@ -31,5 +31,6 @@ private:
     QColor m_color;
     quint64 m_appearanceRevision=0;
     int m_uploads=0;
+    bool m_deferredView=false;
     double m_geometryBuildMs=0;
 };

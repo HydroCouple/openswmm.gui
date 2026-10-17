@@ -256,6 +256,22 @@ private slots:
             {"vertexBytes",qint64(frame->ribbon.vertices.size()*sizeof(FlowParticleVertex))},
             {"timingBytes",qint64(frame->ribbon.timing.size()*sizeof(FlowParticleTiming))}}).toJson());
     }
+    void smallScaleStepsDeferTheRibbonRebuildByOneFrame() {
+        FlowParticleNode node;const auto frame=bend();FlowParticleAppearance appearance;appearance.viewport={0,0,200,100};
+        node.sync(frame,1,1,4,4,4,0,0,appearance);const int uploads=node.uploads();
+        // A pinch step keeps the current geometry for one rendered frame.
+        node.sync(frame,1,1.05,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads);
+        // The following frame rebuilds even without a new publication.
+        node.sync(frame,1,1.08,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads+1);
+        // A wheel notch rebuilds immediately.
+        node.sync(frame,1,1.6,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads+2);
+        node.sync(frame,1,1.65,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads+2);
+        // A new publication always rebuilds and clears the deferral.
+        const auto next=bend();node.sync(next,1,1.7,4,4,4,0,0,appearance);QCOMPARE(node.uploads(),uploads+3);
+        // A pan at constant scale is culled immediately.
+        appearance.viewport={120,0,20,20};node.sync(next,1,1.7,4,4,4,0,0,appearance);
+        QCOMPARE(node.uploads(),uploads+4);QCOMPARE(node.geometry()->vertexCount(),0);
+    }
     void emptySynchronizationDoesNotUpload() {
         FlowParticleNode node;node.sync({},1,1);QCOMPARE(node.uploads(),0);
         node.sync({},.5,2);QCOMPARE(node.uploads(),0);

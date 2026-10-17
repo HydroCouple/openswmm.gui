@@ -10,6 +10,7 @@
 #include "map/tools/maptool.h"
 #include "render/smoothfillraster.h"
 #include "render/flowparticlecontroller.h"
+#include "render/flowparticlelayercontroller.h"
 #include <QGraphicsRectItem>
 #include "project/projectserializer.h"
 #include "swmmvis.h"
@@ -1996,6 +1997,98 @@ private slots:
                 {"status",layer.flowStreakStatus()}}).toJson());
             QVERIFY(moving>0);QVERIFY(!layer.flowStreakStatus().contains("Zoom in"));
         }
+    }
+    void zoomOutRegenerationTimeline() {
+        const QString path=qEnvironmentVariable("FLOW_STREAK_RESULT");
+        if(path.isEmpty())QSKIP("Set FLOW_STREAK_RESULT to the Bellinge saved result for the zoom regeneration timeline");
+        const QString folder=qEnvironmentVariable("FLOW_STREAK_ZOOM_OUTPUT","tests/verification/flow_streak_zoom_2026-10-17");
+        const QString label=qEnvironmentVariable("FLOW_STREAK_ZOOM_LABEL","run");
+        QVERIFY(QDir().mkpath(folder));
+        SWMM2DResultsLayer layer;layer.setAsyncSurface(true);
+        auto source=std::make_unique<HDF5Mesh2DSource>();QVERIFY(source->open(path));
+        layer.setSource(std::move(source));layer.setCurrentTimeIndex(layer.source()->timeCount()-1);
+        for(auto *s:layer.sublayers())s->setVisible(false);
+        layer.smoothDepthFillSublayer()->setVisible(true);layer.flowStreakSublayer()->setVisible(true);
+        const auto *style=layer.flowStreakSublayer()->streakStyle();
+        auto *capture=layer.findChild<FlowParticleLayerController*>();QVERIFY(capture);
+        const auto *published=layer.findChild<FlowParticleController*>();QVERIFY(published);
+        // Headless replica of the native item: the same frame() request per
+        // rendered frame and animation tick, plus a ribbon sync at each scale.
+        // Start on a sixteenth of the model area, wheel out five notches with
+        // the canvas wheel factor 100 ms apart, settle, then wheel back in.
+        const QSizeF viewport(1920,1080);const auto bounds=layer.m_sceneBBox;const double wheelFactor=1.5;const int notches=5;
+        double width=bounds.width()/4,height=width*viewport.height()/viewport.width();
+        if(height>bounds.height()/4) {height=bounds.height()/4;width=height*viewport.width()/viewport.height();}
+        const QPointF center=bounds.center();
+        const auto viewAt=[&](double factor) {
+            return QRectF(center.x()-width*factor/2,center.y()-height*factor/2,width*factor,height*factor);
+        };
+        const auto activeHeads=[](const std::shared_ptr<const FlowParticleFrame> &frame,const QRectF &view) {
+            int active=0;
+            if(frame)for(const auto &p:frame->particles)active+=p.stop==FlowParticleStop::None && !p.waitingForData && view.contains(p.position);
+            return active;
+        };
+        const auto present=[&](double factor) {
+            const auto view=viewAt(factor);const double scale=viewport.width()/view.width();
+            QElapsedTimer stall;stall.start();
+            layer.flowParticles(view,scale,layer.frameRevision());
+            return stall.nsecsElapsed()/1e6;
+        };
+        const auto animate=[&](double factor,int ticks) {
+            for(int i=0;i<ticks;++i) {layer.advanceFlowStreaks(1./60.);present(factor);QTest::qWait(16);}
+        };
+        FlowParticleNode node;QJsonArray steps;
+        const auto record=[&](const QString &phase,int step,double factor,double stallMs) {
+            const auto view=viewAt(factor);const double scale=viewport.width()/view.width();
+            const auto frame=published->frame(layer.frameRevision());
+            FlowParticleAppearance appearance;appearance.anchor=bounds.center();appearance.color=style->color();
+            const double stroke=2*std::max(style->widthPx(),style->headWidthPx())/scale;
+            appearance.viewport=view.adjusted(-stroke,-stroke,stroke,stroke);
+            appearance.revision=qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));
+            const int uploads=node.uploads();
+            node.sync(frame,layer.flowParticleInterpolation(frame),scale,style->trailDurationSeconds(),
+                      style->widthPx(),style->headWidthPx(),style->lifetimeFadeSeconds(),0,appearance);
+            const auto d=layer.flowParticleDiagnostics();
+            steps.append(QJsonObject{{"phase",phase},{"step",step},{"scale",scale},{"viewWidth",view.width()},
+                {"guiStallMs",stallMs},{"captures",capture->captures()},{"lastCaptureMs",capture->lastCaptureMs()},
+                {"captureMsTotal",capture->captureMs()},
+                {"fieldBuilds",qint64(d.fieldBuilds)},{"lastFieldBuildMs",d.lastFieldBuildMs},
+                {"seedBuilds",qint64(d.seedBuilds)},{"lastSeedBuildMs",d.lastSeedBuildMs},
+                {"targetPopulation",d.targetPopulation},{"particles",frame?qint64(frame->particles.size()):0},
+                {"activeVisibleHeads",activeHeads(frame,view)},{"workerRibbonMs",frame?frame->ribbon.buildMs:0.},
+                {"nodeRibbonRebuilt",node.uploads()>uploads},{"nodeRibbonMs",node.geometryBuildMs()},
+                {"status",layer.flowStreakStatus()}});
+        };
+        const auto settle=[&](const QString &phase,double factor) {
+            QElapsedTimer clock;clock.start();const auto view=viewAt(factor);QJsonArray trace;
+            while(clock.elapsed()<10000) {
+                layer.advanceFlowStreaks(1./60.);present(factor);QTest::qWait(16);
+                const auto frame=published->frame(layer.frameRevision());const auto d=layer.flowParticleDiagnostics();
+                const int active=activeHeads(frame,view);
+                if(clock.elapsed()/100>=trace.size())
+                    trace.append(QJsonObject{{"seconds",clock.elapsed()/1000.},{"activeVisibleHeads",active},{"targetPopulation",d.targetPopulation}});
+                if(d.targetPopulation>0 && active>=.9*d.targetPopulation && !layer.flowStreakBusy())break;
+            }
+            steps.append(QJsonObject{{"phase",phase+"-settle"},{"settleSeconds",clock.elapsed()/1000.},{"trace",trace}});
+        };
+        {
+            const auto view=viewAt(1);const double scale=viewport.width()/view.width();
+            QVERIFY2(layer.prepareFlowStreaksForCapture(view,scale),qPrintable(layer.flowStreakStatus()));
+        }
+        animate(1,180);record("start",0,1,present(1));
+        double factor=1;
+        for(int step=1;step<=notches;++step) {
+            factor*=wheelFactor;const double stallMs=present(factor);animate(factor,5);record("zoom-out",step,factor,stallMs);
+        }
+        settle("zoom-out",factor);
+        for(int step=1;step<=notches;++step) {
+            factor/=wheelFactor;const double stallMs=present(factor);animate(factor,5);record("zoom-in",step,factor,stallMs);
+        }
+        settle("zoom-in",factor);
+        QFile report(folder+"/zoom-"+label+".json");QVERIFY(report.open(QIODevice::WriteOnly));
+        report.write(QJsonDocument(QJsonObject{{"result",path},{"label",label},
+            {"viewport",QJsonArray{viewport.width(),viewport.height()}},{"wheelFactor",wheelFactor},
+            {"meshTriangles",layer.source()->triangleCount()},{"steps",steps}}).toJson());
     }
     void overviewScaleChangesRefreshTheSeedPatchesWithoutATick() {
         SWMM2DResultsLayer layer;layer.setSource(std::make_unique<GridFlowSource>(700,200));
