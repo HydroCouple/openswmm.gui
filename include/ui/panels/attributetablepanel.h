@@ -302,6 +302,17 @@ private:
     /*! All refs in the bound category — used by Invert. */
     QSet<SWMMObjectRef> allCategoryRefs() const;
 
+    /*! "N of M selected" footer, as GIS attribute tables show it. M is every
+     *  row of the bound source, whatever the query filter shows. N
+     *  (`selectedRowCount()`) counts the source's rows that are selected on
+     *  the bus, so a selected row the query hides still counts — the layer's
+     *  selection, not just the visible highlight. When the selection is
+     *  view-local (a tabular source has no bus identity, and neither does a
+     *  panel without a SelectionManager) N is the view's selected rows. */
+    [[nodiscard]] bool selectionIsViewLocal() const;
+    [[nodiscard]] int selectedRowCount() const;
+    void updateSelectionCount();
+
     /*! Bulk-edit helpers backing the right-click "Apply … to selected
      *  rows" actions. `selectedSourceRows` returns the distinct source
      *  (model) rows currently selected. `applyValueToSelectedRows` writes
@@ -329,6 +340,7 @@ private:
     MeshAttributeTableModel *m_meshModel     = nullptr;  ///< 2D mesh elements source
     DataObjectAttributeTableModel *m_dataModel = nullptr; ///< non-spatial data-object source
     QSortFilterProxyModel   *m_proxy         = nullptr;
+    QLabel                  *m_selectionCount = nullptr; ///< "12 of 1205 selected" footer
 
     // Slice Z.2 — Query bar
     QLineEdit               *m_queryEdit     = nullptr;
