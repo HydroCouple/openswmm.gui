@@ -78,7 +78,7 @@
 #include <qpropertymodel.h>
 #include <qpropertyitem.h>
 #include <qpropertyitemdelegate.h>
-#include <qvariantpropertyitem.h>
+#include <qvariantpropertyItem.h>
 #endif
 
 // 2026-05-29 — header "Open in <Editor>…" button reuses the object
