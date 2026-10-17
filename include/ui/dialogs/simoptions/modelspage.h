@@ -73,6 +73,7 @@ public slots:
      *         the 2D page reports a TRANSPORT_* change. */
     void refreshTransportMatrix();
     void refreshSnowSummary();
+    void setDraftHook(std::function<SWMM_TransportDraft()> hook) { m_draftHook=std::move(hook); }
 
 signals:
     /*! \brief The mirror's link was clicked — show Routing & Hydraulics. */
@@ -111,6 +112,7 @@ private:
     bool m_module2DIntentKnown = false;
 
     QTableWidget   *m_transportMatrixTable = nullptr;
+    std::function<SWMM_TransportDraft()> m_draftHook;
     bool            m_matrixSyncing        = false;
     std::function<bool(int)>       m_transport2DGet;
     std::function<void(int, bool)> m_transport2DSet;

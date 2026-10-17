@@ -23,9 +23,18 @@
  */
 
 #include "ui/dialogs/heatconfigdialog.h"
+#include "ui/heatconfigurationundo.h"
+#include "ui/hydrothermalconfiguration.h"
+#include <QUndoStack>
+#include <QDir>
+#include <QFileInfo>
+#include <QFile>
+#include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_gw2d.h>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_heat.h>
+#include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_tables.h>
 
@@ -42,6 +51,8 @@
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTest>
+#include <cmath>
+#include <limits>
 
 using OpenSWMMVis::HeatConfigDialog;
 
@@ -80,7 +91,20 @@ void clickOk(HeatConfigDialog &dlg)
 class TestHeatConfigDialog : public QObject
 {
     Q_OBJECT
-private slots:
+    private slots:
+    void undoPreservesDefaultsAndRefusesExternalChanges();
+    void climateAdjustmentsRollBackTogether();
+    void dryPolicySurvivesInputExport();
+    void savedProjectReopensWithHeatSettings();
+    void resolvedDraftPreviewLeavesEngineUnchanged();
+    void spatialOverridesCanBeEditedAndRemoved();
+    void landcoverCanReturnToAirTemperatureInheritance();
+    void externalEditIsNotOverwritten();
+    void elementRenamesAndTagsInvalidateDraft();
+    void transportPreviewDoesNotApplyDraft();
+    void bedControlsAndInactiveStatusRoundTrip();
+    void zeroLatitudeSiteAndComputedRadiationInOneVisit();
+    void atomicEditRestoresModuleAndAuthoredTemperature();
     void tableControlsExposeFieldAndRowContext();
     void invalidationDiscardsDraftAndGuardsLaterSignals();
     void constructsWithNullEngine();
@@ -448,16 +472,16 @@ void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag()
     dlg.show(); dlg.activateWindow(); QTest::qWait(1);
     clickOk(dlg);
     QVERIFY(dlg.isVisible());
-    QVERIFY(dlg.wroteAnyChanges());
-    QCOMPARE(dlg.lastWriteCount(), 1);
-    QCOMPARE(applied.count(), 1);
+    QVERIFY(!dlg.wroteAnyChanges());
+    QCOMPARE(dlg.lastWriteCount(), 0);
+    QCOMPARE(applied.count(), 0);
     QCOMPARE(albedo->value(), 1.5);
     QTRY_VERIFY(albedo->hasFocus());
     auto *error = dlg.findChild<QLabel *>(QStringLiteral("hc_validationError"));
     QVERIFY(error && error->text().contains(QStringLiteral("albedo"), Qt::CaseInsensitive));
     double value = 0;
     QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
-    QCOMPARE(value, 18.0);
+    QCOMPARE(value, 12.0);
     QCOMPARE(swmm_heat_get_radiative(e, SWMM_HEAT_RAD_ALBEDO, &value), SWMM_OK);
     QVERIFY(value != 1.5);
     if (retry) {
@@ -466,12 +490,12 @@ void TestHeatConfigDialog::failedWriteRetainsDraftAndPartialChangeFlag()
         albedo->setValue(value);
         clickOk(dlg);
         QCOMPARE(dlg.result(), int(QDialog::Accepted));
-        QCOMPARE(dlg.lastWriteCount(), 0);
+        QCOMPARE(dlg.lastWriteCount(), 1);
     } else dlg.reject();
-    QVERIFY(dlg.wroteAnyChanges());
-    QCOMPARE(applied.count(), 1);
+    QCOMPARE(dlg.wroteAnyChanges(), retry);
+    QCOMPARE(applied.count(), retry ? 1 : 0);
     QCOMPARE(swmm_heat_get_source_temp(e, SWMM_HEAT_SRC_GW, &value), SWMM_OK);
-    QCOMPARE(value, 18.0);
+    QCOMPARE(value, retry ? 18.0 : 12.0);
     swmm_engine_destroy(e);
 }
 
@@ -517,6 +541,254 @@ void TestHeatConfigDialog::tableControlsExposeFieldAndRowContext()
         QVERIFY(description.contains(overrides->horizontalHeaderItem(col)->text()));
     }
     swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::bedControlsAndInactiveStatusRoundTrip()
+{
+    auto e=makeHeatEngine();
+    QCOMPARE(swmm_heat_set_sediment(e,5,1.23456789e-5),SWMM_OK);
+    HeatConfigDialog dialog(e);
+    auto* status=dialog.findChild<QLabel*>("hc_processStatus");
+    QVERIFY(status->text().contains("off"));
+    auto* module=dialog.findChild<QCheckBox*>("hc_module_3");QVERIFY(module);
+    module->setChecked(true);
+    QVERIFY(status->text().contains("inactive"));
+    dialog.findChild<QCheckBox*>("hc_initialConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox*>("hc_bed_8")->setValue(8.75);
+    dialog.findChild<QComboBox*>("hc_dryPolicy")->setCurrentIndex(1);
+    dialog.resize(1000,780);dialog.setCurrentTab(HeatConfigDialog::TabBed);dialog.show();QTest::qWait(20);
+    if(qEnvironmentVariableIsSet("SWMMVIS_HYDROTHERMAL_SCREENSHOT"))
+        QVERIFY(dialog.grab().save(qEnvironmentVariable("SWMMVIS_HYDROTHERMAL_SCREENSHOT")));
+    clickOk(dialog);QCOMPARE(dialog.result(),int(QDialog::Accepted));
+    int on=0;swmm_heat_get_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,&on);QCOMPARE(on,1);
+    swmm_heat_get_enabled(e,&on);QCOMPARE(on,0);
+    const int component=swmm_process_component_find(e,"org.hydrocouple.openswmm.heat");QVERIFY(component>=0);
+    const QDir saved(QFileInfo(QFINDTESTDATA("data/mini_2d.inp")).absolutePath()+"/hydrothermal_gis_2026-10-17/bed-controls");QVERIFY(QDir().mkpath(saved.path()));
+    QCOMPARE(swmm_model_write(e,saved.filePath("project.inp").toUtf8().constData()),SWMM_OK);
+    char id[256]{},config[4096]{},resolved[4096]{};
+    swmm_process_component_get(e,component,id,sizeof id,config,sizeof config,resolved,sizeof resolved);
+    QFile file(saved.filePath(QString::fromUtf8(config)));QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto data=file.readAll();QVERIFY(data.contains("SEDIMENT_EXCHANGE ON"));QVERIFY(data.contains("DRY_ELEMENT_TEMPERATURE AIR"));
+
+    double value=0;swmm_heat_get_sediment(e,5,&value);QCOMPARE(value,1.23456789e-5);
+    swmm_heat_get_sediment(e,8,&value);QCOMPARE(value,8.75);
+    int policy=0;swmm_heat_get_dry_policy(e,&policy);QCOMPARE(policy,1);
+    HeatConfigDialog reopened(e);QVERIFY(reopened.findChild<QCheckBox*>("hc_initialConfigured")->isChecked());
+    clickOk(reopened);QCOMPARE(reopened.lastWriteCount(),0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::zeroLatitudeSiteAndComputedRadiationInOneVisit()
+{
+    auto e=makeHeatEngine();HeatConfigDialog dialog(e);
+    auto* computed=dialog.findChild<QRadioButton*>("hc_swComputed");QVERIFY(!computed->isEnabled());
+    dialog.findChild<QCheckBox*>("hc_explicitSite")->setChecked(true);
+    QVERIFY(computed->isEnabled());computed->setChecked(true);clickOk(dialog);
+    QCOMPARE(dialog.result(),int(QDialog::Accepted));
+    int mode=-1;swmm_heat_get_shortwave_mode(e,&mode);QCOMPARE(mode,int(SWMM_HEAT_SW_COMPUTED));
+    int sited=0;swmm_heat_get_solar_sited(e,&sited);QCOMPARE(sited,1);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::atomicEditRestoresModuleAndAuthoredTemperature()
+{
+    auto e=makeHeatEngine();
+    const auto fail=[](SWMM_Engine e,void*) -> int {
+        swmm_heat_set_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,1);
+        swmm_heat_set_sediment(e,SWMM_HEAT_SED_INITIAL_TEMPERATURE,7);
+        OpenSWMM::Ui::ensureHeatConfigurationFile(e);
+        return SWMM_ERR_BADPARAM;
+    };
+    QCOMPARE(swmm_hydrothermal_edit_atomic(e,fail,nullptr),SWMM_ERR_BADPARAM);
+    int flag=-1;swmm_heat_get_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,&flag);QCOMPARE(flag,0);
+    swmm_heat_sediment_temperature_configured(e,SWMM_HEAT_SED_INITIAL_TEMPERATURE,&flag);QCOMPARE(flag,0);
+    QCOMPARE(swmm_process_component_count(e),0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::spatialOverridesCanBeEditedAndRemoved()
+{
+    auto e=makeHeatEngine();
+    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,SWMM_HEAT_SCOPE_NODE,"J0",.13),SWMM_OK);
+    HeatConfigDialog dialog(e);auto* table=dialog.findChild<QTableWidget*>("hc_elementTable");
+    QCOMPARE(table->rowCount(),1);
+    qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(.29);clickOk(dialog);
+    QCOMPARE(dialog.result(),int(QDialog::Accepted));
+    double value=0;swmm_heat_get_element_override(e,0,nullptr,nullptr,nullptr,0,&value);QCOMPARE(value,.29);
+    HeatConfigDialog remove(e);auto* rows=remove.findChild<QTableWidget*>("hc_elementTable");rows->selectRow(0);
+    remove.findChild<QPushButton*>("hc_removeElement")->click();clickOk(remove);
+    int count=-1;swmm_heat_element_override_count(e,&count);QCOMPARE(count,0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::landcoverCanReturnToAirTemperatureInheritance()
+{
+    auto e=makeHeatEngine();HeatConfigDialog dialog(e);
+    dialog.findChild<QCheckBox*>("hc_landcoverConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox*>("hc_rad_8")->setValue(11.25);clickOk(dialog);
+    double value=0;swmm_heat_get_radiative(e,8,&value);QCOMPARE(value,11.25);
+    HeatConfigDialog reset(e);reset.findChild<QCheckBox*>("hc_landcoverConfigured")->setChecked(false);clickOk(reset);
+    swmm_heat_get_radiative(e,8,&value);QVERIFY(std::isnan(value));
+    HeatConfigDialog untouched(e);clickOk(untouched);QCOMPARE(untouched.lastWriteCount(),0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::externalEditIsNotOverwritten()
+{
+    auto e=makeHeatEngine();HeatConfigDialog dialog(e);
+    srcCheck(dialog,SWMM_HEAT_SRC_GW)->setChecked(true);srcSpin(dialog,SWMM_HEAT_SRC_GW)->setValue(7);
+    swmm_heat_set_source_temp(e,SWMM_HEAT_SRC_GW,13);clickOk(dialog);
+    QVERIFY(!dialog.wroteAnyChanges());
+    QVERIFY(dialog.findChild<QLabel*>("hc_validationError")->text().contains("another editor"));
+    double value=0;swmm_heat_get_source_temp(e,SWMM_HEAT_SRC_GW,&value);QCOMPARE(value,13.);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::transportPreviewDoesNotApplyDraft()
+{
+    auto e=makeHeatEngine();SWMM_TransportDraft draft{};
+    draft.heat=1;draft.groundwater=-1;
+    for(int& enabled:draft.surface_class)enabled=1;
+    SWMM_TransportMatrix matrix{};
+    QCOMPARE(swmm_preview_transport_matrix(e,&draft,&matrix),SWMM_OK);
+    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_NETWORK_1D][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,SWMM_TRANSPORT_ENABLED);
+    int enabled=1;swmm_heat_get_enabled(e,&enabled);QCOMPARE(enabled,0);
+    draft.ignore_quality=1;QCOMPARE(swmm_preview_transport_matrix(e,&draft,&matrix),SWMM_OK);
+    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_NETWORK_1D][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,SWMM_TRANSPORT_DISABLED_BY_USER);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::undoPreservesDefaultsAndRefusesExternalChanges()
+{
+    auto e=makeHeatEngine();QObject owner;int changes=0,errors=0;
+    OpenSWMMVis::HeatSnapshot before(swmm_heat_snapshot_create(e));QVERIFY(before);
+    const auto beforeId=HeatConfigDialog::configurationSignature(e);
+    swmm_heat_set_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,1);
+    swmm_heat_set_sediment(e,8,7.25);
+    QCOMPARE(OpenSWMM::Ui::ensureHeatConfigurationFile(e),SWMM_OK);
+    QCOMPARE(swmm_process_component_count(e),1);
+    OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(e));QVERIFY(after);
+    const auto afterId=HeatConfigDialog::configurationSignature(e);
+    {
+        QUndoStack stack;
+        stack.push(new OpenSWMMVis::HeatConfigurationUndo(&owner,e,std::move(before),std::move(after),beforeId,afterId,
+            [e]{return e;},HeatConfigDialog::configurationSignature,[&]{++changes;},[&](QString){++errors;}));
+        stack.undo();QCOMPARE(HeatConfigDialog::configurationSignature(e),beforeId);
+        QCOMPARE(swmm_process_component_count(e),0);
+        int configured=1;swmm_heat_sediment_temperature_configured(e,8,&configured);QCOMPARE(configured,0);
+        stack.redo();QCOMPARE(HeatConfigDialog::configurationSignature(e),afterId);
+        swmm_heat_set_source_temp(e,SWMM_HEAT_SRC_GW,19.);
+        stack.undo();QCOMPARE(errors,1);QCOMPARE(changes,2);
+        double value=0;swmm_heat_get_source_temp(e,SWMM_HEAT_SRC_GW,&value);QCOMPARE(value,19.);
+    }
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::climateAdjustmentsRollBackTogether()
+{
+    auto e=makeHeatEngine();
+    const auto callback=[](SWMM_Engine engine,void*) -> int {
+        double values[12];std::fill_n(values,12,2.5);
+        swmm_climate_set_adjust_evaporation(engine,values,12);
+        swmm_climate_set_adjust_rainfall(engine,values,12);
+        return SWMM_ERR_BADPARAM;
+    };
+    QCOMPARE(swmm_hydrothermal_edit_atomic(e,callback,nullptr),SWMM_ERR_BADPARAM);
+    double values[12]{};swmm_climate_get_adjust_evaporation(e,values,12);
+    for(double value:values)QCOMPARE(value,0.);
+    swmm_climate_get_adjust_rainfall(e,values,12);for(double value:values)QCOMPARE(value,1.);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::elementRenamesAndTagsInvalidateDraft()
+{
+    for(bool rename:{false,true}) {
+        auto e=makeHeatEngine();HeatConfigDialog dialog(e);
+        srcCheck(dialog,SWMM_HEAT_SRC_RAINFALL)->setChecked(true);srcSpin(dialog,SWMM_HEAT_SRC_RAINFALL)->setValue(14.);
+        QCOMPARE(rename?swmm_node_rename(e,0,"Renamed"):swmm_node_set_tag(e,0,"New tag"),SWMM_OK);
+        clickOk(dialog);QVERIFY(dialog.result()!=QDialog::Accepted);QVERIFY(!dialog.wroteAnyChanges());
+        int configured=1;QCOMPARE(swmm_heat_get_source_configured(e,SWMM_HEAT_SRC_RAINFALL,&configured),SWMM_OK);QCOMPARE(configured,0);
+        swmm_engine_destroy(e);
+    }
+}
+
+void TestHeatConfigDialog::resolvedDraftPreviewLeavesEngineUnchanged()
+{
+    auto e=makeHeatEngine();QCOMPARE(swmm_node_set_tag(e,0,"forest"),SWMM_OK);
+    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,SWMM_HEAT_SCOPE_TAG,"forest",.2),SWMM_OK);
+    HeatConfigDialog dialog(e);const auto original=HeatConfigDialog::configurationSignature(e);
+    dialog.setCurrentTab(HeatConfigDialog::TabSpatial);auto* table=dialog.findChild<QTableWidget*>("hc_elementTable");QCOMPARE(table->rowCount(),1);table->setCurrentCell(0,0);
+    qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(.7);
+    dialog.findChild<QPushButton*>("hc_previewElements")->click();auto* resolved=dialog.findChild<QTableWidget*>("hc_resolvedElements");QCOMPARE(resolved->rowCount(),1);QCOMPARE(resolved->item(0,0)->text(),QString("J0"));QCOMPARE(resolved->item(0,1)->text().toDouble(),.7);
+    QCOMPARE(HeatConfigDialog::configurationSignature(e),original);
+    qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(.8);QCOMPARE(resolved->rowCount(),0);
+    double value=0;int source=-1;char name[100]{};QCOMPARE(swmm_heat_get_effective_element(e,0,SWMM_HEAT_SCOPE_NODE,"J0",&value,&source,name,sizeof name),SWMM_OK);QCOMPARE(value,.2);QCOMPARE(source,1);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::dryPolicySurvivesInputExport()
+{
+    auto e=makeHeatEngine();const QDir directory(QFileInfo(QFINDTESTDATA("data/mini_2d.inp")).absolutePath()+"/hydrothermal_gis_2026-10-17/dry-policy");QVERIFY(QDir().mkpath(directory.path()));
+    QCOMPARE(swmm_process_component_register(e,"org.hydrocouple.openswmm.heat","heat.cfg"),SWMM_OK);
+    for(int policy:{1,2}) {
+        QCOMPARE(swmm_heat_set_dry_policy(e,policy),SWMM_OK);
+        const auto path=directory.filePath("heat.inp");
+        QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
+        QFile file(directory.filePath("heat.cfg"));QVERIFY(file.open(QIODevice::ReadOnly));
+        QVERIFY(file.readAll().contains(policy==1?"DRY_ELEMENT_TEMPERATURE AIR":"DRY_ELEMENT_TEMPERATURE DEFAULT"));
+    }
+    swmm_heat_set_dry_policy(e,0);
+    swmm_heat_set_source_temp(e,SWMM_HEAT_SRC_GW,13.25);
+    const auto path=directory.filePath("heat.inp");QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
+    swmm_heat_clear_source_temp(e,SWMM_HEAT_SRC_GW);
+    QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
+    QFile cleared(directory.filePath("heat.cfg"));QVERIFY(cleared.open(QIODevice::ReadOnly));
+    const auto text=cleared.readAll();QVERIFY(!text.contains("13.25"));QVERIFY(!text.contains("DRY_ELEMENT_TEMPERATURE"));QVERIFY(!text.trimmed().isEmpty());
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::savedProjectReopensWithHeatSettings()
+{
+    const auto input=QFINDTESTDATA("data/mini_2d.inp");QVERIFY(!input.isEmpty());
+    const QDir directory(QFileInfo(input).absolutePath()+"/hydrothermal_gis_2026-10-17/saved-heat");QVERIFY(QDir().mkpath(directory.path()));
+    auto e=swmm_engine_create();QVERIFY(e);
+    QCOMPARE(swmm_engine_open(e,input.toUtf8().constData(),directory.filePath("before.rpt").toUtf8().constData(),directory.filePath("before.out").toUtf8().constData(),nullptr),SWMM_OK);
+    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,SWMM_HEAT_SCOPE_NODE,"J1",.4),SWMM_OK);
+    HeatConfigDialog dialog(e);dialog.findChild<QCheckBox*>("hc_heatEnabled")->setChecked(true);
+    dialog.findChild<QCheckBox*>("hc_module_3")->setChecked(true);
+    dialog.findChild<QCheckBox*>("hc_groundConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox*>("hc_bed_4")->setValue(9.);
+    dialog.findChild<QDoubleSpinBox*>("hc_bed_5")->setValue(1e-6);
+    dialog.findChild<QComboBox*>("hc_dryPolicy")->setCurrentIndex(1);
+    dialog.findChild<QCheckBox*>("hc_landcoverConfigured")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox*>("hc_rad_8")->setValue(15.5);
+    clickOk(dialog);QCOMPARE(dialog.result(),int(QDialog::Accepted));
+    QCOMPARE(swmm_gw2d_row_add(e,0,nullptr,-1,1.,5.,.45,.1,2.),SWMM_OK);
+    SWMM_TransportMatrix matrix{};QCOMPARE(swmm_get_transport_matrix(e,&matrix),SWMM_OK);
+    QCOMPARE(matrix.cell[SWMM_TRANSPORT_DOMAIN_GROUNDWATER][SWMM_TRANSPORT_CLASS_TEMPERATURE].state,SWMM_TRANSPORT_ENABLED);
+    const auto path=directory.filePath("saved.inp");QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
+    auto reopened=swmm_engine_create();QVERIFY(reopened);
+    QCOMPARE(swmm_engine_open(reopened,path.toUtf8().constData(),directory.filePath("after.rpt").toUtf8().constData(),directory.filePath("after.out").toUtf8().constData(),nullptr),SWMM_OK);
+    int enabled=0;swmm_heat_get_enabled(reopened,&enabled);QCOMPARE(enabled,1);
+    swmm_heat_get_module(reopened,SWMM_HEAT_SEDIMENT_EXCHANGE,&enabled);QCOMPARE(enabled,1);
+    double value=0;swmm_heat_get_sediment(reopened,4,&value);QCOMPARE(value,9.);
+    swmm_heat_get_sediment(reopened,5,&value);QCOMPARE(value,1e-6);
+    swmm_heat_sediment_temperature_configured(reopened,8,&enabled);QCOMPARE(enabled,0);
+    swmm_heat_get_radiative(reopened,8,&value);QCOMPARE(value,15.5);
+    int policy=0;swmm_heat_get_dry_policy(reopened,&policy);QCOMPARE(policy,1);
+    int count=0;swmm_heat_element_override_count(reopened,&count);QCOMPARE(count,1);
+    swmm_engine_destroy(reopened);
+    swmm_heat_set_module(e,SWMM_HEAT_SEDIMENT_EXCHANGE,0);swmm_heat_set_dry_policy(e,0);
+    swmm_heat_clear_sediment_temperature(e,4);swmm_heat_set_sediment(e,5,0);
+    swmm_heat_set_radiative(e,8,std::numeric_limits<double>::quiet_NaN());swmm_heat_remove_element_override(e,0);
+    QCOMPARE(swmm_model_write(e,path.toUtf8().constData()),SWMM_OK);
+    reopened=swmm_engine_create();QVERIFY(reopened);
+    QCOMPARE(swmm_engine_open(reopened,path.toUtf8().constData(),directory.filePath("cleared.rpt").toUtf8().constData(),directory.filePath("cleared.out").toUtf8().constData(),nullptr),SWMM_OK);
+    swmm_heat_get_module(reopened,SWMM_HEAT_SEDIMENT_EXCHANGE,&enabled);QCOMPARE(enabled,0);
+    swmm_heat_get_radiative(reopened,8,&value);QVERIFY(std::isnan(value));
+    swmm_heat_get_dry_policy(reopened,&policy);QCOMPARE(policy,0);
+    swmm_heat_element_override_count(reopened,&count);QCOMPARE(count,0);
+    swmm_engine_destroy(reopened);swmm_engine_destroy(e);
 }
 
 QTEST_MAIN(TestHeatConfigDialog)

@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/import/importplanning.h"
+#include "ui/heatproperties.h"
 
 #include <QCoreApplication>
 #include <QLocale>
@@ -346,6 +347,10 @@ ImportPlan buildImportPlan(const ImportMapping &mapping,
                 fail(err);
                 attrError = true;
                 break;
+            }
+            const int heatAttr=OpenSWMMVis::heatPropertyIndex(ta.key);
+            if(heatAttr>=0&&v.isValid()&&!v.isNull()&&!OpenSWMMVis::heatPropertyValueValid(heatAttr,v.toDouble())) {
+                fail(trPlan("Heat property is outside its valid range: %1").arg(ta.label));attrError=true;break;
             }
             if (v.isValid() && !v.isNull())
                 item.attributeValues.insert(ta.key, v);

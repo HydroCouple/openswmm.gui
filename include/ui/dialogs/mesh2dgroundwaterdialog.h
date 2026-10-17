@@ -102,6 +102,8 @@ private:
     QWidget *buildAquiferPage();
     QWidget *buildNodeBedPage();
     QWidget *buildStatePage();
+    QWidget *buildTransportPage();
+    QMap<QString,QWidget*> m_transportOptions;
 
     void loadFromEngine();
     QMap<QString,QString> optionDraft() const;

@@ -321,7 +321,10 @@ mg/L, and the `MASS` inflow type is not offered for it.
 Heat transport is turned on with **HEAT_TRANSPORT** on the *Quality &
 Transport* page of **Model → Simulation Options…**, writing `HEAT_TRANSPORT ON`
 in `[OPTIONS]`. **Model → Heat Configuration…** then configures the sources and
-the flux modules. The dialog has five tabs.
+the flux modules. Temperature transport can also be enabled at the top of
+Heat Configuration. A status message distinguishes the saved module choices
+from processes that can run. Switching the master process off retains its
+settings. The dialog has seven tabs.
 
 \fig{16_heat_sources.png, The Sources tab of the Heat Configuration dialog}
 
@@ -340,6 +343,36 @@ for **Dry weather flow** and **External inflow** only.
 | **Surface exchange (latent + sensible)** | `SURFACE_EXCHANGE` |
 | **Radiative exchange (shortwave + longwave)** | `RADIATIVE_EXCHANGE` |
 | **LID layer conduction** | `LAYER_CONDUCTION` |
+| **Channel bed conduction and hyporheic exchange** | `SEDIMENT_EXCHANGE` |
+
+The dry-element policy chooses whether a dry element holds its last temperature,
+uses air temperature, or reports the default temperature. LID material assumptions
+are shown read-only. A checked module does not enable the master heat process.
+Temperature transported through the 2D mesh does not imply that mesh ground
+conduction or hyporheic exchange is implemented.
+
+**Channel bed and ground** — sets thermal and solute diffusivity, bed thickness,
+deep-ground depth, hyporheic exchange velocity, density and specific heat. Ground
+temperature can use a constant or time series. Initial bed temperature inherits
+ground temperature unless explicitly set. All these parameters use SI units.
+A zero hyporheic velocity gives conduction without hyporheic advection.
+
+**Spatial properties** — adds radiative and sediment overrides for named links
+or tags; nodes accept radiative properties only. Removing a row restores
+inheritance. A global ground-temperature series takes precedence over local
+constant ground temperatures. Invalid or duplicate overrides are refused.
+
+Heat settings are saved with a companion configuration file. The first heat edit
+creates a unique relative file reference when the project has none; the file is
+written beside the model when you save. Keep it with the model when copying the
+project. Existing configuration paths are retained. Clearing the last override
+saves defaults rather than restoring obsolete values from the previous file.
+
+Heat and climate settings are applied as a single transaction within each editor.
+A failed setting rolls back that editor's changes and retains the draft. If another
+editor changed the same configuration, reopen before applying. The **Apply and open
+shared snow and radiation forcing…** button explicitly saves the heat draft before
+opening Climatology; cancelling Climatology does not undo that earlier save.
 
 \fig{16_heat_radiative.png, The Radiative tab with the shortwave mode radio buttons and the radiative parameters}
 
@@ -363,7 +396,8 @@ reflection RL**.
 model)*: **Aerosol depth at 380 nm**, **Aerosol depth at 500 nm**,
 **Precipitable water (cm)**, **Ozone column (cm)**, **Ground albedo (land)**.
 Selecting **Computed** without a latitude and longitude is refused with a
-prompt to fill the Solar tab first.
+prompt to fill the Solar tab first. Select **Set latitude and longitude explicitly**
+to configure a new site in the same visit; zero degrees is a valid coordinate.
 
 \fig{16_heat_solar.png, The Solar tab with the site geometry and Bird atmosphere parameters}
 
@@ -496,3 +530,25 @@ solute, and dry surface mass redissolves with later supply. Richards does
 not add dispersion, sorption or new kinetic laws. Check every exit and final
 cell/surface inventory; water age, heat and MSX support for these layers is
 pending.
+
+#### Assign spatial heat properties from GIS
+
+The **Spatial properties** page supports tag, node and link overrides.
+Select a row and choose **Preview resolved values** to inspect the complete
+draft using engine precedence without applying it. Element overrides win
+over tags, which win over global settings. A global ground-temperature series
+controls that boundary even when a constant element override is stored.
+
+**Apply and assign from raster…** accepts the current heat draft, then opens
+a before/after preview for a loaded raster band. Nodes are sampled at their
+coordinates; conduits use equally spaced samples along their full polyline,
+giving a length-weighted mean. Both layers need known coordinate systems.
+Missing or invalid samples retain the previous object setting. Apply creates
+one Undo operation and names the source raster and band.
+
+Feature-layer import offers **Heat:** properties for node types and conduits
+in update-by-name mappings, using the same preview and Undo workflow. The
+node and conduit attribute tables expose the same authored heat rows; a blank
+cell removes the element override and its tooltip shows the effective value
+and source. Sediment properties are restricted to conduit beds. All heat
+inputs use SI units and °C, independent of the hydraulic project units.

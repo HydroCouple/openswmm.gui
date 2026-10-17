@@ -1,4 +1,6 @@
 #include "ui/dialogs/groundwaterassigndialog.h"
+#include "ui/hydrothermalstate.h"
+#include <openswmm/engine/openswmm_gw2d.h>
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/gisvectorlayer.h"
@@ -146,7 +148,11 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer*model,SWMM2DMesh
  m_wiltingAuto=new QCheckBox(tr("Automatic wilting suction (150 m)"),m_processControls);m_wiltingAuto->setObjectName("gwProcessWiltingAuto");processForm->addRow(m_wiltingAuto);
  m_wilting=new QDoubleSpinBox(m_processControls);m_wilting->setObjectName("gwProcessWilting");m_wilting->setDecimals(9);m_wilting->setRange(1e-9,1e9);m_wilting->setSuffix(" "+m_length);processForm->addRow(tr("Wilting suction:"),m_wilting);form->addRow(m_processControls);
  AquiferSnapshot processSnapshot;QString processError;if(readAquiferSnapshot(m_engine,&processSnapshot,&processError)){const auto&o=processSnapshot.options;m_processEt->setCurrentIndex(m_processEt->findData(o.value("GW_ET")));m_processLink->setCurrentIndex(m_processLink->findData(o.value("LINK_SEEPAGE")));m_wiltingAuto->setChecked(o.value("WILTING_SUCTION")=="AUTO");m_wilting->setValue(m_wiltingAuto->isChecked()?(m_length=="ft"?150/.3048:150):o.value("WILTING_SUCTION").toDouble());}m_wilting->setEnabled(!m_wiltingAuto->isChecked());
- connect(m_processEt,&QComboBox::currentIndexChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_processLink,&QComboBox::currentIndexChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_wilting,&QDoubleSpinBox::valueChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_wiltingAuto,&QCheckBox::toggled,this,[this](bool automatic){m_wilting->setEnabled(!automatic);invalidatePreview();});
+ auto refreshEt=[this]{char mode[64]{};if(m_engine)swmm_gw2d_option_get(m_engine,"MODE",mode,sizeof mode);
+ const auto state=groundwaterEtState(m_processEt->currentData().toString(),QString::fromUtf8(mode),true,true);
+ m_wiltingAuto->setEnabled(state.boundary);m_wilting->setEnabled(state.boundary&&!m_wiltingAuto->isChecked());};
+ refreshEt();connect(m_processEt,&QComboBox::currentIndexChanged,this,refreshEt);connect(m_wiltingAuto,&QCheckBox::toggled,this,refreshEt);
+ connect(m_processEt,&QComboBox::currentIndexChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_processLink,&QComboBox::currentIndexChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_wilting,&QDoubleSpinBox::valueChanged,this,&GroundwaterAssignDialog::invalidatePreview);connect(m_wiltingAuto,&QCheckBox::toggled,this,[this](bool automatic){char mode[64]{};if(m_engine)swmm_gw2d_option_get(m_engine,"MODE",mode,sizeof mode);const auto state=groundwaterEtState(m_processEt->currentData().toString(),QString::fromUtf8(mode),true,true);m_wilting->setEnabled(!automatic&&state.boundary);invalidatePreview();});
  m_scopeChoice=new QComboBox(this);m_scopeChoice->setObjectName("gwAssignmentScope");m_scopeChoice->addItems({tr("Selected mesh cells"),tr("All mesh cells"),tr("Mesh tag"),tr("Cell numbers"),tr("Polygon WKT in mesh CRS")});form->addRow(tr("&Scope:"),m_scopeChoice);
  m_scopeText=new QLineEdit(this);m_scopeText->setObjectName("gwAssignmentScopeText");m_scopeText->setPlaceholderText(tr("Tag, 1-based cell numbers separated by commas, or POLYGON ((x y, ...))"));form->addRow(tr("Scope &details:"),m_scopeText);
  m_route=new QComboBox(this);m_route->setObjectName("gwAssignmentRoute");m_route->addItems({tr("Manual constant"),tr("Feature layer"),tr("Raster")});form->addRow(tr("Input &method:"),m_route);

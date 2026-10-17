@@ -2,6 +2,7 @@
 #pragma once
 #include <QDialog>
 #include <QPointer>
+#include <QStringList>
 #include <array>
 #include <openswmm/engine/openswmm_engine.h>
 class SWMMModelLayer;class SWMM2DMeshLayer;class MapCanvas;class SelectionManager;
@@ -13,6 +14,7 @@ public:
     MeshSnowDialog(SWMMModelLayer*,SWMM2DMeshLayer*,MapCanvas*,SelectionManager*,QWidget* parent=nullptr);
 private:
     void preview();void apply();void addAssignment();void editPacks();void invalidate();
+    void fillFromLayer();
     QString contextError()const;
     QPointer<SWMMModelLayer> model_;QPointer<SWMM2DMeshLayer> mesh_;QPointer<MapCanvas> canvas_;
     QPointer<SelectionManager> selection_;SWMM_Engine engine_=nullptr;quint64 geometry_=0;
@@ -20,5 +22,6 @@ private:
     QDoubleSpinBox* step_=nullptr;QLabel* status_=nullptr;QTableView* table_=nullptr;QTableWidget* resolved_=nullptr;
     double loaded_step_=0,displayed_step_=0;
     QPushButton* apply_=nullptr;std::array<QString,3> before_;
+    QStringList sampledSources_;
 };
 }

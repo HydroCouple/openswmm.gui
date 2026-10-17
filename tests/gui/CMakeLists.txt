@@ -4254,3 +4254,12 @@ add_swmmvis_gui_test(test_simulationstatus_snow
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
     ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
 )
+
+# Hydrothermal GIS routes share the production sampler and exact heat row store.
+add_swmmvis_gui_test(test_hydrothermalgis
+    test_hydrothermalgis.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+swmmvis_link_full_app_deps(test_hydrothermalgis)

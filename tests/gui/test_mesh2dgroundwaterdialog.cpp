@@ -70,6 +70,18 @@ class TestMesh2DGroundwaterDialog : public QObject
     Q_OBJECT
 
 private slots:
+    void automaticEtDisplaysAndCanBeExplicitlyDisabled() {
+        Engine e;
+        QCOMPARE(swmm_gw2d_option_set(e.handle,"GW_ET","AUTO"),SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(e.handle);
+        auto* et=dialog.findChild<QComboBox*>("gwDetailedEt");QVERIFY(et);
+        QCOMPARE(et->currentData().toString(),QString("AUTO"));
+        et->setCurrentIndex(et->findData("NONE"));
+        QVERIFY(QMetaObject::invokeMethod(&dialog,"onApply",Qt::DirectConnection));
+        char value[80]{};swmm_gw2d_option_get(e.handle,"GW_ET",value,sizeof value);
+        QCOMPARE(QString::fromUtf8(value),QString("NONE"));
+    }
+
     void lidBottomAndFootprintAreStagedAtomicAndShareTheNodeBedView() {
         Engine e;QCOMPARE(swmm_node_add(e.handle,"LID",SWMM_NODE_STORAGE),SWMM_OK);
         QCOMPARE(swmm_lid_add(e.handle,"Stack",8),SWMM_OK);

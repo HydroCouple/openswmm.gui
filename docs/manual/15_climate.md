@@ -205,16 +205,18 @@ Heat-specific sources, exchange modules and radiative parameters are edited
 in **Heat Configuration** (**Model → Heat Configuration…**, ribbon **Model ▸ Data
 Objects ▸ Heat**) and documented in \ref manual_water_quality. The shared snow/heat
 site, cloud and forcing sources are edited on Climatology's **Radiation** tab.
-**Edit shared snow and radiation forcing…** in Heat Configuration applies the
+**Apply and open shared snow and radiation forcing…** in Heat Configuration applies the
 heat settings and opens that shared editor. The summary here describes the
 heat-specific controls.
 
-The dialog's five tabs are **Sources**, **Fluxes**, **Radiative**, **Solar** and
-**Cloud**.
+The dialog has **Sources**, **Fluxes**, **Radiative**, **Solar**, **Cloud**,
+**Channel bed and ground**, and **Spatial properties** tabs.
 
-- **Fluxes** — three module check boxes: **Surface exchange (latent +
+- **Fluxes** — four module check boxes: **Surface exchange (latent +
   sensible)**, **Radiative exchange (shortwave + longwave)** and **LID layer
-  conduction**. Radiative exchange must be on for anything below to matter.
+  conduction**, plus **Channel sediment and hyporheic exchange**. Radiative
+  exchange must be enabled for radiation to change water temperature. Shared
+  radiation and cloud settings can also supply UEB snow independently.
 - **Radiative** (`[RADIATIVE_FLUXES]`) — an *Incoming shortwave* group with
   three mutually exclusive sources: **Constant** (a value in W/m²),
   **Timeseries** (a series picker) or **Computed (solar position + Bird clear
@@ -274,3 +276,25 @@ Two things to keep straight:
 - \ref manual_simulation_options — simulation dates and the reporting/routing steps the climate data is sampled on
 - \ref manual_file_formats — climate and rain file formats SWMMVis reads
 - \ref tutorial_transport — a model exercising heat transport end to end
+
+
+### Evaporation and groundwater ET on the mesh
+
+The five project evaporation methods supply the mesh only when its evaporation
+mode is **Project climate rate**. **Forced only** waits for explicit cell rates;
+its default does not automatically use climate evaporation. **Off** retains
+configuration but supplies no mesh evaporation demand. Monthly adjustments can
+change a zero base rate.
+
+Actual surface evaporation uses available water first. Mesh soil ET uses the
+remaining demand, subject to moisture stress and available storage. Capillary
+rise transfers water internally and is separate from boundary ET. Groundwater
+**Automatic** resolves to Both in mesh mode and None in per-subcatchment mode;
+it requires an active aquifer. Saved settings and effective activity are shown
+separately.
+
+The **dry periods only** checkbox applies to the lumped runoff/LID path; the
+direct mesh evaporation path does not currently apply that condition. Snow
+sublimation belongs to UEB, while latent heat exchange is a separate thermal
+calculation. Neither label promises a single coupled mass/energy evaporation
+model.

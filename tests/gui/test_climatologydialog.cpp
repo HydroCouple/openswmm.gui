@@ -41,6 +41,9 @@ class TestClimatologyDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    void unrelatedEditsPreserveClimatePrecision();
+    void closedEngineCannotBeAccepted();
+    void constantSourcesRetainUnusedMonthlyValues();
     void a11yInvariantsHold();
     void constructsWithNullEngine();
     void hydratesFromEngine();
@@ -51,6 +54,43 @@ private slots:
     void snowAndRadiationRoundTrip();
 };
 
+
+void TestClimatologyDialog::unrelatedEditsPreserveClimatePrecision()
+{
+    auto e=makeClimateEngine();const double exact=.12345678912345;
+    QCOMPARE(swmm_climate_set_ati_weight(e,exact),SWMM_OK);
+    double values[12];std::fill_n(values,12,1.2345678912345);
+    QCOMPARE(swmm_climate_set_evap_monthly(e,values,12),SWMM_OK);
+    ClimatologyDialog dialog(e);
+    dialog.findChild<QDoubleSpinBox*>("clim_latitude")->setValue(50.25);
+    dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    QVERIFY(dialog.wroteAnyChanges());
+    double value=0;swmm_climate_get_ati_weight(e,&value);QCOMPARE(value,exact);
+    double read[12];swmm_climate_get_evap_monthly(e,read,12);for(int i=0;i<12;++i)QCOMPARE(read[i],values[i]);
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::closedEngineCannotBeAccepted()
+{
+    auto e=makeClimateEngine();ClimatologyDialog dialog(e);
+    dialog.invalidateEngine();swmm_engine_destroy(e);
+    QVERIFY(QMetaObject::invokeMethod(&dialog,"onAccept",Qt::DirectConnection));
+    QCOMPARE(dialog.result(),int(QDialog::Rejected));QVERIFY(!dialog.wroteAnyChanges());
+}
+
+void TestClimatologyDialog::constantSourcesRetainUnusedMonthlyValues()
+{
+    auto e=makeClimateEngine();double evap[12],humidity[12];
+    for(int i=0;i<12;++i){evap[i]=i+.123456789123;humidity[i]=35+i;}
+    swmm_climate_set_evap_monthly(e,evap,12);swmm_climate_set_evap_type(e,0);
+    swmm_climate_set_humidity_monthly(e,humidity,12);swmm_climate_set_humidity_type(e,0);
+    ClimatologyDialog dialog(e);dialog.findChild<QDoubleSpinBox*>("clim_latitude")->setValue(51);
+    dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    QVERIFY(dialog.wroteAnyChanges());double values[12];
+    swmm_climate_get_evap_monthly(e,values,12);for(int i=0;i<12;++i)QCOMPARE(values[i],evap[i]);
+    swmm_climate_get_humidity_monthly(e,values,12);for(int i=0;i<12;++i)QCOMPARE(values[i],humidity[i]);
+    swmm_engine_destroy(e);
+}
 
 void TestClimatologyDialog::snowAndRadiationRoundTrip()
 {

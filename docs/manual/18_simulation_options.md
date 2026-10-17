@@ -320,8 +320,11 @@ it — it belongs to neither alone.
 
 \fig{18_quality_transport.png, The Quality & Transport page — the QUALITY_SOLVER header above four contextual tabs}
 
-The sidebar row itself greys out on a model with nothing to transport — no
-pollutants, no water age, no heat.
+The sidebar remains available on a new model so that water age and heat
+transport can be enabled. Individual solver tabs follow their prerequisites.
+The transport matrix previews pending choices as **Planned**. Saved child
+switches can remain On while their parent is Off; these display **Inactive**
+and retain their values for later use.
 
 **Solver** sits in a page header above the tab bar, for the same reason **Flow
 routing** does on *Routing & Hydraulics*: it gates two of the four tabs.
@@ -553,7 +556,13 @@ subsurface column under every mesh cell. The aquifer *parameters* are edited in
 | Control | Options | Writes |
 | --- | --- | --- |
 | **Subsurface** | Automatic (on when aquifer rows exist) / On / Off | `GROUNDWATER` |
-| **Evapotranspiration** | None / Capillary rise / Boundary ET / Both | `GW_ET` |
+| **Evapotranspiration** | Automatic / None / Capillary rise / Boundary ET / Both | `GW_ET` |
+
+**Automatic ET** resolves to Both in MESH mode and None in PER_SUBCATCH
+mode. Boundary ET uses project climate demand; wilting suction applies to
+that boundary process. The climate-editor link opens its demand sources.
+The dry-only evaporation switch applies to lumped runoff and LID surfaces;
+it does not gate mesh evaporation or groundwater ET.
 
 With **Subsurface** on, **Destination** above locks to the 2D aquifer:
 infiltrated water enters the column under the cell, which is the mutual

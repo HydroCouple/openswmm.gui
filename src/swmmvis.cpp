@@ -154,6 +154,8 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/climatologydialog.h"
 #include "ui/dialogs/heatconfigdialog.h"
+#include "ui/dialogs/heatrasterassigndialog.h"
+#include "ui/heatconfigurationundo.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/dialogs/initialqualitydialog.h"
 #include "ui/dialogs/reactionsystemeditordialog.h"
@@ -8446,7 +8448,7 @@ void SWMMVis::onSimulationOptions()
 
 void SWMMVis::onClimatology(int tab)
 {
-    auto *pw = activeProjectWindow();
+    QPointer<SWMMVisProjectWindow> pw(activeProjectWindow());
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
     {
         onLogMessage(tr("Open a SWMM project first to edit climatology."),
@@ -8458,8 +8460,10 @@ void SWMMVis::onClimatology(int tab)
     if (!pw->modelLayer()->modelFilePath().isEmpty())
         dlg.setProjectAnchor(
             QFileInfo(pw->modelLayer()->modelFilePath()).absolutePath());
+    connect(pw->modelLayer(),&SWMMModelLayer::engineAboutToClose,&dlg,&ClimatologyDialog::invalidateEngine);
+    connect(pw->modelLayer(),&QObject::destroyed,&dlg,&ClimatologyDialog::invalidateEngine);
     dlg.setCurrentTab(tab);
-    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+    if (dlg.exec() == QDialog::Accepted && pw && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
 
@@ -8522,8 +8526,12 @@ void SWMMVis::onEditHeatConfig(int tab)
         return;
     }
 
-    OpenSWMMVis::HeatConfigDialog dlg(pw->modelLayer()->engine(), this);
+    const auto engine=pw->modelLayer()->engine();
+    OpenSWMMVis::HeatSnapshot before(swmm_heat_snapshot_create(engine));
+    const auto beforeIdentity=OpenSWMMVis::HeatConfigDialog::configurationSignature(engine);
+    OpenSWMMVis::HeatConfigDialog dlg(engine, this);
     bool editRadiation=false;connect(&dlg,&OpenSWMMVis::HeatConfigDialog::radiationEditorRequested,&dlg,[&]{editRadiation=true;});
+    bool assignRaster=false;connect(&dlg,&OpenSWMMVis::HeatConfigDialog::rasterAssignmentRequested,&dlg,[&]{assignRaster=true;});
     if (tab >= 0) dlg.setCurrentTab(tab);
     connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
     connect(pw->modelLayer(), &QObject::destroyed, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
@@ -8531,9 +8539,23 @@ void SWMMVis::onEditHeatConfig(int tab)
     connect(&dlg, &OpenSWMMVis::HeatConfigDialog::changesApplied,
             pw, [pw] { if (pw) pw->setHasChanges(true); });
     dlg.exec();
-    if (pw && dlg.wroteAnyChanges())
+    if (pw && dlg.wroteAnyChanges()) {
         pw->setHasChanges(true);
+        if(before && pw->modelLayer() && pw->modelLayer()->engine()==engine && pw->canvas() && pw->canvas()->undoStack()) {
+            OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(engine));
+            if(after) {
+                QPointer<SWMMModelLayer> model(pw->modelLayer());
+                pw->canvas()->undoStack()->push(new OpenSWMMVis::HeatConfigurationUndo(model,engine,
+                    std::move(before),std::move(after),beforeIdentity,OpenSWMMVis::HeatConfigDialog::configurationSignature(engine),
+                    [model]{return model?model->engine():nullptr;},OpenSWMMVis::HeatConfigDialog::configurationSignature,
+                    [pw,model]{if(model){model->markEdited();emit model->optionsChanged({"HEAT_TRANSPORT","HEAT_FLUXES","HEAT_SOURCES"});}if(pw)pw->setHasChanges(true);},
+                    [this](const QString& error){onLogMessage(error,OpenSWMMVisLogMessage::Warning);}));
+            }
+        }
+    }
+    if(pw&&pw->modelLayer()&&pw->modelLayer()->engine()==engine&&dlg.wroteAnyChanges())emit pw->modelLayer()->optionsChanged({"HEAT_TRANSPORT","HEAT_FLUXES","HEAT_SOURCES"});
     if(pw && editRadiation)onClimatology(ClimatologyDialog::TabRadiation);
+    if(pw&&assignRaster&&pw->modelLayer()&&pw->modelLayer()->engine()==engine){OpenSWMMVis::HeatRasterAssignDialog assignment(pw->modelLayer(),pw->canvas(),this);assignment.exec();}
 }
 
 void SWMMVis::onEditReactionSystem()

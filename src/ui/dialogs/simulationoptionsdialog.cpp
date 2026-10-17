@@ -8,8 +8,13 @@
 
 #include "ui/uiscrollhelpers.h"
 #include "ui/dialogs/climatologydialog.h"
+#include "ui/dialogs/heatconfigdialog.h"
+#include "ui/dialogs/heatrasterassigndialog.h"
+#include "ui/heatconfigurationundo.h"
+#include "map/mapcanvas.h"
 #ifdef OPENSWMM_HAS_2D
 #include "ui/dialogs/meshsnowdialog.h"
+#include "ui/dialogs/groundwaterassigndialog.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #endif
@@ -177,6 +182,36 @@ void SimulationOptionsDialog::buildUi()
                     m_categoryList->setCurrentRow(m_hydraulicsRow);
             });
     m_qualityPage = new openswmmvis::ui::QualityPage(*m_ctx, this);
+    connect(m_qualityPage,&openswmmvis::ui::QualityPage::showHeatSettingsRequested,this,[this] {
+        if(!m_engine)return;
+        OpenSWMMVis::HeatSnapshot before(swmm_heat_snapshot_create(m_engine));
+        const auto beforeIdentity=OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine);
+        OpenSWMMVis::HeatConfigDialog dialog(m_engine,this);
+        dialog.setTransportRequested(m_qualityPage->heatEnabled());
+        bool assignRaster=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::rasterAssignmentRequested,&dialog,[&]{assignRaster=true;});
+        bool editRadiation=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::radiationEditorRequested,&dialog,[&]{editRadiation=true;});
+        if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);}
+        dialog.exec();
+        if(!m_engine)return;
+        if(dialog.wroteAnyChanges()){
+        m_wroteChanges=true;if(m_layer)m_layer->markEdited();
+        int enabled=0;swmm_heat_get_enabled(m_engine,&enabled);m_qualityPage->setHeatEnabled(enabled);
+        if(before&&m_projectWindow&&m_projectWindow->canvas()&&m_projectWindow->canvas()->undoStack()) {
+            OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(m_engine));
+            if(after){QPointer<SWMMModelLayer> model(m_layer);
+                m_projectWindow->canvas()->undoStack()->push(new OpenSWMMVis::HeatConfigurationUndo(model,m_engine,
+                    std::move(before),std::move(after),beforeIdentity,OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine),
+                    [model]{return model?model->engine():nullptr;},OpenSWMMVis::HeatConfigDialog::configurationSignature,
+                    [model]{if(model){model->markEdited();emit model->optionsChanged({"HEAT_TRANSPORT","HEAT_FLUXES","HEAT_SOURCES"});}},[](const QString& error){QMessageBox::warning(nullptr,QObject::tr("Heat configuration"),error);}));}
+        }
+        }
+        if(assignRaster&&m_layer&&m_projectWindow){OpenSWMMVis::HeatRasterAssignDialog assignment(m_layer,m_projectWindow->canvas(),this);assignment.exec();}
+        if(editRadiation&&m_engine){ClimatologyDialog climate(m_engine,m_layer,this);climate.setCurrentTab(ClimatologyDialog::TabRadiation);
+            if(m_layer){climate.setProjectAnchor(QFileInfo(m_layer->modelFilePath()).absolutePath());connect(m_layer,&SWMMModelLayer::engineAboutToClose,&climate,&ClimatologyDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&climate,&ClimatologyDialog::invalidateEngine);}
+            climate.exec();if(climate.wroteAnyChanges()){m_wroteChanges=true;if(m_layer)m_layer->markEdited();m_modelsPage->refreshSnowSummary();}}
+
+        refreshGates();
+    });
     addPage(m_qualityPage);
     m_qualityRow = m_categoryList->count() - 1;
     {
@@ -239,6 +274,29 @@ void SimulationOptionsDialog::buildUi()
         dialog.exec();
         m_modelsPage->refreshSnowSummary();
     });
+    connect(m_twoDPage,&openswmmvis::ui::TwoDPage::showEvaporationSettingsRequested,this,[this] {
+        if(!m_engine)return;
+        ClimatologyDialog dialog(m_engine,m_layer,this);
+        if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&dialog,&ClimatologyDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&dialog,&ClimatologyDialog::invalidateEngine);}
+        dialog.setCurrentTab(ClimatologyDialog::TabEvaporation);
+        if(m_layer)dialog.setProjectAnchor(QFileInfo(m_layer->modelFilePath()).absolutePath());
+        if(dialog.exec()==QDialog::Accepted && dialog.wroteAnyChanges()) {
+            m_wroteChanges=true;if(m_layer)m_layer->markEdited();m_twoDPage->refreshGates();
+        }
+    });
+    connect(m_twoDPage,&openswmmvis::ui::TwoDPage::showGroundwaterAssignmentsRequested,this,[this] {
+        if(!m_projectWindow||!m_layer||!m_engine)return;
+        auto* canvas=m_projectWindow->canvas();QList<SWMM2DMeshLayer*> meshes;QStringList names;
+        for(auto* layer:canvas->layers())if(auto* mesh=qobject_cast<SWMM2DMeshLayer*>(layer)) {
+            meshes.append(mesh);names.append(tr("%1 — %2").arg(meshes.size()).arg(mesh->sourcePath()));
+        }
+        if(meshes.isEmpty()){QMessageBox::information(this,tr("Groundwater"),tr("Add a mesh before assigning groundwater."));return;}
+        int index=0;
+        if(meshes.size()>1){bool ok=false;const auto name=QInputDialog::getItem(this,tr("Groundwater"),tr("Mesh:"),names,0,false,&ok);if(!ok)return;index=names.indexOf(name);}
+        openswmmvis::ui::GroundwaterAssignDialog dialog(m_layer,meshes[index],canvas,m_projectWindow->selectionManager(),m_projectWindow->unitSystem(),this);
+        connect(&dialog,&openswmmvis::ui::GroundwaterAssignDialog::applied,this,[this]{m_wroteChanges=true;m_twoDPage->refreshGates();m_modelsPage->refreshTransportMatrix();});
+        dialog.exec();
+    });
     // Two of the 2D page's steps mirror the project schedule, and its
     // output-size estimate multiplies by the run length — read through the
     // owning page's accessors, never its widgets (PLAN §4.1).
@@ -256,6 +314,15 @@ void SimulationOptionsDialog::buildUi()
         [this](int c, bool on) { m_twoDPage->setTransport2DEnabled(c, on); });
     connect(m_twoDPage, &openswmmvis::ui::TwoDPage::transportSelectionChanged,
             m_modelsPage, &openswmmvis::ui::ModelsPage::refreshTransportMatrix);
+    m_modelsPage->setDraftHook([this] {
+        SWMM_TransportDraft draft{};
+        draft.heat=m_qualityPage->heatEnabled(); draft.age=m_qualityPage->ageEnabled();
+        for(int c=0;c<4;++c)draft.surface_class[c]=m_twoDPage->transport2DEnabled(c);
+        draft.groundwater=m_twoDPage->groundwaterRequested();
+        return draft;
+    });
+    connect(m_qualityPage,&openswmmvis::ui::SimOptionsPage::gateInputsChanged,
+        m_modelsPage,&openswmmvis::ui::ModelsPage::refreshTransportMatrix);
     // Its Initial Quality editor writes straight to the engine, so the page
     // reports the dirty edit itself rather than through the write pass.
     connect(m_twoDPage, &openswmmvis::ui::TwoDPage::engineEditedDirectly,
@@ -338,6 +405,7 @@ void SimulationOptionsDialog::refreshGates()
     // the combo (PLAN §2.1) — one key, one editor.
     if (m_modelsPage && m_hydraulicsPage)
         m_modelsPage->setFlowRoutingText(m_hydraulicsPage->flowRouting());
+    if(m_modelsPage)m_modelsPage->refreshTransportMatrix();
     for (const PageGate &g : m_gates) {
         if (!g.enabled) continue;
         const bool on = g.enabled();
@@ -386,12 +454,9 @@ void SimulationOptionsDialog::buildGateTable()
             [this] { return m_modelsPage && m_modelsPage->module2DEnabled(); },
             tr("Enable the 2D module on Models / Processes \u203A Modules"));
 #endif
-    // New in T3: IGNORE_QUALITY gated nothing before, so a model with no
-    // constituents still offered a full Quality page.
-    rowGate(m_qualityRow, [this] {
-        if (m_engine && swmm_pollutant_count(m_engine) > 0) return true;
-        return m_qualityPage && m_qualityPage->tracksReservedSpecies();
-    }, tr("No pollutants, water age, heat, or reactions in this model"));
+    // Activation lives on this page: it must remain reachable even when
+    // the project has no pollutants or reserved species yet.
+    rowGate(m_qualityRow, [] { return true; }, QString());
 
     // ---- Routing & Hydraulics tabs (PLAN §4.3) ----
     if (m_hydraulicsPage && m_hydraulicsPage->tabs()) {

@@ -1352,6 +1352,8 @@ set(
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         src/ui/dialogs/climatologydialog.cpp
         src/ui/dialogs/heatconfigdialog.cpp
+        src/ui/dialogs/heatrasterassigndialog.cpp
+        src/assignment/heatassignment.cpp
         src/ui/dialogs/wateragesourcesdialog.cpp
         src/ui/dialogs/initialqualitydialog.cpp
         src/ui/dialogs/reactionsystemeditordialog.cpp

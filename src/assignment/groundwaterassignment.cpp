@@ -218,7 +218,7 @@ QString groundwaterEtForcingStatus(SWMM_Engine e,const QString& meshMode){
  if(mode!="CLIMATE")return "Mesh evaporation is Forced only: prescribe mesh evaporation rates to generate atmospheric demand.";
  int type=0;if(swmm_climate_get_evap_type(e,&type)!=SWMM_OK)return "Climate evaporation configuration is unavailable.";
  if(type==SWMM_EVAP_CONSTANT||type==SWMM_EVAP_MONTHLY){double rates[12]{};if(swmm_climate_get_evap_monthly(e,rates,12)!=SWMM_OK)return "Climate evaporation rates are unavailable.";
-  const double maximum=*std::max_element(rates,rates+12);return maximum>0?QString("Project climate evaporation is configured (maximum authored rate %1 in project evaporation units).").arg(maximum,0,'g',12):QString("No positive climate evaporation is authored: demand is zero unless mesh rates are prescribed.");}
+  const double maximum=*std::max_element(rates,rates+12);return maximum>0?QString("Project climate evaporation is configured (maximum authored rate %1 in project evaporation units).").arg(maximum,0,'g',12):QString("Base climate evaporation has no positive values. Monthly adjustments and prescribed mesh rates may still create demand; check the simulation period.");}
  if(type==SWMM_EVAP_TIMESERIES){char series[4096]{};swmm_climate_get_evap_timeseries(e,series,sizeof series);return *series?QString("Climate evaporation uses time series %1; verify its coverage and rates.").arg(QString::fromUtf8(series)):QString("No climate evaporation time series is assigned.");}
  return type==SWMM_EVAP_TEMPERATURE?QString("Climate evaporation derives from temperature; verify temperature forcing coverage."):QString("Climate evaporation uses a climate file; verify file coverage and rates.");
 }
