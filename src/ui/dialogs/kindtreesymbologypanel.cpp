@@ -17,7 +17,10 @@
 #include "render/sublayers/feature/featuresublayerstyle.h"   // L-1
 #include "ui/dialogs/irendererpanel.h"
 #include "ui/dialogs/istyleeditorwidget.h"     // StyleEditorRegistry
+#include "ui/dialogs/editors/flowarroweditor.h"
+#include "ui/dialogs/editors/sizechanneleditor.h"
 #include "ui/dialogs/symbologytab.h"
+#include "ui/uiscrollhelpers.h"
 #include "ui/widgets/labelconfigeditor.h"
 
 #include <QFrame>
@@ -31,8 +34,11 @@
 #include <QStackedWidget>
 #include <QStandardItem>
 #include <QStandardItemModel>
+#include <QTabWidget>
 #include <QTreeView>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace openswmmvis::ui {
 
@@ -403,7 +409,7 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
 
     auto *tab = new SymbologyTab(ctx, m_stack);
 
-    // L-1 — for results layers, add a per-sublayer Labels editor below the
+    // L-1 — for results layers, add a per-sublayer Labels editor beside the
     // renderer editor so each kind can be labelled independently with its own
     // expression. 1D model layers don't carry the per-feature result values
     // an expression references, so labels there stay on the layer Labels tab.
@@ -413,13 +419,54 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
             fstyle = sub->featureStyle();
 
     if (fstyle) {
-        auto *container = new QWidget(m_stack);
-        auto *vlay = new QVBoxLayout(container);
-        vlay->setContentsMargins(0, 0, 0, 0);
-        vlay->addWidget(tab, 1);
-        vlay->addWidget(makeSublayerLabelBox(fstyle, m_layer.data(), cat, container));
-        m_stack->addWidget(container);
-        m_stack->setCurrentWidget(container);
+        // Results kinds — one tab per concern so the page stops being one
+        // long scroll. A tab exists only when it has content for the kind
+        // (subcatchments: Color + Labels; junctions: Color + Size + Labels).
+        auto *tabs = new QTabWidget(m_stack);
+        tabs->setObjectName(QStringLiteral("kindStyleTabs"));
+        tabs->setDocumentMode(true);
+        tabs->addTab(tab, tr("Color"));   // SymbologyTab scrolls its own panel
+
+        auto topAligned = [tabs](QWidget *content) {
+            auto *page = new QWidget(tabs);
+            auto *lay = new QVBoxLayout(page);
+            content->setParent(page);
+            lay->addWidget(content);
+            lay->addStretch();
+            return OpenSWMM::Ui::wrapInScrollArea(page, tabs);
+        };
+
+        QVector<OpenSWMM::Render::AttributeField> fields;
+        if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(m_layer.data()))
+            fields = prov->availableAttributes(cat);
+        const bool sizeable =
+            (qobject_cast<OpenSWMM::Render::PointFeatureSublayerStyle *>(fstyle)
+             || qobject_cast<OpenSWMM::Render::LineFeatureSublayerStyle *>(fstyle))
+            && std::any_of(fields.cbegin(), fields.cend(), [](const auto &f) {
+                   return f.isDynamic && f.type != QMetaType::QString;
+               });
+        if (sizeable)
+            tabs->addTab(topAligned(new SizeChannelEditor(fstyle, fields)), tr("Size"));
+
+        auto *arrows = new FlowArrowEditor(m_layer.data(), cat);
+        if (arrows->hasChannel())
+            tabs->addTab(topAligned(arrows), tr("Arrows"));
+        else
+            delete arrows;
+
+        tabs->addTab(topAligned(makeSublayerLabelBox(fstyle, m_layer.data(), cat, nullptr)),
+                     tr("Labels"));
+
+        // Keep the user on the same tab when flipping between kinds.
+        for (int i = 0; i < tabs->count(); ++i)
+            if (tabs->tabText(i) == m_lastKindTab)
+                tabs->setCurrentIndex(i);
+        connect(tabs, &QTabWidget::currentChanged, this, [this, tabs](int i) {
+            m_lastKindTab = tabs->tabText(i);
+        });
+
+        m_stack->addWidget(tabs);
+        m_stack->setCurrentWidget(tabs);
     } else {
         m_stack->addWidget(tab);
         m_stack->setCurrentWidget(tab);

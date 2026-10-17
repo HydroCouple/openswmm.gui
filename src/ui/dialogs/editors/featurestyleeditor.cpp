@@ -12,6 +12,7 @@
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/sublayers/feature/featuresublayerstyle.h"
 #include "ui/dialogs/editors/kindrendererpanel.h"
+#include "ui/dialogs/editors/sizechanneleditor.h"
 #include "ui/widgets/colorbutton.h"
 #include "ui/widgets/labelconfigeditor.h"
 #include "ui/widgets/dashstylecombo.h"
@@ -154,6 +155,14 @@ void FeatureStyleEditorBase::addPreviewRow()
     if (auto *sub = qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())) {
         auto *host = qobject_cast<OpenSWMMVisLayer *>(sub->parent());
         if (host) {
+            // Size channel — marker area / line width by result value; the
+            // panel below no longer carries size rows on results layers.
+            if (sub->archetype() != OpenSWMM::Render::FeatureSublayer::Archetype::Polygon) {
+                QVector<OpenSWMM::Render::AttributeField> fields;
+                if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host))
+                    fields = prov->availableAttributes(sub->category());
+                layout()->addWidget(new SizeChannelEditor(m_style, fields, this));
+            }
             auto *panel = new KindRendererPanel(host, sub->category(), this);
             layout()->addWidget(panel);
         }

@@ -114,6 +114,17 @@ makeDefaultKindRenderer(SWMMModelLayer::Category c);
 // Scene-space Y-flip — matches SWMMLayerItem convention.
 inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
 
+// The kind's size channel — marker size for point kinds, stroke width for
+// line kinds; null for polygons (and empty slots).
+const OpenSWMM::Render::SizeChannel *
+sublayerSizeChannel(const OpenSWMM::Render::FeatureSublayer *sub)
+{
+    if (!sub) return nullptr;
+    if (auto *ps = sub->pointStyle()) return &ps->sizeChannel();
+    if (auto *ls = sub->lineStyle())  return &ls->widthChannel();
+    return nullptr;
+}
+
 // Map SWMMResultVariable to the SWMM_OutNodeVar / LinkVar / SubcatchVar enum.
 int nodeVar(SWMMResultVariable v)
 {
@@ -491,6 +502,20 @@ OpenSWMM::Render::FeatureSublayer *SWMMResultsLayer::featureSublayer(
     const int idx = static_cast<int>(c);
     if (idx < 0 || idx >= SWMMModelLayer::NumCategories) return nullptr;
     return m_featureSublayers[idx];
+}
+
+double SWMMResultsLayer::featureSizeOverride(SWMMModelLayer::Category c, int row) const
+{
+    const int idx = static_cast<int>(c);
+    if (idx < 0 || idx >= SWMMModelLayer::NumCategories) return -1.0;
+    return m_kindFeatureSizes[idx].value(row, -1.0);
+}
+
+double SWMMResultsLayer::featureWidthOverride(SWMMModelLayer::Category c, int row) const
+{
+    const int idx = static_cast<int>(c);
+    if (idx < 0 || idx >= SWMMModelLayer::NumCategories) return -1.0;
+    return m_kindFeatureWidths[idx].value(row, -1.0);
 }
 
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
@@ -1567,6 +1592,17 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         }
     }
 
+    // Size channel — the sublayer style's own result variable for marker
+    // size / stroke width, independent of the kind renderer.
+    for (auto *sub : m_featureSublayers) {
+        const OpenSWMM::Render::SizeChannel *ch = sublayerSizeChannel(sub);
+        if (!ch || !ch->enabled || ch->attribute.isEmpty()) continue;
+        if (sub->archetype() == FeatureSublayer::Archetype::Point)
+            collect(neededNodeVars, warnMiss(nodeOutCodeForAttribute(ch->attribute, species), ch->attribute));
+        else
+            collect(neededLinkVars, warnMiss(linkOutCodeForAttribute(ch->attribute, species), ch->attribute));
+    }
+
     // Drop cache entries for vars no longer needed (sublayer toggled off /
     // attribute changed) so memory tracks visible-sublayer set. QHash
     // iterators don't support arithmetic, so explicit if/else around
@@ -2328,6 +2364,8 @@ void SWMMResultsLayer::setKindRenderer(
         m_kindRenderers.resize(SWMMModelLayer::NumCategories);
     if (m_kindRenderers[i].get() == r.get())
         return;
+    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r.get()))
+        migrateGraduatedOutputAxes(c, *g);
     m_kindRenderers[i] = std::move(r);
     // Slice OUT.2 — installing a new kind renderer invalidates the
     // override cache for that kind; rebuild immediately so the next
@@ -2792,6 +2830,24 @@ void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
         g->clearBreaks();
         rebuildKindFeatureOverrides(c);
         any = true;
+    }
+
+    // Size channels sized from this frame while the run scan was pending.
+    if (scope == 0 || scope == 1) {
+        for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+            const auto c = static_cast<SWMMModelLayer::Category>(i);
+            if (scope == 0 ? !catIsNodeScope(c) : !catIsLinkScope(c))
+                continue;
+            const SizeChannel *ch = sublayerSizeChannel(featureSublayer(c));
+            if (!ch || !ch->enabled || ch->rangeMode != RangeMode::FixedOverRun)
+                continue;
+            const int chCode = scope == 0 ? nodeOutCodeForAttribute(ch->attribute, species)
+                                          : linkOutCodeForAttribute(ch->attribute, species);
+            if (chCode != outCode)
+                continue;
+            rebuildKindFeatureOverrides(c);
+            any = true;
+        }
     }
     if (any)
         escalateSceneDirty(SceneDirty::Values);
@@ -3303,7 +3359,120 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
         }
     }
 
+    applySizeChannel(c);
     m_kindUsesOverrides[idx] = true;
+}
+
+void SWMMResultsLayer::migrateGraduatedOutputAxes(SWMMModelLayer::Category c,
+                                                  OpenSWMM::Render::GraduatedRenderer &g)
+{
+    // On results layers the sublayer style's size channel replaces the
+    // Graduated "Size / Width by value" axes. Every install path (style file,
+    // dialog snapshot, .oswp) reaches here, so a style authored with the axes
+    // carries them over once — unless the kind already has a channel — and
+    // the renderer's axes are switched off so only one mechanism sizes.
+    if (!g.outputSizeEnabled() && !g.outputWidthEnabled())
+        return;
+    using OpenSWMM::Render::SizeChannel;
+    auto seed = [&g](SizeChannel ch, double minPx, double maxPx) {
+        ch.enabled   = true;
+        ch.attribute = g.effectiveSizeAttribute();
+        ch.transform = SizeChannel::Transform::Linear;
+        // The axes mapped the full run's extremes (sizeValueMin/Max are
+        // sampled from the run, not entered by the user) onto min..max px.
+        ch.rangeMode = OpenSWMM::Render::RangeMode::FixedOverRun;
+        ch.zeroBased = false;
+        ch.minPx = minPx;
+        ch.maxPx = maxPx;
+        return ch;
+    };
+    auto *sub = featureSublayer(c);
+    if (auto *ps = sub ? sub->pointStyle() : nullptr) {
+        if (g.outputSizeEnabled() && !ps->sizeChannel().enabled) {
+            ps->setSizeChannel(seed(ps->sizeChannel(), g.outputSizeMin(), g.outputSizeMax()));
+            qCDebug(lcLoadResults) << "migrated Graduated size axis to size channel for"
+                                   << SWMMModelLayer::kindKey(c);
+        }
+    } else if (auto *ls = sub ? sub->lineStyle() : nullptr) {
+        if (!ls->widthChannel().enabled) {
+            const bool w = g.outputWidthEnabled();
+            ls->setWidthChannel(seed(ls->widthChannel(),
+                                     w ? g.outputWidthMin() : g.outputSizeMin(),
+                                     w ? g.outputWidthMax() : g.outputSizeMax()));
+            qCDebug(lcLoadResults) << "migrated Graduated width axis to width channel for"
+                                   << SWMMModelLayer::kindKey(c);
+        }
+    }
+    g.setOutputSizeEnabled(false);
+    g.setOutputWidthEnabled(false);
+}
+
+void SWMMResultsLayer::applySizeChannel(SWMMModelLayer::Category c)
+{
+    // Size channel — the sublayer style drives marker size / stroke width
+    // from its own result variable, whatever renderer coloured the kind.
+    // Runs after the renderer pass, so it takes precedence over any size
+    // the renderer wrote.
+    const int idx = static_cast<int>(c);
+    const OpenSWMM::Render::SizeChannel *ch = sublayerSizeChannel(featureSublayer(c));
+    if (!ch || !ch->enabled || ch->attribute.isEmpty())
+        return;
+
+    const bool point = catIsNodeScope(c);
+    const QStringList species = speciesNames();
+    const int outCode = point ? nodeOutCodeForAttribute(ch->attribute, species)
+                              : linkOutCodeForAttribute(ch->attribute, species);
+    const auto &byVar = point ? m_nodeResultsByVar : m_linkResultsByVar;
+    const auto vit = byVar.constFind(outCode);
+    if (outCode < 0 || vit == byVar.constEnd())
+        return;
+    const QVector<float> &values = vit.value();
+    const QHash<QString, int> &outIdx = point ? m_nodeOutputIdx : m_linkOutputIdx;
+
+    double lo = std::numeric_limits<double>::infinity();
+    double hi = -lo;
+    using OpenSWMM::Render::RangeMode;
+    if (ch->rangeMode == RangeMode::FixedUser) {
+        lo = ch->userMin; hi = ch->userMax;
+    } else {
+        bool haveRun = false;
+        if (ch->rangeMode == RangeMode::FixedOverRun) {
+            const auto &cache = point ? m_nodeAttributeRange : m_linkAttributeRange;
+            const auto it = cache.constFind(outCode);
+            if (it != cache.constEnd()) {
+                lo = it.value().first; hi = it.value().second; haveRun = true;
+            } else if (point) {
+                ensureNodeAttributeRange(outCode);   // completion rebuilds
+            } else {
+                ensureLinkAttributeRange(outCode);
+            }
+        }
+        // Each frame — or the whole run while its scan is still pending.
+        if (!haveRun) {
+            for (const float fv : values) {
+                const double dv = static_cast<double>(fv);
+                if (!std::isfinite(dv)) continue;
+                lo = std::min(lo, dv); hi = std::max(hi, dv);
+            }
+        }
+    }
+    if (!(hi >= lo))
+        return;
+
+    QVector<double> &sizes = point ? m_kindFeatureSizes[idx] : m_kindFeatureWidths[idx];
+    const int count = m_modelLayer->categoryCount(c);
+    sizes.resize(count);
+    for (int row = 0; row < count; ++row) {
+        double px = -1.0;
+        const auto it = outIdx.constFind(m_modelLayer->objectNameAt(c, row));
+        if (it != outIdx.constEnd() && it.value() >= 0 && it.value() < values.size()) {
+            const double v = ch->pixels(static_cast<double>(values.at(it.value())), lo, hi);
+            // Paint reads <= 0 as "no override"; a 0 px minimum still overrides
+            // (the painters clamp to their own floor).
+            if (std::isfinite(v)) px = std::max(v, 1e-3);
+        }
+        sizes[row] = px;
+    }
 }
 
 void SWMMResultsLayer::rebuildAllActiveKindFeatureOverrides()

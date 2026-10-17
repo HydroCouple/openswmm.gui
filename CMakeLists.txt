@@ -218,6 +218,7 @@ set(
         include/render/classificationcolorsampler.h
         # P2 — static/dynamic source + range-mode spine (header-only enums).
         include/render/attributesource.h
+        include/render/sizechannel.h
         include/render/labelconfig.h
         # Slice US.B3 — shared label painter (UNIFIED_STYLING plan B3).
         include/render/labelpainter.h
@@ -962,6 +963,8 @@ set(
         include/ui/dialogs/editors/swmmelementsymboleditor.h
         include/ui/dialogs/editors/gisvectorsymboleditor.h
         include/ui/dialogs/editors/kindrendererpanel.h
+        include/ui/dialogs/editors/flowarroweditor.h
+        include/ui/dialogs/editors/sizechanneleditor.h
         # Slice US.1 — classification bindings (UNIFIED_STYLING plan S1).
         include/ui/dialogs/editors/classificationbindings.h
         include/ui/dialogs/editors/markershapeeditor.h
@@ -1684,6 +1687,8 @@ set(
         src/ui/dialogs/editors/swmmelementsymboleditor.cpp
         src/ui/dialogs/editors/gisvectorsymboleditor.cpp
         src/ui/dialogs/editors/kindrendererpanel.cpp
+        src/ui/dialogs/editors/flowarroweditor.cpp
+        src/ui/dialogs/editors/sizechanneleditor.cpp
         # Slice US.1 — classification bindings impl (UNIFIED_STYLING plan S1).
         src/ui/dialogs/editors/classificationbindings.cpp
         src/ui/widgets/sunpositionthumb.cpp

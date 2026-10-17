@@ -21,7 +21,7 @@
 // Slice US.1 — shared classification editor + binding.
 #include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/widgets/classificationeditor.h"
-#include "ui/widgets/colorbutton.h"
+#include "ui/dialogs/editors/flowarroweditor.h"
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/sublayers/feature/featuresublayerstyle.h"
 
@@ -102,7 +102,7 @@ KindRendererPanel::KindRendererPanel(OpenSWMM::Render::Rule *rule, QWidget *pare
 // m_modelLayer / m_resultsLayer / m_category are all resolved, then installs
 // the Rule — which takes priority in currentRenderer(), installRenderer() and
 // resetToDefaults(), so the renderer path behaves exactly as the rule-only
-// ctor did. The layer context is what lets syncArrowsFromHost() find the
+// ctor did. The layer context is what lets the flow-arrow group find the
 // per-kind flow-arrow channel (see the header note).
 KindRendererPanel::KindRendererPanel(OpenSWMM::Render::Rule *rule,
                                       OpenSWMMVisLayer *hostLayer,
@@ -238,40 +238,12 @@ void KindRendererPanel::buildUi()
     // ── Flow-direction arrows (link kinds) ─────────────────────────────
     // Outside m_graduatedBox on purpose: arrows belong to the kind, so they
     // stay put across every renderer mode rather than disappearing with the
-    // classification block.
-    m_arrowBox = new QGroupBox(tr("Flow direction arrows"), this);
-    {
-        auto *aForm = new QFormLayout(m_arrowBox);
-        m_arrowShowChk = new QCheckBox(tr("Show flow arrows"), m_arrowBox);
-        aForm->addRow(QString(), m_arrowShowChk);
-        m_arrowSizeSpin = new QDoubleSpinBox(m_arrowBox);
-        m_arrowSizeSpin->setRange(2.0, 60.0);
-        m_arrowSizeSpin->setDecimals(1);
-        m_arrowSizeSpin->setSingleStep(0.5);
-        m_arrowSizeSpin->setSuffix(tr(" px"));
-        aForm->addRow(tr("&Length:"), m_arrowSizeSpin);
-        m_arrowWidSpin = new QDoubleSpinBox(m_arrowBox);
-        m_arrowWidSpin->setRange(2.0, 60.0);
-        m_arrowWidSpin->setDecimals(1);
-        m_arrowWidSpin->setSingleStep(0.5);
-        m_arrowWidSpin->setSuffix(tr(" px"));
-        m_arrowWidSpin->setToolTip(tr("Arrowhead width across the link — "
-                                      "independent of its length."));
-        aForm->addRow(tr("&Width:"), m_arrowWidSpin);
-        m_arrowColorBtn = new ColorButton(m_arrowBox);
-        aForm->addRow(tr("Colou&r:"), m_arrowColorBtn);
-    }
-    m_arrowBox->setVisible(false);          // shown by syncArrowsFromHost()
+    // classification block. Results layers mount them on the kind page's
+    // Arrows tab instead, so the group gets no host (and hides) there.
+    m_arrowBox = new FlowArrowEditor(
+        qobject_cast<SWMMResultsLayer *>(attributeProviderHost()) ? nullptr : m_hostLayer,
+        m_category, this);
     vlay->addWidget(m_arrowBox);
-
-    connect(m_arrowShowChk, &QCheckBox::toggled,
-            this, &KindRendererPanel::onArrowsChanged);
-    connect(m_arrowSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double) { onArrowsChanged(); });
-    connect(m_arrowWidSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double) { onArrowsChanged(); });
-    connect(m_arrowColorBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &) { onArrowsChanged(); });
 
     connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &KindRendererPanel::onModeChanged);
@@ -382,9 +354,12 @@ void KindRendererPanel::refreshFromModel()
     {
         using OpenSWMM::Render::FeatureSublayer;
         const auto archetype = FeatureSublayer::archetypeFor(m_category);
+        // Results layers size through the sublayer style's size channel
+        // (the kind page's Size tab) instead of these renderer axes.
         const bool axisApplies =
             modeRow == kModeGraduated
-            && archetype != FeatureSublayer::Archetype::Polygon;
+            && archetype != FeatureSublayer::Archetype::Polygon
+            && !qobject_cast<SWMMResultsLayer *>(layerForProvider);
         m_axisRow->setVisible(axisApplies);
         if (axisApplies) {
             m_axisCheck->setText(archetype == FeatureSublayer::Archetype::Point
@@ -439,7 +414,7 @@ void KindRendererPanel::refreshFromModel()
 
     // Arrows live on the kind, not the renderer, so they re-seed here too —
     // this is also the path the dialog calls after a Cancel rollback.
-    syncArrowsFromHost();
+    m_arrowBox->refreshFromModel();
 
     emit outputAxisToggled(sizeByValueEnabled());   // feedback C2
 
@@ -448,106 +423,6 @@ void KindRendererPanel::refreshFromModel()
     // already equals the shown one, so a re-entrant refresh stops here.
     if (storeShownAttribute)
         onAttributeChanged(0);
-}
-
-namespace {
-
-/*! The link kinds that carry a flow direction at all. Nodes and
- *  subcatchments have no upstream/downstream, so the group stays hidden. */
-bool isLinkKind(OpenSWMMVis::SwmmCategory c)
-{
-    using namespace OpenSWMMVis;
-    return c == CatConduits || c == CatPumps || c == CatOrifices
-        || c == CatWeirs    || c == CatOutlets;
-}
-
-} // namespace
-
-void KindRendererPanel::syncArrowsFromHost()
-{
-    if (!m_arrowBox) return;
-
-    // Two independent channels carry "flow arrows", and which one applies is
-    // decided by the host, not by this panel:
-    //   - model layers  → SWMMElementSymbol::showArrows/arrowSize/arrowColor,
-    //                     reached through the layer's PERSISTENT per-kind
-    //                     adapter so edits land on the same object the
-    //                     single-symbol editor and Cancel rollback use;
-    //   - results layers → LineFeatureSublayerStyle::showFlowArrows /
-    //                     arrowLengthPx / arrowColor.
-    // Anything else (rule-only mode, GIS vector) has no channel: hide.
-    if (!isLinkKind(m_category)) { m_arrowBox->setVisible(false); return; }
-
-    bool   show = false;
-    double size = 10.0;
-    double width = 12.0;
-    QColor color(34, 34, 34);
-    bool   have = false;
-
-    if (m_modelLayer) {
-        show  = m_modelLayer->linkArrowsEnabled(m_category);
-        size  = m_modelLayer->linkArrowSize(m_category);
-        width = m_modelLayer->linkArrowWidth(m_category);
-        color = m_modelLayer->linkArrowColor(m_category);
-        have  = true;
-    } else if (m_resultsLayer) {
-        if (auto *sub = m_resultsLayer->featureSublayer(m_category)) {
-            if (auto *ls = qobject_cast<OpenSWMM::Render::LineFeatureSublayerStyle *>(
-                    sub->featureStyle())) {
-                show  = ls->showFlowArrows();
-                size  = ls->arrowLengthPx();
-                width = ls->arrowWidthPx();
-                color = ls->arrowColor();
-                have  = true;
-            }
-        }
-    }
-
-    m_arrowBox->setVisible(have);
-    if (!have) return;
-
-    QSignalBlocker b1(m_arrowShowChk), b2(m_arrowSizeSpin), b3(m_arrowColorBtn),
-                   b4(m_arrowWidSpin);
-    m_arrowShowChk->setChecked(show);
-    m_arrowSizeSpin->setValue(size);
-    m_arrowWidSpin->setValue(width);
-    m_arrowColorBtn->setColor(color);
-    m_arrowSizeSpin->setEnabled(show);
-    m_arrowWidSpin->setEnabled(show);
-    m_arrowColorBtn->setEnabled(show);
-}
-
-void KindRendererPanel::onArrowsChanged()
-{
-    if (m_suppressEdits) return;
-
-    const bool   show  = m_arrowShowChk->isChecked();
-    const double size  = m_arrowSizeSpin->value();
-    const double width = m_arrowWidSpin->value();
-    const QColor color = m_arrowColorBtn->color();
-    m_arrowSizeSpin->setEnabled(show);
-    m_arrowWidSpin->setEnabled(show);
-    m_arrowColorBtn->setEnabled(show);
-
-    if (m_modelLayer) {
-        // The per-kind setters resync the persistent symbol adapter and emit
-        // repaintRequested, so the single-symbol editor and Cancel rollback
-        // see the same edit this panel just made.
-        m_modelLayer->setLinkArrowsEnabled(m_category, show);
-        m_modelLayer->setLinkArrowSize(m_category, size);
-        m_modelLayer->setLinkArrowWidth(m_category, width);
-        m_modelLayer->setLinkArrowColor(m_category, color);
-    } else if (m_resultsLayer) {
-        if (auto *sub = m_resultsLayer->featureSublayer(m_category)) {
-            if (auto *ls = qobject_cast<OpenSWMM::Render::LineFeatureSublayerStyle *>(
-                    sub->featureStyle())) {
-                ls->setShowFlowArrows(show);
-                ls->setArrowLengthPx(size);
-                ls->setArrowWidthPx(width);
-                ls->setArrowColor(color);
-            }
-        }
-    }
 }
 
 void KindRendererPanel::onOutputAxisChanged()

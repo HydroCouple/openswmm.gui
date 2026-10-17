@@ -80,6 +80,10 @@ private:
     /*! Routing-id prefix for this layer ("model." / "results."). */
     QString m_routingPrefix;
 
+    /*! Results kinds — title of the last selected style tab (Color / Size /
+     *  Arrows / Labels), re-selected when another kind is mounted. */
+    QString m_lastKindTab;
+
     bool m_suppressEdits = false;
 };
 

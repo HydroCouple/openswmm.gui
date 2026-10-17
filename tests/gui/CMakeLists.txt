@@ -69,6 +69,15 @@ add_swmmvis_gui_test(test_dirtytrackingbasic
     test_dirtytrackingbasic.cpp
 )
 
+# Results size channel (header-only) + its point/line sublayer-style owners.
+add_swmmvis_gui_test(test_sizechannel
+    test_sizechannel.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sizechannel.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/feature/featuresublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/src/render/labelconfig.cpp
+)
+
 # Slice LTR-2026-05-30 — layer-tree category bucketing. Headless: links
 # only against the extracted layertreecategories.cpp (no Qt widgets, no
 # MapCanvas, no layer object graph). The static_assert that keeps the
@@ -4167,6 +4176,16 @@ target_compile_definitions(test_traceanalysisjourney PRIVATE
 
 # Keep the full-app acceptance harness quick to compile; production retains its configured optimization.
 target_compile_options(test_traceanalysisjourney PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
+
+add_swmmvis_gui_test(test_resultssizechannel
+    test_resultssizechannel.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_resultssizechannel)
+target_compile_definitions(test_resultssizechannel PRIVATE
+    RESULTS_SIZE_CHANNEL_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/results_size_channel_2026-10-17"
+    RESULTS_SIZE_CHANNEL_FIXTURE="${CMAKE_SOURCE_DIR}/tests/data/styles/graduated_width_axis_legacy.json")
+target_compile_options(test_resultssizechannel PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
 
 add_swmmvis_gui_test(test_lid_node_layers
     test_lid_node_layers.cpp
