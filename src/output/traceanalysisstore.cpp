@@ -286,6 +286,7 @@ bool AnalysisStore::prepare(const QString &path, const Dataset &data, QString *e
                         {"units", QStringLiteral("SI: m, m3, m3/s, m/s, s")},
                         {"info", infoJson(data.info)},
                         {"options", optionsJson(data.options)},
+                        {"partial", data.partial},
                         {"snapshot", data.snapshot.toJson()}}));
         insert(run, f.get());
         writeFeatures(d.get(), data, true, QStringLiteral("average_nodes"), nullptr, cancel);
@@ -454,6 +455,7 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
         data->snapshot = Snapshot::fromJson(j["snapshot"].toObject());
         data->info = infoFromJson(j["info"].toObject());
         data->options = optionsFromJson(j["options"].toObject());
+        data->partial = j["partial"].toBool(false);
         require(data->snapshot.valid(), "Invalid saved topology");
         data->nodes.resize(data->snapshot.nodes.size());
         data->links.resize(data->snapshot.links.size());
@@ -512,6 +514,24 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
         if (error)
             *error = QString::fromUtf8(e.what());
         return {};
+    }
+}
+bool AnalysisStore::isPartial(const QString &path)
+{
+    try
+    {
+        auto d = open(path, false);
+        if (!d)
+            return false;
+        auto *l = d->GetLayerByName("analysis_runs");
+        if (!l)
+            return false;
+        Feature f(l->GetNextFeature(), OGRFeature::DestroyFeature);
+        return f && object(f->GetFieldAsString("metadata"))["partial"].toBool(false);
+    }
+    catch (const std::exception &)
+    {
+        return false;
     }
 }
 QVector<QJsonObject> AnalysisStore::analyses(const QString &path, QString *error)

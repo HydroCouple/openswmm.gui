@@ -83,15 +83,18 @@ TraceController::TraceController(SWMMVisProjectWindow *p) : QObject(p), m_projec
                 gui.start();
                 if (reply.dataset)
                 {
+                    // A partial package records no fingerprint: the completed
+                    // output must not be rejected as "changed" later.
                     m_project->statsRegistry()->attachAnalysis(
-                        reply.runId, reply.dataset->fingerprint, reply.dataset->packagePath,
-                        reply.dataset->snapshot.toJson());
+                        reply.runId, reply.dataset->partial ? QString() : reply.dataset->fingerprint,
+                        reply.dataset->packagePath, reply.dataset->snapshot.toJson());
                     m_project->setHasChanges(true);
                     emit prepared(reply.dataset);
                     perf(reply.runId, QStringLiteral("attachAnalysis"), gui.restart());
                 }
                 for (auto &r : reply.results)
                 {
+                    refreshOpenLayers(r);
                     emit resultReady(r);
                     perf(reply.runId, QStringLiteral("attachResult"), gui.restart(),
                          QStringLiteral("seed=%1").arg(r->seed));
@@ -211,15 +214,59 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                           const QString &destination, const Snapshot &snapshot,
                           const QString &replaceId)
 {
+    QVector<Request> requests;
+    QSet<QString> seen;
+    for (const auto &s : requested)
+        if (!seen.contains(s))
+        {
+            seen.insert(s);
+            requests.append({s, direction, replaceId, {}});
+        }
+    if (!replaceId.isEmpty() && requests.size() != 1)
+    {
+        emit failed(tr("Update one saved estimate at a time."));
+        return;
+    }
+    startJob(id, requests, destination, snapshot, false);
+}
+void TraceController::recalculate(const QString &id, const QStringList &extraNodes,
+                                  int extraDirection, const Snapshot &snapshot)
+{
+    QVector<Request> requests;
+    QSet<QString> seen;
+    for (const auto &s : extraNodes)
+        if (!seen.contains(s))
+        {
+            seen.insert(s);
+            requests.append({s, extraDirection, {}, {}});
+        }
+    startJob(id, requests, {}, snapshot, true);
+}
+namespace
+{
+bool removePackage(const QString &path)
+{
+    for (const QString &suffix : {QString(), QStringLiteral("-wal"), QStringLiteral("-shm"),
+                                  QStringLiteral("-journal")})
+        if (QFile::exists(path + suffix) && !QFile::remove(path + suffix))
+            return false;
+    return true;
+}
+} // namespace
+void TraceController::startJob(const QString &id, QVector<Request> requests,
+                               const QString &destination, const Snapshot &snapshot, bool discard)
+{
     if (busy() || !m_project)
     {
         emit failed(tr("An analysis is already running."));
         return;
     }
-    auto source = m_project->statsRegistry()->run(id);
+    auto *registry = m_project->statsRegistry();
+    auto source = registry->run(id);
     if (source.id.isEmpty() || !source.canAnalyze())
     {
-        emit failed(tr("Select a completed output or a valid imported result."));
+        emit failed(tr("Select a completed, running or cancelled output, or a valid imported "
+                       "result."));
         return;
     }
     const QString path = destination.isEmpty() ? defaultPackagePath(id) : destination;
@@ -230,34 +277,92 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                        "keep its saved estimates together."));
         return;
     }
-    const bool prepared = QFile::exists(path);
-    const bool historical = m_project->statsRegistry()->latestRun(source.path).id != source.id;
+    const bool historical = registry->latestRun(source.path).id != source.id;
     const QString scanPath = !source.retainedPath.isEmpty() ? source.retainedPath : source.path;
+    // A package built from partial results is never reused: rebuild it, and
+    // recompute its saved estimates so open layers follow the newer results.
+    discard = discard || (QFile::exists(path) && (source.partial() || AnalysisStore::isPartial(path)));
+    if (discard)
+    {
+        if (historical && source.retainedPath.isEmpty())
+        {
+            emit failed(tr("This historical run has no retained output to recalculate from. The "
+                           "current file belongs to a newer run."));
+            return;
+        }
+        QString error;
+        if (QFile::exists(path))
+        {
+            auto data = AnalysisStore::readDataset(path, &error);
+            const auto rows = AnalysisStore::analyses(path, &error);
+            QVector<Request> saved;
+            for (const auto &row : rows)
+            {
+                const int seed = row.value("seed").toInt(-1);
+                const QString seedId =
+                    row.value("seedId").toString(data && seed >= 0 && seed < data->snapshot.nodes.size()
+                                                     ? data->snapshot.nodes[seed].id
+                                                     : QString());
+                if (seedId.isEmpty())
+                    continue;
+                const int direction = row.value("direction").toInt();
+                saved.append({seedId, direction, row.value("id").toString(),
+                              row.value("style").toObject()});
+            }
+            QVector<Request> fresh;
+            for (const auto &r : requests)
+            {
+                bool duplicate = false;
+                for (const auto &s : saved)
+                    duplicate |= s.seedId == r.seedId && s.direction == r.direction;
+                if (!duplicate)
+                    fresh.append(r);
+            }
+            requests = saved + fresh;
+            if (!removePackage(path))
+            {
+                emit failed(tr("Cannot remove the saved analysis package %1.").arg(path));
+                return;
+            }
+        }
+        // The new results may legitimately differ from what was recorded: accept
+        // the current output as this run's content.
+        registry->attachAnalysis(id, {}, {}, source.snapshot);
+        registry->recordOutputFile(id);
+        source = registry->run(id);
+    }
+    if (requests.isEmpty())
+    {
+        emit failed(tr("Choose at least one node to analyze."));
+        return;
+    }
+    const bool prepared = QFile::exists(path);
     if (!prepared && historical && source.retainedPath.isEmpty())
     {
         emit failed(tr("This historical run has no saved averages or retained output. The current "
                        "file belongs to a newer run."));
         return;
     }
-    if (!prepared && source.retainedPath.isEmpty() && source.size >= 0)
+    if (!prepared && !discard && !source.partial() && source.retainedPath.isEmpty() &&
+        source.size >= 0)
     {
         QFileInfo file(source.path);
         if (file.size() != source.size ||
             file.lastModified().toMSecsSinceEpoch() != source.modified)
         {
-            emit failed(tr("The output changed since this run was recorded. Reload the replacement "
-                           "as a new result."));
+            emit failed(tr("The output changed since this run was recorded. Use Recalculate to "
+                           "replace the saved analysis with the current results."));
             return;
         }
     }
-    const QStringList seeds = requested;
+    const bool partial = source.partial();
     m_cancel = std::make_shared<std::atomic_bool>(false);
     auto cancelFlag = m_cancel;
     m_activePath = source.path;
     QPointer<TraceController> guard(this);
     emit busyChanged(true);
     m_watcher.setFuture(QtConcurrent::run(
-        [source, path, scanPath, seeds, direction, snapshot, replaceId, cancelFlag, guard]
+        [source, path, scanPath, requests, snapshot, partial, discard, cancelFlag, guard]
         {
             JobReply reply;
             reply.runId = source.id;
@@ -307,7 +412,8 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                                                       "run. Choose another destination."));
                     if (!source.fingerprint.isEmpty())
                         require(d->fingerprint == source.fingerprint,
-                                tr("Saved package fingerprint differs from the selected run."));
+                                tr("Saved package fingerprint differs from the selected run. Use "
+                                   "Recalculate to rebuild it from the current results."));
                 }
                 else
                 {
@@ -320,6 +426,7 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                     d->label = QStringLiteral("%1 · Run %2").arg(source.label).arg(source.number);
                     d->outputPath = source.path;
                     d->packagePath = path;
+                    d->partial = partial;
                     if (source.native)
                         d->provenance =
                             QStringLiteral("Captured model snapshot for this simulation execution");
@@ -328,41 +435,59 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                     handle.reset(createHandle(d->snapshot, d->options, &error));
                     require(bool(handle), error);
                     mark(QStringLiteral("createHandle"));
-                    // The digest and the engine scan each read the whole
-                    // output. Run them together so the wall time is the longer
-                    // of the two, not their sum. No engine cache is written:
-                    // the GeoPackage keeps the averages, and a cache key would
-                    // need the digest before the scan could start. The engine
-                    // still rejects an output whose size or mtime changed
-                    // during its scan.
-                    QString digest, digestError;
-                    std::thread hasher(
-                        [&]
-                        {
-                            try
+                    if (partial)
+                    {
+                        // A running or cancelled output: scan the whole periods
+                        // written so far. Its content may still grow, so it has no
+                        // stable digest; the package is rebuilt on the next request.
+                        const qint64 bytes = QFileInfo(scanPath).size();
+                        int code = swmm_trace_prepare_live(handle.get(),
+                                                           scanPath.toUtf8().constData(), cb, &p);
+                        mark(QStringLiteral("prepareLive"), QStringLiteral("bytes=%1").arg(bytes));
+                        require(code == 0, QString::fromUtf8(swmm_trace_error(handle.get())));
+                        swmm_trace_get_info(handle.get(), &d->info);
+                        d->fingerprint =
+                            QStringLiteral("partial:%1:%2").arg(d->info.periods).arg(bytes);
+                        d->label += tr(" (partial, %n reports)", nullptr, d->info.periods);
+                    }
+                    else
+                    {
+                        // The digest and the engine scan each read the whole
+                        // output. Run them together so the wall time is the
+                        // longer of the two, not their sum. No engine cache is
+                        // written: the GeoPackage keeps the averages, and a cache
+                        // key would need the digest before the scan could start.
+                        // The engine still rejects an output whose size or mtime
+                        // changed during its scan.
+                        QString digest, digestError;
+                        std::thread hasher(
+                            [&]
                             {
-                                digest = fingerprint(scanPath, *cancelFlag);
-                            }
-                            catch (const std::exception &e)
-                            {
-                                digestError = QString::fromUtf8(e.what());
-                            }
-                        });
-                    int code = swmm_trace_prepare(handle.get(), scanPath.toUtf8().constData(),
-                                                  nullptr, nullptr, cb, &p);
-                    hasher.join();
-                    mark(QStringLiteral("prepare+fingerprint"),
-                         QStringLiteral("bytes=%1").arg(QFileInfo(scanPath).size()));
-                    require(code == 0, QString::fromUtf8(swmm_trace_error(handle.get())));
-                    require(digestError.isEmpty(), digestError);
-                    d->fingerprint = digest;
-                    if (!source.fingerprint.isEmpty())
-                        require(source.fingerprint == d->fingerprint,
-                                tr("The output file has changed. Reload it as a new result "
-                                   "version."));
+                                try
+                                {
+                                    digest = fingerprint(scanPath, *cancelFlag);
+                                }
+                                catch (const std::exception &e)
+                                {
+                                    digestError = QString::fromUtf8(e.what());
+                                }
+                            });
+                        int code = swmm_trace_prepare(handle.get(), scanPath.toUtf8().constData(),
+                                                      nullptr, nullptr, cb, &p);
+                        hasher.join();
+                        mark(QStringLiteral("prepare+fingerprint"),
+                             QStringLiteral("bytes=%1").arg(QFileInfo(scanPath).size()));
+                        require(code == 0, QString::fromUtf8(swmm_trace_error(handle.get())));
+                        require(digestError.isEmpty(), digestError);
+                        d->fingerprint = digest;
+                        if (!source.fingerprint.isEmpty())
+                            require(source.fingerprint == d->fingerprint,
+                                    tr("The output file has changed. Use Recalculate to replace "
+                                       "the saved analysis with the current results."));
+                        swmm_trace_get_info(handle.get(), &d->info);
+                    }
                     d->nodes.resize(d->snapshot.nodes.size());
                     d->links.resize(d->snapshot.links.size());
-                    swmm_trace_get_info(handle.get(), &d->info);
                     require(swmm_trace_get_averages(handle.get(), d->nodes.data(), d->nodes.size(),
                                                     d->links.data(), d->links.size()) == 0,
                             tr("Cannot retrieve hydraulic averages."));
@@ -381,40 +506,27 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                             tr("Saved averages are invalid."));
                     mark(QStringLiteral("setAverages"));
                 }
-                QVector<int> indices;
+                QHash<QString, int> nodeIndex;
+                for (int i = 0; i < d->snapshot.nodes.size(); ++i)
+                    nodeIndex.insert(d->snapshot.nodes[i].id, i);
                 QStringList missing;
-                QSet<QString> seen;
-                for (const auto &s : seeds)
-                {
-                    if (seen.contains(s))
-                        continue;
-                    seen.insert(s);
-                    int found = -1;
-                    for (int i = 0; i < d->snapshot.nodes.size(); ++i)
-                        if (d->snapshot.nodes[i].id == s)
-                        {
-                            found = i;
-                            break;
-                        }
-                    if (found < 0)
-                        missing.append(s);
-                    else
-                        indices.append(found);
-                }
+                for (const auto &request : requests)
+                    if (!nodeIndex.contains(request.seedId))
+                        missing.append(request.seedId);
                 require(missing.isEmpty(), tr("These nodes are absent from this run: %1")
                                                .arg(missing.join(QStringLiteral(", "))));
-                require(replaceId.isEmpty() || indices.size() == 1,
-                        tr("Update one saved estimate at a time."));
                 // A repeat tool click reopens its saved estimate. Preparing a
                 // different node only solves from averages; the .out is not rescanned.
                 auto saved = AnalysisStore::analyses(path, &error);
                 require(error.isEmpty(), error);
                 mark(QStringLiteral("analyses"));
-                for (int seed : indices)
+                for (const auto &request : requests)
                 {
                     if (cancelFlag->load())
                         break;
-                    if (replaceId.isEmpty())
+                    const int seed = nodeIndex.value(request.seedId);
+                    const int direction = request.direction;
+                    if (request.replaceId.isEmpty() && !discard)
                     {
                         QString cachedId;
                         for (const auto &row : saved)
@@ -432,14 +544,14 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                     }
                     auto r = std::make_shared<Result>();
                     r->dataset = d;
-                    r->id = replaceId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces)
-                                                : replaceId;
-                    if (!replaceId.isEmpty())
-                    {
-                        auto previous = AnalysisStore::read(path, replaceId, &error);
-                        require(bool(previous), error);
-                        r->style = previous->style;
-                    }
+                    r->id = request.replaceId.isEmpty()
+                                ? QUuid::createUuid().toString(QUuid::WithoutBraces)
+                                : request.replaceId;
+                    r->style = request.style;
+                    if (!request.replaceId.isEmpty() && r->style.isEmpty())
+                        for (const auto &row : saved)
+                            if (row.value("id").toString() == request.replaceId)
+                                r->style = row.value("style").toObject();
                     r->seed = seed;
                     r->direction = direction;
                     r->nodes.resize(d->nodes.size());
@@ -470,6 +582,30 @@ void TraceController::run(const QString &id, const QStringList &requested, int d
                                : QStringLiteral("error=%1").arg(reply.error));
             return reply;
         }));
+}
+bool TraceController::hasOpenLayer(const QString &resultId) const
+{
+    if (!m_project || !m_project->canvas())
+        return false;
+    for (auto *layer : m_project->canvas()->layers())
+        if (auto *output = qobject_cast<SWMMResultsLayer *>(layer))
+            for (auto *sub : output->sublayers())
+                if (auto *trace = dynamic_cast<TraceSublayer *>(sub))
+                    if (trace->layer()->result()->id == resultId)
+                        return true;
+    return false;
+}
+void TraceController::refreshOpenLayers(const std::shared_ptr<Result> &result)
+{
+    if (!m_project || !m_project->canvas())
+        return;
+    for (auto *layer : m_project->canvas()->layers())
+        if (auto *output = qobject_cast<SWMMResultsLayer *>(layer))
+            for (auto *sub : output->sublayers())
+                if (auto *trace = dynamic_cast<TraceSublayer *>(sub))
+                    if (trace->layer()->result()->id == result->id &&
+                        trace->layer()->result() != result)
+                        trace->layer()->setResult(result);
 }
 bool TraceController::beforeOverwrite(const QString &path, QString *error)
 {

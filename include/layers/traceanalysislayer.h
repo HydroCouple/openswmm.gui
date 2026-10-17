@@ -44,6 +44,9 @@ class TraceStyle final : public OpenSWMM::Render::SublayerStyle
     void setTaper(double);
     bool arrows() const { return m_arrows; }
     void setArrows(bool);
+    /// Elements carrying less than this fraction of the seed's flow are hidden and unlabelled.
+    double minContribution() const { return m_minContribution; }
+    void setMinContribution(double);
     bool labels() const { return nodeLabels.appearance.enabled; }
     void setLabels(bool);
     void changed() { setDirty(); }
@@ -53,6 +56,7 @@ class TraceStyle final : public OpenSWMM::Render::SublayerStyle
   private:
     double m_taper = 1;
     bool m_arrows = true;
+    double m_minContribution = 0.001;
 };
 // Pure pixel-space geometry, shared by painting and hit testing. Duplicate
 // vertices are discarded; segment joins are bevelled to avoid miter spikes.
@@ -64,6 +68,12 @@ class TraceAnalysisLayer final : public OpenSWMMVisLayer, public OpenSWMM::Rende
   public:
     explicit TraceAnalysisLayer(std::shared_ptr<Result>, OpenSWMMVisWorkspace * = nullptr);
     std::shared_ptr<Result> result() const { return m_result; }
+    /*! True when the element is in the traced network and carries at least the
+     *  style's minimum share of the flow (the seed always does). Drawing, labels,
+     *  legend ranges, hit testing and the details table all use this. */
+    bool contributes(bool node, int index) const;
+    /*! Replace the numbers after a recalculation; keeps this view's own style. */
+    void setResult(std::shared_ptr<Result>);
     TraceStyle *traceStyle() const { return m_style; }
     QList<OpenSWMM::Render::ISublayer *> sublayers() const override { return m_parts; }
     std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> styleSubjects() override;

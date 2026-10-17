@@ -29,7 +29,14 @@ class TraceController : public QObject
     bool busy() const { return m_watcher.isRunning(); }
     void run(const QString &runId, const QStringList &nodes, int direction,
              const QString &destination, const Snapshot &snapshot, const QString &replaceId = {});
+    /*! Discard the run's saved averages and estimates, rescan its current output, and
+     *  recompute every saved estimate (same ids, so open layers refresh in place) plus
+     *  \p extraNodes in \p extraDirection. */
+    void recalculate(const QString &runId, const QStringList &extraNodes = {},
+                     int extraDirection = 0, const Snapshot &snapshot = {});
     void cancel();
+    /*! True when an analysis layer showing \p resultId is open in this project. */
+    bool hasOpenLayer(const QString &resultId) const;
     SWMMResultsLayer *outputForRun(const QString &runId);
     TraceSublayer *attachResult(std::shared_ptr<Result>, bool travel);
     void reconcileOutputRuns();
@@ -44,6 +51,16 @@ class TraceController : public QObject
     void finished(const QString &runId, bool cancelled);
 
   private:
+    struct Request
+    {
+        QString seedId;
+        int direction = 0;
+        QString replaceId;   ///< Keep this analysis id (recalculation).
+        QJsonObject style;   ///< Saved style carried over to the new estimate.
+    };
+    void startJob(const QString &runId, QVector<Request> requests, const QString &destination,
+                  const Snapshot &snapshot, bool discard);
+    void refreshOpenLayers(const std::shared_ptr<Result> &);
     QPointer<SWMMVisProjectWindow> m_project;
     QFutureWatcher<JobReply> m_watcher;
     std::shared_ptr<std::atomic_bool> m_cancel;

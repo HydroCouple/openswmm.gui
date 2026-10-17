@@ -151,6 +151,11 @@ TraceAnalysisDialog::TraceAnalysisDialog(SWMMVisProjectWindow *p)
     m_nodes->setObjectName("traceNodeIds");
     m_nodes->setPlaceholderText(tr("Node ID (or comma-separated IDs)"));
     layout->addWidget(m_nodes);
+    m_recalculate = new QCheckBox(tr("Recalculate (discard saved results)"));
+    m_recalculate->setObjectName("traceRecalculate");
+    m_recalculate->setToolTip(tr("Rescan this output and recompute every saved estimate for it, "
+                                 "replacing averages saved from earlier or partial results."));
+    layout->addWidget(m_recalculate);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     buttons->button(QDialogButtonBox::Ok)->setText(tr("Create layer"));
     layout->addWidget(buttons);
@@ -176,7 +181,8 @@ TraceAnalysisDialog::TraceAnalysisDialog(SWMMVisProjectWindow *p)
     connect(m_controller, &TraceController::resultReady, this,
             [this](std::shared_ptr<Result> r)
             {
-                if (m_pending && r->dataset->runId == m_runId)
+                if (m_pending && r->dataset->runId == m_runId &&
+                    !(m_recalculating && m_controller->hasOpenLayer(r->id)))
                     m_controller->attachResult(r, m_travel);
             });
     connect(m_controller, &TraceController::failed, this,
@@ -185,6 +191,7 @@ TraceAnalysisDialog::TraceAnalysisDialog(SWMMVisProjectWindow *p)
                 if (!m_pending)
                     return;
                 m_pending = false;
+                m_recalculating = false;
                 m_progress->hide();
                 QMessageBox::warning(m_project, tr("Analysis could not finish"), message);
             });
@@ -194,6 +201,7 @@ TraceAnalysisDialog::TraceAnalysisDialog(SWMMVisProjectWindow *p)
                 if (id != m_runId)
                     return;
                 m_pending = false;
+                m_recalculating = false;
                 m_progress->hide();
             });
     qApp->installEventFilter(this);
@@ -243,7 +251,40 @@ void TraceAnalysisDialog::start()
     m_progress->show();
     if (m_snapshot.nodes.isEmpty() && run.snapshot.isEmpty())
         m_snapshot = Snapshot::capture(m_project->modelLayer(), nullptr);
-    m_controller->run(m_runId, seeds, m_upstream ? 1 : 0, {}, m_snapshot);
+    m_recalculating = m_recalculate->isChecked();
+    if (m_recalculating)
+    {
+        m_recalculate->setChecked(false); // one-shot; the next pick reuses the new package
+        m_controller->recalculate(m_runId, seeds, m_upstream ? 1 : 0, m_snapshot);
+    }
+    else
+        m_controller->run(m_runId, seeds, m_upstream ? 1 : 0, {}, m_snapshot);
+}
+void TraceAnalysisDialog::recalculate(SWMMVisProjectWindow *p, const QString &runId)
+{
+    if (!p || runId.isEmpty())
+        return;
+    auto *d = p->findChild<TraceAnalysisDialog *>("flowTraceDialog", Qt::FindDirectChildrenOnly);
+    if (!d)
+        d = new TraceAnalysisDialog(p);
+    if (d->m_controller->busy())
+    {
+        d->m_progress->show();
+        d->m_progress->raise();
+        return;
+    }
+    d->m_runId = runId;
+    d->m_pending = true;
+    d->m_recalculating = true;
+    d->m_progress->reset();
+    d->m_progress->setRange(0, 0);
+    d->m_progress->setWindowTitle(tr("Recalculate analysis"));
+    d->m_progress->setLabelText(tr("Rescanning the output and recomputing saved estimates…"));
+    d->m_progress->show();
+    const auto run = p->statsRegistry()->run(runId);
+    d->m_controller->recalculate(runId, {}, 0,
+                                 run.snapshot.isEmpty() ? Snapshot::capture(p->modelLayer(), nullptr)
+                                                        : Snapshot{});
 }
 bool TraceAnalysisDialog::eventFilter(QObject *object, QEvent *event)
 {
@@ -520,6 +561,25 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
                                  if (style)
                                      style->setArrows(value);
                              });
+            auto *hideRow = new QHBoxLayout;
+            hideRow->addWidget(new QLabel(tr("Hide links and nodes carrying less than")));
+            auto *threshold = new QDoubleSpinBox;
+            threshold->setObjectName("traceMinContribution");
+            threshold->setRange(0, 100);
+            threshold->setDecimals(3);
+            threshold->setSuffix(tr(" % of the flow"));
+            threshold->setValue(style->minContribution() * 100);
+            threshold->setToolTip(tr("Applies to drawing, labels, legend ranges and the details "
+                                     "table. 0 shows every element in the traced network."));
+            hideRow->addWidget(threshold);
+            hideRow->addStretch();
+            pageLayout->addLayout(hideRow);
+            QObject::connect(threshold, &QDoubleSpinBox::valueChanged, dialog,
+                             [style](double percent)
+                             {
+                                 if (style)
+                                     style->setMinContribution(percent / 100);
+                             });
         }
         pageLayout->addStretch();
     }
@@ -594,7 +654,7 @@ void TraceAnalysisDialog::showProperties(TraceSublayer *part, QWidget *parent)
             {
                 const auto &values = node ? layer->result()->nodes : layer->result()->links;
                 for (int i = 0; i < values.size(); ++i)
-                    if (values[i].ratio != 0)
+                    if (layer->contributes(node, i))
                     {
                         text = layer->labelText(node, i);
                         break;
@@ -724,7 +784,7 @@ void TraceAnalysisDialog::showDetails(TraceSublayer *part, QWidget *parent)
         for (int i = 0; i < values.size(); ++i)
         {
             const auto &v = values[i];
-            if (v.ratio == 0)
+            if (!part->layer()->contributes(node, i))
                 continue;
             int row = table->rowCount();
             table->insertRow(row);

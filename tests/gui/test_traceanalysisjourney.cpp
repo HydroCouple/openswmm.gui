@@ -146,6 +146,31 @@ class TestTraceJourney : public QObject
         b.fromJson(a.toJson());
         QCOMPARE(a.toJson(), b.toJson());
     }
+    void negligibleContributionsAreHiddenAndUnlabelled()
+    {
+        auto r = fixture(QUuid::createUuid().toString(QUuid::WithoutBraces), path("negligible.gpkg"));
+        QVERIFY(r);
+        // SB carries almost nothing; BO is outside the trace.
+        r->links[1].ratio = 1e-9;
+        r->links[3].ratio = 0;
+        r->links[3].flags |= SWMM_TRACE_UNREACHABLE;
+        TraceAnalysisLayer layer(r);
+        layer.traceStyle()->linkLabels.appearance.enabled = true;
+        layer.traceStyle()->nodeLabels.appearance.enabled = true;
+        QVERIFY(layer.contributes(false, 0));   // SA
+        QVERIFY(!layer.contributes(false, 1));  // SB, below the 0.1 % default
+        QVERIFY(!layer.contributes(false, 3));  // BO, unreachable
+        QVERIFY(layer.contributes(true, r->seed));
+        QCOMPARE(layer.samples(false, layer.traceStyle()->linkColor).size(), 2); // SA, AO
+        layer.traceStyle()->setMinContribution(0);
+        QVERIFY(layer.contributes(false, 1));   // shown again at 0 %
+        QVERIFY(!layer.contributes(false, 3));  // never: outside the trace
+        TraceStyle copy;
+        layer.traceStyle()->setMinContribution(0.05);
+        copy.fromJson(layer.traceStyle()->toJson());
+        QCOMPARE(copy.minContribution(), 0.05);
+        QVERIFY(!layer.contributes(false, 1));
+    }
     void themesAndNumericLabels()
     {
         auto result = fixture("theme-run", path("themes.gpkg"));
@@ -339,6 +364,137 @@ class TestTraceJourney : public QObject
         QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 3, 10000);
         QCOMPARE(finish[2][1].toBool(), true);
         QCOMPARE(AnalysisStore::analyses(package, &error).size(), 1);
+        w.setHasChanges(false);
+    }
+    void partialRunsAndRecalculate()
+    {
+        // One conduit S -> O carrying a constant dry-weather flow.
+        auto writeModel = [&](const QString &stem, double flow)
+        {
+            const auto inp = path(stem + ".inp"), out = path(stem + ".out"), rpt = path(stem + ".rpt");
+            QFile file(inp);
+            if (!file.open(QIODevice::WriteOnly))
+                return QString();
+            file.write(QStringLiteral(
+                "[TITLE]\nPartial analysis test\n[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+                "START_DATE 10/01/2026\nEND_DATE 10/01/2026\nEND_TIME 01:00:00\nREPORT_STEP 00:05:00\n"
+                "ROUTING_STEP 00:00:05\n[JUNCTIONS]\nS 10 5\n[OUTFALLS]\nO 0 FREE NO\n"
+                "[CONDUITS]\nSO S O 100 0.013 0 0\n[XSECTIONS]\nSO CIRCULAR 2 0 0 0 1\n"
+                "[DWF]\nS FLOW %1\n[COORDINATES]\nS 0 0\nO 100 0\n[REPORT]\nNODES ALL\nLINKS ALL\n")
+                           .arg(flow)
+                           .toUtf8());
+            file.close();
+            return swmm_engine_run(inp.toUtf8().constData(), rpt.toUtf8().constData(),
+                                   out.toUtf8().constData(), nullptr) == 0
+                       ? out
+                       : QString();
+        };
+        const auto full = writeModel("partial", 1);
+        QVERIFY(!full.isEmpty());
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow w(workspace.get(), path("partial.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY2(w.loadModel(warnings, errors), qPrintable(errors.join('\n')));
+        auto snapshot = Snapshot::capture(w.modelLayer(), nullptr);
+        auto *registry = w.statsRegistry();
+        auto *controller = TraceController::forProject(&w);
+        QSignalSpy finish(controller, &TraceController::finished);
+        QSignalSpy failed(controller, &TraceController::failed);
+        QSignalSpy ready(controller, &TraceController::resultReady);
+        QString error;
+        auto readBytes = [](const QString &file)
+        {
+            QFile f(file);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+        auto writeBytes = [](const QString &file, const QByteArray &bytes)
+        {
+            QFile f(file);
+            return f.open(QIODevice::WriteOnly | QIODevice::Truncate) && f.write(bytes) == bytes.size();
+        };
+        const QByteArray complete = readBytes(full);
+        QVERIFY(complete.size() > 24);
+
+        // A running simulation: the output has no closing footer yet.
+        const auto running = path("running.out");
+        QVERIFY(writeBytes(running, complete.left(complete.size() - 24)));
+        const auto live = registry->beginRun(running, snapshot.toJson());
+        QVERIFY(registry->run(live).partial());
+        controller->run(live, {"S"}, 0, {}, snapshot);
+        QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 1, 15000);
+        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed[0][0].toString()));
+        auto partial = ready.last()[0].value<std::shared_ptr<Result>>();
+        QVERIFY(partial->dataset->partial);
+        QVERIFY(partial->dataset->info.periods > 0);
+        const auto livePackage = registry->run(live).packagePath;
+        QVERIFY(AnalysisStore::isPartial(livePackage));
+        QVERIFY(registry->run(live).fingerprint.isEmpty()); // never pins a growing file
+        auto *flow = controller->attachResult(partial, false);
+        QVERIFY(flow);
+        QVERIFY(flow->displayName().contains("partial"));
+        const QString liveId = partial->id;
+
+        // The run completes: the next request rebuilds from the whole output and
+        // refreshes the open layer in place (same analysis id, no longer partial).
+        QVERIFY(writeBytes(running, complete));
+        registry->finishRun(live, true, false);
+        controller->run(live, {"S"}, 0, {}, snapshot);
+        QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 2, 15000);
+        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed[0][0].toString()));
+        QVERIFY(!AnalysisStore::isPartial(livePackage));
+        QCOMPARE(AnalysisStore::analyses(livePackage, &error).size(), 1);
+        QCOMPARE(flow->layer()->result()->id, liveId);
+        QVERIFY(!flow->layer()->result()->dataset->partial);
+        QVERIFY(!flow->displayName().contains("partial"));
+        QVERIFY(!registry->run(live).fingerprint.isEmpty());
+
+        // A cancelled simulation is analyzed as partial too.
+        const auto cancelledOut = path("cancelled.out");
+        QVERIFY(writeBytes(cancelledOut, complete));
+        const auto cancelled = registry->beginRun(cancelledOut, snapshot.toJson());
+        registry->finishRun(cancelled, false, true);
+        QCOMPARE(registry->run(cancelled).state, QString("Cancelled"));
+        controller->run(cancelled, {"S"}, 1, {}, snapshot);
+        QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 3, 15000);
+        QVERIFY(failed.isEmpty());
+        QVERIFY(ready.last()[0].value<std::shared_ptr<Result>>()->dataset->partial);
+
+        // Recalculate after the output was replaced with different results:
+        // both views refresh in place, keep their ids and their own styles.
+        auto *travel = controller->attachResult(flow->layer()->result(), true);
+        QVERIFY(travel && travel != flow);
+        flow->layer()->traceStyle()->linkColor.field = "gross";
+        flow->layer()->traceStyle()->changed();
+        travel->layer()->traceStyle()->linkColor.field = "ratio";
+        travel->layer()->traceStyle()->changed();
+        const double before = flow->layer()->result()->dataset->links[0].net_flow_m3s;
+        QVERIFY(!writeModel("partial-doubled", 2).isEmpty());
+        QVERIFY(writeBytes(running, readBytes(path("partial-doubled.out"))));
+        controller->recalculate(live);
+        QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 4, 15000);
+        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed[0][0].toString()));
+        QCOMPARE(flow->layer()->result()->id, liveId);
+        QCOMPARE(travel->layer()->result()->id, liveId);
+        const double after = flow->layer()->result()->dataset->links[0].net_flow_m3s;
+        QVERIFY2(after > 1.5 * before, qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(after)));
+        QCOMPARE(travel->layer()->result()->dataset->links[0].net_flow_m3s, after);
+        QCOMPARE(flow->layer()->traceStyle()->linkColor.field, QString("gross"));
+        QCOMPARE(travel->layer()->traceStyle()->linkColor.field, QString("ratio"));
+        QCOMPARE(AnalysisStore::analyses(livePackage, &error).size(), 1);
+        QVERIFY(AnalysisStore::read(livePackage, liveId, &error));
+
+        // Cancelling a recalculation leaves no package and the layers untouched;
+        // the next request rebuilds.
+        controller->recalculate(live);
+        controller->cancel();
+        QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 5, 15000);
+        QCOMPARE(finish.last()[1].toBool(), true);
+        QVERIFY(!QFile::exists(livePackage));
+        QCOMPARE(flow->layer()->result()->dataset->links[0].net_flow_m3s, after);
+        controller->run(live, {"S"}, 0, {}, snapshot);
+        QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 6, 15000);
+        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed[0][0].toString()));
+        QVERIFY(QFile::exists(livePackage));
         w.setHasChanges(false);
     }
     void resultsFollowLayerOrder()

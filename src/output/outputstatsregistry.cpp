@@ -263,6 +263,17 @@ void OutputStatsRegistry::adoptAnalysis(const QString &id, const QString &source
     }
     attachAnalysis(id, fingerprint, package, snapshot);
 }
+void OutputStatsRegistry::recordOutputFile(const QString &id)
+{
+    for (auto &r : m_runs)
+        if (r.id == id && r.state != QStringLiteral("Running"))
+        {
+            QFileInfo f(r.retainedPath.isEmpty() ? r.path : r.retainedPath);
+            r.size = f.size();
+            r.modified = f.lastModified().toMSecsSinceEpoch();
+        }
+    emit runsChanged();
+}
 void OutputStatsRegistry::setRetainedPath(const QString &id, const QString &path)
 {
     for (auto &r : m_runs)

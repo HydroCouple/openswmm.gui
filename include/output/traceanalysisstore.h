@@ -14,6 +14,9 @@ class AnalysisStore
     static bool save(const QString &path, const Result &, QString *error,
                      std::atomic_bool *cancel = nullptr);
     static std::shared_ptr<Dataset> readDataset(const QString &path, QString *error);
+    /*! True when the package was built from a running or cancelled output. Reads
+     *  only the run metadata row. */
+    static bool isPartial(const QString &path);
     static QVector<QJsonObject> analyses(const QString &path, QString *error);
     static std::shared_ptr<Result> read(const QString &path, const QString &id, QString *error);
     // Same, reusing averages already in memory instead of reading them again.
