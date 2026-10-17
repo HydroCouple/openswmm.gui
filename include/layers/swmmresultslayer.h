@@ -842,6 +842,10 @@ private:
     QVector<int>     m_kindFeatureShapes[SWMMModelLayer::NumCategories]; /*!< -1 = no override */
     QVector<int>     m_kindFeatureDashes[SWMMModelLayer::NumCategories]; /*!< -1 = no override */
     bool             m_kindUsesOverrides[SWMMModelLayer::NumCategories] = {};
+    /*! Value range the size channel last sized against (low already
+     *  zero-based), for its legend rows; NaN when the channel did not run. */
+    struct SizeRange { double low = qQNaN(), high = qQNaN(); };
+    SizeRange        m_kindSizeRange[SWMMModelLayer::NumCategories];
 
     // Slice X.21 — categorized-renderer string-attribute cache.  Keyed
     // by "<categoryOrdinal>/<classifyAttribute>" → per-row string

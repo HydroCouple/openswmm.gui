@@ -137,6 +137,44 @@ private slots:
         QCOMPARE(results->featureWidthOverride(SWMMModelLayer::CatConduits, a), -1.0);
     }
 
+    void legendShowsSizeRange()
+    {
+        SizeChannel ch;
+        ch.enabled = true;
+        ch.attribute = QStringLiteral("flow");
+        ch.rangeMode = RangeMode::FixedUser;
+        ch.userMin = 0.5; ch.userMax = 4.0;
+        ch.zeroBased = false;
+        ch.minPx = 1.0; ch.maxPx = 11.0;
+        conduitStyle()->setWidthChannel(ch);
+
+        const auto rows = results->legendSymbolItems();
+        int header = -1;
+        for (int i = 0; i < rows.size(); ++i)
+            if (rows[i].label.contains(QStringLiteral("width by flow")))
+                header = i;
+        QVERIFY(header >= 0 && header + 2 < rows.size());
+        QCOMPARE(rows[header + 1].label, QStringLiteral("0.5"));
+        QCOMPARE(rows[header + 2].label, QStringLiteral("4"));
+        QCOMPARE(rows[header + 1].symbol.layers.value(0).props.value("width").toDouble(), 1.0);
+        QCOMPARE(rows[header + 2].symbol.layers.value(0).props.value("width").toDouble(), 11.0);
+
+        // Zero-based: the low row reads 0.
+        ch.zeroBased = true;
+        conduitStyle()->setWidthChannel(ch);
+        bool sawZero = false;
+        const auto zeroRows = results->legendSymbolItems();
+        for (int i = 0; i + 1 < zeroRows.size(); ++i)
+            if (zeroRows[i].label.contains(QStringLiteral("width by flow")))
+                sawZero = zeroRows[i + 1].label == QStringLiteral("0");
+        QVERIFY(sawZero);
+
+        // Disabled → no size rows.
+        conduitStyle()->setWidthChannel(SizeChannel{});
+        for (const auto &row : results->legendSymbolItems())
+            QVERIFY(!row.label.contains(QStringLiteral("width by")));
+    }
+
     void cancelRestoresChannel()
     {
         conduitStyle()->setWidthChannel(SizeChannel{});
