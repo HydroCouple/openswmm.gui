@@ -636,6 +636,7 @@ void ClimatologyDialog::buildAdcTab(QTabWidget *tabs)
     lay->addWidget(new QLabel(tr("Fraction of Area Covered by Snow")));
 
     m_adc = new QTableWidget(10, 2);
+    m_adc->setObjectName(QStringLiteral("clim_adc"));
     m_adc->setHorizontalHeaderLabels(QStringList{tr("Impervious"), tr("Pervious")});
     QStringList ratios;
     for (int i = 0; i < 10; ++i) ratios << QString::number(i * 0.1, 'f', 1);
@@ -997,7 +998,7 @@ QString ClimatologyDialog::writeToEngine()
             r[k] = cellValue(m_adjust, k, 2);
             c[k] = cellValue(m_adjust, k, 3);
         }
-        do { if (swmm_climate_set_adjust_temperature(m_engine, t, 12) != SWMM_OK) return tr("The engine refused the adjust temperatureerature. Check the selected data and values."); } while (false);
+        do { if (swmm_climate_set_adjust_temperature(m_engine, t, 12) != SWMM_OK) return tr("The engine refused the adjust temperature. Check the selected data and values."); } while (false);
         do { if (swmm_climate_set_adjust_evaporation(m_engine, e, 12) != SWMM_OK) return tr("The engine refused the adjust evaporation. Check the selected data and values."); } while (false);
         do { if (swmm_climate_set_adjust_rainfall(m_engine, r, 12) != SWMM_OK) return tr("The engine refused the adjust rainfall. Check the selected data and values."); } while (false);
         do { if (swmm_climate_set_adjust_conductivity(m_engine, c, 12) != SWMM_OK) return tr("The engine refused the adjust conductivity. Check the selected data and values."); } while (false);
