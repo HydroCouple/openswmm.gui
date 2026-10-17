@@ -19,6 +19,7 @@
 
 #include "render/sublayerstyle.h"
 #include "render/labelconfig.h"   // L-1 — per-sublayer labels
+#include "render/sizechannel.h"
 
 #include <QColor>
 #include <QJsonObject>
@@ -130,11 +131,23 @@ public:
     void setMarkerSizePx(double v) { if (qFuzzyCompare(m_markerSizePx, v)) return; m_markerSizePx = v; setDirty(); }
     void setShape(MarkerShape v)   { if (m_shape == v) return; m_shape = v; setDirty(); }
 
+    /*! Results layers: marker size follows a result variable (by area),
+     *  whatever renderer colours the kind. */
+    [[nodiscard]] const SizeChannel &sizeChannel() const { return m_sizeChannel; }
+    void setSizeChannel(SizeChannel c)
+    {
+        c.areaScaled = true;
+        if (m_sizeChannel == c) return;
+        m_sizeChannel = std::move(c);
+        setDirty();
+    }
+
     [[nodiscard]] QJsonObject toJson() const override
     {
         QJsonObject j = FeatureSublayerStyle::toJson();
         j[QStringLiteral("markerSizePx")] = m_markerSizePx;
         j[QStringLiteral("shape")]        = int(m_shape);
+        j[QStringLiteral("sizeChannel")]  = m_sizeChannel.toJson();
         return j;
     }
     void fromJson(const QJsonObject &j) override
@@ -144,12 +157,15 @@ public:
             m_markerSizePx = j.value(QStringLiteral("markerSizePx")).toDouble(6.0);
         if (j.contains(QStringLiteral("shape")))
             m_shape = static_cast<MarkerShape>(j.value(QStringLiteral("shape")).toInt(int(Circle)));
+        if (j.contains(QStringLiteral("sizeChannel")))
+            m_sizeChannel = SizeChannel::fromJson(j.value(QStringLiteral("sizeChannel")).toObject(), true);
         setDirty();
     }
 
 private:
     double      m_markerSizePx = 6.0;
     MarkerShape m_shape        = Circle;
+    SizeChannel m_sizeChannel  = [] { SizeChannel c; c.areaScaled = true; return c; }();
 };
 
 // ---------------------------------------------------------------------------
@@ -201,6 +217,17 @@ public:
     void setArrowColor(const QColor &v)  { if (m_arrowColor == v) return; m_arrowColor = v; setDirty(); }
     void setRenderAsLine(bool v)         { if (m_renderAsLine == v) return; m_renderAsLine = v; setDirty(); }
 
+    /*! Results layers: stroke width follows a result variable (linearly),
+     *  whatever renderer colours the kind. */
+    [[nodiscard]] const SizeChannel &widthChannel() const { return m_widthChannel; }
+    void setWidthChannel(SizeChannel c)
+    {
+        c.areaScaled = false;
+        if (m_widthChannel == c) return;
+        m_widthChannel = std::move(c);
+        setDirty();
+    }
+
     [[nodiscard]] QJsonObject toJson() const override
     {
         QJsonObject j = FeatureSublayerStyle::toJson();
@@ -211,6 +238,7 @@ public:
         j[QStringLiteral("arrowWidthPx")]   = m_arrowWidthPx;
         j[QStringLiteral("arrowColor")]     = m_arrowColor.name(QColor::HexArgb);
         j[QStringLiteral("renderAsLine")]   = m_renderAsLine;
+        j[QStringLiteral("sizeChannel")]    = m_widthChannel.toJson();
         return j;
     }
     void fromJson(const QJsonObject &j) override
@@ -226,6 +254,8 @@ public:
             if (c.isValid()) m_arrowColor = c;
         }
         if (j.contains(QStringLiteral("renderAsLine")))   m_renderAsLine   = j.value(QStringLiteral("renderAsLine")).toBool(true);
+        if (j.contains(QStringLiteral("sizeChannel")))
+            m_widthChannel = SizeChannel::fromJson(j.value(QStringLiteral("sizeChannel")).toObject(), false);
         setDirty();
     }
 
@@ -243,6 +273,7 @@ private:
     double       m_arrowWidthPx   = 8.0;
     QColor       m_arrowColor     = QColor(20, 20, 20, 220);
     bool         m_renderAsLine   = true;
+    SizeChannel  m_widthChannel;
 };
 
 // ---------------------------------------------------------------------------

@@ -49,7 +49,7 @@ class Rule;          // Slice B.6a — Rule-aware ctor below.
 namespace openswmmvis::ui {
 
 class ClassificationEditor;
-class ColorButton;
+class FlowArrowEditor;
 class GraduatedRendererBinding;
 
 class KindRendererPanel : public QWidget
@@ -115,8 +115,6 @@ private slots:
     void onAttributeChanged(int comboRow);
     // Gap A4.5 — output axes: size-by-value (points) / width-by-value (lines).
     void onOutputAxisChanged();
-    /*! Pushes the arrow controls' values onto the host's arrow channel. */
-    void onArrowsChanged();
     // Independent size attribute — "(same as color)" or a numeric field.
     void onSizeAttributeChanged(int comboRow);
 
@@ -126,10 +124,6 @@ private:
     /*! IAttributeProvider host — the layer itself, or the Rule's owning
      *  layer (two QObject parents up). */
     OpenSWMMVisLayer *attributeProviderHost() const;
-
-    /*! Seeds the arrow controls from the host and shows the group only for
-     *  link kinds that actually have an arrow channel. */
-    void syncArrowsFromHost();
 
     OpenSWMMVisLayer       *m_hostLayer = nullptr;
     SWMMModelLayer         *m_modelLayer = nullptr;     // either m_modelLayer
@@ -163,13 +157,10 @@ private:
     // the Line feature-style editor for results layers) each carry their
     // own copy; this one covers the graduated / categorized panels, which
     // otherwise made the arrows vanish the moment a conduit was themed.
-    // Bound to whichever channel the host exposes — see
-    // syncArrowsFromHost() for the two-channel split.
-    QWidget            *m_arrowBox      = nullptr;
-    QCheckBox          *m_arrowShowChk  = nullptr;
-    QDoubleSpinBox     *m_arrowSizeSpin = nullptr;   ///< length ALONG the link
-    QDoubleSpinBox     *m_arrowWidSpin  = nullptr;   ///< width ACROSS the link
-    ColorButton        *m_arrowColorBtn = nullptr;
+    // Bound to whichever channel the host exposes — see FlowArrowEditor
+    // for the two-channel split. Hidden on results layers, whose kind page
+    // carries an Arrows tab.
+    FlowArrowEditor    *m_arrowBox      = nullptr;
 
     // Slice US.1 — shared classification block.
     ClassificationEditor                     *m_classEditor = nullptr;

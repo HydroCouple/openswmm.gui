@@ -46,6 +46,7 @@ class QGraphicsSimpleTextItem;   // L-1 — m_labelByFeature stores label items
 
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
+class GraduatedRenderer;
 class Rule;
 class RuleList;   // Slice B.5 — see ruleList() override below.
 enum class ClassEditKind;   // Gap B1 — legend facade (full def in ifeaturerenderer.h)
@@ -650,6 +651,11 @@ public:
     [[nodiscard]] OpenSWMM::Render::FeatureSublayer *
         featureSublayer(SWMMModelLayer::Category c) const;
 
+    /*! Per-feature marker size / stroke width override for this frame
+     *  (negative = no override), by category row. */
+    [[nodiscard]] double featureSizeOverride(SWMMModelLayer::Category c, int row) const;
+    [[nodiscard]] double featureWidthOverride(SWMMModelLayer::Category c, int row) const;
+
     /*!
      * \brief Phase 8 (2026-05-25) — ramp-aware legend rows.
      *
@@ -856,6 +862,15 @@ private:
      *  or when the renderer's classifyAttribute doesn't match the
      *  current variable's enumerator name. */
     void rebuildKindFeatureOverrides(SWMMModelLayer::Category c);
+
+    /*! Writes the kind's size channel (sublayer style) into the size /
+     *  width override cache. Tail of rebuildKindFeatureOverrides. */
+    void applySizeChannel(SWMMModelLayer::Category c);
+
+    /*! Moves a Graduated renderer's size/width output axes into the kind's
+     *  size channel (once) and switches the axes off. setKindRenderer. */
+    void migrateGraduatedOutputAxes(SWMMModelLayer::Category c,
+                                    OpenSWMM::Render::GraduatedRenderer &g);
 
     /*! Slice OUT.2 — rebuilds every kind whose geometry scope matches
      *  the layer's current m_variable (Nodes / Links / Subcatch). */
