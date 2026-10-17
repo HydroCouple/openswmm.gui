@@ -84,46 +84,51 @@ FlowParticleSeedDistribution buildFlowParticleSeeds(const FlowParticleSnapshot &
        || (!field.mesh->seedWeights.empty() && field.mesh->seedWeights.size()!=field.fields.size()))return out;
     struct Corner {QPointF point;double depth;};
     struct Speed {double scene,si,area;};
+    // A triangle clipped by five half-planes keeps at most eight corners.
+    // Fixed ping-pong buffers avoid six heap allocations per regional triangle
+    // on every view change; the clipping arithmetic itself is unchanged.
+    std::array<Corner,10> buffers[2];Corner *polygon=buffers[0].data(),*next=buffers[1].data();int corners=0;
     std::vector<Speed> speeds;
     std::vector<double> areas,sceneSpeeds;
+    out.triangles.reserve(field.fields.size());areas.reserve(field.fields.size());
+    sceneSpeeds.reserve(field.fields.size());speeds.reserve(field.fields.size());
     for(size_t i=0;i<field.fields.size();++i) {
         const auto &f=field.fields[i];if(!f.available)continue;
         const double seedWeight=field.mesh->seedWeights.empty()?1:field.mesh->seedWeights[i];
         if(seedWeight<=0)continue;
-        std::vector<Corner> polygon;
-        bool finite=true;
+        bool finite=true;corners=0;
         for(int k=0;k<3;++k) {
             const auto point=field.mesh->vertices[field.mesh->triangles[i][k]];
             finite&=std::isfinite(f.depth[k]) && std::isfinite(point.x()) && std::isfinite(point.y());
-            polygon.push_back({point,f.depth[k]});
+            polygon[size_t(corners++)]={point,f.depth[k]};
         }
         if(!finite)continue;
         const auto clip=[&](auto distance) {
-            std::vector<Corner> next;
-            if(polygon.empty())return;
-            auto a=polygon.back();double da=distance(a);
-            for(const auto &b:polygon) {
-                const double db=distance(b);
+            if(!corners)return;
+            int count=0;
+            auto a=polygon[size_t(corners-1)];double da=distance(a);
+            for(int j=0;j<corners;++j) {
+                const auto &b=polygon[size_t(j)];const double db=distance(b);
                 if((da>0)!=(db>0)) {
                     const double t=da/(da-db);
-                    next.push_back({a.point+(b.point-a.point)*t,a.depth+(b.depth-a.depth)*t});
+                    next[size_t(count++)]={a.point+(b.point-a.point)*t,a.depth+(b.depth-a.depth)*t};
                 }
-                if(db>0)next.push_back(b);
+                if(db>0)next[size_t(count++)]=b;
                 a=b;da=db;
             }
-            polygon=std::move(next);
+            std::swap(polygon,next);corners=count;
         };
         clip([&](Corner p){return p.depth-cutoff;});
         clip([&](Corner p){return p.point.x()-view.left();});
         clip([&](Corner p){return view.right()-p.point.x();});
         clip([&](Corner p){return p.point.y()-view.top();});
         clip([&](Corner p){return view.bottom()-p.point.y();});
-        if(polygon.size()<3)continue;
+        if(corners<3)continue;
         const auto &ids=field.mesh->triangles[i];const auto origin=field.mesh->vertices[ids[0]];
         const auto ab=field.mesh->vertices[ids[1]]-origin,ac=field.mesh->vertices[ids[2]]-origin;
         const double determinant=cross(ab,ac);if(std::abs(determinant)<1e-20)continue;
-        for(size_t k=1;k+1<polygon.size();++k) {
-            const std::array<QPointF,3> points{polygon[0].point,polygon[k].point,polygon[k+1].point};
+        for(int k=1;k+1<corners;++k) {
+            const std::array<QPointF,3> points{polygon[0].point,polygon[size_t(k)].point,polygon[size_t(k+1)].point};
             const double area=std::abs(cross(points[1]-points[0],points[2]-points[0]))*.5;
             if(!std::isfinite(area) || area<=1e-20)continue;
             const auto center=(points[0]+points[1]+points[2])/3.;
@@ -138,6 +143,9 @@ FlowParticleSeedDistribution buildFlowParticleSeeds(const FlowParticleSnapshot &
             out.wetArea+=area*seedWeight;speeds.push_back({speed,si,area*seedWeight});
         }
     }
+    // The reference speed is the first key, in ascending order, whose running
+    // wet area reaches 90 %. Keep the sorted accumulation exactly: a selection
+    // algorithm would change the summation order at the threshold.
     const auto percentile=[&](bool si) {
         std::sort(speeds.begin(),speeds.end(),[&](const Speed &a,const Speed &b){return si?a.si<b.si:a.scene<b.scene;});
         double area=0;

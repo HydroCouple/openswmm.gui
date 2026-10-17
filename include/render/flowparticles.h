@@ -326,6 +326,10 @@ public:
     FlowParticleWork advance(double elapsed,int stepBudget=16384);
     void eraseFinished();
     int releaseOffscreen(const QRectF &view,int requestedSlots);
+    // Retire the active particles nearest the end of their assigned lives, so
+    // density can fall within one fade. A tick in progress defers to its end.
+    int retire(int count);
+    bool inTick() const {return m_inTick;}
     void setAppearance(double scale,FlowParticleAppearance appearance) {m_renderScale=scale;m_appearance=std::move(appearance);}
     std::shared_ptr<const FlowParticleFrame> frame() const { return m_frame; }
     const FlowParticleStorage &particles() const { return m_particles; }
@@ -357,6 +361,7 @@ private:
     double m_clock=0,m_elapsed=0,m_tick=0,m_publishedClock=0,m_previousPublishedClock=0;
     size_t m_cursor=0;
     bool m_inTick=false;
+    int m_pendingRetire=0;
     // Only the current particle can have a pending reduction. Publication
     // keeps the original history until the linear pass is complete.
     FlowParticleRing<FlowParticleSample> m_reducedHistory;

@@ -129,7 +129,7 @@ bool FlowParticleSystem::setField(std::shared_ptr<const FlowParticleSnapshot> fi
        || !std::isfinite(transitionSeconds) || transitionSeconds<0 || m_inTick)return false;
     std::shared_ptr<const FlowParticleSnapshot> previousBlend;
     if(m_field && m_field->geometry!=field->geometry) {
-        m_particles.clear();m_inTick=false;m_elapsed=0;m_cursor=0;
+        m_particles.clear();m_inTick=false;m_elapsed=0;m_cursor=0;m_pendingRetire=0;
     } else if(m_field && m_field->mesh!=field->mesh) {
         const auto &old=m_field->mesh->sourceTriangles,&next=field->mesh->sourceTriangles;
         if(transitionSeconds>0) {
@@ -424,6 +424,7 @@ FlowParticleWork FlowParticleSystem::advance(double elapsed,int stepBudget) {
             ++m_cursor;
         }
         m_clock+=m_tick;m_elapsed=std::max(0.,m_elapsed-m_tick);m_inTick=false;++out.ticks;
+        if(m_pendingRetire)retire(std::exchange(m_pendingRetire,0));
         if(m_stagingFrame)publish(std::exchange(m_stagingFrame,{}));
         else if(!m_frame || m_settings.publicationInterval==0 || m_clock-m_publishedClock+1e-12>=m_settings.publicationInterval)publish();
     }
@@ -505,6 +506,18 @@ int FlowParticleSystem::releaseOffscreen(const QRectF &view,int requestedSlots) 
         else m_particles.move(retained++,i);
     }
     m_particles.resize(retained);return released;
+}
+int FlowParticleSystem::retire(int count) {
+    if(count<=0)return 0;
+    if(m_inTick) {m_pendingRetire=std::max(m_pendingRetire,count);return 0;}
+    std::vector<std::pair<double,size_t>> remaining;remaining.reserve(m_particles.size());
+    for(size_t i=0;i<m_particles.size();++i) {
+        const auto p=m_particles[i];if(p.stop==FlowParticleStop::None)remaining.push_back({p.lifetime-p.age,i});
+    }
+    const size_t n=std::min(size_t(count),remaining.size());
+    std::partial_sort(remaining.begin(),remaining.begin()+std::ptrdiff_t(n),remaining.end());
+    for(size_t k=0;k<n;++k) {auto p=m_particles[remaining[k].second];stop(p,FlowParticleStop::Lifetime);}
+    return int(n);
 }
 double FlowParticleSystem::interpolation() const {
     if(m_settings.publicationInterval==0)return std::clamp(m_elapsed/m_settings.timestep,0.,1.);

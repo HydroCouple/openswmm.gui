@@ -49,6 +49,100 @@ static std::shared_ptr<FlowParticleSnapshot> field(int columns,int rows,QPointF 
 static FlowParticleSettings longLife() {
     FlowParticleSettings s;s.minimumLifetime=s.maximumLifetime=100;s.trailSeconds=100;s.maxHistory=20000;return s;
 }
+// The seed distribution before the allocation-free rewrite (2026-10-17), kept
+// verbatim so the production build can be checked for bit-identical output.
+static double referenceCross(QPointF a,QPointF b) { return a.x()*b.y()-a.y()*b.x(); }
+static FlowParticleSeedDistribution referenceSeedDistribution(const FlowParticleSnapshot &field,QRectF view,double cutoff) {
+    FlowParticleSeedDistribution out;
+    if(!field.mesh || !view.isValid() || !std::isfinite(cutoff)
+       || field.fields.size()!=field.mesh->triangles.size()
+       || (!field.mesh->seedWeights.empty() && field.mesh->seedWeights.size()!=field.fields.size()))return out;
+    struct Corner {QPointF point;double depth;};
+    struct Speed {double scene,si,area;};
+    std::vector<Speed> speeds;
+    std::vector<double> areas,sceneSpeeds;
+    for(size_t i=0;i<field.fields.size();++i) {
+        const auto &f=field.fields[i];if(!f.available)continue;
+        const double seedWeight=field.mesh->seedWeights.empty()?1:field.mesh->seedWeights[i];
+        if(seedWeight<=0)continue;
+        std::vector<Corner> polygon;
+        bool finite=true;
+        for(int k=0;k<3;++k) {
+            const auto point=field.mesh->vertices[field.mesh->triangles[i][k]];
+            finite&=std::isfinite(f.depth[k]) && std::isfinite(point.x()) && std::isfinite(point.y());
+            polygon.push_back({point,f.depth[k]});
+        }
+        if(!finite)continue;
+        const auto clip=[&](auto distance) {
+            std::vector<Corner> next;
+            if(polygon.empty())return;
+            auto a=polygon.back();double da=distance(a);
+            for(const auto &b:polygon) {
+                const double db=distance(b);
+                if((da>0)!=(db>0)) {
+                    const double t=da/(da-db);
+                    next.push_back({a.point+(b.point-a.point)*t,a.depth+(b.depth-a.depth)*t});
+                }
+                if(db>0)next.push_back(b);
+                a=b;da=db;
+            }
+            polygon=std::move(next);
+        };
+        clip([&](Corner p){return p.depth-cutoff;});
+        clip([&](Corner p){return p.point.x()-view.left();});
+        clip([&](Corner p){return view.right()-p.point.x();});
+        clip([&](Corner p){return p.point.y()-view.top();});
+        clip([&](Corner p){return view.bottom()-p.point.y();});
+        if(polygon.size()<3)continue;
+        const auto &ids=field.mesh->triangles[i];const auto origin=field.mesh->vertices[ids[0]];
+        const auto ab=field.mesh->vertices[ids[1]]-origin,ac=field.mesh->vertices[ids[2]]-origin;
+        const double determinant=referenceCross(ab,ac);if(std::abs(determinant)<1e-20)continue;
+        for(size_t k=1;k+1<polygon.size();++k) {
+            const std::array<QPointF,3> points{polygon[0].point,polygon[k].point,polygon[k+1].point};
+            const double area=std::abs(referenceCross(points[1]-points[0],points[2]-points[0]))*.5;
+            if(!std::isfinite(area) || area<=1e-20)continue;
+            const auto center=(points[0]+points[1]+points[2])/3.;
+            const double b=referenceCross(center-origin,ac)/determinant,c=referenceCross(ab,center-origin)/determinant;
+            const std::array<double,3> w{1-b-c,b,c};
+            auto velocity=f.velocity[0]*w[0]+f.velocity[1]*w[1]+f.velocity[2]*w[2];
+            for(int e=0;e<3;++e)velocity+=f.edgeCorrection[e]*(4*w[(e+1)%3]*w[(e+2)%3]);
+            const double speed=std::hypot(velocity.x(),velocity.y());
+            const double si=f.speed[0]*w[0]+f.speed[1]*w[1]+f.speed[2]*w[2];
+            if(!std::isfinite(speed) || !std::isfinite(si))continue;
+            out.triangles.push_back({points,int(i),0});areas.push_back(area*seedWeight);sceneSpeeds.push_back(speed);
+            out.wetArea+=area*seedWeight;speeds.push_back({speed,si,area*seedWeight});
+        }
+    }
+    const auto percentile=[&](bool si) {
+        std::sort(speeds.begin(),speeds.end(),[&](const Speed &a,const Speed &b){return si?a.si<b.si:a.scene<b.scene;});
+        double area=0;
+        for(const auto &speed:speeds) {area+=speed.area;if(area>=.9*out.wetArea)return si?speed.si:speed.scene;}
+        return 0.;
+    };
+    out.referenceSpeed=percentile(false);out.referenceSpeedSI=percentile(true);
+    double weight=0;
+    for(size_t i=0;i<out.triangles.size();++i) {
+        const double relative=out.referenceSpeed>0?std::min(sceneSpeeds[i]/out.referenceSpeed,1.):0;
+        weight+=areas[i]*(.4+.6*relative);out.triangles[i].cumulativeWeight=weight;
+    }
+    return out;
+}
+static bool sameSeedDistribution(const FlowParticleSeedDistribution &a,const FlowParticleSeedDistribution &b,QString *why) {
+    const auto exact=[](double x,double y){return x==y || (std::isnan(x) && std::isnan(y));};
+    if(a.triangles.size()!=b.triangles.size()) {*why=QString("piece count %1 vs %2").arg(a.triangles.size()).arg(b.triangles.size());return false;}
+    if(!exact(a.wetArea,b.wetArea) || !exact(a.referenceSpeed,b.referenceSpeed) || !exact(a.referenceSpeedSI,b.referenceSpeedSI)) {
+        *why=QString("wet area %1/%2, reference %3/%4, SI %5/%6").arg(a.wetArea,0,'g',17).arg(b.wetArea,0,'g',17)
+            .arg(a.referenceSpeed,0,'g',17).arg(b.referenceSpeed,0,'g',17).arg(a.referenceSpeedSI,0,'g',17).arg(b.referenceSpeedSI,0,'g',17);
+        return false;
+    }
+    for(size_t i=0;i<a.triangles.size();++i) {
+        const auto &p=a.triangles[i],&q=b.triangles[i];
+        bool same=p.cell==q.cell && exact(p.cumulativeWeight,q.cumulativeWeight);
+        for(int k=0;k<3;++k)same&=exact(p.points[k].x(),q.points[k].x()) && exact(p.points[k].y(),q.points[k].y());
+        if(!same) {*why=QString("piece %1 differs (cell %2 vs %3)").arg(i).arg(p.cell).arg(q.cell);return false;}
+    }
+    return true;
+}
 class FlowParticlesTest:public QObject {
     Q_OBJECT
 private slots:
@@ -460,6 +554,165 @@ private slots:
         QCOMPARE(system.frame()->unresolvedOrbits,quint64(0));
         QCOMPARE(system.particles().front().stop,FlowParticleStop::None);
         QVERIFY(std::hypot(system.particles().front().position.x()-20.3,system.particles().front().position.y()-30)>5);
+    }
+    void seedBuildMatchesThePreviousImplementationExactly() {
+        struct Case {QString name;std::shared_ptr<FlowParticleSnapshot> snapshot;QRectF view;double cutoff;};
+        std::vector<Case> cases;
+        {
+            auto snapshot=field(20,20,{.1,0});
+            for(size_t i=0;i<snapshot->fields.size();++i)if(snapshot->mesh->vertices[snapshot->mesh->triangles[i][0]].x()>=1)
+                snapshot->fields[i].depth={0,0,0};
+            cases.push_back({"mostly-dry",snapshot,{0,0,20,20},.001});
+        }
+        {
+            auto snapshot=field(1,1);
+            for(size_t i=0;i<snapshot->fields.size();++i)for(int k=0;k<3;++k)
+                snapshot->fields[i].depth[k]=float(snapshot->mesh->vertices[snapshot->mesh->triangles[i][k]].x()-.95);
+            cases.push_back({"shoreline-and-view-clip",snapshot,{.97,.2,.03,.6},0});
+        }
+        {
+            auto snapshot=field(40,40,{},true);
+            snapshot->fields[5].depth[1]=NAN;snapshot->fields[9].available=false;
+            for(size_t i=0;i<snapshot->fields.size();++i)for(int e=0;e<3;++e)snapshot->fields[i].edgeCorrection[e]={.01*double(i%5),-.02*double(e)};
+            cases.push_back({"rotating-clipped-view",snapshot,{5.5,7.25,20.3,18.7},.001});
+            auto weighted=std::make_shared<FlowParticleSnapshot>(*snapshot);
+            auto weightedMesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+            weightedMesh->seedWeights.assign(weighted->fields.size(),0);
+            for(size_t i=0;i<weighted->fields.size();i+=7)weightedMesh->seedWeights[i]=1+double(i%3);
+            weighted->mesh=weightedMesh;
+            cases.push_back({"overview-seed-weights",weighted,{5.5,7.25,20.3,18.7},.001});
+            cases.push_back({"invalid-view",snapshot,QRectF(),.001});
+        }
+        for(const auto &c:cases) {
+            const auto expected=referenceSeedDistribution(*c.snapshot,c.view,c.cutoff);
+            const auto actual=buildFlowParticleSeeds(*c.snapshot,c.view,c.cutoff);
+            QString why;
+            QVERIFY2(sameSeedDistribution(actual,expected,&why),qPrintable(c.name+": "+why));
+            if(c.view.isValid() && c.name!="mostly-dry")QVERIFY2(!expected.triangles.empty(),qPrintable(c.name+" fixture produced no wet pieces"));
+            for(quint64 seed=0;seed<64 && !expected.triangles.empty();++seed)QCOMPARE(actual.sample(seed),expected.sample(seed));
+        }
+    }
+    void smallViewChangesKeepTheSeedDistribution() {
+        const auto snapshot=field(200,20,{.01,0});
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+        input->geometry=1;input->revision=1;
+        for(const auto &ids:input->mesh->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={.01,0};
+            for(int k=0;k<3;++k)t.metres[k]=input->mesh->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        FlowParticleSettings settings;settings.maxParticles=200;settings.maxHistory=64;
+        settings.minimumLifetime=settings.maximumLifetime=100;settings.publicationInterval=1./30.;
+        FlowParticleController controller;const QRectF view(10,2,20,10);
+        controller.configure(settings,view,50,{10,40});controller.setPresentedRevision(1);controller.request(input);controller.waitForDone();
+        QCOMPARE(controller.diagnostics().seedBuilds,quint64(1));
+        // Renderer culling margins and a two-percent pan reuse the distribution.
+        controller.configure(settings,view.adjusted(-.05,-.05,.05,.05),50,{10,40});controller.waitForDone();
+        controller.configure(settings,view.translated(.4,.1),50,{10,40});controller.waitForDone();
+        QCOMPARE(controller.diagnostics().seedBuilds,quint64(1));
+        // A longer pan and a wheel notch each rebuild exactly once.
+        controller.configure(settings,view.translated(3,0),50,{10,40});controller.waitForDone();
+        QCOMPARE(controller.diagnostics().seedBuilds,quint64(2));
+        const QRectF zoomed(view.center().x()-15,view.center().y()-7.5,30,15);
+        quint64 lastId=0;for(const auto &p:controller.frame(1)->particles)lastId=std::max(lastId,p.id);
+        controller.configure(settings,zoomed,50,{20./3,40});controller.waitForDone();
+        QCOMPARE(controller.diagnostics().seedBuilds,quint64(3));
+        for(int i=0;i<6;++i) {controller.advance(1./60.);controller.waitForDone();}
+        QCOMPARE(controller.diagnostics().seedBuilds,quint64(3));
+        // Heads that drifted out of view are retained; every birth for the
+        // rebuilt distribution lands inside the current view.
+        int newborn=0;
+        for(const auto &p:controller.frame(1)->particles)if(p.id>lastId) {++newborn;QVERIFY(zoomed.contains(p.position));}
+        QVERIFY(controller.frame(1)->particles.size()>=50);Q_UNUSED(newborn);
+    }
+    void aGrowingIntegrationBacklogLowersDensityThenRecovers() {
+        // A rotation about the domain centre keeps most heads inside the mesh
+        // for the whole test, whatever the speed: a uniform fast flow would
+        // sweep every particle out within a tick and leave nothing to integrate.
+        const auto makeInput=[](double rate,quint64 revision) {
+            const auto snapshot=field(60,60);
+            auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=std::make_shared<FlowParticleMesh>(*snapshot->mesh);
+            input->geometry=1;input->revision=revision;
+            for(const auto &ids:input->mesh->triangles) {
+                FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;
+                QPointF centre;for(int k=0;k<3;++k) {t.metres[k]=input->mesh->vertices[ids[k]];centre+=t.metres[k]/3.;}
+                t.velocitySI={-(centre.y()-30)*rate,(centre.x()-30)*rate};
+                input->triangles.push_back(t);
+            }
+            return input;
+        };
+        FlowParticleSettings settings;settings.maxParticles=1200;settings.maxHistory=32;settings.fadeSeconds=.2;
+        settings.minimumLifetime=settings.maximumLifetime=100;settings.publicationInterval=1./30.;
+        FlowParticleController controller;const QRectF view(0,0,60,60);
+        controller.configure(settings,view,1000);controller.setPresentedRevision(1);controller.request(makeInput(.02,1));
+        const auto activeHeads=[&](quint64 revision) {
+            int active=0;const auto frame=controller.frame(revision);
+            if(frame)for(const auto &p:frame->particles)active+=p.stop==FlowParticleStop::None;
+            return active;
+        };
+        for(int i=0;i<40;++i) {controller.advance(1./60.);controller.waitForDone();}
+        QVERIFY2(activeHeads(1)>=1000,qPrintable(QString("Slow flow filled only %1 heads").arg(activeHeads(1))));
+        QCOMPARE(controller.diagnostics().populationScale,1.);
+        // Thousands of units per second across unit cells need over a thousand
+        // substeps per particle and tick, far beyond the per-job budget. Drive
+        // it at the real display cadence so the backlog grows as on screen.
+        controller.setPresentedRevision(2);controller.request(makeInput(1000,2));
+        QElapsedTimer wall;wall.start();
+        while(controller.diagnostics().populationScale>=1 && wall.elapsed()<20000) {controller.advance(1./60.);QTest::qWait(16);}
+        const double scale=controller.diagnostics().populationScale;
+        QVERIFY2(scale<1,qPrintable(QString("A sustained backlog never lowered the density ceiling (lag %1 s, %2 active heads)")
+            .arg(controller.diagnostics().lagSeconds).arg(activeHeads(2))));
+        QVERIFY(controller.diagnostics().lagSeconds>.5);
+        QVERIFY2(controller.diagnostics().targetPopulation<=500,qPrintable(QString("target %1").arg(controller.diagnostics().targetPopulation)));
+        // Retirement waits for the tick in progress and the next publication.
+        for(int i=0;i<300 && activeHeads(2)>controller.diagnostics().targetPopulation+1;++i) {controller.advance(1./60.);QTest::qWait(16);}
+        const auto frame=controller.frame(2);QVERIFY(frame);
+        QVERIFY2(activeHeads(2)<=controller.diagnostics().targetPopulation+1,
+                 qPrintable(QString("%1 heads remain active above a ceiling of %2").arg(activeHeads(2)).arg(controller.diagnostics().targetPopulation)));
+        QVERIFY(frame->stopCounts[size_t(FlowParticleStop::Lifetime)]>=100);
+        // Slow flow again: the backlog clears and the ceiling restores geometrically.
+        controller.setPresentedRevision(3);controller.request(makeInput(.02,3));
+        const double reduced=controller.diagnostics().populationScale;
+        for(int i=0;i<800 && controller.diagnostics().populationScale<1;++i) {controller.advance(1./60.);controller.waitForDone();}
+        QVERIFY2(controller.diagnostics().populationScale>reduced,"The density ceiling never recovered after the backlog cleared");
+        QVERIFY(controller.diagnostics().lagSeconds<.1);
+    }
+    void seedBuildBenchmarkOnARegionalField() {
+        if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_BENCHMARK"))QSKIP("Opt-in seed distribution measurement");
+        // 250,000 regional triangles (the capture limit): a diagonal shoreline,
+        // rotating speeds and a view that clips every border.
+        auto snapshot=field(500,250,{},true);
+        for(size_t i=0;i<snapshot->fields.size();++i)for(int k=0;k<3;++k) {
+            const auto p=snapshot->mesh->vertices[snapshot->mesh->triangles[i][k]];
+            snapshot->fields[i].depth[k]=float((p.x()-150+.3*p.y())*.01);
+        }
+        const QRectF view(50,20,400,200);
+        std::vector<double> before,after;FlowParticleSeedDistribution reference,current;
+        for(int i=0;i<5;++i) {
+            QElapsedTimer timer;timer.start();reference=referenceSeedDistribution(*snapshot,view,.001);before.push_back(timer.nsecsElapsed()/1e6);
+            timer.restart();current=buildFlowParticleSeeds(*snapshot,view,.001);after.push_back(timer.nsecsElapsed()/1e6);
+        }
+        QString why;QVERIFY2(sameSeedDistribution(current,reference,&why),qPrintable(why));
+        std::sort(before.begin(),before.end());std::sort(after.begin(),after.end());
+        // The same view's regional capture (GUI thread) and field build (worker).
+        QElapsedTimer timer;timer.start();
+        const auto captured=FlowParticleMesh::captureRegions(snapshot->mesh->vertices,snapshot->mesh->triangles,snapshot->mesh->grid,{view});
+        const double captureMs=timer.nsecsElapsed()/1e6;QVERIFY(captured);
+        auto input=std::make_shared<FlowParticleNativeInput>();input->mesh=captured;input->geometry=1;input->revision=1;
+        input->triangles.reserve(captured->triangles.size());
+        for(const auto &ids:captured->triangles) {
+            FlowParticleNativeTriangle t;t.available=true;t.meanDepth=1;t.depth={1,1,1};t.velocityOnly=true;t.velocitySI={1,0};
+            for(int k=0;k<3;++k)t.metres[k]=captured->vertices[ids[k]];
+            input->triangles.push_back(t);
+        }
+        std::atomic_bool cancel=false;timer.restart();const auto built=buildFlowParticleField(*input,cancel);
+        const double fieldMs=timer.nsecsElapsed()/1e6;QVERIFY(built);
+        QDir().mkpath(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT));
+        QFile report(QStringLiteral(FLOW_PARTICLE_TEST_OUTPUT)+"/seed-build-benchmark.json");QVERIFY(report.open(QIODevice::WriteOnly));
+        report.write(QJsonDocument(QJsonObject{{"triangles",qint64(snapshot->fields.size())},{"wetPieces",qint64(current.triangles.size())},
+            {"samples",5},{"previousMedianMs",before[2]},{"previousMinMs",before.front()},{"currentMedianMs",current.triangles.empty()?0:after[2]},
+            {"currentMinMs",after.front()},{"capturedTriangles",qint64(captured->triangles.size())},{"captureRegionsMs",captureMs},
+            {"fieldBuildWithAdjacencyMs",fieldMs}}).toJson());
     }
     void publicationBudgetAtTwoThousandParticles() {
         if(!qEnvironmentVariableIsSet("FLOW_PARTICLE_BENCHMARK"))QSKIP("Opt-in publication measurement");

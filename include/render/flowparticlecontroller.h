@@ -20,6 +20,11 @@ struct FlowParticleDiagnostics {
     double speedExponent=1,referencePixelsPerSecond=0;
     int targetPopulation=0;
     quint64 birthAttempts=0,failedBirths=0,offscreenReplacements=0;
+    // Worker preparation cost: cumulative and most recent field/seed builds.
+    double fieldBuildMs=0,lastFieldBuildMs=0,seedBuildMs=0,lastSeedBuildMs=0;
+    quint64 fieldBuilds=0,seedBuilds=0;
+    // Integration backlog and the automatic density ceiling applied under it.
+    double lagSeconds=0,populationScale=1;
 };
 // GUI facade; the serial worker exclusively owns the integrator and immutable
 // hydraulic captures. New results coalesce while a bounded work slice runs.

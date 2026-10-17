@@ -5,9 +5,11 @@
 #include <QSGTexture>
 #include <QQuickWindow>
 #include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <algorithm>
 #include <cstring>
 #include <cmath>
+Q_DECLARE_LOGGING_CATEGORY(lcFlowPerf)
 
 namespace {
 using Vertex=OpenSWMM::Render::FlowParticleVertex;
@@ -75,6 +77,13 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
     markDirty(DirtyMaterial);
     if(frame==m_frame && scale==m_scale && trackedId==m_trackedId && appearance.anchor==m_anchor
        && appearance.color==m_color && appearance.revision==m_appearanceRevision && appearance.viewport==m_viewport)return;
+    // A trackpad pinch changes the scale slightly on every rendered frame while
+    // one publication is shown. Keep that geometry for a single frame (width
+    // error under 10 %); the next publication or sync rebuilds it.
+    const bool pinchStep=frame==m_frame && m_frame && scale!=m_scale && m_scale>0 && std::abs(scale-m_scale)<=.1*m_scale
+        && trackedId==m_trackedId && appearance.anchor==m_anchor && appearance.color==m_color && appearance.revision==m_appearanceRevision;
+    if(pinchStep && !m_deferredView) {m_deferredView=true;return;}
+    m_deferredView=false;
     QElapsedTimer build;build.start();
     const auto previous=m_frame;
     m_frame=std::move(frame);m_scale=scale;m_trackedId=trackedId;
@@ -111,4 +120,5 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
         if(m->timing)m->timing->setFiltering(QSGTexture::Nearest);
     }
     m_geometryBuildMs=build.nsecsElapsed()/1e6;++m_uploads;geometry()->markVertexDataDirty();markDirty(DirtyGeometry);
+    qCDebug(lcFlowPerf)<<"flow ribbon"<<(m_frame!=previous?"new frame":"view change")<<vertices<<"vertices"<<m_geometryBuildMs<<"ms";
 }
