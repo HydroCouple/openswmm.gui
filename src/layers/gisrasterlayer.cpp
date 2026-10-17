@@ -503,7 +503,7 @@ GISRasterLayer::styleSubjects()
 
 double GISRasterLayer::valueAt(double mapX, double mapY,
                                 const SpatialReferenceSystem *canvasSRS,
-                                int /*band*/, bool *ok) const
+                                int band, bool *ok) const
 {
     if (ok) *ok = false;
 
@@ -511,7 +511,7 @@ double GISRasterLayer::valueAt(double mapX, double mapY,
     // post-.ovr-build reload that reopens it.
     QMutexLocker lock(&m_datasetMutex);
 
-    if (!m_dataset)
+    if (!m_dataset || band<1 || band>m_dataset->GetRasterCount())
         return std::numeric_limits<double>::quiet_NaN();
 
     // Full-resolution probe straight from the source band via the native
@@ -544,28 +544,36 @@ double GISRasterLayer::valueAt(double mapX, double mapY,
             m_probeCTCanvasKey = src;
             m_probeCTRasterKey = dst;
         }
+        if (!src->IsSame(dst) && !m_probeCT)
+            return std::numeric_limits<double>::quiet_NaN();
         if (m_probeCT && !m_probeCT->Transform(1, &qx, &qy))
             return std::numeric_limits<double>::quiet_NaN();
     }
 
-    const double pixX = (qx - gt[0]) / gt[1];
-    const double pixY = (qy - gt[3]) / gt[5];
+    double inverse[6]{};
+    if(!GDALInvGeoTransform(gt,inverse))return std::numeric_limits<double>::quiet_NaN();
+    const double pixX=inverse[0]+inverse[1]*qx+inverse[2]*qy;
+    const double pixY=inverse[3]+inverse[4]*qx+inverse[5]*qy;
     const int rasterW = m_dataset->GetRasterXSize();
     const int rasterH = m_dataset->GetRasterYSize();
-    const int px = static_cast<int>(pixX);
-    const int py = static_cast<int>(pixY);
+    if(!std::isfinite(pixX)||!std::isfinite(pixY)||pixX<0||pixY<0||pixX>=rasterW||pixY>=rasterH)
+        return std::numeric_limits<double>::quiet_NaN();
+    const int px = static_cast<int>(std::floor(pixX));
+    const int py = static_cast<int>(std::floor(pixY));
 
     if (px < 0 || px >= rasterW || py < 0 || py >= rasterH)
         return std::numeric_limits<double>::quiet_NaN();
 
     double value = 0.0;
-    CPLErr err = m_dataset->GetRasterBand(m_renderBand)->RasterIO(
+    auto* sourceBand=m_dataset->GetRasterBand(band);
+    CPLErr err = sourceBand->RasterIO(
         GF_Read, px, py, 1, 1, &value, 1, 1, GDT_Float64, 0, 0);
 
     if (err != CE_None)
         return std::numeric_limits<double>::quiet_NaN();
 
-    if (m_hasNoData && value == m_noDataValue)
+    int hasNoData=0;const double noData=sourceBand->GetNoDataValue(&hasNoData);
+    if (!std::isfinite(value) || (hasNoData && value == noData))
         return std::numeric_limits<double>::quiet_NaN();
 
     if (ok) *ok = true;

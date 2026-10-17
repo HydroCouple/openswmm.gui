@@ -255,7 +255,7 @@ void sampleRasterCentroid(SamplingProgress &promise, const Job &job,
     }
 
     const int n = int(job.triangles.size());
-    const bool classified = job.mode == Mode::ClassifiedInfil;
+    const bool classified = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory);
     if (!classified) r.values.resize(channels.size());
 
     for (int i = 0; i < n; ++i) {
@@ -270,6 +270,7 @@ void sampleRasterCentroid(SamplingProgress &promise, const Job &job,
             QString k2;
             if (channels.size() > 1 && i < raw[1].size())
                 k2 = rasterKeyText(raw[1][i]);
+            if(job.mode==Mode::SingleCategory){r.triangles.append(job.triangles[i]);r.keys.append(k1);continue;}
             bool matched = false;
             const mesh::InfilRow row = job.table.lookup(k1, k2, &matched);
             if (!matched) ++r.unmatchedKeys;
@@ -336,7 +337,7 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
     // nonsense, which is why it is reported back to the user.
     Sampling mode = job.sampling;
     if (mode == Sampling::OverlayAuto) {
-        const bool categorical = job.mode == Mode::ClassifiedInfil
+        const bool categorical = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory)
                                  || isCategoricalType(bands[0]->GetRasterDataType());
         mode = categorical ? Sampling::Majority : Sampling::AreaWeightedMean;
         r.resolvedSampling = categorical
@@ -377,7 +378,7 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
     }
 
     const int  n          = int(job.triangles.size());
-    const bool classified = job.mode == Mode::ClassifiedInfil;
+    const bool classified = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory);
     if (!classified) r.values.resize(channels.size());
 
     QVector<double>                buf;
@@ -504,6 +505,7 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
                 const double v2 = channelValue(1, &ok2);
                 if (ok2) k2 = rasterKeyText(v2);
             }
+            if(job.mode==Mode::SingleCategory){r.triangles.append(job.triangles[i]);r.keys.append(k1);continue;}
             bool matched = false;
             const mesh::InfilRow row = job.table.lookup(k1, k2, &matched);
             if (!matched) ++r.unmatchedKeys;
@@ -676,7 +678,7 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
                           OGRLayer *ol, SampleResult &r)
 {
     OGRFeatureDefn *defn = ol->GetLayerDefn();
-    const bool classified = job.mode == Mode::ClassifiedInfil;
+    const bool classified = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory);
 
     QVector<int> valueIdx;      // numeric modes, parallel to targetKeys
     int key1Idx = -1, key2Idx = -1;
@@ -838,6 +840,7 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
             const QString k1 = sep < 0 ? combined : combined.left(sep);
             const QString k2 = sep < 0 ? QString() : combined.mid(sep + 1);
             if (k1.isEmpty()) { ++r.skippedNoData; continue; }
+            if(job.mode==Mode::SingleCategory){r.triangles.append(job.triangles[i]);r.keys.append(k1);continue;}
             bool matched = false;
             const mesh::InfilRow row = job.table.lookup(k1, k2, &matched);
             if (!matched) ++r.unmatchedKeys;
@@ -896,7 +899,7 @@ void runSamplingImpl(SamplingProgress &promise, const Job &job,
             return;
         }
         QVector<int> channels;
-        if (job.mode == Mode::ClassifiedInfil) {
+        if ((job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory)) {
             channels.append(job.keyBand1);
             if (job.keyBand2 > 0) channels.append(job.keyBand2);
         } else {

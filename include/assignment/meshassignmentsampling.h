@@ -17,7 +17,8 @@ struct MeshAssignmentSampling {
     enum class Mode {
         SingleNumeric,     ///< One source value → one numeric cell parameter.
         MultiNumeric,      ///< N source values → N numeric cell parameters.
-        ClassifiedInfil    ///< Key (or key pair) → a whole mesh::InfilRow.
+        ClassifiedInfil,   ///< Key (or key pair) → a whole mesh::InfilRow.
+        SingleCategory    ///< One categorical key per cell (e.g. snowpack class).
     };
 
     /*! \brief How one cell's source value is obtained. */

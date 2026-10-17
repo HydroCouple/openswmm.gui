@@ -51,6 +51,11 @@ bool QualityPage::tracksReservedSpecies() const
         || (m_heatTransportBox && m_heatTransportBox->isChecked());
 }
 
+void QualityPage::setHeatEnabled(bool enabled) { m_heatTransportBox->setChecked(enabled); }
+
+bool QualityPage::heatEnabled() const { return m_heatTransportBox && m_heatTransportBox->isChecked(); }
+bool QualityPage::ageEnabled() const { return m_waterAgeBox && m_waterAgeBox->isChecked(); }
+
 void QualityPage::buildUi()
 {
     auto *root = new QVBoxLayout(this);
@@ -195,11 +200,17 @@ void QualityPage::buildUi()
     connect(m_heatTransportBox, &QCheckBox::toggled,
             this, [this](bool) { emit gateInputsChanged(); });
     auto *resNote = new QLabel(
-        tr("Per-source initial ages are edited below; heat meteorology is "
-           "configured in its component file until the heat page arrives."),
+        tr("Configure source temperatures and heat exchange in Model → Heat. "
+           "Weather and shared radiation are configured in Climatology. "
+           "Temperature transport and local heat exchange are separate settings."),
         resGroup);
     resNote->setWordWrap(true);
     resLay->addWidget(resNote);
+    auto* heatSettings=new QPushButton(tr("Edit heat configuration…"),resGroup);
+    heatSettings->setAutoDefault(false);heatSettings->setObjectName("qt_editHeatConfigBtn");
+    heatSettings->setToolTip(tr("Accepting this editor applies heat settings to the project. They remain applied if Simulation Options is cancelled; use Undo to restore them."));
+    connect(heatSettings,&QPushButton::clicked,this,&QualityPage::showHeatSettingsRequested);
+    resLay->addWidget(heatSettings);
 
     // Y3b: the Water Age Sources editor, reachable from the page that
     // enables the tracking it configures.

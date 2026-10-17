@@ -74,6 +74,21 @@ QString MeshSnowModel::load(SWMM_Engine engine) {
     }
     beginResetModel();rows=std::move(next);packs=names;mode=nextMode;step=nextStep;endResetModel();return {};
 }
+QString MeshSnowModel::stageSamples(int property,const QVector<int>& cells,const QVector<double>& values,
+    const QStringList& keys,const QMap<QString,QString>& classPacks,const QStringList& tags,int* skipped) {
+    if(skipped)*skipped=0;
+    if(property<-1||property>5||(property<0?keys.size():values.size())!=cells.size())return tr("Invalid sampled snow values.");
+    auto next=rows;
+    for(int i=0;i<cells.size();++i){const int cell=cells[i];if(cell<0||cell>=tags.size())return tr("A sampled cell no longer exists.");
+        MeshSnowRow row;row.cell=cell;row.tag.clear();row.pack=effective(cell,tags[cell]).pack;
+        int found=-1;for(int k=0;k<next.size();++k)if(next[k].cell==cell){row=next[k];found=k;break;}
+        if(property<0){const auto pack=classPacks.value(keys[i]);const auto canonical=std::find_if(packs.cbegin(),packs.cend(),[&](const QString& name){return name.compare(pack,Qt::CaseInsensitive)==0;});if(pack.isEmpty()||canonical==packs.cend()){if(skipped)++*skipped;continue;}row.pack=*canonical;}
+        else {const double v=values[i];if(!std::isfinite(v)||(property!=2&&v<0)||(property==0&&v>1)||(property==3&&v<=0)||(property==4&&v>=90)||(property==5&&v>360)){if(skipped)++*skipped;continue;}row.overrides[property]=v;}
+        if(found<0)next.append(row);else next[found]=row;
+    }
+    beginResetModel();rows=std::move(next);endResetModel();return {};
+}
+
 QString MeshSnowModel::validate(const QStringList& tags)const {
     if(mode<0||mode>2||!std::isfinite(step)||step<0||step>3600)return tr("Snow step must be 0 (inherit) or at most 3600 seconds.");
     QSet<QString> keys;

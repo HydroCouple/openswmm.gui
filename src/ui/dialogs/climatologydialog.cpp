@@ -8,9 +8,12 @@
  * \see Engine API: openswmm/engine/openswmm_climate.h
  */
 #include "ui/dialogs/climatologydialog.h"
+#include <openswmm/engine/openswmm_heat.h>
 
 #include "core/swmmdatetime.h"
 #include "ui/uiscrollhelpers.h"
+#include "ui/precisenumericvalue.h"
+#include "ui/hydrothermalconfiguration.h"
 #include "ui/widgets/relativepathpicker.h"
 
 #include <QCheckBox>
@@ -35,6 +38,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <cmath>
+#include <algorithm>
 
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -68,7 +72,9 @@ QTableWidget *makeMonthlyTable(const QString &header)
 double cellValue(QTableWidget *t, int row, int col)
 {
     auto *it = t->item(row, col);
-    return it ? it->text().toDouble() : 0.0;
+    if(!it)return 0.0;
+    if(it->data(Qt::UserRole+80).isValid() && it->text()==it->data(Qt::UserRole+81).toString())return it->data(Qt::UserRole+80).toDouble();
+    return it->text().toDouble();
 }
 
 void setCell(QTableWidget *t, int row, int col, double v)
@@ -76,6 +82,7 @@ void setCell(QTableWidget *t, int row, int col, double v)
     auto *it = t->item(row, col);
     if (!it) { it = new QTableWidgetItem; t->setItem(row, col, it); }
     it->setText(QString::number(v, 'g', 10));
+    it->setData(Qt::UserRole+80,v);it->setData(Qt::UserRole+81,it->text());
 }
 
 void readColumn(QTableWidget *t, int col, double *out, int n)
@@ -104,6 +111,7 @@ ClimatologyDialog::ClimatologyDialog(SWMM_Engine engine, SWMMModelLayer *layer,
     buildUi();
     readFromEngine();
     m_initialSig = serialize();
+    m_tempFile->setProperty("initialAbsolute",m_tempFile->absolutePath());
 }
 
 void ClimatologyDialog::setCurrentTab(int idx)
@@ -277,7 +285,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     populatePatternCombo(m_recovery);
     form->addRow(tr("Soil Reco&very Pattern (optional):"), m_recovery);
 
-    m_dryOnly = new QCheckBox(tr("Evaporate only during dry periods"));
+    m_dryOnly = new QCheckBox(tr("Evaporate only during dry periods (lumped runoff / LID)"));
     form->addRow(QString(), m_dryOnly);
 
     connect(m_evapType, qOverload<int>(&QComboBox::currentIndexChanged),
@@ -739,6 +747,7 @@ void ClimatologyDialog::setProjectAnchor(const QString &dir)
     if (m_metFile) m_metFile->setProjectAnchor(dir);
     if (unchanged) {
         m_metFile->setProperty("initialPath", m_metFile->absolutePath());
+        m_tempFile->setProperty("initialAbsolute",m_tempFile->absolutePath());
         m_initialSig = serialize();
     }
 }
@@ -780,7 +789,7 @@ void ClimatologyDialog::readFromEngine()
         double m[12] = {};
         if (swmm_climate_get_evap_monthly(m_engine, m, 12) == SWMM_OK) {
             writeColumn(m_evapMonthly, 0, m, 12);
-            m_evapConstant->setValue(m[0]);
+            OpenSWMM::Ui::setHydratedValue(m_evapConstant,m[0]);
         }
         double pc[12] = {};
         if (swmm_climate_get_pan_coeff(m_engine, pc, 12) == SWMM_OK)
@@ -820,7 +829,7 @@ void ClimatologyDialog::readFromEngine()
         double h[12] = {};
         if (swmm_climate_get_humidity_monthly(m_engine, h, 12) == SWMM_OK) {
             writeColumn(m_humMonthly, 0, h, 12);
-            m_humConstant->setValue(h[0]);
+            OpenSWMM::Ui::setHydratedValue(m_humConstant,h[0]);
         }
     }
     if (swmm_climate_get_humidity_timeseries(m_engine, buf, sizeof(buf)) == SWMM_OK)
@@ -828,12 +837,12 @@ void ClimatologyDialog::readFromEngine()
     onHumidityTypeChanged();
 
     // Snow melt
-    if (swmm_climate_get_snow_temp(m_engine, &d) == SWMM_OK) m_snowTemp->setValue(d);
-    if (swmm_climate_get_ati_weight(m_engine, &d) == SWMM_OK) m_atiWeight->setValue(d);
-    if (swmm_climate_get_neg_melt_ratio(m_engine, &d) == SWMM_OK) m_negMelt->setValue(d);
-    if (swmm_climate_get_elevation(m_engine, &d) == SWMM_OK) m_elevation->setValue(d);
-    if (swmm_climate_get_latitude(m_engine, &d) == SWMM_OK) m_latitude->setValue(d);
-    if (swmm_climate_get_longitude_correction(m_engine, &d) == SWMM_OK) m_longitude->setValue(d);
+    if (swmm_climate_get_snow_temp(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_snowTemp,d);
+    if (swmm_climate_get_ati_weight(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_atiWeight,d);
+    if (swmm_climate_get_neg_melt_ratio(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_negMelt,d);
+    if (swmm_climate_get_elevation(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_elevation,d);
+    if (swmm_climate_get_latitude(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_latitude,d);
+    if (swmm_climate_get_longitude_correction(m_engine, &d) == SWMM_OK) OpenSWMM::Ui::setHydratedValue(m_longitude,d);
 
     // Areal depletion
     {
@@ -890,91 +899,93 @@ void ClimatologyDialog::readFromEngine()
     onTempSourceChanged();
 }
 
-void ClimatologyDialog::writeToEngine()
+QString ClimatologyDialog::writeToEngine()
 {
-    if (!m_engine) return;
+    if (!m_engine) return tr("No model is open.");
 
     // Temperature
-    swmm_climate_set_temp_source(m_engine, m_tempSource->currentIndex());
-    if (!m_tempTs->currentText().trimmed().isEmpty())
-        swmm_climate_set_temp_timeseries(m_engine,
-            m_tempTs->currentText().trimmed().toUtf8().constData());
+    do { if (swmm_climate_set_temp_source(m_engine, m_tempSource->currentIndex()) != SWMM_OK) return tr("The engine refused the temperature source. Check the selected data and values."); } while (false);
+    if (m_tempSource->currentIndex()==1 && !m_tempTs->currentText().trimmed().isEmpty())
+        do { if (swmm_climate_set_temp_timeseries(m_engine,
+            m_tempTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the temperature timeseries. Check the selected data and values."); } while (false);
     // Commit the DISPLAYED form: relative to the project when it can be, which
     // is what the .inp will carry anyway. displayPath() falls back to the
     // absolute path when no relative form exists (different volume).
-    if (m_tempSource->currentIndex() == 2 && !m_tempFile->absolutePath().isEmpty())
-        swmm_file_path_set(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
-                           m_tempFile->displayPath().toUtf8().constData());
+    if (m_tempSource->currentIndex() == 2 && !m_tempFile->absolutePath().isEmpty() && m_tempFile->absolutePath()!=m_tempFile->property("initialAbsolute").toString())
+        do { if (swmm_file_path_set(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
+                           m_tempFile->displayPath().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the climate file path. Check the selected data and values."); } while (false);
     if (m_tempStartCheck->isChecked())
-        swmm_climate_set_temp_file_start(m_engine,
+        do { if (swmm_climate_set_temp_file_start(m_engine,
             openswmmvis::core::qDateTimeToSwmmDateTime(
-                QDateTime(m_tempStartDate->date(), QTime(0, 0))));
+                QDateTime(m_tempStartDate->date(), QTime(0, 0)))) != SWMM_OK) return tr("The engine refused the temperature file start. Check the selected data and values."); } while (false);
     else
-        swmm_climate_set_temp_file_start(m_engine, 0.0);
-    swmm_climate_set_temp_units(m_engine, m_tempUnits->currentData().toInt());
+        do { if (swmm_climate_set_temp_file_start(m_engine, 0.0) != SWMM_OK) return tr("The engine refused the temperature file start. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_temp_units(m_engine, m_tempUnits->currentData().toInt()) != SWMM_OK) return tr("The engine refused the temperature units. Check the selected data and values."); } while (false);
 
     // Evaporation
     const int evapType = m_evapType->currentData().toInt();
-    swmm_climate_set_evap_type(m_engine, evapType);
+    do { if (swmm_climate_set_evap_type(m_engine, evapType) != SWMM_OK) return tr("The engine refused the evap type. Check the selected data and values."); } while (false);
     {
         double m[12] = {};
+        readColumn(m_evapMonthly, 0, m, 12);
         if (evapType == 0) {
-            for (int k = 0; k < 12; ++k) m[k] = m_evapConstant->value();
-        } else {
-            readColumn(m_evapMonthly, 0, m, 12);
+            const double value=OpenSWMM::Ui::preciseValue(m_evapConstant);
+            if(m_evapConstant->value()!=m_evapConstant->property("swmmDisplayedValue").toDouble())std::fill_n(m,12,value);
+            else m[0]=value;
         }
-        swmm_climate_set_evap_monthly(m_engine, m, 12);
+        do { if (swmm_climate_set_evap_monthly(m_engine, m, 12) != SWMM_OK) return tr("The engine refused the evap monthly. Check the selected data and values."); } while (false);
         double pc[12] = {};
         readColumn(m_panCoeff, 0, pc, 12);
-        swmm_climate_set_pan_coeff(m_engine, pc, 12);
+        do { if (swmm_climate_set_pan_coeff(m_engine, pc, 12) != SWMM_OK) return tr("The engine refused the pan coeff. Check the selected data and values."); } while (false);
     }
     if (evapType == 2 && !m_evapTs->currentText().trimmed().isEmpty())
-        swmm_climate_set_evap_timeseries(m_engine,
-            m_evapTs->currentText().trimmed().toUtf8().constData());
-    swmm_climate_set_evap_recovery(m_engine,
-        m_recovery->currentText().trimmed().toUtf8().constData());
-    swmm_climate_set_dry_only(m_engine, m_dryOnly->isChecked() ? 1 : 0);
+        do { if (swmm_climate_set_evap_timeseries(m_engine,
+            m_evapTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the evap timeseries. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_evap_recovery(m_engine,
+        m_recovery->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the evap recovery. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_dry_only(m_engine, m_dryOnly->isChecked() ? 1 : 0) != SWMM_OK) return tr("The engine refused the dry only. Check the selected data and values."); } while (false);
 
     // Wind
-    swmm_climate_set_wind_type(m_engine, m_windType->currentData().toInt());
+    do { if (swmm_climate_set_wind_type(m_engine, m_windType->currentData().toInt()) != SWMM_OK) return tr("The engine refused the wind type. Check the selected data and values."); } while (false);
     {
         double w[12] = {};
         readColumn(m_windMonthly, 0, w, 12);
-        swmm_climate_set_wind_monthly(m_engine, w, 12);
+        do { if (swmm_climate_set_wind_monthly(m_engine, w, 12) != SWMM_OK) return tr("The engine refused the wind monthly. Check the selected data and values."); } while (false);
     }
 
     // Humidity
-    swmm_climate_set_humidity_variable(m_engine, m_humVar->currentData().toInt());
+    do { if (swmm_climate_set_humidity_variable(m_engine, m_humVar->currentData().toInt()) != SWMM_OK) return tr("The engine refused the humidity variable. Check the selected data and values."); } while (false);
     const int humType = m_humType->currentData().toInt();
-    swmm_climate_set_humidity_type(m_engine, humType);
+    do { if (swmm_climate_set_humidity_type(m_engine, humType) != SWMM_OK) return tr("The engine refused the humidity type. Check the selected data and values."); } while (false);
     {
         double h[12] = {};
+        readColumn(m_humMonthly, 0, h, 12);
         if (humType == 0) {
-            for (int k = 0; k < 12; ++k) h[k] = m_humConstant->value();
-        } else {
-            readColumn(m_humMonthly, 0, h, 12);
+            const double value=OpenSWMM::Ui::preciseValue(m_humConstant);
+            if(m_humConstant->value()!=m_humConstant->property("swmmDisplayedValue").toDouble())std::fill_n(h,12,value);
+            else h[0]=value;
         }
-        swmm_climate_set_humidity_monthly(m_engine, h, 12);
+        do { if (swmm_climate_set_humidity_monthly(m_engine, h, 12) != SWMM_OK) return tr("The engine refused the humidity monthly. Check the selected data and values."); } while (false);
     }
     if (humType == 2 && !m_humTs->currentText().trimmed().isEmpty())
-        swmm_climate_set_humidity_timeseries(m_engine,
-            m_humTs->currentText().trimmed().toUtf8().constData());
+        do { if (swmm_climate_set_humidity_timeseries(m_engine,
+            m_humTs->currentText().trimmed().toUtf8().constData()) != SWMM_OK) return tr("The engine refused the humidity timeseries. Check the selected data and values."); } while (false);
 
     // Snow melt
-    swmm_climate_set_snow_temp(m_engine, m_snowTemp->value());
-    swmm_climate_set_ati_weight(m_engine, m_atiWeight->value());
-    swmm_climate_set_neg_melt_ratio(m_engine, m_negMelt->value());
-    swmm_climate_set_elevation(m_engine, m_elevation->value());
-    swmm_climate_set_latitude(m_engine, m_latitude->value());
-    swmm_climate_set_longitude_correction(m_engine, m_longitude->value());
+    do { if (swmm_climate_set_snow_temp(m_engine, OpenSWMM::Ui::preciseValue(m_snowTemp)) != SWMM_OK) return tr("The engine refused the snow temperature. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_ati_weight(m_engine, OpenSWMM::Ui::preciseValue(m_atiWeight)) != SWMM_OK) return tr("The engine refused the ati weight. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_neg_melt_ratio(m_engine, OpenSWMM::Ui::preciseValue(m_negMelt)) != SWMM_OK) return tr("The engine refused the neg melt ratio. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_elevation(m_engine, OpenSWMM::Ui::preciseValue(m_elevation)) != SWMM_OK) return tr("The engine refused the elevation. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_latitude(m_engine, OpenSWMM::Ui::preciseValue(m_latitude)) != SWMM_OK) return tr("The engine refused the latitude. Check the selected data and values."); } while (false);
+    do { if (swmm_climate_set_longitude_correction(m_engine, OpenSWMM::Ui::preciseValue(m_longitude)) != SWMM_OK) return tr("The engine refused the longitude correction. Check the selected data and values."); } while (false);
 
     // Areal depletion
     {
         double imp[10] = {}, prv[10] = {};
         readColumn(m_adc, 0, imp, 10);
         readColumn(m_adc, 1, prv, 10);
-        swmm_climate_set_adc_impervious(m_engine, imp, 10);
-        swmm_climate_set_adc_pervious(m_engine, prv, 10);
+        do { if (swmm_climate_set_adc_impervious(m_engine, imp, 10) != SWMM_OK) return tr("The engine refused the adc impervious. Check the selected data and values."); } while (false);
+        do { if (swmm_climate_set_adc_pervious(m_engine, prv, 10) != SWMM_OK) return tr("The engine refused the adc pervious. Check the selected data and values."); } while (false);
     }
 
     // Adjustments
@@ -986,11 +997,12 @@ void ClimatologyDialog::writeToEngine()
             r[k] = cellValue(m_adjust, k, 2);
             c[k] = cellValue(m_adjust, k, 3);
         }
-        swmm_climate_set_adjust_temperature(m_engine, t, 12);
-        swmm_climate_set_adjust_evaporation(m_engine, e, 12);
-        swmm_climate_set_adjust_rainfall(m_engine, r, 12);
-        swmm_climate_set_adjust_conductivity(m_engine, c, 12);
+        do { if (swmm_climate_set_adjust_temperature(m_engine, t, 12) != SWMM_OK) return tr("The engine refused the adjust temperatureerature. Check the selected data and values."); } while (false);
+        do { if (swmm_climate_set_adjust_evaporation(m_engine, e, 12) != SWMM_OK) return tr("The engine refused the adjust evaporation. Check the selected data and values."); } while (false);
+        do { if (swmm_climate_set_adjust_rainfall(m_engine, r, 12) != SWMM_OK) return tr("The engine refused the adjust rainfall. Check the selected data and values."); } while (false);
+        do { if (swmm_climate_set_adjust_conductivity(m_engine, c, 12) != SWMM_OK) return tr("The engine refused the adjust conductivity. Check the selected data and values."); } while (false);
     }
+    return {};
 }
 
 QString ClimatologyDialog::serialize() const
@@ -1029,7 +1041,7 @@ QString ClimatologyDialog::serialize() const
     const auto grid = [&s](QTableWidget *t, int rows, int cols) {
         for (int r = 0; r < rows; ++r)
             for (int c = 0; c < cols; ++c)
-                s += (t->item(r, c) ? t->item(r, c)->text() : QString()) + ',';
+                s += QString::number(cellValue(t,r,c),'g',17) + ',';
     };
     grid(m_evapMonthly, 12, 1);
     grid(m_panCoeff, 12, 1);
@@ -1040,16 +1052,48 @@ QString ClimatologyDialog::serialize() const
     return s;
 }
 
+void ClimatologyDialog::invalidateEngine() { m_engine=nullptr;setEnabled(false);reject(); }
+
 void ClimatologyDialog::onAccept()
 {
-    if (serialize() != m_initialSig) {
-        updateSnowDraft();
-        if (m_snowDraft.signature() != m_initialSnowSig) {
-            const auto error = m_snowDraft.apply(m_engine);
-            if (!error.isEmpty()) { QMessageBox::warning(this, tr("Snow and radiation"), error); return; }
+    if(!m_engine){reject();return;}
+    if (serialize() == m_initialSig) { accept(); return; }
+    for(auto* table:{m_evapMonthly,m_panCoeff,m_windMonthly,m_humMonthly,m_adc,m_adjust})
+        for(int row=0;row<table->rowCount();++row)for(int col=0;col<table->columnCount();++col) {
+            const auto* item=table->item(row,col);bool valid=false;
+            const double value=item?item->text().toDouble(&valid):0;
+            if(!valid || !std::isfinite(value)) {
+                for(int tab=0;tab<m_tabs->count();++tab)if(m_tabs->widget(tab)->isAncestorOf(table))m_tabs->setCurrentIndex(tab);
+                table->setCurrentCell(row,col);table->setFocus();
+                QMessageBox::warning(this,tr("Climatology"),tr("Enter a finite number in row %1, column %2. No changes were applied.").arg(row+1).arg(col+1));
+                return;
+            }
         }
-        writeToEngine();
-        m_wroteChanges = true;
+    const QString missing=m_tempSource->currentIndex()==1&&m_tempTs->currentText().isEmpty()?tr("Select a temperature time series."):
+        m_evapType->currentData().toInt()==2&&m_evapTs->currentText().isEmpty()?tr("Select an evaporation time series."):
+        m_humType->currentData().toInt()==2&&m_humTs->currentText().isEmpty()?tr("Select a humidity time series."):QString();
+    if(!missing.isEmpty()){QMessageBox::warning(this,tr("Climatology"),missing);return;}
+    ClimatologyDialog current(m_engine);
+    current.setProjectAnchor(m_projectAnchor);
+    if(current.serialize()!=m_initialSig) {
+        QMessageBox::warning(this,tr("Climatology"),tr("Climate or shared radiation settings changed in another editor. Reopen this dialog before applying."));
+        return;
     }
+    updateSnowDraft();
+    struct Edit { ClimatologyDialog* dialog; QString error; } edit{this,{}};
+    const int status=swmm_hydrothermal_edit_atomic(m_engine,[](SWMM_Engine,void* user) -> int {
+        auto& e=*static_cast<Edit*>(user); auto* d=e.dialog;
+        if(d->m_snowDraft.signature()!=d->m_initialSnowSig) e.error=d->m_snowDraft.apply(d->m_engine);
+        if(e.error.isEmpty()) e.error=d->writeToEngine();
+        if(e.error.isEmpty()&&OpenSWMM::Ui::ensureHeatConfigurationFile(d->m_engine)!=SWMM_OK)e.error=tr("The heat configuration could not be prepared for saving.");
+        return e.error.isEmpty()?SWMM_OK:SWMM_ERR_BADPARAM;
+    },&edit);
+    if(status!=SWMM_OK) {
+        QMessageBox::warning(this,tr("Climatology"),edit.error.isEmpty()
+            ? tr("Reset the simulation before editing climatology. No changes were applied.")
+            : edit.error+tr(" No changes were applied."));
+        return;
+    }
+    m_wroteChanges=true;
     accept();
 }

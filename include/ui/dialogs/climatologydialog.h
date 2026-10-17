@@ -72,6 +72,9 @@ public:
      *  every target that links this dialog. Empty = absolute paths. */
     void setProjectAnchor(const QString &dir);
 
+public slots:
+    void invalidateEngine();
+
 private slots:
     void onAccept();
     void onEvapTypeChanged();
@@ -96,7 +99,7 @@ private:
     void updateSnowDraft();
 
     void readFromEngine();
-    void writeToEngine();
+    QString writeToEngine();
     /*! Serialize all widget values to a string, to detect real edits on OK. */
     [[nodiscard]] QString serialize() const;
 

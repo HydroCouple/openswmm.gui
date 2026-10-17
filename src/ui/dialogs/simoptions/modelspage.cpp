@@ -204,7 +204,7 @@ void ModelsPage::buildUi()
     m_transportMatrixTable->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_transportMatrixTable->setToolTip(
         tr("Which species classes the engine will carry in each domain for "
-           "the options as last applied. on(n): n rows carried; off:KEY: "
+           "the pending options. Planned(n): n rows configured; off: "
            "switched off by that option; n/a: nothing to carry or the solver "
            "lacks it (hover a cell for the reason). Tick or untick a 2D cell "
            "to set the [2D_OPTIONS] TRANSPORT_* keys."));
@@ -213,7 +213,7 @@ void ModelsPage::buildUi()
     matrixLay->addWidget(m_transportMatrixTable);
     auto *matrixNote = new QLabel(
         tr("Inherit-on: a class enabled for the project runs in every domain "
-           "whose solver carries it. Groundwater has no transported quality "
+           "whose solver carries it. Lumped groundwater has no transported quality "
            "(legacy parity); MSX needs a reactions component."),
         matrixGroup);
     matrixNote->setWordWrap(true);
@@ -323,7 +323,11 @@ void ModelsPage::refreshTransportMatrix()
     m_matrixSyncing = true;
     SWMM_Engine e = ctx_.engine();
     SWMM_TransportMatrix m{};
-    const bool ok = e && swmm_get_transport_matrix(e, &m) == SWMM_OK;
+    SWMM_TransportDraft draft{};
+    if(m_draftHook)draft=m_draftHook();
+    draft.ignore_quality=!m_ignoreQualityBox->isChecked();
+    draft.ignore_2d=!m_module2DBox->isChecked();
+    const bool ok = e && (m_draftHook ? swmm_preview_transport_matrix(e,&draft,&m) : swmm_get_transport_matrix(e,&m)) == SWMM_OK;
     for (int d = 0; d < SWMM_TRANSPORT_DOMAIN_COUNT; ++d) {
         for (int c = 0; c < SWMM_TRANSPORT_CLASS_COUNT; ++c) {
             auto *item = m_transportMatrixTable->item(d, c);
@@ -338,9 +342,9 @@ void ModelsPage::refreshTransportMatrix()
             QString text, tip;
             switch (cell.state) {
             case SWMM_TRANSPORT_ENABLED:
-                text = tr("on (%1)").arg(cell.count);
+                text = tr("Planned (%1)").arg(cell.count);
                 tip  = cell.reason[0] ? QString::fromUtf8(cell.reason)
-                                      : tr("%1 row(s) carried").arg(cell.count);
+                                      : tr("%1 row(s) configured for transport. Runtime activity is confirmed after initialization.").arg(cell.count);
                 break;
             case SWMM_TRANSPORT_DISABLED_BY_USER:
                 text = tr("off");
@@ -359,11 +363,12 @@ void ModelsPage::refreshTransportMatrix()
             // the surface at all: the checkbox IS the TRANSPORT_* key, and
             // the dialog value (not the engine's last-applied one) drives
             // its check state.
-            if (d == SWMM_TRANSPORT_DOMAIN_SURFACE_2D && m_transport2DGet &&
-                cell.state != SWMM_TRANSPORT_UNAVAILABLE) {
+            if (d == SWMM_TRANSPORT_DOMAIN_SURFACE_2D && m_transport2DGet) {
                 const bool on = m_transport2DGet(c);
                 item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
                 item->setCheckState(on ? Qt::Checked : Qt::Unchecked);
+                if(on && cell.state!=SWMM_TRANSPORT_ENABLED)
+                    item->setText(tr("Saved On\nInactive"));
                 if (!on) {
                     item->setText(tr("off"));
                     item->setToolTip(tr("Switched off by %1 (pending Apply)")

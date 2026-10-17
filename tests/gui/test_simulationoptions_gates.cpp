@@ -106,6 +106,7 @@ class TestSimulationOptionsGates : public QObject
 
 private slots:
     void objectNameCensus();
+    void emptyProjectCanReachHeatActivation();
     void reachability();
     void twoDRowGate();
     void rowRedirect();
@@ -115,6 +116,7 @@ private slots:
     void noScrollAt1280x800();
     void structure();
     void aquiferProcessInputsPreserveAutomaticAndConvertUnits();
+    void automaticEtFollowsAquiferMode();
     void reportStartFollowsEditedSimulationWindow();
     void reportStartReloadsEarlierSimulationWindow();
 };
@@ -235,6 +237,21 @@ void TestSimulationOptionsGates::reportStartReloadsEarlierSimulationWindow()
 }
 
 /*! T0 — the names exist and are parented into the page stack. */
+void TestSimulationOptionsGates::emptyProjectCanReachHeatActivation()
+{
+    auto engine=swmm_engine_new();QVERIFY(engine);
+    {
+        SimulationOptionsDialog dialog(engine,nullptr,"6.0.0",nullptr,nullptr);
+        auto* categories=dialog.findChild<QListWidget*>("categories");QVERIFY(categories);
+        bool found=false;
+        for(int i=0;i<categories->count();++i)if(categories->item(i)->text()=="Quality & Transport") {
+            found=true;QVERIFY(categories->item(i)->flags() & Qt::ItemIsEnabled);
+        }
+        QVERIFY(found);
+    }
+    swmm_engine_destroy(engine);
+}
+
 void TestSimulationOptionsGates::objectNameCensus()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -592,5 +609,21 @@ void TestSimulationOptionsGates::aquiferProcessInputsPreserveAutomaticAndConvert
         et->setCurrentIndex(et->findData("BOTH"));link->setCurrentIndex(link->findData("TWO_WAY"));automatic->setChecked(false);value->setValue(us?30/.3048:30);
         QVERIFY(QMetaObject::invokeMethod(&dlg,"onApply",Qt::DirectConnection));QVERIFY(std::abs(option("WILTING_SUCTION").toDouble()*(us?.3048:1)-30)<1e-8);QCOMPARE(option("GW_ET"),QString("BOTH"));QCOMPARE(option("LINK_SEEPAGE"),QString("TWO_WAY"));
         const auto custom=option("WILTING_SUCTION");SimulationOptionsDialog reopened(e,layer.get(),"6.0.0",nullptr,nullptr);QVERIFY(QMetaObject::invokeMethod(&reopened,"onApply",Qt::DirectConnection));QCOMPARE(option("WILTING_SUCTION"),custom);
+    }
+}
+
+void TestSimulationOptionsGates::automaticEtFollowsAquiferMode()
+{
+    for(const char* mode:{"MESH","PER_SUBCATCH"}) {
+        auto layer=openLayer(fixture("mini_2d.inp"));QVERIFY(layer);auto e=layer->engine();
+        QCOMPARE(swmm_gw2d_row_add(e,0,nullptr,-1,1.,5.,.45,.1,2.),SWMM_OK);
+        QCOMPARE(swmm_gw2d_option_set(e,"MODE",mode),SWMM_OK);
+        QCOMPARE(swmm_gw2d_process_options_set(e,"AUTO","DEFAULT","AUTO",0),SWMM_OK);
+        SimulationOptionsDialog dialog(e,layer.get(),"6.0.0",nullptr,nullptr);
+        auto* enabled=dialog.findChild<QComboBox*>("gw2DEnableCombo");QVERIFY(enabled);enabled->setCurrentIndex(enabled->findData("YES"));
+        auto* automatic=dialog.findChild<QCheckBox*>("gwWiltingAuto");QVERIFY(automatic);
+        QCOMPARE(automatic->isEnabled(),QString(mode)=="MESH");
+        enabled->setCurrentIndex(enabled->findData("NO"));QVERIFY(!automatic->isEnabled());
+        char et[80]{};QCOMPARE(swmm_gw2d_option_get(e,"GW_ET",et,sizeof et),SWMM_OK);QCOMPARE(QString(et),QString("AUTO"));
     }
 }

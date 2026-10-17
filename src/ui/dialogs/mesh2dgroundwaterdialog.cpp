@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
+#include "ui/hydrothermalstate.h"
 
 #include "core/unitsystem.h"
 #include "ui/dialogs/mesh2daquifermodel.h"
@@ -30,6 +31,8 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QLineEdit>
+#include <openswmm/engine/openswmm_gw_transport.h>
 #include <QPushButton>
 #include <QPointer>
 #include <QSpinBox>
@@ -100,13 +103,16 @@ public:
 QString optionText(SWMM_Engine e, const char *key)
 {
     char buf[128] = {0};
-    if (swmm_gw2d_option_get(e, key, buf, sizeof buf) != SWMM_OK) return {};
+    const QString name=QString::fromUtf8(key);
+    const int result=name.startsWith("GW_TRANSPORT:") ? swmm_gw_transport_option_get(e,name.mid(13).toUtf8().constData(),buf,sizeof buf) : swmm_gw2d_option_get(e,key,buf,sizeof buf);
+    if (result != SWMM_OK) return {};
     return QString::fromUtf8(buf);
 }
 
 bool setOption(SWMM_Engine e, const char *key, const QString &value)
 {
-    return swmm_gw2d_option_set(e, key, value.toUtf8().constData()) == SWMM_OK;
+    const QString name=QString::fromUtf8(key);
+    return (name.startsWith("GW_TRANSPORT:") ? swmm_gw_transport_option_set(e,name.mid(13).toUtf8().constData(),value.toUtf8().constData()) : swmm_gw2d_option_set(e,key,value.toUtf8().constData()))==SWMM_OK;
 }
 
 bool canEdit(SWMM_Engine engine)
@@ -159,6 +165,7 @@ void Mesh2DGroundwaterDialog::buildUi(Page initialPage)
     m_tabs->addTab(buildAquiferPage(),  tr("Aquifer"));
     m_tabs->addTab(buildNodeBedPage(),  tr("Node Beds"));
     m_tabs->addTab(buildStatePage(),    tr("State"));
+    m_tabs->addTab(buildTransportPage(), tr("Transport and thermal settings"));
     switch (initialPage) {
     case Page::Options:            m_tabs->setCurrentIndex(0); break;
     case Page::InitialConditions:  m_tabs->setCurrentIndex(1); break;  // hg0 lives on the rows
@@ -269,16 +276,28 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
     form->addRow(tr("&Mode:"), m_modeCombo);
 
     m_gwEtCombo = new QComboBox(page);
-    m_gwEtCombo->addItems({QStringLiteral("NONE"),
-                           QStringLiteral("CAPILLARY_RISE"),
-                           QStringLiteral("BOUNDARY_ET"),
-                           QStringLiteral("BOTH")});
+    m_gwEtCombo->setObjectName("gwDetailedEt");
+    m_gwEtCombo->addItem(tr("Automatic"),"AUTO");
+    m_gwEtCombo->addItem(tr("None"),"NONE");
+    m_gwEtCombo->addItem(tr("Capillary rise"),"CAPILLARY_RISE");
+    m_gwEtCombo->addItem(tr("Boundary ET"),"BOUNDARY_ET");
+    m_gwEtCombo->addItem(tr("Both"),"BOTH");
     m_gwEtCombo->setToolTip(
         tr("CAPILLARY_RISE lets recharge run upward when the column is drier "
            "than its equilibrium. BOUNDARY_ET takes evaporation from the top "
            "of the column with a smooth Feddes stress rather than an on/off "
            "gate."));
     form->addRow(tr("Groundwater &ET:"), m_gwEtCombo);
+    auto* etStatus=new QLabel(page);etStatus->setWordWrap(true);etStatus->setObjectName("gwDetailedEtStatus");
+    form->addRow(etStatus);
+    auto refreshEt=[this,etStatus]{
+        char configured[64]{},enabled[64]{};
+        if(m_engine){swmm_gw2d_option_get(m_engine,"CONFIGURED",configured,sizeof configured);swmm_options_get_ext(m_engine,"GROUNDWATER",enabled,sizeof enabled);}
+        etStatus->setText(groundwaterEtState(m_gwEtCombo->currentData().toString(),m_modeCombo->currentText(),QString::fromUtf8(enabled)!="NO",QString::fromUtf8(configured)=="YES").reason);
+    };
+    connect(m_gwEtCombo,&QComboBox::currentIndexChanged,this,refreshEt);
+    connect(m_modeCombo,&QComboBox::currentIndexChanged,this,refreshEt);
+    refreshEt();
 
     return page;
 }
@@ -461,7 +480,8 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     m_nodes->setUnitLabels(lengthLabel, rateLabel, areaLabel);
 
     auto pick = [](QComboBox *cb, const QString &token) {
-        const int i = cb->findText(token, Qt::MatchFixedString);
+        int i = cb->findData(token);
+        if(i<0)i=cb->findText(token, Qt::MatchFixedString);
         if (i >= 0) cb->setCurrentIndex(i);
     };
     pick(m_soilCombo,    optionText(m_engine, "SOIL_CHAR"));
@@ -478,6 +498,9 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     m_cgwSpin->setValue(optionText(m_engine, "C_GW").toDouble());
     m_ccolSpin->setValue(optionText(m_engine, "C_COL").toDouble());
 
+    for(auto it=m_transportOptions.cbegin();it!=m_transportOptions.cend();++it){const auto value=optionText(m_engine,("GW_TRANSPORT:"+it.key()).toUtf8().constData());
+        if(auto* box=qobject_cast<QCheckBox*>(it.value()))box->setChecked(value=="YES");
+        else if(auto* text=qobject_cast<QLineEdit*>(it.value()))text->setText(value);}
     m_loadedOptions=readOptions();m_displayedOptions=optionDraft();
     m_aquifer->load(m_engine);
     m_nodes->load(m_engine);
@@ -502,6 +525,7 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
     updateBottomConnection();
     if (!on) m_buttons->setStandardButtons(QDialogButtonBox::Close);
     m_refreshBtn->setEnabled(m_engine != nullptr);
+    for(auto* field:m_transportOptions)field->setEnabled(on);
     for (QWidget *w : std::initializer_list<QWidget *>{
              m_soilCombo, m_closureCombo, m_layersSpin, m_capillaryCheck,
              m_cgwSpin, m_ccolSpin, m_forceCfCheck, m_dunneCheck,
@@ -522,9 +546,27 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
     }
 }
 
+QWidget* Mesh2DGroundwaterDialog::buildTransportPage()
+{
+    auto* page=new QWidget(this);auto* layout=new QVBoxLayout(page);
+    auto* note=new QLabel(tr("These are saved groundwater transport settings. They apply only with an active mesh aquifer and the corresponding project process. "
+        "Initial values and injection/extraction sources are edited in Assign Groundwater. "
+        "Ground conduction and its thermal boundary conditions have no verified runtime implementation here; their imported settings are shown for inspection."),page);
+    note->setWordWrap(true);layout->addWidget(note);auto* form=new QFormLayout;
+    const QStringList keys={"TRANSPORT_POLLUTANTS","TRANSPORT_MSX","TRANSPORT_AGE","TRANSPORT_TEMPERATURE","DISPERSION"};
+    const QStringList labels={tr("Carry pollutants"),tr("Carry reaction species"),tr("Carry water age"),tr("Carry temperature"),tr("Solute dispersion")};
+    for(int i=0;i<keys.size();++i){auto* box=new QCheckBox(labels[i],page);box->setObjectName("gwTransport_"+keys[i]);m_transportOptions[keys[i]]=box;form->addRow(box);}
+    const QStringList thermal={"CONDUCTION","THERMAL_MIXING","SURFACE_THERMAL_BC","DEEP_THERMAL_BC","C_DIFF"};
+    const QStringList thermalLabels={tr("Ground conduction (stored)"),tr("Thermal mixing (stored)"),tr("Surface thermal boundary (stored)"),tr("Deep thermal boundary (stored)"),tr("Diffusion safety factor (stored)")};
+    for(int i=0;i<thermal.size();++i){auto* field=new QLineEdit(page);field->setReadOnly(true);field->setObjectName("gwTransport_"+thermal[i]);m_transportOptions[thermal[i]]=field;form->addRow(thermalLabels[i],field);}
+    layout->addLayout(form);layout->addStretch();return page;
+}
+
 QMap<QString,QString> Mesh2DGroundwaterDialog::optionDraft()const
 {
- return {{"SOIL_CHAR",m_soilCombo->currentText()},{"CLOSURE",m_closureCombo->currentText()},{"M_LAYERS",QString::number(m_layersSpin->value())},{"CAPILLARY_DIFF",m_capillaryCheck->isChecked()?"YES":"NO"},{"C_GW",QString::number(m_cgwSpin->value(),'g',17)},{"C_COL",QString::number(m_ccolSpin->value(),'g',17)},{"FORCE_CLOSED_FORM",m_forceCfCheck->isChecked()?"YES":"NO"},{"DUNNE",m_dunneCheck->isChecked()?"YES":"NO"},{"MODE",m_modeCombo->currentText()},{"GW_ET",m_gwEtCombo->currentText()}};
+ QMap<QString,QString> values{{"SOIL_CHAR",m_soilCombo->currentText()},{"CLOSURE",m_closureCombo->currentText()},{"M_LAYERS",QString::number(m_layersSpin->value())},{"CAPILLARY_DIFF",m_capillaryCheck->isChecked()?"YES":"NO"},{"C_GW",QString::number(m_cgwSpin->value(),'g',17)},{"C_COL",QString::number(m_ccolSpin->value(),'g',17)},{"FORCE_CLOSED_FORM",m_forceCfCheck->isChecked()?"YES":"NO"},{"DUNNE",m_dunneCheck->isChecked()?"YES":"NO"},{"MODE",m_modeCombo->currentText()},{"GW_ET",m_gwEtCombo->currentData().toString()}};
+ for(auto it=m_transportOptions.cbegin();it!=m_transportOptions.cend();++it)if(auto* box=qobject_cast<QCheckBox*>(it.value()))values["GW_TRANSPORT:"+it.key()]=box->isChecked()?"YES":"NO";
+ return values;
 }
 QMap<QString,QString> Mesh2DGroundwaterDialog::readOptions()const
 {

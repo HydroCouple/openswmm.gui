@@ -2,6 +2,7 @@
 #pragma once
 #include <QAbstractTableModel>
 #include <QStringList>
+#include <QMap>
 #include <array>
 #include <limits>
 #include <openswmm/engine/openswmm_snow2d.h>
@@ -25,6 +26,9 @@ public:
     bool setData(const QModelIndex&,const QVariant&,int role=Qt::EditRole)override;
     bool removeRows(int,int,const QModelIndex& parent={})override;
     void upsert(const MeshSnowRow&);
+    QString stageSamples(int property,const QVector<int>& cells,const QVector<double>& values,
+        const QStringList& keys,const QMap<QString,QString>& classPacks,
+        const QStringList& cellTags,int* skipped=nullptr);
     QString load(SWMM_Engine);
     QString validate(const QStringList& cellTags)const;
     MeshSnowRow effective(int cell,const QString& tag,QString* origin=nullptr)const;

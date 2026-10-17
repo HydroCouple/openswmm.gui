@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/import/featurelayerimporter.h"
+#include "ui/heatpropertyedit.h"
 
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
@@ -311,7 +312,7 @@ QVariantMap adapterValues(TargetKind kind, const QVariantMap &byTargetKey)
          it != byTargetKey.constEnd(); ++it) {
         const TargetAttribute ta =
             ImportTargetRegistry::attribute(kind, it.key());
-        if (!ta.adapterProperty.isEmpty())
+        if (!ta.adapterProperty.isEmpty() && !ta.key.startsWith(QLatin1String("heat.")))
             byProperty.insert(ta.adapterProperty, it.value());
     }
     return byProperty;
@@ -473,6 +474,18 @@ ImportPlan FeatureLayerImporter::execute(
             }
         }
 
+        if(item.action!=PlannedItem::Action::Error) {
+            QVector<OpenSWMMVis::HeatPropertyEdit> edits;
+            for(auto it=item.attributeValues.cbegin();it!=item.attributeValues.cend();++it) {
+                const int attr=OpenSWMMVis::heatPropertyIndex(it.key());
+                if(attr>=0)edits.append({attr,linkKind?SWMM_HEAT_SCOPE_LINK:SWMM_HEAT_SCOPE_NODE,item.name,it.value()});
+            }
+            QString error;
+            if(!edits.isEmpty()&&!OpenSWMMVis::applyHeatPropertyEdits(m_target,edits,stack,
+                tr("Assign heat properties from %1 to %2").arg(m_source?m_source->name():tr("feature layer"),item.name),&error)) {
+                item.action=PlannedItem::Action::Error;item.messages.append(error);
+            }
+        }
         if (!keepGoing) break;
     }
 

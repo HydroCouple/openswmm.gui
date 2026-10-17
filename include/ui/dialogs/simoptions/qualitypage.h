@@ -56,6 +56,14 @@ public:
     /*! \brief True while WATER_AGE or HEAT_TRANSPORT is ticked — half of the
      *         dialog's "is there anything to transport?" row gate. */
     [[nodiscard]] bool tracksReservedSpecies() const;
+    bool heatEnabled() const;
+    bool ageEnabled() const;
+    void setHeatEnabled(bool enabled);
+
+signals:
+    void showHeatSettingsRequested();
+
+public:
 
 private:
     void buildUi();

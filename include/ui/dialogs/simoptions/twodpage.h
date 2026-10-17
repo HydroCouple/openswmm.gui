@@ -81,6 +81,7 @@ public:
     /*! \brief TRANSPORT_* state, read by the Models page's matrix. */
     [[nodiscard]] bool transport2DEnabled(int speciesClass) const;
     void setTransport2DEnabled(int speciesClass, bool on);
+    int groundwaterRequested() const;
 
 public slots:
     /*! \brief Dates & Times moved a step or the run window; re-mirror and
@@ -89,6 +90,8 @@ public slots:
 
 signals:
     void showSnowAssignmentsRequested();
+    void showGroundwaterAssignmentsRequested();
+    void showEvaporationSettingsRequested();
     /*! \brief A TRANSPORT_* box moved — the Models page's matrix is stale. */
     void transportSelectionChanged();
     /*! \brief A sub-dialog wrote straight to the engine; the project is

@@ -6,6 +6,7 @@
 
 #include "core/attributevalue.h"
 #include "ui/panels/swmmattributetablemodel.h"
+#include "ui/heatpropertyedit.h"
 
 #include "core/unitsystem.h"
 #include "layers/gwsourcesummary.h"           // G5 — node Groundwater Sources cell
@@ -2153,6 +2154,7 @@ SWMMAttributeTableModel::SWMMAttributeTableModel(QObject *parent)
 void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer,
                                          SWMMModelLayer::Category category)
 {
+    if(m_layer)disconnect(m_layer,&SWMMModelLayer::optionsChanged,this,nullptr);
     beginResetModel();
     m_layer    = layer;
     m_category = category;
@@ -2162,6 +2164,12 @@ void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer,
     m_rowCacheValid.assign(n, false);
     invalidateCompoundCache();
     endResetModel();
+    if(m_layer)connect(m_layer,&SWMMModelLayer::optionsChanged,this,[this](const QStringList& keys){
+        for(const auto& key:keys)if(key.startsWith("HEAT")||key=="RADIATIVE_FLUXES"||key=="SEDIMENT_EXCHANGE"||key=="SOLAR_RADIATION"||key=="CLOUD_COVER") {
+            if(rowCount()>0&&columnCount()>0)emit dataChanged(index(0,0),index(rowCount()-1,columnCount()-1));
+            break;
+        }
+    });
 }
 
 void SWMMAttributeTableModel::setResultsSource(SWMMResultsLayer *layer)
@@ -2208,6 +2216,16 @@ void SWMMAttributeTableModel::refreshHeaders()
 void SWMMAttributeTableModel::rebuildColumnSchema()
 {
     m_columnSpecs = schemaForCategory(m_category);
+    const QString type=userFlagObjectType(m_category);
+    if(m_layer&&(type=="NODE"||m_category==SWMMModelLayer::CatConduits)) {
+        const int count=type=="NODE"?6:14;
+        for(int a=0;a<count;++a){ColumnSpec spec;
+            spec.key=QStringLiteral("heat.")+QLatin1String(OpenSWMMVis::heatProperties()[a].key);
+            spec.label=tr("Heat: %1").arg(OpenSWMMVis::heatPropertyLabel(a));spec.editor=EditorKind::Text;
+            spec.setter="heat_property";spec.scalarType=QMetaType::Double;
+            spec.tooltip=tr("Authored heat override in SI units / °C. Blank inherits the tag or global value. Process switches determine where it runs.");
+            m_columnSpecs.append(spec);}
+    }
     appendInitialQualityColumns();
     appendUserFlagColumns();
     // Dynamics last — after the initial-quality and user-flag columns the
@@ -2559,6 +2577,13 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     // for columns that carry one.  Read-only / unitless columns return
     // an empty variant so Qt suppresses the tooltip entirely.
     if (role == Qt::ToolTipRole) {
+        if(const int attr=OpenSWMMVis::heatPropertyIndex(spec.key);attr>=0&&m_layer) {
+            double value=0;int source=0;char origin[1024]{};const auto name=objectNameAt(row).toUtf8();
+            if(swmm_heat_get_effective_element(m_layer->engine(),attr,userFlagObjectType(m_category)=="LINK"?SWMM_HEAT_SCOPE_LINK:SWMM_HEAT_SCOPE_NODE,
+                name.constData(),&value,&source,origin,sizeof origin)==SWMM_OK)
+                return tr("Effective: %1 · source: %2. Blank clears the element override; SI units / °C.")
+                    .arg(std::isnan(value)?(source==5?tr("ground-temperature series"):tr("air temperature")):QString::number(value,'g',12),QString::fromUtf8(origin));
+        }
         if (spec.key.startsWith(kInitQualityKeyPrefix) && !data(index, Qt::DisplayRole).isValid())
             return tr("No override: the pollutant's global initial concentration applies.");
         if (spec.key.startsWith(kUserFlagKeyPrefix) && !data(index, Qt::DisplayRole).isValid())
@@ -2973,6 +2998,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return v;
     }
 
+    if(const int attr=OpenSWMMVis::heatPropertyIndex(spec.key);attr>=0&&m_layer) {
+        const bool link=userFlagObjectType(m_category)=="LINK";
+        const int scope=link?SWMM_HEAT_SCOPE_LINK:SWMM_HEAT_SCOPE_NODE;
+        const auto name=objectNameAt(row);const auto engine=m_layer->engine();
+        const auto authored=OpenSWMMVis::authoredHeatProperty(engine,attr,scope,name);
+        if(role==Qt::EditRole)return authored.isValid()?QVariant(QString::number(authored.toDouble(),'g',17)):QVariant(QString());
+        return authored;
+    }
+
     // Initial-quality columns (initial-quality UI round): values live in
     // the engine's [INITIAL_QUALITY] row store, keyed (scope, element,
     // constituent). Unset reads as blank — the pollutant's global initial
@@ -3222,6 +3256,12 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
                           openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
         emit objectEdited(newName);
         return true;
+    }
+
+    if(const int attr=OpenSWMMVis::heatPropertyIndex(spec.key);attr>=0) {
+        QString error;const auto name=objectNameAt(row);
+        const bool result=OpenSWMMVis::applyHeatPropertyEdits(m_layer,{{attr,userFlagObjectType(m_category)=="LINK"?SWMM_HEAT_SCOPE_LINK:SWMM_HEAT_SCOPE_NODE,name,value}},nullptr,tr("Edit heat property"),&error);
+        if(result){emit dataChanged(index,index);emit objectEdited(name);}return result;
     }
 
     // User-flag columns (Phase 3, docs/USER_FLAGS_UI_PLAN_2026-06-03.md).
@@ -3699,6 +3739,12 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index,
     if (col < 0 || col >= m_columnSpecs.size()) return false;
     const auto &spec = m_columnSpecs[col];
     if (spec.editor == EditorKind::ReadOnly || spec.setter.isEmpty()) return false;
+
+    if(const int attr=OpenSWMMVis::heatPropertyIndex(spec.key);attr>=0) {
+        QString error;const auto name=objectNameAt(row);
+        const bool result=OpenSWMMVis::applyHeatPropertyEdits(m_layer,{{attr,userFlagObjectType(m_category)=="LINK"?SWMM_HEAT_SCOPE_LINK:SWMM_HEAT_SCOPE_NODE,name,value}},m_undoStack,tr("Edit %1").arg(spec.label),&error);
+        if(result){emit dataChanged(index,index);emit objectEdited(name);}return result;
+    }
 
     // Name column rename — duplicate-name check happens inside applyRename().
     if (col == 0 && spec.editor == EditorKind::Text) {

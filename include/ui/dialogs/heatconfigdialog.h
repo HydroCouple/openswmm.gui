@@ -25,11 +25,6 @@
  *          test can construct it against a synthetic BUILDING engine and
  *          drive the widgets (the WaterAgeSourcesDialog precedent).
  *
- *          Known API gap, recorded in the G4g round notes: the engine
- *          exposes the shortwave/cloud timeseries MODE but not the bound
- *          series NAME, so those combos rebind rather than display — the
- *          "(keep current series)" placeholder is the no-op position.
- *
  * \author  Caleb Buahin <caleb.buahin@gmail.com>
  * \copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * \license Apache-2.0
@@ -68,17 +63,21 @@ public:
         TabFluxes    = 1,
         TabRadiative = 2,
         TabSolar     = 3,
-        TabCloud     = 4
+        TabCloud     = 4,
+        TabBed = 5,
+        TabSpatial = 6
     };
 
     explicit HeatConfigDialog(SWMM_Engine engine, QWidget *parent = nullptr);
     ~HeatConfigDialog() override = default;
+    static QString configurationSignature(SWMM_Engine engine);
 
     /*! \brief True once OK has written at least one change to the engine. */
     bool wroteAnyChanges() const { return m_wroteAnyChanges; }
 
     /*! \brief Select the tab a menu action maps to (see \ref Tab). */
     void setCurrentTab(int idx);
+    void setTransportRequested(bool enabled);
 
     /*! \brief Number of engine writes the last OK performed (test hook). */
     int lastWriteCount() const { return m_lastWriteCount; }
@@ -86,6 +85,7 @@ public:
 signals:
     void changesApplied();
     void radiationEditorRequested();
+    void rasterAssignmentRequested();
 
 public slots:
     void invalidateEngine();
@@ -108,6 +108,15 @@ private:
     int  writeSources();
     int  writeModules();
     int  writeCloud();
+    int  writeBed();
+    int  writeElements();
+    void addElementOverride();
+    void previewElements();
+    void invalidateElementPreview();
+    QString elementSignature() const;
+    QString engineSignature() const;
+    QString m_engineInitial;
+    void refreshProcessStatus();
 
     SWMM_Engine m_engine = nullptr;
     bool m_wroteAnyChanges = false;
@@ -121,7 +130,22 @@ private:
     QTableWidget *m_overrideTable = nullptr;  ///< source / node / °C
 
     // Fluxes tab
-    QCheckBox *m_modules[3] = { nullptr, nullptr, nullptr };
+    QCheckBox *m_modules[4] = {};
+    QCheckBox *m_heatEnabled = nullptr;
+    QLabel *m_processStatus = nullptr;
+    QLabel *m_moduleStatus[4] = {};
+    QComboBox *m_dryPolicy = nullptr;
+    QCheckBox *m_groundConfigured = nullptr;
+    QCheckBox *m_initialConfigured = nullptr;
+    QComboBox *m_groundMode = nullptr;
+    QComboBox *m_groundSeries = nullptr;
+    QDoubleSpinBox *m_bedSpin[9] = {};
+    QTableWidget *m_elementTable = nullptr;
+    QTableWidget *m_resolvedElements = nullptr;
+    QLabel *m_resolvedStatus = nullptr;
+    QString m_elementsInitial;
+    QCheckBox *m_explicitSite = nullptr;
+    bool m_loading = false;
 
     // Radiative tab
     QRadioButton *m_swConstant = nullptr;
@@ -133,7 +157,8 @@ private:
     /// OK path can tell a real rebind from reselecting what was shown.
     QString m_swTsInitial;
     QString m_cloudTsInitial;
-    QDoubleSpinBox *m_radSpin[8] = {};        ///< index = param enum; [0] unused
+    QCheckBox *m_landcoverConfigured = nullptr;
+    QDoubleSpinBox *m_radSpin[9] = {};        ///< index = param enum; [0] unused
 
     // Solar tab
     QDoubleSpinBox *m_solarSpin[9] = {};      ///< index = param enum

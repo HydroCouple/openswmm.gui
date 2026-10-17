@@ -609,6 +609,19 @@ operational groundwater editor. It edits aquifer properties and initial water
 state, preserving global, tag and cell inheritance. Values are checked before
 Apply; invalid or stale edits do not partially overwrite the model.
 
+Groundwater ET offers **Automatic**, **None**, **Boundary ET**, **Capillary
+rise** and **Both** in both editors. Automatic resolves using the aquifer
+mode: Both for MESH, None for PER_SUBCATCH. The status distinguishes saved
+choices from use in the current model. Spatial variation comes from aquifer
+properties and surface coverage; the ET policy and wilting suction apply
+to the whole mesh.
+
+Groundwater temperature transport carries water temperature. Stored ground
+conduction and thermal boundary settings have no qualified runtime kernel
+in this version; the editor exposes those records read-only. Channel bed
+exchange is configured separately in Heat Configuration and is not a mesh
+hyporheic flow model.
+
 For a consistent spatial workflow, choose **Model → Assign Groundwater…**:
 
 1. Select mesh cells with the rectangle or polygon tool, or choose all cells,
@@ -750,3 +763,18 @@ visibility, panel layouts, the active mesh layer — lives in the project's
 - \ref tutorial_1d2d_coupling — capped street inlets coupled to a 2D surface
 - \ref tutorial_2d_boundaries — edge boundary conditions and edge conveyance
 - \ref tutorial_pure_2d — a stand-alone 2D model with system rainfall
+
+### Assign mesh snow from GIS
+
+In Mesh Snow Assignment, choose selected cells, a region tag or the whole
+mesh, then **Fill from raster / layer field…**. Pick a loaded raster band
+or feature-layer field, preview the before/after values, then **Stage values**.
+Continuous UEB site values default to area averages over each cell footprint;
+snowpack classes default to Majority. Enter one `class = snowpack` mapping
+per line; `NONE` disables snow for a class. Sources are transformed to the
+mesh CRS. NoData, invalid values and unmapped classes retain their old values.
+Slope and aspect must be supplied together before applying the snow draft.
+
+**Apply** in the snow editor saves all staged rows as one Undo operation.
+Preview and Undo text name the source layer/field or raster/band. The assignment
+is a snapshot; later GIS changes do not automatically modify the model.

@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/simoptions/twodpage.h"
 #include "assignment/groundwaterassignment.h"
+#include "ui/hydrothermalstate.h"
 
 #ifdef OPENSWMM_HAS_2D
 
@@ -492,6 +493,10 @@ void TwoDPage::buildUi()
            "1D side uses (Climatology dialog) to every unforced cell. Off "
            "books no evaporation."));
     rainfallForm->addRow(tr("Evaporation:"), m_evap2DCombo);
+    auto* editEvap=new QPushButton(tr("Edit project evaporation data…"),rainfallGroup);
+    editEvap->setAutoDefault(false);editEvap->setToolTip(tr("Accepted climate edits apply to the project and remain applied if Simulation Options is cancelled."));
+    rainfallForm->addRow(editEvap);
+    connect(editEvap,&QPushButton::clicked,this,&TwoDPage::showEvaporationSettingsRequested);
     connect(m_evap2DCombo,&QComboBox::currentIndexChanged,this,[this]{if(m_gwEtAllocation)refreshGates();});
 
     // ── Transport (the 2D column of the Models page matrix) ─────────────
@@ -547,7 +552,7 @@ void TwoDPage::buildUi()
 
     m_gw2DEtCombo = new QComboBox(m_gw2DGroup);
     m_gw2DEtCombo->setObjectName(QStringLiteral("gw2DEtCombo"));
-    m_gw2DEtCombo->addItem(tr("Automatic (Both with an active mesh aquifer)"),QStringLiteral("AUTO"));
+    m_gw2DEtCombo->addItem(tr("Automatic (depends on aquifer mode)"),QStringLiteral("AUTO"));
     m_gw2DEtCombo->addItem(tr("None"), QStringLiteral("NONE"));
     m_gw2DEtCombo->addItem(tr("Capillary rise (from the water table)"),
                            QStringLiteral("CAPILLARY_RISE"));
@@ -569,17 +574,16 @@ void TwoDPage::buildUi()
     m_gw2DStatusLabel->setWordWrap(true);
     gwForm->addRow(tr("Transport:"), m_gw2DStatusLabel);
 
-    m_gw2DEditBtn = new QPushButton(tr("Subsurface initial quality (editor unavailable)"), m_gw2DGroup);
+    m_gw2DEditBtn = new QPushButton(tr("Initial temperatures and sources: Assign Groundwater…"), m_gw2DGroup);
     m_gw2DEditBtn->setObjectName(QStringLiteral("gw2DEditBtn"));
-    m_gw2DEditBtn->setEnabled(false);
+    m_gw2DEditBtn->setEnabled(ctx_.projectWindow()!=nullptr);
+    connect(m_gw2DEditBtn,&QPushButton::clicked,this,&TwoDPage::showGroundwaterAssignmentsRequested);
     m_gw2DEditBtn->setToolTip(
-        tr("Configure subsurface initial quality in the model input file's "
-           "[GW_INITIAL_QUALITY] section. The current Initial Quality editor "
-           "edits node/link rows and cannot edit subsurface rows."));
+        tr("Use the mesh toolbar Assign Groundwater action to edit initial temperatures, species and injection/extraction sources."));
     gwForm->addRow(QString(), m_gw2DEditBtn);
 
     connect(m_gw2DEnableCombo, &QComboBox::currentIndexChanged, this,
-            [this](int) { refreshGates(); });
+            [this](int) { refreshGates(); emit gateInputsChanged(); });
     t2PrcLay->addWidget(m_gw2DGroup);
 
     auto *outGroup = new QGroupBox(tr("Output"), t2Out);
@@ -890,6 +894,8 @@ void TwoDPage::tagWidgets()
     tagOption(m_gwWilting, "WILTING_SUCTION");
 }
 
+int TwoDPage::groundwaterRequested() const { const auto mode=m_gw2DEnableCombo->currentData().toString(); return mode=="NO"?0:mode=="YES"?1:-1; }
+
 void TwoDPage::refreshGates()
 {
     const QString momentum = m_momentum2DCombo->currentData().toString();
@@ -911,10 +917,15 @@ void TwoDPage::refreshGates()
     // rather than guessing and locking a control the user cannot then change.
     const QString mode = m_gw2DEnableCombo->currentData().toString();
     const bool off = (mode == QLatin1String("NO"));
-    m_gw2DEtCombo->setEnabled(!off);m_gwLinkCombo->setEnabled(!off);
-    const QString et=m_gw2DEtCombo->currentData().toString();const bool boundary=!off&&(et=="AUTO"||et=="BOUNDARY_ET"||et=="BOTH");m_gwWiltingAuto->setEnabled(boundary);m_gwWilting->setEnabled(boundary&&!m_gwWiltingAuto->isChecked());
-    char configured[80]{},effective[80]{};const auto e=ctx_.engine();if(e){swmm_gw2d_option_get(e,"CONFIGURED",configured,sizeof configured);swmm_gw2d_option_get(e,"GW_ET_EFFECTIVE",effective,sizeof effective);}
-    m_gwEtAllocation->setText(tr("Surface evaporation spends one mesh-area demand first; soil ET spends the remainder. Capillary rise is internal water transfer. Climate or explicit evaporation forcing supplies demand. Current saved effective ET: %1. Review changes and Undo in Assign Groundwater → Review ET and seepage defaults. Subcatchment/LID footprint partitioning is configured separately. %2").arg(off?tr("Inactive"):QString::fromUtf8(effective)).arg(openswmmvis::assignment::groundwaterEtForcingStatus(e,m_evap2DCombo->currentData().toString())));
+    char configured[80]{}, aquiferMode[80]{};
+    const auto e=ctx_.engine();
+    if(e) {swmm_gw2d_option_get(e,"CONFIGURED",configured,sizeof configured);swmm_gw2d_option_get(e,"MODE",aquiferMode,sizeof aquiferMode);}
+    const auto state=groundwaterEtState(m_gw2DEtCombo->currentData().toString(),QString::fromUtf8(aquiferMode),!off,QString::fromUtf8(configured)=="YES");
+    m_gw2DEtCombo->setEnabled(!off); m_gwLinkCombo->setEnabled(!off);
+    m_gwWiltingAuto->setEnabled(state.boundary);
+    m_gwWilting->setEnabled(state.boundary&&!m_gwWiltingAuto->isChecked());
+    m_gwEtAllocation->setText(state.reason+" "+tr("Surface evaporation spends atmospheric demand first; soil ET uses the remainder. ")+
+        openswmmvis::assignment::groundwaterEtForcingStatus(e,m_evap2DCombo->currentData().toString()));
     // Aquifer ownership is resolved from coverage. It is independent of
     // the ordinary bank's destination; never synthesize the obsolete token.
     if (m_infil2DDestCombo) {
@@ -942,10 +953,10 @@ void TwoDPage::refreshGates()
              "with the model.").arg(rows)
         : tr("No subsurface transport rows configured.");
     m_gw2DStatusLabel->setText(rowSummary + tr(
-        " Edit subsurface quality and sources in the model input file; this "
-        "dialog does not author those rows. Their use during a run depends on "
-        "the selected engine and enabled groundwater component. Check the run "
-        "report for active or inactive transport."));
+        " Use Assign Groundwater for initial temperatures, concentrations and sources. "
+        "Groundwater temperature transport carries heat with exchanged water. "
+        "Ground-conduction and thermal-boundary options are stored but have no verified runtime implementation in this engine; "
+        "they must not be interpreted as active heat physics."));
 }
 
 unsigned TwoDPage::reportVarsMask() const

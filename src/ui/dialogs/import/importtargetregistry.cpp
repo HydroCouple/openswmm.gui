@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/import/importtargetregistry.h"
+#include "ui/heatproperties.h"
 
 namespace openswmmvis::import {
 
@@ -311,6 +312,11 @@ QVector<TargetAttribute> ImportTargetRegistry::attributesFor(TargetKind kind)
         break;
     }
 
+    if(isNodeKind(kind)||kind==TargetKind::Conduit) {
+        const int count=kind==TargetKind::Conduit?14:6;
+        for(int i=0;i<count;++i){const QString key=QStringLiteral("heat.")+QLatin1String(OpenSWMMVis::heatProperties()[i].key);
+            a.append({key,tr("Heat: %1").arg(OpenSWMMVis::heatPropertyLabel(i)),QMetaType::Double,false,key,{}});}
+    }
     return a;
 }
 
