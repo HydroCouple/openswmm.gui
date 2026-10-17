@@ -1002,6 +1002,7 @@ void AttributeTablePanel::buildUi()
     m_view->setModel(m_proxy);
     m_view->setSortingEnabled(true);
     connect(m_proxy, &QAbstractItemModel::modelReset, this, &AttributeTablePanel::updateQueryFields);
+    connect(m_proxy, &QAbstractItemModel::modelReset, this, &AttributeTablePanel::updateSelectionCount);
     updateQueryFields();
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -1027,6 +1028,13 @@ void AttributeTablePanel::buildUi()
     }
     root->addWidget(m_view, 1);
 
+    // "N of M selected" footer — see updateSelectionCount().
+    m_selectionCount = new QLabel(this);
+    m_selectionCount->setObjectName(QStringLiteral("attributeSelectionCount"));
+    m_selectionCount->setContentsMargins(4, 2, 4, 2);
+    root->addWidget(m_selectionCount);
+    updateSelectionCount();
+
     // Right-click context menu on the table — Change Type… etc.
     // Object-type conversion (Junction ↔ Outfall ↔ Storage ↔ Divider,
     // Conduit ↔ Pump ↔ …) is deliberately NOT inline-editable; the
@@ -1051,7 +1059,11 @@ void AttributeTablePanel::buildUi()
             this, &AttributeTablePanel::onCategoryChanged);
     connect(m_view->selectionModel(),
             &QItemSelectionModel::selectionChanged,
-            this, [this]() { onTableSelectionChanged(); });
+            this, [this]() {
+                onTableSelectionChanged();
+                // Bus-backed sources recount from the bus signal instead.
+                if (selectionIsViewLocal()) updateSelectionCount();
+            });
     connect(m_view->verticalHeader(), &QHeaderView::sectionDoubleClicked,
             this, &AttributeTablePanel::onRowHeaderDoubleClicked);
     connect(actShow, &QAction::toggled,
@@ -1073,9 +1085,12 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
     if (m_layer == layer && m_selMgr == selMgr && m_canvas == canvas)
         return;
 
-    if (m_selMgr)
+    if (m_selMgr) {
         QObject::disconnect(m_selMgr, &SelectionManager::selectionChanged,
                             this,     &AttributeTablePanel::onSelectionManagerChanged);
+        QObject::disconnect(m_selMgr, &SelectionManager::selectionChanged,
+                            this,     &AttributeTablePanel::updateSelectionCount);
+    }
     if (m_layer) {
         QObject::disconnect(m_layer, &SWMMModelLayer::modelLoaded,
                             this,    &AttributeTablePanel::refresh);
@@ -1133,10 +1148,14 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
                 this,    &AttributeTablePanel::onObjectEditedExternally,
                 Qt::UniqueConnection);
     }
-    if (m_selMgr)
+    if (m_selMgr) {
         connect(m_selMgr, &SelectionManager::selectionChanged,
                 this,     &AttributeTablePanel::onSelectionManagerChanged,
                 Qt::UniqueConnection);
+        connect(m_selMgr, &SelectionManager::selectionChanged,
+                this,     &AttributeTablePanel::updateSelectionCount,
+                Qt::UniqueConnection);
+    }
 
     // Slice Z.5.5 — wire the canvas's MapUndoStack into the model
     // so each cell commit lands as a QUndoCommand.  Ctrl+Z then
@@ -1537,7 +1556,10 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
     onQueryClearClicked();
     updateQueryFields();
 
-    if (m_showSelectedOnly && m_selMgr)
+    // Highlight the new source's rows that the bus already selects (the
+    // model reset cleared the view), so the rows agree with the
+    // "N of M selected" footer; also re-applies "show selected only".
+    if (m_selMgr)
         onSelectionManagerChanged(m_selMgr->selection(), {}, {});
 }
 
@@ -2857,6 +2879,8 @@ void AttributeTablePanel::onQueryApplyClicked()
     fp->setQueryPredicate(pred, text);
     const int matched = m_proxy->rowCount();
     selectionBlocker.unblock();
+    // The blocker also hid the view deselecting the rows the filter removed.
+    if (selectionIsViewLocal()) updateSelectionCount();
     const qint64 filterMs = legTimer.restart();
     const int total   = m_proxy->sourceModel() ? m_proxy->sourceModel()->rowCount() : 0;
     if (text.isEmpty())
@@ -2971,6 +2995,62 @@ QSet<SWMMObjectRef> AttributeTablePanel::allCategoryRefs() const
         if (!name.isEmpty()) out.insert(SWMMObjectRef(type, name));
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// "N of M selected" footer
+// ---------------------------------------------------------------------------
+
+bool AttributeTablePanel::selectionIsViewLocal() const
+{
+    return !m_selMgr || (m_proxy && m_proxy->sourceModel() == m_tabularModel);
+}
+
+int AttributeTablePanel::selectedRowCount() const
+{
+    if (!m_view || !m_proxy || !m_proxy->sourceModel()) return 0;
+    if (selectionIsViewLocal()) {
+        const auto *sel = m_view->selectionModel();
+        return sel ? static_cast<int>(sel->selectedRows().size()) : 0;
+    }
+
+    // Resolve bus refs to this source's rows the way the *SelectionFromBus
+    // paths do, so the count agrees with what they highlight.
+    int n = 0;
+    const QSet<SWMMObjectRef> &current = m_selMgr->selection();
+    if (meshSourceActive()) {
+        for (const auto &ref : current)
+            if (m_meshModel->rowForRef(ref) >= 0) ++n;
+    } else if (gisSourceActive()) {
+        const QString layerId = m_gisModel->layer()->layerId();
+        for (const auto &ref : current) {
+            QString lid;
+            long long fid = -1;
+            if (GisObjectRef::parseFeature(ref, &lid, &fid) && lid == layerId
+                && m_gisModel->rowForFid(fid) >= 0)
+                ++n;
+        }
+    } else if (dataSourceActive()) {
+        const auto type = m_dataModel->objectType();
+        for (const auto &ref : current)
+            if (ref.objectType == type && m_dataModel->rowForName(ref.name) >= 0)
+                ++n;
+    } else if (m_proxy->sourceModel() == m_model) {
+        const auto type = objectTypeForCategory(m_model->category());
+        for (const auto &ref : current)
+            if (ref.objectType == type && m_model->rowForName(ref.name) >= 0)
+                ++n;
+    }
+    return n;
+}
+
+void AttributeTablePanel::updateSelectionCount()
+{
+    if (!m_selectionCount || !m_proxy) return;
+    const QAbstractItemModel *src = m_proxy->sourceModel();
+    m_selectionCount->setText(tr("%1 of %2 selected")
+                                  .arg(selectedRowCount())
+                                  .arg(src ? src->rowCount() : 0));
 }
 
 void AttributeTablePanel::onSelectionApplyClicked()

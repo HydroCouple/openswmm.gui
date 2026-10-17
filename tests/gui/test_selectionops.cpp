@@ -10,6 +10,7 @@
  *                                      subcatchment outlet chaining.
  *           3. AttributeTablePanel::selectionAsTsv — Copy in the Attribute
  *                                      Table.
+ *           4. The Attribute Table's "N of M selected" footer.
  *
  *         Fixtures:
  *           - `selection_trace_fixture.inp` — see its [TITLE] block for the
@@ -29,10 +30,15 @@
 
 #include <QComboBox>
 #include <QDir>
+#include <QItemSelectionModel>
+#include <QLabel>
+#include <QLineEdit>
 #include <QObject>
+#include <QRadioButton>
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QTableView>
 #include <QTest>
 
 #include <algorithm>
@@ -110,6 +116,9 @@ private slots:
     // ── Attribute-table copy ───────────────────────────────────────────────
     void tsvCopiesSelectedRowsWithHeader();
     void tsvFallsBackToAllVisibleRows();
+
+    // ── Attribute-table selection count ────────────────────────────────────
+    void selectionCountReportsSelectedOfTotal();
 
     // ---- 4. AttributeTablePanel::deleteObjects -----------------------
     void deleteLeafNodeCascadesItsOneLink();
@@ -366,6 +375,66 @@ void TestSelectionOps::tsvFallsBackToAllVisibleRows()
     const QStringList lines = panel.selectionAsTsv().split(QLatin1Char('\n'));
     QCOMPARE(lines.size(), 5);
     QVERIFY(lines.at(0).startsWith(QStringLiteral("Name\t")));
+}
+
+// ---------------------------------------------------------------------------
+// Attribute-table "N of M selected" footer
+// ---------------------------------------------------------------------------
+
+void TestSelectionOps::selectionCountReportsSelectedOfTotal()
+{
+    auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
+    QVERIFY(layer);
+
+    SelectionManager selMgr;
+    AttributeTablePanel panel;
+    panel.setProject(layer.get(), &selMgr, nullptr);   // Junctions: J1..J4
+
+    auto *count = panel.findChild<QLabel *>(QStringLiteral("attributeSelectionCount"));
+    auto *query = panel.findChild<QLineEdit *>(QStringLiteral("attributeQuery"));
+    auto *view  = panel.findChild<QTableView *>();
+    auto *combo = panel.findChild<QComboBox *>();
+    QRadioButton *add = nullptr;
+    for (QRadioButton *r : panel.findChildren<QRadioButton *>())
+        if (r->text() == QStringLiteral("Add")) add = r;
+    QVERIFY(count && query && view && combo && add);
+
+    QCOMPARE(count->text(), QStringLiteral("0 of 4 selected"));
+
+    // O1 is a Node ref too, but an Outfall: only this category's rows count.
+    selMgr.select(QSet<SWMMObjectRef>{node("J1"), node("J3"), node("O1")},
+                  SelectionManager::Replace);
+    QCOMPARE(count->text(), QStringLiteral("2 of 4 selected"));
+
+    // A selected row the query hides still counts, as in GIS tables: Add
+    // keeps J3 selected while the filter shows only J1.
+    add->setChecked(true);
+    query->setText(QStringLiteral("Name = 'J1'"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QCOMPARE(view->model()->rowCount(), 1);
+    QCOMPARE(count->text(), QStringLiteral("2 of 4 selected"));
+
+    // Switching category recounts against the new source: C1..C3 (P1 is a
+    // pump), none of them selected yet.
+    const int idx = combo->findText(QStringLiteral("Conduits"), Qt::MatchStartsWith);
+    QVERIFY2(idx >= 0, "Conduits category should be present");
+    combo->setCurrentIndex(idx);
+    QCOMPARE(count->text(), QStringLiteral("0 of 3 selected"));
+
+    selMgr.select(link("C2"), SelectionManager::Add);
+    QCOMPARE(count->text(), QStringLiteral("1 of 3 selected"));
+
+    // Switching back highlights the rows the bus already holds (J1, J3), so
+    // the highlight agrees with the footer.
+    const int junctions = combo->findText(QStringLiteral("Junctions"), Qt::MatchStartsWith);
+    QVERIFY2(junctions >= 0, "Junctions category should be present");
+    combo->setCurrentIndex(junctions);
+    QCOMPARE(count->text(), QStringLiteral("2 of 4 selected"));
+    QCOMPARE(view->selectionModel()->selectedRows().size(), 2);
+
+    selMgr.select(QSet<SWMMObjectRef>{}, SelectionManager::Replace);
+    QCOMPARE(count->text(), QStringLiteral("0 of 4 selected"));
+    QCOMPARE(view->selectionModel()->selectedRows().size(), 0);
 }
 
 // ---------------------------------------------------------------------------

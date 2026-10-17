@@ -56,6 +56,12 @@ so meanwhile.
 `Ctrl+C` always goes to the panel that has keyboard focus, so the toolbar
 button deliberately carries no shortcut of its own.
 
+The footer under the table reads `N of M selected`, as in GIS attribute
+tables. `M` is every row of the current source, whatever the query shows, and
+`N` counts its selected rows, including selected rows the query filter hides.
+A loaded CSV/TSV table has no map selection, so its count is the rows
+highlighted in the table.
+
 ### Columns
 
 Each SWMM category has a fixed column schema, laid out left to right in four
