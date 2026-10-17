@@ -23,6 +23,7 @@
 
 #include <QAbstractTableModel>
 #include <QStringList>
+#include <QVector>
 #include <QStyledItemDelegate>
 
 namespace openswmmvis::ui {
@@ -48,10 +49,16 @@ public:
 
 protected:
     QString pollutantName(int row) const;
+    /// The engine constituent index of a row: pollutants first, then the
+    /// bulk reaction species (pollutant count + species index), the
+    /// surface-species convention of swmm_buildup_* / swmm_washoff_*.
+    int constituentIndex(int row) const;
 
     void *m_engine  = nullptr;
     int   m_luIndex = -1;
     int   m_rows    = 0;
+    int   m_npollut = 0;
+    QVector<int> m_species;   ///< bulk reaction species indices, in row order
 };
 
 class BuildupTableModel : public QualityFunctionTableModel

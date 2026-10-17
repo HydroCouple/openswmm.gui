@@ -9,6 +9,7 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_reactions.h>
 
 #include <QComboBox>
 
@@ -27,9 +28,24 @@ void QualityFunctionTableModel::bind(void *engineHandle, int luIndex)
     beginResetModel();
     m_engine  = engineHandle;
     m_luIndex = luIndex;
-    m_rows = (m_engine && m_luIndex >= 0)
-                 ? qMax(0, swmm_pollutant_count(eng(m_engine)))
-                 : 0;
+    m_species.clear();
+    m_npollut = 0;
+    if (m_engine && m_luIndex >= 0) {
+        m_npollut = qMax(0, swmm_pollutant_count(eng(m_engine)));
+        // Multispecies Phase 2: bulk reaction species build up and wash off
+        // like pollutants; wall species cannot and are not listed.
+        const int nm = swmm_reaction_species_count(eng(m_engine));
+        for (int m = 0; m < nm; ++m) {
+            char name[128], units[32];
+            int is_wall = 0;
+            double atol = 0, rtol = 0;
+            if (swmm_reaction_species_get(eng(m_engine), m, name, int(sizeof name), &is_wall,
+                                          units, int(sizeof units), &atol, &rtol) == SWMM_OK &&
+                !is_wall)
+                m_species.push_back(m);
+        }
+    }
+    m_rows = m_npollut + int(m_species.size());
     endResetModel();
 }
 
@@ -46,8 +62,26 @@ int QualityFunctionTableModel::rowCount(const QModelIndex &parent) const
 QString QualityFunctionTableModel::pollutantName(int row) const
 {
     if (!m_engine) return {};
+    if (row >= m_npollut) {
+        const int k = row - m_npollut;
+        if (k < 0 || k >= m_species.size()) return {};
+        char name[128], units[32];
+        int is_wall = 0;
+        double atol = 0, rtol = 0;
+        if (swmm_reaction_species_get(eng(m_engine), m_species[k], name, int(sizeof name), &is_wall,
+                                      units, int(sizeof units), &atol, &rtol) != SWMM_OK)
+            return {};
+        return QString::fromUtf8(name);
+    }
     const char *raw = swmm_pollutant_id(eng(m_engine), row);
     return raw ? QString::fromUtf8(raw) : QString();
+}
+
+int QualityFunctionTableModel::constituentIndex(int row) const
+{
+    if (row < m_npollut) return row;
+    const int k = row - m_npollut;
+    return (k >= 0 && k < m_species.size()) ? m_npollut + m_species[k] : -1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,7 +127,7 @@ QVariant BuildupTableModel::data(const QModelIndex &index, int role) const
 
     int ft = 0, norm = 0;
     double c1 = 0, c2 = 0, c3 = 0;
-    swmm_buildup_get(eng(m_engine), m_luIndex, index.row(),
+    swmm_buildup_get(eng(m_engine), m_luIndex, constituentIndex(index.row()),
                      &ft, &c1, &c2, &c3, &norm);
 
     if (role == EnumComboDelegate::OptionsRole) {
@@ -128,7 +162,7 @@ bool BuildupTableModel::setData(const QModelIndex &index, const QVariant &value,
 
     int ft = 0, norm = 0;
     double c1 = 0, c2 = 0, c3 = 0;
-    swmm_buildup_get(eng(m_engine), m_luIndex, index.row(),
+    swmm_buildup_get(eng(m_engine), m_luIndex, constituentIndex(index.row()),
                      &ft, &c1, &c2, &c3, &norm);
 
     switch (index.column()) {
@@ -153,7 +187,7 @@ bool BuildupTableModel::setData(const QModelIndex &index, const QVariant &value,
         default: return false;
     }
 
-    if (swmm_buildup_set(eng(m_engine), m_luIndex, index.row(),
+    if (swmm_buildup_set(eng(m_engine), m_luIndex, constituentIndex(index.row()),
                          ft, c1, c2, c3, norm) != SWMM_OK)
         return false;
     emit dataChanged(this->index(index.row(), ColFunction),
@@ -169,7 +203,7 @@ Qt::ItemFlags BuildupTableModel::flags(const QModelIndex &index) const
     if (index.column() == ColC3 && m_engine && m_luIndex >= 0) {
         int ft = 0, norm = 0;
         double c1 = 0, c2 = 0, c3 = 0;
-        swmm_buildup_get(eng(m_engine), m_luIndex, index.row(),
+        swmm_buildup_get(eng(m_engine), m_luIndex, constituentIndex(index.row()),
                          &ft, &c1, &c2, &c3, &norm);
         if (ft == 4) return f;                       // EXT guard: read-only
     }
@@ -218,7 +252,7 @@ QVariant WashoffTableModel::data(const QModelIndex &index, int role) const
 
     int ft = 0;
     double coeff = 0, expon = 0, sweep = 0, bmp = 0;
-    swmm_washoff_get(eng(m_engine), m_luIndex, index.row(),
+    swmm_washoff_get(eng(m_engine), m_luIndex, constituentIndex(index.row()),
                      &ft, &coeff, &expon, &sweep, &bmp);
     switch (index.column()) {
         case ColPollutant:  return pollutantName(index.row());
@@ -239,7 +273,7 @@ bool WashoffTableModel::setData(const QModelIndex &index, const QVariant &value,
 
     int ft = 0;
     double coeff = 0, expon = 0, sweep = 0, bmp = 0;
-    swmm_washoff_get(eng(m_engine), m_luIndex, index.row(),
+    swmm_washoff_get(eng(m_engine), m_luIndex, constituentIndex(index.row()),
                      &ft, &coeff, &expon, &sweep, &bmp);
 
     switch (index.column()) {
@@ -256,7 +290,7 @@ bool WashoffTableModel::setData(const QModelIndex &index, const QVariant &value,
         default: return false;
     }
 
-    if (swmm_washoff_set(eng(m_engine), m_luIndex, index.row(),
+    if (swmm_washoff_set(eng(m_engine), m_luIndex, constituentIndex(index.row()),
                          ft, coeff, expon, sweep, bmp) != SWMM_OK)
         return false;
     emit dataChanged(this->index(index.row(), ColFunction),

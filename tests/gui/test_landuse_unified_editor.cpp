@@ -37,7 +37,7 @@ QString fixtureDir()
     return base + QStringLiteral("/landuse_editor");
 }
 
-QString writeFixture(const QString &tag)
+QString writeFixture(const QString &tag, const QString &extra = QString())
 {
     QDir().mkpath(fixtureDir());
     const QString path = fixtureDir() + QStringLiteral("/%1.inp").arg(tag);
@@ -84,15 +84,16 @@ QString writeFixture(const QString &tag)
            "Res  TSS  POW  100  2  1.5  AREA\n"
            "\n[WASHOFF]\n"
            "Res  TSS  EXP  0.1  1.2  30  15\n";
+    out << extra;
     return path;
 }
 
 struct EngineFixture {
     SWMM_Engine engine = nullptr;
 
-    explicit EngineFixture(const QString &tag)
+    explicit EngineFixture(const QString &tag, const QString &extra = QString())
     {
-        const QString inp = writeFixture(tag);
+        const QString inp = writeFixture(tag, extra);
         if (inp.isEmpty()) return;
         engine = swmm_engine_create();
         const QString rpt = fixtureDir() + QStringLiteral("/%1.rpt").arg(tag);
@@ -123,6 +124,7 @@ private slots:
     void pollutantAddRedimensionsRows();
     void impactAwareDeleteRemovesEngineObject();
     void renameKeepsEngineMatrices();
+    void reactionSpeciesGetBuildupAndWashoffRows();
 };
 
 void TestLandUseUnifiedEditor::tabsAndModelsPresent()
@@ -283,6 +285,41 @@ void TestLandUseUnifiedEditor::renameKeepsEngineMatrices()
 
     // Duplicate name rejected.
     QVERIFY(!reg.rename(res, QStringLiteral("Com")));
+}
+
+// Multispecies Phase 2 (S8): bulk reaction species build up and wash off by
+// the same rows as pollutants, so the land-use grids list them after the
+// pollutants and edit them through the same engine calls (constituent index
+// = pollutant count + species index). Wall species cannot build up and are
+// not listed.
+void TestLandUseUnifiedEditor::reactionSpeciesGetBuildupAndWashoffRows()
+{
+    QDir().mkpath(fixtureDir());
+    {
+        QFile rxn(fixtureDir() + QStringLiteral("/species.rxn"));
+        QVERIFY(rxn.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QTextStream r(&rxn);
+        r << "[REACTION_OPTIONS]\nSOLVER RK5\n[REACTION_SPECIES]\nBULK X MG\nWALL W MG\n"
+             "[REACTION_PIPES]\nRATE X 0\nRATE W 0\n[REACTION_TANKS]\nRATE X 0\n";
+    }
+    EngineFixture fx(QStringLiteral("species"),
+                     QStringLiteral("\n[PROCESS_COMPONENTS]\n"
+                                    "org.hydrocouple.openswmm.reactions config=\"species.rxn\"\n"));
+    QVERIFY(fx.engine);
+    LandUseRegistry reg;
+    reg.loadFromEngine(fx.engine);
+    LandUseEditorDialog dlg(&reg, nullptr);
+    auto *bm = dlg.buildupModel();
+    QCOMPARE(bm->rowCount(), 3);             // TSS, Lead, X (W is a wall species)
+    QCOMPARE(dlg.washoffModel()->rowCount(), 3);
+    QCOMPARE(bm->data(bm->index(2, BuildupTableModel::ColPollutant), Qt::DisplayRole).toString(), QStringLiteral("X"));
+    QVERIFY(bm->setData(bm->index(2, BuildupTableModel::ColFunction), QStringLiteral("POW"), Qt::EditRole));
+    QVERIFY(bm->setData(bm->index(2, BuildupTableModel::ColC1), 42.0, Qt::EditRole));
+    int ft = -1, norm = -1;
+    double c1 = 0, c2 = 0, c3 = 0;
+    QCOMPARE(swmm_buildup_get(fx.engine, bm->landUseIndex(), 2, &ft, &c1, &c2, &c3, &norm), SWMM_OK);
+    QCOMPARE(ft, 1);
+    QCOMPARE(c1, 42.0);
 }
 
 QTEST_MAIN(TestLandUseUnifiedEditor)
