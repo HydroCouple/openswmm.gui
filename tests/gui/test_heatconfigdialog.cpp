@@ -37,6 +37,7 @@
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_gw_transport.h>
 #include <openswmm/engine/openswmm_tables.h>
 
 #include <QAccessible>
@@ -108,9 +109,9 @@ struct OpenedMini2D {
                                 binary.constData(), nullptr) == SWMM_OK;
     }
 
-    bool initializeAndStart(bool temperature, bool surface)
+    bool initializeAndStart(bool temperature, bool surface, bool heatEnabled = true)
     {
-        if (!engine || swmm_options_set(engine, "HEAT_TRANSPORT", "YES") != SWMM_OK ||
+        if (!engine || swmm_options_set(engine, "HEAT_TRANSPORT", heatEnabled ? "YES" : "NO") != SWMM_OK ||
             swmm_options_set_ext(engine, "HEAT_MODEL", "COUPLED") != SWMM_OK ||
             swmm_options_set_ext(engine, "TRANSPORT_TEMPERATURE", temperature ? "YES" : "NO") != SWMM_OK ||
             swmm_options_set_ext(engine, "HEAT_SURFACE_EXCHANGE", surface ? "YES" : "NO") != SWMM_OK ||
@@ -173,6 +174,7 @@ class TestHeatConfigDialog : public QObject
     void runtimeOverviewDistinguishesMeshTemperatureOff();
     void runtimeOverviewReportsNoCompatibleHeatOwner();
     void runtimeOverviewSeparatesActiveProcessFromZeroReceipts();
+    void runtimeOverviewKeepsReactionTransportIndependentOfHeat();
     void groundwaterThermalSettingsShortcutAppliesAndRequestsNavigation();
     void channelContactPreviewShowsSavedCoverageWithoutEditingModel();
     void zeroLatitudeSiteAndComputedRadiationInOneVisit();
@@ -724,6 +726,25 @@ void TestHeatConfigDialog::runtimeOverviewSeparatesActiveProcessFromZeroReceipts
     QVERIFY(text.contains(QStringLiteral("2D surface heat: active")));
     QVERIFY(text.contains(QStringLiteral("mesh atmosphere 0 J")));
     QVERIFY(text.contains(QStringLiteral("a zero signed total does not mean that a process is disabled")));
+}
+
+void TestHeatConfigDialog::runtimeOverviewKeepsReactionTransportIndependentOfHeat()
+{
+    OpenedMini2D model;
+    QVERIFY(model.open());
+    QCOMPARE(swmm_options_set(model.engine,"IGNORE_QUALITY","NO"),SWMM_OK);
+    QCOMPARE(swmm_gw_transport_option_set(model.engine,"TRANSPORT_MSX","YES"),SWMM_OK);
+    QCOMPARE(swmm_gw_transport_option_set(model.engine,"TRANSPORT_TEMPERATURE","NO"),SWMM_OK);
+    QVERIFY(model.initializeAndStart(false,false,false));
+    HeatConfigDialog dialog(model.engine);
+    const QString text=showRuntimeOverview(dialog);
+    QVERIFY(text.contains(QStringLiteral("Saved network and lumped temperature transport: off")));
+    QVERIFY(text.contains(QStringLiteral("Temperature transport is off; pollutant, reaction, MSX and water-age settings remain independent.")));
+    QVERIFY(text.contains(QStringLiteral("Simulation state: ended.")));
+    QVERIFY(!text.contains(QStringLiteral("Water quality is off")));
+    char reactions[32]{};
+    QCOMPARE(swmm_gw_transport_option_get(model.engine,"TRANSPORT_MSX",reactions,sizeof reactions),SWMM_OK);
+    QCOMPARE(QString::fromUtf8(reactions),QStringLiteral("YES"));
 }
 
 void TestHeatConfigDialog::groundwaterThermalSettingsShortcutAppliesAndRequestsNavigation()
