@@ -285,8 +285,11 @@ LID Stack .2
         auto* et=dialog.findChild<QComboBox*>("gwTransport_SOIL_ET_HEAT");
         QVERIFY(model&&conduction&&mixing&&layers&&lateral&&surface&&surfaceValue&&deep&&deepValue&&deepDepth&&conductivity&&surfaceResistance&&et);
         QCOMPARE(model->currentData().toString(),QString("WATER_ONLY"));
+        QVERIFY2(model->isEnabled(), "the engine exposes the porous-soil thermal option");
+        QVERIFY(!conduction->isEnabled());
         auto* status=dialog.findChild<QLabel*>("gwThermalActivationStatus");QVERIFY(status);QVERIFY(status->text().startsWith("Inactive:"));
         model->setCurrentIndex(model->findData("POROUS_EQUILIBRIUM"));conduction->setCurrentIndex(conduction->findData("YES"));
+        QVERIFY(conduction->isEnabled());
         mixing->setCurrentIndex(mixing->findData("GEOMETRIC"));layers->setValue(8);lateral->setChecked(true);
         surface->setCurrentIndex(surface->findData("FIXED"));surfaceValue->setText("12.75");
         deep->setCurrentIndex(deep->findData("FIXED_TEMP"));deepValue->setText("8.5");deepDepth->setValue(12.0);
