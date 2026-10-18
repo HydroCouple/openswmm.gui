@@ -20,7 +20,8 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer* model,GISRasterLayer* raster,
     if(attr<0||attr>SWMM_HEAT_ATTR_MESH_POROSITY||band<1||band>raster->bandCount()||linkSamples<1
         ||(scope!=SWMM_HEAT_SCOPE_NODE&&scope!=SWMM_HEAT_SCOPE_LINK&&scope!=SWMM_HEAT_SCOPE_CELL2D)
         ||(scope==SWMM_HEAT_SCOPE_NODE&&attr>=6)
-        ||(attr==SWMM_HEAT_ATTR_MESH_POROSITY&&scope!=SWMM_HEAT_SCOPE_CELL2D)){
+        ||(attr==SWMM_HEAT_ATTR_MESH_POROSITY&&scope!=SWMM_HEAT_SCOPE_CELL2D)
+        ||(attr==SWMM_HEAT_ATTR_GROUND_SOURCE&&scope==SWMM_HEAT_SCOPE_CELL2D)){
         result.error=QObject::tr("Choose a valid property, object type and raster band.");return result;
     }
     const auto engine=model->engine();const bool link=scope==SWMM_HEAT_SCOPE_LINK;
@@ -30,7 +31,7 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer* model,GISRasterLayer* raster,
         openswmmvis::assignment::MeshAssignmentSampling::Job job;
         job.mode=openswmmvis::assignment::MeshAssignmentSampling::Mode::SingleNumeric;
         job.source=openswmmvis::assignment::MeshAssignmentSampling::Source::Raster;
-        job.sampling=openswmmvis::assignment::MeshAssignmentSampling::Sampling::Centroid;
+        job.sampling=openswmmvis::assignment::MeshAssignmentSampling::Sampling::AreaWeightedMean;
         job.strictCrs=true;job.meshCrsWkt=model->srs()->toWkt();
         job.assignedSourceCrsWkt=raster->srs()->toWkt();job.rasterPath=raster->filePath();
         job.bands={band};job.targetKeys={QByteArray("heat")};
@@ -45,9 +46,10 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer* model,GISRasterLayer* raster,
             int vertexCount=0,vertices[4]{-1,-1,-1,-1};
             if(swmm_2d_cell_vertex_count(engine,cell,&vertexCount)!=SWMM_OK||vertexCount<3||vertexCount>4
                 ||swmm_2d_cell_get_vertices(engine,cell,vertices,&vertexCount)!=SWMM_OK){
-                result.error=QObject::tr("Cannot read a finite 2D cell centroid.");return result;
+                result.error=QObject::tr("Cannot read 2D cell vertices.");return result;
             }
             double twiceArea=0.0,centroidX=0.0,centroidY=0.0;
+            QVector<QPointF> footprint;footprint.reserve(vertexCount);
             for(int i=0;i<vertexCount;++i){
                 double x0=0.0,y0=0.0,z0=0.0,x1=0.0,y1=0.0,z1=0.0;
                 if(swmm_2d_vertex_get_xyz(engine,vertices[i],&x0,&y0,&z0)!=SWMM_OK
@@ -59,8 +61,9 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer* model,GISRasterLayer* raster,
                 twiceArea+=cross;
                 centroidX+=(x0+x1)*cross;
                 centroidY+=(y0+y1)*cross;
+                footprint.append({x0,y0});
             }
-            if(!std::isfinite(twiceArea)||std::abs(twiceArea)<=1e-14){
+            if(!std::isfinite(twiceArea)||twiceArea==0.0){
                 result.error=QObject::tr("Cannot calculate a non-degenerate 2D cell centroid.");return result;
             }
             const double x=centroidX/(3.0*twiceArea),y=centroidY/(3.0*twiceArea);
@@ -68,6 +71,8 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer* model,GISRasterLayer* raster,
                 result.error=QObject::tr("Cannot calculate a finite 2D cell centroid.");return result;
             }
             job.triangles.append(cell);job.centroids.append(QPointF(x,y));
+            for(const auto& point:footprint)job.triVerts.append(point);
+            if(vertexCount==3)job.triVerts.append(footprint.front());
         }
         if(job.triangles.isEmpty()){result.error=QObject::tr("No 2D cells match the selected mesh region tag.");return result;}
         const auto sampled=openswmmvis::assignment::sampleMeshAssignment(job,

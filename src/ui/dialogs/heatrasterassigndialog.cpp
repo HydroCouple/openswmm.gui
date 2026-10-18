@@ -24,7 +24,7 @@
 namespace OpenSWMMVis {
 HeatRasterAssignDialog::HeatRasterAssignDialog(SWMMModelLayer* model,MapCanvas* canvas,QWidget* parent):QDialog(parent) {
     setWindowTitle(tr("Assign heat properties from raster"));setObjectName("heatRasterAssignDialog");resize(850,650);
-    auto* layout=new QVBoxLayout(this);auto* note=new QLabel(tr("Sample nodes at their coordinates; conduits use equally spaced samples along the complete polyline, weighted by length. Values use SI units / °C. Objects with missing or invalid samples retain their existing settings."),this);note->setWordWrap(true);layout->addWidget(note);
+    auto* layout=new QVBoxLayout(this);auto* note=new QLabel(tr("Nodes are sampled at their coordinates, conduits along their full length, and 2D cells over their raster footprint. Continuous cell properties use an area-weighted mean. Values use SI units / °C; missing or invalid samples leave existing settings unchanged."),this);note->setWordWrap(true);layout->addWidget(note);
     auto* form=new QFormLayout;auto* source=new QComboBox(this);source->setObjectName("heatRasterSource");
     if(canvas)for(auto* layer:canvas->layers())if(auto* raster=qobject_cast<GISRasterLayer*>(layer))source->addItem(raster->name(),raster->layerId());
     form->addRow(tr("Loaded raster:"),source);auto* band=new QSpinBox(this);band->setObjectName("heatRasterBand");band->setRange(1,999);form->addRow(tr("Band:"),band);
