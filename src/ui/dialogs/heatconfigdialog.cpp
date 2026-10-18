@@ -45,6 +45,7 @@
 #include <QSet>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTextBrowser>
 #include <QVBoxLayout>
 #include <QVector>
 #include <algorithm>
@@ -190,6 +191,12 @@ void HeatConfigDialog::buildUi()
     m_processStatus->setObjectName("hc_processStatus");
     m_processStatus->setWordWrap(true);
     vlay->addWidget(m_processStatus);
+    auto *runtimeOverview = new QPushButton(tr("View saved and runtime process overview…"), this);
+    runtimeOverview->setObjectName(QStringLiteral("hc_runtimeOverview"));
+    runtimeOverview->setEnabled(m_engine != nullptr);
+    vlay->addWidget(runtimeOverview, 0, Qt::AlignLeft);
+    connect(runtimeOverview, &QPushButton::clicked,
+            this, &HeatConfigDialog::showRuntimeOverview);
     auto *tabs = new QTabWidget(this);
     tabs->setObjectName(QStringLiteral("hc_tabs"));
     m_tabs = tabs;
@@ -1190,6 +1197,177 @@ void HeatConfigDialog::refreshProcessStatus()
     m_groundSeries->setEnabled(m_groundConfigured->isChecked() && m_groundMode->currentIndex()==1);
     m_bedSpin[4]->setEnabled(m_groundConfigured->isChecked() && m_groundMode->currentIndex()==0);
     m_bedSpin[8]->setEnabled(m_initialConfigured->isChecked());
+}
+
+QString HeatConfigDialog::runtimeOverviewText() const
+{
+    if (!m_engine)
+        return tr("The model is no longer available. Reopen the project to inspect process status.");
+
+    QStringList lines;
+    int savedHeat = 0;
+    if (swmm_heat_get_enabled(m_engine, &savedHeat) != SWMM_OK)
+        return tr("The saved heat-transport setting could not be read.");
+    lines << tr("Saved network and lumped temperature transport: %1.").arg(savedHeat ? tr("on") : tr("off"));
+    lines << tr("Current editor draft: %1.").arg(m_heatEnabled && m_heatEnabled->isChecked() ? tr("on") : tr("off"));
+
+    char ignored[32]{};
+    const bool canReadQuality = swmm_options_get(m_engine, "IGNORE_QUALITY", ignored, sizeof ignored) == SWMM_OK;
+    const bool qualityOff = canReadQuality && QString::fromUtf8(ignored).compare(QStringLiteral("YES"), Qt::CaseInsensitive) == 0;
+    if (qualityOff)
+        lines << tr("Network and lumped temperature transport is inactive while Water quality is off. Mesh temperature has a separate activation setting.");
+
+    const QStringList moduleNames = {tr("Water-surface heat exchange"), tr("Radiation"),
+                                     tr("LID layer heat transfer"), tr("1D channel-bed exchange")};
+    for (int module = 0; module < 4; ++module) {
+        int configured = 0;
+        if (swmm_heat_get_module(m_engine, module, &configured) != SWMM_OK) continue;
+        const bool draftOn = m_modules[module] && m_modules[module]->isChecked();
+        QString state = configured ? tr("saved on") : tr("saved off");
+        if (draftOn != (configured != 0))
+            state += tr("; draft %1").arg(draftOn ? tr("on") : tr("off"));
+        if (configured && (!savedHeat || qualityOff))
+            state += tr("; inactive for network and lumped domains");
+        lines << tr("%1: %2.").arg(moduleNames[module], state);
+    }
+
+    int engineState = SWMM_STATE_NONE;
+    if (swmm_engine_get_state(m_engine, &engineState) != SWMM_OK) {
+        lines << tr("Runtime state could not be read.");
+        return lines.join(QLatin1Char('\n'));
+    }
+    const bool initialized = engineState == SWMM_STATE_INITIALIZED || engineState == SWMM_STATE_STARTED ||
+                             engineState == SWMM_STATE_RUNNING || engineState == SWMM_STATE_ENDED;
+    const auto stateName = [engineState]() {
+        switch (engineState) {
+        case SWMM_STATE_CREATED: return QObject::tr("created");
+        case SWMM_STATE_OPENED: return QObject::tr("opened");
+        case SWMM_STATE_BUILDING: return QObject::tr("being built");
+        case SWMM_STATE_INITIALIZED: return QObject::tr("initialized");
+        case SWMM_STATE_STARTED: return QObject::tr("started");
+        case SWMM_STATE_RUNNING: return QObject::tr("running");
+        case SWMM_STATE_ENDED: return QObject::tr("ended");
+        default: return QObject::tr("unavailable");
+        }
+    };
+    lines << tr("Simulation state: %1.").arg(stateName());
+
+    SWMM_Heat2DStatus mesh{}; mesh.struct_size = sizeof(mesh);
+    const bool haveMesh = swmm_heat_get_2d_status(m_engine, &mesh) == SWMM_OK;
+    SWMM_GroundHeatStatus ground{}; ground.struct_size = sizeof(ground);
+    const bool haveGround = swmm_heat_get_ground_status(m_engine, &ground) == SWMM_OK;
+    SWMM_ChannelGroundStatus channel{}; channel.struct_size = sizeof(channel);
+    const bool haveChannel = swmm_heat_get_channel_ground_status(m_engine, &channel) == SWMM_OK;
+    const auto domainState = [](bool requested, bool ready, bool active, const char *reason) {
+        QString result = !requested ? QObject::tr("not requested")
+            : !ready ? QObject::tr("requested; not initialized")
+            : active ? QObject::tr("active") : QObject::tr("initialized; inactive");
+        const QString why = QString::fromUtf8(reason ? reason : "").trimmed();
+        if (!why.isEmpty()) result += QObject::tr(" — %1").arg(why);
+        return result;
+    };
+
+    if (!initialized) {
+        lines << tr("Runtime activation and energy receipts are not available until the model is initialized.");
+        if (haveMesh) lines << tr("2D heat: %1.").arg(domainState(mesh.requested, mesh.initialized,
+            mesh.surface_active || mesh.radiative_active || mesh.bed_active, mesh.reason));
+        if (haveGround) lines << tr("Porous-soil heat: %1.").arg(domainState(ground.requested, ground.initialized,
+            ground.conduction_active || ground.lateral_active, ground.reason));
+        if (haveChannel) lines << tr("Routed-channel/soil exchange: %1.").arg(domainState(channel.requested,
+            channel.initialized, channel.exchange_active, channel.reason));
+        return lines.join(QLatin1Char('\n'));
+    }
+
+    if (haveMesh) {
+        const QString bedModel = mesh.bed_model == 1 ? tr("local bed storage")
+                              : mesh.bed_model == 2 ? tr("ground-column bed") : tr("no bed model");
+        lines << tr("2D surface heat: %1; radiation: %2; bed: %3 (%4).")
+            .arg(mesh.surface_active ? tr("active") : tr("inactive"),
+                 mesh.radiative_active ? tr("active") : tr("inactive"),
+                 mesh.bed_active ? tr("active") : tr("inactive"), bedModel);
+        if (mesh.reason[0]) lines << tr("2D heat reason: %1").arg(QString::fromUtf8(mesh.reason));
+        if (mesh.experimental) lines << tr("2D heat capability is marked experimental.");
+    }
+    if (haveGround) {
+        lines << tr("Porous-soil heat: %1; %2 aquifer cells, %3 standalone cells, %4 thermal layers; lateral conduction %5.")
+            .arg(domainState(ground.requested, ground.initialized,
+                             ground.conduction_active || ground.lateral_active, ground.reason))
+            .arg(ground.aquifer_cells).arg(ground.standalone_cells).arg(ground.thermal_layers)
+            .arg(ground.lateral_active ? tr("active") : tr("inactive"));
+        if (ground.experimental) lines << tr("Porous-soil heat capability is marked experimental.");
+    }
+    if (haveChannel) {
+        lines << tr("Routed-channel/soil exchange: %1; %2 mapped links, %3 contact cells and %4 contact intervals.")
+            .arg(domainState(channel.requested, channel.initialized, channel.exchange_active, channel.reason))
+            .arg(channel.mapped_links).arg(channel.contact_cells).arg(channel.contact_intervals);
+        if (channel.experimental) lines << tr("Routed-channel/soil exchange is marked experimental.");
+    }
+
+    int cellCount = 0;
+    if (swmm_2d_cell_count(m_engine, &cellCount) == SWMM_OK && cellCount > 0) {
+        const auto sumValues = [this, cellCount](int kind, bool groundValues, double &total) {
+            constexpr int chunkSize = 4096;
+            std::vector<double> values(static_cast<std::size_t>(std::min(cellCount, chunkSize)));
+            bool found = false;
+            for (int first = 0; first < cellCount; first += chunkSize) {
+                const int count = std::min(chunkSize, cellCount - first);
+                if (static_cast<int>(values.size()) != count) values.resize(static_cast<std::size_t>(count));
+                const int rc = groundValues
+                    ? swmm_heat_get_ground_values(m_engine, kind, first, count, values.data())
+                    : swmm_heat_get_2d_values(m_engine, kind, first, count, values.data());
+                if (rc != SWMM_OK) return false;
+                for (double v : values) if (std::isfinite(v)) { total += v; found = true; }
+            }
+            return found;
+        };
+        QStringList receipts;
+        const auto appendReceipt = [&](int kind, bool groundValues, const QString &name) {
+            double total = 0.0;
+            if (sumValues(kind, groundValues, total))
+                receipts << tr("%1 %2 J").arg(name).arg(total, 0, 'g', 8);
+        };
+        if (haveMesh && mesh.initialized) {
+            appendReceipt(SWMM_HEAT_2D_ATMOSPHERIC_ENERGY, false, tr("mesh atmosphere"));
+            appendReceipt(SWMM_HEAT_2D_RADIATIVE_ENERGY, false, tr("mesh radiation"));
+            appendReceipt(SWMM_HEAT_2D_LATENT_ENERGY, false, tr("mesh latent heat"));
+            appendReceipt(SWMM_HEAT_2D_WATER_TO_BED_ENERGY, false, tr("water to bed"));
+        }
+        if (haveGround && ground.initialized) {
+            appendReceipt(SWMM_GROUND_HEAT_ADVECTIVE_ENERGY, true, tr("soil advection"));
+            appendReceipt(SWMM_GROUND_HEAT_SURFACE_ENERGY, true, tr("soil surface"));
+            appendReceipt(SWMM_GROUND_HEAT_DEEP_ENERGY, true, tr("soil deep boundary"));
+            appendReceipt(SWMM_GROUND_HEAT_LATERAL_ENERGY, true, tr("soil lateral"));
+            appendReceipt(SWMM_GROUND_HEAT_CHANNEL_CONTACT, true, tr("channel contact"));
+            appendReceipt(SWMM_GROUND_HEAT_LID_CONTACT, true, tr("LID contact"));
+            appendReceipt(SWMM_GROUND_HEAT_RESIDUAL, true, tr("soil residual"));
+        }
+        if (!receipts.isEmpty()) {
+            lines << tr("Measured cumulative signed receipts since initialization (SI joules): %1.").arg(receipts.join(QStringLiteral("; ")));
+            lines << tr("Activity is shown separately from receipt totals; a zero signed total does not mean that a process is disabled.");
+        } else if ((haveMesh && mesh.initialized) || (haveGround && ground.initialized)) {
+            lines << tr("No cumulative energy receipts are available for the initialized thermal domains.");
+        }
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+void HeatConfigDialog::showRuntimeOverview()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Saved and runtime process overview"));
+    dialog.setObjectName(QStringLiteral("hc_runtimeOverviewDialog"));
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *text = new QTextBrowser(&dialog);
+    text->setObjectName(QStringLiteral("hc_runtimeOverviewText"));
+    text->setAccessibleName(tr("Saved settings and runtime process status"));
+    text->setOpenLinks(false);
+    text->setPlainText(runtimeOverviewText());
+    layout->addWidget(text, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    dialog.resize(760, 520);
+    dialog.exec();
 }
 
 void HeatConfigDialog::addElementOverride()

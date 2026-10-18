@@ -40,6 +40,7 @@
 #include <openswmm/engine/openswmm_tables.h>
 
 #include <QAccessible>
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -53,6 +54,8 @@
 #include <QLineEdit>
 #include <QTableWidget>
 #include <QTabWidget>
+#include <QTextBrowser>
+#include <QTimer>
 #include <QTest>
 #include <cmath>
 #include <limits>
@@ -107,6 +110,7 @@ class TestHeatConfigDialog : public QObject
     void elementRenamesAndTagsInvalidateDraft();
     void transportPreviewDoesNotApplyDraft();
     void bedControlsAndInactiveStatusRoundTrip();
+    void runtimeOverviewSeparatesDraftFromUninitializedRuntime();
     void channelContactPreviewShowsSavedCoverageWithoutEditingModel();
     void zeroLatitudeSiteAndComputedRadiationInOneVisit();
     void atomicEditRestoresModuleAndAuthoredTemperature();
@@ -586,6 +590,40 @@ void TestHeatConfigDialog::bedControlsAndInactiveStatusRoundTrip()
     int policy=0;swmm_heat_get_dry_policy(e,&policy);QCOMPARE(policy,1);
     HeatConfigDialog reopened(e);QVERIFY(reopened.findChild<QCheckBox*>("hc_initialConfigured")->isChecked());
     clickOk(reopened);QCOMPARE(reopened.lastWriteCount(),0);
+    swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::runtimeOverviewSeparatesDraftFromUninitializedRuntime()
+{
+    auto e = makeHeatEngine();
+    QCOMPARE(swmm_heat_set_module(e, SWMM_HEAT_SEDIMENT_EXCHANGE, 1), SWMM_OK);
+    HeatConfigDialog dialog(e);
+    auto *transport = dialog.findChild<QCheckBox*>(QStringLiteral("hc_heatEnabled"));
+    auto *overview = dialog.findChild<QPushButton*>(QStringLiteral("hc_runtimeOverview"));
+    QVERIFY(transport && overview && overview->isEnabled());
+    transport->setChecked(true); // editor draft only; the engine remains off
+
+    QString text;
+    bool opened = false;
+    QTimer closeOverview;
+    closeOverview.setInterval(10);
+    QObject::connect(&closeOverview, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("hc_runtimeOverviewDialog")) return;
+        opened = true;
+        if (auto *browser = modal->findChild<QTextBrowser*>(QStringLiteral("hc_runtimeOverviewText")))
+            text = browser->toPlainText();
+        if (auto *buttons = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = buttons->button(QDialogButtonBox::Close)) close->click();
+    });
+    closeOverview.start();
+    overview->click();
+    closeOverview.stop();
+    QVERIFY(opened);
+    QVERIFY(text.contains(QStringLiteral("Saved network and lumped temperature transport: off")));
+    QVERIFY(text.contains(QStringLiteral("Current editor draft: on")));
+    QVERIFY(text.contains(QStringLiteral("Runtime activation and energy receipts are not available")));
+    QVERIFY(text.contains(QStringLiteral("inactive for network and lumped domains")));
     swmm_engine_destroy(e);
 }
 
