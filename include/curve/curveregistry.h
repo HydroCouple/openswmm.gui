@@ -51,6 +51,12 @@ public:
      *  `swmm_curve_add` (if new) + `swmm_table_clear` + `swmm_table_add_point`. */
     int saveToEngine(void *engineHandle);
 
+    /*! \brief Flush to the engine bound by the last loadFromEngine /
+     *  saveToEngine(handle) call. No-op when none is bound. Lets the editor
+     *  dialog flush on close without knowing the engine, the way
+     *  TimeseriesRegistry::saveToEngine() does. */
+    int saveToEngine();
+
 signals:
     void providerAdded(openswmmvis::curve::CurveProvider *provider);
     void providerAboutToBeRemoved(openswmmvis::curve::CurveProvider *provider);

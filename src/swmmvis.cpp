@@ -5667,27 +5667,7 @@ bool SWMMVis::saveProjectWindowAs(SWMMVisProjectWindow *pw)
     // function over the dialog string + the writable-extensions set, so
     // tests/gui/test_saveaspathnormalizer.cpp can exercise every edge case
     // without spinning up the dialog.
-    QSet<QString> writableExts;
-    for (const auto &entry :
-            kFilters->entriesFor(openswmmvis::FilterKind::InputRead)) {
-        if (!entry.enabled || !entry.canWrite) continue;
-        for (const QString &pat : entry.patterns) {
-            QString patExt = pat;
-            if (patExt.startsWith(QStringLiteral("*.")))
-                patExt = patExt.mid(2);
-            writableExts.insert(patExt.toLower());
-        }
-    }
-    for (const auto &entry :
-            kFilters->entriesFor(openswmmvis::FilterKind::ProjectWrite)) {
-        if (!entry.enabled) continue;
-        for (const QString &pat : entry.patterns) {
-            QString patExt = pat;
-            if (patExt.startsWith(QStringLiteral("*.")))
-                patExt = patExt.mid(2);
-            writableExts.insert(patExt.toLower());
-        }
-    }
+    const QSet<QString> writableExts = kFilters->saveAsExtensions();
     const auto normalized =
         openswmmvis::normalizeSaveAsPath(rawPath, writableExts);
     if (normalized.wasNormalized) {

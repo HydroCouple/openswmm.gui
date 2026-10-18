@@ -544,6 +544,7 @@ set(
         # ── Controls (Slice BR Phase 6.8.1/2) ────────────────────────────────
         include/controls/controlruleprovider.h
         include/controls/controlruleregistry.h
+        include/controls/ruleheader.h
         include/controls/rulesyntaxhighlighter.h
         include/controls/rulevalidator.h
         include/ui/models/rulelistmodel.h
@@ -1339,6 +1340,7 @@ set(
         # ── Controls (Slice BR Phase 6.8.1/2) ────────────────────────────────
         src/controls/controlruleprovider.cpp
         src/controls/controlruleregistry.cpp
+        src/controls/ruleheader.cpp
         src/controls/rulesyntaxhighlighter.cpp
         src/controls/rulevalidator.cpp
         src/ui/models/rulelistmodel.cpp

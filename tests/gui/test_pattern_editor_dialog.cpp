@@ -29,6 +29,10 @@
 #include "ui/panels/patternfactortablemodel.h"
 #include "ui/widgets/patterneditchartview.h"  // complete type for chartView()->grab()
 
+#include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_tables.h>
+
 #include <QApplication>
 #include <QChartView>
 #include <QClipboard>
@@ -42,6 +46,7 @@
 #include <QObject>
 #include <QPushButton>
 #include <QScatterSeries>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QSortFilterProxyModel>
@@ -752,6 +757,38 @@ private slots:
 
         btn->click();
         QTRY_VERIFY(!dlg.isVisible());
+    }
+
+    // Tutorial bug report (2026-10-17): swmm_pattern_add stores no factors
+    // and factor edits never left the provider, so every pattern authored in
+    // the GUI was written with zero multipliers. The registry now mirrors the
+    // factors at create time and on every edit.
+    void patternFactorsReachEngineOnCreateAndEdit()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+
+        PatternRegistry reg;
+        reg.attachEngine(eng);
+        auto *p = reg.create(QStringLiteral("HP"), PatternType::Hourly);
+        QVERIFY(p);
+        const int idx = swmm_pattern_index(eng, "HP");
+        QVERIFY(idx >= 0);
+        int count = 0;
+        QCOMPARE(swmm_pattern_get_factor_count(eng, idx, &count), SWMM_OK);
+        QCOMPARE(count, 24);
+
+        QVERIFY(p->setFactor(5, 1.25));
+        double v = 0.0;
+        QCOMPARE(swmm_pattern_get_factor(eng, idx, 5, &v), SWMM_OK);
+        QCOMPARE(v, 1.25);
+
+        QVERIFY(p->setAllFactors(QVector<double>(24, 0.5)));
+        QCOMPARE(swmm_pattern_get_factor(eng, idx, 23, &v), SWMM_OK);
+        QCOMPARE(v, 0.5);
+        QCOMPARE(swmm_pattern_get_factor_count(eng, idx, &count), SWMM_OK);
+        QCOMPARE(count, 24);
     }
 };
 

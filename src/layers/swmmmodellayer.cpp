@@ -13,6 +13,7 @@
 #include "pattern/patternregistry.h"
 #include "curve/curveregistry.h"
 #include "controls/controlruleregistry.h"
+#include "controls/ruleheader.h"
 #include "transect/transectregistry.h"
 #include "aquifer/aquiferregistry.h"
 #include "inlet/inletregistry.h"
@@ -6966,6 +6967,20 @@ QObject *SWMMModelLayer::ensureCurveRegistry()
     return reg;
 }
 
+void SWMMModelLayer::flushDataObjectRegistries()
+{
+    SWMM_Engine eng = engine();
+    if (!eng) return;
+    using openswmmvis::curve::CurveRegistry;
+    using openswmmvis::pattern::PatternRegistry;
+    if (auto *curves = qobject_cast<CurveRegistry *>(m_curveRegistry);
+        curves && m_curveRegistryEngineHandle == eng)
+        curves->saveToEngine(eng);
+    if (auto *patterns = qobject_cast<PatternRegistry *>(m_patternRegistry);
+        patterns && m_patternRegistryEngineHandle == eng)
+        patterns->saveToEngine(eng);
+}
+
 // ---------------------------------------------------------------------------
 // Slice BR Phase 6.8.1 — control-rule MVC layer
 // ---------------------------------------------------------------------------
@@ -7035,12 +7050,19 @@ bool rewriteRuleHeader(QString &body, const QString &newName)
     return true;
 }
 
-// Helper: rewrite the engine's full rule list from a snapshot.
-bool rewriteControlRules(SWMM_Engine eng, const std::vector<std::string> &snap)
+// Helper: rewrite the engine's full rule list from a snapshot. The clear
+// runs before any add, so a body the engine rejects part-way would otherwise
+// take every rule after it along; on failure the pre-edit list in `original`
+// is put back (best effort) and false is returned.
+bool rewriteControlRules(SWMM_Engine eng, const std::vector<std::string> &snap,
+                         const std::vector<std::string> &original)
 {
     if (swmm_control_clear_rules(eng) != SWMM_OK) return false;
     for (const auto &text : snap) {
-        if (swmm_control_add_rule(eng, text.c_str()) != SWMM_OK) return false;
+        if (swmm_control_add_rule(eng, text.c_str()) == SWMM_OK) continue;
+        if (swmm_control_clear_rules(eng) == SWMM_OK)
+            for (const auto &kept : original) swmm_control_add_rule(eng, kept.c_str());
+        return false;
     }
     return true;
 }
@@ -7099,6 +7121,25 @@ bool SWMMModelLayer::applyControlRuleReplace(const QString &name,
         if (outError) *outError = tr("Engine not open or rule name is empty.");
         return false;
     }
+    // Rule identity IS the `RULE <name>` header: the engine derives the id
+    // from it and the registry is keyed by it. A body without one, or with a
+    // name the .inp format would truncate (spaces), must not reach the
+    // engine — it would store under a different name than the registry
+    // holds and every later edit would fail with "No rule named … found".
+    QString headerProblem;
+    const QString header = openswmmvis::controls::ruleHeaderName(newBody, &headerProblem);
+    if (header.isEmpty()) {
+        if (outError) *outError = headerProblem;
+        return false;
+    }
+    const bool renames = header.compare(name, Qt::CaseInsensitive) != 0;
+    using openswmmvis::controls::ControlRuleRegistry;
+    auto *reg = qobject_cast<ControlRuleRegistry *>(ensureControlRuleRegistry());
+    if (renames && reg && reg->hasName(header)) {
+        if (outError) *outError = tr("A control rule named \"%1\" already exists.").arg(header);
+        return false;
+    }
+
     std::vector<std::string> snap;
     std::vector<std::string> ids;
     if (!snapshotControlRules(m_engine, snap, ids)) {
@@ -7110,17 +7151,20 @@ bool SWMMModelLayer::applyControlRuleReplace(const QString &name,
         if (outError) *outError = tr("No rule named \"%1\" found.").arg(name);
         return false;
     }
+    const std::vector<std::string> original = snap;
     snap[static_cast<std::size_t>(slot)] = newBody.toUtf8().toStdString();
-    if (!rewriteControlRules(m_engine, snap)) {
+    if (!rewriteControlRules(m_engine, snap, original)) {
         if (outError) *outError = tr("Engine refused the rewritten rule list.");
         return false;
     }
-    // Mirror to the registry.
-    using openswmmvis::controls::ControlRuleRegistry;
-    if (auto *reg = qobject_cast<ControlRuleRegistry *>(ensureControlRuleRegistry())) {
-        if (auto *p = reg->findByName(name)) p->setBody(newBody);
+    // Mirror to the registry — including a retyped header, which is a rename.
+    if (reg) {
+        if (auto *p = reg->findByName(name)) {
+            if (renames) reg->rename(p, header);
+            p->setBody(newBody);
+        }
     }
-    emit controlRulesChanged(name);
+    emit controlRulesChanged(renames ? QString() : name);
     return true;
 }
 
@@ -7130,6 +7174,12 @@ bool SWMMModelLayer::applyControlRuleRename(const QString &oldName,
 {
     if (!m_engine || oldName.isEmpty() || newName.isEmpty()) {
         if (outError) *outError = tr("Engine not open or rule name is empty.");
+        return false;
+    }
+    // The new name becomes the `RULE <name>` header, so it is bound by the
+    // same .inp identifier rules as the create card (no spaces, ';', '[', ']').
+    if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
+        if (outError) *outError = why;
         return false;
     }
     if (oldName.compare(newName, Qt::CaseInsensitive) == 0) {
@@ -7166,6 +7216,7 @@ bool SWMMModelLayer::applyControlRuleRename(const QString &oldName,
         if (outError) *outError = tr("No rule named \"%1\" found.").arg(oldName);
         return false;
     }
+    const std::vector<std::string> original = snap;
     QString rewritten = QString::fromUtf8(snap[static_cast<std::size_t>(slot)].c_str());
     if (!rewriteRuleHeader(rewritten, newName)) {
         // Body has no parseable RULE header — engine would reject the
@@ -7174,7 +7225,7 @@ bool SWMMModelLayer::applyControlRuleRename(const QString &oldName,
         rewritten = QStringLiteral("RULE %1\n").arg(newName) + rewritten;
     }
     snap[static_cast<std::size_t>(slot)] = rewritten.toUtf8().toStdString();
-    if (!rewriteControlRules(m_engine, snap)) {
+    if (!rewriteControlRules(m_engine, snap, original)) {
         if (outError) *outError = tr("Engine refused the rewritten rule list.");
         return false;
     }
@@ -7208,8 +7259,9 @@ bool SWMMModelLayer::applyControlRuleRemove(const QString &name,
         if (outError) *outError = tr("No rule named \"%1\" found.").arg(name);
         return false;
     }
+    const std::vector<std::string> original = snap;
     snap.erase(snap.begin() + slot);
-    if (!rewriteControlRules(m_engine, snap)) {
+    if (!rewriteControlRules(m_engine, snap, original)) {
         if (outError) *outError = tr("Engine refused the rewritten rule list.");
         return false;
     }

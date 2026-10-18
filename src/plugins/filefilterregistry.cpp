@@ -132,6 +132,15 @@ void FileFilterRegistry::registerEngineFilters()
         switch (d.filter.role)
         {
             case openswmm::PluginRole::INPUT_READ:
+                // The SDK has no INPUT_WRITE role: every input plugin implements
+                // IInputPlugin::write and the engine writes through it
+                // (swmm_model_write_with_plugin), so an input format is always
+                // a Save As target too. Leaving canWrite false hid the built-in
+                // .inp writer from saveAsFilter() and from the Save As
+                // normalizer's writable set, which then produced model.inp.inp.
+                e.canRead  = true;
+                e.canWrite = true;
+                break;
             case openswmm::PluginRole::STATE_READ:
                 e.canRead = true;
                 break;
@@ -224,6 +233,25 @@ QString FileFilterRegistry::saveAsFilter() const
     result.append(parts);
     result << tr("All Files (*)");
     return result.join(QStringLiteral(";;"));
+}
+
+QSet<QString> FileFilterRegistry::saveAsExtensions() const
+{
+    QSet<QString> out;
+    for (const auto &e : entries_)
+    {
+        if (!e.enabled) continue;
+        const bool writableInput = e.kind == FilterKind::InputRead && e.canWrite;
+        if (!writableInput && e.kind != FilterKind::ProjectWrite) continue;
+        for (const QString &pat : e.patterns)
+        {
+            QString ext = pat;
+            if (ext.startsWith(QStringLiteral("*.")))
+                ext = ext.mid(2);
+            out.insert(ext.toLower());
+        }
+    }
+    return out;
 }
 
 QStringList FileFilterRegistry::patternsFor(FilterKind kind) const

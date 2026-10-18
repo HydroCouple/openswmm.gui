@@ -27,6 +27,7 @@
 
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -96,6 +97,17 @@ public:
      *          output format from one dropdown.
      */
     QString saveAsFilter() const;
+
+    /**
+     * @brief Lower-case extensions (no dot) the Save As dialog can produce:
+     *        every writable InputRead pattern plus every ProjectWrite pattern.
+     *
+     * @details This is the set `normalizeSaveAsPath()` collapses duplicate
+     *          suffixes over, so it must be built from the same entries as
+     *          @ref saveAsFilter — a format offered in the dropdown but missing
+     *          here is re-appended by the normalizer (`model.inp.inp`).
+     */
+    QSet<QString> saveAsExtensions() const;
 
     /**
      * @brief Glob patterns for a kind, deduplicated.

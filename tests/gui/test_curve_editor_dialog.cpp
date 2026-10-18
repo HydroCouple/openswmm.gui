@@ -27,6 +27,10 @@
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/panels/curvepointtablemodel.h"
 
+#include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_tables.h>
+
 #include <QChartView>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -34,6 +38,7 @@
 #include <QListView>
 #include <QObject>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardItemModel>
 #include <QTableView>
@@ -384,6 +389,46 @@ private slots:
 
         btn->click();
         QTRY_VERIFY(!dlg.isVisible());
+    }
+
+    // Tutorial bug report (2026-10-17): a curve authored in the editor stayed
+    // in the registry and never reached the engine, so the saved .inp had no
+    // [CURVES] entry for it. Closing the editor flushes every provider, and a
+    // second flush must not duplicate the points.
+    void closingEditorFlushesCurvesToEngine()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+
+        CurveRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 0);   // binds the engine handle
+        auto *p = reg.create(QStringLiteral("RC1"), CurveType::Rating);
+        QVERIFY(p);
+        QVERIFY(p->insertPoint(0.0, 0.0) >= 0);
+        QVERIFY(p->insertPoint(1.0, 2.0) >= 0);
+        QVERIFY(p->insertPoint(2.0, 5.0) >= 0);
+        QVERIFY2(swmm_table_index(eng, "RC1") < 0,
+                 "the registry alone must not have touched the engine yet");
+
+        QUndoStack stack;
+        {
+            CurveEditorDialog dlg(&reg, &stack);
+            dlg.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+            dlg.close();
+            QTRY_VERIFY(!dlg.isVisible());
+        }
+
+        const int idx = swmm_table_index(eng, "RC1");
+        QVERIFY2(idx >= 0, "closing the editor must create the engine table");
+        int n = 0;
+        QCOMPARE(swmm_table_get_point_count(eng, idx, &n), SWMM_OK);
+        QCOMPARE(n, 3);
+
+        QCOMPARE(reg.saveToEngine(), 1);
+        QCOMPARE(swmm_table_get_point_count(eng, idx, &n), SWMM_OK);
+        QCOMPARE(n, 3);
     }
 };
 

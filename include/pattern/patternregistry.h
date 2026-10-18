@@ -99,6 +99,10 @@ public:
      *  \returns the number of patterns written. */
     int saveToEngine(void *engineHandle);
 
+    /*! \brief Flush to the attached engine (see attachEngine). No-op when
+     *  none is attached. Mirrors TimeseriesRegistry::saveToEngine(). */
+    int saveToEngine();
+
     /*! \brief Attach an engine handle so subsequent mutations (create /
      *  remove / rename / duplicate) are mirrored to the engine via the
      *  matching `swmm_pattern_*` calls. Passing nullptr detaches. Used by
@@ -120,6 +124,12 @@ signals:
                          const QString &prevName, const QString &newName);
 
 private:
+    /*! Mirror \p p's factor array to the attached engine (no-op when detached
+     *  or when the engine has no pattern of that name). `swmm_pattern_add`
+     *  stores no factors, so this runs right after create() and on every
+     *  provider factor edit. */
+    void pushFactors(PatternProvider *p);
+
     QVector<PatternProvider *>            m_providers;       ///< Insertion order.
     QHash<QString, PatternProvider *>     m_byLowerName;     ///< Case-insensitive index.
     void                                 *m_engineHandle = nullptr; ///< Live engine for mirroring mutations.

@@ -41,18 +41,36 @@ PatternProvider *PatternRegistry::create(const QString &name, PatternType type)
                 emit providerRenamed(p, prev, now);
             });
 
+    // Factor edits land on the provider, never on the registry. Mirror them
+    // so the engine's multiplier list is never stale — or, right after
+    // create(), empty: swmm_pattern_add stores no factors, and a pattern
+    // written with none was the "saved without its 24 multipliers" report.
+    connect(p, &PatternProvider::factorChanged,  this, [this, p](int) { pushFactors(p); });
+    connect(p, &PatternProvider::factorsChanged, this, [this, p]      { pushFactors(p); });
+
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const QByteArray idUtf8 = name.toUtf8();
         // If the engine already has the pattern (e.g. it was loaded from the
         // model and we're re-creating a view-side provider) the add is a no-op
         // path — swmm_pattern_add returns SWMM_ERR_BADPARAM on duplicate IDs.
-        if (swmm_pattern_index(eng, idUtf8.constData()) < 0)
-            swmm_pattern_add(eng, idUtf8.constData(), static_cast<int>(type));
+        if (swmm_pattern_index(eng, idUtf8.constData()) < 0
+            && swmm_pattern_add(eng, idUtf8.constData(), static_cast<int>(type)) == SWMM_OK)
+            pushFactors(p);
     }
 
     emit providerAdded(p);
     return p;
+}
+
+void PatternRegistry::pushFactors(PatternProvider *p)
+{
+    if (!m_engineHandle || !p) return;
+    auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+    const int idx = swmm_pattern_index(eng, p->name().toUtf8().constData());
+    if (idx < 0) return;
+    const auto &f = p->factors();
+    swmm_pattern_set_factors(eng, idx, f.constData(), f.size());
 }
 
 PatternProvider *PatternRegistry::duplicate(const QString &srcName,
@@ -66,20 +84,7 @@ PatternProvider *PatternRegistry::duplicate(const QString &srcName,
     if (!clone) return nullptr;
 
     QVector<double> copied = src->factors();
-    clone->setAllFactors(std::move(copied));
-
-    // Mirror the factors to the engine immediately (create() only added the
-    // pattern shell). Engine factors otherwise stay at whatever was set when
-    // swmm_pattern_add was called — currently empty.
-    if (m_engineHandle) {
-        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
-        const QByteArray idUtf8 = newName.toUtf8();
-        const int idx = swmm_pattern_index(eng, idUtf8.constData());
-        if (idx >= 0) {
-            const auto &f = clone->factors();
-            swmm_pattern_set_factors(eng, idx, f.constData(), f.size());
-        }
-    }
+    clone->setAllFactors(std::move(copied));   // factorsChanged → pushFactors
     return clone;
 }
 
@@ -199,6 +204,11 @@ int PatternRegistry::saveToEngine(void *engineHandle)
             ++written;
     }
     return written;
+}
+
+int PatternRegistry::saveToEngine()
+{
+    return saveToEngine(m_engineHandle);
 }
 
 } // namespace openswmmvis::pattern
