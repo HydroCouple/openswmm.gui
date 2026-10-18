@@ -41,6 +41,7 @@ class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
+class QPushButton;
 class QRadioButton;
 class QTableWidget;
 class QTabWidget;
@@ -112,6 +113,7 @@ private:
     int  writeElements();
     void addElementOverride();
     void previewElements();
+    void previewChannelGroundContacts();
     void invalidateElementPreview();
     QString elementSignature() const;
     QString engineSignature() const;
@@ -140,6 +142,9 @@ private:
     QComboBox *m_groundMode = nullptr;
     QComboBox *m_groundSeries = nullptr;
     QDoubleSpinBox *m_bedSpin[9] = {};
+    QPushButton *m_channelGroundPreviewButton = nullptr;
+    QLabel *m_channelGroundPreviewStatus = nullptr;
+    QTableWidget *m_channelGroundPreviewTable = nullptr;
     QTableWidget *m_elementTable = nullptr;
     QTableWidget *m_resolvedElements = nullptr;
     QLabel *m_resolvedStatus = nullptr;

@@ -107,6 +107,7 @@ class TestHeatConfigDialog : public QObject
     void elementRenamesAndTagsInvalidateDraft();
     void transportPreviewDoesNotApplyDraft();
     void bedControlsAndInactiveStatusRoundTrip();
+    void channelContactPreviewShowsSavedCoverageWithoutEditingModel();
     void zeroLatitudeSiteAndComputedRadiationInOneVisit();
     void atomicEditRestoresModuleAndAuthoredTemperature();
     void tableControlsExposeFieldAndRowContext();
@@ -586,6 +587,39 @@ void TestHeatConfigDialog::bedControlsAndInactiveStatusRoundTrip()
     HeatConfigDialog reopened(e);QVERIFY(reopened.findChild<QCheckBox*>("hc_initialConfigured")->isChecked());
     clickOk(reopened);QCOMPARE(reopened.lastWriteCount(),0);
     swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::channelContactPreviewShowsSavedCoverageWithoutEditingModel()
+{
+    const QString sourcePath=QFINDTESTDATA("data/mini_2d.inp");
+    QVERIFY(!sourcePath.isEmpty());
+    QFile source(sourcePath);QVERIFY(source.open(QIODevice::ReadOnly));
+    QByteArray deck=source.readAll();
+    deck.replace("C1      100     0.013", "C1      8       0.013");
+    deck.replace("C1      CIRCULAR  1      0      0      0      1",
+                 "C1      RECT_OPEN  1      2      0      0      1");
+    deck.append("\n[COORDINATES]\nJ1 1 3\nO1 9 3\n");
+    QTemporaryDir temp;QVERIFY(temp.isValid());
+    const QString inputPath=temp.filePath(QStringLiteral("channel-preview.inp"));
+    QFile input(inputPath);QVERIFY(input.open(QIODevice::WriteOnly));QCOMPARE(input.write(deck),qint64(deck.size()));input.close();
+
+    auto engine=swmm_engine_create();QVERIFY(engine);
+    QCOMPARE(swmm_engine_open(engine,inputPath.toUtf8().constData(),
+        temp.filePath(QStringLiteral("channel-preview.rpt")).toUtf8().constData(),nullptr,nullptr),SWMM_OK);
+    QCOMPARE(swmm_heat_set_element_override(engine,SWMM_HEAT_ATTR_GROUND_SOURCE,
+        SWMM_HEAT_SCOPE_LINK,"C1",1.0),SWMM_OK);
+    const QString before=HeatConfigDialog::configurationSignature(engine);
+    HeatConfigDialog dialog(engine);
+    auto* button=dialog.findChild<QPushButton*>(QStringLiteral("hc_channelGroundPreview"));QVERIFY(button);
+    auto* table=dialog.findChild<QTableWidget*>(QStringLiteral("hc_channelGroundPreviewTable"));QVERIFY(table);
+    button->click();
+    QCOMPARE(table->rowCount(),1);
+    QCOMPARE(table->item(0,0)->text(),QStringLiteral("C1"));
+    QCOMPARE(table->item(0,1)->text(),QStringLiteral("1, 2"));
+    QVERIFY(table->item(0,2)->text().contains(QStringLiteral("8")));
+    QVERIFY(table->item(0,3)->text().contains(QStringLiteral("Complete XY coverage")));
+    QCOMPARE(HeatConfigDialog::configurationSignature(engine),before);
+    swmm_engine_close(engine);swmm_engine_destroy(engine);
 }
 
 void TestHeatConfigDialog::zeroLatitudeSiteAndComputedRadiationInOneVisit()

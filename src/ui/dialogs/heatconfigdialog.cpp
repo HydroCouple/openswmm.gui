@@ -46,6 +46,8 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QVector>
+#include <algorithm>
+#include <vector>
 
 namespace OpenSWMMVis
 {
@@ -462,6 +464,25 @@ void HeatConfigDialog::buildUi()
     auto *bedLayout = new QVBoxLayout(bedPage);
     auto *bedNote = new QLabel(tr("These settings control 1D channel and conduit beds. For 2D mesh-bed materials and hyporheic velocity, use Spatial Overrides with a 2D cell or mesh-region-tag scope; channel-burned cells tagged channel:* are hyporheic-eligible by default. Configure groundwater soil storage, conduction and boundaries under Assign Groundwater → Transport and thermal settings. All bed parameters use SI units."), bedPage);
     bedNote->setWordWrap(true); bedLayout->addWidget(bedNote);
+    auto *channelPreviewNote = new QLabel(tr("Preview saved channels set to MESH_CONTACTS. This checks XY coverage and lists mesh cells; groundwater profile, bed thickness and thermal-owner checks still run during initialization. Apply edits and reopen this dialog to preview the saved configuration."), bedPage);
+    channelPreviewNote->setWordWrap(true); bedLayout->addWidget(channelPreviewNote);
+    m_channelGroundPreviewButton = new QPushButton(tr("Preview saved channel contacts"), bedPage);
+    m_channelGroundPreviewButton->setObjectName(QStringLiteral("hc_channelGroundPreview"));
+    m_channelGroundPreviewButton->setAutoDefault(false);
+    bedLayout->addWidget(m_channelGroundPreviewButton);
+    m_channelGroundPreviewStatus = new QLabel(tr("Preview has not been run."), bedPage);
+    m_channelGroundPreviewStatus->setObjectName(QStringLiteral("hc_channelGroundPreviewStatus"));
+    m_channelGroundPreviewStatus->setWordWrap(true);
+    bedLayout->addWidget(m_channelGroundPreviewStatus);
+    m_channelGroundPreviewTable = new QTableWidget(0, 4, bedPage);
+    m_channelGroundPreviewTable->setObjectName(QStringLiteral("hc_channelGroundPreviewTable"));
+    m_channelGroundPreviewTable->setHorizontalHeaderLabels({tr("Link"),tr("Mesh cells (1-based)"),tr("Covered / total (m)"),tr("XY result")});
+    m_channelGroundPreviewTable->horizontalHeader()->setStretchLastSection(true);
+    m_channelGroundPreviewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_channelGroundPreviewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_channelGroundPreviewTable->setAccessibleName(tr("Saved channel mesh-contact coverage preview"));
+    m_channelGroundPreviewTable->setMaximumHeight(220);
+    bedLayout->addWidget(m_channelGroundPreviewTable);
     auto *bedForm = new QFormLayout;
     const char *bedLabels[] = {"Thermal diffusivity (m²/s)", "Solute diffusivity (m²/s)",
         "Bed thickness (m)", "Depth to deep ground (m)", "Ground temperature (°C)",
@@ -499,6 +520,7 @@ void HeatConfigDialog::buildUi()
     for (auto *c : {m_groundConfigured, m_initialConfigured})
         connect(c, &QCheckBox::toggled, this, &HeatConfigDialog::refreshProcessStatus);
     connect(m_groundMode, &QComboBox::currentIndexChanged, this, &HeatConfigDialog::refreshProcessStatus);
+    connect(m_channelGroundPreviewButton,&QPushButton::clicked,this,&HeatConfigDialog::previewChannelGroundContacts);
 
     auto *spatialPage = new QWidget(tabs);
     auto *spatialLayout = new QVBoxLayout(spatialPage);
@@ -562,6 +584,62 @@ void HeatConfigDialog::buildUi()
             &HeatConfigDialog::onAccept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
     vlay->addWidget(bb);
+}
+
+void HeatConfigDialog::previewChannelGroundContacts()
+{
+    m_channelGroundPreviewTable->setRowCount(0);
+    if(!m_engine) {
+        m_channelGroundPreviewStatus->setText(tr("No model is available for preview."));
+        return;
+    }
+    int links=swmm_link_count(m_engine),shown=0,complete=0,failures=0;
+    for(int link=0;link<links;++link) {
+        const char* rawId=swmm_link_id(m_engine,link);
+        if(!rawId)continue;
+        double groundSource=0;int source=-1;char sourceName[1024]{};
+        if(swmm_heat_get_effective_element(m_engine,SWMM_HEAT_ATTR_GROUND_SOURCE,
+            SWMM_HEAT_SCOPE_LINK,rawId,&groundSource,&source,sourceName,sizeof sourceName)!=SWMM_OK) {
+            ++failures;continue;
+        }
+        if(std::abs(groundSource-1.0)>1e-12)continue;
+
+        SWMM_ChannelGroundPreview preview{};preview.struct_size=sizeof preview;
+        int required=0;
+        const int previewRc=swmm_heat_preview_channel_ground_map(m_engine,link,&preview,nullptr,0,&required);
+        if(previewRc!=SWMM_OK) {++failures;continue;}
+        std::vector<SWMM_ChannelGroundContact> contacts(static_cast<std::size_t>(required));
+        preview.struct_size=sizeof preview;
+        if(swmm_heat_preview_channel_ground_map(m_engine,link,&preview,
+                contacts.empty()?nullptr:contacts.data(),required,&required)!=SWMM_OK) {
+            ++failures;continue;
+        }
+        QSet<int> cells;
+        for(const auto& contact:contacts)cells.insert(contact.cell+1);
+        QStringList cellIds;
+        QList<int> sortedCells=cells.values();std::sort(sortedCells.begin(),sortedCells.end());
+        for(int cell:sortedCells)cellIds.append(QString::number(cell));
+        if(cellIds.size()>30) {
+            cellIds=cellIds.mid(0,30);
+            cellIds.append(tr("… (+%1 more)").arg(cells.size()-30));
+        }
+        const int row=m_channelGroundPreviewTable->rowCount();m_channelGroundPreviewTable->insertRow(row);
+        const QStringList values={QString::fromUtf8(rawId),cellIds.join(QStringLiteral(", ")),
+            QStringLiteral("%1 / %2").arg(preview.covered_length_m,0,'g',7).arg(preview.length_m,0,'g',7),
+            QString::fromUtf8(preview.reason)};
+        for(int column=0;column<values.size();++column)
+            m_channelGroundPreviewTable->setItem(row,column,new QTableWidgetItem(values[column]));
+        complete+=preview.valid!=0;
+        ++shown;
+    }
+    if(shown==0 && failures==0) {
+        m_channelGroundPreviewStatus->setText(tr("No links currently resolve to MESH_CONTACTS. Set Ground-source mode to MESH_CONTACTS for a link or network tag, apply the edits, then reopen this dialog."));
+    } else {
+        m_channelGroundPreviewStatus->setText(tr("Previewed %1 saved link setting(s). %2 complete XY coverage; %3 need geometry review.%4")
+            .arg(shown).arg(complete)
+            .arg(m_channelGroundPreviewTable->rowCount()-complete)
+            .arg(failures?tr(" %1 link(s) could not be read.").arg(failures):QString()));
+    }
 }
 
 void HeatConfigDialog::onAddOverride()
