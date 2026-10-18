@@ -9,6 +9,7 @@
  */
 
 #include "ui/dialogs/heatconfigdialog.h"
+#include "ui/dialogs/initialbedqualitydialog.h"
 #include "ui/precisenumericvalue.h"
 #include "ui/uiscrollhelpers.h"
 #include "ui/hydrothermalconfiguration.h"
@@ -483,6 +484,21 @@ void HeatConfigDialog::buildUi()
     m_channelGroundPreviewTable->setAccessibleName(tr("Saved channel mesh-contact coverage preview"));
     m_channelGroundPreviewTable->setMaximumHeight(220);
     bedLayout->addWidget(m_channelGroundPreviewTable);
+    auto* initialBedQuality = new QPushButton(tr("Apply and edit 2D local-bed initial quality…"), bedPage);
+    initialBedQuality->setObjectName(QStringLiteral("hc_initialBedQuality"));
+    initialBedQuality->setAutoDefault(false);
+    initialBedQuality->setToolTip(tr("Apply heat settings, then edit initial pollutant and water-age concentrations stored in LOCAL_STORAGE bed porewater."));
+    bedLayout->addWidget(initialBedQuality);
+    connect(initialBedQuality, &QPushButton::clicked, this, [this] {
+        onAccept();
+        if (result() != QDialog::Accepted || !m_engine) return;
+        InitialBedQualityDialog editor(m_engine, this);
+        connect(&editor, &InitialBedQualityDialog::changesApplied, this, [this] {
+            m_wroteAnyChanges = true;
+            emit changesApplied();
+        });
+        editor.exec();
+    });
     auto *bedForm = new QFormLayout;
     const char *bedLabels[] = {"Thermal diffusivity (m²/s)", "Solute diffusivity (m²/s)",
         "Bed thickness (m)", "Depth to deep ground (m)", "Ground temperature (°C)",
