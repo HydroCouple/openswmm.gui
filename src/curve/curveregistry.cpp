@@ -152,4 +152,9 @@ int CurveRegistry::saveToEngine(void *engineHandle)
     return written;
 }
 
+int CurveRegistry::saveToEngine()
+{
+    return saveToEngine(m_engineHandle);
+}
+
 } // namespace openswmmvis::curve

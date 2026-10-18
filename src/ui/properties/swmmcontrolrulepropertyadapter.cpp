@@ -100,10 +100,18 @@ void SWMMControlRulePropertyAdapter::setRuleText(const QString &text)
         snapshot.emplace_back(buf);
     }
     if (target >= static_cast<int>(snapshot.size())) return;
+    const std::vector<std::string> original = snapshot;
     snapshot[static_cast<std::size_t>(target)] = text.toStdString();
 
     if (swmm_control_clear_rules(m_engine) != SWMM_OK) return;
-    for (const auto &t : snapshot) swmm_control_add_rule(m_engine, t.c_str());
+    for (const auto &t : snapshot) {
+        if (swmm_control_add_rule(m_engine, t.c_str()) == SWMM_OK) continue;
+        // The clear ran first: put the pre-edit list back rather than lose
+        // every rule after the rejected one.
+        if (swmm_control_clear_rules(m_engine) == SWMM_OK)
+            for (const auto &kept : original) swmm_control_add_rule(m_engine, kept.c_str());
+        return;
+    }
 
     char nameBuf[256] = {};
     if (swmm_control_get_id(m_engine, target, nameBuf, sizeof(nameBuf)) == SWMM_OK) {

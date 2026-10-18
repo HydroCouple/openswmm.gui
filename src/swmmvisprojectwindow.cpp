@@ -2042,6 +2042,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             static_cast<ProjectSaveOutputs::Role>(kind), kind == ProjectSaveOutputs::Model).toUtf8();
         return context.path.isEmpty() ? nullptr : context.path.constData();
     };
+    // Curves and patterns are edited in registries and reach the engine on
+    // editor close; an editor still open at save time has not flushed yet.
+    mModelLayer->flushDataObjectRegistries();
     modelWriteStarted = !pluginId.isEmpty();
     const int rc = pluginId.isEmpty()
         ? swmm_model_write_staged(mModelLayer->engine(), utf8.constData(), mapOutput, &mapper)

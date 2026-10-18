@@ -9,6 +9,9 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_controls.h>
 
+#include <string>
+#include <vector>
+
 namespace openswmmvis::controls {
 
 ControlRuleRegistry::ControlRuleRegistry(QObject *parent)
@@ -128,14 +131,29 @@ int ControlRuleRegistry::saveToEngine(void *engineHandle)
     if (!engineHandle) return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
 
+    // The rewrite clears before it adds, so snapshot the live list first: a
+    // single rejected body must not take every rule after it along.
+    std::vector<std::string> original;
+    const int n = swmm_control_count(eng);
+    for (int i = 0; i < n; ++i) {
+        char body[8192] = {};
+        if (swmm_control_get_rule(eng, i, body, sizeof(body)) == SWMM_OK)
+            original.emplace_back(body);
+    }
+
     if (swmm_control_clear_rules(eng) != SWMM_OK) return 0;
 
     int written = 0;
     for (ControlRuleProvider *p : m_providers) {
         if (!p) continue;
         const QByteArray utf8 = p->body().toUtf8();
-        if (swmm_control_add_rule(eng, utf8.constData()) == SWMM_OK)
+        if (swmm_control_add_rule(eng, utf8.constData()) == SWMM_OK) {
             ++written;
+            continue;
+        }
+        if (swmm_control_clear_rules(eng) == SWMM_OK)
+            for (const auto &kept : original) swmm_control_add_rule(eng, kept.c_str());
+        return 0;
     }
     return written;
 }

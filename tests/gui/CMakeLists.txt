@@ -2054,6 +2054,18 @@ add_swmmvis_gui_test(test_fileopendialog
 set_property(TEST test_fileopendialog APPEND PROPERTY ENVIRONMENT
     "SWMMVIS_FILE_OPEN_TEST_OUTPUT=${CMAKE_SOURCE_DIR}/workplans/artifacts/file_open_directories_2026-10-04/tests")
 
+# Tutorial bug report (2026-10-17): the built-in .inp writer must be a Save As
+# target, or the dialog never offers *.inp and the path normalizer turns the
+# native dialog's "model.inp.oswp" into "model.inp.inp". Drives the LIVE
+# FileFilterRegistry (engine plugin discovery), unlike the unit normalizer test.
+add_swmmvis_gui_test(test_filefilterregistry
+    test_filefilterregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugins/filefilterregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/plugins/filefilterregistry.h
+    ${CMAKE_SOURCE_DIR}/src/project/saveaspathnormalizer.cpp
+    ${CMAKE_SOURCE_DIR}/include/project/saveaspathnormalizer.h
+)
+
 add_swmmvis_gui_test(test_relativepathpicker
     test_relativepathpicker.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
@@ -2947,6 +2959,17 @@ add_swmmvis_gui_test(test_dirtytracking_run
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_dirtytracking_run)
+
+# Control-rule identity (tutorial bug report, 2026-10-17): a body without its
+# RULE header, or a name with spaces, must be refused with the engine untouched
+# instead of desynchronising the registry from the engine; a retyped header is
+# a rename on both sides. Drives the real layer over the typed-selection fixture.
+add_swmmvis_gui_test(test_control_rule_apply
+    test_control_rule_apply.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_control_rule_apply)
 
 # Save must skip the (O(nVerts x nTris)) mesh re-push when nothing edited the
 # mesh, without dropping mesh data — and must still push once anything does.

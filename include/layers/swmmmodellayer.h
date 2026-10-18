@@ -2084,6 +2084,13 @@ public:
     /*! Same lazy-init pattern, for the CurveRegistry. */
     QObject *ensureCurveRegistry();
 
+    /*! Push every curve and pattern the registries hold into the engine.
+     *  Called right before the model is written, so a modeless editor that
+     *  is still open cannot keep its edits out of the saved .inp. Registries
+     *  that were never created are left alone; the flush does not mark the
+     *  project edited (see ensureCurveRegistry). */
+    void flushDataObjectRegistries();
+
     // ===== Slice BR Phase 6.8.1 — control-rule MVC layer ====================
     //
     // Mirrors the hydrograph pattern at Phase 6.9.2 (`applyHydrograph*` +

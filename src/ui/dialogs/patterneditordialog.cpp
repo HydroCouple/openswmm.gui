@@ -109,6 +109,11 @@ PatternEditorDialog::PatternEditorDialog(PatternRegistry *registry,
         connect(m_registry, &PatternRegistry::providerRenamed,
                 this, &PatternEditorDialog::onProviderRenamed_);
     }
+    // Same seam as CurveEditorDialog: flush the registry when the editor
+    // closes so nothing authored here stays out of the engine.
+    connect(this, &QDialog::finished, this, [this] {
+        if (m_registry) m_registry->saveToEngine();
+    });
 
     rebuildListModel_();
     // Pre-select the first pattern if any exist (use the proxy index so the
