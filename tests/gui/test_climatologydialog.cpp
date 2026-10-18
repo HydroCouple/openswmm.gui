@@ -306,6 +306,7 @@ void TestClimatologyDialog::evaporationTimeSeriesPreviewShowsCoverageAndAdjusted
     auto *seriesBox = dialog.findChild<QComboBox*>(QStringLiteral("clim_evapTs"));
     auto *adjustments = dialog.findChild<QTableWidget*>(QStringLiteral("clim_adjust"));
     QVERIFY(type && seriesBox && adjustments);
+    QCOMPARE(seriesBox->accessibleName(), QStringLiteral("Evaporation time series"));
     type->setCurrentIndex(type->findData(SWMM_EVAP_TIMESERIES));
     seriesBox->setCurrentText(QStringLiteral("preview_evap"));
     adjustments->item(0, 1)->setText(QStringLiteral("0.1"));
