@@ -491,7 +491,10 @@ void HeatConfigDialog::buildUi()
     m_channelGroundPreviewTable = new QTableWidget(0, 4, bedPage);
     m_channelGroundPreviewTable->setObjectName(QStringLiteral("hc_channelGroundPreviewTable"));
     m_channelGroundPreviewTable->setHorizontalHeaderLabels({tr("Link"),tr("Mesh cells (1-based)"),tr("Covered / total (m)"),tr("XY result")});
-    m_channelGroundPreviewTable->horizontalHeader()->setStretchLastSection(true);
+    auto *channelPreviewHeader = m_channelGroundPreviewTable->horizontalHeader();
+    for (int column = 0; column < 3; ++column)
+        channelPreviewHeader->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+    channelPreviewHeader->setSectionResizeMode(3, QHeaderView::Stretch);
     m_channelGroundPreviewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_channelGroundPreviewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_channelGroundPreviewTable->setAccessibleName(tr("Saved channel mesh-contact coverage preview"));
