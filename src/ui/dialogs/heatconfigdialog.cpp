@@ -1072,7 +1072,7 @@ void HeatConfigDialog::refreshProcessStatus()
     const bool enabled=m_heatEnabled->isChecked();
     m_processStatus->setText(enabled
         ? tr("Temperature transport configured. Local heat exchanges below run only in supported domains. Configure 2D porous-soil heat storage, conduction and boundaries in Assign Groundwater → Transport and thermal settings; those processes have separate activation requirements.")
-        : tr("Temperature transport is off. Settings below are retained for later use; their heat exchanges are inactive."));
+        : tr("Network and lumped temperature transport is off. These heat-module settings are retained but inactive for that process; 2D mesh heat has separate activation controls."));
     char ignored[32]{};
     if(m_engine)swmm_options_get(m_engine,"IGNORE_QUALITY",ignored,sizeof ignored);
     if(enabled && QString::fromUtf8(ignored)=="YES")m_processStatus->setText(m_processStatus->text()+tr(" Network and lumped temperature transport are inactive because Water quality is off; mesh temperature has its own domain setting."));
@@ -1081,7 +1081,7 @@ void HeatConfigDialog::refreshProcessStatus()
     const bool network_enabled=QString::fromUtf8(ignored)!="YES";
     for (int i=0;i<4;++i) {
         const QString state=!m_modules[i]->isChecked()?tr("Off"):
-            !enabled?tr("Configured On · Inactive because temperature transport is off"):
+            !enabled?tr("Configured On · Inactive for network and lumped domains because temperature transport is off; mesh heat has separate activation controls"):
             !network_enabled?tr("Configured On · Network and lumped use is inactive while Water quality is off; mesh heat has separate activation controls"):
             tr("Configured On · Runs when this domain has water and its required inputs are available");
         m_moduleStatus[i]->setText(state+" — "+scopes[i]);

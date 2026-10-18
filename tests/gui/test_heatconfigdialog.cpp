@@ -559,7 +559,8 @@ void TestHeatConfigDialog::bedControlsAndInactiveStatusRoundTrip()
     module->setChecked(true);
     QVERIFY(status->text().contains("inactive"));
     auto* moduleStatus=dialog.findChild<QLabel*>("hc_moduleStatus_3");QVERIFY(moduleStatus);
-    QVERIFY(moduleStatus->text().contains("Inactive because temperature transport is off"));
+    QVERIFY(moduleStatus->text().contains("Inactive for network and lumped domains because temperature transport is off"));
+    QVERIFY(moduleStatus->text().contains("mesh heat has separate activation controls"));
     QVERIFY(moduleStatus->text().contains("1D channel and conduit sediment beds"));
     QVERIFY(module->toolTip().contains("Spatial Overrides"));
     dialog.findChild<QCheckBox*>("hc_initialConfigured")->setChecked(true);
