@@ -8520,6 +8520,7 @@ void SWMMVis::onEditHeatConfig(int tab)
     const auto beforeIdentity=OpenSWMMVis::HeatConfigDialog::configurationSignature(engine);
     OpenSWMMVis::HeatConfigDialog dlg(engine, this);
     bool editRadiation=false;connect(&dlg,&OpenSWMMVis::HeatConfigDialog::radiationEditorRequested,&dlg,[&]{editRadiation=true;});
+    bool editGroundwaterSettings=false;connect(&dlg,&OpenSWMMVis::HeatConfigDialog::groundwaterSettingsRequested,&dlg,[&]{editGroundwaterSettings=true;});
     bool assignRaster=false;connect(&dlg,&OpenSWMMVis::HeatConfigDialog::rasterAssignmentRequested,&dlg,[&]{assignRaster=true;});
     if (tab >= 0) dlg.setCurrentTab(tab);
     connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg, &OpenSWMMVis::HeatConfigDialog::invalidateEngine);
@@ -8543,6 +8544,36 @@ void SWMMVis::onEditHeatConfig(int tab)
         }
     }
     if(pw&&pw->modelLayer()&&pw->modelLayer()->engine()==engine&&dlg.wroteAnyChanges())emit pw->modelLayer()->optionsChanged({"HEAT_TRANSPORT","HEAT_FLUXES","HEAT_SOURCES"});
+    if(pw&&editGroundwaterSettings&&pw->modelLayer()&&pw->modelLayer()->engine()==engine) {
+        auto* model=pw->modelLayer();
+        QPointer<SWMMModelLayer> modelGuard(model);
+        const QString anchor=QFileInfo(model->modelFilePath()).absolutePath();
+        const QStringList optionKeys=openswmmvis::ui::Mesh2DGroundwaterDialog::configurationOptionKeys();
+        OpenSWMMVis::ConfigSnapshot before(swmm_config_snapshot_create(engine));
+        const QString beforeIdentity=OpenSWMMVis::configurationIdentity(engine,anchor,optionKeys);
+        openswmmvis::ui::Mesh2DGroundwaterDialog groundwater(engine,this,
+            openswmmvis::ui::Mesh2DGroundwaterDialog::Page::Options,pw->unitSystem());
+        groundwater.setThermalOptionsOnly(true);
+        bool applied=false;
+        connect(&groundwater,&openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied,
+                pw,[pw,modelGuard]{if(pw)pw->setHasChanges(true);if(modelGuard)modelGuard->markEdited();});
+        connect(&groundwater,&openswmmvis::ui::Mesh2DGroundwaterDialog::applied,&groundwater,[&applied]{applied=true;});
+        connect(model,&SWMMModelLayer::engineAboutToClose,&groundwater,
+                &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+        connect(model,&QObject::destroyed,&groundwater,
+                &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+        connect(pw,&SWMMVisProjectWindow::aboutToClose,&groundwater,
+                &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+        groundwater.exec();
+        if(applied&&pw&&modelGuard&&pw->modelLayer()==modelGuard&&modelGuard->engine()==engine) {
+            modelGuard->markEdited();pw->setHasChanges(true);
+            if(pw->canvas()&&pw->canvas()->undoStack())
+                OpenSWMMVis::pushConfigurationUndo(pw->canvas()->undoStack(),modelGuard,
+                    tr("Edit 2D groundwater transport and thermal settings"),std::move(before),
+                    beforeIdentity,anchor,optionKeys,[this](const QString& error){onLogMessage(error,OpenSWMMVisLogMessage::Warning);});
+            emit modelGuard->optionsChanged(optionKeys);
+        }
+    }
     if(pw && editRadiation)onClimatology(ClimatologyDialog::TabRadiation);
     if(pw&&assignRaster&&pw->modelLayer()&&pw->modelLayer()->engine()==engine){OpenSWMMVis::HeatRasterAssignDialog assignment(pw->modelLayer(),pw->canvas(),this);assignment.exec();}
 }

@@ -92,6 +92,65 @@ void clickOk(HeatConfigDialog &dlg)
     bb->button(QDialogButtonBox::Ok)->click();
 }
 
+struct OpenedMini2D {
+    QTemporaryDir outputs;
+    SWMM_Engine engine = nullptr;
+
+    bool open()
+    {
+        const QString input = QFINDTESTDATA("data/mini_2d.inp");
+        if (input.isEmpty() || !outputs.isValid()) return false;
+        engine = swmm_engine_create();
+        if (!engine) return false;
+        const auto report = outputs.filePath(QStringLiteral("runtime-overview.rpt")).toUtf8();
+        const auto binary = outputs.filePath(QStringLiteral("runtime-overview.out")).toUtf8();
+        return swmm_engine_open(engine, input.toUtf8().constData(), report.constData(),
+                                binary.constData(), nullptr) == SWMM_OK;
+    }
+
+    bool initializeAndStart(bool temperature, bool surface)
+    {
+        if (!engine || swmm_options_set(engine, "HEAT_TRANSPORT", "YES") != SWMM_OK ||
+            swmm_options_set_ext(engine, "HEAT_MODEL", "COUPLED") != SWMM_OK ||
+            swmm_options_set_ext(engine, "TRANSPORT_TEMPERATURE", temperature ? "YES" : "NO") != SWMM_OK ||
+            swmm_options_set_ext(engine, "HEAT_SURFACE_EXCHANGE", surface ? "YES" : "NO") != SWMM_OK ||
+            swmm_options_set_ext(engine, "HEAT_RADIATIVE_EXCHANGE", "NO") != SWMM_OK ||
+            swmm_options_set_ext(engine, "BED_HEAT_MODEL", "NONE") != SWMM_OK)
+            return false;
+        return swmm_engine_initialize(engine) == SWMM_OK && swmm_engine_start(engine, 0) == SWMM_OK &&
+               swmm_engine_end(engine) == SWMM_OK;
+    }
+
+    ~OpenedMini2D()
+    {
+        if (engine) {
+            swmm_engine_close(engine);
+            swmm_engine_destroy(engine);
+        }
+    }
+};
+
+QString showRuntimeOverview(HeatConfigDialog &dialog)
+{
+    QString text;
+    auto *button = dialog.findChild<QPushButton*>(QStringLiteral("hc_runtimeOverview"));
+    if (!button) return text;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("hc_runtimeOverviewDialog")) return;
+        if (auto *browser = modal->findChild<QTextBrowser*>(QStringLiteral("hc_runtimeOverviewText")))
+            text = browser->toPlainText();
+        if (auto *buttons = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = buttons->button(QDialogButtonBox::Close)) close->click();
+    });
+    closer.start();
+    button->click();
+    closer.stop();
+    return text;
+}
+
 } // namespace
 
 class TestHeatConfigDialog : public QObject
@@ -111,6 +170,10 @@ class TestHeatConfigDialog : public QObject
     void transportPreviewDoesNotApplyDraft();
     void bedControlsAndInactiveStatusRoundTrip();
     void runtimeOverviewSeparatesDraftFromUninitializedRuntime();
+    void runtimeOverviewDistinguishesMeshTemperatureOff();
+    void runtimeOverviewReportsNoCompatibleHeatOwner();
+    void runtimeOverviewSeparatesActiveProcessFromZeroReceipts();
+    void groundwaterThermalSettingsShortcutAppliesAndRequestsNavigation();
     void channelContactPreviewShowsSavedCoverageWithoutEditingModel();
     void zeroLatitudeSiteAndComputedRadiationInOneVisit();
     void atomicEditRestoresModuleAndAuthoredTemperature();
@@ -624,7 +687,56 @@ void TestHeatConfigDialog::runtimeOverviewSeparatesDraftFromUninitializedRuntime
     QVERIFY(text.contains(QStringLiteral("Current editor draft: on")));
     QVERIFY(text.contains(QStringLiteral("Runtime activation and energy receipts are not available")));
     QVERIFY(text.contains(QStringLiteral("inactive for network and lumped domains")));
+    QVERIFY(text.contains(QStringLiteral("pollutant, reaction, MSX and water-age settings remain independent")));
     swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::runtimeOverviewDistinguishesMeshTemperatureOff()
+{
+    OpenedMini2D model;
+    QVERIFY(model.open());
+    QVERIFY(model.initializeAndStart(false, false));
+    HeatConfigDialog dialog(model.engine);
+    const QString text = showRuntimeOverview(dialog);
+    QVERIFY(text.contains(QStringLiteral("Saved network and lumped temperature transport: on")));
+    QVERIFY(text.contains(QStringLiteral("2D heat reason: Saved; inactive because mesh temperature transport is off.")));
+    QVERIFY(text.contains(QStringLiteral("2D surface heat: inactive")));
+}
+
+void TestHeatConfigDialog::runtimeOverviewReportsNoCompatibleHeatOwner()
+{
+    OpenedMini2D model;
+    QVERIFY(model.open());
+    QVERIFY(model.initializeAndStart(true, false));
+    HeatConfigDialog dialog(model.engine);
+    const QString text = showRuntimeOverview(dialog);
+    QVERIFY(text.contains(QStringLiteral("2D surface heat: inactive")));
+    QVERIFY(text.contains(QStringLiteral("Coupled model is initialized; all mesh heat exchanges are off.")));
+}
+
+void TestHeatConfigDialog::runtimeOverviewSeparatesActiveProcessFromZeroReceipts()
+{
+    OpenedMini2D model;
+    QVERIFY(model.open());
+    QVERIFY(model.initializeAndStart(true, true));
+    HeatConfigDialog dialog(model.engine);
+    const QString text = showRuntimeOverview(dialog);
+    QVERIFY(text.contains(QStringLiteral("2D surface heat: active")));
+    QVERIFY(text.contains(QStringLiteral("mesh atmosphere 0 J")));
+    QVERIFY(text.contains(QStringLiteral("a zero signed total does not mean that a process is disabled")));
+}
+
+void TestHeatConfigDialog::groundwaterThermalSettingsShortcutAppliesAndRequestsNavigation()
+{
+    SWMM_Engine engine=makeHeatEngine();
+    HeatConfigDialog dialog(engine);
+    QSignalSpy requested(&dialog,&HeatConfigDialog::groundwaterSettingsRequested);
+    auto* button=dialog.findChild<QPushButton*>(QStringLiteral("hc_groundwaterSettings"));
+    QVERIFY(button);
+    button->click();
+    QCOMPARE(dialog.result(),int(QDialog::Accepted));
+    QCOMPARE(requested.size(),1);
+    swmm_engine_destroy(engine);
 }
 
 void TestHeatConfigDialog::channelContactPreviewShowsSavedCoverageWithoutEditingModel()

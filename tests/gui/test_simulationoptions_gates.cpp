@@ -25,7 +25,9 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/simoptions/datespage.h"
 #include "ui/dialogs/simoptions/modelspage.h"
+#include "ui/dialogs/simoptions/qualitypage.h"
 #include "ui/dialogs/climatologydialog.h"
+#include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/configurationsession.h"
 #include <openswmm/engine/openswmm_climate.h>
 #include <QApplication>
@@ -39,6 +41,7 @@
 #include <QDateTimeEdit>
 #include <QDoubleSpinBox>
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_gw_transport.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <QCheckBox>
 #include <QCoreApplication>
@@ -132,6 +135,8 @@ private slots:
     void nestedCancelRevertsAcceptedEdits();
     void applyIsOneUndoEntryForNestedAndPageEdits();
     void climateUndoIsExactAndRefusesExternalEdits();
+    void groundwaterThermalConfigurationUndoTracksTransportKeys();
+    void groundwaterThermalShortcutJoinsOuterCancelUndoSegment();
 };
 
 namespace {
@@ -659,6 +664,40 @@ void editNextClimatology(std::function<void(ClimatologyDialog&)> edit)
     timer->start();
 }
 
+void editNextGroundwaterThermalSettings()
+{
+    auto* timer=new QTimer;
+    auto* phase=new int(0);
+    auto* attempts=new int(0);
+    timer->setInterval(10);
+    QObject::connect(timer,&QTimer::timeout,[timer,phase,attempts]{
+        if(++*attempts>300) {
+            QTest::qFail("Timed out waiting for the groundwater thermal settings dialog",__FILE__,__LINE__);
+            if(auto* modal=qobject_cast<QDialog*>(QApplication::activeModalWidget()))modal->reject();
+            timer->stop();timer->deleteLater();delete phase;delete attempts;return;
+        }
+        auto* modal=qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if(!modal)return;
+        if(*phase==0) {
+            auto* open=modal->findChild<QPushButton*>(QStringLiteral("hc_groundwaterSettings"));
+            if(!open)return;
+            *phase=1;
+            open->click();
+            return;
+        }
+        auto* thermal=modal->findChild<QComboBox*>(QStringLiteral("gwTransport_THERMAL_MODEL"));
+        if(!thermal)return;
+        timer->stop();
+        timer->deleteLater();
+        const int porous=thermal->findData(QStringLiteral("POROUS_EQUILIBRIUM"));
+        if(porous>=0)thermal->setCurrentIndex(porous);
+        if(auto* buttons=modal->findChild<QDialogButtonBox*>())
+            if(auto* accept=buttons->button(QDialogButtonBox::Ok))accept->click();
+        delete phase;delete attempts;
+    });
+    timer->start();
+}
+
 double latitude(SWMM_Engine e) { double v = 0; swmm_climate_get_latitude(e, &v); return v; }
 
 QString option(SWMM_Engine e, const char* key)
@@ -775,4 +814,57 @@ void TestSimulationOptionsGates::climateUndoIsExactAndRefusesExternalEdits()
     QCOMPARE(latitude(e), 10.5);
     QCOMPARE(failures.size(), 1);
     QCOMPARE(stack.count(), 0);
+}
+
+void TestSimulationOptionsGates::groundwaterThermalConfigurationUndoTracksTransportKeys()
+{
+    auto layer=openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    SWMM_Engine engine=layer->engine();
+    const QString anchor=QFileInfo(layer->modelFilePath()).absolutePath();
+    const QStringList keys=openswmmvis::ui::Mesh2DGroundwaterDialog::configurationOptionKeys();
+    const QString before=OpenSWMMVis::configurationIdentity(engine,anchor,keys);
+    OpenSWMMVis::ConfigSnapshot snapshot(swmm_config_snapshot_create(engine));
+    QVERIFY(snapshot);
+    QCOMPARE(swmm_gw_transport_option_set(engine,"THERMAL_MODEL","POROUS_EQUILIBRIUM"),SWMM_OK);
+    const QString after=OpenSWMMVis::configurationIdentity(engine,anchor,keys);
+    QVERIFY(after!=before);
+    QStringList failures;
+    QUndoStack stack;
+    QVERIFY(OpenSWMMVis::pushConfigurationUndo(&stack,layer.get(),QStringLiteral("Edit groundwater thermal settings"),
+        std::move(snapshot),before,anchor,keys,[&failures](const QString& error){failures<<error;}));
+    char model[80]{};
+    QCOMPARE(swmm_gw_transport_option_get(engine,"THERMAL_MODEL",model,sizeof model),SWMM_OK);
+    QCOMPARE(QString::fromUtf8(model),QStringLiteral("POROUS_EQUILIBRIUM"));
+    stack.undo();
+    QCOMPARE(swmm_gw_transport_option_get(engine,"THERMAL_MODEL",model,sizeof model),SWMM_OK);
+    QCOMPARE(QString::fromUtf8(model),QStringLiteral("WATER_ONLY"));
+    stack.redo();
+    QCOMPARE(swmm_gw_transport_option_get(engine,"THERMAL_MODEL",model,sizeof model),SWMM_OK);
+    QCOMPARE(QString::fromUtf8(model),QStringLiteral("POROUS_EQUILIBRIUM"));
+    QCOMPARE(failures.size(),0);
+}
+
+void TestSimulationOptionsGates::groundwaterThermalShortcutJoinsOuterCancelUndoSegment()
+{
+    auto layer=openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    SWMM_Engine engine=layer->engine();
+    char model[80]{};
+    QCOMPARE(swmm_gw_transport_option_get(engine,"THERMAL_MODEL",model,sizeof model),SWMM_OK);
+    QCOMPARE(QString::fromUtf8(model),QStringLiteral("WATER_ONLY"));
+    QUndoStack stack;
+    SimulationOptionsDialog dialog(engine,layer.get(),QStringLiteral("6.0.0"),nullptr,nullptr);
+    dialog.setUndoStack(&stack);
+    editNextGroundwaterThermalSettings();
+    auto* quality=dialog.findChild<openswmmvis::ui::QualityPage*>();
+    QVERIFY(quality);
+    emit quality->showHeatSettingsRequested();
+    QCOMPARE(swmm_gw_transport_option_get(engine,"THERMAL_MODEL",model,sizeof model),SWMM_OK);
+    QCOMPARE(QString::fromUtf8(model),QStringLiteral("POROUS_EQUILIBRIUM"));
+    dialog.reject();
+    QCOMPARE(swmm_gw_transport_option_get(engine,"THERMAL_MODEL",model,sizeof model),SWMM_OK);
+    QCOMPARE(QString::fromUtf8(model),QStringLiteral("WATER_ONLY"));
+    QCOMPARE(stack.count(),0);
+    QVERIFY(!dialog.wroteAnyChanges());
 }

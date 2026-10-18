@@ -5,6 +5,7 @@
 #include "ui/dialogs/heatconfigdialog.h"
 
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_gw_transport.h>
 
 #include <QMessageBox>
 #include <QUndoStack>
@@ -28,12 +29,18 @@ QString configurationIdentity(SWMM_Engine engine, const QString& anchor,
     QString id = HeatConfigDialog::configurationSignature(engine) + QChar(0x1e)
                + ClimatologyDialog::configurationSignature(engine, anchor);
     for (const auto& key : optionKeys) {
-        // [OPTIONS] keys have the plain getter; 2D and extension keys the other.
+        // Base options use their own getters; groundwater transport has its
+        // dedicated getter because its values are not generic extensions.
         const QByteArray name = key.toUtf8();
         char value[1024] = {};
-        if (swmm_options_get(engine, name.constData(), value, sizeof value) != SWMM_OK
-            && swmm_options_get_ext(engine, name.constData(), value, sizeof value) != SWMM_OK)
+        if (key.startsWith(QStringLiteral("GW_TRANSPORT:"))) {
+            const QByteArray transportName = key.mid(QStringLiteral("GW_TRANSPORT:").size()).toUtf8();
+            if (swmm_gw_transport_option_get(engine, transportName.constData(), value, sizeof value) != SWMM_OK)
+                value[0] = '\0';
+        } else if (swmm_options_get(engine, name.constData(), value, sizeof value) != SWMM_OK
+                   && swmm_options_get_ext(engine, name.constData(), value, sizeof value) != SWMM_OK) {
             value[0] = '\0';
+        }
         id += QChar(0x1e) + key + QLatin1Char('=') + QString::fromUtf8(value);
     }
     return id;
