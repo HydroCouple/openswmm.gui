@@ -20,8 +20,11 @@
 #include <QComboBox>
 #include <QDateEdit>
 #include <QDateTime>
+#include <QDateTimeEdit>
 #include <QTimeZone>
+#include <QAbstractItemView>
 #include <QDialogButtonBox>
+#include <QDialog>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -37,6 +40,8 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <QTableWidgetItem>
+#include <QVector>
 #include <cmath>
 #include <algorithm>
 
@@ -75,6 +80,43 @@ double cellValue(QTableWidget *t, int row, int col)
     if(!it)return 0.0;
     if(it->data(Qt::UserRole+80).isValid() && it->text()==it->data(Qt::UserRole+81).toString())return it->data(Qt::UserRole+80).toDouble();
     return it->text().toDouble();
+}
+
+double oaDate(const QDateTime& dateTime)
+{
+    const QDate base(1899, 12, 30);
+    return static_cast<double>(base.daysTo(dateTime.date())) +
+           static_cast<double>(dateTime.time().msecsSinceStartOfDay()) / 86400000.0;
+}
+
+QDateTime dateTimeFromOa(double date)
+{
+    const auto day = static_cast<qint64>(std::floor(date));
+    const auto milliseconds = static_cast<qint64>(std::llround((date - day) * 86400000.0));
+    return QDateTime(QDate(1899, 12, 30).addDays(day), QTime(0, 0)).addMSecs(milliseconds);
+}
+
+QString evapPreviewStatus(int status)
+{
+    switch (status) {
+    case SWMM_EVAP_PREVIEW_AVAILABLE: return QObject::tr("Available");
+    case SWMM_EVAP_PREVIEW_HELD: return QObject::tr("Held from previous value");
+    case SWMM_EVAP_PREVIEW_MISSING: return QObject::tr("Missing source data");
+    case SWMM_EVAP_PREVIEW_ESTIMATED: return QObject::tr("Daily estimate");
+    default: return QObject::tr("Unknown");
+    }
+}
+
+QString evapSourceName(int type)
+{
+    switch (type) {
+    case SWMM_EVAP_CONSTANT: return QObject::tr("Constant rate");
+    case SWMM_EVAP_MONTHLY: return QObject::tr("Monthly rates");
+    case SWMM_EVAP_TIMESERIES: return QObject::tr("Time series");
+    case SWMM_EVAP_TEMPERATURE: return QObject::tr("Hargreaves from temperature");
+    case SWMM_EVAP_FILE: return QObject::tr("Climate-file pan evaporation");
+    default: return QObject::tr("Unknown source");
+    }
 }
 
 void setCell(QTableWidget *t, int row, int col, double v)
@@ -249,6 +291,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
         auto *w = new QWidget; auto *l = new QVBoxLayout(w);
         l->addWidget(new QLabel(tr("Monthly Evaporation (%1)").arg(rate)));
         m_evapMonthly = makeMonthlyTable(rate);
+        m_evapMonthly->setObjectName(QStringLiteral("clim_evapMonthly"));
         l->addWidget(m_evapMonthly);
         m_evapStack->addWidget(w);
     }
@@ -275,6 +318,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
         auto *w = new QWidget; auto *l = new QVBoxLayout(w);
         l->addWidget(new QLabel(tr("Monthly Pan Coefficients")));
         m_panCoeff = makeMonthlyTable(tr("Pan Coeff"));
+        m_panCoeff->setObjectName(QStringLiteral("clim_panCoeff"));
         l->addWidget(m_panCoeff);
         m_evapStack->addWidget(w);
     }
@@ -288,6 +332,12 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     m_dryOnly = new QCheckBox(tr("Evaporate only during dry periods (lumped runoff / LID)"));
     form->addRow(QString(), m_dryOnly);
 
+    auto *preview = new QPushButton(tr("Preview effective evaporation rates…"), page);
+    preview->setObjectName(QStringLiteral("clim_evapPreview"));
+    preview->setEnabled(m_engine != nullptr);
+    form->addRow(QString(), preview);
+    connect(preview, &QPushButton::clicked, this, &ClimatologyDialog::onPreviewEvaporation);
+
     connect(m_evapType, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClimatologyDialog::onEvapTypeChanged);
 
@@ -300,6 +350,150 @@ void ClimatologyDialog::onEvapTypeChanged()
     const int type = m_evapType->currentData().toInt();
     if (type >= 0 && type < m_evapStack->count())
         m_evapStack->setCurrentIndex(type);
+}
+
+void ClimatologyDialog::onPreviewEvaporation()
+{
+    if (!m_engine) return;
+    double modelStart = 0.0, modelEnd = 0.0;
+    if (swmm_options_get_start_date(m_engine, &modelStart) != SWMM_OK ||
+        swmm_options_get_end_date(m_engine, &modelEnd) != SWMM_OK ||
+        modelEnd <= modelStart) {
+        QMessageBox::warning(this, tr("Evaporation preview"),
+                             tr("The model does not have a valid simulation time window."));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Effective evaporation rates"));
+    dialog.setObjectName(QStringLiteral("clim_evapPreviewDialog"));
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *intro = new QLabel(tr("Review source rates and monthly evaporation adjustments over a selected part of the simulation. Time-series rates follow the engine's stepwise schedule; climate-file pan rates hold their last valid value through missing days. Temperature-derived rates are daily estimates. Runtime climate and catchment forcing can override these values."), &dialog);
+    intro->setWordWrap(true);
+    layout->addWidget(intro);
+
+    auto *window = new QWidget(&dialog);
+    auto *windowForm = new QFormLayout(window);
+    auto *from = new QDateTimeEdit(dateTimeFromOa(modelStart), window);
+    auto *to = new QDateTimeEdit(dateTimeFromOa(modelEnd), window);
+    from->setObjectName(QStringLiteral("clim_evapPreviewStart"));
+    to->setObjectName(QStringLiteral("clim_evapPreviewEnd"));
+    from->setCalendarPopup(true); to->setCalendarPopup(true);
+    from->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    to->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    const auto minTime = dateTimeFromOa(modelStart), maxTime = dateTimeFromOa(modelEnd);
+    from->setDateTimeRange(minTime, maxTime); to->setDateTimeRange(minTime, maxTime);
+    // Open on the first month when a long simulation is configured, while
+    // allowing the user to widen or move the window up to the model end.
+    to->setDateTime(std::min(maxTime, from->dateTime().addDays(30)));
+    auto *interval = new QComboBox(window);
+    interval->setObjectName(QStringLiteral("clim_evapPreviewInterval"));
+    interval->addItem(tr("Daily"), 1.0);
+    interval->addItem(tr("Weekly"), 7.0);
+    interval->addItem(tr("Every 30 days"), 30.0);
+    windowForm->addRow(tr("From:"), from);
+    windowForm->addRow(tr("To (exclusive):"), to);
+    windowForm->addRow(tr("Sample interval:"), interval);
+    layout->addWidget(window);
+
+    auto *summaryLabel = new QLabel(&dialog);
+    summaryLabel->setObjectName(QStringLiteral("clim_evapPreviewSummary"));
+    summaryLabel->setWordWrap(true);
+    layout->addWidget(summaryLabel);
+
+    auto *table = new QTableWidget(0, 5, &dialog);
+    table->setObjectName(QStringLiteral("clim_evapPreviewTable"));
+    const QString unit = isSI() ? tr("mm/day") : tr("in/day");
+    table->setHorizontalHeaderLabels({tr("Date and time"), tr("Source (%1)").arg(unit),
+                                      tr("Adjustment (%1)").arg(unit), tr("Effective rate (%1)").arg(unit),
+                                      tr("Coverage")});
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    layout->addWidget(table, 1);
+
+    auto *refresh = new QPushButton(tr("Update preview"), &dialog);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto *buttonRow = new QHBoxLayout;
+    buttonRow->addWidget(refresh);
+    buttonRow->addStretch(1);
+    buttonRow->addWidget(buttons);
+    layout->addLayout(buttonRow);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(refresh, &QPushButton::clicked, &dialog, [this, from, to, interval, table, summaryLabel, unit] {
+        const double begin = oaDate(from->dateTime());
+        const double end = oaDate(to->dateTime());
+        if (end <= begin) {
+            QMessageBox::warning(this, tr("Evaporation preview"),
+                                 tr("Choose an end time after the start time."));
+            return;
+        }
+        const double step = interval->currentData().toDouble();
+        QByteArray evapTimeseries = m_evapTs->currentText().trimmed().toUtf8();
+        QByteArray tempTimeseries = m_tempTs->currentText().trimmed().toUtf8();
+        QByteArray climatePath = m_tempFile->absolutePath().toUtf8();
+        SWMM_EvapPreviewConfig config{};
+        config.evap_type = m_evapType->currentData().toInt();
+        readColumn(m_evapMonthly, 0, config.evap_monthly, SWMM_CLIMATE_MONTHS);
+        if (config.evap_type == SWMM_EVAP_CONSTANT)
+            config.evap_monthly[0] = OpenSWMM::Ui::preciseValue(m_evapConstant);
+        readColumn(m_panCoeff, 0, config.pan_coeff, SWMM_CLIMATE_MONTHS);
+        readColumn(m_adjust, 1, config.adjust_evaporation, SWMM_CLIMATE_MONTHS);
+        config.evap_timeseries = evapTimeseries.constData();
+        config.temp_source = m_tempSource->currentIndex();
+        config.temp_timeseries = tempTimeseries.constData();
+        config.climate_file_path = climatePath.constData();
+        config.climate_file_start = m_tempStartCheck->isChecked()
+            ? oaDate(QDateTime(m_tempStartDate->date(), QTime(0, 0))) : 0.0;
+        config.climate_file_temp_units = m_tempUnits->currentData().toInt();
+        config.latitude = OpenSWMM::Ui::preciseValue(m_latitude);
+        config.longitude_correction_minutes = OpenSWMM::Ui::preciseValue(m_longitude);
+        readColumn(m_adjust, 0, config.adjust_temperature, SWMM_CLIMATE_MONTHS);
+        int count = 0;
+        SWMM_EvapPreviewSummary summary{};
+        char diagnostic[1024]{};
+        if (swmm_climate_preview_evaporation_with_config(m_engine, &config, begin, end, step,
+                nullptr, 0, &count, &summary, diagnostic, sizeof(diagnostic)) != SWMM_OK) {
+            QMessageBox::warning(this, tr("Evaporation preview"), QString::fromUtf8(diagnostic));
+            return;
+        }
+        if (count > 2000) {
+            QMessageBox::information(this, tr("Evaporation preview"),
+                tr("This window contains %1 samples. Choose a weekly or 30-day interval to keep the table readable.").arg(count));
+            return;
+        }
+        QVector<SWMM_EvapPreviewSample> samples(count);
+        if (swmm_climate_preview_evaporation_with_config(m_engine, &config, begin, end, step,
+                samples.data(), samples.size(), &count, &summary,
+                diagnostic, sizeof(diagnostic)) != SWMM_OK) {
+            QMessageBox::warning(this, tr("Evaporation preview"), QString::fromUtf8(diagnostic));
+            return;
+        }
+        table->setRowCount(count);
+        const auto rateText = [](double rate) { return QString::number(rate, 'g', 8); };
+        for (int row = 0; row < count; ++row) {
+            const auto& sample = samples[row];
+            const QString date = dateTimeFromOa(sample.date).toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+            const QString values[]{date, rateText(sample.source_rate), rateText(sample.adjustment),
+                                   rateText(sample.effective_rate), evapPreviewStatus(sample.status)};
+            for (int column = 0; column < 5; ++column)
+                table->setItem(row, column, new QTableWidgetItem(values[column]));
+        }
+        QString message = tr("Source: %1. Available: %2; held: %3; missing: %4; daily estimates: %5.")
+            .arg(evapSourceName(summary.source_type))
+            .arg(summary.available_count).arg(summary.held_count)
+            .arg(summary.missing_count).arg(summary.estimated_count);
+        if (std::isfinite(summary.minimum_rate))
+            message += tr(" Effective-rate range: %1 to %2 %3.")
+                .arg(summary.minimum_rate, 0, 'g', 8).arg(summary.maximum_rate, 0, 'g', 8).arg(unit);
+        if (diagnostic[0]) message += QStringLiteral("\n") + QString::fromUtf8(diagnostic);
+        message += tr("\nLive runtime forcing is not included because future prescriptions are only known during simulation.");
+        summaryLabel->setText(message);
+    });
+    refresh->click();
+    dialog.resize(850, 560);
+    dialog.exec();
 }
 
 // ---------------------------------------------------------------------------
@@ -689,10 +883,14 @@ void ClimatologyDialog::buildAdjustmentsTab(QTabWidget *tabs)
         for (int c = 0; c < 4; ++c)
             m_adjust->setItem(r, c, new QTableWidgetItem(
                 QStringLiteral("%1").arg(c == 0 ? 0 : 1)));
-    lay->addWidget(new QLabel(tr("Temp = +/- offset; Evap = multiplier; "
-                                 "Rain = multiplier; Cond = multiplier.")));
+    auto *help = new QLabel(tr("Temp = +/- offset; Evap = rate added to the source (%1); "
+                               "Rain and Cond = multipliers.").arg(isSI() ? tr("mm/day") : tr("in/day")));
+    help->setObjectName(QStringLiteral("clim_adjustment_help"));
+    help->setWordWrap(true);
+    lay->addWidget(help);
     lay->addWidget(m_adjust);
 
+    m_adjust->setObjectName(QStringLiteral("clim_adjust"));
     auto *clear = new QPushButton(tr("Clear All"));
     lay->addWidget(clear, 0, Qt::AlignLeft);
     connect(clear, &QPushButton::clicked, this, &ClimatologyDialog::onClearAdjustments);

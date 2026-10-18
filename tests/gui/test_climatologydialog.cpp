@@ -21,13 +21,17 @@
 #include <QDoubleSpinBox>
 #include <QObject>
 #include <QPushButton>
+#include <QLabel>
+#include <QDialog>
 #include <QTableWidget>
 #include <QTest>
 #include <QTimer>
 #include <QApplication>
 #include <QMessageBox>
+#include <QTemporaryFile>
 
 #include "dialog_a11y_checks.h"
+#include "ui/widgets/relativepathpicker.h"
 
 namespace {
 
@@ -59,6 +63,8 @@ private slots:
     void setCurrentTabClamps();
     void humidityTabRoundTrips();
     void snowAndRadiationRoundTrip();
+    void evaporationPreviewShowsRatesCoverageAndRuntimeForcingCaveat();
+    void meteorologyPreviewStatesRadiationPrecedence();
 };
 
 
@@ -197,6 +203,95 @@ void TestClimatologyDialog::snowAndRadiationRoundTrip()
         dlg.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
         QVERIFY(!dlg.wroteAnyChanges());
     }
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::evaporationPreviewShowsRatesCoverageAndRuntimeForcingCaveat()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0; // 2020-01-01, OADate
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 1.0), SWMM_OK);
+    double monthly[12]{};
+    QCOMPARE(swmm_climate_set_evap_monthly(e, monthly, 12), SWMM_OK);
+    double adjustment[12]{}; adjustment[0] = 0.25;
+    QCOMPARE(swmm_climate_set_adjust_evaporation(e, adjustment, 12), SWMM_OK);
+
+    ClimatologyDialog dialog(e);
+    auto *help = dialog.findChild<QLabel*>(QStringLiteral("clim_adjustment_help"));
+    QVERIFY(help);
+    QVERIFY(help->text().contains(QStringLiteral("rate added to the source"), Qt::CaseInsensitive));
+    auto *monthlyGrid = dialog.findChild<QTableWidget*>(QStringLiteral("clim_evapMonthly"));
+    auto *adjustments = dialog.findChild<QTableWidget*>(QStringLiteral("clim_adjust"));
+    QVERIFY(monthlyGrid && adjustments);
+    monthlyGrid->item(0, 0)->setText(QStringLiteral("0.5"));
+    adjustments->item(0, 1)->setText(QStringLiteral("0.1"));
+    auto *preview = dialog.findChild<QPushButton*>(QStringLiteral("clim_evapPreview"));
+    QVERIFY(preview && preview->isEnabled());
+
+    bool opened = false, tablePopulated = false, forcingExplained = false;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog")) return;
+        opened = true;
+        auto *table = modal->findChild<QTableWidget*>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel*>(QStringLiteral("clim_evapPreviewSummary"));
+        tablePopulated = table && table->rowCount() == 1 &&
+                         table->item(0, 1) && table->item(0, 1)->text() == QStringLiteral("0.5") &&
+                         table->item(0, 2) && table->item(0, 2)->text() == QStringLiteral("0.1") &&
+                         table->item(0, 3) && table->item(0, 3)->text() == QStringLiteral("0.6");
+        forcingExplained = summary && summary->text().contains(QStringLiteral("Live runtime forcing"));
+        if (auto *box = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = box->button(QDialogButtonBox::Close)) close->click();
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY(opened);
+    QVERIFY(tablePopulated);
+    QVERIFY(forcingExplained);
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::meteorologyPreviewStatesRadiationPrecedence()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0;
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 6.0 / 24.0), SWMM_OK);
+    QTemporaryFile met;
+    QVERIFY(met.open());
+    QByteArray rows;
+    for (int hour = 0; hour <= 6; ++hour) {
+        rows += "01/01/2020 ";
+        rows += QByteArray::number(hour).rightJustified(2, '0');
+        rows += ":00 2 70 1 100 200\n";
+    }
+    QCOMPARE(met.write(rows), qint64(rows.size()));
+    met.flush();
+
+    ClimatologyDialog dialog(e);
+    auto *file = dialog.findChild<openswmmvis::ui::RelativePathPicker*>(QStringLiteral("clim_metFile"));
+    auto *preview = dialog.findChild<QPushButton*>(QStringLiteral("clim_metPreview"));
+    QVERIFY(file && preview);
+    file->setPath(met.fileName());
+
+    QString previewText;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        if (auto *box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            previewText = box->text();
+            box->accept();
+        }
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY2(previewText.contains(QStringLiteral("radiation overrides selected series and computed values"), Qt::CaseInsensitive),
+             qPrintable(previewText));
     swmm_engine_destroy(e);
 }
 

@@ -26,6 +26,7 @@ class QComboBox;
 class QLineEdit;
 class QCheckBox;
 class QDateEdit;
+class QDateTimeEdit;
 class QDoubleSpinBox;
 class QTableWidget;
 class QStackedWidget;
@@ -87,6 +88,7 @@ private slots:
     void onHumidityVarChanged();
     void onAdcPreset(int column, bool natural);
     void onClearAdjustments();
+    void onPreviewEvaporation();
 
 private:
     void buildUi();
