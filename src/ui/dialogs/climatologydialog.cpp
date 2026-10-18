@@ -300,6 +300,8 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     {
         auto *w = new QWidget; auto *l = new QFormLayout(w);
         m_evapTs = new QComboBox; m_evapTs->setEditable(true);
+        m_evapTs->setObjectName(QStringLiteral("clim_evapTs"));
+        m_evapTs->setAccessibleName(tr("Evaporation time series"));
         populateTimeseriesCombo(m_evapTs);
         l->addRow(tr("Time Series:"), m_evapTs);
         m_evapStack->addWidget(w);
