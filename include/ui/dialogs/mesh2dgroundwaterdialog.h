@@ -35,6 +35,7 @@
 #include <QDialog>
 #include <QMap>
 #include <QPointer>
+#include <QStringList>
 #include <functional>
 #include <vector>
 
@@ -79,6 +80,8 @@ public:
     [[nodiscard]] static QStringList soilModelTokens();
     /*! \brief Unsaturated-zone closures, AUTO first. */
     [[nodiscard]] static QStringList closureTokens();
+    [[nodiscard]] static QStringList configurationOptionKeys();
+    void setThermalOptionsOnly(bool enabled);
 
 public slots:
     void invalidateContext();

@@ -148,6 +148,35 @@ QStringList Mesh2DGroundwaterDialog::closureTokens()
     return Mesh2DAquiferModel::closureTokens();
 }
 
+QStringList Mesh2DGroundwaterDialog::configurationOptionKeys()
+{
+    QStringList keys = {QStringLiteral("SOIL_CHAR"), QStringLiteral("CLOSURE"),
+        QStringLiteral("M_LAYERS"), QStringLiteral("CAPILLARY_DIFF"),
+        QStringLiteral("C_GW"), QStringLiteral("C_COL"),
+        QStringLiteral("FORCE_CLOSED_FORM"), QStringLiteral("DUNNE"),
+        QStringLiteral("MODE"), QStringLiteral("GW_ET")};
+    const QStringList transportKeys = {QStringLiteral("TRANSPORT_POLLUTANTS"),
+        QStringLiteral("TRANSPORT_MSX"), QStringLiteral("TRANSPORT_AGE"),
+        QStringLiteral("TRANSPORT_TEMPERATURE"), QStringLiteral("DISPERSION"),
+        QStringLiteral("THERMAL_MODEL"), QStringLiteral("CONDUCTION"),
+        QStringLiteral("THERMAL_MIXING"), QStringLiteral("LATERAL_CONDUCTION"),
+        QStringLiteral("SOIL_ET_HEAT"), QStringLiteral("THERMAL_LAYERS"),
+        QStringLiteral("THERMAL_MAX_STEP"), QStringLiteral("WATER_THERMAL_CONDUCTIVITY"),
+        QStringLiteral("AIR_THERMAL_CONDUCTIVITY"), QStringLiteral("SURFACE_THERMAL_RESISTANCE"),
+        QStringLiteral("C_DIFF"), QStringLiteral("SURFACE_THERMAL_BC"),
+        QStringLiteral("DEEP_THERMAL_BC")};
+    for (const auto &key : transportKeys) keys << QStringLiteral("GW_TRANSPORT:") + key;
+    return keys;
+}
+
+void Mesh2DGroundwaterDialog::setThermalOptionsOnly(bool enabled)
+{
+    if (!m_tabs) return;
+    m_tabs->setTabVisible(1, !enabled);
+    m_tabs->setTabVisible(2, !enabled);
+    m_tabs->setTabVisible(3, !enabled);
+}
+
 Mesh2DGroundwaterDialog::Mesh2DGroundwaterDialog(SWMM_Engine engine,
                                                  QWidget *parent,
                                                  Page initialPage,

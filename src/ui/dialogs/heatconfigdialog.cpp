@@ -206,6 +206,12 @@ void HeatConfigDialog::buildUi()
     sharedRadiation->setToolTip(tr("Apply these heat settings and open Climatology → Radiation for the shared site, cloud and forcing sources."));
     vlay->addWidget(sharedRadiation);
     connect(sharedRadiation,&QPushButton::clicked,this,[this]{onAccept();if(result()==QDialog::Accepted)emit radiationEditorRequested();});
+    auto* groundwaterSettings=new QPushButton(tr("Apply and open 2D groundwater transport and thermal settings…"),this);
+    groundwaterSettings->setObjectName(QStringLiteral("hc_groundwaterSettings"));
+    groundwaterSettings->setAutoDefault(false);
+    groundwaterSettings->setToolTip(tr("Apply these heat settings and open the 2D groundwater transport, porous soil heat and conduction options."));
+    vlay->addWidget(groundwaterSettings);
+    connect(groundwaterSettings,&QPushButton::clicked,this,[this]{onAccept();if(result()==QDialog::Accepted)emit groundwaterSettingsRequested();});
 
 
     // ── Sources ─────────────────────────────────────────────────────────
@@ -1216,6 +1222,8 @@ QString HeatConfigDialog::runtimeOverviewText() const
     const bool qualityOff = canReadQuality && QString::fromUtf8(ignored).compare(QStringLiteral("YES"), Qt::CaseInsensitive) == 0;
     if (qualityOff)
         lines << tr("Network and lumped temperature transport is inactive while Water quality is off. Mesh temperature has a separate activation setting.");
+    else if (!savedHeat)
+        lines << tr("Temperature transport is off; pollutant, reaction, MSX and water-age settings remain independent.");
 
     const QStringList moduleNames = {tr("Water-surface heat exchange"), tr("Radiation"),
                                      tr("LID layer heat transfer"), tr("1D channel-bed exchange")};

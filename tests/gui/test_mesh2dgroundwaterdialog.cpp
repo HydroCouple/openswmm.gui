@@ -76,6 +76,33 @@ class TestMesh2DGroundwaterDialog : public QObject
     Q_OBJECT
 
 private slots:
+    void thermalOptionsShortcutLimitsPagesAndExposesReadableOptionKeys() {
+        Engine e;
+        Mesh2DGroundwaterDialog dialog(e.handle);
+        dialog.setThermalOptionsOnly(true);
+        auto* tabs=dialog.findChild<QTabWidget*>();QVERIFY(tabs);
+        QVERIFY(tabs->isTabVisible(0));
+        QVERIFY(!tabs->isTabVisible(1));
+        QVERIFY(!tabs->isTabVisible(2));
+        QVERIFY(!tabs->isTabVisible(3));
+        QVERIFY(tabs->isTabVisible(4));
+        const auto keys=Mesh2DGroundwaterDialog::configurationOptionKeys();
+        QVERIFY(keys.contains(QStringLiteral("GW_TRANSPORT:THERMAL_MODEL")));
+        QVERIFY(keys.contains(QStringLiteral("GW_TRANSPORT:SURFACE_THERMAL_BC")));
+        QVERIFY(keys.contains(QStringLiteral("GW_TRANSPORT:DEEP_THERMAL_BC")));
+        QVERIFY(!keys.contains(QStringLiteral("GW_TRANSPORT:SURFACE_THERMAL_BC_KIND")));
+        QVERIFY(!keys.contains(QStringLiteral("GW_TRANSPORT:DEEP_THERMAL_BC_DEPTH")));
+        for(const auto& key:keys) {
+            const bool transport=key.startsWith(QStringLiteral("GW_TRANSPORT:"));
+            const QByteArray name=(transport?key.mid(QStringLiteral("GW_TRANSPORT:").size()):key).toUtf8();
+            char value[1024]{};
+            const int status=transport
+                ?swmm_gw_transport_option_get(e.handle,name.constData(),value,sizeof value)
+                :swmm_gw2d_option_get(e.handle,name.constData(),value,sizeof value);
+            QCOMPARE(status,SWMM_OK);
+        }
+    }
+
     void porousSoilHeatCapabilityRequiresKnownOption()
     {
         QVERIFY(openswmmvis::ui::porousSoilHeatOptionIsSupported(

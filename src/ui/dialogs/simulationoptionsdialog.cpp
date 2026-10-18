@@ -16,6 +16,7 @@
 #ifdef OPENSWMM_HAS_2D
 #include "ui/dialogs/meshsnowdialog.h"
 #include "ui/dialogs/groundwaterassigndialog.h"
+#include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapcanvas.h"
 #endif
@@ -228,6 +229,7 @@ void SimulationOptionsDialog::buildUi()
         dialog.setTransportRequested(m_qualityPage->heatEnabled());
         bool assignRaster=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::rasterAssignmentRequested,&dialog,[&]{assignRaster=true;});
         bool editRadiation=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::radiationEditorRequested,&dialog,[&]{editRadiation=true;});
+        bool editGroundwaterSettings=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::groundwaterSettingsRequested,&dialog,[&]{editGroundwaterSettings=true;});
         if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);}
         dialog.exec();
         if(!m_engine)return;
@@ -245,6 +247,37 @@ void SimulationOptionsDialog::buildUi()
         }
         if(assignRaster&&m_layer&&m_projectWindow){OpenSWMMVis::HeatRasterAssignDialog assignment(m_layer,m_projectWindow->canvas(),this);assignment.exec();}
         if(editRadiation&&runNestedClimatology(ClimatologyDialog::TabRadiation))m_modelsPage->refreshSnowSummary();
+#ifdef OPENSWMM_HAS_2D
+        if(editGroundwaterSettings&&m_engine&&m_layer) {
+            const QString anchor=QFileInfo(m_layer->modelFilePath()).absolutePath();
+            const QStringList optionKeys=openswmmvis::ui::Mesh2DGroundwaterDialog::configurationOptionKeys();
+            OpenSWMMVis::ConfigSnapshot before(swmm_config_snapshot_create(m_engine));
+            const QString beforeIdentity=OpenSWMMVis::configurationIdentity(m_engine,anchor,optionKeys);
+            openswmmvis::ui::Mesh2DGroundwaterDialog groundwater(m_engine,this,
+                openswmmvis::ui::Mesh2DGroundwaterDialog::Page::Options,
+                m_projectWindow?m_projectWindow->unitSystem():nullptr);
+            groundwater.setThermalOptionsOnly(true);
+            bool applied=false;
+            connect(&groundwater,&openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied,
+                    this,[this]{m_wroteChanges=true;if(m_layer)m_layer->markEdited();if(m_projectWindow)m_projectWindow->setHasChanges(true);});
+            connect(&groundwater,&openswmmvis::ui::Mesh2DGroundwaterDialog::applied,
+                    &groundwater,[&applied]{applied=true;});
+            if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&groundwater,
+                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+                connect(m_layer,&QObject::destroyed,&groundwater,
+                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);}
+            if(m_projectWindow)connect(m_projectWindow,&SWMMVisProjectWindow::aboutToClose,&groundwater,
+                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+            groundwater.exec();
+            if(applied&&m_engine&&m_layer) {
+                m_wroteChanges=true;m_layer->markEdited();
+                OpenSWMMVis::pushConfigurationUndo(m_session?m_session->stack():nullptr,m_layer,
+                    tr("Edit 2D groundwater transport and thermal settings"),std::move(before),
+                    beforeIdentity,anchor,optionKeys);
+                emit m_layer->optionsChanged(optionKeys);
+            }
+        }
+#endif
 
         refreshGates();
     });

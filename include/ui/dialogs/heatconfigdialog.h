@@ -86,6 +86,7 @@ public:
 signals:
     void changesApplied();
     void radiationEditorRequested();
+    void groundwaterSettingsRequested();
     void rasterAssignmentRequested();
 
 public slots:
