@@ -955,8 +955,8 @@ void TwoDPage::refreshGates()
     m_gw2DStatusLabel->setText(rowSummary + tr(
         " Use Assign Groundwater for initial temperatures, concentrations and sources. "
         "Groundwater temperature transport carries heat with exchanged water. "
-        "Ground-conduction and thermal-boundary options are stored but have no verified runtime implementation in this engine; "
-        "they must not be interpreted as active heat physics."));
+        "Porous soil heat storage and conduction are separate, opt-in processes: select POROUS_EQUILIBRIUM in Assign Groundwater and enable the required groundwater and heat-temperature transport parents. "
+        "Their boundaries, material mixing and thermal resolution are configured under Assign Groundwater → Transport and thermal settings."));
 }
 
 unsigned TwoDPage::reportVarsMask() const

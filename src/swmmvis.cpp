@@ -155,6 +155,7 @@
 #include "ui/dialogs/climatologydialog.h"
 #include "ui/dialogs/heatconfigdialog.h"
 #include "ui/dialogs/heatrasterassigndialog.h"
+#include "ui/configurationsession.h"
 #include "ui/heatconfigurationundo.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/dialogs/initialqualitydialog.h"
@@ -8436,15 +8437,23 @@ void SWMMVis::onClimatology(int tab)
         return;
     }
 
-    ClimatologyDialog dlg(pw->modelLayer()->engine(), pw->modelLayer(), this);
-    if (!pw->modelLayer()->modelFilePath().isEmpty())
-        dlg.setProjectAnchor(
-            QFileInfo(pw->modelLayer()->modelFilePath()).absolutePath());
+    const auto engine = pw->modelLayer()->engine();
+    const QString anchor = pw->modelLayer()->modelFilePath().isEmpty() ? QString()
+        : QFileInfo(pw->modelLayer()->modelFilePath()).absolutePath();
+    OpenSWMMVis::ConfigSnapshot before(swmm_config_snapshot_create(engine));
+    const QString beforeIdentity = OpenSWMMVis::configurationIdentity(engine, anchor, {});
+    ClimatologyDialog dlg(engine, pw->modelLayer(), this);
+    if (!anchor.isEmpty()) dlg.setProjectAnchor(anchor);
     connect(pw->modelLayer(),&SWMMModelLayer::engineAboutToClose,&dlg,&ClimatologyDialog::invalidateEngine);
     connect(pw->modelLayer(),&QObject::destroyed,&dlg,&ClimatologyDialog::invalidateEngine);
     dlg.setCurrentTab(tab);
-    if (dlg.exec() == QDialog::Accepted && pw && dlg.wroteAnyChanges())
+    if (dlg.exec() == QDialog::Accepted && pw && dlg.wroteAnyChanges()) {
         pw->setHasChanges(true);
+        if (pw->modelLayer() && pw->modelLayer()->engine() == engine && pw->canvas())
+            OpenSWMMVis::pushConfigurationUndo(pw->canvas()->undoStack(), pw->modelLayer(),
+                tr("Edit climatology"), std::move(before), beforeIdentity, anchor, {},
+                [this](const QString& error) { onLogMessage(error, OpenSWMMVisLogMessage::Warning); });
+    }
 }
 
 void SWMMVis::onEditWaterAgeSources()

@@ -34,6 +34,7 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_heat.h>
+#include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_tables.h>
@@ -48,6 +49,8 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QLineEdit>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTest>
@@ -97,6 +100,7 @@ class TestHeatConfigDialog : public QObject
     void dryPolicySurvivesInputExport();
     void savedProjectReopensWithHeatSettings();
     void resolvedDraftPreviewLeavesEngineUnchanged();
+    void meshOverridesCanBePreviewedSavedAndReopened();
     void spatialOverridesCanBeEditedAndRemoved();
     void landcoverCanReturnToAirTemperatureInheritance();
     void externalEditIsNotOverwritten();
@@ -724,6 +728,80 @@ void TestHeatConfigDialog::resolvedDraftPreviewLeavesEngineUnchanged()
     qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(.8);QCOMPARE(resolved->rowCount(),0);
     double value=0;int source=-1;char name[100]{};QCOMPARE(swmm_heat_get_effective_element(e,0,SWMM_HEAT_SCOPE_NODE,"J0",&value,&source,name,sizeof name),SWMM_OK);QCOMPARE(value,.2);QCOMPARE(source,1);
     swmm_engine_destroy(e);
+}
+
+void TestHeatConfigDialog::meshOverridesCanBePreviewedSavedAndReopened()
+{
+    const auto input=QFINDTESTDATA("data/mini_2d.inp");QVERIFY(!input.isEmpty());
+    QTemporaryDir directory;QVERIFY(directory.isValid());
+    auto e=swmm_engine_create();QVERIFY(e);
+    const auto report=directory.filePath("before.rpt").toUtf8();
+    const auto output=directory.filePath("before.out").toUtf8();
+    QCOMPARE(swmm_engine_open(e,input.toUtf8().constData(),report.constData(),output.constData(),nullptr),SWMM_OK);
+    QCOMPARE(swmm_process_component_register(e,"org.hydrocouple.openswmm.heat","heat.cfg"),SWMM_OK);
+    int cells=0;QCOMPARE(swmm_2d_cell_count(e,&cells),SWMM_OK);QCOMPARE(cells,2);
+    QCOMPARE(swmm_2d_set_triangle_tag(e,0,"north"),SWMM_OK);
+    QCOMPARE(swmm_2d_set_triangle_tag(e,1,"north"),SWMM_OK);
+    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_THERMAL_DIFFUSIVITY,
+        SWMM_HEAT_SCOPE_MESH_TAG,"north",.012),SWMM_OK);
+    QCOMPARE(swmm_heat_set_element_override(e,SWMM_HEAT_ATTR_ALBEDO,
+        SWMM_HEAT_SCOPE_CELL2D,"2",.22),SWMM_OK);
+
+    HeatConfigDialog dialog(e);dialog.setCurrentTab(HeatConfigDialog::TabSpatial);
+    auto* table=dialog.findChild<QTableWidget*>("hc_elementTable");QVERIFY(table);QCOMPARE(table->rowCount(),2);
+    auto* scope=qobject_cast<QComboBox*>(table->cellWidget(0,1));
+    auto* property=qobject_cast<QComboBox*>(table->cellWidget(0,0));
+    auto* target=qobject_cast<QComboBox*>(table->cellWidget(0,2));
+    QVERIFY(scope&&property&&target);
+    QCOMPARE(scope->itemText(scope->findData(SWMM_HEAT_SCOPE_MESH_TAG)),QString("Mesh region tag"));
+    QCOMPARE(scope->itemText(scope->findData(SWMM_HEAT_SCOPE_CELL2D)),QString("2D cell"));
+    QCOMPARE(scope->currentData().toInt(),SWMM_HEAT_SCOPE_MESH_TAG);
+    QVERIFY(target->findText("north")>=0);
+    QCOMPARE(target->currentText(),QString("north"));
+    QVERIFY(property->findData(SWMM_HEAT_ATTR_MESH_POROSITY)>=0);
+    QVERIFY(property->findData(SWMM_HEAT_ATTR_GROUND_SOURCE)>=0);
+
+    auto* preview=dialog.findChild<QPushButton*>("hc_previewElements");QVERIFY(preview);
+    auto* resolved=dialog.findChild<QTableWidget*>("hc_resolvedElements");QVERIFY(resolved);
+    auto* value=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3));QVERIFY(value);value->setValue(.018);
+    table->setCurrentCell(0,0);
+    const auto original=HeatConfigDialog::configurationSignature(e);
+    preview->click();QCOMPARE(resolved->rowCount(),2);
+    QCOMPARE(resolved->item(0,0)->text(),QString("1"));QCOMPARE(resolved->item(1,0)->text(),QString("2"));
+    QCOMPARE(resolved->item(0,1)->text().toDouble(),.018);QCOMPARE(HeatConfigDialog::configurationSignature(e),original);
+
+    table->setCurrentCell(1,0);preview->click();QCOMPARE(resolved->rowCount(),1);
+    QCOMPARE(resolved->item(0,0)->text(),QString("2"));QCOMPARE(resolved->item(0,1)->text().toDouble(),.22);
+    auto* cellScope=qobject_cast<QComboBox*>(table->cellWidget(1,1));
+    auto* cellName=qobject_cast<QComboBox*>(table->cellWidget(1,2));
+    QCOMPARE(cellScope->currentData().toInt(),SWMM_HEAT_SCOPE_CELL2D);
+    QVERIFY(cellName->isEditable());QVERIFY(cellName->lineEdit()->validator());QCOMPARE(cellName->currentText(),QString("2"));
+
+    clickOk(dialog);QCOMPARE(dialog.result(),int(QDialog::Accepted));
+    int count=0;QCOMPARE(swmm_heat_element_override_count(e,&count),SWMM_OK);QCOMPARE(count,2);
+    const auto saved=directory.filePath("saved.inp").toUtf8();QCOMPARE(swmm_model_write(e,saved.constData()),SWMM_OK);
+    auto reopened=swmm_engine_create();QVERIFY(reopened);
+    const auto reopenedReport=directory.filePath("reopened.rpt").toUtf8();
+    const auto reopenedOut=directory.filePath("reopened.out").toUtf8();
+    QCOMPARE(swmm_engine_open(reopened,saved.constData(),reopenedReport.constData(),reopenedOut.constData(),nullptr),SWMM_OK);
+    QCOMPARE(swmm_heat_element_override_count(reopened,&count),SWMM_OK);QCOMPARE(count,2);
+    bool meshTag=false,cell=false;
+    for(int i=0;i<count;++i) {
+        int attr=0,scopeValue=0;double configured=0;char name[128]{};
+        QCOMPARE(swmm_heat_get_element_override(reopened,i,&attr,&scopeValue,name,sizeof name,&configured),SWMM_OK);
+        if(scopeValue==SWMM_HEAT_SCOPE_MESH_TAG) {meshTag=true;QCOMPARE(QString::fromUtf8(name),QString("north"));QCOMPARE(configured,.018);}
+        if(scopeValue==SWMM_HEAT_SCOPE_CELL2D) {cell=true;QCOMPARE(QString::fromUtf8(name),QString("2"));QCOMPARE(configured,.22);}
+    }
+    QVERIFY(meshTag);QVERIFY(cell);
+    const auto configuredSignature=HeatConfigDialog::configurationSignature(e);
+    HeatConfigDialog unsupported(e);auto* unsupportedTable=unsupported.findChild<QTableWidget*>("hc_elementTable");
+    auto* unsupportedProperty=qobject_cast<QComboBox*>(unsupportedTable->cellWidget(1,0));
+    unsupportedProperty->setCurrentIndex(unsupportedProperty->findData(SWMM_HEAT_ATTR_GROUND_SOURCE));
+    auto* unsupportedValue=qobject_cast<QDoubleSpinBox*>(unsupportedTable->cellWidget(1,3));
+    QCOMPARE(unsupportedValue->decimals(),0);QCOMPARE(unsupportedValue->minimum(),0.);QCOMPARE(unsupportedValue->maximum(),1.);
+    clickOk(unsupported);QVERIFY(unsupported.result()!=QDialog::Accepted);QVERIFY(!unsupported.wroteAnyChanges());
+    QCOMPARE(HeatConfigDialog::configurationSignature(e),configuredSignature);
+    swmm_engine_destroy(reopened);swmm_engine_destroy(e);
 }
 
 void TestHeatConfigDialog::dryPolicySurvivesInputExport()

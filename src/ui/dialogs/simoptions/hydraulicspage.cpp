@@ -620,6 +620,8 @@ void HydraulicsPage::read()
 int HydraulicsPage::write()
 {
     int n = 0;
+    // Page header
+    n += ctx_.writeIfChanged("FLOW_ROUTING", flowRouting());
     // Tab 3 — Routing & Hydraulics
     n += ctx_.writeIfChanged("SURCHARGE_METHOD",
                    m_surchargeCombo->currentData().toString());

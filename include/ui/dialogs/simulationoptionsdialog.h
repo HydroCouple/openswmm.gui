@@ -41,6 +41,8 @@ class QRadioButton;
 class QCustomTimespanEdit;
 
 class SWMMModelLayer;
+namespace OpenSWMMVis { class ConfigurationSession; }
+class QUndoStack;
 class SWMMVisProjectWindow;
 class HotstartSavesModel;
 class HotstartSavesDateTimeDelegate;
@@ -136,6 +138,10 @@ public:
      *  means some editor was orphaned by a page move. Every page writes
      *  through the shared context, so the record lives in one place. */
     [[nodiscard]] QStringList lastWriteKeys() const;
+
+    /*! \brief History for this dialog's Apply segments; the constructor uses
+     *         the project canvas's stack. Null disables session Undo. */
+    void setUndoStack(QUndoStack *stack);
 
     // ---- Pure helpers (testable without an engine) ------------------------
 
@@ -265,6 +271,16 @@ private:
     SWMMVisProjectWindow *m_projectWindow = nullptr;  ///< owner of .oswp-persisted notes
     QString         m_engineVersion;        ///< e.g. "6.0.0" or "5.2.4"
     bool            m_wroteChanges = false;
+    /// Each Apply is one Undo entry covering nested editors accepted since the
+    /// previous Apply; Cancel reverts those (closure audit C2). Shared so the
+    /// inline destructor needs no complete type.
+    std::shared_ptr<OpenSWMMVis::ConfigurationSession> m_session;
+    bool            m_wroteAtCommit = false;   ///< m_wroteChanges at the last Apply
+    void openNestedSegment();
+    /// Validated write pass plus its Undo entry; false when validation refused.
+    bool applyPass();
+    /// Runs Climatology on \a tab as a nested editor with its own Undo entry.
+    bool runNestedClimatology(int tab);
 
     // ---- sidebar rows the gate table names ------------------------------
     int             m_2DRow          = -1;   ///< 2D page row (-1 if not built).

@@ -71,6 +71,9 @@ public:
      *  layer — deriving it here would drag SWMMModelLayer's implementation into
      *  every target that links this dialog. Empty = absolute paths. */
     void setProjectAnchor(const QString &dir);
+    /*! Every value this dialog edits, as read from \a engine, for stale-edit
+     *  and Undo identity checks. */
+    static QString configurationSignature(SWMM_Engine engine, const QString &anchor);
 
 public slots:
     void invalidateEngine();
