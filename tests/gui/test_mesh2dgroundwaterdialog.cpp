@@ -24,6 +24,7 @@
 
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/dialogs/mesh2daquifermodel.h"
+#include "ui/hydrothermalstate.h"
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -75,6 +76,18 @@ class TestMesh2DGroundwaterDialog : public QObject
     Q_OBJECT
 
 private slots:
+    void porousSoilHeatCapabilityRequiresKnownOption()
+    {
+        QVERIFY(openswmmvis::ui::porousSoilHeatOptionIsSupported(
+            true, QStringLiteral("WATER_ONLY")));
+        QVERIFY(openswmmvis::ui::porousSoilHeatOptionIsSupported(
+            true, QStringLiteral("POROUS_EQUILIBRIUM")));
+        QVERIFY(!openswmmvis::ui::porousSoilHeatOptionIsSupported(
+            false, QStringLiteral("POROUS_EQUILIBRIUM")));
+        QVERIFY(!openswmmvis::ui::porousSoilHeatOptionIsSupported(
+            true, QStringLiteral("UNKNOWN")));
+    }
+
     void automaticEtDisplaysAndCanBeExplicitlyDisabled() {
         Engine e;
         QCOMPARE(swmm_gw2d_option_set(e.handle,"GW_ET","AUTO"),SWMM_OK);

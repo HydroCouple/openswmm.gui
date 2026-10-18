@@ -130,12 +130,10 @@ bool supportsPorousThermalOptions(SWMM_Engine engine)
 {
     if (!engine) return false;
     char value[64]{};
-    if (swmm_gw_transport_option_get(engine, "THERMAL_MODEL", value,
-                                     sizeof value) != SWMM_OK)
-        return false;
-    const QString token = QString::fromUtf8(value).trimmed();
-    return token == QLatin1String("WATER_ONLY") ||
-           token == QLatin1String("POROUS_EQUILIBRIUM");
+    const int result = swmm_gw_transport_option_get(
+        engine, "THERMAL_MODEL", value, sizeof value);
+    return porousSoilHeatOptionIsSupported(
+        result == SWMM_OK, QString::fromUtf8(value).trimmed());
 }
 
 } // namespace

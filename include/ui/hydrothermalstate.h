@@ -5,6 +5,14 @@
 
 namespace openswmmvis::ui {
 
+inline bool porousSoilHeatOptionIsSupported(bool querySucceeded,
+                                             const QString& optionValue)
+{
+    if (!querySucceeded) return false;
+    return optionValue == QStringLiteral("WATER_ONLY") ||
+           optionValue == QStringLiteral("POROUS_EQUILIBRIUM");
+}
+
 // Resolve the current draft, independently of the last initialized run.
 struct GroundwaterEtState {
     QString mode;
