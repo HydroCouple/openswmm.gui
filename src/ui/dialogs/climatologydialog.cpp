@@ -212,6 +212,8 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     // raw QFileDialog result, so the field flipped to an absolute path the
     // moment the user picked a file even though the .inp stored it relative.
     m_tempFile = new openswmmvis::ui::RelativePathPicker;
+    m_tempFile->setObjectName(QStringLiteral("clim_tempFile"));
+    m_tempFile->setAccessibleName(tr("Climate file"));
     m_tempFile->setProjectAnchor(m_projectAnchor);
     m_tempFile->setDialogCaption(tr("Select Climate File"));
     m_tempFile->setFileFilter(tr("Data files (*.dat *.txt);;All files (*)"));
