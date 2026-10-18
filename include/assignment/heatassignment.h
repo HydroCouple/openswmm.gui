@@ -10,5 +10,5 @@ struct HeatRasterPreview {
 };
 HeatRasterPreview sampleHeatRaster(SWMMModelLayer*,GISRasterLayer*,int band,int attr,
     int scope,const QString& tag={},int linkSamples=20,
-    std::function<bool(int,int)> progress={});
+    std::function<bool(int,int)> progress={},std::function<bool()> cancelled={});
 }

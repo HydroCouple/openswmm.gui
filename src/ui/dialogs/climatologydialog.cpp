@@ -1053,6 +1053,13 @@ QString ClimatologyDialog::serialize() const
     return s;
 }
 
+QString ClimatologyDialog::configurationSignature(SWMM_Engine engine, const QString &anchor)
+{
+    ClimatologyDialog current(engine);
+    current.setProjectAnchor(anchor);
+    return current.serialize();
+}
+
 void ClimatologyDialog::invalidateEngine() { m_engine=nullptr;setEnabled(false);reject(); }
 
 void ClimatologyDialog::onAccept()
@@ -1074,9 +1081,7 @@ void ClimatologyDialog::onAccept()
         m_evapType->currentData().toInt()==2&&m_evapTs->currentText().isEmpty()?tr("Select an evaporation time series."):
         m_humType->currentData().toInt()==2&&m_humTs->currentText().isEmpty()?tr("Select a humidity time series."):QString();
     if(!missing.isEmpty()){QMessageBox::warning(this,tr("Climatology"),missing);return;}
-    ClimatologyDialog current(m_engine);
-    current.setProjectAnchor(m_projectAnchor);
-    if(current.serialize()!=m_initialSig) {
+    if(configurationSignature(m_engine,m_projectAnchor)!=m_initialSig) {
         QMessageBox::warning(this,tr("Climatology"),tr("Climate or shared radiation settings changed in another editor. Reopen this dialog before applying."));
         return;
     }

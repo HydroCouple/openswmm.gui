@@ -22,6 +22,7 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_tables.h>
+#include <openswmm/engine/openswmm_2d.h>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -34,8 +35,11 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QHash>
+#include <QIntValidator>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QProgressDialog>
 #include <QRadioButton>
 #include <QSet>
 #include <QTabWidget>
@@ -492,12 +496,12 @@ void HeatConfigDialog::buildUi()
 
     auto *spatialPage = new QWidget(tabs);
     auto *spatialLayout = new QVBoxLayout(spatialPage);
-    auto *spatialNote = new QLabel(tr("Overrides apply to a named link, node or tag. Remove a row to inherit its tag/global value. "
+    auto *spatialNote = new QLabel(tr("Overrides apply to a named link, node, network tag, mesh region tag or 2D cell. Mesh region tags are separate from network tags; cell IDs are one-based. Remove a row to inherit its tag/global value. "
         "Sediment properties apply to conduit beds and cannot target nodes. "
         "A global ground-temperature series takes precedence over constant ground-temperature overrides."), spatialPage);
     spatialNote->setWordWrap(true); spatialLayout->addWidget(spatialNote);
     m_elementTable = new QTableWidget(0,4,spatialPage); m_elementTable->setObjectName("hc_elementTable");
-    m_elementTable->setHorizontalHeaderLabels({tr("Property"),tr("Scope"),tr("Object / tag"),tr("Value (SI / °C)")});
+    m_elementTable->setHorizontalHeaderLabels({tr("Property"),tr("Scope"),tr("Object / tag / cell ID"),tr("Value (SI / °C)")});
     m_elementTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     spatialLayout->addWidget(m_elementTable);
     auto *spatialButtons = new QHBoxLayout;
@@ -818,9 +822,19 @@ bool HeatConfigDialog::validateDraft()
         auto *attr=qobject_cast<QComboBox*>(m_elementTable->cellWidget(r,0));
         auto *scope=qobject_cast<QComboBox*>(m_elementTable->cellWidget(r,1));
         auto *name=qobject_cast<QComboBox*>(m_elementTable->cellWidget(r,2));
+        auto *value=qobject_cast<QDoubleSpinBox*>(m_elementTable->cellWidget(r,3));
         if(name->currentText().trimmed().isEmpty()) return reportFailure(name,tr("Select an object or enter a tag for override %1.").arg(r+1));
+        const int attribute=attr->currentData().toInt();
+        const double numericValue=OpenSWMM::Ui::preciseValue(value);
+        if(!heatPropertyValueValid(attribute,numericValue))
+            return reportFailure(value,tr("%1 must be within %2 to %3.").arg(heatPropertyLabel(attribute))
+                .arg(heatProperties()[attribute].minimum,0,'g',8).arg(heatProperties()[attribute].maximum,0,'g',8));
         if(attr->currentData().toInt()>=6 && scope->currentData().toInt()==SWMM_HEAT_SCOPE_NODE)
             return reportFailure(scope,tr("Sediment properties apply to links or tags, not nodes."));
+        if(attr->currentData().toInt()==SWMM_HEAT_ATTR_GROUND_SOURCE &&
+           scope->currentData().toInt()!=SWMM_HEAT_SCOPE_TAG &&
+           scope->currentData().toInt()!=SWMM_HEAT_SCOPE_LINK)
+            return reportFailure(scope,tr("Ground-source mode applies to network tags or links, not nodes or 2D mesh scopes."));
         const QString key=QString::number(attr->currentData().toInt())+':'+QString::number(scope->currentData().toInt())+':'+name->currentText();
         if(keys.contains(key))return reportFailure(name,tr("Duplicate spatial override; edit the existing row."));
         keys.insert(key);
@@ -1051,7 +1065,7 @@ void HeatConfigDialog::refreshProcessStatus()
     if (m_loading || !m_processStatus || !m_groundMode) return;
     const bool enabled=m_heatEnabled->isChecked();
     m_processStatus->setText(enabled
-        ? tr("Temperature transport configured. Local heat exchanges below run only in supported domains. Mesh temperature transport does not enable mesh ground conduction or hyporheic exchange.")
+        ? tr("Temperature transport configured. Local heat exchanges below run only in supported domains. Configure 2D porous-soil heat storage, conduction and boundaries in Assign Groundwater → Transport and thermal settings; those processes have separate activation requirements.")
         : tr("Temperature transport is off. Settings below are retained for later use; their heat exchanges are inactive."));
     char ignored[32]{};
     if(m_engine)swmm_options_get(m_engine,"IGNORE_QUALITY",ignored,sizeof ignored);
@@ -1082,25 +1096,80 @@ void HeatConfigDialog::addElementOverride()
     auto *attr=new QComboBox(m_elementTable);
     for(int i=0;i<int(heatProperties().size());++i)attr->addItem(heatPropertyLabel(i),i);
     auto *scope=new QComboBox(m_elementTable);
-    scope->addItem(tr("Tag"),SWMM_HEAT_SCOPE_TAG); scope->addItem(tr("Node"),SWMM_HEAT_SCOPE_NODE);scope->addItem(tr("Link"),SWMM_HEAT_SCOPE_LINK);
+    scope->addItem(tr("Network tag"),SWMM_HEAT_SCOPE_TAG);
+    scope->addItem(tr("Node"),SWMM_HEAT_SCOPE_NODE);
+    scope->addItem(tr("Link"),SWMM_HEAT_SCOPE_LINK);
+    scope->addItem(tr("Mesh region tag"),SWMM_HEAT_SCOPE_MESH_TAG);
+    scope->addItem(tr("2D cell"),SWMM_HEAT_SCOPE_CELL2D);
+    scope->setToolTip(tr("Network tags and mesh region tags are separate. A 2D cell uses its one-based mesh cell ID."));
     auto *name=new QComboBox(m_elementTable);name->setEditable(true);
     auto populate=[this,scope,name] {
         const auto previous=name->currentText(); name->clear();
+        name->setValidator(nullptr);
+        if(name->lineEdit())name->lineEdit()->setPlaceholderText(QString());
         if(m_engine) {
-            if(scope->currentData().toInt()==SWMM_HEAT_SCOPE_NODE)
+            const int selectedScope=scope->currentData().toInt();
+            if(selectedScope==SWMM_HEAT_SCOPE_NODE)
                 for(int i=0;i<swmm_node_count(m_engine);++i) name->addItem(QString::fromUtf8(swmm_node_id(m_engine,i)));
-            if(scope->currentData().toInt()==SWMM_HEAT_SCOPE_LINK)
+            if(selectedScope==SWMM_HEAT_SCOPE_LINK)
                 for(int i=0;i<swmm_link_count(m_engine);++i) name->addItem(QString::fromUtf8(swmm_link_id(m_engine,i)));
+            if(selectedScope==SWMM_HEAT_SCOPE_TAG) {
+                QSet<QString> tags;
+                for(int i=0;i<swmm_node_count(m_engine);++i) {
+                    char tag[1024]{};
+                    if(swmm_node_get_tag(m_engine,i,tag,sizeof tag)==SWMM_OK && *tag) tags.insert(QString::fromUtf8(tag));
+                }
+                for(int i=0;i<swmm_link_count(m_engine);++i) {
+                    char tag[1024]{};
+                    if(swmm_link_get_tag(m_engine,i,tag,sizeof tag)==SWMM_OK && *tag) tags.insert(QString::fromUtf8(tag));
+                }
+                QStringList sorted=tags.values(); sorted.sort(Qt::CaseInsensitive);
+                name->addItems(sorted);
+            }
+            if(selectedScope==SWMM_HEAT_SCOPE_CELL2D || selectedScope==SWMM_HEAT_SCOPE_MESH_TAG) {
+                int cells=0;
+                if(swmm_2d_cell_count(m_engine,&cells)==SWMM_OK) {
+                    if(selectedScope==SWMM_HEAT_SCOPE_CELL2D) {
+                        // Avoid materializing millions of combo-box rows for
+                        // a large mesh. The editable ID stays bounded by the
+                        // current mesh cell count.
+                        name->setValidator(new QIntValidator(1,cells,name));
+                        if(name->lineEdit())name->lineEdit()->setPlaceholderText(tr("1-based cell ID"));
+                    } else {
+                        QSet<QString> tags;
+                        for(int i=0;i<cells;++i) {
+                            char tag[1024]{};
+                            if(swmm_2d_get_triangle_tag(m_engine,i,tag,sizeof tag)==SWMM_OK && *tag)
+                                tags.insert(QString::fromUtf8(tag));
+                        }
+                        QStringList sorted=tags.values(); sorted.sort(Qt::CaseInsensitive);
+                        name->addItems(sorted);
+                    }
+                }
+            }
         }
         name->setEditText(previous);
     };
     connect(scope,&QComboBox::currentIndexChanged,this,populate);
     auto *value=new PhysicalNumberSpin(m_elementTable);value->setRange(-1e12,1e12);value->setDecimals(12);
+    auto configureValue=[attr,value] {
+        const int attribute=attr->currentData().toInt();
+        const auto& property=heatProperties()[attribute];
+        value->setRange(property.minimum,property.maximum);
+        if(attribute==SWMM_HEAT_ATTR_GROUND_SOURCE) {
+            value->setDecimals(0);value->setSingleStep(1);
+            value->setToolTip(QObject::tr("0 = prescribed ground temperature; 1 = exchange with mapped mesh groundwater."));
+        } else {
+            value->setDecimals(12);value->setSingleStep(0.1);value->setToolTip(QString());
+        }
+    };
+    connect(attr,&QComboBox::currentIndexChanged,this,configureValue);configureValue();
     m_elementTable->setCellWidget(row,0,attr);m_elementTable->setCellWidget(row,1,scope);
     m_elementTable->setCellWidget(row,2,name);m_elementTable->setCellWidget(row,3,value);
     for(auto* combo:{attr,scope,name})connect(combo,&QComboBox::currentTextChanged,this,&HeatConfigDialog::invalidateElementPreview);
     connect(value,&QDoubleSpinBox::valueChanged,this,&HeatConfigDialog::invalidateElementPreview);
-    const QStringList labels={tr("Property"),tr("Scope"),tr("Object or tag"),tr("Value in SI units or degrees Celsius")};
+    name->setToolTip(tr("Choose an existing object or tag. Mesh region tags are independent of network tags; 2D cell IDs are one-based."));
+    const QStringList labels={tr("Property"),tr("Scope"),tr("Object, tag or cell ID"),tr("Value in SI units or degrees Celsius")};
     for(int col=0;col<4;++col)m_elementTable->cellWidget(row,col)->setAccessibleName(tr("Override %1, %2").arg(row+1).arg(labels[col]));
 }
 
@@ -1122,27 +1191,63 @@ void HeatConfigDialog::previewElements()
     const auto target=qobject_cast<QComboBox*>(m_elementTable->cellWidget(row,2))->currentText();
     // Resolve the complete draft using the engine, then deliberately roll it
     // back. Preview cannot activate a process or author a configuration file.
-    struct Context { HeatConfigDialog* dialog; int attr; int scope; QString target; bool read=false; int total=0; } ctx{this,attr,scope,target};
-    swmm_hydrothermal_edit_atomic(m_engine,[](SWMM_Engine engine,void* user)->int {
+    QProgressDialog meshProgress(tr("Resolving mesh-cell heat values…"),tr("Cancel"),0,0,this);
+    meshProgress.setWindowModality(Qt::ApplicationModal);
+    meshProgress.setMinimumDuration(450);
+    int meshCells=0;
+    QProgressDialog* progress=nullptr;
+    if(scope==SWMM_HEAT_SCOPE_MESH_TAG && swmm_2d_cell_count(m_engine,&meshCells)==SWMM_OK && meshCells>5000) {
+        meshProgress.setRange(0,meshCells);
+        progress=&meshProgress;
+    }
+    struct Context { HeatConfigDialog* dialog; int attr; int scope; QString target; QProgressDialog* progress=nullptr; bool read=false; bool cancelled=false; int total=0; } ctx{this,attr,scope,target,progress};
+    const int previewStatus=swmm_hydrothermal_edit_atomic(m_engine,[](SWMM_Engine engine,void* user)->int {
         auto& c=*static_cast<Context*>(user);auto* d=c.dialog;d->m_writeFailed=false;d->writeToEngine();
         if(d->m_writeFailed)return SWMM_ERR_BADPARAM;
-        for(int kind:{SWMM_HEAT_SCOPE_NODE,SWMM_HEAT_SCOPE_LINK}) {
-            if((c.scope!=SWMM_HEAT_SCOPE_TAG&&c.scope!=kind)||(kind==SWMM_HEAT_SCOPE_NODE&&c.attr>=6))continue;
-            const int n=kind==SWMM_HEAT_SCOPE_NODE?swmm_node_count(engine):swmm_link_count(engine);
-            for(int i=0;i<n;++i){const char* id=kind==SWMM_HEAT_SCOPE_NODE?swmm_node_id(engine,i):swmm_link_id(engine,i);if(!id)continue;
-                char tag[1024]{};if(c.scope==SWMM_HEAT_SCOPE_TAG){const int rc=kind==SWMM_HEAT_SCOPE_NODE?swmm_node_get_tag(engine,i,tag,sizeof tag):swmm_link_get_tag(engine,i,tag,sizeof tag);if(rc!=SWMM_OK||QString::fromUtf8(tag)!=c.target)continue;}
-                else if(QString::fromUtf8(id)!=c.target)continue;
-                double value=0;int source=0;char origin[1024]{};
-                if(swmm_heat_get_effective_element(engine,c.attr,kind,id,&value,&source,origin,sizeof origin)!=SWMM_OK)return SWMM_ERR_BADPARAM;
-                ++c.total;
-                if(d->m_resolvedElements->rowCount()<200){const int r=d->m_resolvedElements->rowCount();d->m_resolvedElements->insertRow(r);
-                    const QStringList values={QString::fromUtf8(id),std::isnan(value)?(source==5?tr("Time series"):tr("Air temperature")):QString::number(value,'g',17),QString::fromUtf8(origin)};
-                    for(int k=0;k<3;++k)d->m_resolvedElements->setItem(r,k,new QTableWidgetItem(values[k]));}
+        const auto append=[&](int kind,const QString& id) -> int {
+            double value=0;int source=0;char origin[1024]{};
+            const QByteArray encoded=id.toUtf8();
+            if(swmm_heat_get_effective_element(engine,c.attr,kind,encoded.constData(),&value,&source,origin,sizeof origin)!=SWMM_OK)return SWMM_ERR_BADPARAM;
+            ++c.total;
+            if(d->m_resolvedElements->rowCount()<200){const int r=d->m_resolvedElements->rowCount();d->m_resolvedElements->insertRow(r);
+                const QStringList values={id,std::isnan(value)?(source==5?tr("Time series"):tr("Air temperature")):QString::number(value,'g',17),QString::fromUtf8(origin)};
+                for(int k=0;k<3;++k)d->m_resolvedElements->setItem(r,k,new QTableWidgetItem(values[k]));}
+            return SWMM_OK;
+        };
+        if(c.scope==SWMM_HEAT_SCOPE_CELL2D || c.scope==SWMM_HEAT_SCOPE_MESH_TAG) {
+            int cells=0;if(swmm_2d_cell_count(engine,&cells)!=SWMM_OK)return SWMM_ERR_BADPARAM;
+            if(c.scope==SWMM_HEAT_SCOPE_CELL2D) {
+                bool ok=false;const int cell=c.target.toInt(&ok)-1;
+                if(!ok||cell<0||cell>=cells)return SWMM_ERR_BADPARAM;
+                if(append(SWMM_HEAT_SCOPE_CELL2D,QString::number(cell+1))!=SWMM_OK)return SWMM_ERR_BADPARAM;
+            } else {
+                for(int i=0;i<cells;++i) {
+                    char tag[1024]{};if(swmm_2d_get_triangle_tag(engine,i,tag,sizeof tag)!=SWMM_OK)return SWMM_ERR_BADPARAM;
+                    if(QString::fromUtf8(tag)==c.target &&
+                       append(SWMM_HEAT_SCOPE_CELL2D,QString::number(i+1))!=SWMM_OK)return SWMM_ERR_BADPARAM;
+                    if(c.progress && ((i+1)%256==0 || i+1==cells)) {
+                        c.progress->setValue(i+1);
+                        if(c.progress->wasCanceled()) { c.cancelled=true; return SWMM_ERR_BADPARAM; }
+                    }
+                }
+            }
+        } else {
+            for(int kind:{SWMM_HEAT_SCOPE_NODE,SWMM_HEAT_SCOPE_LINK}) {
+                if((c.scope!=SWMM_HEAT_SCOPE_TAG&&c.scope!=kind)||(kind==SWMM_HEAT_SCOPE_NODE&&c.attr>=6))continue;
+                const int n=kind==SWMM_HEAT_SCOPE_NODE?swmm_node_count(engine):swmm_link_count(engine);
+                for(int i=0;i<n;++i){const char* id=kind==SWMM_HEAT_SCOPE_NODE?swmm_node_id(engine,i):swmm_link_id(engine,i);if(!id)continue;
+                    char tag[1024]{};if(c.scope==SWMM_HEAT_SCOPE_TAG){const int rc=kind==SWMM_HEAT_SCOPE_NODE?swmm_node_get_tag(engine,i,tag,sizeof tag):swmm_link_get_tag(engine,i,tag,sizeof tag);if(rc!=SWMM_OK||QString::fromUtf8(tag)!=c.target)continue;}
+                    else if(QString::fromUtf8(id)!=c.target)continue;
+                    if(append(kind,QString::fromUtf8(id))!=SWMM_OK)return SWMM_ERR_BADPARAM;
+                }
             }
         }
         c.read=true;return SWMM_ERR_BADPARAM;
     },&ctx);
+    if(progress)progress->reset();
     if(ctx.read)m_resolvedStatus->setText(tr("Draft preview: %1; %2 affected objects, first %3 shown. Process activation is configured separately.").arg(heatPropertyLabel(attr)).arg(ctx.total).arg(m_resolvedElements->rowCount()));
+    else if(ctx.cancelled)m_resolvedStatus->setText(tr("Preview cancelled. The draft remains unchanged and no settings were applied."));
+    else m_resolvedStatus->setText(previewStatus==SWMM_OK?tr("No matching objects were found for this override."):tr("The preview could not be resolved. Check that the selected object or tag still exists."));
 }
 
 QString HeatConfigDialog::elementSignature() const

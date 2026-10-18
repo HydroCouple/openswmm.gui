@@ -45,6 +45,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QDialogButtonBox;
 class QLabel;
+class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
@@ -112,6 +113,7 @@ private:
     QString applyOptions();
     bool    applyChanges();
     void    setEditable(bool on, const QString &whyNot);
+    void    refreshThermalGates();
 
     QPointer<QUndoStack> m_nodeUndo;
     std::function<bool()> m_undoCurrent;
@@ -124,6 +126,7 @@ private:
 
     QTabWidget     *m_tabs           = nullptr;
     QLabel         *m_banner         = nullptr;
+    QLabel         *m_thermalStatus  = nullptr;
 
     // Options
     QComboBox      *m_soilCombo      = nullptr;
@@ -136,6 +139,11 @@ private:
     QCheckBox      *m_dunneCheck     = nullptr;
     QComboBox      *m_modeCombo      = nullptr;
     QComboBox      *m_gwEtCombo      = nullptr;
+    QComboBox      *m_surfaceThermalKind = nullptr;
+    QLineEdit      *m_surfaceThermalValue = nullptr;
+    QComboBox      *m_deepThermalKind = nullptr;
+    QLineEdit      *m_deepThermalValue = nullptr;
+    QDoubleSpinBox *m_deepThermalDepth = nullptr;
 
     // Tables
     QComboBox* m_bottomNode=nullptr;

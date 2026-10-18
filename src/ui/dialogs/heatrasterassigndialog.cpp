@@ -28,9 +28,9 @@ HeatRasterAssignDialog::HeatRasterAssignDialog(SWMMModelLayer* model,MapCanvas* 
     auto* form=new QFormLayout;auto* source=new QComboBox(this);source->setObjectName("heatRasterSource");
     if(canvas)for(auto* layer:canvas->layers())if(auto* raster=qobject_cast<GISRasterLayer*>(layer))source->addItem(raster->name(),raster->layerId());
     form->addRow(tr("Loaded raster:"),source);auto* band=new QSpinBox(this);band->setObjectName("heatRasterBand");band->setRange(1,999);form->addRow(tr("Band:"),band);
-    auto* property=new QComboBox(this);property->setObjectName("heatRasterProperty");for(int a=0;a<14;++a)property->addItem(heatPropertyLabel(a),a);form->addRow(tr("Property:"),property);
-    auto* scope=new QComboBox(this);scope->setObjectName("heatRasterScope");scope->addItem(tr("Nodes"),SWMM_HEAT_SCOPE_NODE);scope->addItem(tr("Conduits"),SWMM_HEAT_SCOPE_LINK);form->addRow(tr("Objects:"),scope);
-    auto* tag=new QLineEdit(this);tag->setObjectName("heatRasterTag");tag->setPlaceholderText(tr("All tags"));form->addRow(tr("Tag filter:"),tag);
+    auto* property=new QComboBox(this);property->setObjectName("heatRasterProperty");for(int a=0;a<=SWMM_HEAT_ATTR_MESH_POROSITY;++a)property->addItem(heatPropertyLabel(a),a);form->addRow(tr("Property:"),property);
+    auto* scope=new QComboBox(this);scope->setObjectName("heatRasterScope");scope->addItem(tr("Nodes"),SWMM_HEAT_SCOPE_NODE);scope->addItem(tr("Conduits"),SWMM_HEAT_SCOPE_LINK);scope->addItem(tr("2D mesh cells"),SWMM_HEAT_SCOPE_CELL2D);form->addRow(tr("Objects:"),scope);
+    auto* tagLabel=new QLabel(tr("Tag filter:"),this);auto* tag=new QLineEdit(this);tag->setObjectName("heatRasterTag");tag->setPlaceholderText(tr("All tags"));form->addRow(tagLabel,tag);
     auto* samples=new QSpinBox(this);samples->setRange(1,1000);samples->setValue(20);form->addRow(tr("Samples per conduit:"),samples);layout->addLayout(form);
     auto* table=new QTableWidget(0,4,this);table->setHorizontalHeaderLabels({tr("Object"),tr("Before override"),tr("After override"),tr("Source")});table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);table->setEditTriggers(QAbstractItemView::NoEditTriggers);layout->addWidget(table,1);
     auto* status=new QLabel(this);status->setWordWrap(true);layout->addWidget(status);
@@ -43,13 +43,25 @@ HeatRasterAssignDialog::HeatRasterAssignDialog(SWMMModelLayer* model,MapCanvas* 
     if(model){connect(model,&SWMMModelLayer::engineAboutToClose,this,invalidate);connect(model,&SWMMModelLayer::geometryChanged,this,invalidate);connect(model,&SWMMModelLayer::optionsChanged,this,invalidate);}
     auto updateBand=[=]{if(!map)return;for(auto* layer:map->layers())if(layer->layerId()==source->currentData().toString())if(auto* raster=qobject_cast<GISRasterLayer*>(layer))band->setMaximum(std::max(1,raster->bandCount()));};
     connect(source,&QComboBox::currentIndexChanged,this,updateBand);updateBand();samples->setEnabled(false);
-    connect(scope,&QComboBox::currentIndexChanged,this,[scope,samples]{samples->setEnabled(scope->currentData().toInt()==SWMM_HEAT_SCOPE_LINK);});
-    connect(property,&QComboBox::currentIndexChanged,this,[property,scope]{const bool bed=property->currentData().toInt()>=6;static_cast<QStandardItemModel*>(scope->model())->item(0)->setEnabled(!bed);if(bed)scope->setCurrentIndex(1);});
+    const auto updateScope=[property,scope,samples,tagLabel]{
+        const int attr=property->currentData().toInt();auto* items=static_cast<QStandardItemModel*>(scope->model());
+        const bool meshPorosity=attr==SWMM_HEAT_ATTR_MESH_POROSITY;
+        const bool bedProperty=attr>=SWMM_HEAT_ATTR_THERMAL_DIFFUSIVITY&&attr<SWMM_HEAT_ATTR_MESH_POROSITY;
+        items->item(0)->setEnabled(!bedProperty&&!meshPorosity);
+        items->item(1)->setEnabled(!meshPorosity);
+        items->item(2)->setEnabled(true);
+        if(meshPorosity)scope->setCurrentIndex(2);
+        else if(bedProperty&&scope->currentData().toInt()==SWMM_HEAT_SCOPE_NODE)scope->setCurrentIndex(1);
+        samples->setEnabled(scope->currentData().toInt()==SWMM_HEAT_SCOPE_LINK);
+        tagLabel->setText(scope->currentData().toInt()==SWMM_HEAT_SCOPE_CELL2D?QObject::tr("Mesh region tag:"):QObject::tr("Network tag:"));
+    };
+    connect(scope,&QComboBox::currentIndexChanged,this,[scope,samples,tagLabel]{samples->setEnabled(scope->currentData().toInt()==SWMM_HEAT_SCOPE_LINK);tagLabel->setText(scope->currentData().toInt()==SWMM_HEAT_SCOPE_CELL2D?QObject::tr("Mesh region tag:"):QObject::tr("Network tag:"));});
+    connect(property,&QComboBox::currentIndexChanged,this,updateScope);updateScope();
     connect(preview,&QPushButton::clicked,this,[=]{invalidate();if(!owner||!map)return;GISRasterLayer* raster=nullptr;for(auto* layer:map->layers())if(layer->layerId()==source->currentData().toString())raster=qobject_cast<GISRasterLayer*>(layer);if(!raster){status->setText(tr("Load a raster layer into the map first."));return;}
         const auto engine=owner->engine();state->signature=HeatConfigDialog::configurationSignature(engine);state->geometry=owner->geomRevision();state->crs=owner->srs()?owner->srs()->toWkt():QString();
         QPointer<GISRasterLayer> sourceGuard(raster);
         QProgressDialog progress(tr("Sampling heat properties…"),tr("Cancel"),0,100,this);progress.setWindowModality(Qt::WindowModal);
-        state->preview=sampleHeatRaster(owner,raster,band->value(),property->currentData().toInt(),scope->currentData().toInt(),tag->text().trimmed(),samples->value(),[&](int done,int total){if(done%20==0){progress.setValue(total?done*100/total:0);QApplication::processEvents();}return !progress.wasCanceled()&&owner&&sourceGuard&&owner->engine()==engine;});
+        state->preview=sampleHeatRaster(owner,raster,band->value(),property->currentData().toInt(),scope->currentData().toInt(),tag->text().trimmed(),samples->value(),[&](int done,int total){if(done%20==0){progress.setValue(total?done*100/total:0);QApplication::processEvents();}return !progress.wasCanceled()&&owner&&sourceGuard&&owner->engine()==engine;},[&]{return progress.wasCanceled()||!owner||!sourceGuard||owner->engine()!=engine||owner->geomRevision()!=state->geometry||(owner->srs()?owner->srs()->toWkt():QString())!=state->crs;});
         progress.setValue(100);if(!state->preview.error.isEmpty()){status->setText(state->preview.error);return;}
         const int sampledCount=state->preview.edits.size();
         auto& edits=state->preview.edits;edits.erase(std::remove_if(edits.begin(),edits.end(),[engine](const HeatPropertyEdit& edit){const auto old=authoredHeatProperty(engine,edit.attr,edit.scope,edit.name);return old.isValid()&&old.toDouble()==edit.value.toDouble();}),edits.end());

@@ -28,18 +28,23 @@
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_gw_transport.h>
 
 #include <QAbstractSpinBox>
 #include <QAccessible>
+#include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTableView>
 #include <QStyledItemDelegate>
 #include <QTimer>
@@ -259,6 +264,41 @@ LID Stack .2
         QCOMPARE(writes.count(), 0);
         buttons->button(QDialogButtonBox::Close)->click();
         QCOMPARE(rejected.count(), 1);
+    }
+
+    void porousThermalSettingsAreEditableAndRoundTrip()
+    {
+        Engine engine;QVERIFY(engine.handle);
+        Mesh2DGroundwaterDialog dialog(engine.handle,nullptr,Mesh2DGroundwaterDialog::Page::Options);
+        auto* model=dialog.findChild<QComboBox*>("gwTransport_THERMAL_MODEL");
+        auto* conduction=dialog.findChild<QComboBox*>("gwTransport_CONDUCTION");
+        auto* mixing=dialog.findChild<QComboBox*>("gwTransport_THERMAL_MIXING");
+        auto* layers=dialog.findChild<QSpinBox*>("gwTransport_THERMAL_LAYERS");
+        auto* lateral=dialog.findChild<QCheckBox*>("gwTransport_LATERAL_CONDUCTION");
+        auto* surface=dialog.findChild<QComboBox*>("gwTransport_SURFACE_THERMAL_BC_KIND");
+        auto* surfaceValue=dialog.findChild<QLineEdit*>("gwTransport_SURFACE_THERMAL_BC_VALUE");
+        auto* deep=dialog.findChild<QComboBox*>("gwTransport_DEEP_THERMAL_BC_KIND");
+        auto* deepValue=dialog.findChild<QLineEdit*>("gwTransport_DEEP_THERMAL_BC_VALUE");
+        auto* deepDepth=dialog.findChild<QDoubleSpinBox*>("gwTransport_DEEP_THERMAL_BC_DEPTH");
+        auto* conductivity=dialog.findChild<QDoubleSpinBox*>("gwTransport_WATER_THERMAL_CONDUCTIVITY");
+        auto* surfaceResistance=dialog.findChild<QDoubleSpinBox*>("gwTransport_SURFACE_THERMAL_RESISTANCE");
+        auto* et=dialog.findChild<QComboBox*>("gwTransport_SOIL_ET_HEAT");
+        QVERIFY(model&&conduction&&mixing&&layers&&lateral&&surface&&surfaceValue&&deep&&deepValue&&deepDepth&&conductivity&&surfaceResistance&&et);
+        QCOMPARE(model->currentData().toString(),QString("WATER_ONLY"));
+        auto* status=dialog.findChild<QLabel*>("gwThermalActivationStatus");QVERIFY(status);QVERIFY(status->text().startsWith("Inactive:"));
+        model->setCurrentIndex(model->findData("POROUS_EQUILIBRIUM"));conduction->setCurrentIndex(conduction->findData("YES"));
+        mixing->setCurrentIndex(mixing->findData("GEOMETRIC"));layers->setValue(8);lateral->setChecked(true);
+        surface->setCurrentIndex(surface->findData("FIXED"));surfaceValue->setText("12.75");
+        deep->setCurrentIndex(deep->findData("FIXED_TEMP"));deepValue->setText("8.5");deepDepth->setValue(12.0);
+        conductivity->setValue(.8);surfaceResistance->setValue(1.25);et->setCurrentIndex(et->findData("SENSIBLE_ONLY"));
+        dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        auto option=[&](const char* key){char value[128]{};if(swmm_gw_transport_option_get(engine.handle,key,value,sizeof value)!=SWMM_OK)return QString();return QString::fromUtf8(value);};
+        QCOMPARE(option("THERMAL_MODEL"),QString("POROUS_EQUILIBRIUM"));QCOMPARE(option("CONDUCTION"),QString("YES"));
+        QCOMPARE(option("THERMAL_MIXING"),QString("GEOMETRIC"));QCOMPARE(option("THERMAL_LAYERS"),QString("8"));
+        QCOMPARE(option("LATERAL_CONDUCTION"),QString("YES"));QCOMPARE(option("SURFACE_THERMAL_BC"),QString("FIXED 12.75"));
+        QCOMPARE(option("DEEP_THERMAL_BC"),QString("FIXED_TEMP 8.5 DEPTH 12"));
+        QCOMPARE(option("WATER_THERMAL_CONDUCTIVITY").toDouble(),.8);QCOMPARE(option("SURFACE_THERMAL_RESISTANCE").toDouble(),1.25);
+        QCOMPARE(option("SOIL_ET_HEAT"),QString("SENSIBLE_ONLY"));
     }
 
     void optionsHaveAccessibleNamesAndKeyboardLabels()

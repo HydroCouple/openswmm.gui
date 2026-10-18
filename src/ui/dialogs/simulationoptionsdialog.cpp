@@ -10,6 +10,7 @@
 #include "ui/dialogs/climatologydialog.h"
 #include "ui/dialogs/heatconfigdialog.h"
 #include "ui/dialogs/heatrasterassigndialog.h"
+#include "ui/configurationsession.h"
 #include "ui/heatconfigurationundo.h"
 #include "map/mapcanvas.h"
 #ifdef OPENSWMM_HAS_2D
@@ -88,6 +89,49 @@ SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
                 [project = m_projectWindow] { project->setHasChanges(true); });
         connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose, this, &SimulationOptionsDialog::invalidateContext);
     }
+    if (m_projectWindow && m_projectWindow->canvas())
+        setUndoStack(m_projectWindow->canvas()->undoStack());
+    // Cancel reverts nested edits accepted since the last Apply.
+    connect(this, &QDialog::rejected, this, [this] {
+        if (m_session && m_session->cancel()) m_wroteChanges = m_wroteAtCommit;
+    });
+}
+
+void SimulationOptionsDialog::setUndoStack(QUndoStack *stack)
+{
+    if (m_session) m_session->cancel();
+    m_session.reset();
+    if (m_layer && stack)
+        m_session = std::make_shared<OpenSWMMVis::ConfigurationSession>(m_layer, stack,
+            tr("Edit simulation options"), QFileInfo(m_layer->modelFilePath()).absolutePath());
+}
+
+void SimulationOptionsDialog::openNestedSegment()
+{
+    if (m_session) m_session->openSegment();
+}
+
+bool SimulationOptionsDialog::runNestedClimatology(int tab)
+{
+    if (!m_engine) return false;
+    openNestedSegment();
+    const QString anchor = m_layer ? QFileInfo(m_layer->modelFilePath()).absolutePath() : QString();
+    OpenSWMMVis::ConfigSnapshot before(swmm_config_snapshot_create(m_engine));
+    const QString beforeIdentity = OpenSWMMVis::configurationIdentity(m_engine, anchor, {});
+    ClimatologyDialog dialog(m_engine, m_layer, this);
+    if (m_layer) {
+        dialog.setProjectAnchor(anchor);
+        connect(m_layer, &SWMMModelLayer::engineAboutToClose, &dialog, &ClimatologyDialog::invalidateEngine);
+        connect(m_layer, &QObject::destroyed, &dialog, &ClimatologyDialog::invalidateEngine);
+    }
+    dialog.setCurrentTab(tab);
+    dialog.exec();
+    if (!m_engine || !dialog.wroteAnyChanges()) return false;
+    m_wroteChanges = true;
+    if (m_layer) m_layer->markEdited();
+    OpenSWMMVis::pushConfigurationUndo(m_session ? m_session->stack() : nullptr, m_layer,
+            tr("Edit climatology"), std::move(before), beforeIdentity, anchor, {});
+    return true;
 }
 
 // Destructor is now inline in the header to keep the moc vtable self-contained.
@@ -156,15 +200,8 @@ void SimulationOptionsDialog::buildUi()
     addPage(m_modelsPage);
     connect(m_modelsPage, &openswmmvis::ui::ModelsPage::showSnowSettingsRequested,
             this, [this] {
-        if (!m_engine) return;
-        ClimatologyDialog dialog(m_engine, m_layer, this);
-        if (m_layer) dialog.setProjectAnchor(QFileInfo(m_layer->modelFilePath()).absolutePath());
-        dialog.setCurrentTab(ClimatologyDialog::TabSnowMelt);
-        dialog.exec();
-        if (dialog.wroteAnyChanges()) {
-            m_wroteChanges = true;
+        if (runNestedClimatology(ClimatologyDialog::TabSnowMelt))
             emit changesApplied();
-        }
         // Refresh only the mirror; preserve all unapplied options drafts.
         m_modelsPage->refreshSnowSummary();
     });
@@ -184,6 +221,7 @@ void SimulationOptionsDialog::buildUi()
     m_qualityPage = new openswmmvis::ui::QualityPage(*m_ctx, this);
     connect(m_qualityPage,&openswmmvis::ui::QualityPage::showHeatSettingsRequested,this,[this] {
         if(!m_engine)return;
+        openNestedSegment();
         OpenSWMMVis::HeatSnapshot before(swmm_heat_snapshot_create(m_engine));
         const auto beforeIdentity=OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine);
         OpenSWMMVis::HeatConfigDialog dialog(m_engine,this);
@@ -196,19 +234,17 @@ void SimulationOptionsDialog::buildUi()
         if(dialog.wroteAnyChanges()){
         m_wroteChanges=true;if(m_layer)m_layer->markEdited();
         int enabled=0;swmm_heat_get_enabled(m_engine,&enabled);m_qualityPage->setHeatEnabled(enabled);
-        if(before&&m_projectWindow&&m_projectWindow->canvas()&&m_projectWindow->canvas()->undoStack()) {
+        if(before&&m_session&&m_session->stack()) {
             OpenSWMMVis::HeatSnapshot after(swmm_heat_snapshot_create(m_engine));
             if(after){QPointer<SWMMModelLayer> model(m_layer);
-                m_projectWindow->canvas()->undoStack()->push(new OpenSWMMVis::HeatConfigurationUndo(model,m_engine,
+                m_session->stack()->push(new OpenSWMMVis::HeatConfigurationUndo(model,m_engine,
                     std::move(before),std::move(after),beforeIdentity,OpenSWMMVis::HeatConfigDialog::configurationSignature(m_engine),
                     [model]{return model?model->engine():nullptr;},OpenSWMMVis::HeatConfigDialog::configurationSignature,
                     [model]{if(model){model->markEdited();emit model->optionsChanged({"HEAT_TRANSPORT","HEAT_FLUXES","HEAT_SOURCES"});}},[](const QString& error){QMessageBox::warning(nullptr,QObject::tr("Heat configuration"),error);}));}
         }
         }
         if(assignRaster&&m_layer&&m_projectWindow){OpenSWMMVis::HeatRasterAssignDialog assignment(m_layer,m_projectWindow->canvas(),this);assignment.exec();}
-        if(editRadiation&&m_engine){ClimatologyDialog climate(m_engine,m_layer,this);climate.setCurrentTab(ClimatologyDialog::TabRadiation);
-            if(m_layer){climate.setProjectAnchor(QFileInfo(m_layer->modelFilePath()).absolutePath());connect(m_layer,&SWMMModelLayer::engineAboutToClose,&climate,&ClimatologyDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&climate,&ClimatologyDialog::invalidateEngine);}
-            climate.exec();if(climate.wroteAnyChanges()){m_wroteChanges=true;if(m_layer)m_layer->markEdited();m_modelsPage->refreshSnowSummary();}}
+        if(editRadiation&&runNestedClimatology(ClimatologyDialog::TabRadiation))m_modelsPage->refreshSnowSummary();
 
         refreshGates();
     });
@@ -269,20 +305,14 @@ void SimulationOptionsDialog::buildUi()
             if (!ok) return;
             index = names.indexOf(name);
         }
+        openNestedSegment();
         openswmmvis::ui::MeshSnowDialog dialog(m_layer, meshes[index], canvas,
                                              m_projectWindow->selectionManager(), this);
         dialog.exec();
         m_modelsPage->refreshSnowSummary();
     });
     connect(m_twoDPage,&openswmmvis::ui::TwoDPage::showEvaporationSettingsRequested,this,[this] {
-        if(!m_engine)return;
-        ClimatologyDialog dialog(m_engine,m_layer,this);
-        if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&dialog,&ClimatologyDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&dialog,&ClimatologyDialog::invalidateEngine);}
-        dialog.setCurrentTab(ClimatologyDialog::TabEvaporation);
-        if(m_layer)dialog.setProjectAnchor(QFileInfo(m_layer->modelFilePath()).absolutePath());
-        if(dialog.exec()==QDialog::Accepted && dialog.wroteAnyChanges()) {
-            m_wroteChanges=true;if(m_layer)m_layer->markEdited();m_twoDPage->refreshGates();
-        }
+        if(runNestedClimatology(ClimatologyDialog::TabEvaporation))m_twoDPage->refreshGates();
     });
     connect(m_twoDPage,&openswmmvis::ui::TwoDPage::showGroundwaterAssignmentsRequested,this,[this] {
         if(!m_projectWindow||!m_layer||!m_engine)return;
@@ -293,6 +323,7 @@ void SimulationOptionsDialog::buildUi()
         if(meshes.isEmpty()){QMessageBox::information(this,tr("Groundwater"),tr("Add a mesh before assigning groundwater."));return;}
         int index=0;
         if(meshes.size()>1){bool ok=false;const auto name=QInputDialog::getItem(this,tr("Groundwater"),tr("Mesh:"),names,0,false,&ok);if(!ok)return;index=names.indexOf(name);}
+        openNestedSegment();
         openswmmvis::ui::GroundwaterAssignDialog dialog(m_layer,meshes[index],canvas,m_projectWindow->selectionManager(),m_projectWindow->unitSystem(),this);
         connect(&dialog,&openswmmvis::ui::GroundwaterAssignDialog::applied,this,[this]{m_wroteChanges=true;m_twoDPage->refreshGates();m_modelsPage->refreshTransportMatrix();});
         dialog.exec();
@@ -608,6 +639,10 @@ bool SimulationOptionsDialog::confirmBeforeWrite()
 
 void SimulationOptionsDialog::invalidateContext()
 {
+    // The model is closing: leave accepted edits on the history; their own
+    // identity checks refuse once the engine is gone.
+    if (m_session) m_session->abandon();
+    m_session.reset();
     m_engine = nullptr;
     m_layer = nullptr;
     m_projectWindow = nullptr;
@@ -616,11 +651,20 @@ void SimulationOptionsDialog::invalidateContext()
     reject();
 }
 
+bool SimulationOptionsDialog::applyPass()
+{
+    if (!m_engine) return false;
+    if (!confirmBeforeWrite() || !m_engine) return false;
+    OpenSWMMVis::ConfigSnapshot before(m_session ? swmm_config_snapshot_create(m_engine) : nullptr);
+    writeToEngine();
+    if (m_session) m_session->commit(std::move(before), lastWriteKeys());
+    m_wroteAtCommit = m_wroteChanges;
+    return true;
+}
+
 void SimulationOptionsDialog::onApply()
 {
-    if (!m_engine) return;
-    if (!confirmBeforeWrite() || !m_engine) return;
-    writeToEngine();
+    if (!applyPass()) return;
     // Re-read after write so the controls reflect whatever the engine
     // actually accepted (some keys may be clamped or normalised).
     readFromEngine();
@@ -628,8 +672,6 @@ void SimulationOptionsDialog::onApply()
 
 void SimulationOptionsDialog::onAccept()
 {
-    if (!m_engine) return;
-    if (!confirmBeforeWrite() || !m_engine) return;
-    writeToEngine();
+    if (!applyPass()) return;
     accept();
 }

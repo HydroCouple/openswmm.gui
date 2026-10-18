@@ -24,6 +24,16 @@
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/simoptions/datespage.h"
+#include "ui/dialogs/simoptions/modelspage.h"
+#include "ui/dialogs/climatologydialog.h"
+#include "ui/configurationsession.h"
+#include <openswmm/engine/openswmm_climate.h>
+#include <QApplication>
+#include <QDialogButtonBox>
+#include <QFileInfo>
+#include <QPushButton>
+#include <QTimer>
+#include <QUndoStack>
 
 #include <QComboBox>
 #include <QDateTimeEdit>
@@ -119,6 +129,9 @@ private slots:
     void automaticEtFollowsAquiferMode();
     void reportStartFollowsEditedSimulationWindow();
     void reportStartReloadsEarlierSimulationWindow();
+    void nestedCancelRevertsAcceptedEdits();
+    void applyIsOneUndoEntryForNestedAndPageEdits();
+    void climateUndoIsExactAndRefusesExternalEdits();
 };
 
 namespace {
@@ -626,4 +639,140 @@ void TestSimulationOptionsGates::automaticEtFollowsAquiferMode()
         enabled->setCurrentIndex(enabled->findData("NO"));QVERIFY(!automatic->isEnabled());
         char et[80]{};QCOMPARE(swmm_gw2d_option_get(e,"GW_ET",et,sizeof et),SWMM_OK);QCOMPARE(QString(et),QString("AUTO"));
     }
+}
+
+namespace {
+
+/// Edits the next modal Climatology dialog with \a edit and accepts it.
+void editNextClimatology(std::function<void(ClimatologyDialog&)> edit)
+{
+    auto* timer = new QTimer;
+    timer->setInterval(10);
+    QObject::connect(timer, &QTimer::timeout, [timer, edit] {
+        auto* dialog = qobject_cast<ClimatologyDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        timer->stop();
+        timer->deleteLater();
+        edit(*dialog);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    });
+    timer->start();
+}
+
+double latitude(SWMM_Engine e) { double v = 0; swmm_climate_get_latitude(e, &v); return v; }
+
+QString option(SWMM_Engine e, const char* key)
+{
+    char buf[256] = {};
+    if (swmm_options_get(e, key, buf, sizeof buf) != SWMM_OK) swmm_options_get_ext(e, key, buf, sizeof buf);
+    return QString::fromUtf8(buf);
+}
+
+} // namespace
+
+/*! Closure audit C2: an accepted nested editor belongs to the outer dialog's
+ *  Apply boundary, so Cancel reverts it and leaves no history entry. */
+void TestSimulationOptionsGates::nestedCancelRevertsAcceptedEdits()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+    const double lat0 = latitude(e);
+    QUndoStack stack;
+    SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    dlg.setUndoStack(&stack);
+    editNextClimatology([lat0](ClimatologyDialog& c) {
+        c.findChild<QDoubleSpinBox*>(QStringLiteral("clim_latitude"))->setValue(lat0 + 3);
+    });
+    emit dlg.findChild<openswmmvis::ui::ModelsPage*>()->showSnowSettingsRequested();
+    QCOMPARE(latitude(e), lat0 + 3);
+    dlg.reject();
+    QCOMPARE(latitude(e), lat0);
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(!stack.canRedo());
+    QVERIFY(!dlg.wroteAnyChanges());
+}
+
+/*! One Apply = one Undo entry for the nested climate edit and the page edit;
+ *  Undo and Redo move both; a later Cancel keeps what was applied. */
+void TestSimulationOptionsGates::applyIsOneUndoEntryForNestedAndPageEdits()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+    const double lat0 = latitude(e);
+    const QString routing0 = option(e, "FLOW_ROUTING");
+    const char* routing1 = routing0 == QLatin1String("KINWAVE") ? "DYNWAVE" : "KINWAVE";
+    QUndoStack stack;
+    SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    dlg.setUndoStack(&stack);
+    editNextClimatology([lat0](ClimatologyDialog& c) {
+        c.findChild<QDoubleSpinBox*>(QStringLiteral("clim_latitude"))->setValue(lat0 + 2);
+    });
+    emit dlg.findChild<openswmmvis::ui::ModelsPage*>()->showSnowSettingsRequested();
+    setRouting(dlg, routing1);
+    dlg.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    QCOMPARE(stack.count(), 1);
+    QCOMPARE(stack.undoText(), QStringLiteral("Edit simulation options"));
+    QCOMPARE(option(e, "FLOW_ROUTING"), QString::fromLatin1(routing1));
+    QCOMPARE(latitude(e), lat0 + 2);
+    dlg.reject();   // nothing open: the applied segment stays
+    QCOMPARE(latitude(e), lat0 + 2);
+    QCOMPARE(stack.count(), 1);
+
+    stack.undo();
+    QCOMPARE(option(e, "FLOW_ROUTING"), routing0);
+    QCOMPARE(latitude(e), lat0);
+    stack.redo();
+    QCOMPARE(option(e, "FLOW_ROUTING"), QString::fromLatin1(routing1));
+    QCOMPARE(latitude(e), lat0 + 2);
+}
+
+/*! A climate edit restores every value and provenance flag exactly, in both
+ *  directions, and refuses to overwrite an edit made outside the history. */
+void TestSimulationOptionsGates::climateUndoIsExactAndRefusesExternalEdits()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+    const QString anchor = QFileInfo(layer->modelFilePath()).absolutePath();
+    const auto state = [e] {
+        QString s;
+        double m[12];
+        swmm_climate_get_adjust_evaporation(e, m, 12);
+        for (double v : m) s += QString::number(v, 'g', 17) + ',';
+        int type = -1;
+        swmm_climate_get_evap_type(e, &type);
+        unsigned flags = 0;
+        swmm_heat_get_authoring_flags(e, &flags);
+        return s + QString::number(type) + '|' + QString::number(flags) + '|' + QString::number(latitude(e), 'g', 17);
+    };
+    const QString before = state();
+    OpenSWMMVis::ConfigSnapshot snapshot(swmm_config_snapshot_create(e));
+    const QString identity = OpenSWMMVis::configurationIdentity(e, anchor, {});
+    {
+        ClimatologyDialog c(e, layer.get());
+        c.setProjectAnchor(anchor);
+        c.findChild<QDoubleSpinBox*>(QStringLiteral("clim_latitude"))->setValue(latitude(e) + 1.25);
+        auto* type = c.findChild<QComboBox*>(QStringLiteral("clim_evapType"));
+        type->setCurrentIndex(type->findData(0));
+        c.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(c.wroteAnyChanges());
+    }
+    const QString after = state();
+    QVERIFY(after != before);
+    QStringList failures;
+    QUndoStack stack;
+    QVERIFY(OpenSWMMVis::pushConfigurationUndo(&stack, layer.get(), QStringLiteral("Edit climatology"),
+        std::move(snapshot), identity, anchor, {}, [&failures](const QString& m) { failures << m; }));
+    stack.undo();
+    QCOMPARE(state(), before);
+    stack.redo();
+    QCOMPARE(state(), after);
+    // Edited outside the history: Undo must refuse rather than overwrite.
+    QCOMPARE(swmm_climate_set_latitude(e, 10.5), SWMM_OK);
+    stack.undo();
+    QCOMPARE(latitude(e), 10.5);
+    QCOMPARE(failures.size(), 1);
+    QCOMPARE(stack.count(), 0);
 }
