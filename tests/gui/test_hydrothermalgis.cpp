@@ -131,6 +131,25 @@ private slots:
   QVERIFY(!authoredHeatProperty(engine,SWMM_HEAT_ATTR_MESH_POROSITY,
       SWMM_HEAT_SCOPE_CELL2D,QStringLiteral("1")).isValid());
  }
+ void heatRasterPreviewRefusesExternalConfigurationChange(){
+  SWMMModelLayer model(QString{});QVERIFY(load(model));
+  GISRasterLayer source(meshRaster());MapCanvas canvas;canvas.addLayer(&source,false);
+  HeatRasterAssignDialog dialog(&model,&canvas);
+  auto* property=dialog.findChild<QComboBox*>("heatRasterProperty");
+  auto* preview=dialog.findChild<QPushButton*>("heatRasterPreview");
+  auto* apply=dialog.findChild<QPushButton*>("heatRasterApply");
+  QVERIFY(property&&preview&&apply);
+  const int porosity=property->findData(SWMM_HEAT_ATTR_MESH_POROSITY);QVERIFY(porosity>=0);
+  property->setCurrentIndex(porosity);preview->click();QVERIFY(apply->isEnabled());
+  QCOMPARE(swmm_heat_set_sediment(model.engine(),SWMM_HEAT_SED_MESH_POROSITY,.4),SWMM_OK);
+  apply->click();
+  QVERIFY(!apply->isEnabled());QCOMPARE(canvas.undoStack()->count(),0);
+  QVERIFY(!authoredHeatProperty(model.engine(),SWMM_HEAT_ATTR_MESH_POROSITY,
+      SWMM_HEAT_SCOPE_CELL2D,QStringLiteral("1")).isValid());
+  bool staleMessage=false;for(auto* label:dialog.findChildren<QLabel*>())
+      staleMessage|=label->text().contains(QStringLiteral("Preview again"));
+  QVERIFY(staleMessage);
+ }
  void snowFootprintsCategoriesAndInheritance(){auto job=snowJob(raster({.2,.6,-9999}));job.sampling=MeshAssignmentSampling::Sampling::AreaWeightedMean;const auto result=sampleMeshAssignment(job);QVERIFY2(result.error.isEmpty(),qPrintable(result.error));QCOMPARE(result.triangles,QVector<int>({0,1}));QCOMPARE(result.skippedNoData,1);QCOMPARE(result.values[0],QVector<double>({.2,.6}));MeshSnowModel staged;staged.packs={"NONE","Forest","Open"};MeshSnowRow global;global.pack="Forest";global.overrides[1]=1.23456789012345;staged.upsert(global);int skipped=0;QVERIFY(staged.stageSamples(0,result.triangles,result.values[0],{}, {},{"a","a","b"},&skipped).isEmpty());QCOMPARE(staged.effective(0,"a").overrides[0],.2);QVERIFY(std::isnan(staged.rows[1].overrides[1]));QCOMPARE(staged.effective(1,"a").overrides[1],global.overrides[1]);job=snowJob(raster({1,2,-9999}));job.mode=MeshAssignmentSampling::Mode::SingleCategory;job.sampling=MeshAssignmentSampling::Sampling::Majority;const auto classes=sampleMeshAssignment(job);QVERIFY2(classes.error.isEmpty(),qPrintable(classes.error));QCOMPARE(classes.keys,QStringList({"1","2"}));QVERIFY(staged.stageSamples(-1,classes.triangles,{},classes.keys,{{"1","Forest"},{"2","open"}},{"a","a","b"}).isEmpty());QCOMPARE(staged.effective(1,"a").pack,QString("Open"));QVERIFY(staged.validate({"a","a","b"}).isEmpty());}
  void attributeTableUsesSharedRowsAndUndo(){SWMMModelLayer model(QString{});QVERIFY(load(model));SWMMAttributeTableModel table;table.setSource(&model,SWMMModelLayer::CatConduits);QUndoStack undo;table.setUndoStack(&undo);const int column=table.columnKeys().indexOf("heat.albedo");QVERIFY(column>=0);const auto before=HeatConfigDialog::configurationSignature(model.engine());QVERIFY(table.setData(table.index(0,column),"0.2345678901234567"));QCOMPARE(authoredHeatProperty(model.engine(),0,SWMM_HEAT_SCOPE_LINK,"C1").toDouble(),.2345678901234567);undo.undo();QCOMPARE(HeatConfigDialog::configurationSignature(model.engine()),before);undo.redo();QVERIFY(table.setData(table.index(0,column),QString()));QVERIFY(!authoredHeatProperty(model.engine(),0,SWMM_HEAT_SCOPE_LINK,"C1").isValid());undo.undo();QCOMPARE(authoredHeatProperty(model.engine(),0,SWMM_HEAT_SCOPE_LINK,"C1").toDouble(),.2345678901234567);QSignalSpy refreshed(&table,&QAbstractItemModel::dataChanged);QString error;QVERIFY(applyHeatPropertyEdits(&model,{{1,SWMM_HEAT_SCOPE_LINK,"C1",.5}},nullptr,"External edit",&error));QVERIFY(!refreshed.isEmpty());}
  void featureFieldMappingRejectsRangesAndIsUndoable(){using namespace openswmmvis::import;ImportMapping mapping;mapping.kind=TargetKind::Junction;mapping.conflict=ImportMapping::Conflict::Update;mapping.ensureBinding("name").sourceField="ID";mapping.ensureBinding("heat.shade").sourceField="shade";ModelSnapshot snapshot;snapshot.nodes.insert("J1",{.25,.5});snapshot.nodeTypes.insert("J1",0);SourceFeature feature;feature.points={{.25,.5}};feature.attrs={{"ID","J1"},{"shade",1.2}};QCOMPARE(buildImportPlan(mapping,snapshot,{feature}).errorCount,1);feature.attrs["shade"]=.3;const auto plan=buildImportPlan(mapping,snapshot,{feature});QCOMPARE(plan.updateCount,1);SWMMModelLayer model(QString{});QVERIFY(load(model));MapCanvas canvas;const auto before=HeatConfigDialog::configurationSignature(model.engine());FeatureLayerImporter importer(nullptr,&model,&canvas,mapping);const auto result=importer.execute(plan);QCOMPARE(result.errorCount,0);QCOMPARE(authoredHeatProperty(model.engine(),1,SWMM_HEAT_SCOPE_NODE,"J1").toDouble(),.3);QCOMPARE(canvas.undoStack()->count(),1);canvas.undoStack()->undo();QCOMPARE(HeatConfigDialog::configurationSignature(model.engine()),before);}
