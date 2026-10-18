@@ -452,9 +452,7 @@ void HeatConfigDialog::buildUi()
 
     auto *bedPage = new QWidget(tabs);
     auto *bedLayout = new QVBoxLayout(bedPage);
-    auto *bedNote = new QLabel(tr("Channel sediment has its own temperature and thermal storage. "
-        "Zero hyporheic velocity gives conduction only. Settings apply to channel/conduit beds; "
-        "they do not activate a 2D mesh ground-conduction or hyporheic model. All bed parameters use SI units."), bedPage);
+    auto *bedNote = new QLabel(tr("These settings control 1D channel and conduit beds. For 2D mesh-bed materials and hyporheic velocity, use Spatial Overrides with a 2D cell or mesh-region-tag scope; channel-burned cells tagged channel:* are hyporheic-eligible by default. Configure groundwater soil storage, conduction and boundaries under Assign Groundwater → Transport and thermal settings. All bed parameters use SI units."), bedPage);
     bedNote->setWordWrap(true); bedLayout->addWidget(bedNote);
     auto *bedForm = new QFormLayout;
     const char *bedLabels[] = {"Thermal diffusivity (m²/s)", "Solute diffusivity (m²/s)",

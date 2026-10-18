@@ -552,6 +552,7 @@ void TestHeatConfigDialog::bedControlsAndInactiveStatusRoundTrip()
     auto e=makeHeatEngine();
     QCOMPARE(swmm_heat_set_sediment(e,5,1.23456789e-5),SWMM_OK);
     HeatConfigDialog dialog(e);
+    bool meshGuidance=false;for(auto* label:dialog.findChildren<QLabel*>())if(label->text().contains("2D mesh-bed materials")&&label->text().contains("Assign Groundwater"))meshGuidance=true;QVERIFY(meshGuidance);
     auto* status=dialog.findChild<QLabel*>("hc_processStatus");
     QVERIFY(status->text().contains("off"));
     auto* module=dialog.findChild<QCheckBox*>("hc_module_3");QVERIFY(module);
