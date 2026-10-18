@@ -290,8 +290,16 @@ void HeatConfigDialog::buildUi()
             m_modules[m] = new QCheckBox(
                 QCoreApplication::translate("HeatCfg", labels[m]), fluxPage);
             m_modules[m]->setObjectName(QStringLiteral("hc_module_%1").arg(m));
+            const char* const guidance[] = {
+                QT_TRANSLATE_NOOP("HeatCfg", "Water-surface latent and sensible exchange. The mesh surface has a separate heat activation switch."),
+                QT_TRANSLATE_NOOP("HeatCfg", "Shortwave and longwave exchange where a water-surface heat owner and its forcing are available."),
+                QT_TRANSLATE_NOOP("HeatCfg", "Vertical heat transfer through LID layers. Mesh-connected LIDs also need an active groundwater heat owner."),
+                QT_TRANSLATE_NOOP("HeatCfg", "1D channel and conduit beds. Mesh-bed properties and hyporheic eligibility are configured in Spatial Overrides."),
+            };
+            m_modules[m]->setToolTip(QCoreApplication::translate("HeatCfg", guidance[m]));
             lay->addWidget(m_modules[m]);
             m_moduleStatus[m] = new QLabel(fluxPage);
+            m_moduleStatus[m]->setObjectName(QStringLiteral("hc_moduleStatus_%1").arg(m));
             m_moduleStatus[m]->setWordWrap(true);
             lay->addWidget(m_moduleStatus[m]);
             connect(m_modules[m], &QCheckBox::toggled, this, &HeatConfigDialog::refreshProcessStatus);
@@ -1068,12 +1076,14 @@ void HeatConfigDialog::refreshProcessStatus()
     char ignored[32]{};
     if(m_engine)swmm_options_get(m_engine,"IGNORE_QUALITY",ignored,sizeof ignored);
     if(enabled && QString::fromUtf8(ignored)=="YES")m_processStatus->setText(m_processStatus->text()+tr(" Network and lumped temperature transport are inactive because Water quality is off; mesh temperature has its own domain setting."));
-    const QStringList scopes={tr("Open channels, storage nodes and lumped/LID water"),
-        tr("Open channels, storage nodes and lumped/LID water"),tr("LID soil and storage layers"),tr("Channel and conduit sediment beds")};
+    const QStringList scopes={tr("Water surfaces"),tr("Water surfaces with configured radiation forcing"),
+        tr("LID soil and storage layers"),tr("1D channel and conduit sediment beds")};
+    const bool network_enabled=QString::fromUtf8(ignored)!="YES";
     for (int i=0;i<4;++i) {
         const QString state=!m_modules[i]->isChecked()?tr("Off"):
             !enabled?tr("Configured On · Inactive because temperature transport is off"):
-            tr("Configured On · Applies where supported and water is present");
+            !network_enabled?tr("Configured On · Network and lumped use is inactive while Water quality is off; mesh heat has separate activation controls"):
+            tr("Configured On · Runs when this domain has water and its required inputs are available");
         m_moduleStatus[i]->setText(state+" — "+scopes[i]);
     }
     m_radSpin[8]->setEnabled(m_landcoverConfigured->isChecked());
