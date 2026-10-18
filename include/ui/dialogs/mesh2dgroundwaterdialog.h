@@ -36,6 +36,7 @@
 #include <QMap>
 #include <QPointer>
 #include <functional>
+#include <vector>
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -105,6 +106,7 @@ private:
     QWidget *buildStatePage();
     QWidget *buildTransportPage();
     QMap<QString,QWidget*> m_transportOptions;
+    std::vector<QWidget*> m_thermalFields;
 
     void loadFromEngine();
     QMap<QString,QString> optionDraft() const;
@@ -123,6 +125,7 @@ private:
 
     QDialogButtonBox *m_buttons      = nullptr;
     bool            m_editable      = false;
+    bool            m_porousThermalOptionsSupported = false;
 
     QTabWidget     *m_tabs           = nullptr;
     QLabel         *m_banner         = nullptr;
