@@ -46,6 +46,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QHeaderView>
 #include <QLabel>
 #include <QObject>
 #include <QPushButton>
@@ -789,6 +790,9 @@ void TestHeatConfigDialog::channelContactPreviewShowsSavedCoverageWithoutEditing
     QCOMPARE(table->item(0,1)->text(),QStringLiteral("1, 2"));
     QVERIFY(table->item(0,2)->text().contains(QStringLiteral("8")));
     QVERIFY(table->item(0,3)->text().contains(QStringLiteral("Complete XY coverage")));
+    for (int column = 0; column < table->columnCount(); ++column)
+        QVERIFY(table->horizontalHeader()->sectionSize(column) >=
+                table->horizontalHeader()->sectionSizeHint(column));
     QCOMPARE(HeatConfigDialog::configurationSignature(engine),before);
     swmm_engine_close(engine);swmm_engine_destroy(engine);
 }
