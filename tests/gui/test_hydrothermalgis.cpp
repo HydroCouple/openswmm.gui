@@ -23,11 +23,15 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_heat.h>
+#include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QTest>
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
 #include <ogrsf_frmts.h>
@@ -64,6 +68,68 @@ private slots:
   const auto invalidOwner=sampleHeatRaster(&model,&source,1,SWMM_HEAT_ATTR_GROUND_SOURCE,SWMM_HEAT_SCOPE_CELL2D);QVERIFY(invalidOwner.error.contains("valid property"));
   const auto cancelled=sampleHeatRaster(&model,&source,1,0,SWMM_HEAT_SCOPE_CELL2D,{},20,{},[]{return true;});QVERIFY(cancelled.error.contains("cancelled",Qt::CaseInsensitive));QVERIFY(cancelled.edits.isEmpty());
   canvas.addLayer(&source,false);HeatRasterAssignDialog dialog(&model,&canvas);auto* property=dialog.findChild<QComboBox*>("heatRasterProperty");auto* scope=dialog.findChild<QComboBox*>("heatRasterScope");QVERIFY(property);QVERIFY(scope);const int meshPorosity=property->findData(SWMM_HEAT_ATTR_MESH_POROSITY);QVERIFY(meshPorosity>=0);property->setCurrentIndex(meshPorosity);QCOMPARE(scope->currentData().toInt(),SWMM_HEAT_SCOPE_CELL2D);QVERIFY(scope->currentText().contains("2D"));
+ }
+ void heatMeshRasterSurvivesSaveReopenRunAndUndo(){
+  SWMMModelLayer model(QString{});QVERIFY(load(model));
+  auto* engine=model.engine();QVERIFY(engine);
+  QCOMPARE(swmm_options_set(engine,"HEAT_TRANSPORT","YES"),SWMM_OK);
+  QCOMPARE(swmm_options_set_ext(engine,"HEAT_MODEL","COUPLED"),SWMM_OK);
+  QCOMPARE(swmm_options_set_ext(engine,"BED_HEAT_MODEL","LOCAL_STORAGE"),SWMM_OK);
+  QCOMPARE(swmm_options_set_ext(engine,"HEAT_SURFACE_EXCHANGE","NO"),SWMM_OK);
+  QCOMPARE(swmm_options_set_ext(engine,"HEAT_RADIATIVE_EXCHANGE","NO"),SWMM_OK);
+  QCOMPARE(swmm_heat_set_sediment(engine,SWMM_HEAT_SED_BED_THICKNESS,.2),SWMM_OK);
+  QCOMPARE(swmm_heat_set_sediment(engine,SWMM_HEAT_SED_INITIAL_TEMPERATURE,-3),SWMM_OK);
+
+  GISRasterLayer source(meshRaster());QCOMPARE(source.bandCount(),1);MapCanvas canvas;canvas.addLayer(&source,false);
+  const auto before=HeatConfigDialog::configurationSignature(engine);
+  const auto preview=sampleHeatRaster(&model,&source,1,SWMM_HEAT_ATTR_MESH_POROSITY,
+      SWMM_HEAT_SCOPE_CELL2D);
+  QVERIFY2(preview.error.isEmpty(),qPrintable(preview.error));QCOMPARE(preview.edits.size(),2);
+  QString error;
+  QVERIFY2(applyHeatPropertyEdits(&model,preview.edits,canvas.undoStack(),
+      QStringLiteral("Assign mesh porosity from raster"),&error),qPrintable(error));
+  QVERIFY(HeatConfigDialog::configurationSignature(engine)!=before);
+
+  const auto saved=output().filePath("mesh-heat-workflow.inp").toUtf8();
+  QCOMPARE(swmm_model_write(engine,saved.constData()),SWMM_OK);
+  auto reopened=swmm_engine_create();QVERIFY(reopened);
+  const auto report=output().filePath("mesh-heat-workflow.rpt").toUtf8();
+  const auto binary=output().filePath("mesh-heat-workflow.out").toUtf8();
+  QCOMPARE(swmm_engine_open(reopened,saved.constData(),report.constData(),binary.constData(),nullptr),SWMM_OK);
+  QCOMPARE(swmm_engine_initialize(reopened),SWMM_OK);
+
+  SWMM_Heat2DStatus status{};status.struct_size=sizeof(status);
+  QCOMPARE(swmm_heat_get_2d_status(reopened,&status),SWMM_OK);
+  QVERIFY(status.requested);QVERIFY(status.initialized);QVERIFY(status.bed_active);
+  std::array<double,2> porosity{},capacity{},energy{},residual{};
+  int porositySource=0;char porosityOrigin[128]{};
+  QCOMPARE(swmm_heat_get_effective_element(reopened,SWMM_HEAT_ATTR_MESH_POROSITY,
+      SWMM_HEAT_SCOPE_CELL2D,"1",&porosity[0],&porositySource,porosityOrigin,sizeof porosityOrigin),SWMM_OK);
+  QCOMPARE(porositySource,SWMM_HEAT_SCOPE_CELL2D);
+  QCOMPARE(QString::fromUtf8(porosityOrigin),QStringLiteral("1"));
+  QCOMPARE(swmm_heat_get_effective_element(reopened,SWMM_HEAT_ATTR_MESH_POROSITY,
+      SWMM_HEAT_SCOPE_CELL2D,"2",&porosity[1],&porositySource,porosityOrigin,sizeof porosityOrigin),SWMM_OK);
+  QCOMPARE(swmm_heat_get_2d_values(reopened,SWMM_HEAT_2D_BED_CAPACITY,0,2,capacity.data()),SWMM_OK);
+  QCOMPARE(swmm_heat_get_2d_values(reopened,SWMM_HEAT_2D_BED_ENERGY,0,2,energy.data()),SWMM_OK);
+  for(int cell=0;cell<2;++cell){
+      QVERIFY(std::isfinite(porosity[cell]));QVERIFY(porosity[cell]>0&&porosity[cell]<1);
+      QVERIFY(std::abs(porosity[cell]-preview.edits[cell].value.toDouble())<1e-12);
+      QVERIFY(std::isfinite(capacity[cell]));QVERIFY(capacity[cell]>0);
+      QVERIFY(std::isfinite(energy[cell]));QVERIFY(energy[cell]<0);
+  }
+
+  QCOMPARE(swmm_engine_start(reopened,0),SWMM_OK);
+  double elapsed=1;int steps=0;
+  while(elapsed>0&&steps++<100)QCOMPARE(swmm_engine_step(reopened,&elapsed),SWMM_OK);
+  QVERIFY(steps>1);QCOMPARE(swmm_engine_end(reopened),SWMM_OK);
+  QCOMPARE(swmm_heat_get_2d_values(reopened,SWMM_HEAT_2D_THERMAL_RESIDUAL,0,2,residual.data()),SWMM_OK);
+  for(double value:residual){QVERIFY(std::isfinite(value));QVERIFY(std::abs(value)<1e-4);}
+  QCOMPARE(swmm_engine_close(reopened),SWMM_OK);swmm_engine_destroy(reopened);
+
+  canvas.undoStack()->undo();
+  QCOMPARE(HeatConfigDialog::configurationSignature(engine),before);
+  QVERIFY(!authoredHeatProperty(engine,SWMM_HEAT_ATTR_MESH_POROSITY,
+      SWMM_HEAT_SCOPE_CELL2D,QStringLiteral("1")).isValid());
  }
  void snowFootprintsCategoriesAndInheritance(){auto job=snowJob(raster({.2,.6,-9999}));job.sampling=MeshAssignmentSampling::Sampling::AreaWeightedMean;const auto result=sampleMeshAssignment(job);QVERIFY2(result.error.isEmpty(),qPrintable(result.error));QCOMPARE(result.triangles,QVector<int>({0,1}));QCOMPARE(result.skippedNoData,1);QCOMPARE(result.values[0],QVector<double>({.2,.6}));MeshSnowModel staged;staged.packs={"NONE","Forest","Open"};MeshSnowRow global;global.pack="Forest";global.overrides[1]=1.23456789012345;staged.upsert(global);int skipped=0;QVERIFY(staged.stageSamples(0,result.triangles,result.values[0],{}, {},{"a","a","b"},&skipped).isEmpty());QCOMPARE(staged.effective(0,"a").overrides[0],.2);QVERIFY(std::isnan(staged.rows[1].overrides[1]));QCOMPARE(staged.effective(1,"a").overrides[1],global.overrides[1]);job=snowJob(raster({1,2,-9999}));job.mode=MeshAssignmentSampling::Mode::SingleCategory;job.sampling=MeshAssignmentSampling::Sampling::Majority;const auto classes=sampleMeshAssignment(job);QVERIFY2(classes.error.isEmpty(),qPrintable(classes.error));QCOMPARE(classes.keys,QStringList({"1","2"}));QVERIFY(staged.stageSamples(-1,classes.triangles,{},classes.keys,{{"1","Forest"},{"2","open"}},{"a","a","b"}).isEmpty());QCOMPARE(staged.effective(1,"a").pack,QString("Open"));QVERIFY(staged.validate({"a","a","b"}).isEmpty());}
  void attributeTableUsesSharedRowsAndUndo(){SWMMModelLayer model(QString{});QVERIFY(load(model));SWMMAttributeTableModel table;table.setSource(&model,SWMMModelLayer::CatConduits);QUndoStack undo;table.setUndoStack(&undo);const int column=table.columnKeys().indexOf("heat.albedo");QVERIFY(column>=0);const auto before=HeatConfigDialog::configurationSignature(model.engine());QVERIFY(table.setData(table.index(0,column),"0.2345678901234567"));QCOMPARE(authoredHeatProperty(model.engine(),0,SWMM_HEAT_SCOPE_LINK,"C1").toDouble(),.2345678901234567);undo.undo();QCOMPARE(HeatConfigDialog::configurationSignature(model.engine()),before);undo.redo();QVERIFY(table.setData(table.index(0,column),QString()));QVERIFY(!authoredHeatProperty(model.engine(),0,SWMM_HEAT_SCOPE_LINK,"C1").isValid());undo.undo();QCOMPARE(authoredHeatProperty(model.engine(),0,SWMM_HEAT_SCOPE_LINK,"C1").toDouble(),.2345678901234567);QSignalSpy refreshed(&table,&QAbstractItemModel::dataChanged);QString error;QVERIFY(applyHeatPropertyEdits(&model,{{1,SWMM_HEAT_SCOPE_LINK,"C1",.5}},nullptr,"External edit",&error));QVERIFY(!refreshed.isEmpty());}
