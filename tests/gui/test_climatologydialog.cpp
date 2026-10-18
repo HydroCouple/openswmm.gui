@@ -67,6 +67,8 @@ private slots:
     void snowAndRadiationRoundTrip();
     void evaporationPreviewShowsRatesCoverageAndRuntimeForcingCaveat();
     void evaporationTimeSeriesPreviewShowsCoverageAndAdjustedRate();
+    void evaporationPanFilePreviewShowsGapHoldAndAdjustment();
+    void evaporationTemperaturePreviewLabelsDailyEstimates();
     void meteorologyPreviewStatesRadiationPrecedence();
 };
 
@@ -368,6 +370,111 @@ void TestClimatologyDialog::evaporationTimeSeriesPreviewShowsCoverageAndAdjusted
     dialog.findChild<QPushButton*>(QStringLiteral("clim_evapPreview"))->click();
     missingCloser.stop();
     QVERIFY(missingDataShown);
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::evaporationPanFilePreviewShowsGapHoldAndAdjustment()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0; // 2020-01-01
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 3.0), SWMM_OK);
+    QTemporaryFile climate;
+    QVERIFY(climate.open());
+    const QByteArray rows = "STA1 2020 01 01 20.0 10.0 0.10 2.0\n"
+                            "STA1 2020 01 03 20.0 10.0 0.30 2.0\n";
+    QCOMPARE(climate.write(rows), qint64(rows.size()));
+    climate.flush();
+
+    ClimatologyDialog dialog(e);
+    auto *type = dialog.findChild<QComboBox*>(QStringLiteral("clim_evapType"));
+    auto *tempSource = dialog.findChild<QComboBox*>(QStringLiteral("clim_tempSource"));
+    auto *file = dialog.findChild<openswmmvis::ui::RelativePathPicker*>(QStringLiteral("clim_tempFile"));
+    auto *pan = dialog.findChild<QTableWidget*>(QStringLiteral("clim_panCoeff"));
+    auto *adjustments = dialog.findChild<QTableWidget*>(QStringLiteral("clim_adjust"));
+    auto *preview = dialog.findChild<QPushButton*>(QStringLiteral("clim_evapPreview"));
+    QVERIFY(type && tempSource && file && pan && adjustments && preview);
+    type->setCurrentIndex(type->findData(SWMM_EVAP_FILE));
+    tempSource->setCurrentIndex(2);
+    file->setPath(climate.fileName());
+    pan->item(0, 0)->setText(QStringLiteral("2"));
+    adjustments->item(0, 1)->setText(QStringLiteral("0.05"));
+
+    QStringList rowsShown;
+    QString summaryText;
+    bool opened = false;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog")) return;
+        opened = true;
+        auto *table = modal->findChild<QTableWidget*>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel*>(QStringLiteral("clim_evapPreviewSummary"));
+        if (table) for (int row = 0; row < table->rowCount(); ++row) {
+            QStringList values;
+            for (int column = 0; column < table->columnCount(); ++column)
+                values << (table->item(row, column) ? table->item(row, column)->text() : QStringLiteral("<empty>"));
+            rowsShown << values.join(QStringLiteral(" | "));
+        }
+        if (summary) summaryText = summary->text();
+        if (auto *box = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = box->button(QDialogButtonBox::Close)) close->click();
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY(opened);
+    QVERIFY2(rowsShown.size() == 3, qPrintable(rowsShown.join(QStringLiteral("; "))));
+    QVERIFY(rowsShown[0].contains(QStringLiteral(" | 0.2 | 0.05 | 0.25 | Available")));
+    QVERIFY(rowsShown[1].contains(QStringLiteral(" | 0.2 | 0 | 0.25 | Held from previous value")));
+    QVERIFY(rowsShown[2].contains(QStringLiteral(" | 0.6 | 0.05 | 0.65 | Available")));
+    QVERIFY(summaryText.contains(QStringLiteral("held: 1")));
+    QVERIFY(summaryText.contains(QStringLiteral("missing: 0")));
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::evaporationTemperaturePreviewLabelsDailyEstimates()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0;
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 1.0), SWMM_OK);
+    QTemporaryFile climate;
+    QVERIFY(climate.open());
+    const QByteArray rows = "STA1 2020 01 01 20.0 10.0 0.10 2.0\n";
+    QCOMPARE(climate.write(rows), qint64(rows.size()));
+    climate.flush();
+
+    ClimatologyDialog dialog(e);
+    auto *type = dialog.findChild<QComboBox*>(QStringLiteral("clim_evapType"));
+    auto *tempSource = dialog.findChild<QComboBox*>(QStringLiteral("clim_tempSource"));
+    auto *file = dialog.findChild<openswmmvis::ui::RelativePathPicker*>(QStringLiteral("clim_tempFile"));
+    auto *preview = dialog.findChild<QPushButton*>(QStringLiteral("clim_evapPreview"));
+    QVERIFY(type && tempSource && file && preview);
+    type->setCurrentIndex(type->findData(SWMM_EVAP_TEMPERATURE));
+    tempSource->setCurrentIndex(2);
+    file->setPath(climate.fileName());
+
+    bool estimateShown = false;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog")) return;
+        auto *table = modal->findChild<QTableWidget*>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel*>(QStringLiteral("clim_evapPreviewSummary"));
+        estimateShown = table && table->rowCount() == 1 && table->item(0, 1) &&
+                        table->item(0, 1)->text().toDouble() > 0.0 && table->item(0, 4) &&
+                        table->item(0, 4)->text() == QStringLiteral("Daily estimate") &&
+                        summary && summary->text().contains(QStringLiteral("daily estimates: 1"));
+        if (auto *box = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = box->button(QDialogButtonBox::Close)) close->click();
+    });
+    closer.start();
+    preview->click();
+    closer.stop();
+    QVERIFY(estimateShown);
     swmm_engine_destroy(e);
 }
 
