@@ -14,6 +14,7 @@
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_heat.h>
 #include <openswmm/engine/openswmm_snow.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 #include <QComboBox>
 #include <QCheckBox>
@@ -28,6 +29,7 @@
 #include <QTimer>
 #include <QApplication>
 #include <QMessageBox>
+#include <QStringList>
 #include <QTemporaryFile>
 
 #include "dialog_a11y_checks.h"
@@ -64,6 +66,7 @@ private slots:
     void humidityTabRoundTrips();
     void snowAndRadiationRoundTrip();
     void evaporationPreviewShowsRatesCoverageAndRuntimeForcingCaveat();
+    void evaporationTimeSeriesPreviewShowsCoverageAndAdjustedRate();
     void meteorologyPreviewStatesRadiationPrecedence();
 };
 
@@ -280,6 +283,90 @@ void TestClimatologyDialog::evaporationPreviewShowsRatesCoverageAndRuntimeForcin
     QVERIFY(constantOpened);
     QVERIFY(constantRateShown);
     QVERIFY(constantForcingExplained);
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::evaporationTimeSeriesPreviewShowsCoverageAndAdjustedRate()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.5; // 2020-01-01 12:00
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 2.0), SWMM_OK);
+    QCOMPARE(swmm_timeseries_add(e, "preview_evap"), SWMM_OK);
+    QCOMPARE(swmm_timeseries_add(e, "preview_empty"), SWMM_OK);
+    const int series = swmm_table_index(e, "preview_evap");
+    QVERIFY(series >= 0);
+    // The first daily sample precedes the first source value. The following
+    // sample is after the last source value. Both follow the engine's held-edge
+    // rule, while the January adjustment is shown once at each sample.
+    QCOMPARE(swmm_table_add_point(e, series, 43832.0, 0.0), SWMM_OK);
+
+    ClimatologyDialog dialog(e);
+    auto *type = dialog.findChild<QComboBox*>(QStringLiteral("clim_evapType"));
+    auto *seriesBox = dialog.findChild<QComboBox*>(QStringLiteral("clim_evapTs"));
+    auto *adjustments = dialog.findChild<QTableWidget*>(QStringLiteral("clim_adjust"));
+    QVERIFY(type && seriesBox && adjustments);
+    type->setCurrentIndex(type->findData(SWMM_EVAP_TIMESERIES));
+    seriesBox->setCurrentText(QStringLiteral("preview_evap"));
+    adjustments->item(0, 1)->setText(QStringLiteral("0.1"));
+
+    bool opened = false, correctSamples = false, coverageExplained = false;
+    QStringList previewRows;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog")) return;
+        opened = true;
+        auto *table = modal->findChild<QTableWidget*>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel*>(QStringLiteral("clim_evapPreviewSummary"));
+        if (table) for (int row = 0; row < table->rowCount(); ++row) {
+            QStringList values;
+            for (int column = 0; column < table->columnCount(); ++column)
+                values << (table->item(row, column) ? table->item(row, column)->text() : QStringLiteral("<empty>"));
+            previewRows << values.join(QStringLiteral(" | "));
+        }
+        correctSamples = table && table->rowCount() == 2 &&
+                         table->item(0, 0) && table->item(0, 0)->text().endsWith(QStringLiteral("12:00")) &&
+                         table->item(0, 4) && table->item(0, 4)->text() == QStringLiteral("Held from previous value") &&
+                         table->item(1, 1) && table->item(1, 1)->text() == QStringLiteral("0") &&
+                         table->item(1, 2) && table->item(1, 2)->text() == QStringLiteral("0.1") &&
+                         table->item(1, 3) && table->item(1, 3)->text() == QStringLiteral("0.1") &&
+                         table->item(1, 4) && table->item(1, 4)->text() == QStringLiteral("Held from previous value");
+        coverageExplained = summary && summary->text().contains(QStringLiteral("held: 2")) &&
+                            summary->text().contains(QStringLiteral("missing: 0")) &&
+                            summary->text().contains(QStringLiteral("Live runtime forcing"));
+        if (auto *box = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = box->button(QDialogButtonBox::Close)) close->click();
+    });
+    closer.start();
+    dialog.findChild<QPushButton*>(QStringLiteral("clim_evapPreview"))->click();
+    closer.stop();
+    QVERIFY(opened);
+    QVERIFY2(correctSamples, qPrintable(QStringLiteral("Preview must expose held zero source and one adjustment at the non-midnight window. Rows: %1")
+        .arg(previewRows.join(QStringLiteral("; ")))));
+    QVERIFY(coverageExplained);
+
+    bool missingDataShown = false;
+    QTimer missingCloser;
+    missingCloser.setInterval(10);
+    QObject::connect(&missingCloser, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog")) return;
+        auto *table = modal->findChild<QTableWidget*>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel*>(QStringLiteral("clim_evapPreviewSummary"));
+        missingDataShown = table && table->rowCount() == 2 &&
+                           table->item(0, 4) && table->item(0, 4)->text() == QStringLiteral("Missing source data") &&
+                           table->item(1, 4) && table->item(1, 4)->text() == QStringLiteral("Missing source data") &&
+                           summary && summary->text().contains(QStringLiteral("missing: 2"));
+        if (auto *box = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = box->button(QDialogButtonBox::Close)) close->click();
+    });
+    seriesBox->setCurrentText(QStringLiteral("preview_empty"));
+    missingCloser.start();
+    dialog.findChild<QPushButton*>(QStringLiteral("clim_evapPreview"))->click();
+    missingCloser.stop();
+    QVERIFY(missingDataShown);
     swmm_engine_destroy(e);
 }
 
