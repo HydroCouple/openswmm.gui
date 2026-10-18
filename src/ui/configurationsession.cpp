@@ -104,8 +104,20 @@ void ConfigurationSession::commit(ConfigSnapshot before, const QStringList& opti
 
 void ConfigurationSession::abandon()
 {
-    if (open_ && stack_) stack_->endMacro();
+    if (!open_ || !stack_) {
+        open_ = false;
+        return;
+    }
+    stack_->endMacro();
     open_ = false;
+    // Model closure may interrupt a nested editor before it has committed
+    // anything. Do not leave the empty macro created by openSegment() in the
+    // user's Undo history.
+    const auto* macro = stack_->command(stack_->index() - 1);
+    if (macro && macro->childCount() == 0) {
+        stack_->undo();
+        stack_->push(new DiscardRedo);
+    }
 }
 
 bool ConfigurationSession::cancel()

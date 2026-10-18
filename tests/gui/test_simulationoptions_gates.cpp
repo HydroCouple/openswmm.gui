@@ -134,6 +134,7 @@ private slots:
     void reportStartReloadsEarlierSimulationWindow();
     void nestedCancelRevertsAcceptedEdits();
     void applyIsOneUndoEntryForNestedAndPageEdits();
+    void modelCloseDuringNestedEditorInvalidatesWholeSession();
     void climateUndoIsExactAndRefusesExternalEdits();
     void groundwaterThermalConfigurationUndoTracksTransportKeys();
     void groundwaterThermalShortcutJoinsOuterCancelUndoSegment();
@@ -765,6 +766,46 @@ void TestSimulationOptionsGates::applyIsOneUndoEntryForNestedAndPageEdits()
     stack.redo();
     QCOMPARE(option(e, "FLOW_ROUTING"), QString::fromLatin1(routing1));
     QCOMPARE(latitude(e), lat0 + 2);
+}
+
+/*! Closing the model while a nested editor is open must invalidate both
+ *  dialogs before either can accept a stale engine handle or create history. */
+void TestSimulationOptionsGates::modelCloseDuringNestedEditorInvalidatesWholeSession()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    QUndoStack stack;
+    SimulationOptionsDialog dlg(layer->engine(), layer.get(),
+                               QStringLiteral("6.0.0"), nullptr, nullptr);
+    dlg.setUndoStack(&stack);
+
+    bool closedDuringNestedEditor = false;
+    QTimer closer;
+    closer.setInterval(10);
+    QObject::connect(&closer, &QTimer::timeout, [&] {
+        auto *nested = qobject_cast<ClimatologyDialog *>(QApplication::activeModalWidget());
+        if (!nested) return;
+        auto *latitudeEditor = nested->findChild<QDoubleSpinBox *>(QStringLiteral("clim_latitude"));
+        QVERIFY(latitudeEditor);
+        latitudeEditor->setValue(latitudeEditor->value() + 5.0);
+        layer->closeEngine();
+        closedDuringNestedEditor = true;
+        QVERIFY(!nested->isEnabled());
+        QVERIFY(!dlg.isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(&dlg, "onAccept", Qt::DirectConnection));
+        closer.stop();
+    });
+    closer.start();
+    emit dlg.findChild<openswmmvis::ui::ModelsPage *>()->showSnowSettingsRequested();
+    closer.stop();
+
+    QVERIFY(closedDuringNestedEditor);
+    QVERIFY(layer->engine() == nullptr);
+    QCOMPARE(dlg.result(), int(QDialog::Rejected));
+    QVERIFY(!dlg.wroteAnyChanges());
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(!stack.canUndo());
+    QVERIFY(!stack.canRedo());
 }
 
 /*! A climate edit restores every value and provenance flag exactly, in both
