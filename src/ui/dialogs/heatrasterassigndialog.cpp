@@ -71,7 +71,7 @@ HeatRasterAssignDialog::HeatRasterAssignDialog(SWMMModelLayer* model,MapCanvas* 
         status->setText(tr("%1 valid values; %2 will change. Skipped: %3 NoData / outside; %4 missing geometry; %5 outside the valid range. First 500 changes shown. Apply creates one Undo operation.").arg(sampledCount).arg(state->preview.edits.size()).arg(state->preview.skippedNoData).arg(state->preview.skippedGeometry).arg(state->preview.skippedRange));apply->setEnabled(!state->preview.edits.isEmpty());
     });
     connect(apply,&QPushButton::clicked,this,[=]{if(!owner||!map||!apply->isEnabled())return;const QFileInfo file(state->source);
-        if(owner->geomRevision()!=state->geometry||(owner->srs()?owner->srs()->toWkt():QString())!=state->crs||HeatConfigDialog::configurationSignature(owner->engine())!=state->signature||file.lastModified()!=state->modified||file.size()!=state->size){status->setText(tr("The model or source changed. Preview again."));invalidate();return;}
+        if(owner->geomRevision()!=state->geometry||(owner->srs()?owner->srs()->toWkt():QString())!=state->crs||HeatConfigDialog::configurationSignature(owner->engine())!=state->signature||file.lastModified()!=state->modified||file.size()!=state->size){invalidate();status->setText(tr("The model or source changed. Preview again."));return;}
         QString error;if(!applyHeatPropertyEdits(owner,state->preview.edits,map->undoStack(),tr("Assign heat from %1 · band %2").arg(state->source).arg(band->value()),&error)){status->setText(error);return;}apply->setEnabled(false);status->setText(tr("Heat properties applied. Undo restores the exact previous configuration."));
     });
 }
