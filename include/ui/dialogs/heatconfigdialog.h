@@ -95,6 +95,7 @@ private slots:
     void onAccept();
     void onAddOverride();
     void onRemoveOverride();
+    void showRuntimeOverview();
 
 private:
     void buildUi();
@@ -117,6 +118,7 @@ private:
     void invalidateElementPreview();
     QString elementSignature() const;
     QString engineSignature() const;
+    QString runtimeOverviewText() const;
     QString m_engineInitial;
     void refreshProcessStatus();
 
