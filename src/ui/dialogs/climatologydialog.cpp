@@ -281,6 +281,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     {
         auto *w = new QWidget; auto *l = new QFormLayout(w);
         m_evapConstant = new QDoubleSpinBox;
+        m_evapConstant->setObjectName(QStringLiteral("clim_evapConstant"));
         m_evapConstant->setRange(0.0, 1.0e6);
         m_evapConstant->setDecimals(4);
         l->addRow(tr("Evaporation (%1):").arg(rate), m_evapConstant);

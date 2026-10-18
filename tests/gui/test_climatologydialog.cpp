@@ -252,6 +252,34 @@ void TestClimatologyDialog::evaporationPreviewShowsRatesCoverageAndRuntimeForcin
     QVERIFY(opened);
     QVERIFY(tablePopulated);
     QVERIFY(forcingExplained);
+
+    auto *type = dialog.findChild<QComboBox*>(QStringLiteral("clim_evapType"));
+    auto *constant = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("clim_evapConstant"));
+    QVERIFY(type && constant);
+    type->setCurrentIndex(type->findData(SWMM_EVAP_CONSTANT));
+    constant->setValue(0.7);
+    bool constantOpened = false, constantRateShown = false, constantForcingExplained = false;
+    QTimer constantCloser;
+    constantCloser.setInterval(10);
+    QObject::connect(&constantCloser, &QTimer::timeout, [&] {
+        auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog")) return;
+        constantOpened = true;
+        auto *table = modal->findChild<QTableWidget*>(QStringLiteral("clim_evapPreviewTable"));
+        auto *summary = modal->findChild<QLabel*>(QStringLiteral("clim_evapPreviewSummary"));
+        constantRateShown = table && table->rowCount() == 1 &&
+                            table->item(0, 1) && table->item(0, 1)->text() == QStringLiteral("0.7") &&
+                            table->item(0, 3) && table->item(0, 3)->text() == QStringLiteral("0.8");
+        constantForcingExplained = summary && summary->text().contains(QStringLiteral("Live runtime forcing"));
+        if (auto *box = modal->findChild<QDialogButtonBox*>())
+            if (auto *close = box->button(QDialogButtonBox::Close)) close->click();
+    });
+    constantCloser.start();
+    preview->click();
+    constantCloser.stop();
+    QVERIFY(constantOpened);
+    QVERIFY(constantRateShown);
+    QVERIFY(constantForcingExplained);
     swmm_engine_destroy(e);
 }
 
