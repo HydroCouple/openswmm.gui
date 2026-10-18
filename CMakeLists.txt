@@ -554,6 +554,7 @@ set(
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         include/ui/dialogs/climatologydialog.h
         include/ui/dialogs/heatconfigdialog.h
+        include/ui/dialogs/initialbedqualitydialog.h
         include/ui/dialogs/wateragesourcesdialog.h
         include/ui/dialogs/initialqualitydialog.h
         include/ui/dialogs/reactionsystemeditordialog.h
@@ -1357,6 +1358,7 @@ set(
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         src/ui/dialogs/climatologydialog.cpp
         src/ui/dialogs/heatconfigdialog.cpp
+        src/ui/dialogs/initialbedqualitydialog.cpp
         src/ui/configurationsession.cpp
         src/ui/dialogs/heatrasterassigndialog.cpp
         src/assignment/heatassignment.cpp

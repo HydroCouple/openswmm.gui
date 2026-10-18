@@ -1677,6 +1677,8 @@ add_swmmvis_gui_test(test_heatconfigdialog
     test_heatconfigdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/heatconfigdialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/heatconfigdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialbedqualitydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialbedqualitydialog.cpp
 )
 
 # G-A1 — the per-element Initial Quality editor. Same dependency-light
@@ -1691,6 +1693,12 @@ add_swmmvis_gui_test(test_initialqualitydialog
     ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditbutton.h
     ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditref.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/initialqualityeditref.h
+)
+
+add_swmmvis_gui_test(test_initialbedqualitydialog
+    test_initialbedqualitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialbedqualitydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialbedqualitydialog.cpp
 )
 
 # Phase 33 — pollutant editor precision and owner-lifetime contract.
