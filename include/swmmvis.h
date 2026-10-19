@@ -419,6 +419,8 @@ private slots:
 
     /*! \brief Update the CRS button label in the status bar. */
     void onCanvasSRSChanged(SpatialReferenceSystem *srs);
+    /*! Status-bar CRS button: project CRS, plus the view CRS when different. */
+    void refreshCrsStatus();
 
     /*! \brief Open the CRS picker dialog when the user clicks the CRS button. */
     void onCRSButtonClicked();
