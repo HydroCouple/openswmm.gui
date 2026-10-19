@@ -18,6 +18,7 @@
  *         tutorial_phase2 so they can be reviewed.
  */
 #include "core/displaynumber.h"
+#include "core/preferencesmanager.h"
 #include "dialog_a11y_checks.h"
 #include "layers/annotationlayer.h"
 #include "layers/gisrasterlayer.h"
@@ -30,6 +31,7 @@
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
+#include "map/spatialreferencesystem.h"
 #include "map/tools/maptooladdlink.h"
 #include "map/tools/maptoolidentify.h"
 #include "project/openswmmvisworkspace.h"
@@ -40,9 +42,17 @@
 
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_model.h>
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QScopeGuard>
+#include <QSettings>
+#include <QFile>
+#include <QRegularExpression>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
@@ -51,6 +61,7 @@
 #include <ogr_spatialref.h>
 
 #include <cmath>
+#include <memory>
 
 namespace {
 
@@ -76,6 +87,18 @@ class TestTutorialPhase2 : public QObject
 {
     Q_OBJECT
 private slots:
+    /*! Point every QSettings — including PreferencesManager's, created on
+     *  first use — at an INI sandbox in the test output folder, before any
+     *  case can touch them. */
+    void initTestCase()
+    {
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           QDir(outputDir()).filePath(QStringLiteral("settings")));
+        QCoreApplication::setOrganizationName(QStringLiteral("SWMMVisTest"));
+        QCoreApplication::setApplicationName(QStringLiteral("tutorial_phase2"));
+    }
+
     void terrainInvertBecomesDepthAboveNodeInvert();
     void savedExtentSurvivesRepeatedReopenResizes();
     void sidecarWithTextLayerOpensClean();
@@ -86,6 +109,10 @@ private slots:
     void dialogsHaveNoStrayAmpersands();
     void basemapStaysBelowRasterLayers();
     void demStyleDialogShowsRasterSymbology();
+
+    // Phase 5 — owner's CRS rule.
+    void provisionalProjectTakesTheChosenCrs();
+    void sidecarDoesNotRecordAnUnassignedCrs();
 };
 
 void TestTutorialPhase2::terrainInvertBecomesDepthAboveNodeInvert()
@@ -270,6 +297,93 @@ void TestTutorialPhase2::demStyleDialogShowsRasterSymbology()
     openswmmvis::ui::LayerStyleDialog dialog(&dem);
     QVERIFY2(dialog.findChild<openswmmvis::ui::RasterSymbologyPanel *>(), "a DEM must get raster symbology");
     QVERIFY2(!dialog.findChild<openswmmvis::ui::SymbologyTab *>(), "a DEM must not get the vector renderer page");
+}
+
+void TestTutorialPhase2::provisionalProjectTakesTheChosenCrs()
+{
+    // A model with no CRS, objects already drawn in its local frame. The
+    // status-bar choice must become the PROJECT CRS: in the engine, on the
+    // canvas, and in the saved .inp — with every coordinate left as drawn.
+    const QString inp = fixture(QStringLiteral("typed_selection_fixture.inp"));
+    auto *ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+    auto *window = new SWMMVisProjectWindow(ws, inp, nullptr);
+    QList<QString> w, e;
+    QVERIFY(window->loadModel(w, e));
+    QVERIFY2(window->projectCrsIsProvisional(), "a model without a CRS is provisional");
+
+    SWMM_Engine eng = window->modelLayer()->engine();
+    double x0 = 0, y0 = 0;
+    QCOMPARE(swmm_spatial_get_node_coord(eng, 0, &x0, &y0), SWMM_OK);
+
+    std::unique_ptr<SpatialReferenceSystem> utm(
+        SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), 25832, nullptr));
+    QVERIFY(utm);
+    QString err;
+    QVERIFY2(window->assignProjectCrs(*utm, &err), qPrintable(err));
+
+    char crs[256] = {};
+    QCOMPARE(swmm_get_crs(eng, crs, sizeof crs), 0);
+    QCOMPARE(QString::fromUtf8(crs), QStringLiteral("EPSG:25832"));
+    QVERIFY(window->modelLayer()->crsAssigned());
+    QVERIFY(!window->projectCrsIsProvisional());
+    QCOMPARE(window->canvas()->canvasSRS()->toAuthority(), QStringLiteral("EPSG:25832"));
+    QVERIFY(window->hasChanges());
+    double x1 = 0, y1 = 0;
+    QCOMPARE(swmm_spatial_get_node_coord(eng, 0, &x1, &y1), SWMM_OK);
+    QCOMPARE(x1, x0);
+    QCOMPARE(y1, y0);
+
+    const QString saved = QDir(outputDir()).filePath(QStringLiteral("assigned_crs.inp"));
+    QVERIFY2(window->saveAs(saved, &err), qPrintable(err));
+    QFile f(saved);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QString text = QString::fromUtf8(f.readAll());
+    QVERIFY2(text.contains(QRegularExpression(QStringLiteral("(?m)^CRS\\s+EPSG:25832\\s*$"))),
+             "the assigned CRS must reach [OPTIONS] in the saved .inp");
+    delete window;
+    delete ws;
+}
+
+void TestTutorialPhase2::sidecarDoesNotRecordAnUnassignedCrs()
+{
+    // A CRS the open merely defaulted from the preferences must not be
+    // written to the .oswp: it came back as an assignment and the project
+    // stopped being provisional after one save. (Settings live in the INI
+    // sandbox set up in initTestCase.)
+    auto *prefs = PreferencesManager::instance();
+    const QString oldMode = prefs->defaultCrsMode(), oldAuth = prefs->defaultCrsAuthority();
+    const int oldCode = prefs->defaultCrsCode();
+    const auto restore = qScopeGuard([=] {
+        prefs->setDefaultCrsMode(oldMode);
+        prefs->setDefaultCrsAuthority(oldAuth);
+        prefs->setDefaultCrsCode(oldCode);
+    });
+    prefs->setDefaultCrsMode(QStringLiteral("EPSG"));
+    prefs->setDefaultCrsAuthority(QStringLiteral("EPSG"));
+    prefs->setDefaultCrsCode(25832);
+
+    const QString inp = fixture(QStringLiteral("typed_selection_fixture.inp"));
+    auto *ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
+    auto *window = new SWMMVisProjectWindow(ws, inp, nullptr);
+    QList<QString> w, e;
+    QVERIFY(window->loadModel(w, e));
+    QCOMPARE(window->modelLayer()->srs()->toAuthority(), QStringLiteral("EPSG:25832"));
+    QVERIFY(!window->modelLayer()->crsAssigned());
+    QVERIFY2(window->projectCrsIsProvisional(), "a defaulted EPSG CRS is still provisional");
+    const QString oswp = QDir(outputDir()).filePath(QStringLiteral("unassigned_crs.oswp"));
+    QString err;
+    QVERIFY2(ProjectSerializer::saveToFile(oswp, window, &err), qPrintable(err));
+    QFile f(oswp);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QByteArray json = f.readAll();
+    const QJsonObject root = QJsonDocument::fromJson(json).object();
+    QJsonObject layer = root.value(QStringLiteral("layer")).toObject();
+    const QJsonArray sessions = root.value(QStringLiteral("sessions")).toArray();
+    if (!sessions.isEmpty())
+        layer = sessions.first().toObject().value(QStringLiteral("layer")).toObject();
+    QVERIFY2(!layer.contains(QStringLiteral("crsAuthority")), json.constData());
+    delete window;
+    delete ws;
 }
 
 QTEST_MAIN(TestTutorialPhase2)

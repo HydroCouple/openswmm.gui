@@ -107,6 +107,7 @@
 
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_model.h>
 
 SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
@@ -1155,6 +1156,36 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
 // ---------------------------------------------------------------------------
 // Dirty state
 // ---------------------------------------------------------------------------
+
+bool SWMMVisProjectWindow::projectCrsIsProvisional() const
+{
+    if (!mModelLayer) return false;
+    const SpatialReferenceSystem *srs = mModelLayer->srs();
+    return !mModelLayer->crsAssigned() || !srs || srs->isLocal();
+}
+
+bool SWMMVisProjectWindow::assignProjectCrs(const SpatialReferenceSystem &srs, QString *errorOut)
+{
+    if (!mModelLayer || !mModelLayer->engine() || !mCanvas) {
+        if (errorOut) *errorOut = tr("No model loaded.");
+        return false;
+    }
+    const QString authority = srs.toAuthority();
+    const QByteArray crs = (authority.isEmpty() || authority == QStringLiteral("Local"))
+        ? srs.toWkt().toUtf8() : authority.toUtf8();
+    if (swmm_spatial_set_crs(mModelLayer->engine(), crs.constData()) != SWMM_OK) {
+        if (errorOut) *errorOut = tr("The model rejected the selected CRS.");
+        return false;
+    }
+    // setSRS emits srsChanged, which marks the CRS as assigned.
+    mModelLayer->setSRS(new SpatialReferenceSystem(srs, mModelLayer), true);
+    mCanvas->setCanvasSRS(new SpatialReferenceSystem(srs, mCanvas), true);
+    mModelLayer->reloadGeometry();
+    mCanvas->invalidate(MapCanvas::Raster | MapCanvas::Scene, QStringLiteral("crs-assign"));
+    mCanvas->zoomToFullExtent(false);
+    setHasChanges(true);
+    return true;
+}
 
 void SWMMVisProjectWindow::setHasChanges(bool dirty)
 {

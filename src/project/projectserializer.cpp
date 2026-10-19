@@ -407,7 +407,11 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
 
     QJsonObject layerObj;
 
-    if (auto *srs = layer->srs()) {
+    // Only a CRS the user assigned is project state. A default derived on
+    // open (preferences / [MAP] UNITS) written here came back as an
+    // assignment on reopen, so a model nobody gave a CRS stopped counting as
+    // provisional after one save.
+    if (auto *srs = layer->crsAssigned() ? layer->srs() : nullptr) {
         const QString auth = srs->authName();
         const int     code = srs->code();
         if (!auth.isEmpty() && code > 0) {

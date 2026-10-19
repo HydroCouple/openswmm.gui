@@ -7363,9 +7363,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         mComboBoxEngineVersion->setEnabled(true);
     }
 
-    SpatialReferenceSystem *srs = pw->canvas()->canvasSRS();
-    mToolButtonCoordinateReferenceSystem->setText(
-        srs ? srs->toAuthority() : QStringLiteral("EPSG:4326"));
+    if (auto *ml = pw->modelLayer())
+        connect(ml, &OpenSWMMVisLayer::srsChanged,
+                this, &SWMMVis::onCanvasSRSChanged, Qt::UniqueConnection);
+    refreshCrsStatus();
 
     // Bridge the Select-tool's right-click context menu to the same
     // Time Series plot handler used by Object Browser. UniqueConnection
@@ -10570,10 +10571,31 @@ void SWMMVis::updateCoordinateReadout()
     mLineEditCoordinates->setText(text);
 }
 
-void SWMMVis::onCanvasSRSChanged(SpatialReferenceSystem *srs)
+void SWMMVis::onCanvasSRSChanged(SpatialReferenceSystem * /*srs*/)
 {
-    mToolButtonCoordinateReferenceSystem->setText(
-        srs ? srs->toAuthority() : QStringLiteral("Unknown"));
+    refreshCrsStatus();
+}
+
+void SWMMVis::refreshCrsStatus()
+{
+    // The button shows the PROJECT CRS — the one saved with the model. When
+    // the map is only displayed in another CRS ("Render only"), say so, so
+    // the two can no longer silently diverge.
+    auto *pw = activeProjectWindow();
+    MapCanvas *c = pw ? pw->canvas() : activeCanvas();
+    const SpatialReferenceSystem *view = c ? c->canvasSRS() : nullptr;
+    const SpatialReferenceSystem *project =
+        (pw && pw->modelLayer()) ? pw->modelLayer()->srs() : nullptr;
+    const SpatialReferenceSystem *shown = project ? project : view;
+    QString text = shown ? shown->toAuthority() : tr("Unknown");
+    QString tip = tr("Project coordinate reference system. Click to change it.");
+    if (project && view && project->toAuthority() != view->toAuthority()) {
+        text += tr(" (view %1)").arg(view->toAuthority());
+        tip = tr("Project CRS %1; the map is displayed in %2.")
+                  .arg(project->toAuthority(), view->toAuthority());
+    }
+    mToolButtonCoordinateReferenceSystem->setText(text);
+    mToolButtonCoordinateReferenceSystem->setToolTip(tip);
 }
 
 void SWMMVis::onMapScaleEntered(const QString &text)
@@ -10633,22 +10655,16 @@ void SWMMVis::onCRSButtonClicked()
     }
 
     const auto assignCRS = [&] {
-        const QString authority = newSRS->toAuthority();
-        const QByteArray crs = (authority.isEmpty() || authority == QStringLiteral("Local"))
-            ? newSRS->toWkt().toUtf8() : authority.toUtf8();
-        if (swmm_spatial_set_crs(layer->engine(), crs.constData()) != SWMM_OK) {
-            QMessageBox::warning(this, tr("Assign CRS"), tr("The model rejected the selected CRS."));
-            return;
-        }
-        layer->setSRS(new SpatialReferenceSystem(*newSRS, layer), true);
-        c->setCanvasSRS(new SpatialReferenceSystem(*newSRS, c), true);
-        layer->reloadGeometry();
-        c->invalidate(MapCanvas::Raster | MapCanvas::Scene, QStringLiteral("crs-assign"));
-        c->zoomToFullExtent(false);
-        pw->setHasChanges(true);
+        QString err;
+        if (!pw->assignProjectCrs(*newSRS, &err))
+            QMessageBox::warning(this, tr("Assign CRS"), err);
     };
-    if (layer->cachedNodeCount() == 0 && layer->cachedLinkCount() == 0
-        && layer->cachedSubcatchCount() == 0 && layer->cachedGageCount() == 0) {
+    // Owner decision 2026-10-17: while the project CRS is only provisional
+    // (a new model, a local frame, or a default nobody chose) there is a
+    // single CRS, and the status bar sets it. Asking "render only or
+    // assign?" there made a new project's CRS choice look like it did
+    // nothing. Coordinates are kept as drawn; nothing is reprojected.
+    if (pw->projectCrsIsProvisional()) {
         assignCRS();
         return;
     }

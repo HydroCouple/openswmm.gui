@@ -31,6 +31,7 @@
 class OpenSWMMVisWorkspace;
 class MapCanvas;
 class SWMMModelLayer;
+class SpatialReferenceSystem;
 class SWMMResultsLayer;
 class SWMM2DResultsLayer;
 class SelectionManager;
@@ -176,6 +177,19 @@ public:
 
     /** Mark the project dirty/clean (also updates the title). */
     void setHasChanges(bool dirty);
+
+    /** True while the model's CRS is only provisional: never assigned by the
+     *  user (defaulted on open), missing, or a local engineering frame. In
+     *  that state there is one CRS to choose, and choosing it from the status
+     *  bar sets the PROJECT CRS directly (owner decision 2026-10-17). */
+    bool projectCrsIsProvisional() const;
+
+    /** Assign \p srs as the project CRS without moving any coordinate: the
+     *  engine's spatial frame (written to [OPTIONS] CRS on save), the model
+     *  layer, and the canvas all adopt it; the view is refitted and the
+     *  project marked dirty. Returns false (with \p errorOut) if the engine
+     *  rejects the CRS. */
+    bool assignProjectCrs(const SpatialReferenceSystem &srs, QString *errorOut = nullptr);
 
     /** Whether an editing session is active (gate for all geometry mutations). */
     bool isEditSessionActive() const { return mEditSessionActive; }
