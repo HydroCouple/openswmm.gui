@@ -11,6 +11,7 @@
 #include "ui/dialogs/climatologydialog.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_heat.h>
 #include <openswmm/engine/openswmm_snow.h>
@@ -69,6 +70,7 @@ private slots:
     void evaporationTimeSeriesPreviewShowsCoverageAndAdjustedRate();
     void evaporationPanFilePreviewShowsGapHoldAndAdjustment();
     void evaporationTemperaturePreviewLabelsDailyEstimates();
+    void evaporationPreviewUsesModelDisplayUnits();
     void meteorologyPreviewStatesRadiationPrecedence();
 };
 
@@ -475,6 +477,55 @@ void TestClimatologyDialog::evaporationTemperaturePreviewLabelsDailyEstimates()
     preview->click();
     closer.stop();
     QVERIFY(estimateShown);
+    swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::evaporationPreviewUsesModelDisplayUnits()
+{
+    SWMM_Engine e = makeClimateEngine();
+    constexpr double start = 43831.0;
+    QCOMPARE(swmm_options_set_start_date(e, start), SWMM_OK);
+    QCOMPARE(swmm_options_set_end_date(e, start + 1.0), SWMM_OK);
+
+    const auto previewMatchesUnits = [e](const char *flowUnits, int expectedSystem,
+                                         double sourceRate, const QString &rateUnit) {
+        if (swmm_options_set(e, "FLOW_UNITS", flowUnits) != SWMM_OK) return false;
+        int unitSystem = -1;
+        if (swmm_get_unit_system(e, &unitSystem) != SWMM_OK || unitSystem != expectedSystem)
+            return false;
+        ClimatologyDialog dialog(e);
+        auto *type = dialog.findChild<QComboBox*>(QStringLiteral("clim_evapType"));
+        auto *constant = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("clim_evapConstant"));
+        auto *preview = dialog.findChild<QPushButton*>(QStringLiteral("clim_evapPreview"));
+        if (!type || !constant || !preview) return false;
+        type->setCurrentIndex(type->findData(SWMM_EVAP_CONSTANT));
+        constant->setValue(sourceRate);
+
+        bool matched = false;
+        QTimer closer;
+        closer.setInterval(10);
+        QObject::connect(&closer, &QTimer::timeout, [&] {
+            auto *modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (!modal || modal->objectName() != QStringLiteral("clim_evapPreviewDialog")) return;
+            auto *table = modal->findChild<QTableWidget*>(QStringLiteral("clim_evapPreviewTable"));
+            if (table && table->rowCount() == 1 && table->columnCount() == 5) {
+                matched = table->horizontalHeaderItem(1)->text().contains(rateUnit) &&
+                          table->horizontalHeaderItem(2)->text().contains(rateUnit) &&
+                          table->horizontalHeaderItem(3)->text().contains(rateUnit) &&
+                          table->item(0, 1) && table->item(0, 1)->text() == QString::number(sourceRate) &&
+                          table->item(0, 3) && table->item(0, 3)->text() == QString::number(sourceRate);
+            }
+            if (auto *box = modal->findChild<QDialogButtonBox*>())
+                if (auto *close = box->button(QDialogButtonBox::Close)) close->click();
+        });
+        closer.start();
+        preview->click();
+        closer.stop();
+        return matched;
+    };
+
+    QVERIFY(previewMatchesUnits("CFS", 0, 1.0, QStringLiteral("in/day")));
+    QVERIFY(previewMatchesUnits("CMS", 1, 25.4, QStringLiteral("mm/day")));
     swmm_engine_destroy(e);
 }
 
