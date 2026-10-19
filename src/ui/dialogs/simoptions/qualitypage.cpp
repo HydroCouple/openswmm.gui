@@ -208,7 +208,7 @@ void QualityPage::buildUi()
     resLay->addWidget(resNote);
     auto* heatSettings=new QPushButton(tr("Edit heat configuration…"),resGroup);
     heatSettings->setAutoDefault(false);heatSettings->setObjectName("qt_editHeatConfigBtn");
-    heatSettings->setToolTip(tr("Accepting this editor applies heat settings to the project. They remain applied if Simulation Options is cancelled; use Undo to restore them."));
+    heatSettings->setToolTip(tr("Heat settings join this Simulation Options edit. Apply commits them together as one Undo step; Cancel reverts them."));
     connect(heatSettings,&QPushButton::clicked,this,&QualityPage::showHeatSettingsRequested);
     resLay->addWidget(heatSettings);
 

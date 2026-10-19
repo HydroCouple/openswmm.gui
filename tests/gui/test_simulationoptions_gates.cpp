@@ -30,6 +30,7 @@
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/configurationsession.h"
 #include <openswmm/engine/openswmm_climate.h>
+#include <openswmm/engine/openswmm_heat.h>
 #include <QApplication>
 #include <QDialogButtonBox>
 #include <QFileInfo>
@@ -138,6 +139,7 @@ private slots:
     void climateUndoIsExactAndRefusesExternalEdits();
     void groundwaterThermalConfigurationUndoTracksTransportKeys();
     void groundwaterThermalShortcutJoinsOuterCancelUndoSegment();
+    void heatConfigurationSharesOuterUndoAndCancelSegment();
 };
 
 namespace {
@@ -699,6 +701,34 @@ void editNextGroundwaterThermalSettings()
     timer->start();
 }
 
+void editNextHeatConfiguration(bool enabled)
+{
+    auto* timer = new QTimer;
+    auto* attempts = new int(0);
+    timer->setInterval(10);
+    QObject::connect(timer, &QTimer::timeout, [timer, attempts, enabled] {
+        if (++*attempts > 300) {
+            QTest::qFail("Timed out waiting for the heat configuration dialog", __FILE__, __LINE__);
+            if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
+            timer->stop();
+            timer->deleteLater();
+            delete attempts;
+            return;
+        }
+        auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!modal || modal->objectName() != QStringLiteral("heatConfigDialog")) return;
+        auto* heat = modal->findChild<QCheckBox*>(QStringLiteral("hc_heatEnabled"));
+        auto* buttons = modal->findChild<QDialogButtonBox*>();
+        if (!heat || !buttons || !buttons->button(QDialogButtonBox::Ok)) return;
+        timer->stop();
+        timer->deleteLater();
+        heat->setChecked(enabled);
+        buttons->button(QDialogButtonBox::Ok)->click();
+        delete attempts;
+    });
+    timer->start();
+}
+
 double latitude(SWMM_Engine e) { double v = 0; swmm_climate_get_latitude(e, &v); return v; }
 
 QString option(SWMM_Engine e, const char* key)
@@ -908,4 +938,57 @@ void TestSimulationOptionsGates::groundwaterThermalShortcutJoinsOuterCancelUndoS
     QCOMPARE(QString::fromUtf8(model),QStringLiteral("WATER_ONLY"));
     QCOMPARE(stack.count(),0);
     QVERIFY(!dialog.wroteAnyChanges());
+}
+
+void TestSimulationOptionsGates::heatConfigurationSharesOuterUndoAndCancelSegment()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    SWMM_Engine engine = layer->engine();
+    int heatEnabled = -1;
+    QCOMPARE(swmm_heat_get_enabled(engine, &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 0);
+    const QString routingBefore = option(engine, "FLOW_ROUTING");
+    const char* routingAfter = routingBefore == QLatin1String("KINWAVE") ? "DYNWAVE" : "KINWAVE";
+
+    QUndoStack stack;
+    SimulationOptionsDialog applyDialog(engine, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    applyDialog.setUndoStack(&stack);
+    auto* quality = applyDialog.findChild<openswmmvis::ui::QualityPage*>();
+    QVERIFY(quality);
+    editNextHeatConfiguration(true);
+    emit quality->showHeatSettingsRequested();
+    QCOMPARE(swmm_heat_get_enabled(engine, &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 1);
+    setRouting(applyDialog, routingAfter);
+    applyDialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    QCOMPARE(stack.count(), 1);
+    QCOMPARE(stack.undoText(), QStringLiteral("Edit simulation options"));
+    QCOMPARE(option(engine, "FLOW_ROUTING"), QString::fromLatin1(routingAfter));
+    applyDialog.reject();
+
+    stack.undo();
+    QCOMPARE(swmm_heat_get_enabled(engine, &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 0);
+    QCOMPARE(option(engine, "FLOW_ROUTING"), routingBefore);
+    stack.redo();
+    QCOMPARE(swmm_heat_get_enabled(engine, &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 1);
+    QCOMPARE(option(engine, "FLOW_ROUTING"), QString::fromLatin1(routingAfter));
+
+    stack.clear();
+    SimulationOptionsDialog cancelDialog(engine, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    cancelDialog.setUndoStack(&stack);
+    quality = cancelDialog.findChild<openswmmvis::ui::QualityPage*>();
+    QVERIFY(quality);
+    editNextHeatConfiguration(false);
+    emit quality->showHeatSettingsRequested();
+    QCOMPARE(swmm_heat_get_enabled(engine, &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 0);
+    cancelDialog.reject();
+    QCOMPARE(swmm_heat_get_enabled(engine, &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 1);
+    QCOMPARE(stack.count(), 0);
+    QVERIFY(!stack.canUndo());
+    QVERIFY(!stack.canRedo());
 }
