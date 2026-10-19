@@ -1465,6 +1465,17 @@ target_link_libraries(test_utctimeaxis PRIVATE Qt6::Charts)
 set_property(TEST test_utctimeaxis APPEND PROPERTY
     ENVIRONMENT_MODIFICATION "TZ=set:America/Denver")
 
+# Tutorial bug report (2026-10-17) / issue #11 — the Simulation Status panel's
+# date editor must not convert UTC-labelled simulation times to local time.
+# Runs at UTC+9, the reporter's offset.
+add_swmmvis_gui_test(test_simtime_display
+    test_simtime_display.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
+)
+set_property(TEST test_simtime_display APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION "TZ=set:Asia/Tokyo")
+
 # Slice AT.3 — pins RangeSliderWidget invariants.
 add_swmmvis_gui_test(test_comparisonplot_rangeslider
     test_comparisonplot_rangeslider.cpp

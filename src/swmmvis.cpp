@@ -1,3 +1,4 @@
+#include "ui/delegates/datetimedelegate.h"
 #include "ui/dialogs/traceanalysisdialog.h"
 #include "output/tracecontroller.h"
 /*!
@@ -754,46 +755,6 @@ public:
         QStyle *style = fusion ? fusion : QApplication::style();
         style->drawControl(QStyle::CE_ProgressBar, &bar, painter);
     }
-};
-
-/**
- * @brief Item delegate that renders Sim Start / Sim Current / Sim End date
- *        columns as a read-only QDateTimeEdit (persistent editor). The
- *        model carries raw QDateTime in DisplayRole; this delegate pushes
- *        it into the widget and keeps the widget visible across the row's
- *        lifetime so the user sees an actual datetime control, not a flat
- *        locale string.
- */
-class DateTimeEditDelegate : public QStyledItemDelegate
-{
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
-    QWidget *createEditor(QWidget *parent,
-                          const QStyleOptionViewItem & /*opt*/,
-                          const QModelIndex & /*idx*/) const override
-    {
-        auto *w = new QDateTimeEdit(parent);
-        w->setReadOnly(true);
-        w->setButtonSymbols(QAbstractSpinBox::NoButtons);
-        w->setFrame(false);
-        w->setCalendarPopup(false);
-        w->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-        w->setFocusPolicy(Qt::NoFocus);
-        w->setAlignment(Qt::AlignCenter);
-        w->setAttribute(Qt::WA_TransparentForMouseEvents);
-        return w;
-    }
-
-    void setEditorData(QWidget *editor, const QModelIndex &idx) const override
-    {
-        auto *w = qobject_cast<QDateTimeEdit *>(editor);
-        if (!w) return;
-        const QVariant v = idx.data(Qt::DisplayRole);
-        if (v.canConvert<QDateTime>() && v.toDateTime().isValid())
-            w->setDateTime(v.toDateTime());
-    }
-    // No setModelData — readonly.
 };
 
 } // anonymous namespace
@@ -1826,7 +1787,12 @@ void SWMMVis::initializeAnimationToolBar()
     mDateTimeEditAnimationTime = new QDateTimeEdit(this);
     mDateTimeEditAnimationTime->setAccessibleName(tr("Animation time"));
     mDateTimeEditAnimationTime->setDisplayFormat(QStringLiteral("MM/dd/yyyy hh:mm"));
-    mDateTimeEditAnimationTime->setCalendarPopup(true);
+    // Simulation times are UTC-labelled wall clocks; a local-zone editor
+    // would convert them and show the clock shifted by the UTC offset.
+    // Display only: nothing consumes edits made here.
+    mDateTimeEditAnimationTime->setTimeSpec(Qt::UTC);
+    mDateTimeEditAnimationTime->setReadOnly(true);
+    mDateTimeEditAnimationTime->setButtonSymbols(QAbstractSpinBox::NoButtons);
     mDateTimeEditAnimationTime->setToolTip(tr("Animation Time"));
     mDateTimeEditAnimationTime->setStatusTip(tr("Animation Time"));
 
@@ -4370,7 +4336,7 @@ void SWMMVis::initializeSimulationStatusDockWidget()
     // widgets. Uses persistent editors so the widget stays visible the
     // whole time the row exists; dataChanged emissions from the model
     // automatically re-call setEditorData.
-    auto *dtDelegate = new DateTimeEditDelegate(view);
+    auto *dtDelegate = new openswmmvis::ui::ReadOnlyDateTimeDelegate(view);
     view->setItemDelegateForColumn(SimulationStatusModel::ColStartDate,   dtDelegate);
     view->setItemDelegateForColumn(SimulationStatusModel::ColCurrentDate, dtDelegate);
     view->setItemDelegateForColumn(SimulationStatusModel::ColEndDate,     dtDelegate);

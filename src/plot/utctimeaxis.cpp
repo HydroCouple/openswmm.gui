@@ -34,6 +34,13 @@ void UtcTimeAxis::setFormat(const QString &format)
     rebuildLabels();
 }
 
+void UtcTimeAxis::fitTickCountToWidth(int pixelWidth)
+{
+    // ~7 px per character at the default axis font, plus a gap between labels.
+    const int labelPx = std::max(40, int(m_format.size()) * 7 + 24);
+    setTickCount(std::clamp(pixelWidth / labelPx, 2, 8));
+}
+
 void UtcTimeAxis::setTickCount(int count)
 {
     const int n = std::max(2, count);

@@ -70,6 +70,12 @@ public:
     void setTickCount(int count);
     int tickCount() const { return m_tickCount; }
 
+    /// Choose a tick count that fits labels of the current format across
+    /// \p pixelWidth without overlapping (clamped to [2, 8]). Qt Charts hides
+    /// overlapping or clipped labels, so a fixed count on a narrow chart left
+    /// the time axis with no readable labels at all.
+    void fitTickCountToWidth(int pixelWidth);
+
     /// Range as instants. Both are read as absolute times; their timeSpec is
     /// irrelevant because only the epoch value is used.
     void setRange(const QDateTime &min, const QDateTime &max);
