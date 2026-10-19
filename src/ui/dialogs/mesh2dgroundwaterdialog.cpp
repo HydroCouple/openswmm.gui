@@ -618,22 +618,31 @@ QWidget* Mesh2DGroundwaterDialog::buildTransportPage()
 
     auto* thermalBox=new QGroupBox(tr("Porous soil heat and conduction"),content);
     auto* thermalForm=new QFormLayout(thermalBox);
+    const auto setThermalAccessibility=[](QWidget* field,QString label,const QString& description=QString()) {
+        label.remove('&');
+        field->setAccessibleName(label.trimmed());
+        if(!description.isEmpty())field->setAccessibleDescription(description);
+    };
     auto addCombo=[&](const QString& key,const QString& label,const QStringList& names,const QStringList& values){
         auto* combo=new QComboBox(thermalBox);combo->setObjectName("gwTransport_"+key);
         for(int i=0;i<names.size();++i)combo->addItem(names[i],values[i]);
+        setThermalAccessibility(combo,label,combo->toolTip());
         m_transportOptions[key]=combo;m_thermalFields.push_back(combo);thermalForm->addRow(label,combo);return combo;
     };
     auto addDouble=[&](const QString& key,const QString& label,double minimum,double maximum,int decimals,const QString& suffix){
         auto* spin=new QDoubleSpinBox(thermalBox);spin->setObjectName("gwTransport_"+key);spin->setRange(minimum,maximum);spin->setDecimals(decimals);spin->setKeyboardTracking(false);spin->setSuffix(suffix);
+        setThermalAccessibility(spin,label,spin->toolTip());
         m_transportOptions[key]=spin;m_thermalFields.push_back(spin);thermalForm->addRow(label,spin);return spin;
     };
     addCombo("THERMAL_MODEL",tr("Soil heat &model:"),{tr("Water temperature only"),tr("Porous soil heat storage")},{"WATER_ONLY","POROUS_EQUILIBRIUM"});
     addCombo("CONDUCTION",tr("Vertical soil conduc&tion:"),{tr("Off"),tr("On")},{"NO","YES"});
     addCombo("THERMAL_MIXING",tr("Conductivity mi&xing:"),{tr("Arithmetic"),tr("Geometric")},{"ARITHMETIC","GEOMETRIC"});
-    auto* lateral=new QCheckBox(tr("Enable lateral conduction between saturated cells"),thermalBox);lateral->setObjectName("gwTransport_LATERAL_CONDUCTION");m_transportOptions["LATERAL_CONDUCTION"]=lateral;m_thermalFields.push_back(lateral);thermalForm->addRow(QString(),lateral);
+    auto* lateral=new QCheckBox(tr("Enable lateral conduction between saturated cells"),thermalBox);lateral->setObjectName("gwTransport_LATERAL_CONDUCTION");setThermalAccessibility(lateral,lateral->text());m_transportOptions["LATERAL_CONDUCTION"]=lateral;m_thermalFields.push_back(lateral);thermalForm->addRow(QString(),lateral);
     auto* soilEt=addCombo("SOIL_ET_HEAT",tr("Soil ET heat treat&ment:"),{tr("Latent heat at surface"),tr("Sensible energy only")},{"LATENT_SURFACE","SENSIBLE_ONLY"});
     soilEt->setToolTip(tr("LATENT_SURFACE debits the latent heat of accepted soil ET from the surface boundary. SENSIBLE_ONLY carries water sensible heat without that latent debit."));
-    auto* layers=new QSpinBox(thermalBox);layers->setObjectName("gwTransport_THERMAL_LAYERS");layers->setRange(1,128);layers->setSuffix(tr(" layers"));layers->setToolTip(tr("Number of fixed thermal cells from the surface to the bottom of the soil profile."));m_transportOptions["THERMAL_LAYERS"]=layers;m_thermalFields.push_back(layers);thermalForm->addRow(tr("Vertical thermal resolu&tion:"),layers);
+    soilEt->setAccessibleDescription(soilEt->toolTip());
+    const QString layerLabel=tr("Vertical thermal resolu&tion:");
+    auto* layers=new QSpinBox(thermalBox);layers->setObjectName("gwTransport_THERMAL_LAYERS");layers->setRange(1,128);layers->setSuffix(tr(" layers"));layers->setToolTip(tr("Number of fixed thermal cells from the surface to the bottom of the soil profile."));setThermalAccessibility(layers,layerLabel,layers->toolTip());m_transportOptions["THERMAL_LAYERS"]=layers;m_thermalFields.push_back(layers);thermalForm->addRow(layerLabel,layers);
     addDouble("THERMAL_MAX_STEP",tr("Maximum thermal &step:"),1e-6,1e9,6,tr(" s"));
     addDouble("WATER_THERMAL_CONDUCTIVITY",tr("&Water thermal conductivity:"),1e-9,1e6,8,tr(" W/m/K"));
     addDouble("AIR_THERMAL_CONDUCTIVITY",tr("&Air thermal conductivity:"),1e-9,1e6,8,tr(" W/m/K"));
@@ -644,16 +653,21 @@ QWidget* Mesh2DGroundwaterDialog::buildTransportPage()
     const QStringList surfaceModes={"ADIABATIC","AIR","SURFACE_WATER","FIXED","TIMESERIES","HEAT_FLUX","FLUX_TIMESERIES"};
     const QStringList surfaceNames={tr("Insulated"),tr("Air temperature"),tr("Surface-water temperature"),tr("Fixed temperature"),tr("Temperature time series"),tr("Fixed heat flux"),tr("Heat-flux time series")};
     for(int i=0;i<surfaceModes.size();++i)surfaceKind->addItem(surfaceNames[i],surfaceModes[i]);
-    m_surfaceThermalKind=surfaceKind;m_thermalFields.push_back(surfaceKind);thermalForm->addRow(tr("Surface &boundary:"),surfaceKind);
-    m_surfaceThermalValue=new QLineEdit(thermalBox);m_surfaceThermalValue->setObjectName("gwTransport_SURFACE_THERMAL_BC_VALUE");m_surfaceThermalValue->setToolTip(tr("Temperature in °C or heat flux in W/m² for numeric modes; otherwise enter a time-series name."));m_thermalFields.push_back(m_surfaceThermalValue);thermalForm->addRow(tr("Surface boundary value / series:"),m_surfaceThermalValue);
+    const QString surfaceKindLabel=tr("Surface &boundary:");
+    m_surfaceThermalKind=surfaceKind;setThermalAccessibility(surfaceKind,surfaceKindLabel);m_thermalFields.push_back(surfaceKind);thermalForm->addRow(surfaceKindLabel,surfaceKind);
+    const QString surfaceValueLabel=tr("Surface boundary value / series:");
+    m_surfaceThermalValue=new QLineEdit(thermalBox);m_surfaceThermalValue->setObjectName("gwTransport_SURFACE_THERMAL_BC_VALUE");m_surfaceThermalValue->setToolTip(tr("Temperature in °C or heat flux in W/m² for numeric modes; otherwise enter a time-series name."));setThermalAccessibility(m_surfaceThermalValue,surfaceValueLabel,m_surfaceThermalValue->toolTip());m_thermalFields.push_back(m_surfaceThermalValue);thermalForm->addRow(surfaceValueLabel,m_surfaceThermalValue);
 
     auto* deepKind=new QComboBox(thermalBox);deepKind->setObjectName("gwTransport_DEEP_THERMAL_BC_KIND");
     const QStringList deepModes={"ADIABATIC","GEOTHERMAL_FLUX","FIXED_TEMP","TIMESERIES","FLUX_TIMESERIES"};
     const QStringList deepNames={tr("Insulated"),tr("Geothermal heat flux"),tr("Fixed temperature"),tr("Temperature time series"),tr("Heat-flux time series")};
     for(int i=0;i<deepModes.size();++i)deepKind->addItem(deepNames[i],deepModes[i]);
-    m_deepThermalKind=deepKind;m_thermalFields.push_back(deepKind);thermalForm->addRow(tr("&Deep boundary:"),deepKind);
-    m_deepThermalValue=new QLineEdit(thermalBox);m_deepThermalValue->setObjectName("gwTransport_DEEP_THERMAL_BC_VALUE");m_deepThermalValue->setToolTip(tr("Temperature in °C or flux in W/m² for numeric modes; otherwise enter a time-series name."));m_thermalFields.push_back(m_deepThermalValue);thermalForm->addRow(tr("Deep boundary value / series:"),m_deepThermalValue);
-    m_deepThermalDepth=new QDoubleSpinBox(thermalBox);m_deepThermalDepth->setObjectName("gwTransport_DEEP_THERMAL_BC_DEPTH");m_deepThermalDepth->setRange(0,1e9);m_deepThermalDepth->setDecimals(6);m_deepThermalDepth->setSuffix(tr(" m"));m_deepThermalDepth->setSpecialValueText(tr("Use groundwater bottom"));m_thermalFields.push_back(m_deepThermalDepth);thermalForm->addRow(tr("Boundary &depth:"),m_deepThermalDepth);
+    const QString deepKindLabel=tr("&Deep boundary:");
+    m_deepThermalKind=deepKind;setThermalAccessibility(deepKind,deepKindLabel);m_thermalFields.push_back(deepKind);thermalForm->addRow(deepKindLabel,deepKind);
+    const QString deepValueLabel=tr("Deep boundary value / series:");
+    m_deepThermalValue=new QLineEdit(thermalBox);m_deepThermalValue->setObjectName("gwTransport_DEEP_THERMAL_BC_VALUE");m_deepThermalValue->setToolTip(tr("Temperature in °C or flux in W/m² for numeric modes; otherwise enter a time-series name."));setThermalAccessibility(m_deepThermalValue,deepValueLabel,m_deepThermalValue->toolTip());m_thermalFields.push_back(m_deepThermalValue);thermalForm->addRow(deepValueLabel,m_deepThermalValue);
+    const QString deepDepthLabel=tr("Boundary &depth:");
+    m_deepThermalDepth=new QDoubleSpinBox(thermalBox);m_deepThermalDepth->setObjectName("gwTransport_DEEP_THERMAL_BC_DEPTH");m_deepThermalDepth->setRange(0,1e9);m_deepThermalDepth->setDecimals(6);m_deepThermalDepth->setSuffix(tr(" m"));m_deepThermalDepth->setSpecialValueText(tr("Use groundwater bottom"));setThermalAccessibility(m_deepThermalDepth,deepDepthLabel,m_deepThermalDepth->toolTip());m_thermalFields.push_back(m_deepThermalDepth);thermalForm->addRow(deepDepthLabel,m_deepThermalDepth);
     auto updateBoundaryArguments=[this]{
         const auto surface=m_surfaceThermalKind->currentData().toString();const bool surfaceArg=surface=="FIXED"||surface=="TIMESERIES"||surface=="HEAT_FLUX"||surface=="FLUX_TIMESERIES";
         const auto model=qobject_cast<QComboBox*>(m_transportOptions.value("THERMAL_MODEL"));const bool porous=model&&model->currentData().toString()=="POROUS_EQUILIBRIUM";
@@ -662,7 +676,7 @@ QWidget* Mesh2DGroundwaterDialog::buildTransportPage()
         m_deepThermalValue->setPlaceholderText(deep=="TIMESERIES"?tr("Series name"):deep=="FLUX_TIMESERIES"?tr("Flux series name"):deep=="GEOTHERMAL_FLUX"?tr("W/m²"):tr("°C"));
     };
     connect(surfaceKind,&QComboBox::currentIndexChanged,this,updateBoundaryArguments);connect(deepKind,&QComboBox::currentIndexChanged,this,updateBoundaryArguments);updateBoundaryArguments();
-    m_thermalStatus=new QLabel(thermalBox);m_thermalStatus->setObjectName("gwThermalActivationStatus");m_thermalStatus->setWordWrap(true);thermalForm->addRow(tr("Run status:"),m_thermalStatus);
+    m_thermalStatus=new QLabel(thermalBox);m_thermalStatus->setObjectName("gwThermalActivationStatus");m_thermalStatus->setAccessibleName(tr("Porous soil heat run status"));m_thermalStatus->setWordWrap(true);thermalForm->addRow(tr("Run status:"),m_thermalStatus);
     connect(static_cast<QComboBox*>(m_transportOptions.value("THERMAL_MODEL")),&QComboBox::currentIndexChanged,this,&Mesh2DGroundwaterDialog::refreshThermalGates);
     connect(static_cast<QComboBox*>(m_transportOptions.value("CONDUCTION")),&QComboBox::currentIndexChanged,this,&Mesh2DGroundwaterDialog::refreshThermalGates);
     connect(static_cast<QCheckBox*>(m_transportOptions.value("TRANSPORT_TEMPERATURE")),&QCheckBox::toggled,this,&Mesh2DGroundwaterDialog::refreshThermalGates);
@@ -673,14 +687,15 @@ void Mesh2DGroundwaterDialog::refreshThermalGates()
 {
     auto* model=qobject_cast<QComboBox*>(m_transportOptions.value("THERMAL_MODEL"));
     if(!model||!m_thermalStatus)return;
+    const auto setStatus=[this](const QString& text){m_thermalStatus->setText(text);m_thermalStatus->setAccessibleDescription(text);};
     for(auto* field:m_thermalFields)
         if(field)field->setEnabled(m_editable&&m_porousThermalOptionsSupported);
     if(!m_engine){
-        m_thermalStatus->setText(tr("Unavailable until a model is open."));
+        setStatus(tr("Unavailable until a model is open."));
         return;
     }
     if(!m_porousThermalOptionsSupported){
-        m_thermalStatus->setText(tr("Unavailable: this engine does not expose the porous-soil heat option. These controls are disabled because this engine cannot validate or apply them."));
+        setStatus(tr("Unavailable: this engine does not expose the porous-soil heat option. These controls are disabled because this engine cannot validate or apply them."));
         return;
     }
     const bool porous=model->currentData().toString()=="POROUS_EQUILIBRIUM";
@@ -694,15 +709,15 @@ void Mesh2DGroundwaterDialog::refreshThermalGates()
     m_surfaceThermalKind->setEnabled(m_editable&&porous);m_surfaceThermalValue->setEnabled(m_editable&&porous&&surfaceArg);
     m_deepThermalKind->setEnabled(m_editable&&porous);m_deepThermalValue->setEnabled(m_editable&&porous&&deep!="ADIABATIC");
     m_deepThermalDepth->setEnabled(m_editable&&porous&&deep!="ADIABATIC");
-    if(!porous){m_thermalStatus->setText(tr("Inactive: Water temperature only is selected. Porous heat settings are retained for later use."));return;}
+    if(!porous){setStatus(tr("Inactive: Water temperature only is selected. Porous heat settings are retained for later use."));return;}
     QStringList inactive;
     char groundwater[64]{};if(swmm_options_get_ext(m_engine,"GROUNDWATER",groundwater,sizeof groundwater)!=SWMM_OK||QString::fromUtf8(groundwater).compare("NO",Qt::CaseInsensitive)==0)inactive.append(tr("2D groundwater is off"));
     int heat=0;if(swmm_heat_get_enabled(m_engine,&heat)!=SWMM_OK||!heat)inactive.append(tr("heat transport is off"));
     const auto* temperature=qobject_cast<QCheckBox*>(m_transportOptions.value("TRANSPORT_TEMPERATURE"));if(!temperature||!temperature->isChecked())inactive.append(tr("groundwater temperature transport is off"));
-    if(!inactive.isEmpty())m_thermalStatus->setText(tr("Inactive until %1. These settings are saved and do not activate a disabled parent process.").arg(inactive.join(tr("; "))));
+    if(!inactive.isEmpty())setStatus(tr("Inactive until %1. These settings are saved and do not activate a disabled parent process.").arg(inactive.join(tr("; "))));
     else {const auto* conduction=qobject_cast<QComboBox*>(m_transportOptions.value("CONDUCTION"));
-        if(!conduction||conduction->currentData().toString()=="NO")m_thermalStatus->setText(tr("Porous heat transport is ready for covered aquifer cells; vertical conduction is turned off."));
-        else m_thermalStatus->setText(tr("Ready for covered aquifer cells. Actual activation still depends on mesh-to-aquifer coverage and valid material rows."));}
+        if(!conduction||conduction->currentData().toString()=="NO")setStatus(tr("Porous heat transport is ready for covered aquifer cells; vertical conduction is turned off."));
+        else setStatus(tr("Ready for covered aquifer cells. Actual activation still depends on mesh-to-aquifer coverage and valid material rows."));}
 }
 
 QMap<QString,QString> Mesh2DGroundwaterDialog::optionDraft()const

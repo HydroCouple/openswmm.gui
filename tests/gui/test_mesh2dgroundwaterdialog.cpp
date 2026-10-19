@@ -103,6 +103,60 @@ private slots:
         }
     }
 
+    void thermalControlsExposeAccessibleNamesAndLiveStatusDescription() {
+        Engine engine;
+        Mesh2DGroundwaterDialog dialog(engine.handle);
+
+        const QStringList controlNames={
+            QStringLiteral("gwTransport_THERMAL_MODEL"),
+            QStringLiteral("gwTransport_CONDUCTION"),
+            QStringLiteral("gwTransport_THERMAL_MIXING"),
+            QStringLiteral("gwTransport_LATERAL_CONDUCTION"),
+            QStringLiteral("gwTransport_SOIL_ET_HEAT"),
+            QStringLiteral("gwTransport_THERMAL_LAYERS"),
+            QStringLiteral("gwTransport_THERMAL_MAX_STEP"),
+            QStringLiteral("gwTransport_WATER_THERMAL_CONDUCTIVITY"),
+            QStringLiteral("gwTransport_AIR_THERMAL_CONDUCTIVITY"),
+            QStringLiteral("gwTransport_SURFACE_THERMAL_RESISTANCE"),
+            QStringLiteral("gwTransport_C_DIFF"),
+            QStringLiteral("gwTransport_SURFACE_THERMAL_BC_KIND"),
+            QStringLiteral("gwTransport_SURFACE_THERMAL_BC_VALUE"),
+            QStringLiteral("gwTransport_DEEP_THERMAL_BC_KIND"),
+            QStringLiteral("gwTransport_DEEP_THERMAL_BC_VALUE"),
+            QStringLiteral("gwTransport_DEEP_THERMAL_BC_DEPTH")
+        };
+        for(const auto& name:controlNames) {
+            auto* control=dialog.findChild<QWidget*>(name);
+            QVERIFY2(control,qPrintable(QStringLiteral("Missing thermal control %1").arg(name)));
+            QVERIFY2(!control->accessibleName().trimmed().isEmpty(),
+                     qPrintable(QStringLiteral("Thermal control %1 has no accessible name").arg(name)));
+        }
+
+        for(const auto& name:{QStringLiteral("gwTransport_THERMAL_LAYERS"),
+                              QStringLiteral("gwTransport_SOIL_ET_HEAT"),
+                              QStringLiteral("gwTransport_SURFACE_THERMAL_BC_VALUE"),
+                              QStringLiteral("gwTransport_DEEP_THERMAL_BC_VALUE")}) {
+            auto* control=dialog.findChild<QWidget*>(name);
+            QVERIFY(control);
+            QVERIFY2(!control->accessibleDescription().trimmed().isEmpty(),
+                     qPrintable(QStringLiteral("Thermal control %1 has no accessible description").arg(name)));
+        }
+
+        auto* status=dialog.findChild<QLabel*>(QStringLiteral("gwThermalActivationStatus"));
+        QVERIFY(status);
+        QCOMPARE(status->accessibleName(),QStringLiteral("Porous soil heat run status"));
+        QCOMPARE(status->accessibleDescription(),status->text());
+        QVERIFY(!status->accessibleDescription().isEmpty());
+
+        auto* model=dialog.findChild<QComboBox*>(QStringLiteral("gwTransport_THERMAL_MODEL"));
+        QVERIFY(model);
+        const int porousIndex=model->findData(QStringLiteral("POROUS_EQUILIBRIUM"));
+        QVERIFY(porousIndex>=0);
+        model->setCurrentIndex(porousIndex);
+        QCOMPARE(status->accessibleDescription(),status->text());
+        QVERIFY(!status->accessibleDescription().isEmpty());
+    }
+
     void porousSoilHeatCapabilityRequiresKnownOption()
     {
         QVERIFY(openswmmvis::ui::porousSoilHeatOptionIsSupported(
