@@ -769,10 +769,10 @@ void FilesPage::buildUi()
         QStringList seen;  // dedupe by pluginId
         // Phase 3.10.6 (2026-05-22): the engine SDK has no INPUT_WRITE
         // role — plugins that handle the model input file advertise
-        // INPUT_READ only, and the GUI registry sets `canWrite=false`
-        // on those entries.  The previous gate `if (!canWrite) continue;`
-        // therefore silently dropped every engine-provided input plugin
-        // from the Input writer combo.  All three combos now show every
+        // INPUT_READ only (the GUI registry marks those entries writable,
+        // since every input plugin implements write).  An earlier gate
+        // `if (!canWrite) continue;` silently dropped every engine-provided
+        // input plugin from the Input writer combo.  All three combos show every
         // plugin id advertising the matching role, deduped.
         for (const auto &entry : registry->entriesFor(k)) {
             if (entry.pluginId.isEmpty()) continue;
