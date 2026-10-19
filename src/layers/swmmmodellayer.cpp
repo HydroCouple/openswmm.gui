@@ -6294,6 +6294,7 @@ bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName,
     m_needsRebuild = true;
     emit repaintRequested();
     emit geometryChanged();
+    emit objectRenamed(oldName, newName, renamedKind);
     return true;
 }
 

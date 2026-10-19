@@ -35,6 +35,7 @@
 
 #include <QDialog>
 #include <QPointer>
+#include <QUndoStack>   // complete type for the inline undoStack() accessor
 #include <QVector>
 
 class QAction;
@@ -135,6 +136,11 @@ public:
 
     /*! \brief The chart view. Exposed for tests. */
     TimeseriesEditChartView *chartView() const noexcept { return m_chartView; }
+
+    /*! The editor's own undo history (nullptr when constructed without a
+     *  stack, e.g. the modal pickers). Separate from the project's map stack
+     *  so the toolbar Undo can never undo an unrelated map edit. */
+    QUndoStack *undoStack() const noexcept { return m_undoStack.data(); }
 
     // ── CreateNew-mode introspection (exposed for tests) ────────────────────
 

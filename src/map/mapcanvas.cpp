@@ -636,6 +636,7 @@ MapExtent MapCanvas::extent() const { return m_extent; }
 
 void MapCanvas::setExtent(const MapExtent &extent, bool pushUndo)
 {
+    m_requestedExtent = extent;
     MapExtent fitExtent = arCorrectedExtent(extent);
 
     if (fitExtent == m_extent)
@@ -3384,7 +3385,9 @@ void MapCanvas::resizeEvent(QResizeEvent *event)
     if (m_qsgWidget)
         m_qsgWidget->resize(rect().size());
 
-    if (m_extent.isValid())
+    if (m_requestedExtent.isValid())
+        m_extent = arCorrectedExtent(m_requestedExtent);
+    else if (m_extent.isValid())
         m_extent = arCorrectedExtent(m_extent);
     applyExtentToOverlay();
     emit scaleChanged(scale());
@@ -3533,8 +3536,10 @@ void MapCanvas::syncExtentFromView()
     const double xMax =  xMin + (double)width()  / s;
     const double yMin =  yMax - (double)height() / s;
 
-    if (xMin < xMax && yMin < yMax)
+    if (xMin < xMax && yMin < yMax) {
         m_extent = MapExtent(xMin, yMin, xMax, yMax);
+        m_requestedExtent = m_extent;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3562,6 +3567,7 @@ void MapCanvas::translateViewBy(int dx, int dy)
                          m_extent.yMin() + mapDy,
                          m_extent.xMax() + mapDx,
                          m_extent.yMax() + mapDy);
+    m_requestedExtent = m_extent;
 
     // Keep the overlay view transform in sync so any code that still queries
     // it (overviewMap, hit-testing) sees the live position.

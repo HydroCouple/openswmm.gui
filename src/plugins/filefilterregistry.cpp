@@ -235,6 +235,11 @@ QString FileFilterRegistry::saveAsFilter() const
     return result.join(QStringLiteral(";;"));
 }
 
+bool FileFilterRegistry::isBuiltinPlugin(const QString &pluginId) noexcept
+{
+    return pluginId.startsWith(QLatin1String("org.hydrocouple.openswmm.builtin."));
+}
+
 QSet<QString> FileFilterRegistry::saveAsExtensions() const
 {
     QSet<QString> out;

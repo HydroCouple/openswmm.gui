@@ -103,6 +103,7 @@
 #include <QStandardItemModel>
 #include <QTimer>
 #include <QTreeView>
+#include <QScopedValueRollback>
 #include <QVBoxLayout>
 #include <QVariant>
 #include <QWidget>
@@ -624,6 +625,44 @@ void PropertiesPanel::setProject(SWMMModelLayer *layer)
     connect(layer, &SWMMModelLayer::attributeChanged,
             this,  &PropertiesPanel::onObjectEditedExternally,
             Qt::UniqueConnection);
+    connect(layer, &SWMMModelLayer::objectRenamed,
+            this,  &PropertiesPanel::onObjectRenamed,
+            Qt::UniqueConnection);
+}
+
+void PropertiesPanel::onObjectRenamed(const QString &oldName, const QString &newName, int)
+{
+    // A rename from ANY view (this panel, the Attribute Table, the map) must
+    // re-key the bound adapter and the cached identify result, or every later
+    // edit here addresses the old name: X/Y edits were silently dropped and
+    // a re-bind found nothing. Only re-key and repaint — never emit
+    // objectEdited from here (the panels are cross-wired; that loop froze the
+    // GUI in an earlier attempt).
+    bool touched = false;
+    if (m_nodeAdapter && m_nodeAdapter->name() == oldName) {
+        m_nodeAdapter->updateStoredName(newName); touched = true;
+    }
+    if (m_linkAdapter && m_linkAdapter->name() == oldName) {
+        m_linkAdapter->updateStoredName(newName); touched = true;
+    }
+    if (m_subcatchAdapter && m_subcatchAdapter->name() == oldName) {
+        m_subcatchAdapter->updateStoredName(newName); touched = true;
+    }
+    if (m_dataAdapter && m_dataAdapter->name() == oldName) {
+        m_dataAdapter->updateStoredName(newName); touched = true;
+    }
+    for (auto &result : m_lastResults)
+        for (auto &feature : result.features)
+            if (feature.value(QStringLiteral("Name")).toString() == oldName)
+                feature.insert(QStringLiteral("Name"), newName);
+#ifdef HAVE_QPROPERTYMODEL
+    if (touched) {
+        const QScopedValueRollback<bool> guard(m_suppressEditForward, true);
+        if (auto *pm = qobject_cast<QPropertyModel*>(m_model)) pm->refreshValues();
+    }
+#else
+    Q_UNUSED(touched);
+#endif
 }
 
 void PropertiesPanel::onLayerComboIndexChanged(int index)
@@ -789,9 +828,13 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                 applyStorageRowFlags();
             }
 
+            // Read the adapter's CURRENT name: a rename after binding
+            // re-keys the adapter, and a captured name would keep pointing
+            // the other views at an object that no longer exists.
             connect(m_nodeAdapter, &SWMMNodePropertyAdapter::changed,
-                    this, [this, name]() {
-                        if (!m_suppressEditForward) emit objectEdited(name);
+                    this, [this]() {
+                        if (!m_suppressEditForward && m_nodeAdapter)
+                            emit objectEdited(m_nodeAdapter->name());
                     });
             connect(m_nodeAdapter, &SWMMNodePropertyAdapter::renameRequested,
                     this, [this](const QString &oldN, const QString &newN) {
@@ -806,12 +849,13 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             // the engine write (a bare swmm_spatial_set_node_coord would
             // leave the canvas stale until the next geometry rebuild).
             connect(m_nodeAdapter, &SWMMNodePropertyAdapter::coordChangeRequested,
-                    this, [this, name](double newX, double newY) {
-                        if (!m_swmmLayer) return;
+                    this, [this](double newX, double newY) {
+                        if (!m_swmmLayer || !m_nodeAdapter) return;
+                        const QString current = m_nodeAdapter->name();
                         const int idx = swmm_node_index(
-                            m_swmmLayer->engine(), name.toUtf8().constData());
+                            m_swmmLayer->engine(), current.toUtf8().constData());
                         if (idx >= 0 && m_swmmLayer->applyNodeMove(idx, newX, newY))
-                            emit objectEdited(name);
+                            emit objectEdited(current);
                     });
             routedThroughAdapter = true;
         } else if (typeStr == QStringLiteral("Link")) {
@@ -883,9 +927,13 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                 applyGeomRowFlags();
             }
 
+            // Read the adapter's CURRENT name: a rename after binding
+            // re-keys the adapter, and a captured name would keep pointing
+            // the other views at an object that no longer exists.
             connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed,
-                    this, [this, name]() {
-                        if (!m_suppressEditForward) emit objectEdited(name);
+                    this, [this]() {
+                        if (!m_suppressEditForward && m_linkAdapter)
+                            emit objectEdited(m_linkAdapter->name());
                     });
             connect(m_linkAdapter, &SWMMLinkPropertyAdapter::renameRequested,
                     this, [this](const QString &oldN, const QString &newN) {
@@ -907,9 +955,13 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             m_subcatchAdapter->setStatsRegistry(m_statsRegistry);
             refreshStatsSourceCombo();
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_subcatchAdapter));
+            // Read the adapter's CURRENT name: a rename after binding
+            // re-keys the adapter, and a captured name would keep pointing
+            // the other views at an object that no longer exists.
             connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::changed,
-                    this, [this, name]() {
-                        if (!m_suppressEditForward) emit objectEdited(name);
+                    this, [this]() {
+                        if (!m_suppressEditForward && m_subcatchAdapter)
+                            emit objectEdited(m_subcatchAdapter->name());
                     });
             connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::renameRequested,
                     this, [this](const QString &oldN, const QString &newN) {
@@ -1131,8 +1183,9 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
         pm->setData(QVariant::fromValue<QObject *>(m_dataAdapter));
 
     connect(m_dataAdapter, &SWMMDataObjectPropertyAdapter::changed,
-            this, [this, name]() {
-                if (!m_suppressEditForward) emit objectEdited(name);
+            this, [this]() {
+                if (!m_suppressEditForward && m_dataAdapter)
+                    emit objectEdited(m_dataAdapter->name());
             });
     // Of the DataCategory kinds handled by this switch, only RainGage
     // shares applyRename()'s node/link/gage/catchment namespace — hint it
@@ -1191,12 +1244,13 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
         // swmm_spatial_set_gage_coord would leave the canvas stale until the
         // next geometry rebuild.)
         connect(gageAdapter, &SWMMRainGagePropertyAdapter::coordChangeRequested,
-                this, [this, layer, name](double newX, double newY) {
-                    if (!layer || !layer->engine()) return;
+                this, [this, layer](double newX, double newY) {
+                    if (!layer || !layer->engine() || !m_dataAdapter) return;
+                    const QString current = m_dataAdapter->name();
                     const int gi = swmm_gage_index(layer->engine(),
-                                                   name.toUtf8().constData());
+                                                   current.toUtf8().constData());
                     if (gi >= 0 && layer->applyGageMove(gi, newX, newY))
-                        emit objectEdited(name);
+                        emit objectEdited(current);
                 });
     }
 

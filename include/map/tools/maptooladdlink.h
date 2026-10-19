@@ -68,6 +68,20 @@ public:
      */
     void setTerrain(GISRasterLayer *layer, double offset, double factor = 1.0);
 
+    /*!
+     * \brief Convert a terrain-derived invert ELEVATION at one end of a new
+     *        link into the offset the engine stores: a DEPTH above that end
+     *        node's invert, never negative.
+     * \details The engine keeps link offsets as depths whatever the
+     *          LINK_OFFSETS display mode (see linkoffsetdisplay.h). Writing
+     *          the sampled elevation directly gave every new pipe an offset
+     *          equal to the ground elevation. Returns 0 when the node is
+     *          unknown or the elevation lies at or below its invert.
+     */
+    [[nodiscard]] static double invertElevationToOffset(SWMMModelLayer *layer,
+                                                        const QString &nodeName,
+                                                        double invertElevation);
+
 signals:
     void linkAdded(const QString &name, int linkType,
                    const QString &fromNode, const QString &toNode);

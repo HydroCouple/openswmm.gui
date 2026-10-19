@@ -473,6 +473,13 @@ private:
     SpatialReferenceSystem *m_canvasSRS      = nullptr;
     bool                    m_ownsSRS        = false;
     MapExtent               m_extent;
+    /*! The extent last asked for through setExtent(), before aspect fitting.
+     *  resizeEvent refits from this, not from m_extent: fitting only ever
+     *  grows a rectangle, so refitting the already-fitted extent at each new
+     *  aspect ratio (hidden canvas at open, then maximized) zoomed the map
+     *  further out on every save/reopen. Pans and view syncs reset it to
+     *  the extent they produce. */
+    MapExtent               m_requestedExtent;
     QList<OpenSWMMVisLayer *>   m_layers;
     QVector<int>            m_layerGroupOrder;     // see layerGroupOrder()
     QStringList             m_pendingLayerOrder;   // see setPendingLayerOrder()

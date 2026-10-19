@@ -139,6 +139,10 @@ public slots:
      *  the adapter is bound, so replay the bind. No-op unless a link is shown. */
     void onOffsetModeChanged();
 
+    /*! Re-key the bound adapter and cached identify result after a rename
+     *  from any view. Re-keys only; never emits objectEdited. */
+    void onObjectRenamed(const QString &oldName, const QString &newName, int kind);
+
 signals:
 
     /*!

@@ -65,6 +65,18 @@ resolveRunOutputPath(const QString &inpPath,
 resolveRunOutputPathFromSettings(const QString &inpPath,
                                  RunOutputKind  kind);
 
+/*! Hand the per-project QSettings group `SWMMVis/Project/<path>/…` (2D module
+ *  intent, report/output path overrides, Save As filter) from \p fromPath to
+ *  \p toPath when a project is saved under a new name.
+ *
+ *  Whatever an OLDER project left under \p toPath is removed first — those
+ *  keys are keyed only by file path, so without this a new project saved over
+ *  an old one inherited its settings. The current project's keys under
+ *  \p fromPath are then copied across (and kept at \p fromPath, which may
+ *  still be another project on disk). An empty \p fromPath (untitled
+ *  project) only clears the destination. No-op when the paths are equal. */
+void moveProjectSettings(const QString &fromPath, const QString &toPath);
+
 } // namespace openswmmvis
 
 #endif // RUNPATHRESOLVER_H

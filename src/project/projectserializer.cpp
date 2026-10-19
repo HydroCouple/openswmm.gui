@@ -76,6 +76,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QPointer>
+#include <QScopeGuard>
 
 namespace {
 
@@ -1463,6 +1465,16 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         }
     }
 
+    // Hydrating saved state is not an edit. Restoring annotation layers goes
+    // through the same layerAdded / annotationsChanged handlers a user edit
+    // uses, which left such projects opening as "modified". A window that was
+    // clean before the sidecar is clean after it.
+    const bool wasDirty = pw->hasChanges();
+    const QPointer<SWMMVisProjectWindow> window(pw);
+    const auto keepClean = qScopeGuard([wasDirty, window] {
+        if (!wasDirty && window) window->setHasChanges(false);
+    });
+
     auto *layer  = pw->modelLayer();
     auto *canvas = pw->canvas();
 
@@ -1510,7 +1522,8 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         if (bbox.size() == 4) {
             const MapExtent e(bbox[0].toDouble(), bbox[1].toDouble(),
                               bbox[2].toDouble(), bbox[3].toDouble());
-            if (e.isValid()) canvas->setExtent(e);
+            // Restoring the saved view is not a user navigation step.
+            if (e.isValid()) canvas->setExtent(e, /*pushUndo=*/false);
         }
     }
 

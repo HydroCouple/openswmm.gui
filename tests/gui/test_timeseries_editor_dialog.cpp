@@ -46,6 +46,7 @@
 #include <QApplication>
 #include <QTextStream>
 #include <QToolBar>
+#include <QAction>
 #include <QUndoStack>
 
 #include <cmath>
@@ -181,12 +182,45 @@ private slots:
         QCOMPARE(p.pointAt(1).value, 42.0);
         const auto pts = linePointsFromChart(dlg.chartView()->chart());
         QCOMPARE(pts.at(1).y(), 42.0);
-        QCOMPARE(stack.count(), 1);
+        QCOMPARE(dlg.undoStack()->count(), 1);
 
         // Undo restores everywhere.
-        stack.undo();
+        dlg.undoStack()->undo();
         QCOMPARE(p.pointAt(1).value, 2.0);
         QCOMPARE(linePointsFromChart(dlg.chartView()->chart()).at(1).y(), 2.0);
+    }
+
+    // Tutorial bug report (2026-10-17): the editor's Undo button was built
+    // on the project's map stack, so it undid whatever map edit was last.
+    void toolbarUndoNeverTouchesTheProjectStack()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack projectStack;
+        int foreignUndos = 0;
+        struct Foreign : QUndoCommand {
+            int *undos;
+            explicit Foreign(int *u) : QUndoCommand(QStringLiteral("map edit")), undos(u) {}
+            void undo() override { ++*undos; }
+            void redo() override {}
+        };
+        projectStack.push(new Foreign(&foreignUndos));
+
+        TimeseriesEditorDialog dlg(&reg, &projectStack, &p);
+        QVERIFY(dlg.undoStack());
+        QVERIFY(dlg.undoStack() != &projectStack);
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
+        QCOMPARE(projectStack.count(), 1);           // only the foreign edit
+
+        QAction *undo = nullptr;
+        for (QAction *a : dlg.findChildren<QAction *>())
+            if (a->text().startsWith(QStringLiteral("Undo"))) { undo = a; break; }
+        QVERIFY2(undo, "the editor toolbar offers Undo");
+        undo->trigger();
+        QCOMPARE(p.pointAt(1).value, 2.0);           // the editor's own edit
+        undo->trigger();                             // nothing more to undo here
+        QCOMPARE(foreignUndos, 0);
     }
 
     // ── Time column: MM/dd/yyyy HH:mm display + a real date-time editor ──────
@@ -369,7 +403,7 @@ private slots:
         QCOMPARE(p.pointAt(3).time, t(2026, 1, 1, 18));
         QCOMPARE(p.pointAt(3).value, p.pointAt(2).value);
 
-        stack.undo();
+        dlg.undoStack()->undo();
         QCOMPARE(p.pointCount(), 3);
     }
 
@@ -414,7 +448,7 @@ private slots:
         QCOMPARE(p.pointCount(), 1);
         QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 6));   // middle row kept
 
-        stack.undo();
+        dlg.undoStack()->undo();
         QCOMPARE(p.pointCount(), 3);
     }
 
@@ -466,7 +500,7 @@ private slots:
         QCOMPARE(p.pointAt(3).value, 20.0);
 
         // Single Cmd-Z reverts the whole paste (macro).
-        stack.undo();
+        dlg.undoStack()->undo();
         QCOMPARE(p.pointCount(), 3);
     }
 
@@ -964,7 +998,7 @@ private slots:
         QCOMPARE(p.pointAt(1).value, 2.0);
         QCOMPARE(p.pointAt(2).value, 4.0);
 
-        stack.undo();
+        dlg.undoStack()->undo();
         QCOMPARE(p.pointAt(0).value, 1.0);
         QCOMPARE(p.pointAt(2).value, 3.0);
     }
@@ -1178,7 +1212,7 @@ private slots:
         auto *badge = holder->findChild<QLabel *>(QStringLiteral("timeModeBadge"));
         QVERIFY(badge && badge->isVisibleTo(&dlg) && !badge->text().isEmpty());
 
-        stack.undo();
+        dlg.undoStack()->undo();
         QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
         QTest::qWait(10);
         QCOMPARE(combo->currentData().toInt(), 0);
