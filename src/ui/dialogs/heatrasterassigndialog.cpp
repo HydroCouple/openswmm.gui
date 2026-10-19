@@ -1,4 +1,5 @@
 #include "ui/dialogs/heatrasterassigndialog.h"
+#include "core/displaynumber.h"
 #include "assignment/heatassignment.h"
 #include "layers/gisrasterlayer.h"
 #include "map/mapcanvas.h"
@@ -67,7 +68,7 @@ HeatRasterAssignDialog::HeatRasterAssignDialog(SWMMModelLayer* model,MapCanvas* 
         auto& edits=state->preview.edits;edits.erase(std::remove_if(edits.begin(),edits.end(),[engine](const HeatPropertyEdit& edit){const auto old=authoredHeatProperty(engine,edit.attr,edit.scope,edit.name);return old.isValid()&&old.toDouble()==edit.value.toDouble();}),edits.end());
         state->source=raster->filePath();const QFileInfo file(state->source);state->modified=file.lastModified();state->size=file.size();
         for(const auto& edit:state->preview.edits){if(table->rowCount()>=500)break;const int row=table->rowCount();table->insertRow(row);const auto old=authoredHeatProperty(engine,edit.attr,edit.scope,edit.name);
-            const QStringList values={edit.name,old.isValid()?QString::number(old.toDouble(),'g',12):tr("Inherited"),QString::number(edit.value.toDouble(),'g',12),tr("%1 · band %2").arg(raster->name()).arg(band->value())};for(int c=0;c<4;++c)table->setItem(row,c,new QTableWidgetItem(values[c]));table->item(row,1)->setToolTip(old.isValid()?QString::number(old.toDouble(),'g',17):tr("Inherited"));table->item(row,2)->setToolTip(QString::number(edit.value.toDouble(),'g',17));}
+            const QStringList values={edit.name,old.isValid()?QString::number(old.toDouble(),'g',12):tr("Inherited"),QString::number(edit.value.toDouble(),'g',12),tr("%1 · band %2").arg(raster->name()).arg(band->value())};for(int c=0;c<4;++c)table->setItem(row,c,new QTableWidgetItem(values[c]));table->item(row,1)->setToolTip(old.isValid()?openswmmvis::displayNumber(old.toDouble()):tr("Inherited"));table->item(row,2)->setToolTip(openswmmvis::displayNumber(edit.value.toDouble()));}
         status->setText(tr("%1 valid values; %2 will change. Skipped: %3 NoData / outside; %4 missing geometry; %5 outside the valid range. First 500 changes shown. Apply creates one Undo operation.").arg(sampledCount).arg(state->preview.edits.size()).arg(state->preview.skippedNoData).arg(state->preview.skippedGeometry).arg(state->preview.skippedRange));apply->setEnabled(!state->preview.edits.isEmpty());
     });
     connect(apply,&QPushButton::clicked,this,[=]{if(!owner||!map||!apply->isEnabled())return;const QFileInfo file(state->source);

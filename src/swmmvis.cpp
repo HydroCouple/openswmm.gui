@@ -1,4 +1,5 @@
 #include "ui/delegates/datetimedelegate.h"
+#include "core/displaynumber.h"
 #include "ui/dialogs/traceanalysisdialog.h"
 #include "output/tracecontroller.h"
 /*!
@@ -8311,7 +8312,7 @@ void SWMMVis::showCheckpoints()
             mRunningSimProgress.remove(job->id);updateSimulationProgressBar();
             if(!pw||pw->isClosing())return;
             mSimStatusModel->finishJob(job->id,result.success,result.errorCode,result.error,result.runoffError,result.routingError,result.twoDError);
-            onLogMessage(tr("Checkpoint run accepted %1 s. Files: %2").arg(QString::number(result.acceptedSeconds,'g',17),result.outputPaths.join(", ")));
+            onLogMessage(tr("Checkpoint run accepted %1 s. Files: %2").arg(openswmmvis::displayNumber(result.acceptedSeconds),result.outputPaths.join(", ")));
         });
         connect(model,&CheckpointModel::notice,this,[this](const QString& text) {onLogMessage(text);});
     }

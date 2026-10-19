@@ -1,4 +1,5 @@
 #include "ui/dialogs/groundwaterassigndialog.h"
+#include "core/displaynumber.h"
 #include "ui/hydrothermalstate.h"
 #include <openswmm/engine/openswmm_gw2d.h>
 #include "layers/swmmmodellayer.h"
@@ -385,22 +386,22 @@ void GroundwaterAssignDialog::finishPreview(){
  QString error;if(!currentContext(&error)){m_status->setText(error);return;}
  const QString previewError=result.isTransport?result.transport.error:result.preview.error;
  if(!result.error.isEmpty()||!previewError.isEmpty()){m_status->setText(result.error.isEmpty()?previewError:result.error);return;}
- if(result.isFlux){const auto&f=result.flux;m_recipe["selectedAreaM2"]=f.selectedArea;m_recipe["validAreaM2"]=f.validArea;m_recipe["uncoveredAreaM2"]=f.uncoveredArea;m_recipe["integratedFlowM3PerS"]=f.totalFlow;m_recipe["partialCells"]=f.partialCells;m_recipe["emptyCells"]=f.emptyCells;result.summary=tr(" Raster coverage: %1 m² valid, %2 m² uncovered; %3 partial cells. Integrated water flow: %4 m³/s.").arg(f.validArea,0,'g',17).arg(f.uncoveredArea,0,'g',17).arg(f.partialCells).arg(f.totalFlow,0,'g',17);}
+ if(result.isFlux){const auto&f=result.flux;m_recipe["selectedAreaM2"]=f.selectedArea;m_recipe["validAreaM2"]=f.validArea;m_recipe["uncoveredAreaM2"]=f.uncoveredArea;m_recipe["integratedFlowM3PerS"]=f.totalFlow;m_recipe["partialCells"]=f.partialCells;m_recipe["emptyCells"]=f.emptyCells;result.summary=tr(" Raster coverage: %1 m² valid, %2 m² uncovered; %3 partial cells. Integrated water flow: %4 m³/s.").arg(openswmmvis::displayNumber(f.validArea),openswmmvis::displayNumber(f.uncoveredArea)).arg(f.partialCells).arg(openswmmvis::displayNumber(f.totalFlow));}
  m_table->setSortingEnabled(false);
  const auto restoreSorting=qScopeGuard([this]{m_table->setSortingEnabled(true);});
  if(result.isTransport){m_reviewed=result;m_havePreview=true;const auto&p=result.transport;m_table->setRowCount(std::min(qsizetype(500),p.cells.size()));
   m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Previous records"),tr("Reviewed value / series")});
   QHash<int,QString> sourceValues;
-  if(p.target==GroundwaterTransportTarget::Source)for(int i=p.before.sources.size();i<p.after.sources.size();++i){const auto&r=p.after.sources[i];sourceValues.insert(r.cell,(r.series.isEmpty()?QString::number(r.flow,'g',17):r.series)+tr(" × %1").arg(r.scale,0,'g',17));}
-  for(int i=0;i<m_table->rowCount();++i){const int cell=p.cells[i];const int at=int(std::lower_bound(m_scope.begin(),m_scope.end(),cell)-m_scope.begin());QString value=at<result.values.size()?QString::number(result.values[at],'g',17):QString();
+  if(p.target==GroundwaterTransportTarget::Source)for(int i=p.before.sources.size();i<p.after.sources.size();++i){const auto&r=p.after.sources[i];sourceValues.insert(r.cell,(r.series.isEmpty()?openswmmvis::displayNumber(r.flow):r.series)+tr(" × %1").arg(openswmmvis::displayNumber(r.scale)));}
+  for(int i=0;i<m_table->rowCount();++i){const int cell=p.cells[i];const int at=int(std::lower_bound(m_scope.begin(),m_scope.end(),cell)-m_scope.begin());QString value=at<result.values.size()?openswmmvis::displayNumber(result.values[at]):QString();
    if(p.target==GroundwaterTransportTarget::Source)value=sourceValues.value(cell);
-   if(result.isFlux&&at<result.flux.validAreas.size())value+=tr(" m³/s; %1 m² valid, %2 m² uncovered").arg(result.flux.validAreas[at],0,'g',17).arg(result.flux.uncoveredAreas[at],0,'g',17);
+   if(result.isFlux&&at<result.flux.validAreas.size())value+=tr(" m³/s; %1 m² valid, %2 m² uncovered").arg(openswmmvis::displayNumber(result.flux.validAreas[at]),openswmmvis::displayNumber(result.flux.uncoveredAreas[at]));
    m_table->setItem(i,0,new openswmmvis::ui::NumericTableWidgetItem(QString::number(cell+1)));m_table->setItem(i,1,new openswmmvis::ui::NumericTableWidgetItem(tr("Preserved / checked upsert")));m_table->setItem(i,2,new openswmmvis::ui::NumericTableWidgetItem(value));}
-  QString totals;if(p.target==GroundwaterTransportTarget::Source){double flow=0;bool series=false;for(int i=p.before.sources.size();i<p.after.sources.size();++i){const auto&r=p.after.sources[i];flow+=r.flow*r.scale;series|=!r.series.isEmpty();}totals=series?tr(" Flow series and area scales are preserved; no single instantaneous total is implied."):tr(" Total authored constant flow: %1 m³/s.").arg(flow,0,'g',17);}
+  QString totals;if(p.target==GroundwaterTransportTarget::Source){double flow=0;bool series=false;for(int i=p.before.sources.size();i<p.after.sources.size();++i){const auto&r=p.after.sources[i];flow+=r.flow*r.scale;series|=!r.series.isEmpty();}totals=series?tr(" Flow series and area scales are preserved; no single instantaneous total is implied."):tr(" Total authored constant flow: %1 m³/s.").arg(openswmmvis::displayNumber(flow));}
   m_status->setText(tr("Preview: %1 cells; %2 NoData cells preserved. Existing unrelated transport records are retained.%3").arg(p.cells.size()).arg(p.skippedCells.size()).arg(totals+result.summary));m_apply->setEnabled(p.before!=p.after);return;}
  m_table->setHorizontalHeaderLabels({tr("Cell"),tr("Old effective value"),tr("New value")});
  m_reviewed=result;m_havePreview=true;m_table->setRowCount(std::min(qsizetype(500),result.preview.cells.size()));
- for(int i=0;i<m_table->rowCount();++i){m_table->setItem(i,0,new openswmmvis::ui::NumericTableWidgetItem(QString::number(result.preview.cells[i]+1)));m_table->setItem(i,1,new openswmmvis::ui::NumericTableWidgetItem(QString::number(result.preview.oldValues[i],'g',17)));m_table->setItem(i,2,new openswmmvis::ui::NumericTableWidgetItem(QString::number(result.preview.newValues[i],'g',17)));}
+ for(int i=0;i<m_table->rowCount();++i){m_table->setItem(i,0,new openswmmvis::ui::NumericTableWidgetItem(QString::number(result.preview.cells[i]+1)));m_table->setItem(i,1,new openswmmvis::ui::NumericTableWidgetItem(openswmmvis::displayNumber(result.preview.oldValues[i])));m_table->setItem(i,2,new openswmmvis::ui::NumericTableWidgetItem(openswmmvis::displayNumber(result.preview.newValues[i])));}
  m_status->setText(tr("Preview: %1 changed cells; %2 cells preserved for NoData / no coverage. Original aquifer rows and mesh tags are retained. The table shows up to 500 changed cells. This property/initial-state assignment adds no sustained water or mass rate.").arg(result.preview.cells.size()).arg(result.preview.skippedCells.size()));
  m_apply->setEnabled(!result.preview.appended.isEmpty());
 }

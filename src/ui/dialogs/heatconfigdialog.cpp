@@ -9,6 +9,7 @@
  */
 
 #include "ui/dialogs/heatconfigdialog.h"
+#include "core/displaynumber.h"
 #include "ui/dialogs/initialbedqualitydialog.h"
 #include "ui/precisenumericvalue.h"
 #include "ui/uiscrollhelpers.h"
@@ -1602,7 +1603,7 @@ void HeatConfigDialog::previewElements()
             if(swmm_heat_get_effective_element(engine,c.attr,kind,encoded.constData(),&value,&source,origin,sizeof origin)!=SWMM_OK)return SWMM_ERR_BADPARAM;
             ++c.total;
             if(d->m_resolvedElements->rowCount()<200){const int r=d->m_resolvedElements->rowCount();d->m_resolvedElements->insertRow(r);
-                const QStringList values={id,std::isnan(value)?(source==5?tr("Time series"):tr("Air temperature")):QString::number(value,'g',17),QString::fromUtf8(origin)};
+                const QStringList values={id,std::isnan(value)?(source==5?tr("Time series"):tr("Air temperature")):openswmmvis::displayNumber(value),QString::fromUtf8(origin)};
                 for(int k=0;k<3;++k)d->m_resolvedElements->setItem(r,k,new QTableWidgetItem(values[k]));}
             return SWMM_OK;
         };

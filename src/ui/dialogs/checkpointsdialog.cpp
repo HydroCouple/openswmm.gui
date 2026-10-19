@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui/dialogs/checkpointsdialog.h"
+#include "core/displaynumber.h"
 #include "simulation/checkpointmodel.h"
 #include <openswmm/engine/openswmm_checkpoint.h>
 #include <QStandardItemModel>
@@ -118,9 +119,9 @@ void CheckpointsDialog::refresh() {
     else {
         const auto& m=e->metadata;
         QString details=e->inspection+"\n"+tr("Model wall time · no timezone conversion")+"\n";
-        if(m.isEmpty())details+=std::isfinite(e->acceptedSeconds)?tr("Saved at accepted %1 s · %2\nInspect after the run closes to check full coverage and compatibility.").arg(QString::number(e->acceptedSeconds,'g',17),CheckpointModel::calendar(e->acceptedDate)):tr("No validated metadata. Inspect to check compatibility.");
+        if(m.isEmpty())details+=std::isfinite(e->acceptedSeconds)?tr("Saved at accepted %1 s · %2\nInspect after the run closes to check full coverage and compatibility.").arg(openswmmvis::displayNumber(e->acceptedSeconds),CheckpointModel::calendar(e->acceptedDate)):tr("No validated metadata. Inspect to check compatibility.");
         else details+=CheckpointModel::clocks(m)+tr("\n\nBinary: ")+CheckpointModel::coverage(m.value("binary").toObject())+
-            tr("\nMesh: ")+CheckpointModel::coverage(m.value("mesh").toObject())+tr("\nNext report marker: %1 s").arg(QString::number(m.value("next_report_seconds").toDouble(),'g',17))+
+            tr("\nMesh: ")+CheckpointModel::coverage(m.value("mesh").toObject())+tr("\nNext report marker: %1 s").arg(openswmmvis::displayNumber(m.value("next_report_seconds").toDouble()))+
             tr("\nSource frames: %1 · saved prefix %2 bytes").arg(m.value("source_frames").toString(),m.value("source_prefix_bytes").toString());
         m_details->setPlainText(details);
         QString files=tr("Required saved bytes and current file bytes are distinct. A live history may have a later tail.\n\n");

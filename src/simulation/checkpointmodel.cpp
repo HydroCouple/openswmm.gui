@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "simulation/checkpointmodel.h"
+#include "core/displaynumber.h"
 #include "simulation/runpathlease.h"
 #include "simulation/simulationrunner.h"
 #include "core/swmmdatetime.h"
@@ -40,14 +41,14 @@ CheckpointModel::CheckpointModel(const QString& catalog,QObject* parent):QAbstra
     connect(&m_run,&CheckpointWorker::saved,this,[this](quint64,const CheckpointSaveResult& s) {recordSave(s);});
     connect(&m_run,&CheckpointWorker::timeline,this,[this](quint64,double a,double b) {emit runTimeline(a,b);});
     connect(&m_run,&CheckpointWorker::progress,this,[this](quint64,double seconds) {
-        m_status=tr("Running · accepted %1 s").arg(QString::number(seconds,'g',17));emit runProgress(seconds);emit stateChanged();
+        m_status=tr("Running · accepted %1 s").arg(openswmmvis::displayNumber(seconds));emit runProgress(seconds);emit stateChanged();
     });
     connect(&m_run,&CheckpointWorker::finished,this,[this](const CheckpointResult& r) {
         // Fallback covers saves whose queued signal could not be delivered.
         for(const auto& saved:r.saves)recordSave(saved);
-        m_status=r.success?tr("Completed · accepted %1 s").arg(QString::number(r.acceptedSeconds,'g',17)):
-            r.cancelled?tr("Stopped · accepted %1 s; partial files retained").arg(QString::number(r.acceptedSeconds,'g',17)):
-            tr("Run failed [%1]: %2 · accepted %3 s; partial files retained").arg(r.errorCode).arg(r.error,QString::number(r.acceptedSeconds,'g',17));
+        m_status=r.success?tr("Completed · accepted %1 s").arg(openswmmvis::displayNumber(r.acceptedSeconds)):
+            r.cancelled?tr("Stopped · accepted %1 s; partial files retained").arg(openswmmvis::displayNumber(r.acceptedSeconds)):
+            tr("Run failed [%1]: %2 · accepted %3 s; partial files retained").arg(r.errorCode).arg(r.error,openswmmvis::displayNumber(r.acceptedSeconds));
         emit runFinished(r);emit stateChanged();if(!m_closed)emit notice(m_status);
     });
 }
@@ -183,11 +184,11 @@ QString CheckpointModel::calendar(const QJsonValue& raw) {
 }
 QString CheckpointModel::coverage(const QJsonObject& r) {
     if(!r.value("enabled").toBool())return tr("Disabled");
-    if(r.value("records").toString()=="0")return tr("Enabled · 0 records · cadence %1 s").arg(QString::number(r.value("cadence_seconds").toDouble(),'g',17));
-    return tr("%1 records · %2 → %3 · cadence %4 s").arg(r.value("records").toString(),calendar(r.value("first_date")),calendar(r.value("last_date")),QString::number(r.value("cadence_seconds").toDouble(),'g',17));
+    if(r.value("records").toString()=="0")return tr("Enabled · 0 records · cadence %1 s").arg(openswmmvis::displayNumber(r.value("cadence_seconds").toDouble()));
+    return tr("%1 records · %2 → %3 · cadence %4 s").arg(r.value("records").toString(),calendar(r.value("first_date")),calendar(r.value("last_date")),openswmmvis::displayNumber(r.value("cadence_seconds").toDouble()));
 }
 QString CheckpointModel::clocks(const QJsonObject& m) {
-    const auto seconds=[](double s) {return QString::number(s,'g',17);};
+    const auto seconds=[](double s) {return openswmmvis::displayNumber(s);};
     QString text=tr("Engine: %1 s · %2\n").arg(seconds(m.value("engine_seconds").toDouble()),calendar(m.value("engine_date")));
     const auto source=m.value("completed_source_seconds");
     text+=source.isNull()?tr("Completed sources: Not applicable"):tr("Completed sources: %1 s · pending interval %2 s").arg(seconds(source.toDouble()),seconds(m.value("engine_seconds").toDouble()-source.toDouble()));

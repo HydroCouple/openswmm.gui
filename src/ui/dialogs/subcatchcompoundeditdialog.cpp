@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "core/displaynumber.h"
 #include "ui/uiscrollhelpers.h"
 #include "layers/swmmmodellayer.h"
 
@@ -326,7 +327,7 @@ void SubcatchCompoundEditDialog::refreshActivePage()
             nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
             m_luTable->setItem(row, 0, nameItem);
             m_luTable->setItem(row, 1, new QTableWidgetItem(
-                QString::number(pct, 'g', 17)));
+                openswmmvis::displayNumber(pct)));
             if (pct > 0.0) ++assigned;
             sum += pct;
         }
@@ -360,7 +361,7 @@ void SubcatchCompoundEditDialog::refreshActivePage()
             nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
             m_loadTable->setItem(row, 0, nameItem);
             m_loadTable->setItem(row, 1, new QTableWidgetItem(
-                QString::number(w, 'g', 17)));
+                openswmmvis::displayNumber(w)));
             if (w > 0.0) ++assigned;
         }
         m_loadRefreshing = false;

@@ -812,10 +812,21 @@ using openswmmvis::timeseries::TimeseriesPoint;
  *  matches how SWMM applies the data — a series' first point is almost
  *  always meant to land inside the simulation window, and a Relative-mode
  *  series starts at elapsed 0:00 by definition. */
+/*! Wall-clock fallback seed, on a whole minute. The editor shows HH:mm, so
+ *  seconds and milliseconds from the clock were invisible but were still
+ *  written to the .inp (tutorial bug report, 2026-10-17). */
+QDateTime wholeMinuteNowUtc()
+{
+    QDateTime now = QDateTime::currentDateTimeUtc();
+    const QTime t = now.time();
+    now.setTime(QTime(t.hour(), t.minute()));
+    return now;
+}
+
 QDateTime defaultNextTime(const TimeseriesProvider *p, const QDateTime &emptySeed)
 {
     if (!p || p->pointCount() == 0)
-        return emptySeed.isValid() ? emptySeed : QDateTime::currentDateTimeUtc();
+        return emptySeed.isValid() ? emptySeed : wholeMinuteNowUtc();
 
     const auto &pts = p->points();
     const QDateTime last = pts.back().time;
@@ -879,7 +890,7 @@ void TimeseriesEditorDialog::onAddRowTriggered_()
     const int n = first->pointCount();
     const QDateTime seed = (m_registry && m_registry->simulationStart().isValid())
                                ? m_registry->simulationStart()
-                               : QDateTime::currentDateTimeUtc();
+                               : wholeMinuteNowUtc();
     QDateTime t;
     double v = 0.0;
     if (n == 0) {
