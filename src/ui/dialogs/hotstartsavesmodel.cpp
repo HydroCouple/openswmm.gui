@@ -7,6 +7,7 @@
 #include "ui/dialogs/hotstartsavesmodel.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 
+#include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
 #include <QSignalBlocker>
@@ -40,8 +41,18 @@ QVariant HotstartSavesModel::data(const QModelIndex &index, int role) const
         switch (index.column()) {
         case ColPath:     return r.path;
         case ColDateTime: return r.oaDate;
+        case ColFormat:
+            return role == Qt::EditRole ? QVariant(r.format)
+                                        : QVariant(formatName(r.format));
         }
     }
+    if (role == Qt::ToolTipRole && index.column() == ColFormat)
+        return tr("Auto: SWMM 5 file, or native when storage nodes carry LIDs.\n"
+                  "Legacy: always the SWMM 5 file; OpenSWMM restores its\n"
+                  "node, link and subcatchment state.\n"
+                  "Native: OpenSWMM file; also keeps water age, reaction\n"
+                  "species, the aquifer, storage-node LIDs and snow.\n"
+                  "SWMM 5 cannot read it.");
     return {};
 }
 
@@ -68,6 +79,15 @@ bool HotstartSavesModel::setData(const QModelIndex &index,
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         return true;
     }
+    case ColFormat: {
+        bool ok = false;
+        const int f = value.toInt(&ok);
+        if (!ok || f < 0 || f > 2) return false;
+        if (r.format == f) return true;
+        r.format = f;
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        return true;
+    }
     }
     return false;
 }
@@ -81,6 +101,7 @@ QVariant HotstartSavesModel::headerData(int section,
         switch (section) {
         case ColPath:     return tr("Path (relative to .inp directory)");
         case ColDateTime: return tr("Datetime");
+        case ColFormat:   return tr("Format");
         }
     }
     return {};
@@ -122,11 +143,11 @@ void HotstartSavesModel::clearRows()
     endResetModel();
 }
 
-int HotstartSavesModel::appendRow(const QString &path, double oaDate)
+int HotstartSavesModel::appendRow(const QString &path, double oaDate, int format)
 {
     const int row = m_rows.size();
     beginInsertRows(QModelIndex(), row, row);
-    m_rows.append(Row{path, oaDate});
+    m_rows.append(Row{path, oaDate, (format >= 0 && format <= 2) ? format : 0});
     endInsertRows();
     return row;
 }
@@ -151,6 +172,20 @@ QString HotstartSavesModel::pathAt(int row) const
 double HotstartSavesModel::oaDateAt(int row) const
 {
     return (row >= 0 && row < m_rows.size()) ? m_rows.at(row).oaDate : 0.0;
+}
+
+int HotstartSavesModel::formatAt(int row) const
+{
+    return (row >= 0 && row < m_rows.size()) ? m_rows.at(row).format : 0;
+}
+
+QString HotstartSavesModel::formatName(int format)
+{
+    switch (format) {
+    case 1:  return tr("Legacy");
+    case 2:  return tr("Native");
+    default: return tr("Auto");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -206,4 +241,48 @@ void HotstartSavesDateTimeDelegate::setModelData(QWidget *editor,
     if (w->dateTime() != w->minimumDateTime())
         oa = SimulationOptionsDialog::oaDateFromQDateTime(w->dateTime());
     model->setData(idx, oa, Qt::EditRole);
+}
+
+// ---------------------------------------------------------------------------
+// HotstartSavesFormatDelegate
+// ---------------------------------------------------------------------------
+
+HotstartSavesFormatDelegate::HotstartSavesFormatDelegate(QObject *parent)
+    : QStyledItemDelegate(parent)
+{
+}
+
+QWidget *HotstartSavesFormatDelegate::createEditor(
+    QWidget *parent, const QStyleOptionViewItem & /*opt*/,
+    const QModelIndex & /*idx*/) const
+{
+    auto *w = new QComboBox(parent);
+    for (int f = 0; f <= 2; ++f)
+        w->addItem(HotstartSavesModel::formatName(f), f);
+    w->setFrame(false);
+    QObject::connect(w, &QComboBox::currentIndexChanged, w,
+        [this, w] {
+            auto *self = const_cast<HotstartSavesFormatDelegate *>(this);
+            emit self->commitData(w);
+        });
+    return w;
+}
+
+void HotstartSavesFormatDelegate::setEditorData(QWidget *editor,
+                                                const QModelIndex &idx) const
+{
+    auto *w = qobject_cast<QComboBox *>(editor);
+    if (!w) return;
+    QSignalBlocker block(w);
+    const int i = w->findData(idx.data(Qt::EditRole).toInt());
+    w->setCurrentIndex(i >= 0 ? i : 0);
+}
+
+void HotstartSavesFormatDelegate::setModelData(QWidget *editor,
+                                               QAbstractItemModel *model,
+                                               const QModelIndex &idx) const
+{
+    auto *w = qobject_cast<QComboBox *>(editor);
+    if (!w || !model) return;
+    model->setData(idx, w->currentData(), Qt::EditRole);
 }

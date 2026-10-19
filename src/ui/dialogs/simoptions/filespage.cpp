@@ -34,6 +34,8 @@
 #include "project/projectserializer.h"
 #include "swmmvisprojectwindow.h"
 #include <openswmm/plugin_sdk/PluginDiscovery.hpp>
+#include <openswmm/engine/openswmm_2d.h>
+#include <openswmm/engine/openswmm_hotstart.h>
 #include <qcustomeditors.h>
 #include <QCheckBox>
 #include <QComboBox>
@@ -621,6 +623,7 @@ void FilesPage::buildUi()
     // matching the [FILES] picker behaviour set up immediately above.
     m_hotstartSavesPathDel->setProjectAnchor(projectAnchor);
     m_hotstartSavesDtDel   = new HotstartSavesDateTimeDelegate(this);
+    m_hotstartSavesFmtDel  = new HotstartSavesFormatDelegate(this);
 
     m_hotstartSavesView = new QTableView(hsSaves);
     m_hotstartSavesView->setModel(m_hotstartSavesModel);
@@ -628,6 +631,8 @@ void FilesPage::buildUi()
         HotstartSavesModel::ColPath, m_hotstartSavesPathDel);
     m_hotstartSavesView->setItemDelegateForColumn(
         HotstartSavesModel::ColDateTime, m_hotstartSavesDtDel);
+    m_hotstartSavesView->setItemDelegateForColumn(
+        HotstartSavesModel::ColFormat, m_hotstartSavesFmtDel);
     // Interactive resize: both columns are user-draggable.  Set sensible
     // defaults — path column takes the leftover space initially, datetime
     // is sized to fit the picker — but neither is locked.
@@ -641,6 +646,7 @@ void FilesPage::buildUi()
         // shown (Qt will clamp later if the dialog is resized).
         hdr->resizeSection(HotstartSavesModel::ColPath,     360);
         hdr->resizeSection(HotstartSavesModel::ColDateTime, 200);
+        hdr->resizeSection(HotstartSavesModel::ColFormat,   100);
     }
     m_hotstartSavesView->verticalHeader()->setVisible(false);
     m_hotstartSavesView->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -649,8 +655,12 @@ void FilesPage::buildUi()
     m_hotstartSavesView->setToolTip(tr(
         "Each row schedules one hot-start save during the run.\n"
         "Leave Datetime empty (\"(end of run)\") to save at the end of the\n"
-        "simulation; otherwise the engine writes the file when the sim\n"
-        "clock crosses the chosen datetime."));
+        "simulation; otherwise the engine writes the file at the end of the\n"
+        "first time step that reaches the chosen datetime (not at all if\n"
+        "the run ends first).\n"
+        "Format: Native also keeps water age, reaction species, the aquifer,\n"
+        "storage-node LIDs and snow; SWMM 5 cannot read it. Auto is the\n"
+        "SWMM 5 file, or native when storage nodes carry LIDs."));
     hsSavesLay->addWidget(m_hotstartSavesView);
 
     auto openPersistentForRow = [this](int row) {
@@ -659,6 +669,8 @@ void FilesPage::buildUi()
             m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath));
         m_hotstartSavesView->openPersistentEditor(
             m_hotstartSavesModel->index(row, HotstartSavesModel::ColDateTime));
+        m_hotstartSavesView->openPersistentEditor(
+            m_hotstartSavesModel->index(row, HotstartSavesModel::ColFormat));
     };
     // Open persistent editors on every newly-inserted row so the path
     // line-edit + browse button and the QDateTimeEdit are visible by
@@ -1287,10 +1299,26 @@ void FilesPage::browseForOutputFile()
 // Multi-row SAVE HOTSTART slots (Slice BV-01, 2026-05-21).
 // ---------------------------------------------------------------------------
 
+// A new row is NATIVE where the SWMM 5 file would drop state the engine
+// names (water age, reaction species, the 2D aquifer, storage-node LIDs —
+// swmm_hotstart_legacy_omits), and on any model with a 2D mesh. Everywhere
+// else it is AUTO, the long-standing behaviour.
+static int defaultHotstartSaveFormat(SWMM_Engine e)
+{
+    int verts = 0, omits = 0;
+    if (e) {
+        swmm_2d_vertex_count(e, &verts);
+        swmm_hotstart_legacy_omits(e, &omits);
+    }
+    return (verts > 0 || omits != 0) ? SWMM_HOTSTART_FORMAT_NATIVE
+                                     : SWMM_HOTSTART_FORMAT_AUTO;
+}
+
 void FilesPage::onHotstartSaveAddRow()
 {
     if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
-    const int row = m_hotstartSavesModel->appendRow(QString{}, 0.0);
+    const int row = m_hotstartSavesModel->appendRow(
+        QString{}, 0.0, defaultHotstartSaveFormat(ctx_.engine()));
     m_hotstartSavesView->setCurrentIndex(
         m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath));
     onHotstartSaveBrowseRow();   // prompt for the save-as path immediately
@@ -1417,10 +1445,12 @@ void FilesPage::readFilesSectionFromEngine()
         for (int i = 0; i < count; ++i) {
             char pbuf[1024] = {0};
             double dt = 0.0;
+            int fmt = SWMM_HOTSTART_FORMAT_AUTO;
             swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &dt);
+            swmm_hotstart_saves_get_format(ctx_.engine(), i, &fmt);
             m_hotstartSavesModel->appendRow(QString::fromUtf8(pbuf),
-                                            dt > 0.0 ? dt : 0.0);
+                                            dt > 0.0 ? dt : 0.0, fmt);
         }
     }
 }
@@ -1485,7 +1515,7 @@ int FilesPage::writeFilesSectionToEngine()
     // entries, compare against the model contents (path + datetime),
     // and only rebuild the vector when something actually changed.
     if (m_hotstartSavesModel) {
-        struct HsRow { QString path; double dt; };
+        struct HsRow { QString path; double dt; int fmt; };
         QList<HsRow> desired;
         const int nRows = m_hotstartSavesModel->rowCount();
         for (int row = 0; row < nRows; ++row) {
@@ -1496,7 +1526,7 @@ int FilesPage::writeFilesSectionToEngine()
             // Skip empty rows entirely — an empty path with no datetime
             // is a stub the user never filled in.
             if (relPath.isEmpty() && dt == 0.0) continue;
-            desired.push_back({relPath, dt});
+            desired.push_back({relPath, dt, m_hotstartSavesModel->formatAt(row)});
         }
 
         // Compare against current engine state.
@@ -1506,16 +1536,20 @@ int FilesPage::writeFilesSectionToEngine()
         for (int i = 0; !changed && i < curCount; ++i) {
             char pbuf[1024] = {0};
             double curDt = 0.0;
+            int curFmt = SWMM_HOTSTART_FORMAT_AUTO;
             swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &curDt);
+            swmm_hotstart_saves_get_format(ctx_.engine(), i, &curFmt);
             if (QString::fromUtf8(pbuf) != desired[i].path) changed = true;
             else if (curDt != desired[i].dt)                changed = true;
+            else if (curFmt != desired[i].fmt)              changed = true;
         }
         if (changed) {
             swmm_hotstart_saves_clear(ctx_.engine());
-            for (const auto &r : desired) {
-                const QByteArray utf = r.path.toUtf8();
-                swmm_hotstart_saves_add(ctx_.engine(), utf.constData(), r.dt);
+            for (int i = 0; i < desired.size(); ++i) {
+                const QByteArray utf = desired[i].path.toUtf8();
+                swmm_hotstart_saves_add(ctx_.engine(), utf.constData(), desired[i].dt);
+                swmm_hotstart_saves_set_format(ctx_.engine(), i, desired[i].fmt);
             }
             ++written;
         }

@@ -20,6 +20,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Hot-start save format.** The scheduled hot-start saves table has a **Format**
+  column (Auto / Legacy / Native) backed by the engine's `[FILES] SAVE HOTSTART …
+  LEGACY|NATIVE` keyword. Native keeps water age, reaction species, the aquifer,
+  storage-node LIDs and snow across a restart; rows read from existing files stay
+  Auto. New rows start as Native when the engine reports state only the native
+  file keeps (`swmm_hotstart_legacy_omits`) or the model has a 2D mesh — so 1D
+  models with reaction species or water age now start Native too.
 - **Land-use buildup and washoff tables list reaction species.** Bulk species of the
   reactions component appear after the pollutants and are edited through the same
   engine rows; wall species, which cannot build up, are not listed.

@@ -7,7 +7,8 @@
  * MVC backing for the scheduled-hot-start-saves table in the Simulation
  * Options dialog ([FILES] SAVE HOTSTART). Pairs with the reusable
  * PathBrowseDelegate (for the path column) and ships its own
- * HotstartSavesDateTimeDelegate for the datetime picker.
+ * HotstartSavesDateTimeDelegate for the datetime picker and
+ * HotstartSavesFormatDelegate for the file-format choice.
  *
  * The delegates are intended for use with QTableView::openPersistentEditor()
  * so each row's path field, browse button, and date-time picker are visible
@@ -23,14 +24,16 @@
 
 /*!
  * \brief Row schema: {path relative to the .inp dir, OLE-Automation datetime
- *        sentinel}. An oaDate of 0.0 means "save at end of run" and renders
- *        as the QDateTimeEdit special-value text "(end of run)".
+ *        sentinel, file format}. An oaDate of 0.0 means "save at end of run"
+ *        and renders as the QDateTimeEdit special-value text "(end of run)".
+ *        The format is the engine's SWMM_HOTSTART_FORMAT_* value (0 Auto,
+ *        1 Legacy, 2 Native); EditRole carries the int, DisplayRole the name.
  */
 class HotstartSavesModel : public QAbstractTableModel
 {
     Q_OBJECT
 public:
-    enum Column { ColPath = 0, ColDateTime = 1, ColCount };
+    enum Column { ColPath = 0, ColDateTime = 1, ColFormat = 2, ColCount };
 
     explicit HotstartSavesModel(QObject *parent = nullptr);
 
@@ -50,16 +53,21 @@ public:
 
     // Convenience -------------------------------------------------------------
     void clearRows();
-    int  appendRow(const QString &path, double oaDate);
+    int  appendRow(const QString &path, double oaDate, int format = 0);
     bool swapRows(int a, int b);
 
     QString pathAt(int row) const;
     double  oaDateAt(int row) const;
+    int     formatAt(int row) const;
+
+    //! Display name of a SWMM_HOTSTART_FORMAT_* value.
+    static QString formatName(int format);
 
 private:
     struct Row {
         QString path;
         double  oaDate {0.0};
+        int     format {0};
     };
     QList<Row> m_rows;
 };
@@ -74,6 +82,25 @@ class HotstartSavesDateTimeDelegate : public QStyledItemDelegate
     Q_OBJECT
 public:
     explicit HotstartSavesDateTimeDelegate(QObject *parent = nullptr);
+
+    QWidget *createEditor(QWidget *parent,
+                          const QStyleOptionViewItem &opt,
+                          const QModelIndex &idx) const override;
+    void setEditorData(QWidget *editor,
+                       const QModelIndex &idx) const override;
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &idx) const override;
+};
+
+/*!
+ * \brief Delegate for the Format column: a combo of Auto / Legacy / Native
+ *        that commits on every change, like the datetime picker.
+ */
+class HotstartSavesFormatDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    explicit HotstartSavesFormatDelegate(QObject *parent = nullptr);
 
     QWidget *createEditor(QWidget *parent,
                           const QStyleOptionViewItem &opt,
