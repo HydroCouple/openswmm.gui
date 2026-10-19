@@ -41,6 +41,7 @@ class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QRadioButton;
 class QTableWidget;
@@ -146,6 +147,7 @@ private:
     QComboBox *m_groundSeries = nullptr;
     QDoubleSpinBox *m_bedSpin[9] = {};
     QPushButton *m_channelGroundPreviewButton = nullptr;
+    QLineEdit *m_channelGroundPreviewFilter = nullptr;
     QLabel *m_channelGroundPreviewStatus = nullptr;
     QTableWidget *m_channelGroundPreviewTable = nullptr;
     QTableWidget *m_elementTable = nullptr;
