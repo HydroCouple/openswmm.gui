@@ -594,6 +594,7 @@ void FilesPage::buildUi()
                 true,  tr("Choose Outflows File"), csvFilter);
     makePathRow(tr("Hot-start file (USE):"), &m_hotstartUseEdit,  nullptr,
                 false, tr("Choose Hot-Start File"), hsfFilter);
+    m_hotstartUseEdit->setObjectName(QStringLiteral("hotstartUsePathEdit"));
 
     vlay->addWidget(secondary);
 
@@ -1418,21 +1419,29 @@ void FilesPage::readFilesSectionFromEngine()
         if (swmm_files_get(ctx_.engine(), key, buf, sizeof(buf)) != SWMM_OK) return {};
         return QString::fromUtf8(buf);
     };
+    // The page writes paths absolute (see writeFilesSectionToEngine); show
+    // them relative to the .inp folder, as the file itself does.
+    const QString inpPath = ctx_.modelLayer() ? ctx_.modelLayer()->modelFilePath() : QString();
+    auto shown = [&](const QString &path) -> QString {
+        if (path.isEmpty() || inpPath.isEmpty() || !QDir::isAbsolutePath(path)) return path;
+        return ProjectSerializer::toRelativePath(path, inpPath);
+    };
+    auto getPath = [&](const char *key) { return shown(getStr(key)); };
     auto setMode = [&](QComboBox *c, const QString &mode) {
         if (!c) return;
         const int idx = c->findData(mode, Qt::UserRole, Qt::MatchFixedString);
         c->setCurrentIndex(idx >= 0 ? idx : 0);
     };
 
-    if (m_rainfallPathEdit) m_rainfallPathEdit->setPath(getStr("RAINFALL_PATH"));
+    if (m_rainfallPathEdit) m_rainfallPathEdit->setPath(getPath("RAINFALL_PATH"));
     setMode(m_rainfallModeCombo, getStr("RAINFALL_MODE"));
-    if (m_runoffPathEdit)   m_runoffPathEdit->setPath(getStr("RUNOFF_PATH"));
+    if (m_runoffPathEdit)   m_runoffPathEdit->setPath(getPath("RUNOFF_PATH"));
     setMode(m_runoffModeCombo,   getStr("RUNOFF_MODE"));
-    if (m_rdiiPathEdit)     m_rdiiPathEdit->setPath(getStr("RDII_PATH"));
+    if (m_rdiiPathEdit)     m_rdiiPathEdit->setPath(getPath("RDII_PATH"));
     setMode(m_rdiiModeCombo,     getStr("RDII_MODE"));
-    if (m_inflowsPathEdit)  m_inflowsPathEdit->setPath(getStr("INFLOWS_PATH"));
-    if (m_outflowsPathEdit) m_outflowsPathEdit->setPath(getStr("OUTFLOWS_PATH"));
-    if (m_hotstartUseEdit)  m_hotstartUseEdit->setPath(getStr("HOTSTART_USE_PATH"));
+    if (m_inflowsPathEdit)  m_inflowsPathEdit->setPath(getPath("INFLOWS_PATH"));
+    if (m_outflowsPathEdit) m_outflowsPathEdit->setPath(getPath("OUTFLOWS_PATH"));
+    if (m_hotstartUseEdit)  m_hotstartUseEdit->setPath(getPath("HOTSTART_USE_PATH"));
 
     // Multi-row SAVE HOTSTART table (Slice BV-01).  Phase 3.10.5 — pull
     // each entry from the engine's hotstart_saves vector into the
@@ -1449,7 +1458,7 @@ void FilesPage::readFilesSectionFromEngine()
             swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &dt);
             swmm_hotstart_saves_get_format(ctx_.engine(), i, &fmt);
-            m_hotstartSavesModel->appendRow(QString::fromUtf8(pbuf),
+            m_hotstartSavesModel->appendRow(shown(QString::fromUtf8(pbuf)),
                                             dt > 0.0 ? dt : 0.0, fmt);
         }
     }
@@ -1467,15 +1476,19 @@ int FilesPage::writeFilesSectionToEngine()
         return QString::fromUtf8(buf);
     };
 
-    // Convert absolute paths to paths relative to the .inp directory
-    // so the project folder stays portable.  Relative paths pass
-    // through unchanged — the engine resolves them against the .inp
-    // directory at run time (legacy SWMM5 behaviour).
+    // Paths go to the engine absolute, resolved against the .inp folder:
+    // its [FILES] setters keep no anchor for a relative path, so the .inp
+    // writer could not rebase one on a Save As to another folder. The
+    // writer emits them relative to wherever the .inp is written, so the
+    // project stays portable. GeoPackage slot tokens (<gpkg:...>) are not
+    // paths and pass through.
     const QString inpPath = ctx_.modelLayer() ? ctx_.modelLayer()->modelFilePath() : QString();
-    auto toRelative = [&](const QString &raw) -> QString {
-        if (raw.isEmpty() || inpPath.isEmpty()) return raw;
-        if (!QDir::isAbsolutePath(raw)) return raw;
-        return ProjectSerializer::toRelativePath(raw, inpPath);
+    const QDir inpDir = QFileInfo(inpPath).absoluteDir();
+    auto toAbsolute = [&](const QString &raw) -> QString {
+        if (raw.isEmpty() || inpPath.isEmpty() || QDir::isAbsolutePath(raw)
+            || raw.startsWith(QLatin1Char('<')))
+            return raw;
+        return QDir::cleanPath(inpDir.filePath(raw));
     };
 
     auto writeIfChanged = [&](const char *key, const QString &newVal) {
@@ -1484,8 +1497,12 @@ int FilesPage::writeFilesSectionToEngine()
         if (swmm_files_set(ctx_.engine(), key, utf.constData()) == SWMM_OK)
             ++written;
     };
+    // Compared in resolved form on both sides, so an unedited path is not
+    // rewritten just because the engine holds it relative.
     auto writePathIfChanged = [&](const char *key, const QString &rawText) {
-        writeIfChanged(key, toRelative(rawText.trimmed()));
+        const QString path = toAbsolute(rawText.trimmed());
+        if (toAbsolute(getCurrent(key)) == path) return;
+        writeIfChanged(key, path);
     };
 
     if (m_rainfallPathEdit)
@@ -1519,14 +1536,13 @@ int FilesPage::writeFilesSectionToEngine()
         QList<HsRow> desired;
         const int nRows = m_hotstartSavesModel->rowCount();
         for (int row = 0; row < nRows; ++row) {
-            const QString rawPath = m_hotstartSavesModel->pathAt(row).trimmed();
-            const QString relPath = toRelative(rawPath);
-            const double dt       = m_hotstartSavesModel->oaDateAt(row);
+            const QString path = toAbsolute(m_hotstartSavesModel->pathAt(row).trimmed());
+            const double dt    = m_hotstartSavesModel->oaDateAt(row);
 
             // Skip empty rows entirely — an empty path with no datetime
             // is a stub the user never filled in.
-            if (relPath.isEmpty() && dt == 0.0) continue;
-            desired.push_back({relPath, dt, m_hotstartSavesModel->formatAt(row)});
+            if (path.isEmpty() && dt == 0.0) continue;
+            desired.push_back({path, dt, m_hotstartSavesModel->formatAt(row)});
         }
 
         // Compare against current engine state.
@@ -1540,7 +1556,7 @@ int FilesPage::writeFilesSectionToEngine()
             swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &curDt);
             swmm_hotstart_saves_get_format(ctx_.engine(), i, &curFmt);
-            if (QString::fromUtf8(pbuf) != desired[i].path) changed = true;
+            if (toAbsolute(QString::fromUtf8(pbuf)) != desired[i].path) changed = true;
             else if (curDt != desired[i].dt)                changed = true;
             else if (curFmt != desired[i].fmt)              changed = true;
         }
