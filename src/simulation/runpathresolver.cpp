@@ -12,7 +12,10 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLatin1Char>
+#include <QList>
+#include <QPair>
 #include <QSettings>
+#include <QVariant>
 
 namespace openswmmvis {
 
@@ -64,6 +67,29 @@ QString resolveRunOutputPathFromSettings(const QString &inpPath,
     QSettings s;
     const QString override_ = s.value(settingsKey).toString();
     return resolveRunOutputPath(inpPath, override_, kind);
+}
+
+void moveProjectSettings(const QString &fromPath, const QString &toPath)
+{
+    if (toPath.isEmpty() || fromPath == toPath) return;
+    const auto group = [](const QString &path) {
+        return QStringLiteral("SWMMVis/Project/%1").arg(path);
+    };
+
+    QSettings s;
+    QList<QPair<QString, QVariant>> carried;
+    if (!fromPath.isEmpty()) {
+        s.beginGroup(group(fromPath));
+        for (const QString &key : s.allKeys())
+            carried.append({key, s.value(key)});
+        s.endGroup();
+    }
+
+    s.remove(group(toPath));
+    s.beginGroup(group(toPath));
+    for (const auto &[key, value] : std::as_const(carried))
+        s.setValue(key, value);
+    s.endGroup();
 }
 
 } // namespace openswmmvis

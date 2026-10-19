@@ -15,6 +15,7 @@
 #include "core/preferencesmanager.h"
 
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -296,6 +297,18 @@ void OpenSWMMVisMapToolAddLink::setTerrain(GISRasterLayer *layer, double offset,
     m_terrainFactor = factor;
 }
 
+double OpenSWMMVisMapToolAddLink::invertElevationToOffset(SWMMModelLayer *layer,
+                                                          const QString &nodeName,
+                                                          double invertElevation)
+{
+    if (!layer || !layer->engine() || !std::isfinite(invertElevation)) return 0.0;
+    const int idx = swmm_node_index(layer->engine(), nodeName.toUtf8().constData());
+    double nodeInvert = 0.0;
+    if (idx < 0 || swmm_node_get_invert_elev(layer->engine(), idx, &nodeInvert) != SWMM_OK)
+        return 0.0;
+    return std::max(0.0, invertElevation - nodeInvert);
+}
+
 void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
                                         const QString  &toNodeName,
                                         double toCanvasX, double toCanvasY)
@@ -313,8 +326,11 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
         bool okFrom = false;
         const double zFrom = m_terrainLayer->valueAt(fromLX, fromLY,
                                                       layer->srs(), 1, &okFrom);
+        // The terrain gives an invert ELEVATION; the engine stores a depth
+        // above the end node's invert.
         if (okFrom)
-            offsetUp = zFrom * m_terrainFactor + m_terrainOffset;
+            offsetUp = invertElevationToOffset(
+                layer, m_fromNode, zFrom * m_terrainFactor + m_terrainOffset);
 
         // Resolve to-node coordinates from the layer geometry cache.
         const int toIdx = layer->nodeIndex(toNodeName);
@@ -325,7 +341,8 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
             const double zTo = m_terrainLayer->valueAt(toX, toY,
                                                        layer->srs(), 1, &okTo);
             if (okTo)
-                offsetDn = zTo * m_terrainFactor + m_terrainOffset;
+                offsetDn = invertElevationToOffset(
+                    layer, toNodeName, zTo * m_terrainFactor + m_terrainOffset);
         }
     }
 

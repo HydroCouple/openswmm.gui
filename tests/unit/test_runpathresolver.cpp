@@ -108,3 +108,67 @@ TEST(RunPathResolver, OverrideAppliesToRptAndOutIndependently)
     EXPECT_EQ(resolveRunOutputPath(inp, QString(), RunOutputKind::Out),
               QDir(tmp.path()).absoluteFilePath(QStringLiteral("model.out")));
 }
+
+// ---------------------------------------------------------------------------
+// moveProjectSettings — tutorial bug report (2026-10-17): a new project saved
+// over an old project's path inherited the old project's per-path settings
+// (2D module intent, report/output overrides).
+// ---------------------------------------------------------------------------
+
+#include <QCoreApplication>
+#include <QSettings>
+
+namespace {
+
+void useSettingsSandbox()
+{
+    QDir().mkpath(QStringLiteral(SWMMVIS_TEST_SETTINGS_DIR));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                       QStringLiteral(SWMMVIS_TEST_SETTINGS_DIR));
+    QCoreApplication::setOrganizationName(QStringLiteral("SWMMVisUnitTest"));
+    QCoreApplication::setApplicationName(QStringLiteral("test_runpathresolver"));
+    QSettings().clear();
+}
+
+QVariant projectValue(const QString &path, const QString &key)
+{
+    return QSettings().value(QStringLiteral("SWMMVis/Project/%1/%2").arg(path, key));
+}
+
+} // namespace
+
+TEST(MoveProjectSettings, UntitledSaveClearsAnOlderProjectsKeys)
+{
+    useSettingsSandbox();
+    const QString target = QStringLiteral("/p/model.inp");
+    {
+        QSettings s;
+        s.setValue(QStringLiteral("SWMMVis/Project/%1/Module2DEnabled").arg(target), true);
+        s.setValue(QStringLiteral("SWMMVis/Project/%1/OutputFilePath").arg(target),
+                   QStringLiteral("/old/run.out"));
+    }
+    openswmmvis::moveProjectSettings(QString(), target);
+    EXPECT_FALSE(projectValue(target, QStringLiteral("Module2DEnabled")).isValid());
+    EXPECT_FALSE(projectValue(target, QStringLiteral("OutputFilePath")).isValid());
+}
+
+TEST(MoveProjectSettings, RenameCarriesCurrentKeysAndReplacesStaleOnes)
+{
+    useSettingsSandbox();
+    const QString from = QStringLiteral("/p/current.inp");
+    const QString to   = QStringLiteral("/p/model.inp");
+    {
+        QSettings s;
+        s.setValue(QStringLiteral("SWMMVis/Project/%1/ReportFilePath").arg(from),
+                   QStringLiteral("/p/current.rpt"));
+        s.setValue(QStringLiteral("SWMMVis/Project/%1/Module2DEnabled").arg(to), true);
+    }
+    openswmmvis::moveProjectSettings(from, to);
+    EXPECT_EQ(projectValue(to, QStringLiteral("ReportFilePath")).toString(),
+              QStringLiteral("/p/current.rpt"));
+    EXPECT_FALSE(projectValue(to, QStringLiteral("Module2DEnabled")).isValid());
+    // The source project may still exist on disk; its keys stay.
+    EXPECT_EQ(projectValue(from, QStringLiteral("ReportFilePath")).toString(),
+              QStringLiteral("/p/current.rpt"));
+}

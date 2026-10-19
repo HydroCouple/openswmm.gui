@@ -2269,6 +2269,13 @@ signals:
      *  just the affected row/adapter without a full model rebuild. */
     void attributeChanged(const QString &objectName);
 
+    /*! Emitted by applyRename() after a node, link, subcatchment or gage was
+     *  renamed in the engine and every layer cache. Views that hold an object
+     *  by name (the property browser's bound adapter) re-key on this. It is
+     *  a notification only: handlers must not re-enter applyRename or emit
+     *  edit signals back (the panel cross-wiring would ping-pong). */
+    void objectRenamed(const QString &oldName, const QString &newName, int kind);
+
     /*! Slice §QSG-1 — fired whenever setQsgRenderKinds() flips one or
      *  more kinds. MapCanvas listens so it can short-circuit the
      *  per-frame QSG repaint+grab when the scope is empty, and the

@@ -1,4 +1,5 @@
 #include "ui/dialogs/textlayersdialog.h"
+#include "simulation/runpathresolver.h"
 #include "map/mapundostack.h"
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -1644,8 +1645,12 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 QString patExt = pat;
                 if (patExt.startsWith(QStringLiteral("*.")))
                     patExt = patExt.mid(2);
+                // The engine's own .inp plugin is writable, but it is the
+                // built-in writer: return the empty id so Save takes the
+                // staged path (swmm_model_write_staged), not the plugin path.
                 if (QString::compare(patExt, ext, Qt::CaseInsensitive) == 0)
-                    return entry.pluginId;
+                    return openswmmvis::FileFilterRegistry::isBuiltinPlugin(entry.pluginId)
+                               ? QString() : entry.pluginId;
             }
         }
         return {};
@@ -2199,8 +2204,13 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     if (chosenMesh && !chosenMesh->isExternalMesh()) chosenMesh->setSourcePath(newPath);
 
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
-    if (newPath != mModelLayer->modelFilePath())
+    if (newPath != mModelLayer->modelFilePath()) {
+        // Per-project settings are keyed by path: drop whatever an older
+        // project at newPath left there and carry this project's across.
+        openswmmvis::moveProjectSettings(mUntitled ? QString() : mModelLayer->modelFilePath(),
+                                         newPath);
         mModelLayer->setModelFilePath(newPath);
+    }
     // First successful Save As of an untitled project — promote it. The
     // model lived only in memory until now, so there is nothing on disk to
     // clean up; adopt the file's base name so the Layers panel drops

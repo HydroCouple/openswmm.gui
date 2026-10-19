@@ -110,6 +110,17 @@ public:
     QSet<QString> saveAsExtensions() const;
 
     /**
+     * @brief True for the engine's own built-in plugins
+     *        (`org.hydrocouple.openswmm.builtin.*`).
+     *
+     * @details Built-in input entries are writable Save As targets, but the
+     *          GUI writes them with the staged built-in writer
+     *          (`swmm_model_write_staged`, empty plugin id), never through
+     *          `swmm_model_write_with_plugin`.
+     */
+    static bool isBuiltinPlugin(const QString &pluginId) noexcept;
+
+    /**
      * @brief Glob patterns for a kind, deduplicated.
      */
     QStringList patternsFor(FilterKind kind) const;

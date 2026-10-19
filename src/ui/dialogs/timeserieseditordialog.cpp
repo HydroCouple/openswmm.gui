@@ -93,7 +93,12 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry,
                                                 TimeseriesProvider *initialSelection,
                                                 QWidget *parent)
     : QDialog(parent, openswmmvis::ui::floatingPanelFlags())
-    , m_undoStack(undoStack)
+    // The editor keeps its OWN history. It used to push onto (and build its
+    // Undo/Redo buttons from) the project's map stack, so its Undo undid
+    // whatever was last on that stack — a node move, a deleted pipe. The
+    // caller's stack still only decides whether undo is offered at all, and
+    // its destruction still invalidates the editor (below).
+    , m_undoStack(undoStack ? new QUndoStack(this) : nullptr)
     , m_registry(registry)
 {
     // Default the relative-path display anchor from the registry, which the

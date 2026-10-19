@@ -2979,6 +2979,16 @@ add_swmmvis_gui_test(test_control_rule_apply
 )
 swmmvis_link_full_app_deps(test_control_rule_apply)
 
+# Tutorial bug report (2026-10-17), Phase 2: terrain link offsets are depths,
+# the saved map extent survives reopen resizes, and restoring a sidecar with
+# text layers leaves the project clean.
+add_swmmvis_gui_test(test_tutorial_phase2
+    test_tutorial_phase2.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_tutorial_phase2)
+
 # Save must skip the (O(nVerts x nTris)) mesh re-push when nothing edited the
 # mesh, without dropping mesh data — and must still push once anything does.
 add_swmmvis_gui_test(test_meshsavedirty

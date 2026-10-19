@@ -44,6 +44,8 @@ private slots:
             if (!e.patterns.contains(QStringLiteral("*.inp"))) continue;
             found = true;
             QVERIFY2(e.canWrite, "the engine writes .inp through this plugin");
+            // ...but Save must route it to the staged built-in writer.
+            QVERIFY2(FileFilterRegistry::isBuiltinPlugin(e.pluginId), qPrintable(e.pluginId));
         }
         QVERIFY2(found, "engine discovery must register the built-in .inp input plugin");
     }
