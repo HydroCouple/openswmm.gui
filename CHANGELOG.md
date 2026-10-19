@@ -133,6 +133,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **Simulation Options › Files paths survive a Save As to another folder.** Paths
+  the page wrote (hot-start saves, rainfall, runoff, RDII, inflows, outflows, the
+  USE hot start) went to the engine relative to the input file, with nothing to
+  anchor them, so a Save As elsewhere wrote them relative to the old folder. Editing
+  any one scheduled hot-start save did this to all of them. The page now hands the
+  engine absolute paths, which the input-file writer emits relative to wherever the
+  file is saved, and still shows them relative to the project.
 - **Style Manager → Apply to layer now restyles the map** (user feedback batch 3, C1). The
   library file was loaded into the layer's rule list in place, which replaced every rule with
   fresh objects that carried none of the layer's hooks; the renderers never reached the painter

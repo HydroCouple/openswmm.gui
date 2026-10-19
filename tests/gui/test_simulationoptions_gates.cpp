@@ -26,6 +26,7 @@
 #include "ui/dialogs/simoptions/datespage.h"
 #include "ui/dialogs/simoptions/filespage.h"
 #include "ui/dialogs/hotstartsavesmodel.h"
+#include "ui/widgets/relativepathpicker.h"
 #include <openswmm/engine/openswmm_hotstart.h>
 #include "ui/dialogs/simoptions/modelspage.h"
 #include "ui/dialogs/simoptions/qualitypage.h"
@@ -1153,13 +1154,26 @@ void TestSimulationOptionsGates::hotstartSaveFormatsSurviveFilesPage()
     QCOMPARE(fmt, int(SWMM_HOTSTART_FORMAT_NATIVE));
     const QStringList edited = savedHotstartRows(e, out + QStringLiteral("/edited.inp"));
     QCOMPARE(edited.size(), 3);
-    // Rows the page rebuilt keep their paths as given, so only the formats
-    // are compared here (the .inp is written to a subfolder).
-    QVERIFY(edited[0].endsWith(QLatin1String("NATIVE")));
-    QVERIFY(edited[1].endsWith(QLatin1String("03:00:00 NATIVE")));
-    QVERIFY(edited[2].endsWith(QLatin1String("LEGACY")));
+    // The page rebuilds every row on an edit; the rebuilt rows still point
+    // at the same files from the subfolder the deck is written to.
+    QCOMPARE(edited[0], before[0] + QStringLiteral(" NATIVE"));
+    QCOMPARE(edited.mid(1), before.mid(1));
 
     page.read();    // what reopening the dialog shows
     QCOMPARE(model->formatAt(0), int(SWMM_HOTSTART_FORMAT_NATIVE));
     QCOMPARE(model->formatAt(2), int(SWMM_HOTSTART_FORMAT_LEGACY));
+    QCOMPARE(model->pathAt(0), QStringLiteral("end_auto.hsf"));   // shown relative
+
+    // Other [FILES] paths the page writes are rebased the same way.
+    auto *use = page.findChild<openswmmvis::ui::RelativePathPicker *>(QStringLiteral("hotstartUsePathEdit"));
+    QVERIFY(use);
+    use->setPath(QStringLiteral("warm.hsf"));
+    page.write();
+    QVERIFY(QDir().mkpath(out + QStringLiteral("/sub")));
+    QVERIFY(swmm_model_write(e, (out + QStringLiteral("/sub/use.inp")).toUtf8().constData()) == SWMM_OK);
+    QFile written(out + QStringLiteral("/sub/use.inp"));
+    QVERIFY(written.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString text = QString::fromUtf8(written.readAll());
+    QVERIFY2(text.contains(QStringLiteral("\"../../warm.hsf\"")), qPrintable(text.section(QStringLiteral("[FILES]"), 1, 1).left(400)));
+    QVERIFY(text.contains(QStringLiteral("\"../../end_auto.hsf\" NATIVE")));
 }
