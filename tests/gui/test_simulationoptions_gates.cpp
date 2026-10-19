@@ -140,6 +140,7 @@ private slots:
     void groundwaterThermalConfigurationUndoTracksTransportKeys();
     void groundwaterThermalShortcutJoinsOuterCancelUndoSegment();
     void heatConfigurationSharesOuterUndoAndCancelSegment();
+    void runtimeOverviewNavigatesToTwoDSettings();
 };
 
 namespace {
@@ -991,4 +992,88 @@ void TestSimulationOptionsGates::heatConfigurationSharesOuterUndoAndCancelSegmen
     QCOMPARE(stack.count(), 0);
     QVERIFY(!stack.canUndo());
     QVERIFY(!stack.canRedo());
+}
+
+void TestSimulationOptionsGates::runtimeOverviewNavigatesToTwoDSettings()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    SimulationOptionsDialog dialog(layer->engine(), layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    auto* quality = dialog.findChild<openswmmvis::ui::QualityPage*>();
+    auto* categories = dialog.findChild<QListWidget*>(QStringLiteral("categories"));
+    auto* pages = dialog.findChild<QStackedWidget*>(QStringLiteral("pages"));
+    QVERIFY(quality);
+    QVERIFY(categories);
+    QVERIFY(pages);
+    QUndoStack stack;
+    dialog.setUndoStack(&stack);
+
+    QString failure;
+    int phase = 0;
+    int attempts = 0;
+    auto* driver = new QTimer;
+    driver->setInterval(10);
+    QObject::connect(driver, &QTimer::timeout, [driver, &failure, &phase, &attempts, categories] {
+        if (!failure.isEmpty()) {
+            if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+                modal->reject();
+                return;
+            }
+            driver->stop();
+            driver->deleteLater();
+            return;
+        }
+        if (++attempts > 300) {
+            failure = QStringLiteral("The runtime overview navigation did not complete");
+            return;
+        }
+        if (phase == 2 && categories->currentItem() &&
+            categories->currentItem()->text().contains(QStringLiteral("2D")))
+            return;
+
+        auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (phase == 0) {
+            if (!modal || modal->objectName() != QStringLiteral("heatConfigDialog")) return;
+            auto* overview = modal->findChild<QPushButton*>(QStringLiteral("hc_runtimeOverview"));
+            auto* heat = modal->findChild<QCheckBox*>(QStringLiteral("hc_heatEnabled"));
+            if (!overview || !heat) {
+                failure = QStringLiteral("Heat Configuration did not expose its editor and overview controls");
+                return;
+            }
+            heat->setChecked(true);
+            phase = 1;
+            QTimer::singleShot(0, overview, [overview] { overview->click(); });
+            return;
+        }
+        if (phase == 1) {
+            if (!modal || modal->objectName() != QStringLiteral("hc_runtimeOverviewDialog")) return;
+            auto* openTwoD = modal->findChild<QPushButton*>(QStringLiteral("hc_overviewOpenTwoDSettings"));
+            if (!openTwoD) {
+                failure = QStringLiteral("The runtime overview did not expose 2D navigation");
+                return;
+            }
+            phase = 2;
+            openTwoD->click();
+        }
+    });
+    driver->start();
+    emit quality->showHeatSettingsRequested();
+    driver->stop();
+    driver->deleteLater();
+
+    int twoDRow = -1;
+    for (int row = 0; row < categories->count(); ++row)
+        if (categories->item(row)->text().contains(QStringLiteral("2D"))) { twoDRow = row; break; }
+    QVERIFY2(failure.isEmpty(), qPrintable(failure));
+    QVERIFY(twoDRow >= 0);
+    QCOMPARE(categories->currentRow(), twoDRow);
+    QCOMPARE(pages->currentIndex(), twoDRow);
+    QVERIFY(dialog.wroteAnyChanges());
+    int heatEnabled = 0;
+    QCOMPARE(swmm_heat_get_enabled(layer->engine(), &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 1);
+    dialog.reject();
+    QCOMPARE(swmm_heat_get_enabled(layer->engine(), &heatEnabled), SWMM_OK);
+    QCOMPARE(heatEnabled, 0);
+    QCOMPARE(stack.count(), 0);
 }

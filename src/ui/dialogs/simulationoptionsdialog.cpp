@@ -230,6 +230,11 @@ void SimulationOptionsDialog::buildUi()
         bool assignRaster=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::rasterAssignmentRequested,&dialog,[&]{assignRaster=true;});
         bool editRadiation=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::radiationEditorRequested,&dialog,[&]{editRadiation=true;});
         bool editGroundwaterSettings=false;connect(&dialog,&OpenSWMMVis::HeatConfigDialog::groundwaterSettingsRequested,&dialog,[&]{editGroundwaterSettings=true;});
+#ifdef OPENSWMM_HAS_2D
+        bool openTwoDSettings=false;
+        dialog.setTwoDTransportNavigationEnabled(m_twoDPage && m_2DRow >= 0);
+        connect(&dialog,&OpenSWMMVis::HeatConfigDialog::twoDSettingsRequested,&dialog,[&]{openTwoDSettings=true;});
+#endif
         if(m_layer){connect(m_layer,&SWMMModelLayer::engineAboutToClose,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);connect(m_layer,&QObject::destroyed,&dialog,&OpenSWMMVis::HeatConfigDialog::invalidateEngine);}
         dialog.exec();
         if(!m_engine)return;
@@ -277,6 +282,8 @@ void SimulationOptionsDialog::buildUi()
                 emit m_layer->optionsChanged(optionKeys);
             }
         }
+        if(openTwoDSettings&&m_categoryList&&m_2DRow>=0)
+            m_categoryList->setCurrentRow(m_2DRow);
 #endif
 
         refreshGates();

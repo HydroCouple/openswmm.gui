@@ -46,6 +46,7 @@
 #include <QSet>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTimer>
 #include <QTextBrowser>
 #include <QVBoxLayout>
 #include <QVector>
@@ -187,6 +188,10 @@ HeatConfigDialog::HeatConfigDialog(SWMM_Engine engine, QWidget *parent)
 }
 
 void HeatConfigDialog::setTransportRequested(bool enabled) { m_heatEnabled->setChecked(enabled); }
+void HeatConfigDialog::setTwoDTransportNavigationEnabled(bool enabled)
+{
+    m_twoDTransportNavigationEnabled = enabled;
+}
 
 void HeatConfigDialog::invalidateEngine()
 {
@@ -1442,6 +1447,7 @@ void HeatConfigDialog::showRuntimeOverview()
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Saved and runtime process overview"));
     dialog.setObjectName(QStringLiteral("hc_runtimeOverviewDialog"));
+    bool openTwoDSettings = false;
     auto *layout = new QVBoxLayout(&dialog);
     auto *text = new QTextBrowser(&dialog);
     text->setObjectName(QStringLiteral("hc_runtimeOverviewText"));
@@ -1451,9 +1457,27 @@ void HeatConfigDialog::showRuntimeOverview()
     layout->addWidget(text, 1);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (m_twoDTransportNavigationEnabled) {
+        auto *openTwoD = buttons->addButton(tr("Open 2D transport settings…"), QDialogButtonBox::ActionRole);
+        openTwoD->setObjectName(QStringLiteral("hc_overviewOpenTwoDSettings"));
+        openTwoD->setToolTip(tr("Close this overview, apply the heat-editor draft, and select the 2D transport controls."));
+        connect(openTwoD, &QPushButton::clicked, &dialog, [&dialog, &openTwoDSettings] {
+            openTwoDSettings = true;
+            dialog.accept();
+        });
+    }
     layout->addWidget(buttons);
     dialog.resize(760, 520);
-    dialog.exec();
+    const int overviewResult = dialog.exec();
+    if (overviewResult == QDialog::Accepted && openTwoDSettings) {
+        // Leave the overview's nested exec stack before accepting the parent
+        // editor. This lets its own modal loop finish cleanly before the
+        // parent Simulation Options route selects the 2D page.
+        QTimer::singleShot(0, this, [this] {
+            onAccept();
+            if (result() == QDialog::Accepted) emit twoDSettingsRequested();
+        });
+    }
 }
 
 void HeatConfigDialog::addElementOverride()
