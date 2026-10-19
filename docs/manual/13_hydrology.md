@@ -301,6 +301,13 @@ UEB update interval uses the global snow step. Mesh assignments preserve the
 pack's existing subcatchment assignments and support Undo; stop and reset a run
 before editing them.
 
+Mesh UEB uses the project's **Pervious** `[ADC]` curve to evolve fractional snow
+cover as the pack melts. The covered fraction sets the area of reciprocal UEB to
+soil heat contact; the exposed fraction remains available to the mesh ground
+boundary. The mesh UEB energy ledger reports the energy change from cover/depth
+remapping separately. Mesh snow does not inherit subcatchment plowing or snow
+state.
+
 \fig{13_snowpack_editor.png, SP1 showing the classic four parameter groups in the earlier editor; snowmelt is disabled in this example}
 
 ### Aquifer editor
