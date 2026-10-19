@@ -1460,7 +1460,9 @@ void HeatConfigDialog::showRuntimeOverview()
     if (m_twoDTransportNavigationEnabled) {
         auto *openTwoD = buttons->addButton(tr("Open 2D transport settings…"), QDialogButtonBox::ActionRole);
         openTwoD->setObjectName(QStringLiteral("hc_overviewOpenTwoDSettings"));
-        openTwoD->setToolTip(tr("Close this overview, apply the heat-editor draft, and select the 2D transport controls."));
+        openTwoD->setAccessibleName(tr("Open 2D transport settings"));
+        openTwoD->setAccessibleDescription(tr("Applies the current heat settings draft, then opens the 2D transport controls."));
+        openTwoD->setToolTip(openTwoD->accessibleDescription());
         connect(openTwoD, &QPushButton::clicked, &dialog, [&dialog, &openTwoDSettings] {
             openTwoDSettings = true;
             dialog.accept();

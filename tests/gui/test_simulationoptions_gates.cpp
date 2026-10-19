@@ -1052,8 +1052,13 @@ void TestSimulationOptionsGates::runtimeOverviewNavigatesToTwoDSettings()
                 failure = QStringLiteral("The runtime overview did not expose 2D navigation");
                 return;
             }
+            if (openTwoD->accessibleName().isEmpty() || openTwoD->accessibleDescription().isEmpty()) {
+                failure = QStringLiteral("The 2D navigation action is missing its accessible name or description");
+                return;
+            }
             phase = 2;
-            openTwoD->click();
+            openTwoD->setFocus(Qt::OtherFocusReason);
+            QTest::keyClick(openTwoD, Qt::Key_Space);
         }
     });
     driver->start();
