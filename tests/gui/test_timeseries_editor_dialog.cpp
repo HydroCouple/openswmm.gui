@@ -420,9 +420,14 @@ private slots:
         QVERIFY(add != nullptr);
         add->trigger();
         QCOMPARE(p.pointCount(), 1);
-        // Time is "now" (UTC) — just confirm it's within a small window.
-        const qint64 ds = QDateTime::currentDateTimeUtc().secsTo(p.pointAt(0).time);
-        QVERIFY(std::abs(ds) < 5);
+        // Time is "now" (UTC) on a whole minute: the grid shows HH:mm, so
+        // clock seconds were invisible but still written to the .inp
+        // (tutorial bug report, 2026-10-17).
+        const QDateTime t0 = p.pointAt(0).time;
+        QCOMPARE(t0.time().second(), 0);
+        QCOMPARE(t0.time().msec(), 0);
+        const qint64 ds = t0.secsTo(QDateTime::currentDateTimeUtc());
+        QVERIFY2(ds >= 0 && ds < 65, qPrintable(QString::number(ds)));
     }
 
     void deleteRowsRemovesSelection()

@@ -87,7 +87,11 @@ void NewProjectDialog::buildUi()
     m_crsBtn = new QPushButton(tr("Choose…"), this);
     crsRow->addWidget(m_crsEdit, 1);
     crsRow->addWidget(m_crsBtn);
-    form->addRow(tr("&CRS"), crsRow);
+    // addRow(QString, QLayout*) builds a buddy-less label, which shows the
+    // '&' literally ("&CRS"). Give the mnemonic a widget to focus.
+    auto *crsLabel = new QLabel(tr("&CRS"), this);
+    crsLabel->setBuddy(m_crsBtn);
+    form->addRow(crsLabel, crsRow);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                      this);

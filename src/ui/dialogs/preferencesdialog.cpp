@@ -309,7 +309,7 @@ QWidget *PreferencesDialog::buildSelectionPage()
     // PreferencesManager. Width semantics for the link pen are
     // ADDITIVE — see PreferencesManager::selectionPen() docs.
     auto *page2 = page;   // keep `page` reference for QFormLayout above
-    auto *selGroup = new QGroupBox(tr("Selection Pens & Fills"), page2);
+    auto *selGroup = new QGroupBox(tr("Selection Pens && Fills"), page2);   // '&&': a lone '&' is a mnemonic and vanished
     auto *gv       = new QVBoxLayout(selGroup);
     gv->setContentsMargins(8, 8, 8, 8);
 

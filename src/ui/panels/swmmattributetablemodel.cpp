@@ -5,6 +5,7 @@
  */
 
 #include "core/attributevalue.h"
+#include "core/displaynumber.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/heatpropertyedit.h"
 
@@ -3003,7 +3004,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         const int scope=link?SWMM_HEAT_SCOPE_LINK:SWMM_HEAT_SCOPE_NODE;
         const auto name=objectNameAt(row);const auto engine=m_layer->engine();
         const auto authored=OpenSWMMVis::authoredHeatProperty(engine,attr,scope,name);
-        if(role==Qt::EditRole)return authored.isValid()?QVariant(QString::number(authored.toDouble(),'g',17)):QVariant(QString());
+        if(role==Qt::EditRole)return authored.isValid()?QVariant(openswmmvis::displayNumber(authored.toDouble())):QVariant(QString());
         return authored;
     }
 
@@ -3027,7 +3028,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         const auto vit =
             it->constFind(spec.key.mid(kInitQualityKeyPrefix.size()));
         if (vit == it->constEnd()) return role == Qt::EditRole ? QVariant(QString()) : QVariant();
-        return role == Qt::EditRole ? QVariant(QString::number(*vit, 'g', 17)) : QVariant(*vit);
+        return role == Qt::EditRole ? QVariant(openswmmvis::displayNumber(*vit)) : QVariant(*vit);
     }
 
     // Columns with an engine tag read through that tag's getter so the

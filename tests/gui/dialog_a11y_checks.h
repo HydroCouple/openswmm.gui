@@ -106,9 +106,31 @@ inline void assertPersistenceNaming(QDialog *dlg)
     }
 }
 
+/// A lone '&' is a mnemonic marker. On a QLabel without a buddy Qt shows it
+/// literally ("&CRS"); on a group box title before a space it is swallowed
+/// ("Selection Pens Fills"). Literal ampersands must be written "&&".
+inline void assertNoStrayAmpersands(QWidget *root)
+{
+    static const QRegularExpression lone(QStringLiteral("(^|[^&])&([^&]|$)"));
+    for (QLabel *label : root->findChildren<QLabel *>()) {
+        if (label->textFormat() == Qt::RichText || Qt::mightBeRichText(label->text()))
+            continue;
+        if (lone.match(label->text()).hasMatch())
+            QVERIFY2(label->buddy(),
+                     qPrintable(QStringLiteral("label \"%1\" shows a literal '&': give it a buddy or write '&&'")
+                                    .arg(label->text())));
+    }
+    static const QRegularExpression swallowed(QStringLiteral("(^|[^&])& "));
+    for (QGroupBox *box : root->findChildren<QGroupBox *>())
+        QVERIFY2(!swallowed.match(box->title()).hasMatch(),
+                 qPrintable(QStringLiteral("group box \"%1\" loses its '&': write '&&'")
+                                .arg(box->title())));
+}
+
 inline void assertDialogA11y(QDialog *dlg)
 {
     assertMnemonicsUnique(dlg);
+    assertNoStrayAmpersands(dlg);
     assertIconButtonsNamed(dlg);
     assertPersistenceNaming(dlg);
 }

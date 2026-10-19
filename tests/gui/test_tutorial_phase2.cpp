@@ -17,7 +17,16 @@
  *         Outputs (the round-trip .oswp) go to <test binary dir>/output/
  *         tutorial_phase2 so they can be reviewed.
  */
+#include "core/displaynumber.h"
+#include "dialog_a11y_checks.h"
 #include "layers/annotationlayer.h"
+#include "layers/gisrasterlayer.h"
+#include "ui/dialogs/addbasemapdialog.h"
+#include "ui/dialogs/layerstyledialog.h"
+#include "ui/dialogs/newprojectdialog.h"
+#include "ui/dialogs/preferencesdialog.h"
+#include "ui/dialogs/rastersymbologypanel.h"
+#include "ui/dialogs/symbologytab.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
@@ -37,6 +46,9 @@
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
+
+#include <gdal_priv.h>
+#include <ogr_spatialref.h>
 
 #include <cmath>
 
@@ -68,6 +80,12 @@ private slots:
     void savedExtentSurvivesRepeatedReopenResizes();
     void sidecarWithTextLayerOpensClean();
     void propertiesPanelFollowsRenameFromAnotherView();
+
+    // Phase 4 — polish, and guards for items fixed before the report.
+    void displayNumberHidesRepresentationNoise();
+    void dialogsHaveNoStrayAmpersands();
+    void basemapStaysBelowRasterLayers();
+    void demStyleDialogShowsRasterSymbology();
 };
 
 void TestTutorialPhase2::terrainInvertBecomesDepthAboveNodeInvert()
@@ -184,6 +202,74 @@ void TestTutorialPhase2::propertiesPanelFollowsRenameFromAnotherView()
     QCOMPARE(y, -7.0);
     QCOMPARE(edited.count(), 1);
     QCOMPARE(edited.first().at(0).toString(), QStringLiteral("Inlet_A"));
+}
+
+void TestTutorialPhase2::displayNumberHidesRepresentationNoise()
+{
+    QCOMPARE(openswmmvis::displayNumber(3.2499999999999996), QStringLiteral("3.25"));
+    QCOMPARE(openswmmvis::displayNumber(0.1 + 0.2), QStringLiteral("0.3"));
+    QCOMPARE(openswmmvis::displayNumber(123456.789012345), QStringLiteral("123456.789012345"));
+}
+
+void TestTutorialPhase2::dialogsHaveNoStrayAmpersands()
+{
+    NewProjectDialog newProject;
+    swmmvis_test::assertNoStrayAmpersands(&newProject);
+    AddBasemapDialog basemap;
+    swmmvis_test::assertNoStrayAmpersands(&basemap);
+    PreferencesDialog preferences;
+    swmmvis_test::assertNoStrayAmpersands(&preferences);
+}
+
+namespace {
+/*! A layer of a given type, for stack-order checks without real data. */
+class TypedStubLayer : public OpenSWMMVisAnnotationLayer
+{
+public:
+    TypedStubLayer(const QString &name, OpenSWMMVisLayer::OpenSWMMVisLayerType type)
+        : OpenSWMMVisAnnotationLayer(name) { setLayerType(type); }
+};
+} // namespace
+
+void TestTutorialPhase2::basemapStaysBelowRasterLayers()
+{
+    // Reported: "The basemap was drawn on top of the DEM" (fixed af6127e3).
+    // Index 0 is the bottom of the stack, drawn first.
+    for (const bool basemapFirst : {false, true}) {
+        TypedStubLayer dem(QStringLiteral("dem"), OpenSWMMVisLayer::SWMMRasterLayer);
+        TypedStubLayer basemap(QStringLiteral("osm"), OpenSWMMVisLayer::SWMMImageryLayer);
+        MapCanvas canvas;   // declared after the layers: destroyed first
+        if (basemapFirst) { canvas.addLayer(&basemap, false); canvas.addLayer(&dem, false); }
+        else              { canvas.addLayer(&dem, false);     canvas.addLayer(&basemap, false); }
+        const auto layers = canvas.layers();
+        QVERIFY2(layers.indexOf(&basemap) < layers.indexOf(&dem),
+                 basemapFirst ? "basemap added first" : "basemap added after the DEM");
+    }
+}
+
+void TestTutorialPhase2::demStyleDialogShowsRasterSymbology()
+{
+    // Reported: "The DEM symbology page showed an empty vector renderer"
+    // (fixed 84809234).
+    const QString tif = QDir(outputDir()).filePath(QStringLiteral("dem.tif"));
+    GDALAllRegister();
+    auto *ds = GetGDALDriverManager()->GetDriverByName("GTiff")
+                   ->Create(tif.toUtf8().constData(), 8, 8, 1, GDT_Float32, nullptr);
+    QVERIFY(ds);
+    OGRSpatialReference srs; srs.importFromEPSG(25832);
+    char *wkt = nullptr; srs.exportToWkt(&wkt); ds->SetProjection(wkt); CPLFree(wkt);
+    double gt[] = {590000, 10, 0, 6140000, 0, -10};
+    ds->SetGeoTransform(gt);
+    std::vector<float> z(64, 12.5f);
+    QCOMPARE(ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, 8, 8, z.data(), 8, 8,
+                                            GDT_Float32, 0, 0), CE_None);
+    GDALClose(ds);
+
+    GISRasterLayer dem(tif);
+    QCOMPARE(dem.bandCount(), 1);
+    openswmmvis::ui::LayerStyleDialog dialog(&dem);
+    QVERIFY2(dialog.findChild<openswmmvis::ui::RasterSymbologyPanel *>(), "a DEM must get raster symbology");
+    QVERIFY2(!dialog.findChild<openswmmvis::ui::SymbologyTab *>(), "a DEM must not get the vector renderer page");
 }
 
 QTEST_MAIN(TestTutorialPhase2)

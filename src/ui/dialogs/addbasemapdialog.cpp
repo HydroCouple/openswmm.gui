@@ -244,7 +244,10 @@ void AddBasemapDialog::setupUiXYZ(QWidget *page)
 
     form->addRow(tr("Name:"),             m_xyzName);
     form->addRow(tr("URL template:"),     m_xyzUrl);
-    form->addRow(tr("&Zoom range:"),       zoomRow);
+    // A row layout gets a buddy-less label that would show "&Zoom".
+    auto *zoomLabel = new QLabel(tr("&Zoom range:"), page);
+    zoomLabel->setBuddy(m_xyzZMin);
+    form->addRow(zoomLabel,               zoomRow);
     form->addRow(tr("Tile pixel ratio:"), m_xyzPixRatio);
     form->addRow(tr("Axis order:"),       m_xyzAxis);
     vlay->addLayout(form);

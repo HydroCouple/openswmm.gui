@@ -1,4 +1,5 @@
 #include "assignment/rasterfluxintegration.h"
+#include "core/displaynumber.h"
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
 #include <QSet>
@@ -75,7 +76,7 @@ RasterFluxResult integrate(const RasterFluxRequest&j,const std::function<bool()>
   const double tolerance=cellArea*1e-10;
   if(!std::isfinite(cellValid.value)||!std::isfinite(cellFlow.value)||cellValid.value>cellArea+tolerance)return failure(QObject::tr("Integrated area or flow is numerically invalid."));
   const double uncovered=std::max(0.,cellArea-cellValid.value);const bool incomplete=uncovered>tolerance;
-  if(j.coverage==RasterFluxCoverage::Complete&&incomplete)return failure(QObject::tr("Cell %1 has %2 m² without valid raster coverage. Choose valid-area integration explicitly or provide complete coverage.").arg(j.cells[i]+1).arg(uncovered,0,'g',17));
+  if(j.coverage==RasterFluxCoverage::Complete&&incomplete)return failure(QObject::tr("Cell %1 has %2 m² without valid raster coverage. Choose valid-area integration explicitly or provide complete coverage.").arg(j.cells[i]+1).arg(openswmmvis::displayNumber(uncovered)));
   if(cellValid.value<=0)++r.emptyCells;else if(incomplete)++r.partialCells;
   r.flows.append(cellValid.value>0?cellFlow.value:std::numeric_limits<double>::quiet_NaN());r.validAreas.append(std::min(cellArea,cellValid.value));r.uncoveredAreas.append(uncovered);
   selected.add(cellArea);valid.add(r.validAreas.last());missing.add(uncovered);flow.add(cellFlow.value);
