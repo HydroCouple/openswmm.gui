@@ -38,11 +38,30 @@
 #include "project/projectserializer.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/panels/propertiespanel.h"
+#include "ui/properties/dataobjectpickereditor.h"
+#include "ui/properties/dataobjectref.h"
+#include "ui/properties/swmmlinkpropertyadapter.h"
+#include "ui/widgets/labeledcontrols.h"
+#include "aquifer/aquiferregistry.h"
+#include "curve/curveregistry.h"
+#include "inlet/inletregistry.h"
+#include "lid/lidcontrolregistry.h"
+#include "pollutant/pollutantregistry.h"
+#include "snowpack/snowpackregistry.h"
+#include "street/streetregistry.h"
+#include "timeseries/timeseriesregistry.h"
+#include "transect/transectregistry.h"
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_tables.h>
+#include <QComboBox>
 
 #include <QCoreApplication>
 #include <QDir>
@@ -113,6 +132,10 @@ private slots:
     // Phase 5 — owner's CRS rule.
     void provisionalProjectTakesTheChosenCrs();
     void sidecarDoesNotRecordAnUnassignedCrs();
+
+    // Data objects selectable at creation; typed curve pickers.
+    void newPumpCurveIsSelectableAndAssignableAtOnce();
+    void everyDataObjectKindReachesTheEngineAtCreation();
 };
 
 void TestTutorialPhase2::terrainInvertBecomesDepthAboveNodeInvert()
@@ -384,6 +407,107 @@ void TestTutorialPhase2::sidecarDoesNotRecordAnUnassignedCrs()
     QVERIFY2(!layer.contains(QStringLiteral("crsAuthority")), json.constData());
     delete window;
     delete ws;
+}
+
+namespace {
+QStringList pickerItems(const DataObjectRef &ref)
+{
+    DataObjectPickerEditor editor;
+    editor.setValue(ref);
+    QStringList out;
+    if (auto *combo = editor.findChild<QComboBox *>())
+        for (int i = 1; i < combo->count(); ++i)   // 0 is "(none)"
+            out << combo->itemText(i);
+    return out;
+}
+} // namespace
+
+void TestTutorialPhase2::newPumpCurveIsSelectableAndAssignableAtOnce()
+{
+    // Reported: "when pump curves are created, they are not immediately
+    // selectable to be applied to pumps." The curve lived only in the GUI
+    // registry until its editor closed.
+    SWMMModelLayer layer(fixture(QStringLiteral("selection_trace_fixture.inp")), nullptr);
+    QList<QString> w, e;
+    QVERIFY(layer.loadModel(w, e));
+    SWMM_Engine eng = layer.engine();
+    auto *curves = qobject_cast<openswmmvis::curve::CurveRegistry *>(layer.ensureCurveRegistry());
+    QVERIFY(curves);
+    QVERIFY(curves->create(QStringLiteral("NewLift"), openswmmvis::curve::CurveType::Pump3));
+    QVERIFY(curves->create(QStringLiteral("NewTank"), openswmmvis::curve::CurveType::Storage));
+    QVERIFY(curves->create(QStringLiteral("NewRating"), openswmmvis::curve::CurveType::Rating));
+
+    SWMMPumpPropertyAdapter pump(eng, QStringLiteral("P1"));
+    pump.setModelLayer(&layer);
+    DataObjectRef ref = pump.pumpCurveRef();
+    QCOMPARE(ref.kind, DataObjectRef::PumpCurve);
+    const QStringList pumpChoices = pickerItems(ref);
+    QVERIFY2(pumpChoices.contains(QStringLiteral("NewLift")), qPrintable(pumpChoices.join(',')));
+    QVERIFY2(!pumpChoices.contains(QStringLiteral("NewTank")), "pumps list pump curves only");
+    QVERIFY2(!pumpChoices.contains(QStringLiteral("NewRating")), "pumps list pump curves only");
+
+    ref.currentName = QStringLiteral("NewLift");
+    pump.setPumpCurveRef(ref);
+    int curveIdx = -1;
+    QCOMPARE(swmm_link_get_pump_curve(eng, swmm_link_index(eng, "P1"), &curveIdx), SWMM_OK);
+    QVERIFY(curveIdx >= 0);
+    QCOMPARE(QString::fromUtf8(swmm_table_id(eng, curveIdx)), QStringLiteral("NewLift"));
+
+    // A curve of another type already on a pump stays visible (not blanked).
+    DataObjectRef legacy = ref;
+    legacy.currentName = QStringLiteral("NewTank");
+    QVERIFY(pickerItems(legacy).contains(QStringLiteral("NewTank")));
+
+    // Rating curves are offered to tabular outlets.
+    DataObjectRef outlet = ref;
+    outlet.kind = DataObjectRef::RatingCurve;
+    outlet.currentName.clear();
+    QCOMPARE(pickerItems(outlet), QStringList{QStringLiteral("NewRating")});
+}
+
+void TestTutorialPhase2::everyDataObjectKindReachesTheEngineAtCreation()
+{
+    SWMMModelLayer layer(fixture(QStringLiteral("selection_trace_fixture.inp")), nullptr);
+    QList<QString> w, e;
+    QVERIFY(layer.loadModel(w, e));
+    SWMM_Engine eng = layer.engine();
+    const QByteArray n = "Fresh";
+
+    auto *ts = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(layer.ensureTimeseriesRegistry());
+    QVERIFY(ts && ts->create(QString::fromLatin1(n)));
+    QVERIFY(layer.tableIdsOfType(0).contains(QString::fromLatin1(n)));
+
+    auto *tr = qobject_cast<openswmmvis::transect::TransectRegistry *>(layer.ensureTransectRegistry());
+    auto *st = qobject_cast<openswmmvis::street::StreetRegistry *>(layer.ensureStreetRegistry());
+    auto *in = qobject_cast<openswmmvis::inlet::InletRegistry *>(layer.ensureInletRegistry());
+    auto *li = qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer.ensureLidControlRegistry());
+    auto *sp = qobject_cast<openswmmvis::snowpack::SnowpackRegistry *>(layer.ensureSnowpackRegistry());
+    auto *aq = qobject_cast<openswmmvis::aquifer::AquiferRegistry *>(layer.ensureAquiferRegistry());
+    auto *po = qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer.ensurePollutantRegistry());
+    QVERIFY(tr && st && in && li && sp && aq && po);
+
+    auto *trP = tr->create(QString::fromLatin1(n)); QVERIFY(trP);
+    auto *stP = st->create(QString::fromLatin1(n)); QVERIFY(stP);
+    auto *inP = in->create(QString::fromLatin1(n)); QVERIFY(inP);
+    auto *liP = li->create(QString::fromLatin1(n)); QVERIFY(liP);
+    auto *spP = sp->create(QString::fromLatin1(n)); QVERIFY(spP);
+    auto *aqP = aq->create(QString::fromLatin1(n)); QVERIFY(aqP);
+    auto *poP = po->create(QString::fromLatin1(n)); QVERIFY(poP);
+
+    QVERIFY2(swmm_transect_index(eng, n) >= 0, "transect");
+    QVERIFY2(swmm_street_index(eng, n) >= 0, "street");
+    QVERIFY2(swmm_inlet_index(eng, n) >= 0, "inlet");
+    QVERIFY2(swmm_lid_index(eng, n) >= 0, "LID control");
+    QVERIFY2(swmm_snowpack_index(eng, n) >= 0, "snowpack");
+    QVERIFY2(swmm_aquifer_index(eng, n) >= 0, "aquifer");
+    QVERIFY2(swmm_pollutant_index(eng, n) >= 0, "pollutant");
+
+    // Deleting (or undoing the create) leaves no engine copy behind.
+    st->remove(stP); li->remove(liP); sp->remove(spP); po->remove(poP);
+    QCOMPARE(swmm_street_index(eng, n), -1);
+    QCOMPARE(swmm_lid_index(eng, n), -1);
+    QCOMPARE(swmm_snowpack_index(eng, n), -1);
+    QCOMPARE(swmm_pollutant_index(eng, n), -1);
 }
 
 QTEST_MAIN(TestTutorialPhase2)

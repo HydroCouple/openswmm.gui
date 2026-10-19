@@ -74,6 +74,8 @@ struct DataObjectRef
                              ///  Every node EXCEPT virtual / inlet junctions
                              ///  (engine rule 627). Selection only — nodes
                              ///  are created on the map.
+        PumpCurve      = 16, ///< Curves of type PUMP1..PUMP5 (engine 7..11).
+        RatingCurve    = 17, ///< Curves of type RATING (engine 3) — tabular outlets.
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)

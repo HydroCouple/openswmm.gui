@@ -26,6 +26,23 @@ namespace openswmmvis::timeseries {
 
 namespace {
 constexpr int kTableTypeTimeseries = 0;   // openswmm::TableType::TIMESERIES
+
+/*! Engine index of the TIMESERIES named \p name, or -1. A same-named curve
+ *  is a different object (legacy keeps separate tables), so it never
+ *  matches; swmm_table_index would fall back to one. */
+int seriesTableIndex(SWMM_Engine eng, const QString &name)
+{
+    const int n = swmm_table_count(eng);
+    for (int i = 0; i < n; ++i) {
+        int type = -1;
+        if (swmm_table_get_type(eng, i, &type) != SWMM_OK || type != kTableTypeTimeseries)
+            continue;
+        const char *id = swmm_table_id(eng, i);
+        if (id && name.compare(QString::fromUtf8(id), Qt::CaseInsensitive) == 0)
+            return i;
+    }
+    return -1;
+}
 } // namespace
 
 TimeseriesRegistry::TimeseriesRegistry(QObject *parent)
@@ -58,6 +75,16 @@ TimeseriesProvider *TimeseriesRegistry::create(const QString& name)
                 emit providerRenamed(p, prev, now);
             });
 
+    // Reach the engine at creation so gages, outfalls and inflows can select
+    // the series while its editor is still open (pickers list, and setters
+    // resolve, engine names). Points follow through saveToEngine. Skipped
+    // when the engine already has it (loadFromEngine).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        if (seriesTableIndex(eng, name) < 0)
+            swmm_timeseries_add(eng, name.toUtf8().constData());
+    }
+
     emit providerAdded(p);
     return p;
 }
@@ -74,8 +101,7 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
     // makes redundant).
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
-        const int idx =
-            swmm_table_index(eng, p->name().toUtf8().constData());
+        const int idx = seriesTableIndex(eng, p->name());
         if (idx >= 0) swmm_table_delete(eng, idx, nullptr);
     }
 
@@ -88,13 +114,19 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
 bool TimeseriesRegistry::rename(TimeseriesProvider *p, const QString& newName)
 {
     if (!p || newName.isEmpty()) return false;
-    if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
-        // Same name (possibly different case) — apply directly without uniqueness check.
-        p->setName(newName);
-        return true;
-    }
-    if (hasName(newName)) return false;  // Collision with a different provider.
+    const bool caseOnly = p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName)) return false;  // Collision with a different provider.
 
+    // Engine first: the series exists there from creation, and renaming only
+    // the provider would leave the old table behind (and the next flush would
+    // add a second). swmm_table_rename also rewrites gage / inflow / outfall
+    // name references.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = seriesTableIndex(eng, p->name());
+        if (idx >= 0 && swmm_table_rename(eng, idx, newName.toUtf8().constData()) != SWMM_OK)
+            return false;
+    }
     p->setName(newName);                  // nameChanged signal updates m_byLowerName.
     return true;
 }
@@ -238,11 +270,11 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
         && !fileBacked) return false;
 
     const QByteArray idUtf8 = p->name().toUtf8();
-    int idx = swmm_table_index(eng, idUtf8.constData());
+    int idx = seriesTableIndex(eng, p->name());
     if (idx < 0) {
         // Create a new timeseries in the engine. Requires BUILDING state.
         if (swmm_timeseries_add(eng, idUtf8.constData()) != SWMM_OK) return false;
-        idx = swmm_table_index(eng, idUtf8.constData());
+        idx = seriesTableIndex(eng, p->name());
         if (idx < 0) return false;
     } else if (!fileBacked) {
         // Existing — wipe before re-add so deleted points don't linger.

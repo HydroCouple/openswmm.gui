@@ -44,6 +44,17 @@ AquiferProvider *AquiferRegistry::create(const QString &name)
     m_providers.push_back(p);
     m_byLowerName.insert(name.toLower(), p);
     wireProviderSignals_(p);
+    // Reach the engine at creation so the object can be selected where it
+    // is referenced (pickers list engine names, setters resolve them there)
+    // while its editor is still open. Parameters follow through
+    // saveToEngine. Skipped when the engine already has it (loadFromEngine).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray id = name.toUtf8();
+        if (swmm_aquifer_index(eng, id.constData()) < 0)
+            swmm_aquifer_add(eng, id.constData());
+    }
+
     emit providerAdded(p);
     return p;
 }

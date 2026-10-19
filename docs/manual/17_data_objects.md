@@ -176,7 +176,14 @@ preserved verbatim on save, so round-tripping a deck does not rewrite it.
 
 **Model → Data Objects → Curves…** opens the three-pane curve editor: list,
 X/Y grid, and a live preview chart. The grid's column headers and the chart's
-axis titles follow the curve type.
+axis titles follow the curve type and show the project's units, for example
+"Head (ft)" and "Flow (CFS)", or "Head (m)" and "Flow (CMS)" in an SI model.
+Shape and control curves are dimensionless and show no unit.
+
+A curve is part of the model as soon as you create it, so you can assign it to
+a pump, storage unit, outlet or outfall while the editor is still open. A
+pump's curve list offers only pump curves (types 1–5), and a tabular
+outlet's offers only rating curves.
 
 \fig{17_curve_editor.png, The Curve editor with a rating curve — note the Head and Flow headers the type selects}
 
@@ -198,7 +205,7 @@ The chart's head ticks are rounded; use the point grid for exact values.
 | **Pump 2** | Depth | Flow (on/off) |
 | **Pump 3** | Head | Flow (continuous) |
 | **Pump 4** | Depth | Flow (continuous) |
-| **Pump 5** | Depth | Flow (variable speed) |
+| **Pump 5** | Head | Flow (variable speed) |
 
 The list pane has a **Filter** combo (**All types**, or one type) alongside
 **New**, **Rename** and **Delete**; the right-click menu offers the same.

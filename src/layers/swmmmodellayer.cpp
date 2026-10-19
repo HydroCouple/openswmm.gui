@@ -2081,6 +2081,21 @@ QStringList SWMMModelLayer::tableIdsOfType(int tableType) const
     return out;
 }
 
+QStringList SWMMModelLayer::tableIdsOfTypes(const QList<int> &tableTypes) const
+{
+    QStringList out;
+    if (!m_engine) return out;
+    const int n = swmm_table_count(m_engine);
+    for (int i = 0; i < n; ++i) {
+        int t = -1;
+        if (swmm_table_get_type(m_engine, i, &t) != SWMM_OK || !tableTypes.contains(t))
+            continue;
+        if (const char *id = swmm_table_id(m_engine, i))
+            if (*id) out << QString::fromUtf8(id);
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Slice DB.4b — createDataObject (extracted from ObjectBrowserPanel)
 // ---------------------------------------------------------------------------

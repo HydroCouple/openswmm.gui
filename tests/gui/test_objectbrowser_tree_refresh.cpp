@@ -118,9 +118,11 @@ private slots:
         QVERIFY2(leaves.contains(QStringLiteral("TS_NEW")),
                  qPrintable(QStringLiteral("leaves: ") + leaves.join(QLatin1Char(','))));
 
-        // Pins the registry-preferred count source: the engine must NOT
-        // have the staged series yet (no saveToEngine was called).
-        QVERIFY(swmm_table_index(layer->engine(), "TS_NEW") < 0);
+        // Since 2026-10-19 a create reaches the engine at once (so gages and
+        // outfalls can select the series while its editor is open). The
+        // count above stays before + 1: the tree must not list it twice.
+        QVERIFY(swmm_table_index(layer->engine(), "TS_NEW") >= 0);
+        QCOMPARE(leaves.count(QStringLiteral("TS_NEW")), 1);
     }
 
     // 2. Delete-path staleness: after remove()+saveToEngine() (what

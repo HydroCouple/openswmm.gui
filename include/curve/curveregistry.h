@@ -37,6 +37,8 @@ public:
     bool hasName(const QString &name) const { return findByName(name) != nullptr; }
 
     /*! \brief Create + own a new provider with the given name + type.
+     *  When an engine is bound (loadFromEngine / saveToEngine) the curve is
+     *  added to it at once, so it can be referenced before any flush.
      *  \returns the new provider, or nullptr if the name collides. */
     CurveProvider *create(const QString &name, CurveType type);
 
@@ -64,6 +66,9 @@ signals:
                          const QString &prevName, const QString &newName);
 
 private:
+    /*! Replace the engine table's points with \p p's (no-op when detached). */
+    void pushPoints(CurveProvider *p);
+
     QVector<CurveProvider *>          m_providers;
     QHash<QString, CurveProvider *>   m_byLowerName;
     /*! Engine bound by loadFromEngine/saveToEngine, so remove() can delete

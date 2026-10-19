@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/curveeditordialog.h"
 #include "core/swmmidentifier.h"
+#include "core/unitsystem.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -109,6 +110,11 @@ CurveEditorDialog::CurveEditorDialog(CurveRegistry *registry,
     // it a new curve was visible in the GUI and absent from the saved model.
     connect(this, &QDialog::finished, this, [this] {
         if (m_registry) m_registry->saveToEngine();
+    });
+    // Axis titles carry project units; follow a units change (project
+    // switch, Simulation Options flow units).
+    connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this, [this] {
+        refreshChart_();
     });
 
     rebuildListModel_();
@@ -811,10 +817,10 @@ void CurveEditorDialog::refreshChart_()
         m_yAxis->setRange(0.0, 1.0);
     }
 
-    // Axis titles track the provider's type labels.
-    m_xAxis->setTitleText(m_current ? CurveProvider::xLabel(m_current->type())
+    // Axis titles track the provider's type, with project units.
+    m_xAxis->setTitleText(m_current ? CurveProvider::xTitle(m_current->type())
                                      : tr("X"));
-    m_yAxis->setTitleText(m_current ? CurveProvider::yLabel(m_current->type())
+    m_yAxis->setTitleText(m_current ? CurveProvider::yTitle(m_current->type())
                                      : tr("Y"));
 }
 
@@ -914,7 +920,10 @@ void CurveEditorDialog::onCopyRowsClicked_()
     rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
 
     QStringList lines;
-    lines.reserve(rows.size());
+    lines.reserve(rows.size() + 1);
+    // Header row with units; Paste skips non-numeric lines.
+    lines << QStringLiteral("%1\t%2").arg(CurveProvider::xTitle(m_current->type()),
+                                          CurveProvider::yTitle(m_current->type()));
     for (int r : rows) {
         if (r < 0 || r >= m_current->pointCount()) continue;
         const auto &p = m_current->pointAt(r);

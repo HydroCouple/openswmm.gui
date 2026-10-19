@@ -7,6 +7,7 @@
 #include "ui/panels/curvepointtablemodel.h"
 
 #include "curve/curveprovider.h"
+#include "core/unitsystem.h"
 
 namespace openswmmvis::ui {
 
@@ -15,6 +16,10 @@ using openswmmvis::curve::CurveProvider;
 CurvePointTableModel::CurvePointTableModel(QObject *parent)
     : QAbstractTableModel(parent)
 {
+    // Headers carry units (ft / m, CFS / CMS …) from the active project.
+    connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this, [this] {
+        emit headerDataChanged(Qt::Horizontal, 0, 1);
+    });
 }
 
 CurvePointTableModel::~CurvePointTableModel() = default;
@@ -80,8 +85,8 @@ QVariant CurvePointTableModel::headerData(int section, Qt::Orientation orientati
     if (orientation == Qt::Vertical) return section + 1;
     if (!m_provider) return section == 0 ? tr("X") : tr("Y");
     return section == 0
-        ? CurveProvider::xLabel(m_provider->type())
-        : CurveProvider::yLabel(m_provider->type());
+        ? CurveProvider::xTitle(m_provider->type())
+        : CurveProvider::yTitle(m_provider->type());
 }
 
 Qt::ItemFlags CurvePointTableModel::flags(const QModelIndex &index) const

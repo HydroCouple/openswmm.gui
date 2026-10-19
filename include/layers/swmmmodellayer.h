@@ -551,6 +551,8 @@ public:
      *          (i.e. every curve kind).
      */
     [[nodiscard]] QStringList tableIdsOfType(int tableType) const;
+    /*! Table ids whose engine type is one of \p tableTypes, in table order. */
+    [[nodiscard]] QStringList tableIdsOfTypes(const QList<int> &tableTypes) const;
 
     /*!
      * \brief Create a new data object on the engine (DB.4b).

@@ -597,7 +597,7 @@ pick, which is set in the Curve editor (\ref manual_data_objects):
 | Pump 2 | Depth → Flow (on/off) | Flow steps with the depth at the inlet node |
 | Pump 3 | Head → Flow (continuous) | A centrifugal pump: flow varies continuously with the head difference between the two end nodes |
 | Pump 4 | Depth → Flow (continuous) | Flow varies continuously with the depth at the inlet node |
-| Pump 5 | Depth → Flow (variable speed) | A variable-speed pump: the curve is scaled by the pump's speed setting, which control rules can change |
+| Pump 5 | Head → Flow (variable speed) | A variable-speed pump: the curve is scaled by the pump's speed setting, which control rules can change |
 
 #### Orifice
 

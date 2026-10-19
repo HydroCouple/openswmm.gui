@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "curve/curveprovider.h"
+#include "core/unitsystem.h"
 
 #include <algorithm>
 
@@ -23,7 +24,9 @@ QString CurveProvider::xLabel(CurveType t)
     case CurveType::Pump2:     return tr("Depth");
     case CurveType::Pump3:     return tr("Head");
     case CurveType::Pump4:     return tr("Depth");
-    case CurveType::Pump5:     return tr("Depth");
+    // PUMP5 is head-based like PUMP3 (variable speed scales the head; engine
+    // HydStructures pump cases 3 and 5). It was mislabelled "Depth".
+    case CurveType::Pump5:     return tr("Head");
     }
     return tr("X");
 }
@@ -59,9 +62,61 @@ QString CurveProvider::typeLabel(CurveType t)
     case CurveType::Pump2:     return tr("Pump 2 (Depth → Flow, on/off)");
     case CurveType::Pump3:     return tr("Pump 3 (Head → Flow, continuous)");
     case CurveType::Pump4:     return tr("Pump 4 (Depth → Flow, continuous)");
-    case CurveType::Pump5:     return tr("Pump 5 (Depth → Flow, variable speed)");
+    case CurveType::Pump5:     return tr("Pump 5 (Head → Flow, variable speed)");
     }
     return {};
+}
+
+QString CurveProvider::xUnit(CurveType t)
+{
+    const UnitSystem *u = UnitSystem::instance();
+    switch (t) {
+    case CurveType::Storage:
+    case CurveType::Rating:
+    case CurveType::Pump2:
+    case CurveType::Pump3:
+    case CurveType::Pump4:
+    case CurveType::Pump5:     return u->depthLabel();
+    case CurveType::Diversion: return u->flowUnitLabel();
+    case CurveType::Tidal:     return tr("hr");
+    case CurveType::Pump1:     return u->volumeLabel();
+    case CurveType::Shape:
+    case CurveType::Control:   return {};
+    }
+    return {};
+}
+
+QString CurveProvider::yUnit(CurveType t)
+{
+    const UnitSystem *u = UnitSystem::instance();
+    switch (t) {
+    // Storage surface area: ft² / m². (UnitSystem::areaLabel() is the
+    // subcatchment land-area unit, ac / ha — not this.)
+    case CurveType::Storage:   return u->lengthLabel() + QChar(0x00B2);
+    case CurveType::Tidal:     return u->depthLabel();
+    case CurveType::Diversion:
+    case CurveType::Rating:
+    case CurveType::Pump1:
+    case CurveType::Pump2:
+    case CurveType::Pump3:
+    case CurveType::Pump4:
+    case CurveType::Pump5:     return u->flowUnitLabel();
+    case CurveType::Shape:
+    case CurveType::Control:   return {};
+    }
+    return {};
+}
+
+QString CurveProvider::xTitle(CurveType t)
+{
+    const QString unit = xUnit(t);
+    return unit.isEmpty() ? xLabel(t) : tr("%1 (%2)").arg(xLabel(t), unit);
+}
+
+QString CurveProvider::yTitle(CurveType t)
+{
+    const QString unit = yUnit(t);
+    return unit.isEmpty() ? yLabel(t) : tr("%1 (%2)").arg(yLabel(t), unit);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -2689,7 +2689,10 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 DataObjectRef dref;
                 dref.engine = eng;
                 dref.layer  = m_layer;
-                dref.kind   = DataObjectRef::AnyCurve;
+                int linkType = -1;
+                swmm_link_get_type(eng, linkIdx, &linkType);
+                dref.kind   = linkType == SWMM_LINK_OUTLET ? DataObjectRef::RatingCurve
+                                                           : DataObjectRef::PumpCurve;
                 int curveIdx = -1;
                 if (swmm_link_get_pump_curve(eng, linkIdx, &curveIdx) == SWMM_OK
                     && curveIdx >= 0) {

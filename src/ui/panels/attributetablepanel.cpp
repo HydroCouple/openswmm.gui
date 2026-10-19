@@ -2526,6 +2526,8 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             switch (ref.kind) {
             case DataObjectRef::TidalCurve:
             case DataObjectRef::AnyCurve:
+            case DataObjectRef::PumpCurve:
+            case DataObjectRef::RatingCurve:
             case DataObjectRef::StorageCurve:   dc = SWMMModelLayer::DataCurves;      break;
             case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
             case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
