@@ -24,6 +24,9 @@
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/simoptions/datespage.h"
+#include "ui/dialogs/simoptions/filespage.h"
+#include "ui/dialogs/hotstartsavesmodel.h"
+#include <openswmm/engine/openswmm_hotstart.h>
 #include "ui/dialogs/simoptions/modelspage.h"
 #include "ui/dialogs/simoptions/qualitypage.h"
 #include "ui/dialogs/climatologydialog.h"
@@ -33,6 +36,7 @@
 #include <openswmm/engine/openswmm_heat.h>
 #include <QApplication>
 #include <QDialogButtonBox>
+#include <QFile>
 #include <QFileInfo>
 #include <QPushButton>
 #include <QTimer>
@@ -141,6 +145,7 @@ private slots:
     void groundwaterThermalShortcutJoinsOuterCancelUndoSegment();
     void heatConfigurationSharesOuterUndoAndCancelSegment();
     void runtimeOverviewNavigatesToTwoDSettings();
+    void hotstartSaveFormatsSurviveFilesPage();
 };
 
 namespace {
@@ -1081,4 +1086,80 @@ void TestSimulationOptionsGates::runtimeOverviewNavigatesToTwoDSettings()
     QCOMPARE(swmm_heat_get_enabled(layer->engine(), &heatEnabled), SWMM_OK);
     QCOMPARE(heatEnabled, 0);
     QCOMPARE(stack.count(), 0);
+}
+
+namespace {
+
+/*! The SAVE HOTSTART lines of the `.inp` the engine writes to \a path. */
+QStringList savedHotstartRows(SWMM_Engine e, const QString &path)
+{
+    if (swmm_model_write(e, path.toUtf8().constData()) != SWMM_OK) return {};
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    QStringList rows;
+    for (const QString &line : QString::fromUtf8(f.readAll()).split('\n'))
+        if (line.simplified().startsWith(QLatin1String("SAVE HOTSTART"), Qt::CaseInsensitive))
+            rows << line.simplified();
+    return rows;
+}
+
+} // namespace
+
+// Simulation Options > Files keeps each SAVE HOTSTART row's format: a row
+// read from the file shows it, OK without an edit leaves the [FILES] rows
+// as they were, and a changed format reaches the engine and the `.inp`.
+// Written decks: tests/gui/data/hotstart_save_formats_out/ (for review).
+void TestSimulationOptionsGates::hotstartSaveFormatsSurviveFilesPage()
+{
+    auto layer = openLayer(fixture(QStringLiteral("hotstart_save_formats.inp")));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+    const QString out = fixture(QStringLiteral("hotstart_save_formats_out"));
+    QVERIFY(QDir().mkpath(out));
+    const int fileFormats[] = {SWMM_HOTSTART_FORMAT_AUTO, SWMM_HOTSTART_FORMAT_NATIVE,
+                               SWMM_HOTSTART_FORMAT_LEGACY};
+    for (int i = 0; i < 3; ++i) {   // the project load keeps what the file says
+        int f = -1;
+        QCOMPARE(swmm_hotstart_saves_get_format(e, i, &f), SWMM_OK);
+        QCOMPARE(f, fileFormats[i]);
+    }
+
+    openswmmvis::ui::SimOptionsContext ctx(e, layer.get(), nullptr, {});
+    openswmmvis::ui::FilesPage page(ctx);
+    page.read();
+    auto *model = page.findChild<HotstartSavesModel *>();
+    QVERIFY(model);
+    QCOMPARE(model->rowCount(), 3);
+    QCOMPARE(model->formatAt(0), int(SWMM_HOTSTART_FORMAT_AUTO));
+    QCOMPARE(model->formatAt(1), int(SWMM_HOTSTART_FORMAT_NATIVE));
+    QCOMPARE(model->formatAt(2), int(SWMM_HOTSTART_FORMAT_LEGACY));
+    QCOMPARE(model->data(model->index(1, HotstartSavesModel::ColFormat), Qt::DisplayRole).toString(),
+             QStringLiteral("Native"));
+
+    const QStringList before = savedHotstartRows(e, out + QStringLiteral("/before.inp"));
+    QCOMPARE(before.size(), 3);
+    QVERIFY(!before[0].contains(QLatin1String("NATIVE")) && !before[0].contains(QLatin1String("LEGACY")));
+    QVERIFY(before[1].endsWith(QLatin1String("NATIVE")));
+    QVERIFY(before[2].endsWith(QLatin1String("LEGACY")));
+
+    page.write();   // OK with nothing edited
+    QCOMPARE(savedHotstartRows(e, out + QStringLiteral("/unedited.inp")), before);
+
+    QVERIFY(model->setData(model->index(0, HotstartSavesModel::ColFormat),
+                           int(SWMM_HOTSTART_FORMAT_NATIVE), Qt::EditRole));
+    page.write();
+    int fmt = -1;
+    QCOMPARE(swmm_hotstart_saves_get_format(e, 0, &fmt), SWMM_OK);
+    QCOMPARE(fmt, int(SWMM_HOTSTART_FORMAT_NATIVE));
+    const QStringList edited = savedHotstartRows(e, out + QStringLiteral("/edited.inp"));
+    QCOMPARE(edited.size(), 3);
+    // Rows the page rebuilt keep their paths as given, so only the formats
+    // are compared here (the .inp is written to a subfolder).
+    QVERIFY(edited[0].endsWith(QLatin1String("NATIVE")));
+    QVERIFY(edited[1].endsWith(QLatin1String("03:00:00 NATIVE")));
+    QVERIFY(edited[2].endsWith(QLatin1String("LEGACY")));
+
+    page.read();    // what reopening the dialog shows
+    QCOMPARE(model->formatAt(0), int(SWMM_HOTSTART_FORMAT_NATIVE));
+    QCOMPARE(model->formatAt(2), int(SWMM_HOTSTART_FORMAT_LEGACY));
 }

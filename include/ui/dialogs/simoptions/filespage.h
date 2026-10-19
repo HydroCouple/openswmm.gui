@@ -93,6 +93,7 @@ private:
     QPushButton    *m_hotstartSavesBrowseBtn = nullptr;
     QPushButton    *m_hotstartSavesDownBtn   = nullptr;
     HotstartSavesDateTimeDelegate    *m_hotstartSavesDtDel    = nullptr;
+    HotstartSavesFormatDelegate      *m_hotstartSavesFmtDel   = nullptr;
     HotstartSavesModel               *m_hotstartSavesModel    = nullptr;
     PathBrowseDelegate               *m_hotstartSavesPathDel  = nullptr;
     QPushButton    *m_hotstartSavesRemoveBtn = nullptr;

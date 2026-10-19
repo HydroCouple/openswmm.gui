@@ -621,11 +621,22 @@ browse button and, where applicable, a mode combo:
 Leave a row blank to omit it from `[FILES]`.
 
 *Scheduled hot-start saves (.inp [FILES] SAVE HOTSTART)* — an uncapped table,
-one row per save, with **Path** and **Datetime** columns and **Add…**,
+one row per save, with **Path**, **Datetime** and **Format** columns and **Add…**,
 **Browse…**, **Remove**, **Move up** and **Move down**. Leave the Datetime cell
 as *(end of run)* to write at the end of the simulation; otherwise the engine
-writes when the simulation clock crosses that time. Both cells are always-open
-editors, so no click-to-edit is needed.
+writes the file from the state at the end of the first time step that reaches
+that time, and not at all if the run ends first (the report then warns). All
+three cells are always-open editors, so no click-to-edit is needed.
+
+**Format** chooses the file written. *Native* is the OpenSWMM file, which also
+keeps water age, reaction species, the aquifer with its species (and the 2D
+surface state saved with it), LID units in storage nodes and snow; EPA SWMM 5
+cannot read it. *Legacy* is always the SWMM 5 file; when OpenSWMM reads one it
+restores the node, link and subcatchment state. *Auto*, the meaning of a row without a format
+in the `.inp`, is the SWMM 5 file, or Native when storage nodes carry LID units.
+A new row starts as Native when the model has state only the native file keeps
+(water age, reaction species, an aquifer or storage-node LIDs) or a 2D mesh,
+and as Auto otherwise. The **Hot-start file (USE)** row reads either format.
 
 \fig{18_output_subtab.png, The Output sub-tab with writer combos and the report contents group}
 

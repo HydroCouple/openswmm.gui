@@ -1,0 +1,33 @@
+[TITLE]
+Simulation Options > Files: SAVE HOTSTART rows with and without a format keyword
+
+[OPTIONS]
+FLOW_UNITS           CFS
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2020
+START_TIME           00:00:00
+END_DATE             01/01/2020
+END_TIME             06:00:00
+REPORT_STEP          00:15:00
+ROUTING_STEP         0:00:20
+
+[FILES]
+SAVE HOTSTART "end_auto.hsf"
+SAVE HOTSTART "dated_native.hsf" 01/01/2020 03:00:00 NATIVE
+SAVE HOTSTART "end_legacy.hsf" LEGACY
+
+[JUNCTIONS]
+J1               100        10         0          0          0
+
+[OUTFALLS]
+O1               95         FREE                        NO
+
+[CONDUITS]
+C1               J1               O1               400        0.013      0          0          0          0
+
+[XSECTIONS]
+C1               CIRCULAR     1.5              0          0          0          1
+
+[COORDINATES]
+J1               0                  0
+O1               400                0

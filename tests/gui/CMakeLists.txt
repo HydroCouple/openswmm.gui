@@ -2664,6 +2664,20 @@ add_swmmvis_gui_test(test_simulationoptionsdialog
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
+# Scheduled hot-start saves table: the Format column ([FILES] SAVE HOTSTART
+# ... LEGACY|NATIVE) and its combo delegate. The model header is listed so
+# AUTOMOC sees its Q_OBJECT classes; the date delegate's OA-date helpers are
+# static SimulationOptionsDialog members in simulationoptionshelpers.cpp (the
+# same surgical arrangement as test_simulationoptionsdialog above).
+add_swmmvis_gui_test(test_hotstartsavesmodel
+    test_hotstartsavesmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/hotstartsavesmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/hotstartsavesmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/simulationoptionshelpers.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+
 # Climatology dialog — instantiated against a synthetic BUILDING engine; the
 # dialog is dependency-light (Qt Widgets + the swmm_climate_* engine ABI only).
 add_swmmvis_gui_test(test_meshsnowmodel
