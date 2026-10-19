@@ -24,19 +24,27 @@ inline QStringList snowLedgerRows(SWMM_Engine eng)
     int count=0;
     if(swmm_2d_cell_count(eng,&count)==SWMM_OK&&count>0) {
         // Bounded chunks avoid one giant allocation in a large mesh's UI tick.
-        SWMM_MeshSnowLedger sum{};bool any=false,energy=false,ok=true;
+        SWMM_MeshSnowLedger sum{};double geometry_energy_kj=0;bool any=false,energy=false,ok=true;
         for(int first=0;first<count;first+=1024) {
-            const int n=std::min(1024,count-first);std::vector<SWMM_MeshSnowLedger> cells(n);
-            if(swmm_snow2d_get_ledgers(eng,first,n,cells.data())!=SWMM_OK){ok=false;break;}
-            for(const auto& c:cells)if(std::isfinite(c.stored_m3)) {
+            const int n=std::min(1024,count-first);std::vector<SWMM_MeshSnowLedger> cells(n);std::vector<double> geometry(n);
+            if(swmm_snow2d_get_ledgers(eng,first,n,cells.data())!=SWMM_OK||
+               swmm_snow2d_get_geometry_energy(eng,first,n,geometry.data())!=SWMM_OK){ok=false;break;}
+            for(int k=0;k<n;++k)if(std::isfinite(cells[k].stored_m3)) {
+                const auto& c=cells[k];
                 any=true;sum.initial_m3+=c.initial_m3;sum.precipitation_m3+=c.precipitation_m3;
                 sum.liquid_m3+=c.liquid_m3;sum.sublimation_m3+=c.sublimation_m3;sum.stored_m3+=c.stored_m3;sum.residual_m3+=c.residual_m3;
-                if(std::isfinite(c.energy_residual_kj)){energy=true;sum.energy_residual_kj+=c.energy_residual_kj;}
+                if(std::isfinite(c.energy_residual_kj)){
+                    energy=true;sum.net_energy_kj+=c.net_energy_kj;sum.initial_energy_kj+=c.initial_energy_kj;
+                    geometry_energy_kj+=geometry[k];sum.stored_energy_kj+=c.stored_energy_kj;
+                    sum.energy_residual_kj+=c.energy_residual_kj;
+                }
             }
         }
         if(any&&ok) {
             water(QStringLiteral("Mesh"),sum.initial_m3,sum.precipitation_m3,sum.liquid_m3,sum.sublimation_m3,0,sum.stored_m3,sum.residual_m3);
-            if(energy)rows<<QStringLiteral("Mesh UEB energy residual · %1 kJ").arg(sum.energy_residual_kj,0,'g',7);
+            if(energy)rows<<QStringLiteral("Mesh UEB energy · initial %1 · net input %2 · depletion remapping %3 · stored %4 · residual %5 kJ")
+                .arg(sum.initial_energy_kj,0,'g',7).arg(sum.net_energy_kj,0,'g',7).arg(geometry_energy_kj,0,'g',7)
+                .arg(sum.stored_energy_kj,0,'g',7).arg(sum.energy_residual_kj,0,'g',7);
         }
     }
     return rows;
