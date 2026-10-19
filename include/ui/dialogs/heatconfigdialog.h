@@ -80,6 +80,7 @@ public:
     /*! \brief Select the tab a menu action maps to (see \ref Tab). */
     void setCurrentTab(int idx);
     void setTransportRequested(bool enabled);
+    void setTwoDTransportNavigationEnabled(bool enabled);
 
     /*! \brief Number of engine writes the last OK performed (test hook). */
     int lastWriteCount() const { return m_lastWriteCount; }
@@ -88,6 +89,7 @@ signals:
     void changesApplied();
     void radiationEditorRequested();
     void groundwaterSettingsRequested();
+    void twoDSettingsRequested();
     void rasterAssignmentRequested();
 
 public slots:
@@ -130,6 +132,7 @@ private:
     bool m_writeFailed = false;
     QLabel *m_validationError = nullptr;
     QTabWidget *m_tabs = nullptr;
+    bool m_twoDTransportNavigationEnabled = false;
 
     // Sources tab
     QTableWidget *m_sourceTable = nullptr;    ///< 7 rows: check + °C spin
