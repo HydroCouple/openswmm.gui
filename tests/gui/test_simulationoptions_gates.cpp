@@ -1154,10 +1154,12 @@ void TestSimulationOptionsGates::hotstartSaveFormatsSurviveFilesPage()
     QCOMPARE(fmt, int(SWMM_HOTSTART_FORMAT_NATIVE));
     const QStringList edited = savedHotstartRows(e, out + QStringLiteral("/edited.inp"));
     QCOMPARE(edited.size(), 3);
-    // The page rebuilds every row on an edit; the rebuilt rows still point
-    // at the same files from the subfolder the deck is written to.
-    QCOMPARE(edited[0], before[0] + QStringLiteral(" NATIVE"));
-    QCOMPARE(edited.mid(1), before.mid(1));
+    // The page rebuilds every row on an edit. The engine writes paths
+    // relative to the output deck, so all three still resolve to the same
+    // files from this subfolder.
+    QCOMPARE(edited[0], QStringLiteral("SAVE HOTSTART \"../end_auto.hsf\" NATIVE"));
+    QCOMPARE(edited[1], QStringLiteral("SAVE HOTSTART \"../dated_native.hsf\" 01/01/2020 03:00:00 NATIVE"));
+    QCOMPARE(edited[2], QStringLiteral("SAVE HOTSTART \"../end_legacy.hsf\" LEGACY"));
 
     page.read();    // what reopening the dialog shows
     QCOMPARE(model->formatAt(0), int(SWMM_HOTSTART_FORMAT_NATIVE));
