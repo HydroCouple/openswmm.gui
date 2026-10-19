@@ -51,4 +51,35 @@ void DateTimeDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
     model->setData(index, edit->dateTime(), Qt::EditRole);
 }
 
+ReadOnlyDateTimeDelegate::ReadOnlyDateTimeDelegate(QObject *parent)
+    : QStyledItemDelegate(parent)
+{
+}
+
+QWidget *ReadOnlyDateTimeDelegate::createEditor(QWidget *parent,
+                                                 const QStyleOptionViewItem & /*opt*/,
+                                                 const QModelIndex & /*index*/) const
+{
+    auto *w = new QDateTimeEdit(parent);
+    w->setTimeSpec(Qt::UTC);   // see class comment: never convert to local time
+    w->setReadOnly(true);
+    w->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    w->setFrame(false);
+    w->setCalendarPopup(false);
+    w->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    w->setFocusPolicy(Qt::NoFocus);
+    w->setAlignment(Qt::AlignCenter);
+    w->setAttribute(Qt::WA_TransparentForMouseEvents);
+    return w;
+}
+
+void ReadOnlyDateTimeDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
+{
+    auto *w = qobject_cast<QDateTimeEdit *>(editor);
+    if (!w) return;
+    const QVariant v = index.data(Qt::DisplayRole);
+    if (v.canConvert<QDateTime>() && v.toDateTime().isValid())
+        w->setDateTime(v.toDateTime());
+}
+
 } // namespace openswmmvis::ui

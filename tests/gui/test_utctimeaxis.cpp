@@ -216,6 +216,20 @@ private slots:
         QCOMPARE(ax.categoriesLabels().last(), QStringLiteral("2026-01-01 18:00"));
     }
 
+    // Tutorial bug report (2026-10-17): comparison plots lost their time
+    // labels on narrow charts. The tick count now follows the pixel width.
+    void tickCountFollowsWidth()
+    {
+        openswmmvis::plot::UtcTimeAxis axis;
+        axis.setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));   // 16 chars ≈ 136 px
+        axis.fitTickCountToWidth(420);
+        QCOMPARE(axis.tickCount(), 3);
+        axis.fitTickCountToWidth(100);
+        QCOMPARE(axis.tickCount(), 2);
+        axis.fitTickCountToWidth(5000);
+        QCOMPARE(axis.tickCount(), 8);
+    }
+
     void duplicateLabelsCollapse()
     {
         // A day-only format over one day: four ticks round to the same text.

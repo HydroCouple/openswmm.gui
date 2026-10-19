@@ -45,6 +45,25 @@ public:
                       const QModelIndex &index) const override;
 };
 
+/*! \brief Read-only `yyyy-MM-dd HH:mm:ss` display of a simulation time, for
+ *  persistent editors in status views (the Simulation Status panel).
+ *
+ *  SWMM times are timezone-naive wall clocks labelled UTC. A QDateTimeEdit in
+ *  the default local zone CONVERTS such a value on setDateTime() in Qt 6, so
+ *  the panel showed every time shifted by the machine's UTC offset (9 hours
+ *  for the tutorial reporter). This editor is pinned to UTC. */
+class ReadOnlyDateTimeDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    explicit ReadOnlyDateTimeDelegate(QObject *parent = nullptr);
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
+                          const QModelIndex &index) const override;
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
+    void setModelData(QWidget *, QAbstractItemModel *, const QModelIndex &) const override {}
+};
+
 } // namespace openswmmvis::ui
 
 #endif // OPENSWMMVIS_UI_DELEGATES_DATETIMEDELEGATE_H

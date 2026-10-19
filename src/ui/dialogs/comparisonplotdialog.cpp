@@ -65,11 +65,35 @@
 #include <QValueAxis>
 #include <QVBoxLayout>
 
+#include <QEvent>
+#include <QPointer>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <functional>
 #include <limits>
+
+namespace {
+
+/*! Refits a row's time-axis tick count whenever its chart view is resized.
+ *  Owned by (parented to) the view it watches. */
+class TimeAxisWidthFitter : public QObject
+{
+public:
+    TimeAxisWidthFitter(openswmmvis::plot::UtcTimeAxis *axis, QObject *view)
+        : QObject(view), m_axis(axis) {}
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::Resize && m_axis)
+            if (auto *w = qobject_cast<QWidget *>(watched))
+                m_axis->fitTickCountToWidth(w->width());
+        return QObject::eventFilter(watched, event);
+    }
+private:
+    QPointer<openswmmvis::plot::UtcTimeAxis> m_axis;
+};
+
+} // namespace
 
 namespace openswmmvis::ui {
 
@@ -1555,6 +1579,10 @@ void ComparisonPlotDialog::rebuildCharts()
             : QStringLiteral("%1 (%2)").arg(rowDesc.label(), rowUnits);
         rw.chart->setTitle(rowTitle);
         rw.chart->legend()->setVisible(true);
+        // A top legend takes its full height from the plot for every series
+        // in the row, squeezing the time axis until its labels vanish. A
+        // right legend is width-capped by Qt Charts and leaves the height.
+        rw.chart->legend()->setAlignment(Qt::AlignRight);
 
         rw.xAxis = new openswmmvis::plot::UtcTimeAxis;
         rw.xAxis->setTitleText(tr("Time"));
@@ -1650,6 +1678,9 @@ void ComparisonPlotDialog::rebuildCharts()
         rw.view = new InteractiveChartView(rw.chart);
         rw.view->setRenderHint(QPainter::Antialiasing);
         rw.view->setMinimumHeight(220);
+        // Keep the time labels readable at any width (see fitTickCountToWidth).
+        rw.view->installEventFilter(new TimeAxisWidthFitter(rw.xAxis, rw.view));
+        rw.xAxis->fitTickCountToWidth(rw.view->width());
         connect(rw.view, &InteractiveChartView::chartContextMenuRequested,
                 this, [this, r](const QPoint &globalPos) {
                     // AT.3 — adds Chart Properties… to the row context menu.
