@@ -81,6 +81,14 @@ void DataObjectPickerEditor::repopulate()
             // engine table type 1 = CURVE_STORAGE (per openswmm_tables.h comment)
             items = m_ref.layer->tableIdsOfType(1);
             break;
+        case DataObjectRef::PumpCurve:
+            // PUMP1..PUMP5. A storage or tidal curve on a pump is misread by
+            // the engine, so only pump curves are offered.
+            items = m_ref.layer->tableIdsOfTypes({7, 8, 9, 10, 11});
+            break;
+        case DataObjectRef::RatingCurve:
+            items = m_ref.layer->tableIdsOfType(3);   // CURVE_RATING
+            break;
         case DataObjectRef::TimeSeries:
             items = m_ref.layer->tableIdsOfType(0);
             break;
@@ -218,6 +226,13 @@ void DataObjectPickerEditor::repopulate()
         }
     }
 
+    // A filtered curve list must still show the curve already assigned (an
+    // older model may give a pump a curve of another type); without it the
+    // combo falls back to "(none)" and the next commit would clear it.
+    if ((m_ref.kind == DataObjectRef::PumpCurve || m_ref.kind == DataObjectRef::RatingCurve)
+        && !m_ref.currentName.isEmpty() && !items.contains(m_ref.currentName))
+        items << m_ref.currentName;
+
     QSignalBlocker block(m_combo->combo());
     m_suppressTextChange = true;
     m_combo->setItems(items, m_ref.currentName);
@@ -333,6 +348,8 @@ void DataObjectPickerEditor::onPickerClicked()
     switch (m_ref.kind) {
     case DataObjectRef::TidalCurve:
     case DataObjectRef::AnyCurve:
+    case DataObjectRef::PumpCurve:
+    case DataObjectRef::RatingCurve:
     case DataObjectRef::StorageCurve:   dc = SWMMModelLayer::DataCurves;      break;
     case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
     case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;

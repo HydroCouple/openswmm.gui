@@ -21,11 +21,13 @@
  *  12. Add Row appends + Delete Rows removes selected.
  */
 
+#include "core/unitsystem.h"
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
 #include "dialog_a11y_checks.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/panels/curvepointtablemodel.h"
+#include "ui/widgets/curveeditchartview.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -46,6 +48,7 @@
 #include <QTimer>
 #include <QApplication>
 #include <QUndoStack>
+#include <QValueAxis>
 
 using openswmmvis::curve::CurvePoint;
 using openswmmvis::curve::CurveProvider;
@@ -408,8 +411,15 @@ private slots:
         QVERIFY(p->insertPoint(0.0, 0.0) >= 0);
         QVERIFY(p->insertPoint(1.0, 2.0) >= 0);
         QVERIFY(p->insertPoint(2.0, 5.0) >= 0);
-        QVERIFY2(swmm_table_index(eng, "RC1") < 0,
-                 "the registry alone must not have touched the engine yet");
+        // The curve reaches the engine at creation, points included, so a
+        // pump or outlet can use it while the editor is still open.
+        {
+            const int idx0 = swmm_table_index(eng, "RC1");
+            QVERIFY2(idx0 >= 0, "create must add the curve to the engine");
+            int n0 = 0;
+            QCOMPARE(swmm_table_get_point_count(eng, idx0, &n0), SWMM_OK);
+            QCOMPARE(n0, 3);
+        }
 
         QUndoStack stack;
         {
@@ -429,6 +439,78 @@ private slots:
         QCOMPARE(reg.saveToEngine(), 1);
         QCOMPARE(swmm_table_get_point_count(eng, idx, &n), SWMM_OK);
         QCOMPARE(n, 3);
+    }
+
+    // A pump curve created in the editor must be assignable while the editor
+    // is open, keep its engine table through renames and type changes, and
+    // never leave a stale copy behind.
+    void createdCurveIsInEngineAndFollowsRenameAndType()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+        CurveRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 0);
+
+        auto *p = reg.create(QStringLiteral("PC1"), CurveType::Pump1);
+        QVERIFY(p);
+        const int idx = swmm_table_index(eng, "PC1");
+        QVERIFY(idx >= 0);
+        QCOMPARE(swmm_table_count(eng), 1);
+
+        p->setType(CurveType::Pump3);
+        int t = -1;
+        QCOMPARE(swmm_table_get_type(eng, idx, &t), SWMM_OK);
+        QCOMPARE(t, int(CurveType::Pump3));
+
+        QVERIFY(reg.rename(p, QStringLiteral("LiftCurve")));
+        QCOMPARE(swmm_table_index(eng, "PC1"), -1);
+        QCOMPARE(swmm_table_index(eng, "LiftCurve"), idx);
+        QCOMPARE(reg.saveToEngine(), 1);
+        QCOMPARE(swmm_table_count(eng), 1);   // no second copy after a flush
+
+        // A timeseries may share a curve's name; it must not be mistaken
+        // for the curve.
+        QCOMPARE(swmm_timeseries_add(eng, "Shared"), SWMM_OK);
+        auto *q = reg.create(QStringLiteral("Shared"), CurveType::Storage);
+        QVERIFY(q);
+        QCOMPARE(swmm_table_count(eng), 3);
+
+        reg.remove(p);
+        QCOMPARE(swmm_table_index(eng, "LiftCurve"), -1);
+    }
+
+    // Column headers and axis titles carry the project's units.
+    void headersAndAxesCarryUnits()
+    {
+        const auto restore = qScopeGuard([] { UnitSystem::setActiveProject(nullptr); });
+        UnitSystem us;
+        us.setFlowUnits(swmm_CFS);
+        UnitSystem::setActiveProject(&us);
+
+        CurveRegistry reg;
+        auto *p = reg.create(QStringLiteral("PC"), CurveType::Pump3);
+        QVERIFY(p);
+        QUndoStack stack;
+        CurveEditorDialog dlg(&reg, &stack);
+        auto *model = dlg.tableModel();
+        QCOMPARE(model->headerData(0, Qt::Horizontal).toString(), QStringLiteral("Head (ft)"));
+        QCOMPARE(model->headerData(1, Qt::Horizontal).toString(), QStringLiteral("Flow (CFS)"));
+
+        us.setFlowUnits(swmm_CMS);
+        QCOMPARE(model->headerData(0, Qt::Horizontal).toString(), QStringLiteral("Head (m)"));
+        QCOMPARE(model->headerData(1, Qt::Horizontal).toString(), QStringLiteral("Flow (CMS)"));
+
+        QCOMPARE(CurveProvider::xTitle(CurveType::Storage), QStringLiteral("Depth (m)"));
+        QCOMPARE(CurveProvider::yTitle(CurveType::Storage), QStringLiteral("Surface Area (m²)"));
+        QCOMPARE(CurveProvider::xTitle(CurveType::Pump1), QStringLiteral("Volume (m³)"));
+        QCOMPARE(CurveProvider::xTitle(CurveType::Pump5), QStringLiteral("Head (m)"));
+        QCOMPARE(CurveProvider::xTitle(CurveType::Tidal), QStringLiteral("Hour (hr)"));
+        QCOMPARE(CurveProvider::xTitle(CurveType::Shape), CurveProvider::xLabel(CurveType::Shape));
+
+        const auto axes = dlg.chartView()->chart()->axes(Qt::Horizontal);
+        QVERIFY(!axes.isEmpty());
+        QCOMPARE(axes.first()->titleText(), QStringLiteral("Head (m)"));
     }
 };
 

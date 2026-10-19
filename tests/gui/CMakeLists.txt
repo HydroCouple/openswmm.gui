@@ -1287,6 +1287,8 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/utctimeaxis.h
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
 target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
     # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
@@ -1383,6 +1385,8 @@ add_swmmvis_gui_test(test_dataobject_engine_delete
     ${CMAKE_SOURCE_DIR}/include/curve/curveregistry.h
     ${CMAKE_SOURCE_DIR}/src/curve/curveprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
 
 # SWMM DateTime Consolidation Phase 1 (workplans/

@@ -14,6 +14,23 @@ namespace openswmmvis::curve {
 
 namespace {
 constexpr int kTableTypeTimeseries = 0;   // openswmm::TableType::TIMESERIES
+
+/*! Engine index of the CURVE named \p name (any curve type), or -1.
+ *  swmm_table_index cannot be used: it returns a same-named timeseries
+ *  first, and a curve and a timeseries may share a name. */
+int curveTableIndex(SWMM_Engine eng, const QString &name)
+{
+    const int n = swmm_table_count(eng);
+    for (int i = 0; i < n; ++i) {
+        int type = -1;
+        if (swmm_table_get_type(eng, i, &type) != SWMM_OK || type == kTableTypeTimeseries)
+            continue;
+        const char *id = swmm_table_id(eng, i);
+        if (id && name.compare(QString::fromUtf8(id), Qt::CaseInsensitive) == 0)
+            return i;
+    }
+    return -1;
+}
 } // namespace
 
 CurveRegistry::CurveRegistry(QObject *parent)
@@ -42,8 +59,42 @@ CurveProvider *CurveRegistry::create(const QString &name, CurveType type)
                 emit providerRenamed(p, prev, now);
             });
 
+    // Point and type edits are mirrored as they happen, so a curve that is
+    // already referenced (a pump) never sits stale in the engine while its
+    // editor is open.
+    connect(p, &CurveProvider::pointsChanged,  this, [this, p](int, int) { pushPoints(p); });
+    connect(p, &CurveProvider::pointsInserted, this, [this, p](int, int) { pushPoints(p); });
+    connect(p, &CurveProvider::pointsRemoved,  this, [this, p](int, int) { pushPoints(p); });
+    connect(p, &CurveProvider::typeChanged, this, [this, p](CurveType, CurveType now) {
+        if (!m_engineHandle) return;
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = curveTableIndex(eng, p->name());
+        if (idx >= 0) swmm_table_set_type(eng, idx, static_cast<int>(now));
+    });
+
+    // Reach the engine at creation: pickers list curves from the engine and
+    // setters (pump, storage, outlet, tidal) resolve names there, so a curve
+    // that lived only in this registry could not be chosen until its editor
+    // closed. Skipped when the engine already has it (loadFromEngine).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        if (curveTableIndex(eng, name) < 0
+            && swmm_curve_add(eng, name.toUtf8().constData(), static_cast<int>(type)) == SWMM_OK)
+            pushPoints(p);
+    }
+
     emit providerAdded(p);
     return p;
+}
+
+void CurveRegistry::pushPoints(CurveProvider *p)
+{
+    if (!m_engineHandle || !p) return;
+    auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+    const int idx = curveTableIndex(eng, p->name());
+    if (idx < 0 || swmm_table_clear(eng, idx) != SWMM_OK) return;
+    for (const auto &pt : p->points())
+        if (swmm_table_add_point(eng, idx, pt.x, pt.y) != SWMM_OK) return;
 }
 
 void CurveRegistry::remove(CurveProvider *p)
@@ -56,8 +107,7 @@ void CurveRegistry::remove(CurveProvider *p)
     // survived in the engine and reappeared in the written INP).
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
-        const int idx =
-            swmm_table_index(eng, p->name().toUtf8().constData());
+        const int idx = curveTableIndex(eng, p->name());
         if (idx >= 0) swmm_table_delete(eng, idx, nullptr);
     }
 
@@ -69,11 +119,17 @@ void CurveRegistry::remove(CurveProvider *p)
 bool CurveRegistry::rename(CurveProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty()) return false;
-    if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
-        p->setName(newName);
-        return true;
+    const bool caseOnly = p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName)) return false;
+    // Engine first, as PatternRegistry::rename: the curve exists there from
+    // creation, so renaming only the provider would leave the old table
+    // behind and the next flush would add a second one.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = curveTableIndex(eng, p->name());
+        if (idx >= 0 && swmm_table_rename(eng, idx, newName.toUtf8().constData()) != SWMM_OK)
+            return false;
     }
-    if (hasName(newName)) return false;
     p->setName(newName);
     return true;
 }
@@ -130,13 +186,15 @@ int CurveRegistry::saveToEngine(void *engineHandle)
     for (CurveProvider *p : std::as_const(m_providers)) {
         if (!p) continue;
         const QByteArray idUtf8 = p->name().toUtf8();
-        int idx = swmm_table_index(eng, idUtf8.constData());
+        int idx = curveTableIndex(eng, p->name());
         if (idx < 0) {
             if (swmm_curve_add(eng, idUtf8.constData(),
                                 static_cast<int>(p->type())) != SWMM_OK)
                 continue;
-            idx = swmm_table_index(eng, idUtf8.constData());
+            idx = curveTableIndex(eng, p->name());
             if (idx < 0) continue;
+        } else {
+            swmm_table_set_type(eng, idx, static_cast<int>(p->type()));
         }
         // Replace all points: clear then bulk add.
         if (swmm_table_clear(eng, idx) != SWMM_OK) continue;

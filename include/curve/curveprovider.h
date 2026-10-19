@@ -76,6 +76,18 @@ public:
     /*! \brief Human-readable type name ("Storage", "Pump 1: Volume → Flow", …). */
     static QString typeLabel(CurveType t);
 
+    /*! \brief Unit of the X / Y column in the active project's unit system
+     *  ("ft", "m³", "CFS", "hr", …); empty for dimensionless columns
+     *  (SHAPE ratios, CONTROL values). */
+    static QString xUnit(CurveType t);
+    static QString yUnit(CurveType t);
+
+    /*! \brief Column / axis title: "Label (unit)", or just the label when
+     *  the column is dimensionless. Used by the point table headers and the
+     *  chart axes so the two always agree. */
+    static QString xTitle(CurveType t);
+    static QString yTitle(CurveType t);
+
     // ── Point access ────────────────────────────────────────────────────────
 
     int pointCount() const noexcept { return m_points.size(); }

@@ -422,7 +422,13 @@ DataObjectRef SWMMLinkPropertyAdapter::pumpCurveRef() const
     DataObjectRef r;
     r.engine      = m_engine;
     r.layer       = m_layer;
-    r.kind        = DataObjectRef::AnyCurve;
+    // Pumps take PUMP1..5 curves; tabular outlets (which share this slot)
+    // take RATING curves.
+    int linkType = -1;
+    const int linkIdx = m_engine ? swmm_link_index(m_engine, m_name.toUtf8().constData()) : -1;
+    if (linkIdx >= 0) swmm_link_get_type(m_engine, linkIdx, &linkType);
+    r.kind        = linkType == SWMM_LINK_OUTLET ? DataObjectRef::RatingCurve
+                                                 : DataObjectRef::PumpCurve;
     r.currentName = pumpCurveName();
     return r;
 }
