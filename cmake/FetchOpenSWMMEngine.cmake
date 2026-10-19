@@ -75,6 +75,7 @@ message(STATUS "openswmm.engine: using prebuilt package at ${OpenSWMMEngine_DIR}
 set(_oe_api_sentinels
     "openswmm_heat.h:swmm_heat_snapshot_create"
     "openswmm_heat.h:swmm_heat_get_effective_element"
+    "openswmm_heat.h:swmm_heat_preview_channel_ground_map_page"
     "openswmm_engine.h:swmm_preview_transport_matrix"
     "openswmm_2d.h:swmm_2d_get_report_rainfall_bulk"
     "openswmm_infrastructure.h:swmm_lid_node_state_get"

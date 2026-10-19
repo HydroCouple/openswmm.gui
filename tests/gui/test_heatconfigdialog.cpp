@@ -783,7 +783,13 @@ void TestHeatConfigDialog::channelContactPreviewShowsSavedCoverageWithoutEditing
     const QString before=HeatConfigDialog::configurationSignature(engine);
     HeatConfigDialog dialog(engine);
     auto* button=dialog.findChild<QPushButton*>(QStringLiteral("hc_channelGroundPreview"));QVERIFY(button);
+    auto* filter=dialog.findChild<QLineEdit*>(QStringLiteral("hc_channelGroundPreviewFilter"));QVERIFY(filter);
     auto* table=dialog.findChild<QTableWidget*>(QStringLiteral("hc_channelGroundPreviewTable"));QVERIFY(table);
+    filter->setText(QStringLiteral("missing"));
+    button->click();
+    QCOMPARE(table->rowCount(),0);
+    QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("hc_channelGroundPreviewStatus"))->text().contains(QStringLiteral("No saved MESH_CONTACTS links match")));
+    filter->clear();
     button->click();
     QCOMPARE(table->rowCount(),1);
     QCOMPARE(table->item(0,0)->text(),QStringLiteral("C1"));
