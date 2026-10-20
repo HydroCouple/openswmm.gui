@@ -32,6 +32,9 @@
 
 #include "mesh/meshgenerator.h"
 #include "mesh/meshnodemapper.h"
+#include "mesh/meshenginesync.h"           // coupleableNodes / couplingAuthorsCdArea
+#include "selection/selectionmanager.h"
+#include "ui/widgets/nodecouplingselector.h"
 #include "mesh/meshpatch.h"
 #include "mesh/meshresult.h"
 #include <openswmm/engine/openswmm_edit.h>
@@ -2239,12 +2242,15 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     {
         progress(82, QObject::tr("Mapping 1D nodes to the mesh…"));
         const mesh::NodeMapResult nm = mesh::mapNodesToMesh(
-            result, in.couplingNodes, -1.0, /*preserveExisting=*/true);
+            result, in.couplingNodes, -1.0, /*preserveExisting=*/true,
+            in.authorCouplingCdArea);
         for (auto it = nm.vertexMatches.cbegin();
              it != nm.vertexMatches.cend(); ++it)
         {
             coupling.vertexToNode.insert(it.key(), it.value());
             result.vertices[it.key()].coupledNode = it.value();
+            result.vertices[it.key()].couplingCdSet   = nm.authorCdArea;
+            result.vertices[it.key()].couplingAreaSet = nm.authorCdArea;
         }
         result.cellCouplings += nm.cellMatches;
         qCInfo(lcMeshPerf) << "[Mesh] node mapping:"
@@ -2557,6 +2563,24 @@ MeshGenerationDialog::runMeshPipeline(QPromise<MeshGenerationDialog::PipelineRes
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
+
+void MeshGenerationDialog::updateCoupleableReadout()
+{
+    if (!m_coupleableReadout) return;
+    SWMMModelLayer *layer = m_pw ? m_pw->modelLayer() : nullptr;
+    if (!layer || !layer->engine()) { m_coupleableReadout->clear(); return; }
+    int total = 0, coupleable = 0;
+    for (int c = SWMMModelLayer::CatJunctions; c <= SWMMModelLayer::CatDividers; ++c) {
+        const auto cat = static_cast<SWMMModelLayer::Category>(c);
+        for (int row = 0; row < layer->categoryCount(cat); ++row) {
+            nodecoupling2d::State s;
+            if (!layer->nodeCoupling2D(layer->objectNameAt(cat, row), &s)) continue;
+            ++total;
+            coupleable += s.type != nodecoupling2d::None;
+        }
+    }
+    m_coupleableReadout->setText(tr("%1 of %2 nodes coupleable").arg(coupleable).arg(total));
+}
 
 MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
                                            QWidget *parent)
@@ -2966,6 +2990,35 @@ void MeshGenerationDialog::buildUi()
             "(several nodes may share one cell — e.g. weir endpoints).\n"
             "Nodes outside the mesh are reported."));
         lay->addWidget(m_mapNodesAfterGen);
+
+        m_mapOnlyCoupleable = new QCheckBox(tr("Map only coupleable nodes"), g);
+        m_mapOnlyCoupleable->setChecked(true);
+        m_mapOnlyCoupleable->setToolTip(tr(
+            "Skip nodes whose 2D coupling is \"Not coupleable\" (set per node, or the\n"
+            "default for inlet and virtual junctions). Off maps every node."));
+        auto *row = new QHBoxLayout;
+        row->addWidget(m_mapOnlyCoupleable);
+        auto *setBtn = new QPushButton(tr("Set coupleable…"), g);
+        setBtn->setToolTip(tr("Choose which nodes may couple to the 2D surface, and "
+                              "through what structure."));
+        row->addWidget(setBtn);
+        row->addStretch();
+        lay->addLayout(row);
+        m_coupleableReadout = new QLabel(g);
+        lay->addWidget(m_coupleableReadout);
+        connect(m_mapNodesAfterGen, &QCheckBox::toggled, m_mapOnlyCoupleable, &QWidget::setEnabled);
+        connect(setBtn, &QPushButton::clicked, this, [this] {
+            SWMMModelLayer *layer = m_pw ? m_pw->modelLayer() : nullptr;
+            if (!layer) return;
+            QStringList selected;
+            if (m_pw->selectionManager())
+                for (const SWMMObjectRef &r : m_pw->selectionManager()->selection())
+                    if (r.objectType == SWMMObjectRef::Node) selected.append(r.name);
+            NodeCouplingSelectorDialog dlg(layer, selected, this);
+            dlg.exec();
+            updateCoupleableReadout();
+        });
+        updateCoupleableReadout();
         sourcesVBox->addWidget(g);
     }
 
@@ -4122,6 +4175,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 out->couplingNodes.append({ name, QPointF(x, y) });
             }
         }
+        if (m_mapOnlyCoupleable && m_mapOnlyCoupleable->isChecked())
+            out->couplingNodes = mesh::coupleableNodes(layer->engine(), out->couplingNodes);
+        out->authorCouplingCdArea = mesh::couplingAuthorsCdArea(layer->engine());
     }
 
     // ── Link candidates (SWMM links — already in mesh CRS) ───────────

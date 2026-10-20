@@ -33,6 +33,7 @@
 #include <cstring>
 #include <optional>
 
+#include <openswmm/engine/openswmm_2d.h>          // [2D_NODE_COUPLING] type column
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
@@ -276,6 +277,7 @@ ColumnSpec enumCol(const QString &key, const QString &label,
 // to be visible at parse time.
 QVariantList outfallTypeValues();
 QVariantList yesNoValues();
+QVariantList coupling2DTypeValues();
 QVariantList offOnValues();
 QVariantList culvertCodeValues();
 QVariantList dividerTypeValues();
@@ -537,6 +539,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Ponded area",     "Ponded Area",        "node_ponded_area",
                                                           0.0, 1e9, 2, UnitKind::Area),
         };
+        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
+        // coupleable. The class default shows until a type is set.
+        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure",
+                            "node_2d_coupling_type", coupling2DTypeValues()));
         cols.append(nodeComputedBlock());
         // Compound-attribute columns — each cell shows a "summary —
         // Edit…" button that opens NodeCompoundEditDialog at the right
@@ -586,6 +592,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             compoundCol("Route to", "Route To Subcatchment",
                                                 "node_outfall_route_to_ref"),
         };
+        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
+        // coupleable. The class default shows until a type is set.
+        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure",
+                            "node_2d_coupling_type", coupling2DTypeValues()));
         cols.append(nodeComputedBlock());
         cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
         cols.append(compoundCol("DWF",       "Dry Weather Flow",  "node_dwf_ref"));
@@ -650,6 +660,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                         "node_exfil_ksat",    0.0, 1e6, 4, UnitKind::Rate));
         cols.append(num("Exfil deficit",  "Exfil. Initial Deficit",
                         "node_exfil_imd",     0.0, 1.0, 4));
+        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
+        // coupleable. The class default shows until a type is set.
+        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure",
+                            "node_2d_coupling_type", coupling2DTypeValues()));
         cols.append(nodeComputedBlock());
         // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — browser
         // shows the four compound cells on every node kind.
@@ -685,6 +699,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Ponded area",     "Ponded Area",        "node_ponded_area",
                                                           0.0, 1e9, 2, UnitKind::Area),
         };
+        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
+        // coupleable. The class default shows until a type is set.
+        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure",
+                            "node_2d_coupling_type", coupling2DTypeValues()));
         cols.append(nodeComputedBlock());
         cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
         cols.append(compoundCol("DWF",       "Dry Weather Flow",  "node_dwf_ref"));
@@ -1460,6 +1478,11 @@ int nodeTimeFloodedHoursGet(SWMM_Engine e, int idx, double *v) {
     return rc;
 }
 
+// Effective 1D↔2D coupling type (the class default when not authored).
+int nodeCoupling2DTypeGet(SWMM_Engine e, int idx, int *v) {
+    return swmm_node_get_2d_coupling_type(e, idx, v, nullptr);
+}
+
 // Dispatch table — map a setter-tag string to the engine call.
 // Double-typed setters drive Numeric columns; Int-typed setters
 // drive Enum / Integer / Bool columns.  Each entry populates one
@@ -1615,6 +1638,12 @@ SetterEntry setterForUncached(const QString &tag) {
         e.kind = EntityKind::Node;
         e.setFnI = &swmm_node_set_outfall_flap_gate;
         e.getFnI = &swmm_node_get_outfall_flap_gate;
+        return e;
+    }
+    if (tag == QStringLiteral("node_2d_coupling_type")) {
+        e.kind = EntityKind::Node;
+        e.setFnI = &swmm_node_set_2d_coupling_type;
+        e.getFnI = &nodeCoupling2DTypeGet;
         return e;
     }
     if (tag == QStringLiteral("node_divider_type")) {
@@ -1952,6 +1981,16 @@ QVariantList outfallTypeValues() {
         makePair("FIXED",      2),
         makePair("TIDAL",      3),
         makePair("TIMESERIES", 4),
+    };
+}
+QVariantList coupling2DTypeValues() {
+    return {
+        makePair("NONE",    0),
+        makePair("MANHOLE", 1),
+        makePair("GRATE",   2),
+        makePair("CURB",    3),
+        makePair("OPEN",    4),
+        makePair("OUTFALL", 5),
     };
 }
 QVariantList yesNoValues() {

@@ -21,6 +21,8 @@
 #include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
 
 #include <QLoggingCategory>
+#include <QPair>
+#include <QPointF>
 #include <QStringList>
 #include <QVector>
 
@@ -95,6 +97,17 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
                            QStringList *warnings = nullptr,
                            bool *outTrianglesSynced = nullptr,
                            bool *outWriteRejected = nullptr);
+
+/*! Whether new 1D↔2D map rows should author CD/AREA: true unless the model's
+ *  [2D_OPTIONS] COUPLING_LAW is WEIR_ORIFICE, whose node structures govern
+ *  the exchange — an authored CD/AREA would override their orifice terms. */
+bool couplingAuthorsCdArea(SWMM_Engine engine);
+
+/*! \a nodes without those the engine reports as not coupleable (2D coupling
+ *  type NONE — authored in [2D_NODE_COUPLING] or the inlet / virtual
+ *  junction default). Names the engine does not know are kept. */
+QVector<QPair<QString, QPointF>> coupleableNodes(
+    SWMM_Engine engine, const QVector<QPair<QString, QPointF>> &nodes);
 
 } // namespace mesh
 

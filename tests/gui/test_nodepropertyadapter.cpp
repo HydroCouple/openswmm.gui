@@ -108,6 +108,53 @@ private slots:
 
 
     // ====================================================================
+    // 1D↔2D coupling rows ([2D_NODE_COUPLING], fine-scale coupling §7.1)
+    // ====================================================================
+
+    void coupling2DRowsRoundTripThroughTheEngine()
+    {
+        SWMM_Engine e = buildFixture();
+        QVERIFY(e);
+        SWMMJunctionPropertyAdapter j(e, QStringLiteral("J1"));
+        // Class default: a junction couples as a manhole, unauthored.
+        QVERIFY(j.coupleable());
+        QCOMPARE(j.couplingType(), SWMMNodePropertyAdapter::MANHOLE);
+        QVERIFY(j.couplingDiameter().isEmpty());
+
+        j.setCouplingType(SWMMNodePropertyAdapter::GRATE);
+        j.setCouplingStructureArea(QStringLiteral("0.18"));
+        j.setCouplingPerimeter(QStringLiteral("1.8"));
+        j.setCouplingCrest(SWMMNodePropertyAdapter::MESH_BED);
+        j.setCouplingCoeffs(SWMMNodePropertyAdapter::RUBINATO2017);
+        QCOMPARE(j.couplingType(), SWMMNodePropertyAdapter::GRATE);
+        QCOMPARE(j.couplingStructureArea(), QStringLiteral("0.18"));
+        QCOMPARE(j.couplingPerimeter(), QStringLiteral("1.8"));
+        QCOMPARE(j.couplingCrest(), SWMMNodePropertyAdapter::MESH_BED);
+        QCOMPARE(j.couplingCoeffs(), SWMMNodePropertyAdapter::RUBINATO2017);
+
+        // Blank clears a parameter; a type an outfall-only junction may not
+        // take is refused and the row keeps its value.
+        j.setCouplingPerimeter(QString());
+        QVERIFY(j.couplingPerimeter().isEmpty());
+        j.setCouplingType(SWMMNodePropertyAdapter::OUTFALL_2D);
+        QCOMPARE(j.couplingType(), SWMMNodePropertyAdapter::GRATE);
+
+        // Not coupleable → NONE (authored); back on → the class default.
+        j.setCoupleable(false);
+        QCOMPARE(j.couplingType(), SWMMNodePropertyAdapter::NOT_COUPLEABLE);
+        j.setCoupleable(true);
+        QCOMPARE(j.couplingType(), SWMMNodePropertyAdapter::MANHOLE);
+
+        SWMMOutfallPropertyAdapter o(e, QStringLiteral("O1"));
+        QCOMPARE(o.couplingType(), SWMMNodePropertyAdapter::OUTFALL_2D);
+        o.setCouplingSpread(QStringLiteral("3"));
+        o.setCouplingTailwaterRelax(QStringLiteral("10"));
+        QCOMPARE(o.couplingSpread(), QStringLiteral("3"));
+        QCOMPARE(o.couplingTailwaterRelax(), QStringLiteral("10"));
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
     // Scalar regression (Slice Z.5.3 contract — unchanged in DB)
     // ====================================================================
 

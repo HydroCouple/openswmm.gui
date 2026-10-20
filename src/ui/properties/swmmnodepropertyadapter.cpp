@@ -14,6 +14,7 @@
 
 #include "ui/properties/xsectshapegeom.h"   // kXsectStreetId (approachStreet)
 
+#include <algorithm>
 #include <cmath>
 
 #include <openswmm/engine/openswmm_inflows.h>
@@ -118,6 +119,24 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
 
     // Divider.
     if (property == QLatin1String("dividerType"))     return tr("Divider Type");
+
+    // 1D↔2D coupling ([2D_NODE_COUPLING]); blank text rows = the default.
+    if (property == QLatin1String("coupleable"))              return tr("2D Coupleable");
+    if (property == QLatin1String("couplingType"))            return tr("2D Coupling Structure");
+    if (property == QLatin1String("couplingDiameter"))        return tr("2D Manhole Diameter (%1)").arg(L);
+    if (property == QLatin1String("couplingPerimeter"))       return tr("2D Inlet Perimeter (%1)").arg(L);
+    if (property == QLatin1String("couplingStructureArea"))   return tr("2D Opening Area (%1)").arg(L2);
+    if (property == QLatin1String("couplingChamberArea"))     return tr("2D Chamber Area (%1)").arg(L2);
+    if (property == QLatin1String("couplingLidOpenFraction")) return tr("2D Lid Open Fraction");
+    if (property == QLatin1String("couplingCrest"))           return tr("2D Crest Elevation");
+    if (property == QLatin1String("couplingLaw"))             return tr("2D Exchange Law");
+    if (property == QLatin1String("couplingCoeffs"))          return tr("2D Coefficients");
+    if (property == QLatin1String("couplingCw"))              return tr("2D Weir Coeff. (Cw)");
+    if (property == QLatin1String("couplingCsw"))             return tr("2D Submerged Weir Coeff. (Csw)");
+    if (property == QLatin1String("couplingCoi"))             return tr("2D Orifice Coeff. In (Coi)");
+    if (property == QLatin1String("couplingCoo"))             return tr("2D Orifice Coeff. Out (Coo)");
+    if (property == QLatin1String("couplingSpread"))          return tr("2D Discharge Spread (%1)").arg(L);
+    if (property == QLatin1String("couplingTailwaterRelax"))  return tr("2D Tailwater Relaxation (s)");
 
     // Inlet junction (§3.4). Depression height/width are the LOCAL gutter
     // depression at this inlet, distinct from the street's own gutter.
@@ -453,6 +472,95 @@ void SWMMNodePropertyAdapter::setTag(const QString &t) {
     if (swmm_node_set_tag(m_engine, idx, bytes.constData()) == SWMM_OK)
         emit changed();
 }
+
+// ---------------------------------------------------------------------------
+// 1D↔2D coupling ([2D_NODE_COUPLING])
+// ---------------------------------------------------------------------------
+
+namespace {
+const QStringList kCrestTokens  = {QString(), QStringLiteral("NODE_RIM"), QStringLiteral("MESH_BED"),
+                                   QStringLiteral("MAX"), QStringLiteral("MIN")};
+const QStringList kCoeffsTokens = {QString(), QStringLiteral("DEFAULT"), QStringLiteral("RUBINATO2017"),
+                                   QStringLiteral("RUBINATO2017_LOWER"), QStringLiteral("RUBINATO2017_UPPER")};
+const QStringList kLawTokens    = {QString(), QStringLiteral("ORIFICE"), QStringLiteral("WEIR_ORIFICE")};
+} // namespace
+
+QString SWMMNodePropertyAdapter::couplingParam(const QString &key) const
+{
+    nodecoupling2d::State s;
+    return nodecoupling2d::read(m_engine, m_name, &s) ? s.params.value(key) : QString();
+}
+
+void SWMMNodePropertyAdapter::writeCoupling(const nodecoupling2d::State &s)
+{
+    nodecoupling2d::State now;
+    if (nodecoupling2d::read(m_engine, m_name, &now) && now == s) return;
+    if (m_layer) m_layer->pushNodeCoupling2DEdits({s}, tr("Edit 2D Coupling"));
+    else nodecoupling2d::write(m_engine, s);
+    emit changed();   // a refused edit re-reads the engine's value
+}
+
+void SWMMNodePropertyAdapter::setCouplingParam(const QString &key, const QString &token)
+{
+    nodecoupling2d::State s;
+    if (!nodecoupling2d::read(m_engine, m_name, &s)) return;
+    const QString t = token.trimmed();
+    if (t.isEmpty()) s.params.remove(key);
+    else s.params.insert(key, t);
+    s.authored = true;   // a parameter authors the row at the current type
+    writeCoupling(s);
+}
+
+SWMMNodePropertyAdapter::Coupling2DType SWMMNodePropertyAdapter::couplingType() const
+{
+    nodecoupling2d::State s;
+    return nodecoupling2d::read(m_engine, m_name, &s) ? Coupling2DType(s.type) : NOT_COUPLEABLE;
+}
+
+bool SWMMNodePropertyAdapter::coupleable() const
+{
+    return couplingType() != NOT_COUPLEABLE;
+}
+
+void SWMMNodePropertyAdapter::setCouplingType(Coupling2DType v)
+{
+    nodecoupling2d::State s;
+    if (!nodecoupling2d::read(m_engine, m_name, &s)) return;
+    if (!nodecoupling2d::allowedTypes(m_engine, m_name).contains(int(v))) { emit changed(); return; }
+    if (s.authored && s.type == int(v)) return;
+    if (s.type != int(v)) s.params.clear();   // parameters belong to a structure
+    s.authored = true;
+    s.type = int(v);
+    writeCoupling(s);
+}
+
+void SWMMNodePropertyAdapter::setCoupleable(bool on)
+{
+    nodecoupling2d::State s;
+    if (!nodecoupling2d::read(m_engine, m_name, &s) || on == (s.type != nodecoupling2d::None)) return;
+    const int def = nodecoupling2d::defaultType(m_engine, m_name);
+    s.params.clear();
+    if (!on) { s.authored = true; s.type = nodecoupling2d::None; }
+    else if (def != nodecoupling2d::None) { s.authored = false; s.type = def; }
+    else { s.authored = true; s.type = nodecoupling2d::Manhole; }
+    writeCoupling(s);
+}
+
+SWMMNodePropertyAdapter::Coupling2DCrest SWMMNodePropertyAdapter::couplingCrest() const
+{
+    return Coupling2DCrest(std::max<qsizetype>(0, kCrestTokens.indexOf(couplingParam(QStringLiteral("CREST")))));
+}
+SWMMNodePropertyAdapter::Coupling2DCoeffs SWMMNodePropertyAdapter::couplingCoeffs() const
+{
+    return Coupling2DCoeffs(std::max<qsizetype>(0, kCoeffsTokens.indexOf(couplingParam(QStringLiteral("COEFFS")))));
+}
+SWMMNodePropertyAdapter::Coupling2DLaw SWMMNodePropertyAdapter::couplingLaw() const
+{
+    return Coupling2DLaw(std::max<qsizetype>(0, kLawTokens.indexOf(couplingParam(QStringLiteral("LAW")))));
+}
+void SWMMNodePropertyAdapter::setCouplingCrest(Coupling2DCrest v)   { setCouplingParam(QStringLiteral("CREST"), kCrestTokens.value(v)); }
+void SWMMNodePropertyAdapter::setCouplingCoeffs(Coupling2DCoeffs v) { setCouplingParam(QStringLiteral("COEFFS"), kCoeffsTokens.value(v)); }
+void SWMMNodePropertyAdapter::setCouplingLaw(Coupling2DLaw v)       { setCouplingParam(QStringLiteral("LAW"), kLawTokens.value(v)); }
 
 void SWMMNodePropertyAdapter::setOutfallType(OutfallType v)
 {

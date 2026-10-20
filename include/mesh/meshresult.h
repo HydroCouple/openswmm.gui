@@ -31,7 +31,12 @@ struct MeshVertex
     QString tag;           ///< Descriptive label ([2D_VERTICES] TAG column); empty if none.
     QString coupledNode;   ///< Coupled SWMM node id ([2D_VERTEX_NODE_MAP]); empty if uncoupled.
     double  couplingCd   = 0.65; ///< [2D_VERTEX_NODE_MAP] CD column (engine default).
-    double  couplingArea = 1.0;  ///< [2D_VERTEX_NODE_MAP] AREA column, m² (engine default).
+    double  couplingArea = 1.0;  ///< [2D_VERTEX_NODE_MAP] AREA column, mesh length units² (engine default).
+    /// False when the row does not author CD / AREA: it is written without
+    /// the token and the engine applies [2D_OPTIONS] COUPLING_CD / the
+    /// node's 2D coupling structure (an authored AREA forces a CD column).
+    bool    couplingCdSet   = true;
+    bool    couplingAreaSet = true;
 };
 
 /*! \brief A cell in the mesh — a triangle or (since the engine's mixed
@@ -108,7 +113,9 @@ struct CellCoupling
     int     tri = -1;      ///< Triangle index into MeshResult::triangles.
     QString nodeId;        ///< SWMM node id.
     double  cd   = 0.65;   ///< Discharge coefficient (engine default).
-    double  area = 2.0;    ///< Effective exchange area, m² (mapper default).
+    double  area = 2.0;    ///< Effective exchange area, mesh length units² (mapper default).
+    bool    cdSet   = true;   ///< False: row written without CD (see MeshVertex::couplingCdSet).
+    bool    areaSet = true;   ///< False: row written without AREA.
 };
 
 /*! \brief Result of \ref MeshGenerator::generate. */

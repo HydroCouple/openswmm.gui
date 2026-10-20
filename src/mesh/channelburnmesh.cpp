@@ -305,11 +305,11 @@ ChannelMeshBurnResult burnChannelsIntoMesh(const MeshResult &old,ChannelMeshBurn
     QSet<QString> haveCoordinate;
     for(const auto &node:in.nodes)if(eligibleNodes.contains(node.first)) {nodes.append(node);haveCoordinate.insert(node.first);}
     for(const auto &split:out.surgery.splits)nodes.append({split.nodeId,split.xy});
-    QHash<QString,QPair<double,double>> couplingParameters;
-    for(const auto &v:old.vertices)if(!v.coupledNode.isEmpty()) {nodes.append({v.coupledNode,v.xy});couplingParameters.insert(v.coupledNode,{v.couplingCd,v.couplingArea});}
+    QHash<QString,QPair<double,double>> couplingParameters;QHash<QString,QPair<bool,bool>> couplingAuthored;
+    for(const auto &v:old.vertices)if(!v.coupledNode.isEmpty()) {nodes.append({v.coupledNode,v.xy});couplingParameters.insert(v.coupledNode,{v.couplingCd,v.couplingArea});couplingAuthored.insert(v.coupledNode,{v.couplingCdSet,v.couplingAreaSet});}
     for(const auto &c:old.cellCouplings)if(c.tri>=0&&c.tri<old.triangles.size()) {
         if(!haveCoordinate.contains(c.nodeId)) {nodes.append({c.nodeId,cellGeom(old.vertices,old.triangles[c.tri]).centroid});haveCoordinate.insert(c.nodeId);}
-        couplingParameters.insert(c.nodeId,{c.cd,c.area});
+        couplingParameters.insert(c.nodeId,{c.cd,c.area});couplingAuthored.insert(c.nodeId,{c.cdSet,c.areaSet});
     }
     for(auto &v:out.mesh.vertices)if(retired.contains(v.coupledNode))v.coupledNode.clear();
     out.mesh.cellCouplings.erase(std::remove_if(out.mesh.cellCouplings.begin(),out.mesh.cellCouplings.end(),[&](const auto &c){return retired.contains(c.nodeId);}),out.mesh.cellCouplings.end());
@@ -317,9 +317,9 @@ ChannelMeshBurnResult burnChannelsIntoMesh(const MeshResult &old,ChannelMeshBurn
     if(stop())return out;
     auto mapped=mapNodesToMesh(out.mesh,nodes,1e-8,true);
     for(auto it=mapped.vertexMatches.cbegin();it!=mapped.vertexMatches.cend();++it) {
-        auto &v=out.mesh.vertices[it.key()];v.coupledNode=it.value();if(couplingParameters.contains(it.value())) {v.couplingCd=couplingParameters[it.value()].first;v.couplingArea=couplingParameters[it.value()].second;}
+        auto &v=out.mesh.vertices[it.key()];v.coupledNode=it.value();if(couplingParameters.contains(it.value())) {v.couplingCd=couplingParameters[it.value()].first;v.couplingArea=couplingParameters[it.value()].second;v.couplingCdSet=couplingAuthored[it.value()].first;v.couplingAreaSet=couplingAuthored[it.value()].second;}
     }
-    for(auto c:mapped.cellMatches) {if(couplingParameters.contains(c.nodeId)) {c.cd=couplingParameters[c.nodeId].first;c.area=couplingParameters[c.nodeId].second;}out.mesh.cellCouplings.append(c);}
+    for(auto c:mapped.cellMatches) {if(couplingParameters.contains(c.nodeId)) {c.cd=couplingParameters[c.nodeId].first;c.area=couplingParameters[c.nodeId].second;c.cdSet=couplingAuthored[c.nodeId].first;c.areaSet=couplingAuthored[c.nodeId].second;}out.mesh.cellCouplings.append(c);}
     report(90,QStringLiteral("Checking conformity, channel accuracy and cell quality…"));
     if(stop())return out;
     MeshCavityTopology check;if(!check.build(out.mesh,cancelled)) {if(stop())return out;out.error=check.error;return out;}
@@ -364,6 +364,7 @@ ChannelMeshBurnResult burnChannelsIntoMesh(const MeshResult &old,ChannelMeshBurn
                 if(couplingParameters.contains(node.first)) {
                     const auto parameters=couplingParameters.value(node.first);
                     coupling.cd=parameters.first;coupling.area=parameters.second;
+                    coupling.cdSet=couplingAuthored.value(node.first).first;coupling.areaSet=couplingAuthored.value(node.first).second;
                 }
                 out.mesh.cellCouplings.append(coupling);
                 missingInterfaces.remove(node.first);mapped.unmatched.removeAll(node.first);

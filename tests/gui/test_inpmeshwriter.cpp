@@ -303,6 +303,56 @@ private slots:
         QVERIFY2(v0HasDefaults, qPrintable(block));
     }
 
+    // 1D2D fine-scale coupling G5/G6: a row that does not author CD / AREA is
+    // written without the token (the engine then applies COUPLING_CD / the
+    // node's structure) and reads back unauthored; an authored AREA keeps
+    // its CD column. Saves therefore stop turning defaults into overrides.
+    void unauthoredCouplingTokensRoundTrip()
+    {
+        ReviewableTestDir dir;
+        QVERIFY(dir.isValid());
+        const QString inp = dir.filePath("project.inp");
+        const QString file = dir.filePath("mesh.2dm");
+        QFile deck(inp); QVERIFY(deck.open(QIODevice::WriteOnly));
+        deck.write("[OPTIONS]\nFLOW_UNITS CMS\n"); deck.close();
+        auto m = mixedMesh();
+        CouplingMap coupling;
+        m.vertices[0].coupledNode = "J1"; coupling.vertexToNode.insert(0, "J1");
+        m.vertices[0].couplingCdSet = m.vertices[0].couplingAreaSet = false;
+        m.vertices[1].coupledNode = "J2"; coupling.vertexToNode.insert(1, "J2");
+        m.vertices[1].couplingCd = 0.7; m.vertices[1].couplingAreaSet = false;
+        mesh::CellCoupling bare{2, "J3", 0.65, 2.0}; bare.cdSet = bare.areaSet = false;
+        mesh::CellCoupling areaOnly{2, "J4", 0.65, 3.5}; areaOnly.cdSet = false;
+        m.cellCouplings = {bare, areaOnly};
+
+        const QString text = InpMeshWriter::buildSectionText(m, coupling);
+        auto rowOf = [&](const QString &node) {
+            for (const QString &line : text.split('\n')) {
+                const QStringList tok = line.trimmed().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                if (tok.size() >= 2 && tok[1] == node) return tok;
+            }
+            return QStringList{};
+        };
+        QCOMPARE(rowOf("J1").size(), 2);
+        QCOMPARE(rowOf("J2").size(), 3);
+        QCOMPARE(rowOf("J2")[2].toDouble(), 0.7);
+        QCOMPARE(rowOf("J3").size(), 2);
+        QCOMPARE(rowOf("J4").size(), 4);
+
+        QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
+        QString err;
+        QVERIFY2(InpMeshWriter::writeExternal(inp, file, m, coupling, bcs, 0.035, &err), qPrintable(err));
+        const auto back = InpMeshReader::read(inp);
+        QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
+        QVERIFY(!back.mesh.vertices[0].couplingCdSet && !back.mesh.vertices[0].couplingAreaSet);
+        QVERIFY(back.mesh.vertices[1].couplingCdSet && !back.mesh.vertices[1].couplingAreaSet);
+        QCOMPARE(back.mesh.vertices[1].couplingCd, 0.7);
+        QCOMPARE(back.mesh.cellCouplings.size(), 2);
+        QVERIFY(!back.mesh.cellCouplings[0].cdSet && !back.mesh.cellCouplings[0].areaSet);
+        QVERIFY(back.mesh.cellCouplings[1].areaSet);
+        QCOMPARE(back.mesh.cellCouplings[1].area, 3.5);
+    }
+
     void buildSectionText_emptyVertexMap_omitsSection()
     {
         CouplingMap c;  // no entries at all

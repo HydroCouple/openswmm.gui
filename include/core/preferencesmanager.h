@@ -528,6 +528,12 @@ public:
         double  couplingCd         = 0.65;    ///< COUPLING_CD
         double  couplingSync       = 0.0;     ///< COUPLING_SYNC (0 = every routing step)
         bool    couplingAreaAuto   = false;   ///< COUPLING_AREA AUTO vs DEFAULT
+        // New models take the regime-aware exchange (fine-scale coupling plan
+        // D1/D3/D9); the engine's own defaults stay the legacy ORIFICE /
+        // CELL / FOOTPRINT so existing decks run unchanged.
+        QString couplingLaw        = QStringLiteral("WEIR_ORIFICE");      ///< COUPLING_LAW
+        QString couplingHead       = QStringLiteral("STENCIL_WET_MEAN");  ///< COUPLING_HEAD
+        QString couplingPondMode   = QStringLiteral("TRACKING");          ///< COUPLING_POND_MODE
         QString rainfallMode       = QStringLiteral("NATURAL_NEIGHBOUR"); ///< RAINFALL_MODE
         bool    report2D           = false;   ///< REPORT_2D
 

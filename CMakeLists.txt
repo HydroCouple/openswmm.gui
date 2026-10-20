@@ -437,6 +437,7 @@ set(
         include/layers/swmm_category.h
         include/layers/wfslayer.h
         include/layers/swmmmodellayer.h
+        include/layers/nodecoupling2d.h
         include/layers/swmmelementsymboladapter.h
         include/layers/hydrographmodels.h
         include/layers/speciesattributes.h
@@ -830,6 +831,7 @@ set(
 
         # ── UI widgets ───────────────────────────────────────────────────────
         include/ui/widgets/commandpalette.h
+        include/ui/widgets/nodecouplingselector.h
         include/ui/widgets/commandpalettemodel.h
         include/ui/widgets/shortcuteditorwidget.h
         include/ui/widgets/basemaphttpheaderswidget.h
@@ -882,6 +884,7 @@ set(
         include/ui/dialogs/meshattributeassigndialog.h
         include/ui/dialogs/infilassigntoselectiondialog.h
         include/ui/dialogs/meshgenerationdialog.h
+        include/ui/dialogs/remap1d2ddialog.h
         include/ui/dialogs/channelburndialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
         include/ui/dialogs/subcatchcompoundeditdialog.h
@@ -1229,6 +1232,7 @@ set(
         src/layers/wmtslayer.cpp
         src/layers/wfslayer.cpp
         src/layers/swmmmodellayer.cpp
+        src/layers/nodecoupling2d.cpp
         src/layers/hydrographmodels.cpp
         src/layers/speciesattributes.cpp
         src/layers/vjsourcesummary.cpp
@@ -1619,6 +1623,7 @@ set(
         src/ui/dialogs/meshattributeassigndialog.cpp
         src/ui/dialogs/infilassigntoselectiondialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
+        src/ui/dialogs/remap1d2ddialog.cpp
         src/ui/dialogs/channelburndialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
         src/ui/dialogs/subcatchcompoundeditdialog.cpp
@@ -1780,6 +1785,7 @@ set(
         # Phase GG0d — mesh generation region-defaults table impl.
         src/ui/widgets/meshregiondefaultswidget.cpp
         src/ui/widgets/meshresolutionwidget.cpp
+        src/ui/widgets/nodecouplingselector.cpp
         src/ui/widgets/corridorsourceswidget.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────

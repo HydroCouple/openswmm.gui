@@ -153,6 +153,9 @@ public:
         // runs. Independent of the junctions-as-Steiner checkbox.
         QVector<QPair<QString, QPointF>> couplingNodes;
         bool mapNodesAfterGen = true;
+        /// False under COUPLING_LAW WEIR_ORIFICE: new map rows leave CD/AREA
+        /// unauthored so the node structures govern (mesh::couplingAuthorsCdArea).
+        bool authorCouplingCdArea = true;
 
         // WKT of the mesh (model) CRS — passed to the worker so it can build
         // a mesh→DTM coordinate transform when the raster CRS differs.
@@ -396,6 +399,11 @@ private:
     QCheckBox     *m_includeConduits  = nullptr;
     QCheckBox     *m_includeSubcatch  = nullptr;
     QCheckBox     *m_mapNodesAfterGen = nullptr;  // Plan Part B: post-gen mapper
+    // 1D2D fine-scale coupling §7.2: map only nodes whose 2D coupling type is
+    // not NONE; "Set coupleable…" opens the node coupling selector.
+    QCheckBox     *m_mapOnlyCoupleable = nullptr;
+    QLabel        *m_coupleableReadout = nullptr;
+    void           updateCoupleableReadout();
     QCheckBox      *m_nodesUseRim     = nullptr;  // rim elevation instead of terrain
     QDoubleSpinBox *m_nodeFlattenSpin = nullptr;  // flatten terrain within radius of nodes
     QCheckBox      *m_nodeMinSepBox   = nullptr;  // enforce minimum node separation

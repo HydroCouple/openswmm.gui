@@ -1748,6 +1748,9 @@ PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
     d.couplingCd         = readTwoDSetting<double>(s, QStringLiteral("CouplingCd"),         d.couplingCd);
     d.couplingSync       = readTwoDSetting<double>(s, QStringLiteral("CouplingSync"),       d.couplingSync);
     d.couplingAreaAuto   = readTwoDSetting<bool>(s,   QStringLiteral("CouplingAreaAuto"),   d.couplingAreaAuto);
+    d.couplingLaw        = readTwoDSetting<QString>(s, QStringLiteral("CouplingLaw"),        d.couplingLaw);
+    d.couplingHead       = readTwoDSetting<QString>(s, QStringLiteral("CouplingHead"),       d.couplingHead);
+    d.couplingPondMode   = readTwoDSetting<QString>(s, QStringLiteral("CouplingPondMode"),   d.couplingPondMode);
     d.rainfallMode       = readTwoDSetting<QString>(s, QStringLiteral("RainfallMode"),       d.rainfallMode);
     d.report2D           = readTwoDSetting<bool>(s,   QStringLiteral("Report2D"),           d.report2D);
 
@@ -1815,6 +1818,9 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     put(QStringLiteral("CouplingCd"),         d.couplingCd);
     put(QStringLiteral("CouplingSync"),       d.couplingSync);
     put(QStringLiteral("CouplingAreaAuto"),   d.couplingAreaAuto);
+    put(QStringLiteral("CouplingLaw"),        d.couplingLaw);
+    put(QStringLiteral("CouplingHead"),       d.couplingHead);
+    put(QStringLiteral("CouplingPondMode"),   d.couplingPondMode);
     put(QStringLiteral("RainfallMode"),       d.rainfallMode);
     put(QStringLiteral("Report2D"),           d.report2D);
 

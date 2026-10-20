@@ -187,3 +187,112 @@ TEST(MeshNodeMapper, NodeOnSharedEdgePicksLowestTriangleDeterministically)
     ASSERT_EQ(r.cellMatches.size(), 1);
     EXPECT_EQ(r.cellMatches[0].tri, 0);
 }
+
+// ── 1D2D fine-scale coupling plan §7.4 / G5 ──────────────────────────────
+
+// Under COUPLING_LAW WEIR_ORIFICE the mapper writes rows that do not author
+// CD / AREA, so the node structures govern; the legacy default still does.
+TEST(MeshNodeMapper, CellRowsAuthorCdAreaOnlyWhenAsked)
+{
+    const auto m = makeSquareMesh();
+    const QVector<QPair<QString, QPointF>> nodes = {
+        { QStringLiteral("J"), QPointF(0.25, 0.25) },
+    };
+    const auto legacy = mesh::mapNodesToMesh(m, nodes);
+    ASSERT_EQ(legacy.cellMatches.size(), 1);
+    EXPECT_TRUE(legacy.cellMatches[0].cdSet && legacy.cellMatches[0].areaSet);
+    EXPECT_TRUE(legacy.authorCdArea);
+    const auto weir = mesh::mapNodesToMesh(m, nodes, -1.0, true, /*authorCdArea=*/false);
+    ASSERT_EQ(weir.cellMatches.size(), 1);
+    EXPECT_FALSE(weir.cellMatches[0].cdSet);
+    EXPECT_FALSE(weir.cellMatches[0].areaSet);
+    EXPECT_FALSE(weir.authorCdArea);
+}
+
+namespace {
+mesh::MeshResult coupledSquare()
+{
+    auto m = makeSquareMesh();
+    m.vertices[1].coupledNode = QStringLiteral("V");   // vertex-coupled
+    m.vertices[1].couplingCd = 0.8;
+    m.vertices[1].couplingArea = 3.0;
+    mesh::CellCoupling c;
+    c.tri = 1; c.nodeId = QStringLiteral("C"); c.cd = 0.9; c.area = 5.0;
+    m.cellCouplings = { c };
+    return m;
+}
+const QVector<QPair<QString, QPointF>> kNodes = {
+    { QStringLiteral("V"), QPointF(1.0, 0.0) },     // on vertex 1
+    { QStringLiteral("C"), QPointF(0.8, 0.8) },     // in tri 1
+    { QStringLiteral("N"), QPointF(0.2, 0.2) },     // new, in tri 0
+    { QStringLiteral("X"), QPointF(5.0, 5.0) },     // outside
+};
+auto everyNode = [](const QString &) { return true; };
+} // namespace
+
+// Clear & rebuild: a node landing where it was keeps its CD / AREA (vertex
+// and cell), a new node gets the mapper defaults, an outside node is listed.
+TEST(MeshRemapPlan, RebuildKeepsParametersOfNodesThatLandAgain)
+{
+    const auto m = coupledSquare();
+    const auto p = mesh::planRemap(m, kNodes, everyNode, /*clearRebuild=*/true, true);
+    EXPECT_TRUE(p.vertices.isEmpty()) << "V re-matches vertex 1 — no vertex change";
+    ASSERT_EQ(p.newCells.size(), 2);
+    for (const auto &c : p.newCells) {
+        if (c.nodeId == QStringLiteral("C")) { EXPECT_EQ(c.tri, 1); EXPECT_DOUBLE_EQ(c.area, 5.0); }
+        else { EXPECT_EQ(c.nodeId, QStringLiteral("N")); EXPECT_DOUBLE_EQ(c.area, mesh::kCellCouplingDefaultArea); }
+    }
+    EXPECT_EQ(p.proposed.value(QStringLiteral("X")), QStringLiteral("outside the mesh"));
+    EXPECT_EQ(p.current.value(QStringLiteral("V")), QStringLiteral("vertex 1"));
+}
+
+// A node switched to "not coupleable" loses its couplings in either mode.
+TEST(MeshRemapPlan, NonCoupleableNodesAreUncoupled)
+{
+    const auto m = coupledSquare();
+    auto notV = [](const QString &n) { return n != QStringLiteral("V"); };
+    for (bool rebuild : {true, false}) {
+        const auto p = mesh::planRemap(m, kNodes, notV, rebuild, true);
+        ASSERT_EQ(p.vertices.size(), 1) << rebuild;
+        EXPECT_EQ(p.vertices[0], 1);
+        EXPECT_TRUE(p.newAttrs[0].coupledNode.isEmpty());
+        EXPECT_EQ(p.oldAttrs[0].coupledNode, QStringLiteral("V"));
+        EXPECT_EQ(p.proposed.value(QStringLiteral("V")), QStringLiteral("— (not coupleable)"));
+        for (const auto &c : p.newCells) EXPECT_NE(c.nodeId, QStringLiteral("V"));
+    }
+}
+
+// Preserve existing: coupled nodes keep their rows untouched; only the
+// uncoupled node is mapped (unauthored under the weir/orifice law).
+TEST(MeshRemapPlan, PreserveMapsOnlyUncoupledNodes)
+{
+    const auto m = coupledSquare();
+    const auto p = mesh::planRemap(m, kNodes, everyNode, /*clearRebuild=*/false, false);
+    EXPECT_TRUE(p.vertices.isEmpty());
+    ASSERT_EQ(p.newCells.size(), 2);
+    EXPECT_EQ(p.newCells[0].nodeId, QStringLiteral("C"));
+    EXPECT_DOUBLE_EQ(p.newCells[0].cd, 0.9);
+    EXPECT_EQ(p.newCells[1].nodeId, QStringLiteral("N"));
+    EXPECT_FALSE(p.newCells[1].cdSet);
+    EXPECT_TRUE(p.mapped.skippedExisting.contains(QStringLiteral("V")));
+    EXPECT_EQ(p.proposed.value(QStringLiteral("C")), p.current.value(QStringLiteral("C")));
+}
+
+// The plan's mapper verdict is exactly mapNodesToMesh on the cleared mesh:
+// the dialog's preview and its Apply cannot disagree with the mapper.
+TEST(MeshRemapPlan, RebuildPreviewEqualsMapperOutput)
+{
+    const auto m = coupledSquare();
+    const auto p = mesh::planRemap(m, kNodes, everyNode, true, true);
+    auto cleared = m;
+    cleared.cellCouplings.clear();
+    for (auto &v : cleared.vertices) v.coupledNode.clear();
+    const auto r = mesh::mapNodesToMesh(cleared, kNodes, -1.0, false, true);
+    EXPECT_EQ(p.mapped.vertexMatches, r.vertexMatches);
+    EXPECT_EQ(p.mapped.unmatched, r.unmatched);
+    ASSERT_EQ(p.mapped.cellMatches.size(), r.cellMatches.size());
+    for (int i = 0; i < r.cellMatches.size(); ++i) {
+        EXPECT_EQ(p.mapped.cellMatches[i].tri, r.cellMatches[i].tri);
+        EXPECT_EQ(p.mapped.cellMatches[i].nodeId, r.cellMatches[i].nodeId);
+    }
+}

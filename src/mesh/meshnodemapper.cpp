@@ -12,8 +12,10 @@
 #include "mesh/meshcellgeom.h"
 #include "layers/meshspatialgrid.h"
 
+#include <QCoreApplication>
 #include <QSet>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -50,9 +52,11 @@ bool pointInTriangle(const QPointF &p, const QPointF &a, const QPointF &b,
 NodeMapResult mapNodesToMesh(const MeshResult &mesh,
                              const QVector<QPair<QString, QPointF>> &nodes,
                              double tol,
-                             bool preserveExisting)
+                             bool preserveExisting,
+                             bool authorCdArea)
 {
     NodeMapResult r;
+    r.authorCdArea = authorCdArea;
     if (mesh.vertices.isEmpty() || mesh.triangles.isEmpty() || nodes.isEmpty())
     {
         for (const auto &n : nodes) r.unmatched.append(n.first);
@@ -201,6 +205,7 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh,
             cc.nodeId = id;
             cc.cd     = kCellCouplingDefaultCd;
             cc.area   = kCellCouplingDefaultArea;
+            cc.cdSet  = cc.areaSet = authorCdArea;
             r.cellMatches.append(cc);
             ++newPerCell[bestT];
             continue;
@@ -214,6 +219,75 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh,
         if (it.value() > 1) ++r.sharedCells;
 
     return r;
+}
+
+RemapPlan planRemap(const MeshResult &mesh,
+                    const QVector<QPair<QString, QPointF>> &nodes,
+                    const std::function<bool(const QString &)> &coupleable,
+                    bool clearRebuild, bool authorCdArea)
+{
+    RemapPlan p;
+    auto note = [](QHash<QString, QString> &h, const QString &node, const QString &what) {
+        QString &s = h[node];
+        s = s.isEmpty() ? what : s + QStringLiteral(", ") + what;
+    };
+    for (int vi = 0; vi < mesh.vertices.size(); ++vi)
+        if (!mesh.vertices[vi].coupledNode.isEmpty())
+            note(p.current, mesh.vertices[vi].coupledNode, QObject::tr("vertex %1").arg(vi));
+    for (const CellCoupling &c : mesh.cellCouplings)
+        note(p.current, c.nodeId, QObject::tr("cell %1").arg(c.tri));
+
+    // What survives: nothing when rebuilding, otherwise every coupling of a
+    // node that may still couple.
+    MeshResult working = mesh;
+    for (MeshVertex &v : working.vertices)
+        if (!v.coupledNode.isEmpty() && (clearRebuild || !coupleable(v.coupledNode)))
+            v.coupledNode.clear();
+    working.cellCouplings.erase(
+        std::remove_if(working.cellCouplings.begin(), working.cellCouplings.end(),
+                       [&](const CellCoupling &c) { return clearRebuild || !coupleable(c.nodeId); }),
+        working.cellCouplings.end());
+
+    QVector<QPair<QString, QPointF>> toMap;
+    for (const auto &n : nodes)
+        if (coupleable(n.first)) toMap.append(n);
+    p.mapped = mapNodesToMesh(working, toMap, -1.0, /*preserveExisting=*/!clearRebuild, authorCdArea);
+
+    for (int vi = 0; vi < mesh.vertices.size(); ++vi) {
+        const MeshVertex &old = mesh.vertices[vi];
+        const QString node = p.mapped.vertexMatches.value(vi, working.vertices[vi].coupledNode);
+        if (node == old.coupledNode) continue;   // a re-match keeps its CD/AREA
+        MeshVertex nv = old;
+        nv.coupledNode  = node;
+        nv.couplingCd   = 0.65;
+        nv.couplingArea = 1.0;
+        nv.couplingCdSet = nv.couplingAreaSet = node.isEmpty() || authorCdArea;
+        p.vertices.append(vi);
+        p.oldAttrs.append(old);
+        p.newAttrs.append(nv);
+    }
+
+    p.newCells = working.cellCouplings;
+    for (CellCoupling c : p.mapped.cellMatches) {
+        for (const CellCoupling &o : mesh.cellCouplings)
+            if (o.nodeId == c.nodeId && o.tri == c.tri) {
+                c.cd = o.cd; c.area = o.area; c.cdSet = o.cdSet; c.areaSet = o.areaSet;
+                break;
+            }
+        p.newCells.append(c);
+    }
+
+    for (auto it = p.mapped.vertexMatches.cbegin(); it != p.mapped.vertexMatches.cend(); ++it)
+        note(p.proposed, it.value(), QObject::tr("vertex %1").arg(it.key()));
+    for (const CellCoupling &c : p.mapped.cellMatches)
+        note(p.proposed, c.nodeId, QObject::tr("cell %1").arg(c.tri));
+    for (const QString &n : p.mapped.skippedExisting)
+        p.proposed.insert(n, p.current.value(n));
+    for (const QString &n : p.mapped.unmatched)
+        p.proposed.insert(n, QObject::tr("outside the mesh"));
+    for (const auto &n : nodes)
+        if (!coupleable(n.first)) p.proposed.insert(n.first, QObject::tr("— (not coupleable)"));
+    return p;
 }
 
 } // namespace mesh

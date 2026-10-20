@@ -1878,6 +1878,38 @@ void SetInletUsageCommand::undo()
 }
 
 // ===========================================================================
+// SetNodeCoupling2DCommand
+// ===========================================================================
+
+SetNodeCoupling2DCommand::SetNodeCoupling2DCommand(
+        SWMMModelLayer *layer, QVector<nodecoupling2d::State> newStates,
+        const QString &text, MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(text, canvas, parent),
+      m_layer(layer),
+      m_new(std::move(newStates))
+{
+    if (!m_layer) return;
+    m_old.reserve(m_new.size());
+    for (const auto &s : m_new) {
+        nodecoupling2d::State before;
+        m_layer->nodeCoupling2D(s.node, &before);
+        m_old.append(before);
+    }
+}
+
+void SetNodeCoupling2DCommand::redo()
+{
+    if (!m_layer) return;
+    for (const auto &s : m_new) m_layer->applyNodeCoupling2D(s);
+}
+
+void SetNodeCoupling2DCommand::undo()
+{
+    if (!m_layer) return;
+    for (int i = m_old.size() - 1; i >= 0; --i) m_layer->applyNodeCoupling2D(m_old[i]);
+}
+
+// ===========================================================================
 // InsertInletJunctionCommand
 // ===========================================================================
 

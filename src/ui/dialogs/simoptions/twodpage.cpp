@@ -322,7 +322,99 @@ void TwoDPage::buildUi()
     m_couplingCdSpin = new QDoubleSpinBox(coupGroup);
     m_couplingCdSpin->setRange(0.0, 1.0);
     m_couplingCdSpin->setDecimals(4);
+    // The engine keeps 0.65 for a non-positive COUPLING_CD (a 0 would shut
+    // every map row without its own CD), so 0 reads as that default rather
+    // than being clamped — a clamp would rewrite such a model on any Apply.
+    m_couplingCdSpin->setSpecialValueText(tr("0.65 (default)"));
+    m_couplingCdSpin->setToolTip(
+        tr("Discharge coefficient for coupling rows that do not set their own "
+           "CD (COUPLING_CD). Under the weir/orifice law it is used only where a "
+           "row authors CD; the structure presets govern otherwise."));
     coupForm->addRow(tr("Coupling Cd:"), m_couplingCdSpin);
+
+    m_couplingLawCombo = new QComboBox(coupGroup);
+    m_couplingLawCombo->addItem(tr("Orifice (legacy)"), QStringLiteral("ORIFICE"));
+    m_couplingLawCombo->addItem(tr("Weir / orifice (regime-aware)"),
+                                QStringLiteral("WEIR_ORIFICE"));
+    m_couplingLawCombo->setToolTip(
+        tr("Exchange law at coupled junctions (COUPLING_LAW). Orifice: one "
+           "orifice equation in both directions on each row's CD and AREA. "
+           "Weir / orifice: a free weir over the rim when the surface water is "
+           "shallow, an orifice when it is deep, their submerged forms when the "
+           "sewer is surcharged, and an orifice for sewer-to-surface flow; the "
+           "transitions are smooth. Its geometry comes from each node's 2D "
+           "coupling structure (manhole diameter, grate area, …)."));
+    coupForm->addRow(tr("Exchange law:"), m_couplingLawCombo);
+
+    m_couplingCoeffsCombo = new QComboBox(coupGroup);
+    m_couplingCoeffsCombo->addItem(tr("Default (continuous)"), QStringLiteral("DEFAULT"));
+    m_couplingCoeffsCombo->addItem(tr("Rubinato et al. 2017"), QStringLiteral("RUBINATO2017"));
+    m_couplingCoeffsCombo->addItem(tr("Rubinato et al. 2017 — lower"),
+                                   QStringLiteral("RUBINATO2017_LOWER"));
+    m_couplingCoeffsCombo->addItem(tr("Rubinato et al. 2017 — upper"),
+                                   QStringLiteral("RUBINATO2017_UPPER"));
+    m_couplingCoeffsCombo->setToolTip(
+        tr("Weir / orifice coefficient preset (COUPLING_COEFFS), overridable per "
+           "node. Default: C_w 0.540, submerged weir ⅔·C_w (keeps the free and "
+           "submerged weir continuous), orifices 0.167 / 0.160. The Rubinato "
+           "presets use the laboratory-calibrated submerged-weir 0.056."));
+    coupForm->addRow(tr("Coefficients:"), m_couplingCoeffsCombo);
+
+    m_couplingHeadCombo = new QComboBox(coupGroup);
+    m_couplingHeadCombo->addItem(tr("Coupling cell (legacy)"), QStringLiteral("CELL"));
+    m_couplingHeadCombo->addItem(tr("Cells around the vertex"), QStringLiteral("VERTEX"));
+    m_couplingHeadCombo->addItem(tr("Wet mean over the structure area"),
+                                 QStringLiteral("STENCIL_WET_MEAN"));
+    m_couplingHeadCombo->setToolTip(
+        tr("Which 2D water level drives the exchange and an outfall's tailwater "
+           "(COUPLING_HEAD). The wet mean over the structure area is the "
+           "manhole-area average that best matched laboratory data."));
+    coupForm->addRow(tr("Surface head:"), m_couplingHeadCombo);
+
+    m_couplingPondCombo = new QComboBox(coupGroup);
+    m_couplingPondCombo->addItem(tr("Cell footprint (legacy)"), QStringLiteral("FOOTPRINT"));
+    m_couplingPondCombo->addItem(tr("Chamber only"), QStringLiteral("CHAMBER"));
+    m_couplingPondCombo->addItem(tr("Tracking the wet footprint"), QStringLiteral("TRACKING"));
+    m_couplingPondCombo->setToolTip(
+        tr("Above-rim storage of a coupled junction (COUPLING_POND_MODE). Cell "
+           "footprint: the pond spreads over the coupling cells — the same water "
+           "the mesh holds, stored twice. Chamber only: the pond is the "
+           "structure's chamber; ponded water lives on the mesh. Tracking: the "
+           "pond area follows the wet area around the node, never losing water "
+           "as it changes."));
+    coupForm->addRow(tr("Junction pond:"), m_couplingPondCombo);
+
+    m_couplingPondRelaxSpin = new QDoubleSpinBox(coupGroup);
+    m_couplingPondRelaxSpin->setRange(0.0, 3600.0);
+    m_couplingPondRelaxSpin->setDecimals(1);
+    m_couplingPondRelaxSpin->setSuffix(QStringLiteral(" s"));
+    m_couplingPondRelaxSpin->setSpecialValueText(tr("5 routing steps"));
+    m_couplingPondRelaxSpin->setToolTip(
+        tr("How quickly a tracking pond follows the wet area (COUPLING_POND_RELAX)."));
+    coupForm->addRow(tr("Pond relaxation:"), m_couplingPondRelaxSpin);
+
+    m_couplingRimBandSpin = new QDoubleSpinBox(coupGroup);
+    m_couplingRimBandSpin->setRange(-0.001, 1.0);
+    m_couplingRimBandSpin->setDecimals(3);
+    m_couplingRimBandSpin->setSingleStep(0.01);
+    m_couplingRimBandSpin->setSuffix(QStringLiteral(" m"));
+    m_couplingRimBandSpin->setSpecialValueText(tr("Pond default"));
+    m_couplingRimBandSpin->setToolTip(
+        tr("Height above the rim over which the pond area ramps in smoothly "
+           "(COUPLING_RIM_BAND). Pond default: none for the cell footprint "
+           "(the legacy step), 0.05 m otherwise."));
+    coupForm->addRow(tr("Rim band:"), m_couplingRimBandSpin);
+
+    m_couplingEqualizeCombo = new QComboBox(coupGroup);
+    m_couplingEqualizeCombo->addItem(tr("By exchange law"), QStringLiteral("DEFAULT"));
+    m_couplingEqualizeCombo->addItem(tr("On"), QStringLiteral("YES"));
+    m_couplingEqualizeCombo->addItem(tr("Off"), QStringLiteral("NO"));
+    m_couplingEqualizeCombo->setToolTip(
+        tr("Cap each junction exchange so one coupling step cannot carry the "
+           "sewer and surface levels past each other (COUPLING_EQUALIZE) — "
+           "removes drain/spill flip-flopping. By exchange law: on for weir / "
+           "orifice, off for the legacy orifice."));
+    coupForm->addRow(tr("Head equalisation:"), m_couplingEqualizeCombo);
 
     m_couplingSyncSpin = new QDoubleSpinBox(coupGroup);
     m_couplingSyncSpin->setRange(0.0, 60.0);
@@ -865,6 +957,13 @@ void TwoDPage::tagWidgets()
     tagOption(m_vfrMinWetFracSpin, "VFR_MIN_WET_FRAC");
     tagOption(m_couplingCdSpin, "COUPLING_CD");
     tagOption(m_couplingSyncSpin, "COUPLING_SYNC");
+    tagOption(m_couplingLawCombo, "COUPLING_LAW");
+    tagOption(m_couplingCoeffsCombo, "COUPLING_COEFFS");
+    tagOption(m_couplingHeadCombo, "COUPLING_HEAD");
+    tagOption(m_couplingPondCombo, "COUPLING_POND_MODE");
+    tagOption(m_couplingPondRelaxSpin, "COUPLING_POND_RELAX");
+    tagOption(m_couplingRimBandSpin, "COUPLING_RIM_BAND");
+    tagOption(m_couplingEqualizeCombo, "COUPLING_EQUALIZE");
     tagOption(m_rainfall2DModeCombo, "RAINFALL_MODE");
     tagOption(m_report2DBox, "REPORT_2D");
     tagOption(m_thetaSpin, "THETA");
@@ -1168,6 +1267,20 @@ void TwoDPage::read()
     m_couplingAreaAutoBox->setChecked(
         getExt("COUPLING_AREA", t.couplingAreaAuto ? "AUTO" : "DEFAULT")
             .compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0);
+    // An engine that reports nothing for these keys predates them: show the
+    // legacy behaviour it runs, not the new-model preference.
+    selectComboByData(m_couplingLawCombo,    getExt("COUPLING_LAW",    QStringLiteral("ORIFICE")));
+    selectComboByData(m_couplingCoeffsCombo, getExt("COUPLING_COEFFS", QStringLiteral("DEFAULT")));
+    selectComboByData(m_couplingHeadCombo,   getExt("COUPLING_HEAD",   QStringLiteral("CELL")));
+    selectComboByData(m_couplingPondCombo,   getExt("COUPLING_POND_MODE", QStringLiteral("FOOTPRINT")));
+    m_couplingPondRelaxSpin->setValue(extDouble("COUPLING_POND_RELAX", 0.0));
+    {
+        const QString band = getExt("COUPLING_RIM_BAND", QStringLiteral("DEFAULT"));
+        bool okNum = false;
+        const double v = band.toDouble(&okNum);
+        m_couplingRimBandSpin->setValue(okNum && v >= 0.0 ? v : m_couplingRimBandSpin->minimum());
+    }
+    selectComboByData(m_couplingEqualizeCombo, getExt("COUPLING_EQUALIZE", QStringLiteral("DEFAULT")));
 
     // OUTPUT_FILE has no preferences default — blank means "auto-derive
     // <model>.2d.h5 at run time" (see SimulationRunner / run wiring).
@@ -1327,6 +1440,17 @@ int TwoDPage::write()
     writeIfChanged("COUPLING_AREA", m_couplingAreaAutoBox->isChecked()
                                         ? QStringLiteral("AUTO")
                                         : QStringLiteral("DEFAULT"));
+    writeIfChanged("COUPLING_LAW",       m_couplingLawCombo->currentData().toString());
+    writeIfChanged("COUPLING_COEFFS",    m_couplingCoeffsCombo->currentData().toString());
+    writeIfChanged("COUPLING_HEAD",      m_couplingHeadCombo->currentData().toString());
+    writeIfChanged("COUPLING_POND_MODE", m_couplingPondCombo->currentData().toString());
+    writeIfChanged("COUPLING_POND_RELAX",
+                   QString::number(m_couplingPondRelaxSpin->value(), 'g', 6));
+    writeIfChanged("COUPLING_RIM_BAND",
+                   m_couplingRimBandSpin->value() < 0.0
+                       ? QStringLiteral("DEFAULT")
+                       : QString::number(m_couplingRimBandSpin->value(), 'g', 6));
+    writeIfChanged("COUPLING_EQUALIZE",  m_couplingEqualizeCombo->currentData().toString());
     // Empty clears the key — InpWriter omits OUTPUT_FILE when unset and the
     // run wiring falls back to <model>.2d.h5.
     writeIfChanged("OUTPUT_FILE",   m_output2DFileEdit->text().trimmed());

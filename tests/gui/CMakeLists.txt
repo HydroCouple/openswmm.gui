@@ -1860,6 +1860,9 @@ add_swmmvis_gui_test(test_nodepropertyadapter
     # G5 — groundwaterSourcesRef() row (pure engine query).
     ${CMAKE_SOURCE_DIR}/src/layers/gwsourcesummary.cpp
     ${CMAKE_SOURCE_DIR}/include/layers/gwsourcesummary.h
+    # 1D↔2D coupling rows (engine read/write of [2D_NODE_COUPLING]).
+    ${CMAKE_SOURCE_DIR}/src/layers/nodecoupling2d.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/nodecoupling2d.h
 )
 
 # Virtual-junction delete / re-fuse prompt text for a fed node — a pure
@@ -3672,6 +3675,18 @@ add_swmmvis_gui_test(test_capture_node_pick
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_capture_node_pick)
+
+# 1D↔2D node coupling (fine-scale coupling plan §7.1–7.2): the coupling
+# selector's staged bulk edits applied as one undoable step through
+# SWMMModelLayer, illegal types refused before any write.
+add_swmmvis_gui_test(test_nodecoupling2d_edits
+    test_nodecoupling2d_edits.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_nodecoupling2d_edits)
+target_compile_definitions(test_nodecoupling2d_edits PRIVATE
+    SWMMVIS_NODECOUPLING_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/nodecoupling2d_edits")
 
 # A plain click on a link selects only that link (not its end nodes or a
 # same-named node). Click log: tests/output/link_click_selection/.

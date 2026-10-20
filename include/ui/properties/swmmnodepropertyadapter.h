@@ -30,6 +30,7 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>   // SWMM_InletUsage
 
+#include "layers/nodecoupling2d.h"        // 1D↔2D coupling state
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/initialqualityeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
@@ -91,12 +92,28 @@ public:
         Paraboloid  = 4,
         Pyramidal   = 5
     };
+    /*! 1D↔2D coupling structure ([2D_NODE_COUPLING] TYPE) — ordinals match
+     *  SWMM_NodeCoupling2DType. The enumerator names are what the browser
+     *  shows (class-scope unique, hence OUTFALL_2D / OPEN_STORAGE). */
+    enum Coupling2DType { NOT_COUPLEABLE = 0, MANHOLE = 1, GRATE = 2, CURB = 3,
+                          OPEN_STORAGE = 4, OUTFALL_2D = 5 };
+    /*! CREST policy; CREST_DEFAULT = not authored (the structure default). */
+    enum Coupling2DCrest { CREST_DEFAULT = 0, NODE_RIM, MESH_BED, CREST_MAX, CREST_MIN };
+    /*! COEFFS preset; COEFFS_GLOBAL = not authored ([2D_OPTIONS] COUPLING_COEFFS). */
+    enum Coupling2DCoeffs { COEFFS_GLOBAL = 0, COEFFS_DEFAULT, RUBINATO2017,
+                            RUBINATO2017_LOWER, RUBINATO2017_UPPER };
+    /*! Per-node LAW; LAW_GLOBAL = not authored ([2D_OPTIONS] COUPLING_LAW). */
+    enum Coupling2DLaw { LAW_GLOBAL = 0, ORIFICE, WEIR_ORIFICE };
     Q_ENUM(NodeKind)
     Q_ENUM(OutfallType)
     Q_ENUM(DividerType)
     Q_ENUM(FlapGate)
     Q_ENUM(StorageShape)
     Q_ENUM(InletPlacement)
+    Q_ENUM(Coupling2DType)
+    Q_ENUM(Coupling2DCrest)
+    Q_ENUM(Coupling2DCoeffs)
+    Q_ENUM(Coupling2DLaw)
 
     // Common to every node type — Name + Type + Invert + Coords + Tag.
     Q_PROPERTY(QString  name        READ name  WRITE setName)
@@ -336,6 +353,46 @@ public slots:
     void setDepressionWidth(double v);
     void setPlacement(InletPlacement v);
 
+    // 1D↔2D coupling structure ([2D_NODE_COUPLING], 1D2D fine-scale coupling
+    // plan §7.1). On the base like the outfall / storage accessors; the
+    // junction, storage, divider and outfall subclasses declare the rows.
+    // Every write is one SetNodeCoupling2DCommand through the bound model
+    // layer (undoable, and the same operation the coupling selector and the
+    // remap dialog perform). Numeric parameters are text: blank = not
+    // authored, the structure / class default applies.
+    [[nodiscard]] Coupling2DType   couplingType() const;
+    [[nodiscard]] bool             coupleable() const;
+    [[nodiscard]] Coupling2DCrest  couplingCrest() const;
+    [[nodiscard]] Coupling2DCoeffs couplingCoeffs() const;
+    [[nodiscard]] Coupling2DLaw    couplingLaw() const;
+    [[nodiscard]] QString couplingDiameter() const        { return couplingParam(QStringLiteral("D")); }
+    [[nodiscard]] QString couplingPerimeter() const       { return couplingParam(QStringLiteral("PERIMETER")); }
+    [[nodiscard]] QString couplingStructureArea() const   { return couplingParam(QStringLiteral("AREA")); }
+    [[nodiscard]] QString couplingChamberArea() const     { return couplingParam(QStringLiteral("CHAMBER_AREA")); }
+    [[nodiscard]] QString couplingLidOpenFraction() const { return couplingParam(QStringLiteral("LID_OPEN_FRACTION")); }
+    [[nodiscard]] QString couplingCw() const              { return couplingParam(QStringLiteral("CW")); }
+    [[nodiscard]] QString couplingCsw() const             { return couplingParam(QStringLiteral("CSW")); }
+    [[nodiscard]] QString couplingCoi() const             { return couplingParam(QStringLiteral("COI")); }
+    [[nodiscard]] QString couplingCoo() const             { return couplingParam(QStringLiteral("COO")); }
+    [[nodiscard]] QString couplingSpread() const          { return couplingParam(QStringLiteral("SPREAD")); }
+    [[nodiscard]] QString couplingTailwaterRelax() const  { return couplingParam(QStringLiteral("TAILWATER_RELAX")); }
+    void setCouplingType(Coupling2DType v);
+    void setCoupleable(bool on);
+    void setCouplingCrest(Coupling2DCrest v);
+    void setCouplingCoeffs(Coupling2DCoeffs v);
+    void setCouplingLaw(Coupling2DLaw v);
+    void setCouplingDiameter(const QString &v)        { setCouplingParam(QStringLiteral("D"), v); }
+    void setCouplingPerimeter(const QString &v)       { setCouplingParam(QStringLiteral("PERIMETER"), v); }
+    void setCouplingStructureArea(const QString &v)   { setCouplingParam(QStringLiteral("AREA"), v); }
+    void setCouplingChamberArea(const QString &v)     { setCouplingParam(QStringLiteral("CHAMBER_AREA"), v); }
+    void setCouplingLidOpenFraction(const QString &v) { setCouplingParam(QStringLiteral("LID_OPEN_FRACTION"), v); }
+    void setCouplingCw(const QString &v)              { setCouplingParam(QStringLiteral("CW"), v); }
+    void setCouplingCsw(const QString &v)             { setCouplingParam(QStringLiteral("CSW"), v); }
+    void setCouplingCoi(const QString &v)             { setCouplingParam(QStringLiteral("COI"), v); }
+    void setCouplingCoo(const QString &v)             { setCouplingParam(QStringLiteral("COO"), v); }
+    void setCouplingSpread(const QString &v)          { setCouplingParam(QStringLiteral("SPREAD"), v); }
+    void setCouplingTailwaterRelax(const QString &v)  { setCouplingParam(QStringLiteral("TAILWATER_RELAX"), v); }
+
     void setStorageShape(StorageShape v);
     void setStorageCurveRef(const DataObjectRef &r);
     void setStorageCoeffA(double v);
@@ -408,6 +465,12 @@ protected:
      *  layer; without one it does nothing. */
     void writeInletUsage(const std::function<bool(SWMM_InletUsage &)> &mutate);
 
+    /*! 1D↔2D coupling helpers: an authored parameter token ("" = none), and
+     *  a write of the whole state as one undoable step. */
+    [[nodiscard]] QString couplingParam(const QString &key) const;
+    void setCouplingParam(const QString &key, const QString &token);
+    void writeCoupling(const nodecoupling2d::State &s);
+
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;  ///< DB.4c — for compound-cell pickers
@@ -430,6 +493,25 @@ class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double pondedArea      READ pondedArea      WRITE setPondedArea      NOTIFY changed)
+    // 1D↔2D coupling structure (fine-scale coupling plan §7.1).
+    Q_PROPERTY(bool   coupleable      READ coupleable      WRITE setCoupleable      NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType
+               READ couplingType WRITE setCouplingType NOTIFY changed)
+    Q_PROPERTY(QString couplingDiameter        READ couplingDiameter        WRITE setCouplingDiameter        NOTIFY changed)
+    Q_PROPERTY(QString couplingPerimeter       READ couplingPerimeter       WRITE setCouplingPerimeter       NOTIFY changed)
+    Q_PROPERTY(QString couplingStructureArea   READ couplingStructureArea   WRITE setCouplingStructureArea   NOTIFY changed)
+    Q_PROPERTY(QString couplingChamberArea     READ couplingChamberArea     WRITE setCouplingChamberArea     NOTIFY changed)
+    Q_PROPERTY(QString couplingLidOpenFraction READ couplingLidOpenFraction WRITE setCouplingLidOpenFraction NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DCrest couplingCrest
+               READ couplingCrest WRITE setCouplingCrest NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DLaw couplingLaw
+               READ couplingLaw WRITE setCouplingLaw NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DCoeffs couplingCoeffs
+               READ couplingCoeffs WRITE setCouplingCoeffs NOTIFY changed)
+    Q_PROPERTY(QString couplingCw  READ couplingCw  WRITE setCouplingCw  NOTIFY changed)
+    Q_PROPERTY(QString couplingCsw READ couplingCsw WRITE setCouplingCsw NOTIFY changed)
+    Q_PROPERTY(QString couplingCoi READ couplingCoi WRITE setCouplingCoi NOTIFY changed)
+    Q_PROPERTY(QString couplingCoo READ couplingCoo WRITE setCouplingCoo NOTIFY changed)
     // Slice DB — read-only summary (no WRITE → QPropertyModel renders as
     // non-editable). Computed by engine at link-insert / post-run time.
     Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
@@ -567,6 +649,11 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
                READ outfallTimeseriesRef  WRITE setOutfallTimeseriesRef  NOTIFY changed)
     Q_PROPERTY(SWMMNodePropertyAdapter::FlapGate    outfallFlapGate
                READ outfallFlapGate WRITE setOutfallFlapGate NOTIFY changed)
+    // 1D↔2D coupling: an outfall is OUTFALL_2D or NOT_COUPLEABLE; a flap
+    // gate blocks only reverse flow, the 2D tailwater still applies.
+    Q_PROPERTY(bool   coupleable      READ coupleable      WRITE setCoupleable      NOTIFY changed)
+    Q_PROPERTY(QString couplingSpread         READ couplingSpread         WRITE setCouplingSpread         NOTIFY changed)
+    Q_PROPERTY(QString couplingTailwaterRelax READ couplingTailwaterRelax WRITE setCouplingTailwaterRelax NOTIFY changed)
     // Slice DB — same read-only summary block as the other node kinds.
     // Stat values are still meaningful at outfalls (max depth = stage,
     // max overflow is always zero by definition but kept for parity).
@@ -612,6 +699,25 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double seepRate        READ seepRate        WRITE setSeepRate        NOTIFY changed)
+    // 1D↔2D coupling structure (fine-scale coupling plan §7.1).
+    Q_PROPERTY(bool   coupleable      READ coupleable      WRITE setCoupleable      NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType
+               READ couplingType WRITE setCouplingType NOTIFY changed)
+    Q_PROPERTY(QString couplingDiameter        READ couplingDiameter        WRITE setCouplingDiameter        NOTIFY changed)
+    Q_PROPERTY(QString couplingPerimeter       READ couplingPerimeter       WRITE setCouplingPerimeter       NOTIFY changed)
+    Q_PROPERTY(QString couplingStructureArea   READ couplingStructureArea   WRITE setCouplingStructureArea   NOTIFY changed)
+    Q_PROPERTY(QString couplingChamberArea     READ couplingChamberArea     WRITE setCouplingChamberArea     NOTIFY changed)
+    Q_PROPERTY(QString couplingLidOpenFraction READ couplingLidOpenFraction WRITE setCouplingLidOpenFraction NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DCrest couplingCrest
+               READ couplingCrest WRITE setCouplingCrest NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DLaw couplingLaw
+               READ couplingLaw WRITE setCouplingLaw NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DCoeffs couplingCoeffs
+               READ couplingCoeffs WRITE setCouplingCoeffs NOTIFY changed)
+    Q_PROPERTY(QString couplingCw  READ couplingCw  WRITE setCouplingCw  NOTIFY changed)
+    Q_PROPERTY(QString couplingCsw READ couplingCsw WRITE setCouplingCsw NOTIFY changed)
+    Q_PROPERTY(QString couplingCoi READ couplingCoi WRITE setCouplingCoi NOTIFY changed)
+    Q_PROPERTY(QString couplingCoo READ couplingCoo WRITE setCouplingCoo NOTIFY changed)
     // Slice AG.4 — storage geometry. The Shape combobox switches between a tabular
     // depth–area curve, the functional power-law form, and the four geometric shapes.
     // PropertiesPanel greys out the rows that don't apply to the live shape (curve vs.
@@ -673,6 +779,25 @@ class SWMMDividerPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth        READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth      READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double pondedArea          READ pondedArea      WRITE setPondedArea      NOTIFY changed)
+    // 1D↔2D coupling structure (fine-scale coupling plan §7.1).
+    Q_PROPERTY(bool   coupleable      READ coupleable      WRITE setCoupleable      NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType
+               READ couplingType WRITE setCouplingType NOTIFY changed)
+    Q_PROPERTY(QString couplingDiameter        READ couplingDiameter        WRITE setCouplingDiameter        NOTIFY changed)
+    Q_PROPERTY(QString couplingPerimeter       READ couplingPerimeter       WRITE setCouplingPerimeter       NOTIFY changed)
+    Q_PROPERTY(QString couplingStructureArea   READ couplingStructureArea   WRITE setCouplingStructureArea   NOTIFY changed)
+    Q_PROPERTY(QString couplingChamberArea     READ couplingChamberArea     WRITE setCouplingChamberArea     NOTIFY changed)
+    Q_PROPERTY(QString couplingLidOpenFraction READ couplingLidOpenFraction WRITE setCouplingLidOpenFraction NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DCrest couplingCrest
+               READ couplingCrest WRITE setCouplingCrest NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DLaw couplingLaw
+               READ couplingLaw WRITE setCouplingLaw NOTIFY changed)
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DCoeffs couplingCoeffs
+               READ couplingCoeffs WRITE setCouplingCoeffs NOTIFY changed)
+    Q_PROPERTY(QString couplingCw  READ couplingCw  WRITE setCouplingCw  NOTIFY changed)
+    Q_PROPERTY(QString couplingCsw READ couplingCsw WRITE setCouplingCsw NOTIFY changed)
+    Q_PROPERTY(QString couplingCoi READ couplingCoi WRITE setCouplingCoi NOTIFY changed)
+    Q_PROPERTY(QString couplingCoo READ couplingCoo WRITE setCouplingCoo NOTIFY changed)
     // Slice DB — same read-only summary block.
     Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
     Q_PROPERTY(double fullVolume      READ fullVolume      NOTIFY changed)

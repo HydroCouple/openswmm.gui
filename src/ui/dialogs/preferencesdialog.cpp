@@ -1149,6 +1149,24 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay,
         tr("Auto exchange area (COUPLING_AREA AUTO)"), cplGroup);
     cplForm->addRow(QString(), m_twoDCouplingAreaAutoBox);
 
+    m_twoDCouplingLawCombo = new QComboBox(cplGroup);
+    m_twoDCouplingLawCombo->addItem(tr("Orifice (legacy)"), QStringLiteral("ORIFICE"));
+    m_twoDCouplingLawCombo->addItem(tr("Weir / orifice"), QStringLiteral("WEIR_ORIFICE"));
+    cplForm->addRow(tr("Exchange law (COUPLING_LAW)"), m_twoDCouplingLawCombo);
+
+    m_twoDCouplingHeadCombo = new QComboBox(cplGroup);
+    m_twoDCouplingHeadCombo->addItem(tr("Coupling cell (legacy)"), QStringLiteral("CELL"));
+    m_twoDCouplingHeadCombo->addItem(tr("Cells around the vertex"), QStringLiteral("VERTEX"));
+    m_twoDCouplingHeadCombo->addItem(tr("Wet mean over the structure area"),
+                                     QStringLiteral("STENCIL_WET_MEAN"));
+    cplForm->addRow(tr("Surface head (COUPLING_HEAD)"), m_twoDCouplingHeadCombo);
+
+    m_twoDCouplingPondCombo = new QComboBox(cplGroup);
+    m_twoDCouplingPondCombo->addItem(tr("Cell footprint (legacy)"), QStringLiteral("FOOTPRINT"));
+    m_twoDCouplingPondCombo->addItem(tr("Chamber only"), QStringLiteral("CHAMBER"));
+    m_twoDCouplingPondCombo->addItem(tr("Tracking the wet footprint"), QStringLiteral("TRACKING"));
+    cplForm->addRow(tr("Junction pond (COUPLING_POND_MODE)"), m_twoDCouplingPondCombo);
+
     cplLay->addWidget(cplGroup);
 
     // ── Rainfall & reporting ─────────────────────────────────────────────
@@ -1791,6 +1809,9 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     m_twoDCouplingCdSpin     ->setValue(d.couplingCd);
     m_twoDCouplingSyncSpin   ->setValue(d.couplingSync);
     m_twoDCouplingAreaAutoBox->setChecked(d.couplingAreaAuto);
+    selData(m_twoDCouplingLawCombo,  d.couplingLaw);
+    selData(m_twoDCouplingHeadCombo, d.couplingHead);
+    selData(m_twoDCouplingPondCombo, d.couplingPondMode);
     selData(m_twoDRainfallModeCombo, d.rainfallMode);
     m_twoDReport2DBox        ->setChecked(d.report2D);
 
@@ -1943,6 +1964,9 @@ void PreferencesDialog::writeToManager()
         d.couplingCd         = m_twoDCouplingCdSpin     ->value();
         d.couplingSync       = m_twoDCouplingSyncSpin   ->value();
         d.couplingAreaAuto   = m_twoDCouplingAreaAutoBox->isChecked();
+        d.couplingLaw        = m_twoDCouplingLawCombo   ->currentData().toString();
+        d.couplingHead       = m_twoDCouplingHeadCombo  ->currentData().toString();
+        d.couplingPondMode   = m_twoDCouplingPondCombo  ->currentData().toString();
         d.rainfallMode       = m_twoDRainfallModeCombo  ->currentData().toString();
         d.report2D           = m_twoDReport2DBox        ->isChecked();
 

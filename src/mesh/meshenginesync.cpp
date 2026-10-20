@@ -11,12 +11,15 @@
 
 #include <openswmm/engine/openswmm_engine.h>  // swmm_get_flow_units
 #include <openswmm/engine/openswmm_2d.h>
+#include <openswmm/engine/openswmm_model.h>  // swmm_options_get_ext
+#include <openswmm/engine/openswmm_nodes.h>  // swmm_node_index
 
 #include <QElapsedTimer>
 #include <QCoreApplication>
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 Q_LOGGING_CATEGORY(lcSavePerf, "openswmm.save.perf")
@@ -295,13 +298,20 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     // independent fields; an empty value clears the corresponding slot.
     for (int i = 0; i < nv; ++i) {
         ++perf.vAttrPushed;
+        const MeshVertex &mv = mesh.vertices[i];
+        // A row that leaves CD or AREA unauthored starts from the engine's
+        // cleared state (nothing authored); the setters below then author
+        // only what the row carries.
+        if (!mv.coupledNode.isEmpty() && !(mv.couplingCdSet && mv.couplingAreaSet)
+            && !accepted(swmm_2d_set_vertex_coupled_node(engine, i, ""), "vertex coupled node", i))
+            return false;
         if (!accepted(swmm_2d_set_vertex_coupled_node(
-            engine, i, mesh.vertices[i].coupledNode.toUtf8().constData()), "vertex coupled node", i)) return false;
-        // Coupling Cd/Area ride along for coupled vertices only (the engine
-        // keeps them SI/as-authored — no length factor applies).
-        if (!mesh.vertices[i].coupledNode.isEmpty()) {
-            if (!accepted(swmm_2d_set_vertex_coupling_cd(engine, i, mesh.vertices[i].couplingCd), "vertex coupling coefficient", i)) return false;
-            if (!accepted(swmm_2d_set_vertex_coupling_area(engine, i, mesh.vertices[i].couplingArea), "vertex coupling area", i)) return false;
+            engine, i, mv.coupledNode.toUtf8().constData()), "vertex coupled node", i)) return false;
+        // Coupling Cd/Area ride along for coupled vertices only (AREA in mesh
+        // length units² as authored — the engine scales it at initialize).
+        if (!mv.coupledNode.isEmpty()) {
+            if (mv.couplingCdSet && !accepted(swmm_2d_set_vertex_coupling_cd(engine, i, mv.couplingCd), "vertex coupling coefficient", i)) return false;
+            if (mv.couplingAreaSet && !accepted(swmm_2d_set_vertex_coupling_area(engine, i, mv.couplingArea), "vertex coupling area", i)) return false;
         }
         if (!accepted(swmm_2d_set_vertex_tag(
             engine, i, mesh.vertices[i].tag.toUtf8().constData()), "vertex tag", i)) return false;
@@ -346,17 +356,20 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     // The row set is re-authored wholesale: clear, then append one row per
     // layer-side CellCoupling. Skipped entirely when the layer has no rows
     // AND the engine has none either — so models that never used cell
-    // coupling see zero API traffic. Area is authored in m² on both sides;
-    // no length factor applies (same rule as vertex coupling Cd/Area).
+    // coupling see zero API traffic. Area is in mesh length units² on both
+    // sides (same rule as vertex coupling Area); NaN leaves a token
+    // unauthored.
     if (nt == mesh.triangles.size()) {
         int engineRows = 0;
         if (!accepted(swmm_2d_triangle_coupling_rows(engine, &engineRows), "cell coupling count")) return false;
         if (!mesh.cellCouplings.isEmpty() || engineRows > 0) {
             if (!accepted(swmm_2d_clear_triangle_couplings(engine), "clear cell couplings")) return false;
+            const double unset = std::numeric_limits<double>::quiet_NaN();
             for (const auto &cc : mesh.cellCouplings) {
                 if (!accepted(swmm_2d_add_triangle_coupling(
                     engine, cc.tri, cc.nodeId.toUtf8().constData(),
-                    cc.cd, cc.area), "cell coupling", cc.tri)) return false;
+                    cc.cdSet ? cc.cd : unset, cc.areaSet ? cc.area : unset),
+                    "cell coupling", cc.tri)) return false;
             }
         }
     }
@@ -434,6 +447,32 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     }
 
     return true;
+}
+
+bool couplingAuthorsCdArea(SWMM_Engine engine)
+{
+    if (!engine) return true;
+    char law[64] = {};
+    if (swmm_options_get_ext(engine, "COUPLING_LAW", law, sizeof(law)) != 0) return true;
+    return QString::fromUtf8(law).trimmed()
+               .compare(QStringLiteral("WEIR_ORIFICE"), Qt::CaseInsensitive) != 0;
+}
+
+QVector<QPair<QString, QPointF>> coupleableNodes(
+    SWMM_Engine engine, const QVector<QPair<QString, QPointF>> &nodes)
+{
+    if (!engine) return nodes;
+    QVector<QPair<QString, QPointF>> out;
+    out.reserve(nodes.size());
+    for (const auto &n : nodes) {
+        const int idx = swmm_node_index(engine, n.first.toUtf8().constData());
+        int type = SWMM_2D_COUPLING_MANHOLE;
+        if (idx >= 0 && swmm_node_get_2d_coupling_type(engine, idx, &type, nullptr) == 0
+            && type == SWMM_2D_COUPLING_NONE)
+            continue;
+        out.append(n);
+    }
+    return out;
 }
 
 } // namespace mesh

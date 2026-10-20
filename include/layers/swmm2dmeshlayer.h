@@ -429,14 +429,19 @@ public:
     bool applyMeshVertexCoupledNode(int vertexIdx, const QString &node);
 
     /*! \brief Set the vertex's coupling discharge coefficient
-     *  ([2D_VERTEX_NODE_MAP] CD column). Rejects uncoupled vertices and
-     *  non-positive values. Emits attributeChanged. */
+     *  ([2D_VERTEX_NODE_MAP] CD column), which marks it authored. Rejects
+     *  uncoupled vertices and non-positive values. Emits attributeChanged. */
     bool applyMeshVertexCouplingCd(int vertexIdx, double cd);
 
-    /*! \brief Set the vertex's coupling exchange area in m²
-     *  ([2D_VERTEX_NODE_MAP] AREA column). Rejects uncoupled vertices and
-     *  non-positive values. Emits attributeChanged. */
+    /*! \brief Set the vertex's coupling exchange area in mesh length units²
+     *  ([2D_VERTEX_NODE_MAP] AREA column), which marks it authored. Rejects
+     *  uncoupled vertices and non-positive values. Emits attributeChanged. */
     bool applyMeshVertexCouplingArea(int vertexIdx, double area);
+
+    /*! \brief Set whether the vertex row authors its CD / AREA (an undo
+     *  restores the unauthored state the mapper left). Emits
+     *  attributeChanged. */
+    bool applyMeshVertexCouplingAuthored(int vertexIdx, bool cdSet, bool areaSet);
 
     /*! \brief Replace the node→cell coupling row set wholesale
      *  ([2D_TRIANGLE_NODE_MAP] repeated-row form, Plan Part C). Rows with
