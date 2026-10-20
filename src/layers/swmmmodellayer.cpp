@@ -1067,6 +1067,10 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
     set("RPT_LINKS",           QStringLiteral("ALL"));
 
     if (spec.forNewEngine) {
+#ifdef OPENSWMM_HAS_2D
+        if (swmm_options_set_ext(eng, "BACKEND", "CPU") != 0)
+            failures.append(QStringLiteral("BACKEND = CPU"));
+#endif
         set("NODE_CONTINUITY", d.nodeContinuity);
         set("ANDERSON_ACCEL",  yn(d.andersonAccel));
         // Unsteady friction (engine issue #156; GUI issue #10). Seeded only

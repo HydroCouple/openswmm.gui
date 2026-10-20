@@ -229,17 +229,16 @@ void TwoDPage::buildUi()
     auto *perfForm  = new QFormLayout(perfGroup);
 
     m_backend2DCombo = new QComboBox(perfGroup);
-    m_backend2DCombo->addItem(tr("Auto"),                   QStringLiteral("AUTO"));
+    m_backend2DCombo->addItem(tr("Auto (CPU in GUI)"),      QStringLiteral("AUTO"));
     m_backend2DCombo->addItem(tr("CPU (built-in marcher)"), QStringLiteral("CPU"));
     m_backend2DCombo->addItem(tr("OpenMP (Kokkos)"),        QStringLiteral("OMP"));
-    m_backend2DCombo->addItem(tr("CUDA"),                   QStringLiteral("CUDA"));
-    m_backend2DCombo->addItem(tr("HIP"),                    QStringLiteral("HIP"));
-    m_backend2DCombo->addItem(tr("SYCL"),                   QStringLiteral("SYCL"));
+    m_backend2DCombo->addItem(tr("CUDA (experimental)"),    QStringLiteral("CUDA"));
+    m_backend2DCombo->addItem(tr("HIP (experimental)"),     QStringLiteral("HIP"));
+    m_backend2DCombo->addItem(tr("SYCL (experimental)"),    QStringLiteral("SYCL"));
     m_backend2DCombo->setToolTip(
         tr("Which marcher implementation runs the 2D mesh (BACKEND). Auto "
-           "prefers an installed GPU plugin above the device mesh-size floor, "
-           "then the OpenMP plugin above its own floor, else the built-in "
-           "CPU marcher. A named backend loads that plugin outright, "
+           "uses the built-in CPU marcher for GUI runs. Other engine clients "
+           "may automatically select an installed accelerator. A named backend loads that plugin outright, "
            "regardless of mesh size; if it is not installed or has no usable "
            "device the run falls back to CPU with a notice. Pin CPU when a "
            "model measures slower on the accelerator. The OPENSWMM_2D_BACKEND "

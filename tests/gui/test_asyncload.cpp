@@ -653,6 +653,12 @@ private slots:
             return rc == 0 ? QString::fromUtf8(buf).trimmed() : QString();
         };
 
+#ifdef OPENSWMM_HAS_2D
+        char backend[32]={};
+        QCOMPARE(swmm_options_get_ext(eng,"BACKEND",backend,sizeof backend),0);
+        QCOMPARE(QByteArray(backend),QByteArray("CPU"));
+#endif
+
         const auto &d = spec.sim;
         QCOMPARE(get("FLOW_UNITS"),   d.flowUnits);
         QCOMPARE(get("FLOW_ROUTING"), d.flowRouting);

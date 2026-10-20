@@ -2,6 +2,7 @@
 #include "simulation/checkpointworker.h"
 #include "simulation/simulationrunner.h"
 #include "simulation/runpathlease.h"
+#include "simulation/twodbackendpolicy.h"
 #include "simulation/snowledger.h"
 #include <openswmm/engine/openswmm_massbalance.h>
 #ifdef OPENSWMM_HAS_2D
@@ -233,6 +234,10 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest& request,quin
             require(caps&SWMM_CHECKPOINT_SESSION_BUILDER,QStringLiteral("Native checkpoint session construction unavailable."),SWMM_ERR_LIFECYCLE);
             const auto inp=request.modelPath.toUtf8(),rpt=report.toUtf8(),out=binary.toUtf8();
             engine.checked(swmm_engine_open(engine.handle,inp.constData(),rpt.constData(),(request.outputProfile==1||request.outputProfile>=3)?out.constData():nullptr,nullptr));
+            QString backendNotice;
+            const int backendRc=openswmmvis::simulation::applyTwoDBackendPolicy(engine.handle,backendNotice);
+            require(backendRc==SWMM_OK,backendNotice,backendRc);
+            if(!backendNotice.isEmpty())qInfo().noquote()<<backendNotice;
             require(inputHash(request.modelPath)==request.modelSha256,QStringLiteral("Model snapshot changed while opening."),SWMM_ERR_IO);
             const auto meshPath=(request.outputProfile>=2?mesh:QString()).toUtf8();
             const int meshSet=swmm_file_path_set(engine.handle,SWMM_FILE_OUTPUT_2D,nullptr,meshPath.constData());

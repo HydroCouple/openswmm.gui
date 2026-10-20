@@ -4367,3 +4367,5 @@ add_swmmvis_gui_test(test_hydrothermalgis
     ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
 )
 swmmvis_link_full_app_deps(test_hydrothermalgis)
+
+add_swmmvis_gui_test(test_twodbackendpolicy test_twodbackendpolicy.cpp)

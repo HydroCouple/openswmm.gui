@@ -85,6 +85,7 @@ set(_oe_api_sentinels
     "openswmm_nodes.h:swmm_node_get_rim_depth"
     "openswmm_infrastructure.h:swmm_street_rename"
     "openswmm_trace.h:swmm_trace_prepare_live"
+    "openswmm_2d.h:swmm_2d_set_auto_backend_cpu"
 )
 get_target_property(_oe_incdirs OpenSWMMEngine::openswmm_engine
                     INTERFACE_INCLUDE_DIRECTORIES)
