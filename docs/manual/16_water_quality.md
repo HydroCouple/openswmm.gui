@@ -274,14 +274,25 @@ bar shows the bound file, or *(no file bound)*. Nothing is written to disk
 until you press Save — the structured edits before that live on the engine
 only.
 
-**Sources** tab explains the supported node-source, cyclic-pattern,
-parameter-override and species-output sections. **Edit configuration** opens
-the File tab, where these sections are validated and applied with the rest of
-the reaction system. MASS source values use declared mass units per second;
-PATTERN_TIMESTEP is in seconds. Structured coefficient/species edits preserve
-these sections. `[REACTION_SUBCATCHMENTS]` now adds a BULK wet-pool scope on
-non-LID subcatchments through the same File editor. Porous LID-layer
-reactions remain unsupported.
+**Sources** tab contains editable tables for node sources, cyclic patterns,
+parameter overrides, wall contact areas and species output selection. Changes
+apply together when leaving the tab or saving. An invalid row keeps the draft
+open and leaves the engine unchanged. **Edit configuration** opens File for
+wet/dry selectors and LID layer laws.
+
+MASS uses declared mass units per second; CONC uses external water.
+FLOWPACED doses arriving water and SETPOINT raises the mixed concentration
+while water arrives. PATTERN_TIMESTEP is in seconds. Options also exposes
+WALL_GEOMETRY; explicit tank contact areas use AREA_UNITS.
+
+The File tab supports `[REACTION_SUBCATCHMENTS]` global/named wet laws,
+`[REACTION_BUILDUP]` land-use laws and `[REACTION_LIDS]` control/layer laws.
+Wet and dry reactions use separate inventories. Qualified porous LIDs carry
+retained species, accepted transfers and separate surface/drain/infiltration
+receipts. Conventional units require full coverage; storage-node bucket/Richards
+reactors require LEGACY quality and a non-Mesh bottom. Partial capture, covered
+barrels, WALL chemistry and 2D-owned conventional units remain refused. Full
+native checkpoints carry qualified LID inventories; state-only hotstarts do not.
 
 ### Water age — `WATER_AGE ON` and `[WATER_AGE_SOURCES]`
 

@@ -1,0 +1,27 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 7 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 5 tests from LardWiringTest
+[ RUN      ] LardWiringTest.LagrangianOptionRoundTripsThroughSaveAs
+[       OK ] LardWiringTest.LagrangianOptionRoundTripsThroughSaveAs (4 ms)
+[ RUN      ] LardWiringTest.LagrangianTransportsWhereLegacyDoes
+[       OK ] LardWiringTest.LagrangianTransportsWhereLegacyDoes (24 ms)
+[ RUN      ] LardWiringTest.LagrangianLeavesHydraulicsBitIdentical
+[       OK ] LardWiringTest.LagrangianLeavesHydraulicsBitIdentical (23 ms)
+[ RUN      ] LardWiringTest.DefaultDeckStillRunsLegacyTransport
+[       OK ] LardWiringTest.DefaultDeckStillRunsLegacyTransport (11 ms)
+[ RUN      ] LardWiringTest.BypassWarningFiresExactlyWhenTheStageWouldBeLive
+[       OK ] LardWiringTest.BypassWarningFiresExactlyWhenTheStageWouldBeLive (48 ms)
+[----------] 5 tests from LardWiringTest (113 ms total)
+
+[----------] 2 tests from LardL3Test
+[ RUN      ] LardL3Test.FormulaSpeciesTracksItsPollutantOnSegments
+[       OK ] LardL3Test.FormulaSpeciesTracksItsPollutantOnSegments (16 ms)
+[ RUN      ] LardL3Test.RateProductionGrowsAlongFlowAndAgreesWithArd
+L3 cross-engine at C5: LARD 83.9947 vs ARD 87.6447 (ratio 0.9584)
+[       OK ] LardL3Test.RateProductionGrowsAlongFlowAndAgreesWithArd (112 ms)
+[----------] 2 tests from LardL3Test (129 ms total)
+
+[----------] Global test environment tear-down
+[==========] 7 tests from 2 test suites ran. (242 ms total)
+[  PASSED  ] 7 tests.

@@ -1,0 +1,27 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 9 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 9 tests from RxIntegrators
+[ RUN      ] RxIntegrators.FirstOrderDecayMatchesClosedForm
+[       OK ] RxIntegrators.FirstOrderDecayMatchesClosedForm (8 ms)
+[ RUN      ] RxIntegrators.NonlinearDecayMatchesClosedFormWithCachedJacobian
+[       OK ] RxIntegrators.NonlinearDecayMatchesClosedFormWithCachedJacobian (10 ms)
+[ RUN      ] RxIntegrators.DefaultSolverIsExplicitRK5
+[       OK ] RxIntegrators.DefaultSolverIsExplicitRK5 (1 ms)
+[ RUN      ] RxIntegrators.ExplicitDefaultOnStiffKineticsFailsWithActionableMessage
+[       OK ] RxIntegrators.ExplicitDefaultOnStiffKineticsFailsWithActionableMessage (18 ms)
+[ RUN      ] RxIntegrators.CoupledChainMatchesAnalyticSolution
+[       OK ] RxIntegrators.CoupledChainMatchesAnalyticSolution (1 ms)
+[ RUN      ] RxIntegrators.StiffnessLadderImplicitSolversHoldExplicitDiverges
+[       OK ] RxIntegrators.StiffnessLadderImplicitSolversHoldExplicitDiverges (4 ms)
+[ RUN      ] RxIntegrators.EquilibriumAndFormulaAlgebra
+[       OK ] RxIntegrators.EquilibriumAndFormulaAlgebra (1 ms)
+[ RUN      ] RxIntegrators.RateUnitsScaleExactly
+[       OK ] RxIntegrators.RateUnitsScaleExactly (2 ms)
+[ RUN      ] RxIntegrators.CouplingNoneFreezesOtherSpecies
+[       OK ] RxIntegrators.CouplingNoneFreezesOtherSpecies (1 ms)
+[----------] 9 tests from RxIntegrators (50 ms total)
+
+[----------] Global test environment tear-down
+[==========] 9 tests from 1 test suite ran. (50 ms total)
+[  PASSED  ] 9 tests.

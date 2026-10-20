@@ -1,3 +1,4 @@
+#include <QRegularExpression>
 /*!
  * \file reactionsystemeditordialog.cpp
  * \brief Implementation of the reaction-system editor (G-B2 + G-C1 + G-D1).
@@ -185,10 +186,10 @@ void ReactionSystemEditorDialog::buildUi()
     m_tabs->addTab(buildExpressionsTab(),    tr("Expressions"));
     m_tabs->addTab(buildInitialQualityTab(), tr("Initial Quality"));
     m_fileTabIndex = m_tabs->addTab(buildFileTab(), tr("File"));
-    const int srcIdx =
+    const int srcIdx = m_sourcesTabIndex =
         m_tabs->addTab(buildSourcesPlaceholderTab(), tr("Sources"));
     m_tabs->setTabToolTip(srcIdx,
-                          tr("Node sources and cyclic patterns can be edited in the File tab."));
+                          tr("Edit sources, patterns, parameter overrides, wall areas and output selection."));
     connect(m_tabs, &QTabWidget::currentChanged,
             this, &ReactionSystemEditorDialog::onTabChanged);
     vlay->addWidget(m_tabs, 1);
@@ -210,6 +211,7 @@ void ReactionSystemEditorDialog::buildUi()
     connect(closeBtn, &QPushButton::clicked, this, [this]() {
         if (m_tabs->currentIndex() == m_fileTabIndex && !applyFileTab())
             return;                     // bad text gates the close
+        if(m_tabs->currentIndex()==m_sourcesTabIndex && !applyConfigurationTables())return;
         accept();
     });
     btnRow->addWidget(closeBtn);
@@ -236,7 +238,11 @@ QWidget *ReactionSystemEditorDialog::buildOptionsTab()
                     if (m_loading || !m_engine) return;
                     if (swmm_reaction_option_set(
                             m_engine, key, v.toUtf8().constData()) == SWMM_OK)
-                        bumpWrites();
+                        {bumpWrites();setStatus(QString(),false);}
+                    else {
+                        setStatus(tr("Option rejected by the engine. Check the dependent reaction laws in File."),true);
+                        const bool loading=m_loading;m_loading=true;loadOptions();m_loading=loading;
+                    }
                 });
         return c;
     };
@@ -256,6 +262,8 @@ QWidget *ReactionSystemEditorDialog::buildOptionsTab()
                                 {QStringLiteral("FT2"), QStringLiteral("M2"),
                                  QStringLiteral("CM2")},
                                 "AREA_UNITS");
+
+    m_wallGeometryCombo=addCombo("rx_wallGeometry",tr("Use wall geometry:"),{"NO","YES"},"WALL_GEOMETRY");
 
     auto addSpin = [&](const char *objName, const QString &label,
                        const char *key, double lo, int dec)
@@ -277,6 +285,7 @@ QWidget *ReactionSystemEditorDialog::buildOptionsTab()
                 });
         return s;
     };
+    m_patternStepSpin=addSpin("rx_patternStep",tr("Source pattern interval (s):"),"PATTERN_TIMESTEP",.001,3);
     m_timestepSpin = addSpin("rx_timestep",
                              tr("Reaction step (s, 0 = quality step):"),
                              "TIMESTEP", 0.0, 3);
@@ -585,30 +594,37 @@ QWidget *ReactionSystemEditorDialog::buildSourcesPlaceholderTab()
 {
     auto *w = new QWidget(this);
     auto *lay = new QVBoxLayout(w);
-    auto *note = new QLabel(
-        tr("Edit node sources, source patterns, parameter overrides and species output "
-           "selection in the File tab.\n\n"
-           "[REACTION_SOURCES]: CONC or MASS, node, species, value, optional pattern. "
-           "MASS uses declared species mass units per second.\n"
-           "[REACTION_PATTERNS]: pattern name followed by cyclic factors. "
-           "PATTERN_TIMESTEP in Options is in seconds (default 3600).\n"
-           "[REACTION_PARAMETERS]: NODE or LINK, element, parameter, value.\n"
-           "[REACTION_REPORT]: SPECIES, ALL or species name, YES or NO.\n\n"
-           "[REACTION_SUBCATCHMENTS]: RATE, EQUIL or FORMULA laws on BULK species "
-           "in wet non-LID subcatchment pools.\n\n"
-           "Only BULK species can enter as node loads. Porous LID-layer reactions "
-           "remain unsupported."),
-        w);
-    note->setObjectName(QStringLiteral("rx_sourcesNote"));
-    note->setWordWrap(true);
-    lay->addWidget(note);
+    auto *note=new QLabel(tr("MASS uses species mass units/second. CONC uses external water; FLOWPACED adds to arriving water; SETPOINT raises the mixed concentration. Patterns are cyclic; empty pattern means none. Changes apply together when leaving this tab or saving."),w);
+    note->setObjectName(QStringLiteral("rx_sourcesNote"));note->setWordWrap(true);lay->addWidget(note);
+    auto *pages=new QTabWidget(w);lay->addWidget(pages,1);
+    const QList<QPair<QString,QStringList>> specs={
+        {"REACTION_SOURCES",{tr("Type"),tr("Node"),tr("Species"),tr("Value"),tr("Pattern")}},
+        {"REACTION_PATTERNS",{tr("Name"),tr("Factors")}},
+        {"REACTION_PARAMETERS",{tr("NODE / LINK"),tr("Element"),tr("Parameter"),tr("Value")}},
+        {"REACTION_REPORT",{tr("SPECIES"),tr("Name / ALL"),tr("YES / NO")}},
+        {"REACTION_WALLS",{tr("NODE / LINK"),tr("Element"),tr("Area (AREA_UNITS)")}}
+    };
+    for(const auto& spec:specs) {
+        auto *page=new QWidget(pages);auto *box=new QVBoxLayout(page);
+        auto *table=new QTableWidget(0,spec.second.size(),page);
+        table->setObjectName("rx_"+spec.first.toLower()+"Table");table->setHorizontalHeaderLabels(spec.second);
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        table->setSelectionBehavior(QAbstractItemView::SelectRows);box->addWidget(table);
+        m_configurationTables.insert(spec.first,table);
+        connect(table,&QTableWidget::itemChanged,this,[this]{if(!m_loading)m_configurationDirty=true;});
+        auto *buttons=new QHBoxLayout;auto *add=new QPushButton(tr("Add row"),page);auto *remove=new QPushButton(tr("Remove selected"),page);
+        add->setObjectName("rx_"+spec.first.toLower()+"Add");remove->setObjectName("rx_"+spec.first.toLower()+"Remove");
+        connect(add,&QPushButton::clicked,this,[this,table]{table->insertRow(table->rowCount());m_configurationDirty=true;});
+        connect(remove,&QPushButton::clicked,this,[this,table]{for(int row=table->rowCount()-1;row>=0;--row)if(table->selectionModel()->isRowSelected(row,QModelIndex())){table->removeRow(row);m_configurationDirty=true;}});
+        buttons->addWidget(add);buttons->addWidget(remove);buttons->addStretch();box->addLayout(buttons);
+        pages->addTab(page,spec.first.mid(9).toLower());
+    }
     auto *edit = new QPushButton(tr("Edit configuration"), w);
     edit->setObjectName(QStringLiteral("rx_editSourcesBtn"));
     connect(edit, &QPushButton::clicked, this, [this]() {
         m_tabs->setCurrentIndex(m_fileTabIndex);
     });
     lay->addWidget(edit);
-    lay->addStretch();
     return w;
 }
 
@@ -642,6 +658,7 @@ void ReactionSystemEditorDialog::reloadAll()
     loadExpressions();
     loadInitialQuality();
     loadFileTab();
+    loadConfigurationTables();
     m_loading = false;
 }
 
@@ -659,11 +676,13 @@ void ReactionSystemEditorDialog::loadOptions()
     setCombo(m_couplingCombo, "COUPLING");
     setCombo(m_rateUnitsCombo, "RATE_UNITS");
     setCombo(m_areaUnitsCombo, "AREA_UNITS");
+    setCombo(m_wallGeometryCombo,"WALL_GEOMETRY");
     auto setSpin = [&](QDoubleSpinBox *s, const char *key) {
         if (swmm_reaction_option_get(m_engine, key, v, 64) == SWMM_OK)
             s->setValue(QString::fromUtf8(v).toDouble());
     };
     setSpin(m_timestepSpin, "TIMESTEP");
+    setSpin(m_patternStepSpin,"PATTERN_TIMESTEP");
     setSpin(m_atolSpin, "ATOL");
     setSpin(m_rtolSpin, "RTOL");
 }
@@ -1184,6 +1203,14 @@ void ReactionSystemEditorDialog::onRemoveInitOverride()
 void ReactionSystemEditorDialog::onTabChanged(int index)
 {
     if (m_loading) { m_lastTabIndex = index; return; }
+    if(m_gatingBack)return;
+    if(m_lastTabIndex==m_sourcesTabIndex && index!=m_sourcesTabIndex) {
+        if(!applyConfigurationTables()) {
+            m_gatingBack=true;m_tabs->setCurrentIndex(m_sourcesTabIndex);m_gatingBack=false;return;
+        }
+        reloadAll();
+    }
+    if(index==m_sourcesTabIndex && m_lastTabIndex!=m_fileTabIndex)loadConfigurationTables();
     if (index == m_fileTabIndex) {
         // Entering: regenerate from engine state so structured edits are
         // always visible (D-GC1) — unless we are bouncing back from a
@@ -1202,6 +1229,51 @@ void ReactionSystemEditorDialog::onTabChanged(int index)
         reloadAll();
     }
     m_lastTabIndex = index;
+}
+
+void ReactionSystemEditorDialog::loadConfigurationTables()
+{
+    const bool loading=m_loading;m_loading=true;
+    for(auto *table:m_configurationTables)table->setRowCount(0);
+    QString section;
+    for(QString line:engineText(m_engine).split('\n')) {
+        line=line.section(';',0,0).trimmed();
+        if(line.startsWith('[')){section=line.mid(1,line.size()-2).toUpper();continue;}
+        auto *table=m_configurationTables.value(section,nullptr);
+        if(!table||line.isEmpty())continue;
+        auto fields=line.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts);
+        if(section=="REACTION_PATTERNS"&&fields.size()>1)fields={fields[0],fields.mid(1).join(' ')};
+        const int row=table->rowCount();table->insertRow(row);
+        for(int col=0;col<table->columnCount();++col)table->setItem(row,col,new QTableWidgetItem(fields.value(col)));
+    }
+    m_configurationDirty=false;m_loading=loading;
+}
+
+bool ReactionSystemEditorDialog::applyConfigurationTables()
+{
+    if(!m_engine||!m_configurationDirty)return true;
+    QString result,section;
+    for(const QString& line:engineText(m_engine).split('\n')) {
+        const auto trimmed=line.trimmed();
+        if(trimmed.startsWith('['))section=trimmed.mid(1,trimmed.size()-2).toUpper();
+        if(!m_configurationTables.contains(section))result+=line+'\n';
+    }
+    for(auto it=m_configurationTables.cbegin();it!=m_configurationTables.cend();++it) {
+        result+="\n["+it.key()+"]\n";auto *table=it.value();
+        for(int row=0;row<table->rowCount();++row) {
+            QStringList fields;bool any=false;
+            for(int col=0;col<table->columnCount();++col) {
+                const auto *item=table->item(row,col);auto value=item?item->text().trimmed():QString();any|=!value.isEmpty();
+                // Keep required empty cells visible to validation rather than shifting columns.
+                if(value.isEmpty()&&col<table->columnCount()-1)value="*";
+                fields<<value;
+            }
+            if(any)result+=fields.join(' ').trimmed()+'\n';
+        }
+    }
+    char error[1024]={};
+    if(swmm_reactions_apply_text(m_engine,result.toUtf8().constData(),error,sizeof(error))!=SWMM_OK){setStatus(QString::fromUtf8(error),true);return false;}
+    bumpWrites();m_configurationDirty=false;setStatus(QString(),false);return true;
 }
 
 bool ReactionSystemEditorDialog::applyFileTab()
@@ -1226,6 +1298,7 @@ void ReactionSystemEditorDialog::onSave()
 {
     if (!m_engine) return;
     if (m_tabs->currentIndex() == m_fileTabIndex && !applyFileTab()) return;
+    if (m_tabs->currentIndex() == m_sourcesTabIndex && !applyConfigurationTables()) return;
 
     if (swmm_process_component_find(m_engine, kReactionsId) < 0) {
         // G-D1: one-step "create component + config file".

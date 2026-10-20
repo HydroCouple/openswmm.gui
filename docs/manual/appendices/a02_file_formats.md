@@ -352,9 +352,14 @@ Expressions may use the hydraulic variables `D`, `Q`, `U`, `RE`, `US`, `FF`,
 operators `+ - * / ^`. Parse order is forced, so section order in the file does
 not matter.
 
-`[REACTION_SOURCES]`, `[REACTION_PARAMETERS]`, `[REACTION_PATTERNS]`,
-`[REACTION_REPORT]` and `[REACTION_SUBCATCHMENTS]` are recognised but
-**rejected** by the current engine — do not use them.
+`[REACTION_SOURCES]` accepts CONC, MASS, FLOWPACED and SETPOINT node loads.
+`[REACTION_PARAMETERS]` supplies NODE/LINK parameter overrides;
+`[REACTION_PATTERNS]` supplies cyclic factors; `[REACTION_REPORT]` selects
+species output columns. `[REACTION_SUBCATCHMENTS]` supplies global/named wet
+laws; `[REACTION_BUILDUP]` supplies land-use dry laws. `[REACTION_WALLS]`
+supplies contact areas for WALL_GEOMETRY, and `[REACTION_LIDS]` explicitly opts
+controls into qualified BULK layer transport/reactors. See the engine input
+reference for physical profiles, selectors and units.
 
 The `[REACTION_*]` sections may also be written **inline in the `.inp`** as a
 fallback. That produces a style warning, and an external `.rxn` wins on
