@@ -4,8 +4,8 @@
  *        §3.2, rounds G-B2/G-C1.
  *
  * \details Tabs: Options / Species / Coefficients / Terms / Expressions /
- *          Initial Quality / File (raw text) / Sources (disabled — the
- *          engine rejects [REACTION_SOURCES] until phase R-sources).
+ *          Initial Quality / File (raw text) / Sources (the
+ *          source/pattern/parameter/report text editing uses the File tab).
  *
  *          The engine handle IS the model (GUI plan §2): structured tabs
  *          apply as-you-go through the swmm_reaction_* CRUD (each mutation
