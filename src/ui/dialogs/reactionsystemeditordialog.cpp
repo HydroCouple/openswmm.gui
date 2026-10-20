@@ -594,8 +594,10 @@ QWidget *ReactionSystemEditorDialog::buildSourcesPlaceholderTab()
            "PATTERN_TIMESTEP in Options is in seconds (default 3600).\n"
            "[REACTION_PARAMETERS]: NODE or LINK, element, parameter, value.\n"
            "[REACTION_REPORT]: SPECIES, ALL or species name, YES or NO.\n\n"
-           "Only BULK species can enter as node loads. Subcatchment and porous "
-           "LID-layer reactors remain unsupported."),
+           "[REACTION_SUBCATCHMENTS]: RATE, EQUIL or FORMULA laws on BULK species "
+           "in wet non-LID subcatchment pools.\n\n"
+           "Only BULK species can enter as node loads. Porous LID-layer reactions "
+           "remain unsupported."),
         w);
     note->setObjectName(QStringLiteral("rx_sourcesNote"));
     note->setWordWrap(true);
