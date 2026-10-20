@@ -30,6 +30,7 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_gw_transport.h>
+#include <openswmm/engine/openswmm_pollutants.h>
 
 #include <QAbstractSpinBox>
 #include <QAccessible>
@@ -57,6 +58,7 @@
 using openswmmvis::ui::Mesh2DGroundwaterDialog;
 using openswmmvis::ui::Mesh2DAquiferModel;
 using openswmmvis::ui::Mesh2DAquiferNodeModel;
+using openswmmvis::ui::Mesh2DAquiferBoundaryModel;
 
 namespace {
 struct Engine {
@@ -76,6 +78,18 @@ class TestMesh2DGroundwaterDialog : public QObject
     Q_OBJECT
 
 private slots:
+    void layerChemistryAndSoluteDiffusionControlsWorkWithoutPorousHeat() {
+        Engine e;Mesh2DGroundwaterDialog dialog(e.handle);
+        auto* chemistry=dialog.findChild<QComboBox*>("gwTransport_UNSAT_TRANSPORT");
+        auto* heat=dialog.findChild<QComboBox*>("gwTransport_THERMAL_MODEL");
+        auto* dispersion=dialog.findChild<QCheckBox*>("gwTransport_DISPERSION");
+        auto* safety=dialog.findChild<QDoubleSpinBox*>("gwTransport_C_DIFF");
+        QVERIFY(chemistry&&heat&&dispersion&&safety);
+        heat->setCurrentIndex(heat->findData("WATER_ONLY"));
+        QVERIFY(chemistry->isEnabled());dispersion->setChecked(true);QVERIFY(safety->isEnabled());
+        dispersion->setChecked(false);QVERIFY(!safety->isEnabled());QVERIFY(chemistry->isEnabled());
+    }
+
     void thermalOptionsShortcutLimitsPagesAndExposesReadableOptionKeys() {
         Engine e;
         Mesh2DGroundwaterDialog dialog(e.handle);
@@ -85,6 +99,7 @@ private slots:
         QVERIFY(!tabs->isTabVisible(1));
         QVERIFY(!tabs->isTabVisible(2));
         QVERIFY(!tabs->isTabVisible(3));
+        QVERIFY(!tabs->isTabVisible(5));
         QVERIFY(tabs->isTabVisible(4));
         const auto keys=Mesh2DGroundwaterDialog::configurationOptionKeys();
         QVERIFY(keys.contains(QStringLiteral("GW_TRANSPORT:THERMAL_MODEL")));
@@ -467,6 +482,33 @@ LID Stack .2
         QCOMPARE(applied.count(), 1);
         QCOMPARE(writes.count(), 1);
         QVERIFY(!nodes->isDirty());
+    }
+
+    void groundwaterEdgesValidateComposeSaveAndUndo()
+    {
+        const QString root=QDir::currentPath()+"/workplans/artifacts/gw_transport_completion_2026-10-19/gui_edges";
+        QDir().mkpath(root);QFile source(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA",QDir::currentPath()+"/tests/gui/data")+"/mini_2d.inp");
+        QVERIFY(source.open(QIODevice::ReadOnly));QFile input(root+"/model.inp");QVERIFY(input.open(QIODevice::WriteOnly));input.write(source.readAll());input.close();
+        Engine engine(false);QCOMPARE(swmm_engine_open(engine.handle,input.fileName().toUtf8().constData(),nullptr,nullptr,nullptr),SWMM_OK);
+        QCOMPARE(swmm_pollutant_add(engine.handle,"TSS",0),SWMM_OK);
+        QCOMPARE(swmm_gw2d_row_add(engine.handle,0,"",-1,.001,5,.4,.05,1),SWMM_OK);
+        Mesh2DAquiferBoundaryModel model;QVERIFY(model.load(engine.handle).isEmpty());
+        model.addHydraulic();QVERIFY(model.setData(model.index(0,Mesh2DAquiferBoundaryModel::Value),.001));
+        QVERIFY(!model.validateCommit(engine.handle).isEmpty()); // no implicit zero-concentration supply
+        model.addChemistry();QVERIFY(model.setData(model.index(1,Mesh2DAquiferBoundaryModel::Species),"TSS"));
+        QVERIFY(model.setData(model.index(1,Mesh2DAquiferBoundaryModel::Value),3.));
+        QVERIFY2(model.validateCommit(engine.handle).isEmpty(),qPrintable(model.validateCommit(engine.handle)));
+        auto transaction=model.transactionCopy();const auto saved=model.commit(engine.handle,false);QVERIFY2(saved.isEmpty(),qPrintable(saved));
+        QCOMPARE(swmm_gw2d_boundary_count(engine.handle),1);QCOMPARE(swmm_gw_boundary_quality_count(engine.handle),1);
+        QCOMPARE(swmm_model_write(engine.handle,(root+"/saved.inp").toUtf8().constData()),SWMM_OK);
+        QVERIFY(transaction->restoreLoaded(engine.handle).isEmpty());QCOMPARE(swmm_gw2d_boundary_count(engine.handle),0);
+        QVERIFY(transaction->commit(engine.handle,false).isEmpty());model.acceptChanges();
+        QVERIFY(model.setData(model.index(0,Mesh2DAquiferBoundaryModel::Edge),1));
+        QVERIFY(model.validateCommit(engine.handle).contains("exterior"));
+        // A later editor cannot replace a changed hydraulic/chemical snapshot.
+        const SWMM_GwBoundary changed{0,0,SWMM_GW2D_BOUNDARY_FLOW,.002};
+        QCOMPARE(swmm_gw2d_boundary_set(engine.handle,&changed,""),SWMM_OK);
+        QVERIFY(model.validateCommit(engine.handle).contains("outside"));
     }
 
     void nodeBedApplyAndRestorePreserveOptOutAndAutoLocation()

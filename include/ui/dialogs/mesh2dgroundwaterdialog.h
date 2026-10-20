@@ -60,6 +60,7 @@ namespace openswmmvis::ui {
 
 class Mesh2DAquiferModel;
 class Mesh2DAquiferNodeModel;
+class Mesh2DAquiferBoundaryModel;
 
 class Mesh2DGroundwaterDialog : public QDialog
 {
@@ -67,7 +68,7 @@ class Mesh2DGroundwaterDialog : public QDialog
 
 public:
     /*! \brief Which page opens first. */
-    enum class Page { AquiferProperties, InitialConditions, Options, State, NodeBeds };
+    enum class Page { AquiferProperties, InitialConditions, Options, State, NodeBeds, EdgeBoundaries };
     void focusNode(const QString& node);
     void setNodeUndoStack(QUndoStack*,std::function<bool()> current,std::function<void()> edited);
 
@@ -108,6 +109,9 @@ private:
     QWidget *buildNodeBedPage();
     QWidget *buildStatePage();
     QWidget *buildTransportPage();
+    QWidget *buildBoundaryPage();
+    Mesh2DAquiferBoundaryModel *m_boundaries=nullptr;
+    QWidget *m_boundaryPage=nullptr;
     QMap<QString,QWidget*> m_transportOptions;
     std::vector<QWidget*> m_thermalFields;
 

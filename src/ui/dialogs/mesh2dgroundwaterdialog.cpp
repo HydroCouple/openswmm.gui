@@ -104,6 +104,22 @@ public:
     void undo()override{install(false);}void redo()override{if(first_){first_=false;return;}install(true);}
 };
 
+class BoundaryUndo final:public QUndoCommand {
+    std::shared_ptr<Mesh2DAquiferBoundaryModel> draft_;SWMM_Engine engine_;
+    std::function<bool()> current_;std::function<void()> edited_;bool first_=true;
+    void install(bool forward) {
+        QString error;
+        if(!current_||!current_())error=QObject::tr("The model or mesh changed after this boundary edit.");
+        else error=forward?draft_->commit(engine_,false):draft_->restoreLoaded(engine_);
+        if(!error.isEmpty()){setObsolete(true);QMessageBox::warning(QApplication::activeWindow(),QObject::tr("Groundwater boundaries"),error);return;}
+        if(edited_)edited_();
+    }
+public:
+    BoundaryUndo(std::shared_ptr<Mesh2DAquiferBoundaryModel> draft,SWMM_Engine engine,
+        std::function<bool()> current,std::function<void()> edited):draft_(std::move(draft)),engine_(engine),current_(std::move(current)),edited_(std::move(edited)){setText(QObject::tr("Edit groundwater boundaries"));}
+    void undo()override{install(false);}void redo()override{if(first_){first_=false;return;}install(true);}
+};
+
 QString optionText(SWMM_Engine e, const char *key)
 {
     char buf[128] = {0};
@@ -155,7 +171,7 @@ QStringList Mesh2DGroundwaterDialog::configurationOptionKeys()
         QStringLiteral("C_GW"), QStringLiteral("C_COL"),
         QStringLiteral("FORCE_CLOSED_FORM"), QStringLiteral("DUNNE"),
         QStringLiteral("MODE"), QStringLiteral("GW_ET")};
-    const QStringList transportKeys = {QStringLiteral("TRANSPORT_POLLUTANTS"),
+    const QStringList transportKeys = {QStringLiteral("UNSAT_TRANSPORT"),QStringLiteral("TRANSPORT_POLLUTANTS"),
         QStringLiteral("TRANSPORT_MSX"), QStringLiteral("TRANSPORT_AGE"),
         QStringLiteral("TRANSPORT_TEMPERATURE"), QStringLiteral("DISPERSION"),
         QStringLiteral("THERMAL_MODEL"), QStringLiteral("CONDUCTION"),
@@ -175,6 +191,7 @@ void Mesh2DGroundwaterDialog::setThermalOptionsOnly(bool enabled)
     m_tabs->setTabVisible(1, !enabled);
     m_tabs->setTabVisible(2, !enabled);
     m_tabs->setTabVisible(3, !enabled);
+    m_tabs->setTabVisible(5, !enabled);
 }
 
 Mesh2DGroundwaterDialog::Mesh2DGroundwaterDialog(SWMM_Engine engine,
@@ -210,11 +227,13 @@ void Mesh2DGroundwaterDialog::buildUi(Page initialPage)
     m_tabs->addTab(buildNodeBedPage(),  tr("Node Beds"));
     m_tabs->addTab(buildStatePage(),    tr("State"));
     m_tabs->addTab(buildTransportPage(), tr("Transport and thermal settings"));
+    m_tabs->addTab(buildBoundaryPage(),tr("Edge boundaries"));
     switch (initialPage) {
     case Page::Options:            m_tabs->setCurrentIndex(0); break;
     case Page::InitialConditions:  m_tabs->setCurrentIndex(1); break;  // hg0 lives on the rows
     case Page::State:              m_tabs->setCurrentIndex(3); break;
     case Page::NodeBeds:           m_tabs->setCurrentIndex(2); break;
+    case Page::EdgeBoundaries:     m_tabs->setCurrentIndex(5); break;
     default:                       m_tabs->setCurrentIndex(1); break;
     }
     outer->addWidget(m_tabs, 1);
@@ -582,6 +601,12 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
     if (!on) m_buttons->setStandardButtons(QDialogButtonBox::Close);
     m_refreshBtn->setEnabled(m_engine != nullptr);
     for(auto* field:m_transportOptions)field->setEnabled(on);
+    if(m_boundaries)m_boundaries->setEditable(on);
+    if(m_boundaryPage) {
+        m_boundaryPage->setEnabled(on);
+        for(auto* view:m_boundaryPage->findChildren<QTableView*>())
+            view->setEditTriggers(on?QAbstractItemView::AllEditTriggers:QAbstractItemView::NoEditTriggers);
+    }
     for (QWidget *w : std::initializer_list<QWidget *>{
              m_soilCombo, m_closureCombo, m_layersSpin, m_capillaryCheck,
              m_cgwSpin, m_ccolSpin, m_forceCfCheck, m_dunneCheck,
@@ -604,6 +629,25 @@ void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
     }
 }
 
+QWidget* Mesh2DGroundwaterDialog::buildBoundaryPage()
+{
+    m_boundaryPage=new QWidget;auto* layout=new QVBoxLayout(m_boundaryPage);
+    auto* note=new QLabel(tr("Add one Water row for each exterior groundwater edge, then its species rows. HEAD is a water-table elevation in project units; FLOW is total m³/s, positive inward. Potential inflow needs a concentration for every enabled groundwater species. Imposed MASSFLUX and HEATFLUX rows may accompany a concentration."),m_boundaryPage);
+    note->setWordWrap(true);layout->addWidget(note);
+    m_boundaries=new Mesh2DAquiferBoundaryModel(this);m_boundaries->setObjectName("gwBoundaryModel");
+    auto* view=new QTableView(m_boundaryPage);view->setObjectName("gwBoundaryTable");view->setAccessibleName(tr("Groundwater hydraulic and chemistry boundaries"));view->setModel(m_boundaries);
+    view->setSelectionBehavior(QAbstractItemView::SelectRows);view->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);view->horizontalHeader()->setStretchLastSection(true);layout->addWidget(view);
+    auto* buttons=new QHBoxLayout;auto* water=new QPushButton(tr("Add hydraulic edge"),m_boundaryPage);
+    auto* chemistry=new QPushButton(tr("Add species row"),m_boundaryPage);auto* remove=new QPushButton(tr("Remove row"),m_boundaryPage);
+    water->setObjectName("gwBoundaryAddWater");chemistry->setObjectName("gwBoundaryAddSpecies");remove->setObjectName("gwBoundaryRemove");
+    for(auto* button:{water,chemistry,remove}){button->setAutoDefault(false);button->setDefault(false);}
+    buttons->addWidget(water);buttons->addWidget(chemistry);buttons->addWidget(remove);buttons->addStretch();layout->addLayout(buttons);
+    connect(water,&QPushButton::clicked,m_boundaries,&Mesh2DAquiferBoundaryModel::addHydraulic);
+    connect(chemistry,&QPushButton::clicked,m_boundaries,&Mesh2DAquiferBoundaryModel::addChemistry);
+    connect(remove,&QPushButton::clicked,this,[this,view]{m_boundaries->remove(view->currentIndex().row());});
+    m_boundaries->load(m_engine);return m_boundaryPage;
+}
+
 QWidget* Mesh2DGroundwaterDialog::buildTransportPage()
 {
     auto* content=new QWidget;auto* layout=new QVBoxLayout(content);
@@ -614,6 +658,17 @@ QWidget* Mesh2DGroundwaterDialog::buildTransportPage()
     const QStringList keys={"TRANSPORT_POLLUTANTS","TRANSPORT_MSX","TRANSPORT_AGE","TRANSPORT_TEMPERATURE","DISPERSION"};
     const QStringList labels={tr("Carry pollutants"),tr("Carry reaction species"),tr("Carry water age"),tr("Carry temperature"),tr("Solute dispersion")};
     for(int i=0;i<keys.size();++i){auto* box=new QCheckBox(labels[i],content);box->setObjectName("gwTransport_"+keys[i]);m_transportOptions[keys[i]]=box;form->addRow(box);}
+    auto* chemistry=new QComboBox(content);chemistry->setObjectName("gwTransport_UNSAT_TRANSPORT");
+    chemistry->addItem(tr("Well-mixed column"),"BULK");chemistry->addItem(tr("Separate soil layers"),"LAYERED");
+    chemistry->setToolTip(tr("Separate chemistry follows the SIGMA water layers. Choose SIGMA as the aquifer closure. This profile currently uses water-only temperature storage."));
+    chemistry->setAccessibleName(tr("Unsaturated chemistry"));m_transportOptions["UNSAT_TRANSPORT"]=chemistry;
+    form->addRow(tr("Unsaturated &chemistry:"),chemistry);
+    auto* diffusion=new QDoubleSpinBox(content);diffusion->setObjectName("gwTransport_C_DIFF");
+    diffusion->setRange(1e-6,1);diffusion->setDecimals(6);diffusion->setKeyboardTracking(false);
+    diffusion->setAccessibleName(tr("Diffusion safety factor"));
+    diffusion->setToolTip(tr("Controls the explicit solute diffusion timestep and the porous thermal diffusion bound."));
+    m_transportOptions["C_DIFF"]=diffusion;form->addRow(tr("Diffusion safety &factor:"),diffusion);
+    connect(qobject_cast<QCheckBox*>(m_transportOptions.value("DISPERSION")),&QCheckBox::toggled,this,&Mesh2DGroundwaterDialog::refreshThermalGates);
     layout->addLayout(form);
 
     auto* thermalBox=new QGroupBox(tr("Porous soil heat and conduction"),content);
@@ -647,7 +702,6 @@ QWidget* Mesh2DGroundwaterDialog::buildTransportPage()
     addDouble("WATER_THERMAL_CONDUCTIVITY",tr("&Water thermal conductivity:"),1e-9,1e6,8,tr(" W/m/K"));
     addDouble("AIR_THERMAL_CONDUCTIVITY",tr("&Air thermal conductivity:"),1e-9,1e6,8,tr(" W/m/K"));
     addDouble("SURFACE_THERMAL_RESISTANCE",tr("Surface thermal resist&ance:"),1e-9,1e12,8,tr(" m² K/W"));
-    addDouble("C_DIFF",tr("Diffusion safety &factor:"),1e-6,1.0,6,QString());
 
     auto* surfaceKind=new QComboBox(thermalBox);surfaceKind->setObjectName("gwTransport_SURFACE_THERMAL_BC_KIND");
     const QStringList surfaceModes={"ADIABATIC","AIR","SURFACE_WATER","FIXED","TIMESERIES","HEAT_FLUX","FLUX_TIMESERIES"};
@@ -687,6 +741,9 @@ void Mesh2DGroundwaterDialog::refreshThermalGates()
 {
     auto* model=qobject_cast<QComboBox*>(m_transportOptions.value("THERMAL_MODEL"));
     if(!model||!m_thermalStatus)return;
+    const bool porous=model->currentData().toString()=="POROUS_EQUILIBRIUM";
+    const auto* dispersion=qobject_cast<QCheckBox*>(m_transportOptions.value("DISPERSION"));
+    if(auto* factor=m_transportOptions.value("C_DIFF"))factor->setEnabled(m_editable&&(porous||(dispersion&&dispersion->isChecked())));
     const auto setStatus=[this](const QString& text){m_thermalStatus->setText(text);m_thermalStatus->setAccessibleDescription(text);};
     for(auto* field:m_thermalFields)
         if(field)field->setEnabled(m_editable&&m_porousThermalOptionsSupported);
@@ -698,9 +755,8 @@ void Mesh2DGroundwaterDialog::refreshThermalGates()
         setStatus(tr("Unavailable: this engine does not expose the porous-soil heat option. These controls are disabled because this engine cannot validate or apply them."));
         return;
     }
-    const bool porous=model->currentData().toString()=="POROUS_EQUILIBRIUM";
     for(auto it=m_transportOptions.cbegin();it!=m_transportOptions.cend();++it) {
-        if(it.key()=="THERMAL_MODEL"||it.key().startsWith("TRANSPORT_")||it.key()=="DISPERSION")continue;
+        if(it.key()=="THERMAL_MODEL"||it.key().startsWith("TRANSPORT_")||it.key()=="DISPERSION"||it.key()=="UNSAT_TRANSPORT"||it.key()=="C_DIFF")continue;
         it.value()->setEnabled(m_editable&&porous);
     }
     const auto surface=m_surfaceThermalKind->currentData().toString();
@@ -760,11 +816,17 @@ bool Mesh2DGroundwaterDialog::applyChanges()
     if(!m_engine||!m_editable)return false;
     if(!canEdit(m_engine)){QMessageBox::warning(this,tr("2D Groundwater"),tr("Reset the simulation before applying edits. Your draft remains here."));return false;}
     if(auto*focus=focusWidget())focus->clearFocus();
-    const auto draft=optionDraft();const bool optionsChanged=draft!=m_displayedOptions,aqChanged=m_aquifer->isDirty(),nodesChanged=m_nodes->isDirty();
-    if(!optionsChanged&&!aqChanged&&!nodesChanged)return true;
-    QString error;if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed outside this editor. Reopen it to preserve newer edits.");
+    const auto draft=optionDraft();const bool optionsChanged=draft!=m_displayedOptions,aqChanged=m_aquifer->isDirty(),nodesChanged=m_nodes->isDirty(),edgesChanged=m_boundaries->isDirty();
+    if(!optionsChanged&&!aqChanged&&!nodesChanged&&!edgesChanged)return true;
+    QString error;
+    if(draft.value("GW_TRANSPORT:UNSAT_TRANSPORT")=="LAYERED") {
+        if(draft.value("CLOSURE")!="SIGMA")error=tr("Choose SIGMA as the aquifer closure for separate soil-layer chemistry.");
+        else if(draft.value("GW_TRANSPORT:THERMAL_MODEL")=="POROUS_EQUILIBRIUM")error=tr("Separate soil-layer chemistry currently requires water-only temperature storage.");
+    }
+    if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed outside this editor. Reopen it to preserve newer edits.");
     if(error.isEmpty())error=m_aquifer->validateCommit(m_engine);
     if(error.isEmpty())error=m_nodes->validateCommit(m_engine,!optionsChanged&&!aqChanged);
+    if(error.isEmpty()&&edgesChanged)error=m_boundaries->validateCommit(m_engine,!optionsChanged&&!aqChanged);
     if(error.isEmpty()&&optionsChanged){SWMM_Engine check=swmm_engine_new();if(!check)error=tr("Cannot allocate option validation model.");else {for(auto it=draft.cbegin();it!=draft.cend();++it)if(it.value()!=m_displayedOptions.value(it.key())&&!setOption(check,it.key().toUtf8().constData(),it.value())){error=tr("Invalid groundwater option %1.").arg(it.key());break;}swmm_engine_destroy(check);}}
     if(!error.isEmpty()){QMessageBox::warning(this,tr("2D Groundwater"),error);return false;}
     QPointer<Mesh2DGroundwaterDialog> self=this;emit changesMayHaveBeenApplied();if(!self||!m_engine||!canEdit(m_engine))return false;
@@ -773,15 +835,18 @@ bool Mesh2DGroundwaterDialog::applyChanges()
     if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed before commit.");
     if(error.isEmpty())error=m_aquifer->validateCommit(m_engine);
     if(error.isEmpty())error=m_nodes->validateCommit(m_engine,!optionsChanged&&!aqChanged);
+    if(error.isEmpty()&&edgesChanged)error=m_boundaries->validateCommit(m_engine,!optionsChanged&&!aqChanged);
     if(!error.isEmpty()){QMessageBox::warning(this,tr("2D Groundwater"),error);return false;}
-    error=applyOptions();if(error.isEmpty())error=m_aquifer->commit(m_engine,false);if(error.isEmpty())error=m_nodes->commit(m_engine,false);
+    error=applyOptions();if(error.isEmpty())error=m_aquifer->commit(m_engine,false);if(error.isEmpty())error=m_nodes->commit(m_engine,false);if(error.isEmpty()&&edgesChanged)error=m_boundaries->commit(m_engine,false);
     if(!error.isEmpty()){
-        QStringList failed;if(aqChanged){auto e=m_aquifer->restoreLoaded(m_engine);if(!e.isEmpty())failed.append(e);}if(nodesChanged){auto e=m_nodes->restoreLoaded(m_engine);if(!e.isEmpty())failed.append(e);}
+        QStringList failed;if(edgesChanged){auto e=m_boundaries->restoreLoaded(m_engine);if(!e.isEmpty())failed.append(e);}if(aqChanged){auto e=m_aquifer->restoreLoaded(m_engine);if(!e.isEmpty())failed.append(e);}if(nodesChanged){auto e=m_nodes->restoreLoaded(m_engine);if(!e.isEmpty())failed.append(e);}
         for(auto it=m_loadedOptions.cbegin();it!=m_loadedOptions.cend();++it)if(draft.value(it.key())!=m_displayedOptions.value(it.key())&&!setOption(m_engine,it.key().toUtf8().constData(),it.value()))failed.append(it.key());
         error+=failed.isEmpty()?tr(" Previous values restored; your draft remains available."):tr(" Rollback incomplete: %1. Reload the saved model before further editing.").arg(failed.join(", "));
         QMessageBox::warning(this,tr("2D Groundwater"),error);return false;
     }
     if(nodesChanged&&m_nodeUndo)m_nodeUndo->push(new NodeConnectionUndo(m_nodes->transactionCopy(),m_engine,m_undoCurrent,m_undoEdited));
+    if(edgesChanged&&m_nodeUndo)m_nodeUndo->push(new BoundaryUndo(m_boundaries->transactionCopy(),m_engine,m_undoCurrent,m_undoEdited));
+    m_boundaries->acceptChanges();
     m_aquifer->acceptChanges();m_nodes->acceptChanges();m_loadedOptions=readOptions();m_displayedOptions=draft;
     refreshState();emit applied();return true;
 }
@@ -873,7 +938,9 @@ void Mesh2DGroundwaterDialog::refreshState()
         {SWMM_GW2D_LED_INFIL_IN,     "Infiltration in"},
         {SWMM_GW2D_LED_RECHARGE,     "Recharge (internal)"},
         {SWMM_GW2D_LED_CAPRISE,      "Capillary rise (internal)"},
-        {SWMM_GW2D_LED_LATERAL,      "Lateral Darcy in"},
+        {SWMM_GW2D_LED_LATERAL,      "Lateral net in (includes edges)"},
+        {SWMM_GW2D_LED_BOUNDARY_IN, "Boundary in (within lateral)"},
+        {SWMM_GW2D_LED_BOUNDARY_OUT,"Boundary out (within lateral)"},
         {SWMM_GW2D_LED_DEEP,         "Deep percolation out"},
         {SWMM_GW2D_LED_NODE,         "Node exchange out"},
         {SWMM_GW2D_LED_ET,           "Subsurface ET out"},
@@ -886,6 +953,33 @@ void Mesh2DGroundwaterDialog::refreshState()
         s += QStringLiteral("  %1 %2\n")
                  .arg(QString::fromLatin1(t.label).leftJustified(32, ' '))
                  .arg(v, 14, 'g', 8);
+    }
+
+    const int boundaries=swmm_gw2d_boundary_count(m_engine);
+    if(boundaries>0) {
+        double requestedIn=0,requestedOut=0,acceptedIn=0,acceptedOut=0;
+        bool valid=true;
+        for(int edge=0;edge<boundaries;++edge) {
+            double ri=0,ro=0,ai=0,ao=0;
+            if(swmm_gw2d_boundary_water(m_engine,edge,&ri,&ro,&ai,&ao)!=SWMM_OK){valid=false;break;}
+            requestedIn+=ri;requestedOut+=ro;acceptedIn+=ai;acceptedOut+=ao;
+        }
+        if(valid)s+=tr("\nHydraulic edges (gross m³, cumulative)\n  In: requested %1, accepted %2\n  Out: requested %3, accepted %4\n")
+            .arg(requestedIn,0,'g',8).arg(acceptedIn,0,'g',8).arg(requestedOut,0,'g',8).arg(acceptedOut,0,'g',8);
+    }
+    int species=0;
+    if(swmm_gw2d_species_count(m_engine,&species)==SWMM_OK&&species>0) {
+        s+=tr("\nSpecies balance (native concentration × m³; reaction loss may be negative)\n");
+        for(int row=0;row<species;++row) {
+            char name[4096]{};double loss=0,residual=0,in=0,out=0,fluxIn=0,fluxOut=0;
+            if(swmm_gw2d_species_name(m_engine,row,name,sizeof name)!=SWMM_OK)continue;
+            const auto term=[&](int code,double& value){return swmm_gw2d_get_species_ledger(m_engine,row,code,&value)==SWMM_OK;};
+            if(!term(SWMM_GW2D_SPL_REACTED,loss)||!term(SWMM_GW2D_SPL_RESIDUAL,residual))continue;
+            term(SWMM_GW2D_SPL_BOUNDARY_IN,in);term(SWMM_GW2D_SPL_BOUNDARY_OUT,out);
+            term(SWMM_GW2D_SPL_BOUNDARY_FLUX_IN,fluxIn);term(SWMM_GW2D_SPL_BOUNDARY_FLUX_OUT,fluxOut);
+            s+=tr("  %1: advective edge in %2, out %3; imposed in %4, out %5; reaction loss %6; residual %7\n")
+                .arg(QString::fromUtf8(name)).arg(in,0,'g',8).arg(out,0,'g',8).arg(fluxIn,0,'g',8).arg(fluxOut,0,'g',8).arg(loss,0,'g',8).arg(residual,0,'g',8);
+        }
     }
 
     long hist[8] = {0};

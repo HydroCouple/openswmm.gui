@@ -86,7 +86,7 @@ private:
  QVector<assignment::TransportSpecies> m_speciesCatalog;
  QLineEdit *m_scopeText=nullptr,*m_path=nullptr,*m_layerName=nullptr,*m_field=nullptr,*m_filter=nullptr;
  QDoubleSpinBox *m_value=nullptr,*m_scale=nullptr,*m_offset=nullptr;
- QSpinBox *m_band=nullptr;
+ QSpinBox *m_band=nullptr,*m_qualityLayer=nullptr;
  QCheckBox *m_skip=nullptr,*m_selectedFeatures=nullptr;
  QLabel *m_status=nullptr,*m_units=nullptr;
  QPushButton *m_preview=nullptr,*m_apply=nullptr;

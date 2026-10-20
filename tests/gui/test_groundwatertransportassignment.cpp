@@ -194,6 +194,33 @@ private slots:
         QVERIFY2(undoneInitial.success,qPrintable(undoneInitial.error));
         QVERIFY(readGroundwaterTransportSnapshot(e.value,&actual,&error));QVERIFY(actual==before);
     }
+    void layerInitialQualityRequiresItsProfileAndKeepsIndependentKeys()
+    {
+        auto r=request();r.zone=2;r.layer=2;
+        QVERIFY(!previewGroundwaterTransport(r).error.isEmpty());
+        r.before.options["UNSAT_TRANSPORT"]="LAYERED";
+        r.before.aquifers.options["CLOSURE"]="SIGMA";r.before.aquifers.options["M_LAYERS"]="4";
+        r.before.quality.append({2,0,2,1,{},"TSS",9});
+        const auto p=previewGroundwaterTransport(r);QVERIFY2(p.error.isEmpty(),qPrintable(p.error));
+        QCOMPARE(p.after.quality.size(),3);QCOMPARE(p.after.quality[0].layer,1);
+        QCOMPARE(p.after.quality[1].layer,2);QCOMPARE(p.after.quality[2].layer,2);
+        r.layer=5;QVERIFY(!previewGroundwaterTransport(r).error.isEmpty());
+    }
+    void layerAssignmentRoundTripsAndUndoesThroughTheEngine()
+    {
+        Engine e;QVERIFY(openFixture(e,"layer_completion"));
+        QCOMPARE(swmm_gw2d_option_set(e.value,"CLOSURE","SIGMA"),SWMM_OK);
+        QCOMPARE(swmm_gw_transport_option_set(e.value,"UNSAT_TRANSPORT","LAYERED"),SWMM_OK);
+        GroundwaterTransportSnapshot before;QString error;
+        QVERIFY2(readGroundwaterTransportSnapshot(e.value,&before,&error),qPrintable(error));
+        auto r=request();r.before=before;r.zone=2;r.layer=2;
+        const auto p=previewGroundwaterTransport(r);QVERIFY2(p.error.isEmpty(),qPrintable(p.error));
+        const auto result=applyGroundwaterTransport(e.value,p);QVERIFY2(result.success,qPrintable(result.error));
+        GroundwaterTransportSnapshot after;QVERIFY(readGroundwaterTransportSnapshot(e.value,&after,&error));
+        QCOMPARE(after.quality.back().zone,2);QCOMPARE(after.quality.back().layer,2);
+        const auto undone=undoGroundwaterTransport(e.value,p);QVERIFY2(undone.success,qPrintable(undone.error));
+        QVERIFY(readGroundwaterTransportSnapshot(e.value,&after,&error));QVERIFY(after==before);
+    }
     void initialQualityFailureRestoresChangedAndAppendedRows()
     {
         Engine e; QVERIFY(openFixture(e,"quality"));

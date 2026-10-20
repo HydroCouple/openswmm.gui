@@ -24,6 +24,21 @@ const TransportSpecies *species(const GroundwaterTransportSnapshot &s,const QStr
 {for(const auto &row:s.species)if(row.id==id)return &row;return nullptr;}
 bool sameKey(const GroundwaterQualityRow &a,const GroundwaterQualityRow &b)
 {return a.scope==b.scope&&a.cell==b.cell&&a.tag==b.tag&&a.zone==b.zone&&a.layer==b.layer&&a.species==b.species;}
+bool validLayer(const GroundwaterTransportSnapshot &s,int cell,int layer)
+{
+    if(s.options.value("UNSAT_TRANSPORT")!="LAYERED"||layer<1)return false;
+    const AquiferRow *effective=nullptr;
+    for(int scope=0;scope<3;++scope)for(const auto& row:s.aquifers.rows) {
+        if(row.scope!=scope||(scope==2&&row.cell!=cell)
+            ||(scope==1&&(cell>=s.cellTags.size()||row.tag!=s.cellTags[cell])))continue;
+        effective=&row;
+    }
+    const bool sigma=effective&&effective->optional.value("CLOSURE_SET")!=0?
+        effective->optional.value("CLOSURE")==2:s.aquifers.options.value("CLOSURE")=="SIGMA";
+    int layers=s.aquifers.options.value("M_LAYERS","8").toInt();
+    if(effective&&effective->optional.value("M_LAYERS",-1)>0)layers=int(effective->optional.value("M_LAYERS"));
+    return sigma&&layer<=layers;
+}
 QString seriesError(const GroundwaterTransportSnapshot &s,const QString &name,bool signedValues)
 {
     if(name.isEmpty())return {};
@@ -133,13 +148,13 @@ QVector<TransportSpecies> groundwaterTransportSpecies(SWMM_Engine e,QString *err
         }
     }
     if(quality&&option(e,"TRANSPORT_MSX",true)=="YES"){
-        QVector<TransportSpecies> reactions;bool hasWall=false;
+        QVector<TransportSpecies> reactions;
         for(int i=0;i<swmm_reaction_species_count(e);++i){char name[4096]{},unit[4096]{};int wall=0;double atol=0,rtol=0;
             if(swmm_reaction_species_get(e,i,name,sizeof name,&wall,unit,sizeof unit,&atol,&rtol)!=SWMM_OK){fail(error,"Unable to read reaction species.");return {};}
-            hasWall=hasWall||wall;reactions.append({QString::fromUtf8(name),QString::fromUtf8(unit),{},false,false});
+            if(!wall)reactions.append({QString::fromUtf8(name),QString::fromUtf8(unit),{},false,false});
         }
-        // The groundwater engine refuses systems containing WALL species.
-        if(!hasWall)for(const auto &s:reactions){bool duplicate=false;for(const auto &existing:result)if(existing.id==s.id)duplicate=true;if(!duplicate)result.append(s);}
+        // Only aqueous species belong to groundwater; network WALL species remain available there.
+        for(const auto &s:reactions){bool duplicate=false;for(const auto &existing:result)if(existing.id==s.id)duplicate=true;if(!duplicate)result.append(s);}
     }
     // Groundwater stores authored age directly in seconds. Surface output's
     // conversion to hours does not apply to groundwater initial/source rows.
@@ -170,6 +185,9 @@ bool readGroundwaterTransportSnapshot(SWMM_Engine e,GroundwaterTransportSnapshot
     for(const auto &key:{"TRANSPORT_POLLUTANTS","TRANSPORT_MSX","TRANSPORT_AGE","TRANSPORT_TEMPERATURE","DISPERSION","CONDUCTION","THERMAL_MIXING","SURFACE_THERMAL_BC","DEEP_THERMAL_BC","C_DIFF"}){
         bool ok=false;result.options[key]=option(e,key,true,&ok);if(!ok)return fail(error,"Cannot read groundwater transport option "+QString::fromLatin1(key));
     }
+    bool layeredSupported=false;
+    const auto chemistry=option(e,"UNSAT_TRANSPORT",true,&layeredSupported);
+    if(layeredSupported)result.options["UNSAT_TRANSPORT"]=chemistry;
     for(const auto &key:{"IGNORE_QUALITY","WATER_AGE","HEAT_TRANSPORT"}){bool ok=false;result.options[QStringLiteral("GLOBAL:")+key]=option(e,key,false,&ok);if(!ok)return fail(error,"Cannot read global transport option "+QString::fromLatin1(key));}
     char path[32768]{};if(swmm_gw_init_quality_file_get(e,path,sizeof path)!=SWMM_OK)return fail(error,"Cannot read initial-quality FILE reference.");result.qualityFile=QString::fromUtf8(path);
     const int qualities=swmm_gw_init_quality_count(e);if(qualities<0)return fail(error,"Cannot read initial-quality rows.");
@@ -205,23 +223,27 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
     if(r.target!=GroundwaterTransportTarget::InitialQuality&&r.target!=GroundwaterTransportTarget::Source)return reject("Unknown groundwater transport target.");
     if(r.target==GroundwaterTransportTarget::InitialQuality&&(!r.before.qualityFile.isEmpty()))return reject("Initial-quality rows are linked to a FILE source. Edit that source before assigning cell values.");
     const auto *metadata=species(r.before,r.species);
-    if(r.target==GroundwaterTransportTarget::InitialQuality){if(r.zone!=0&&r.zone!=1)return reject("Choose the saturated or unsaturated zone.");if(!metadata||metadata->nativeConcUnits.isEmpty())return reject("Choose an enabled species with declared concentration units.");}
+    if(r.target==GroundwaterTransportTarget::InitialQuality){if(r.zone<0||r.zone>2)return reject("Choose a saturated, unsaturated or soil-layer initial value.");
+        if(r.zone==2&&(r.before.options.value("UNSAT_TRANSPORT")!="LAYERED"||r.layer<1))return reject("Enable separate soil-layer chemistry in Groundwater Options before assigning a layer value.");if(!metadata||metadata->nativeConcUnits.isEmpty())return reject("Choose an enabled species with declared concentration units.");}
     QSet<int> seen;QVector<int> valid;
     for(int i=0;i<r.cells.size();++i){if(cancelled&&cancelled())return reject("Cancelled.");if(r.cells[i]<0||r.cells[i]>=r.before.cellCount||seen.contains(r.cells[i]))return reject("A target cell is out of range or repeated.");seen.insert(r.cells[i]);
         if(std::isnan(r.values[i])&&r.skipNoData){p.skippedCells.append(r.cells[i]);continue;}
         if(!std::isfinite(r.values[i]))return reject("A target value is nonfinite. Select an explicit NoData policy.");
         if(r.before.activeCells.size()!=r.before.cellCount||!r.before.activeCells[r.cells[i]])return reject("A selected cell has no active authored aquifer. Define aquifer properties before assigning transport.");
+        if(r.target==GroundwaterTransportTarget::InitialQuality&&r.zone==2) {
+            if(!validLayer(r.before,r.cells[i],r.layer))return reject("Each selected cell must use a SIGMA column containing the requested soil layer.");
+        }
         valid.append(i);
     }
     if(valid.isEmpty())return reject("No target cells have usable source values.");
     if(r.target==GroundwaterTransportTarget::InitialQuality){
         QHash<int,int> targetRows;
         for(int i=0;i<p.after.quality.size();++i){if(cancelled&&cancelled())return reject("Cancelled.");const auto &row=p.after.quality[i];
-            if(row.scope==2&&row.zone==r.zone&&row.layer==-1&&row.species==r.species)
+            if(row.scope==2&&row.zone==r.zone&&row.layer==(r.zone==2?r.layer:-1)&&row.species==r.species)
                 targetRows[row.cell]=targetRows.contains(row.cell)?-2:i;
         }
         for(int i:valid){if(cancelled&&cancelled())return reject("Cancelled.");if(r.values[i]<0&&!metadata->signedConcentration)return reject("This species does not accept negative initial concentrations.");
-            GroundwaterQualityRow row;row.scope=2;row.cell=r.cells[i];row.zone=r.zone;row.layer=-1;row.species=r.species;row.value=r.values[i];
+            GroundwaterQualityRow row;row.scope=2;row.cell=r.cells[i];row.zone=r.zone;row.layer=r.zone==2?r.layer:-1;row.species=r.species;row.value=r.values[i];
             const int match=targetRows.value(row.cell,-1);
             if(match==-2)return reject("Duplicate authored initial-quality keys must be resolved before assignment.");
             if(match<0){targetRows[row.cell]=p.after.quality.size();p.after.quality.append(row);}else if(p.after.quality[match].value==row.value)continue;else p.after.quality[match]=row;
@@ -265,7 +287,7 @@ QString previewError(const GroundwaterTransportPreview &p)
             if(i<p.before.quality.size()&&!sameKey(row,p.before.quality[i]))return "Initial-quality row identity changed in preview.";
             const auto *s=species(p.before,row.species);
             if(!p.before.qualityFile.isEmpty()||row.scope!=2||row.cell<0||row.cell>=p.before.cellCount||p.before.activeCells.size()!=p.before.cellCount||!p.before.activeCells[row.cell]
-                ||(row.zone!=0&&row.zone!=1)||row.layer!=-1||!s||s->nativeConcUnits.isEmpty()||!std::isfinite(row.value)||(!s->signedConcentration&&row.value<0))return "Invalid initial-quality cell, zone, species or value in preview.";
+                ||((row.zone==2)?!validLayer(p.before,row.cell,row.layer):((row.zone!=0&&row.zone!=1)||row.layer!=-1))||!s||s->nativeConcUnits.isEmpty()||!std::isfinite(row.value)||(!s->signedConcentration&&row.value<0))return "Invalid initial-quality cell, zone, species or value in preview.";
         }
     }else if(p.target==GroundwaterTransportTarget::Source){
         if(p.after.quality!=p.before.quality||p.after.sources.size()<p.before.sources.size())return "Invalid source preview.";
