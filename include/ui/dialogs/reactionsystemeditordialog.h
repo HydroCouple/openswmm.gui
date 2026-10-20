@@ -5,7 +5,7 @@
  *
  * \details Tabs: Options / Species / Coefficients / Terms / Expressions /
  *          Initial Quality / File (raw text) / Sources (the
- *          source/pattern/parameter/report text editing uses the File tab).
+ *          source/pattern/parameter/report/wall-area tables).
  *
  *          The engine handle IS the model (GUI plan §2): structured tabs
  *          apply as-you-go through the swmm_reaction_* CRUD (each mutation
@@ -32,6 +32,8 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <QDialog>
+#include <QMap>
+#include <QStringList>
 
 class QComboBox;
 class QDoubleSpinBox;
@@ -100,6 +102,11 @@ private:
     void commitInitialOverride(QDoubleSpinBox *spin);
     void refreshInitialOverrideAccessibility();
     void loadFileTab();
+    void loadConfigurationTables();
+    bool applyConfigurationTables();
+    QMap<QString,QTableWidget*> m_configurationTables;
+    bool m_configurationDirty=false;
+    int m_sourcesTabIndex=-1;
     bool applyFileTab();           ///< returns false when the text is bad
 
     void refreshBinding();         ///< title bar + Save enablement (G-D1)
@@ -118,6 +125,8 @@ private:
     QComboBox      *m_couplingCombo = nullptr;
     QComboBox      *m_rateUnitsCombo = nullptr;
     QComboBox      *m_areaUnitsCombo = nullptr;
+    QComboBox      *m_wallGeometryCombo = nullptr;
+    QDoubleSpinBox *m_patternStepSpin = nullptr;
     QDoubleSpinBox *m_timestepSpin  = nullptr;
     QDoubleSpinBox *m_atolSpin      = nullptr;
     QDoubleSpinBox *m_rtolSpin      = nullptr;

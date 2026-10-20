@@ -1,0 +1,243 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 109 tests from 5 test suites.
+[----------] Global test environment set-up.
+[----------] 75 tests from LidNodes
+[ RUN      ] LidNodes.ArbitraryOrderedLayersAndValidation
+[       OK ] LidNodes.ArbitraryOrderedLayersAndValidation (1 ms)
+[ RUN      ] LidNodes.ThermalGraphUsesAcceptedWaterCapacityAndLayerSeriesResistance
+[       OK ] LidNodes.ThermalGraphUsesAcceptedWaterCapacityAndLayerSeriesResistance (0 ms)
+[ RUN      ] LidNodes.ThermalContactIsReciprocalAndDryMatrixContinuesConducting
+[       OK ] LidNodes.ThermalContactIsReciprocalAndDryMatrixContinuesConducting (0 ms)
+[ RUN      ] LidNodes.BottomGroundContactUsesMappedAreaAndBothHalfLayerResistances
+[       OK ] LidNodes.BottomGroundContactUsesMappedAreaAndBothHalfLayerResistances (0 ms)
+[ RUN      ] LidNodes.AcceptedWaterReceiptsCarryProducerTemperatureSensibleEnergy
+[       OK ] LidNodes.AcceptedWaterReceiptsCarryProducerTemperatureSensibleEnergy (0 ms)
+[ RUN      ] LidNodes.InvalidAcceptedThermalTransferLeavesOutputsUntouched
+[       OK ] LidNodes.InvalidAcceptedThermalTransferLeavesOutputsUntouched (0 ms)
+[ RUN      ] LidNodes.ThermalGraphRefusesUnbookedEnergyWhenSurfaceWaterDisappears
+[       OK ] LidNodes.ThermalGraphRefusesUnbookedEnergyWhenSurfaceWaterDisappears (0 ms)
+[ RUN      ] LidNodes.ThermalGraphRejectsBrokenGeometryWithoutReplacingPublishedGraph
+[       OK ] LidNodes.ThermalGraphRejectsBrokenGeometryWithoutReplacingPublishedGraph (0 ms)
+[ RUN      ] LidNodes.ThermalPublicationRejectsUnorderedGraphWithoutChangingState
+[       OK ] LidNodes.ThermalPublicationRejectsUnorderedGraphWithoutChangingState (0 ms)
+[ RUN      ] LidNodes.RejectsDepthMismatchAndDuplicateAssignment
+[       OK ] LidNodes.RejectsDepthMismatchAndDuplicateAssignment (0 ms)
+[ RUN      ] LidNodes.InputRoundTripPreservesRepeatedLayers
+[       OK ] LidNodes.InputRoundTripPreservesRepeatedLayers (0 ms)
+[ RUN      ] LidNodes.AtomicApiStackAndStorageAssignment
+[       OK ] LidNodes.AtomicApiStackAndStorageAssignment (1 ms)
+[ RUN      ] LidNodes.RetainedAndMobileStorageConserveWater
+[       OK ] LidNodes.RetainedAndMobileStorageConserveWater (0 ms)
+[ RUN      ] LidNodes.MobileDepthVolumeInverseAcrossEveryLayer
+[       OK ] LidNodes.MobileDepthVolumeInverseAcrossEveryLayer (0 ms)
+[ RUN      ] LidNodes.RoutedBucketConservation
+[       OK ] LidNodes.RoutedBucketConservation (3 ms)
+[ RUN      ] LidNodes.HotstartRetainsMoistureAndCloggingHistory
+[       OK ] LidNodes.HotstartRetainsMoistureAndCloggingHistory (0 ms)
+[ RUN      ] LidNodes.GeoPackagePreservesOrderedLayersAndAssignment
+[       OK ] LidNodes.GeoPackagePreservesOrderedLayersAndAssignment (14 ms)
+[ RUN      ] LidNodes.OrdinaryLinksAreNumericallyUnchanged
+[       OK ] LidNodes.OrdinaryLinksAreNumericallyUnchanged (0 ms)
+[ RUN      ] LidNodes.PortsRespectAvailableWaterAndBackflowCapacity
+[       OK ] LidNodes.PortsRespectAvailableWaterAndBackflowCapacity (0 ms)
+[ RUN      ] LidNodes.PartlySubmergedAggregateStillDrainsRetainedWater
+[       OK ] LidNodes.PartlySubmergedAggregateStillDrainsRetainedWater (0 ms)
+[ RUN      ] LidNodes.ElevatedInletInConnectedCellCannotFillRetainedStoreToPorosity
+[       OK ] LidNodes.ElevatedInletInConnectedCellCannotFillRetainedStoreToPorosity (0 ms)
+[ RUN      ] LidNodes.ChainedFreeOutletAndBackwaterHaveContinuousStorageHead
+[       OK ] LidNodes.ChainedFreeOutletAndBackwaterHaveContinuousStorageHead (2299 ms)
+[ RUN      ] LidNodes.ElevatedPortsConserveAcrossPondingAndSurcharge
+[       OK ] LidNodes.ElevatedPortsConserveAcrossPondingAndSurcharge (8 ms)
+[ RUN      ] LidNodes.FullySaturatedInitialProfileHasConnectedWaterTable
+[       OK ] LidNodes.FullySaturatedInitialProfileHasConnectedWaterTable (0 ms)
+[ RUN      ] LidNodes.ConvertingStorageClearsOutletAnchors
+[       OK ] LidNodes.ConvertingStorageClearsOutletAnchors (0 ms)
+[ RUN      ] LidNodes.UndoingAddedOutletClearsItsAnchor
+[       OK ] LidNodes.UndoingAddedOutletClearsItsAnchor (1 ms)
+[ RUN      ] LidNodes.SurchargeWetsMediaToFieldCapacityConservatively
+[       OK ] LidNodes.SurchargeWetsMediaToFieldCapacityConservatively (0 ms)
+[ RUN      ] LidNodes.LayerTreatmentApiIsAtomicAndPreservedByPhysicalEdits
+[       OK ] LidNodes.LayerTreatmentApiIsAtomicAndPreservedByPhysicalEdits (0 ms)
+[ RUN      ] LidNodes.LayerRatesExpressionsAndTransfersConservePollutantMass
+[       OK ] LidNodes.LayerRatesExpressionsAndTransfersConservePollutantMass (0 ms)
+[ RUN      ] LidNodes.LayerTreatmentInputRoundTrip
+[       OK ] LidNodes.LayerTreatmentInputRoundTrip (0 ms)
+[ RUN      ] LidNodes.RoutedLayerTreatmentMassBalance
+[       OK ] LidNodes.RoutedLayerTreatmentMassBalance (38 ms)
+[ RUN      ] LidNodes.SaturatedAggregateDecayConservesMass
+[       OK ] LidNodes.SaturatedAggregateDecayConservesMass (0 ms)
+[ RUN      ] LidNodes.PollutantRenameAndDeleteFollowLayerTreatment
+[       OK ] LidNodes.PollutantRenameAndDeleteFollowLayerTreatment (0 ms)
+[ RUN      ] LidNodes.ChainedDrainageAndBackflowConservePollutantMass
+[       OK ] LidNodes.ChainedDrainageAndBackflowConservePollutantMass (8361 ms)
+[ RUN      ] LidNodes.PercolationCanDrainBelowOneLitreWithoutLosingItsLoad
+[       OK ] LidNodes.PercolationCanDrainBelowOneLitreWithoutLosingItsLoad (0 ms)
+[ RUN      ] LidNodes.WeirAnchorUsesItsPhysicalCrestAndTracksStackEdits
+[       OK ] LidNodes.WeirAnchorUsesItsPhysicalCrestAndTracksStackEdits (0 ms)
+[ RUN      ] LidNodes.PondedWeirAtNonzeroInvertDrawsSurfaceWater
+[       OK ] LidNodes.PondedWeirAtNonzeroInvertDrawsSurfaceWater (0 ms)
+[ RUN      ] LidNodes.PortInterfacesAllowRoundoffButPreservePhysicalOffsets
+[       OK ] LidNodes.PortInterfacesAllowRoundoffButPreservePhysicalOffsets (0 ms)
+[ RUN      ] LidNodes.MobileOutletTreatmentUsesTheSameInterfaceOwnerAsHydraulics
+[       OK ] LidNodes.MobileOutletTreatmentUsesTheSameInterfaceOwnerAsHydraulics (0 ms)
+[ RUN      ] LidNodes.MediaDrainageUsesLegacyConductivitySlope
+[       OK ] LidNodes.MediaDrainageUsesLegacyConductivitySlope (0 ms)
+[ RUN      ] LidNodes.SurfaceEntryReusesModifiedGreenAmptAndRespondsToPonding
+[       OK ] LidNodes.SurfaceEntryReusesModifiedGreenAmptAndRespondsToPonding (0 ms)
+[ RUN      ] LidNodes.CapacityLimitAdvancesOnlyAcceptedInfiltrationHistory
+[       OK ] LidNodes.CapacityLimitAdvancesOnlyAcceptedInfiltrationHistory (0 ms)
+[ RUN      ] LidNodes.ZeroConductivityIsAnImpermeableSurfaceReceiver
+[       OK ] LidNodes.ZeroConductivityIsAnImpermeableSurfaceReceiver (0 ms)
+[ RUN      ] LidNodes.DrySurfaceRecoversHistoryWithoutDryingPhysicalMoisture
+[       OK ] LidNodes.DrySurfaceRecoversHistoryWithoutDryingPhysicalMoisture (0 ms)
+[ RUN      ] LidNodes.ZeroClimateConductivityMultiplierDoesNotAdvanceInfiltration
+[       OK ] LidNodes.ZeroClimateConductivityMultiplierDoesNotAdvanceInfiltration (0 ms)
+[ RUN      ] LidNodes.ReversedMediaPortWettingDoesNotCountAsSurfaceInfiltration
+[       OK ] LidNodes.ReversedMediaPortWettingDoesNotCountAsSurfaceInfiltration (0 ms)
+[ RUN      ] LidNodes.PartialBackwaterReconcilesDeficitAndSuppressesDryRecovery
+[       OK ] LidNodes.PartialBackwaterReconcilesDeficitAndSuppressesDryRecovery (0 ms)
+[ RUN      ] LidNodes.FullResaturationAndRecessionStartFromRemainingMoisture
+[       OK ] LidNodes.FullResaturationAndRecessionStartFromRemainingMoisture (0 ms)
+[ RUN      ] LidNodes.V10HotstartExactlyContinuesInfiltrationAndMoisture
+[       OK ] LidNodes.V10HotstartExactlyContinuesInfiltrationAndMoisture (0 ms)
+[ RUN      ] LidNodes.OlderHotstartExplicitlyReconstructsMissingInfiltrationHistory
+[       OK ] LidNodes.OlderHotstartExplicitlyReconstructsMissingInfiltrationHistory (0 ms)
+[ RUN      ] LidNodes.RoutedReversalResaturationRecessionAndSecondEventConserve
+[       OK ] LidNodes.RoutedReversalResaturationRecessionAndSecondEventConserve (11 ms)
+[ RUN      ] LidNodes.RichardsOwnsPorousStorageAndConservesCapturedSupply
+[       OK ] LidNodes.RichardsOwnsPorousStorageAndConservesCapturedSupply (62 ms)
+[ RUN      ] LidNodes.RichardsHydrostaticPortsHaveOneDonorBudgetAcrossTrials
+[       OK ] LidNodes.RichardsHydrostaticPortsHaveOneDonorBudgetAcrossTrials (1 ms)
+[ RUN      ] LidNodes.RichardsFailureDoesNotConsumeLateralWaterOrQuality
+[       OK ] LidNodes.RichardsFailureDoesNotConsumeLateralWaterOrQuality (1 ms)
+[ RUN      ] LidNodes.RichardsInpRoundTripAndMissingRetentionValidation
+[       OK ] LidNodes.RichardsInpRoundTripAndMissingRetentionValidation (0 ms)
+[ RUN      ] LidNodes.RichardsAtomicApiKeepsMaterialAndGeometryOnInvalidEdit
+[       OK ] LidNodes.RichardsAtomicApiKeepsMaterialAndGeometryOnInvalidEdit (0 ms)
+[ RUN      ] LidNodes.RichardsInactiveMaterialsPersistAndUnsupportedTransportFails
+[       OK ] LidNodes.RichardsInactiveMaterialsPersistAndUnsupportedTransportFails (0 ms)
+[ RUN      ] LidNodes.RichardsPhysicalStateIsConsistentAcrossInputUnits
+[       OK ] LidNodes.RichardsPhysicalStateIsConsistentAcrossInputUnits (0 ms)
+[ RUN      ] LidNodes.RichardsV11RestartRestoresCompleteStorageAndRejectsChangedMaterial
+[       OK ] LidNodes.RichardsV11RestartRestoresCompleteStorageAndRejectsChangedMaterial (23 ms)
+[ RUN      ] LidNodes.RichardsGeoPackageRetainsSolverAndPorousLaws
+[       OK ] LidNodes.RichardsGeoPackageRetainsSolverAndPorousLaws (9 ms)
+[ RUN      ] LidNodes.RichardsRoutedBackwaterSupplySeepageAndQualityConserve
+[       OK ] LidNodes.RichardsRoutedBackwaterSupplySeepageAndQualityConserve (751 ms)
+[ RUN      ] LidNodes.DryClassicalMobileRoundoffCannotBecomeNegativeHydraulicInventory
+[       OK ] LidNodes.DryClassicalMobileRoundoffCannotBecomeNegativeHydraulicInventory (0 ms)
+[ RUN      ] LidNodes.ClassicalMobileCorrectionDoesNotHideMaterialWaterDeficits
+[       OK ] LidNodes.ClassicalMobileCorrectionDoesNotHideMaterialWaterDeficits (0 ms)
+[ RUN      ] LidNodes.BottomGrammarAndInputRoundTripPreserveDefaultAndExplicitOwners
+[       OK ] LidNodes.BottomGrammarAndInputRoundTripPreserveDefaultAndExplicitOwners (1 ms)
+[ RUN      ] LidNodes.BottomApiPreservesOwnerAcrossAssignmentEditsAndRejectsInvalidEdits
+[       OK ] LidNodes.BottomApiPreservesOwnerAcrossAssignmentEditsAndRejectsInvalidEdits (0 ms)
+[ RUN      ] LidNodes.SealedClassicalBottomSuppressesLegacySeepageWithoutChangingSharedControl
+[       OK ] LidNodes.SealedClassicalBottomSuppressesLegacySeepageWithoutChangingSharedControl (0 ms)
+[ RUN      ] LidNodes.SealedRichardsRetainsBottomWaterAndStillEvaporates
+[       OK ] LidNodes.SealedRichardsRetainsBottomWaterAndStillEvaporates (0 ms)
+[ RUN      ] LidNodes.MeshBottomInitializesButRequiresItsRoutingOwner
+[       OK ] LidNodes.MeshBottomInitializesButRequiresItsRoutingOwner (0 ms)
+[ RUN      ] LidNodes.GeoPackageBottomOwnerRoundTripOldReadAndSaveMigration
+[       OK ] LidNodes.GeoPackageBottomOwnerRoundTripOldReadAndSaveMigration (39 ms)
+[ RUN      ] LidNodes.AtomicBedAndBottomPreviewPublishAndStaleRejection
+[       OK ] LidNodes.AtomicBedAndBottomPreviewPublishAndStaleRejection (1 ms)
+[ RUN      ] LidNodes.AtomicBedsRejectInvalidRowsAndPreserveOptOutAndProvenance
+[       OK ] LidNodes.AtomicBedsRejectInvalidRowsAndPreserveOptOutAndProvenance (0 ms)
+[ RUN      ] LidNodes.SealedMasksOutsideAutoBedResolutionWithoutChangingAuthoredFlags
+[       OK ] LidNodes.SealedMasksOutsideAutoBedResolutionWithoutChangingAuthoredFlags (0 ms)
+[ RUN      ] LidNodes.SealedRuntimeMasksAuthoredAndAutomaticBedsForBothFlowModels
+[openswmm 2D] backend 'auto': the GPU/Kokkos plugin serves only all-triangle meshes under MOMENTUM_EQUATION LOCAL_INERTIAL with no transport rows (species / age / temperature); using the CPU marcher for this model.
+[openswmm 2D] backend 'auto': the GPU/Kokkos plugin serves only all-triangle meshes under MOMENTUM_EQUATION LOCAL_INERTIAL with no transport rows (species / age / temperature); using the CPU marcher for this model.
+[openswmm 2D] backend 'auto': the GPU/Kokkos plugin serves only all-triangle meshes under MOMENTUM_EQUATION LOCAL_INERTIAL with no transport rows (species / age / temperature); using the CPU marcher for this model.
+[openswmm 2D] backend 'auto': the GPU/Kokkos plugin serves only all-triangle meshes under MOMENTUM_EQUATION LOCAL_INERTIAL with no transport rows (species / age / temperature); using the CPU marcher for this model.
+[       OK ] LidNodes.SealedRuntimeMasksAuthoredAndAutomaticBedsForBothFlowModels (10 ms)
+[ RUN      ] LidNodes.BaseContactAreaUsesAuthoredGeometryWithoutPoreOrWholeCellSubstitution
+[       OK ] LidNodes.BaseContactAreaUsesAuthoredGeometryWithoutPoreOrWholeCellSubstitution (0 ms)
+[ RUN      ] LidNodes.ReactionSpeciesAreRefusedOnClassicalLidNodes
+[       OK ] LidNodes.ReactionSpeciesAreRefusedOnClassicalLidNodes (0 ms)
+[----------] 75 tests from LidNodes (11655 ms total)
+
+[----------] 12 tests from RichardsMeshNodes
+[ RUN      ] RichardsMeshNodes.PublishesRealPressureGeometryForcingAndEtWithoutOutsideOrGenericPayments
+[       OK ] RichardsMeshNodes.PublishesRealPressureGeometryForcingAndEtWithoutOutsideOrGenericPayments (0 ms)
+[ RUN      ] RichardsMeshNodes.CurrentPortRulesUseTheAcceptedPorousHeadAndFinishWaterOnce
+[       OK ] RichardsMeshNodes.CurrentPortRulesUseTheAcceptedPorousHeadAndFinishWaterOnce (0 ms)
+[ RUN      ] RichardsMeshNodes.SiAndUsInputsPublishEquivalentPhysicalOwners
+[       OK ] RichardsMeshNodes.SiAndUsInputsPublishEquivalentPhysicalOwners (0 ms)
+[ RUN      ] RichardsMeshNodes.NativeDynamicWaveBackwaterPortsFinishAcceptedNodeIntervals
+[       OK ] RichardsMeshNodes.NativeDynamicWaveBackwaterPortsFinishAcceptedNodeIntervals (1 ms)
+[ RUN      ] RichardsMeshNodes.VectorPublicationIsStableAcrossCallerOrderAndPackingBoundary
+[       OK ] RichardsMeshNodes.VectorPublicationIsStableAcrossCallerOrderAndPackingBoundary (1 ms)
+[ RUN      ] RichardsMeshNodes.LateInvalidNodeAndUnfinishedPortsLeaveEveryOwnerUntouched
+[       OK ] RichardsMeshNodes.LateInvalidNodeAndUnfinishedPortsLeaveEveryOwnerUntouched (0 ms)
+[ RUN      ] RichardsMeshNodes.ReplayMissingFinishAndUnqualifiedOrdinaryPreparationCannotAdvanceClocks
+[       OK ] RichardsMeshNodes.ReplayMissingFinishAndUnqualifiedOrdinaryPreparationCannotAdvanceClocks (0 ms)
+[ RUN      ] RichardsMeshNodes.ForcingAboveHydraulicCapacityCannotPublishWaterOrOwnership
+[       OK ] RichardsMeshNodes.ForcingAboveHydraulicCapacityCannotPublishWaterOrOwnership (0 ms)
+[ RUN      ] RichardsMeshNodes.BadAcceptedPortStateRefusesTheWholeFinishBeforeAnyLayerChanges
+[       OK ] RichardsMeshNodes.BadAcceptedPortStateRefusesTheWholeFinishBeforeAnyLayerChanges (0 ms)
+[ RUN      ] RichardsMeshNodes.LegacyAndV11HotstartsCannotDiscardJointOwnersOrTruncateExistingFiles
+[       OK ] RichardsMeshNodes.LegacyAndV11HotstartsCannotDiscardJointOwnersOrTruncateExistingFiles (0 ms)
+[ RUN      ] RichardsMeshNodes.TierAdoptionKeepsSlowerOrdinaryReceiversAndNodeFinishIndependent
+[       OK ] RichardsMeshNodes.TierAdoptionKeepsSlowerOrdinaryReceiversAndNodeFinishIndependent (0 ms)
+[ RUN      ] RichardsMeshNodes.RealNodeAdoptionSettlesCompletedMeshWeatherReceiptsAndEt
+[       OK ] RichardsMeshNodes.RealNodeAdoptionSettlesCompletedMeshWeatherReceiptsAndEt (1 ms)
+[----------] 12 tests from RichardsMeshNodes (6 ms total)
+
+[----------] 2 tests from RichardsMeshRuntime
+[ RUN      ] RichardsMeshRuntime.PendingGrossReceiptsWaitForGroundwaterAndRecoverExactly
+[       OK ] RichardsMeshRuntime.PendingGrossReceiptsWaitForGroundwaterAndRecoverExactly (10 ms)
+[ RUN      ] RichardsMeshRuntime.FutureWithdrawalsSurviveCompetingEvaporationAndDeepLoss
+[       OK ] RichardsMeshRuntime.FutureWithdrawalsSurviveCompetingEvaporationAndDeepLoss (0 ms)
+[----------] 2 tests from RichardsMeshRuntime (10 ms total)
+
+[----------] 11 tests from RichardsMeshCohorts
+[ RUN      ] RichardsMeshCohorts.FastAndSlowOwnersFinishTheirOwnForcingAndLossesOnce
+[       OK ] RichardsMeshCohorts.FastAndSlowOwnersFinishTheirOwnForcingAndLossesOnce (0 ms)
+[ RUN      ] RichardsMeshCohorts.ExplicitFinishLeavesCurrentRichardsAndClassicalLidsUntouched
+[       OK ] RichardsMeshCohorts.ExplicitFinishLeavesCurrentRichardsAndClassicalLidsUntouched (0 ms)
+[ RUN      ] RichardsMeshCohorts.InvalidFinishIntervalsAndOwnersLeaveEveryDraftUntouched
+[       OK ] RichardsMeshCohorts.InvalidFinishIntervalsAndOwnersLeaveEveryDraftUntouched (0 ms)
+[ RUN      ] RichardsMeshCohorts.ConnectedMeshPortsRequireJointFinishAndPayBothLayersOnce
+[       OK ] RichardsMeshCohorts.ConnectedMeshPortsRequireJointFinishAndPayBothLayersOnce (0 ms)
+[ RUN      ] RichardsMeshCohorts.UnpreparedMismatchedOrWrongDurationPortEndpointsCannotBookWater
+[       OK ] RichardsMeshCohorts.UnpreparedMismatchedOrWrongDurationPortEndpointsCannotBookWater (0 ms)
+[ RUN      ] RichardsMeshCohorts.PicardResetReplacesTrialsAndFinishUsesOnlyTheFinalSignedVolumes
+[       OK ] RichardsMeshCohorts.PicardResetReplacesTrialsAndFinishUsesOnlyTheFinalSignedVolumes (0 ms)
+[ RUN      ] RichardsMeshCohorts.LateBadPortDraftRollsBackTheWholeFinishAndCanRetry
+[       OK ] RichardsMeshCohorts.LateBadPortDraftRollsBackTheWholeFinishAndCanRetry (0 ms)
+[ RUN      ] RichardsMeshCohorts.GlobalRouterRefusesUnequalDueIntervalsBeforeAnyHydraulicMutation
+[       OK ] RichardsMeshCohorts.GlobalRouterRefusesUnequalDueIntervalsBeforeAnyHydraulicMutation (0 ms)
+[ RUN      ] RichardsMeshCohorts.GlobalRouterRequiresTheCurrentClockDurationAndQualifiedModel
+[       OK ] RichardsMeshCohorts.GlobalRouterRequiresTheCurrentClockDurationAndQualifiedModel (0 ms)
+[ RUN      ] RichardsMeshCohorts.EndpointRoundoffAtLongClocksDoesNotRejectTheActualRoutingDuration
+[       OK ] RichardsMeshCohorts.EndpointRoundoffAtLongClocksDoesNotRejectTheActualRoutingDuration (0 ms)
+[ RUN      ] RichardsMeshCohorts.NativeDynamicWaveRoutesConnectedMeshNodesAndFinishesTheirPairedPorts
+[       OK ] RichardsMeshCohorts.NativeDynamicWaveRoutesConnectedMeshNodesAndFinishesTheirPairedPorts (1 ms)
+[----------] 11 tests from RichardsMeshCohorts (3 ms total)
+
+[----------] 9 tests from RichardsNativeWindow
+[ RUN      ] RichardsNativeWindow.ConnectedPortsFeedTheNextColumnStepAndSettleTheBedOnce
+[       OK ] RichardsNativeWindow.ConnectedPortsFeedTheNextColumnStepAndSettleTheBedOnce (4 ms)
+[ RUN      ] RichardsNativeWindow.MixedCurrentAndClassicalRowsPrepareAndFinishEachShortStepOnce
+[       OK ] RichardsNativeWindow.MixedCurrentAndClassicalRowsPrepareAndFinishEachShortStepOnce (1 ms)
+[ RUN      ] RichardsNativeWindow.LateGroundwaterFailureDiscardsNativeHistoryAndRetryMatchesCleanContinuation
+[       OK ] RichardsNativeWindow.LateGroundwaterFailureDiscardsNativeHistoryAndRetryMatchesCleanContinuation (1 ms)
+[ RUN      ] RichardsNativeWindow.NonconvergenceLeavesAllOwnersUnchangedBeforeRetry
+[       OK ] RichardsNativeWindow.NonconvergenceLeavesAllOwnersUnchangedBeforeRetry (1 ms)
+[ RUN      ] RichardsNativeWindow.OtherGroundwaterTiersRetainTheirPhysicalClocksAndPendingClaims
+[       OK ] RichardsNativeWindow.OtherGroundwaterTiersRetainTheirPhysicalClocksAndPendingClaims (0 ms)
+[ RUN      ] RichardsNativeWindow.OneStepMatchesExistingAcceptedNativeRoutingAndFinish
+[       OK ] RichardsNativeWindow.OneStepMatchesExistingAcceptedNativeRoutingAndFinish (1 ms)
+[ RUN      ] RichardsNativeWindow.ShorterNativeIntervalsRefineConnectedColumnPortWater
+[       OK ] RichardsNativeWindow.ShorterNativeIntervalsRefineConnectedColumnPortWater (4 ms)
+[ RUN      ] RichardsNativeWindow.GrossPortTrafficCannotRenewOriginalBedAllowancesThroughNetCancellation
+[       OK ] RichardsNativeWindow.GrossPortTrafficCannotRenewOriginalBedAllowancesThroughNetCancellation (0 ms)
+[ RUN      ] RichardsNativeWindow.RefusesIncompleteOwnersBadEndpointsAndUnsupportedProfilesWithoutMutation
+[       OK ] RichardsNativeWindow.RefusesIncompleteOwnersBadEndpointsAndUnsupportedProfilesWithoutMutation (1 ms)
+[----------] 9 tests from RichardsNativeWindow (15 ms total)
+
+[----------] Global test environment tear-down
+[==========] 109 tests from 5 test suites ran. (11692 ms total)
+[  PASSED  ] 109 tests.

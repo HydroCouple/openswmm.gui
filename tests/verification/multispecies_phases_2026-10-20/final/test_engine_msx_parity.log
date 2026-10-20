@@ -1,0 +1,66 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 18 tests from 8 test suites.
+[----------] Global test environment set-up.
+[----------] 5 tests from MsxParityInitialQuality
+[ RUN      ] MsxParityInitialQuality.SpeciesRowSeedsUnderEverySolver
+[       OK ] MsxParityInitialQuality.SpeciesRowSeedsUnderEverySolver (5 ms)
+[ RUN      ] MsxParityInitialQuality.SpeciesRowRoundTripsInInitialQualityNotTheRxn
+[       OK ] MsxParityInitialQuality.SpeciesRowRoundTripsInInitialQualityNotTheRxn (3 ms)
+[ RUN      ] MsxParityInitialQuality.UnknownConstituentStillFails
+[       OK ] MsxParityInitialQuality.UnknownConstituentStillFails (1 ms)
+[ RUN      ] MsxParityInitialQuality.FileSidecarLoadsAndIsReferencedNotExpanded
+[       OK ] MsxParityInitialQuality.FileSidecarLoadsAndIsReferencedNotExpanded (5 ms)
+[ RUN      ] MsxParityInitialQuality.MissingFileIsAnError
+[       OK ] MsxParityInitialQuality.MissingFileIsAnError (1 ms)
+[----------] 5 tests from MsxParityInitialQuality (18 ms total)
+
+[----------] 3 tests from MsxParityInflows
+[ RUN      ] MsxParityInflows.ConcenRowRaisesTheDownstreamSpeciesConcentration
+[       OK ] MsxParityInflows.ConcenRowRaisesTheDownstreamSpeciesConcentration (2 ms)
+[ RUN      ] MsxParityInflows.MassRowUsesTheSameLperFt3ConventionAsAPollutant
+[       OK ] MsxParityInflows.MassRowUsesTheSameLperFt3ConventionAsAPollutant (2 ms)
+[ RUN      ] MsxParityInflows.WallSpeciesInflowIsRefusedWithAWarning
+[       OK ] MsxParityInflows.WallSpeciesInflowIsRefusedWithAWarning (1 ms)
+[----------] 3 tests from MsxParityInflows (6 ms total)
+
+[----------] 1 test from MsxParityDwf
+[ RUN      ] MsxParityDwf.SpeciesDwfRowRidesTheNodeDwfFlow
+[       OK ] MsxParityDwf.SpeciesDwfRowRidesTheNodeDwfFlow (2 ms)
+[----------] 1 test from MsxParityDwf (2 ms total)
+
+[----------] 1 test from MsxParityHotstart
+[ RUN      ] MsxParityHotstart.SpeciesConcentrationsRestoreByName
+[       OK ] MsxParityHotstart.SpeciesConcentrationsRestoreByName (2 ms)
+[----------] 1 test from MsxParityHotstart (2 ms total)
+
+[----------] 2 tests from MsxParityForcing
+[ RUN      ] MsxParityForcing.NodeTemperatureAndAgeForcing
+[       OK ] MsxParityForcing.NodeTemperatureAndAgeForcing (1 ms)
+[ RUN      ] MsxParityForcing.ReservedForcingNeedsItsOption
+[       OK ] MsxParityForcing.ReservedForcingNeedsItsOption (1 ms)
+[----------] 2 tests from MsxParityForcing (2 ms total)
+
+[----------] 3 tests from MsxParityMixing
+[ RUN      ] MsxParityMixing.EvaporatingStorageConcentratesSpeciesLikeAPollutant
+[       OK ] MsxParityMixing.EvaporatingStorageConcentratesSpeciesLikeAPollutant (1 ms)
+[ RUN      ] MsxParityMixing.WithdrawalDenominatorDoesNotDependOnPollutantCount
+[       OK ] MsxParityMixing.WithdrawalDenominatorDoesNotDependOnPollutantCount (5 ms)
+[ RUN      ] MsxParityMixing.UntreatedStorageTracksResidenceTimeUnderEverySolver
+[       OK ] MsxParityMixing.UntreatedStorageTracksResidenceTimeUnderEverySolver (8 ms)
+[----------] 3 tests from MsxParityMixing (15 ms total)
+
+[----------] 1 test from MsxParityReactions
+[ RUN      ] MsxParityReactions.StiffExplicitOvershootIsClampedAndReported
+[       OK ] MsxParityReactions.StiffExplicitOvershootIsClampedAndReported (2 ms)
+[----------] 1 test from MsxParityReactions (2 ms total)
+
+[----------] 2 tests from MsxParityLedger
+[ RUN      ] MsxParityLedger.SpeciesLedgerMatchesThePollutantLedger
+[       OK ] MsxParityLedger.SpeciesLedgerMatchesThePollutantLedger (3 ms)
+[ RUN      ] MsxParityLedger.ReactingSpeciesLedgerCloses
+[       OK ] MsxParityLedger.ReactingSpeciesLedgerCloses (2 ms)
+[----------] 2 tests from MsxParityLedger (6 ms total)
+
+[----------] Global test environment tear-down
+[==========] 18 tests from 8 test suites ran. (56 ms total)
+[  PASSED  ] 18 tests.

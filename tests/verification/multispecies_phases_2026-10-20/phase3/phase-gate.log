@@ -1,0 +1,19 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+Note: Google Test filter = ReactionLidNodes.*:ReactionLidUnits.*
+[==========] Running 3 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 1 test from ReactionLidNodes
+[ RUN      ] ReactionLidNodes.BulkLayerConversionAndRestartPreserveRetainedAndMobileInventories
+[       OK ] ReactionLidNodes.BulkLayerConversionAndRestartPreserveRetainedAndMobileInventories (178 ms)
+[----------] 1 test from ReactionLidNodes (178 ms total)
+
+[----------] 2 tests from ReactionLidUnits
+[ RUN      ] ReactionLidUnits.FullCoverageLayerMassReceiptsAndRestartAcrossNetworkSolvers
+[       OK ] ReactionLidUnits.FullCoverageLayerMassReceiptsAndRestartAcrossNetworkSolvers (489 ms)
+[ RUN      ] ReactionLidUnits.PartialCoverageRefusesAndDryLayerDoesNotInventOrLoseInventory
+[       OK ] ReactionLidUnits.PartialCoverageRefusesAndDryLayerDoesNotInventOrLoseInventory (3 ms)
+[----------] 2 tests from ReactionLidUnits (492 ms total)
+
+[----------] Global test environment tear-down
+[==========] 3 tests from 2 test suites ran. (671 ms total)
+[  PASSED  ] 3 tests.

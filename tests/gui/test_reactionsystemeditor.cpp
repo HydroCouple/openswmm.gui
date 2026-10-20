@@ -73,6 +73,7 @@ private slots:
     void badTextGatesTheTabSwitch();
     void initOverridesCommit();
     void sourcesTabOpensConfiguration();
+    void sourceTablesApplyAtomicallyAndRetainUnownedReactorSections();
     void extendedSectionsSurviveFileAndStructuredEdits();
     void survivingOverrideRemainsEditable();
     void removingUncommittedRowPreservesOtherOverride();
@@ -246,6 +247,36 @@ void TestReactionSystemEditor::sourcesTabOpensConfiguration()
     tabs->setCurrentIndex(tabs->count() - 1);
     child<QPushButton>(dlg, "rx_editSourcesBtn")->click();
     QCOMPARE(tabs->currentIndex(), tabs->count() - 2);
+    swmm_engine_destroy(e);
+}
+
+void TestReactionSystemEditor::sourceTablesApplyAtomicallyAndRetainUnownedReactorSections()
+{
+    auto e=makeEngine();char error[1024]={};
+    QCOMPARE(swmm_reactions_apply_text(e,"[REACTION_SPECIES]\nBULK A MG\n[REACTION_SUBCATCHMENTS]\nRATE A -0.01*A\n",error,sizeof(error)),SWMM_OK);
+    ReactionSystemEditorDialog dlg(e,nullptr);auto *tabs=child<QTabWidget>(dlg,"rx_tabs");
+    tabs->setCurrentIndex(tabs->count()-1);
+    auto *sources=child<QTableWidget>(dlg,"rx_reaction_sourcesTable");
+    auto *patterns=child<QTableWidget>(dlg,"rx_reaction_patternsTable");
+    QVERIFY(sources);QVERIFY(patterns);
+    sources->insertRow(0);patterns->insertRow(0);
+    const QStringList values={"SETPOINT","J0","A","2","pulse"};
+    for(int c=0;c<values.size();++c)sources->setItem(0,c,new QTableWidgetItem(values[c]));
+    patterns->setItem(0,0,new QTableWidgetItem("pulse"));patterns->setItem(0,1,new QTableWidgetItem("1 0 2"));
+    tabs->setCurrentIndex(tabs->count()-2);
+    QCOMPARE(tabs->currentIndex(),tabs->count()-2);
+    auto *file=child<QPlainTextEdit>(dlg,"rx_fileEdit");
+    QVERIFY(file->toPlainText().contains("SETPOINT"));QVERIFY(file->toPlainText().contains("-0.01*A"));
+    const QString accepted=file->toPlainText();
+    tabs->setCurrentIndex(tabs->count()-1);
+    sources->item(0,3)->setText("-5");patterns->item(0,1)->setText("3 4");
+    tabs->setCurrentIndex(0);QCOMPARE(tabs->currentIndex(),tabs->count()-1);
+    QVERIFY(!child<QLabel>(dlg,"rx_status")->text().isEmpty());
+    // Both tables roll back together; the invalid draft remains editable.
+    int count=0;QCOMPARE(swmm_reactions_serialize(e,nullptr,0,&count),SWMM_OK);QVERIFY(count>0);
+    QByteArray text(count,'\0');swmm_reactions_serialize(e,text.data(),count,&count);
+    QCOMPARE(QString::fromUtf8(text.constData()),accepted);
+    sources->item(0,3)->setText("4");tabs->setCurrentIndex(0);QCOMPARE(tabs->currentIndex(),0);
     swmm_engine_destroy(e);
 }
 

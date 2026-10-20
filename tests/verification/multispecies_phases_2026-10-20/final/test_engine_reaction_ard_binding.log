@@ -1,0 +1,27 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 9 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 9 tests from ReactionArdBindingTest
+[ RUN      ] ReactionArdBindingTest.ArdKdecayIsExactExponentialAndWarningRetired
+[       OK ] ReactionArdBindingTest.ArdKdecayIsExactExponentialAndWarningRetired (2 ms)
+[ RUN      ] ReactionArdBindingTest.MsxDilutionFrontProvesTransport
+[       OK ] ReactionArdBindingTest.MsxDilutionFrontProvesTransport (7 ms)
+[ RUN      ] ReactionArdBindingTest.MsxScopedKineticsUnderArd
+[       OK ] ReactionArdBindingTest.MsxScopedKineticsUnderArd (2 ms)
+[ RUN      ] ReactionArdBindingTest.MsxFormulaReadsPollutantPerCell
+[       OK ] ReactionArdBindingTest.MsxFormulaReadsPollutantPerCell (6 ms)
+[ RUN      ] ReactionArdBindingTest.MsxPresenceLeavesPollutantsBitwise
+[       OK ] ReactionArdBindingTest.MsxPresenceLeavesPollutantsBitwise (16 ms)
+[ RUN      ] ReactionArdBindingTest.MsxOnlyModelRunsUnderArd
+[       OK ] ReactionArdBindingTest.MsxOnlyModelRunsUnderArd (7 ms)
+[ RUN      ] ReactionArdBindingTest.WallSpeciesFallsBackToLegacy
+[       OK ] ReactionArdBindingTest.WallSpeciesFallsBackToLegacy (5 ms)
+[ RUN      ] ReactionArdBindingTest.FailureContainmentNamesArdElement
+[       OK ] ReactionArdBindingTest.FailureContainmentNamesArdElement (10210 ms)
+[ RUN      ] ReactionArdBindingTest.InertMsxRowMatchesInertPollutantRow
+[       OK ] ReactionArdBindingTest.InertMsxRowMatchesInertPollutantRow (4 ms)
+[----------] 9 tests from ReactionArdBindingTest (10263 ms total)
+
+[----------] Global test environment tear-down
+[==========] 9 tests from 1 test suite ran. (10263 ms total)
+[  PASSED  ] 9 tests.
