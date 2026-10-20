@@ -821,7 +821,6 @@ bool Mesh2DGroundwaterDialog::applyChanges()
     QString error;
     if(draft.value("GW_TRANSPORT:UNSAT_TRANSPORT")=="LAYERED") {
         if(draft.value("CLOSURE")!="SIGMA")error=tr("Choose SIGMA as the aquifer closure for separate soil-layer chemistry.");
-        else if(draft.value("GW_TRANSPORT:THERMAL_MODEL")=="POROUS_EQUILIBRIUM")error=tr("Separate soil-layer chemistry currently requires water-only temperature storage.");
     }
     if(readOptions()!=m_loadedOptions)error=tr("Groundwater options changed outside this editor. Reopen it to preserve newer edits.");
     if(error.isEmpty())error=m_aquifer->validateCommit(m_engine);

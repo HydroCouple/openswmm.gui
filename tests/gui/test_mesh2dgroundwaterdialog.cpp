@@ -375,6 +375,26 @@ LID Stack .2
         QCOMPARE(rejected.count(), 1);
     }
 
+    void separateChemistryLayersCanBeSavedWithPorousSoilHeat()
+    {
+        Engine engine;QVERIFY(engine.handle);
+        QCOMPARE(swmm_gw2d_option_set(engine.handle,"CLOSURE","SIGMA"),SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(engine.handle,nullptr,Mesh2DGroundwaterDialog::Page::Options);
+        auto* chemistry=dialog.findChild<QComboBox*>("gwTransport_UNSAT_TRANSPORT");
+        auto* heat=dialog.findChild<QComboBox*>("gwTransport_THERMAL_MODEL");
+        auto* layers=dialog.findChild<QSpinBox*>("gwTransport_THERMAL_LAYERS");
+        QVERIFY(chemistry&&heat&&layers);
+        chemistry->setCurrentIndex(chemistry->findData("LAYERED"));
+        heat->setCurrentIndex(heat->findData("POROUS_EQUILIBRIUM"));layers->setValue(3);
+        auto* apply=dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply);QVERIFY(apply);
+        QTimer closeWarning;connect(&closeWarning,&QTimer::timeout,[]{for(QWidget* widget:QApplication::topLevelWidgets())if(auto* box=qobject_cast<QMessageBox*>(widget))box->reject();});
+        closeWarning.start(20);apply->click();closeWarning.stop();
+        auto option=[&](const char* key){char value[128]{};if(swmm_gw_transport_option_get(engine.handle,key,value,sizeof value)!=SWMM_OK)return QString();return QString::fromUtf8(value);};
+        QCOMPARE(option("UNSAT_TRANSPORT"),QString("LAYERED"));
+        QCOMPARE(option("THERMAL_MODEL"),QString("POROUS_EQUILIBRIUM"));
+        QCOMPARE(option("THERMAL_LAYERS"),QString("3"));
+    }
+
     void porousThermalSettingsAreEditableAndRoundTrip()
     {
         Engine engine;QVERIFY(engine.handle);
