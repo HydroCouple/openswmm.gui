@@ -680,11 +680,11 @@ chemistry; quality rows do not create water flow.
 
 The matching development engine supports standalone CPU FULL_SWE reconstruction
 order 2 with CLOSED_FORM, ENSLAVED or SIGMA aquifers, bulk or SIGMA-layered
-pollutant/MSX/age transport, and symmetric aquifer/surface reactions. This
-profile uses one global tier and authored well/edge forcing. Heat, network and
+pollutant/MSX/age/water-temperature transport, and symmetric aquifer/surface reactions. Water temperature uses surface HEAT_MODEL TRANSPORT_ONLY and groundwater THERMAL_MODEL WATER_ONLY; cold Celsius values are supported. This
+profile uses one global tier and authored well/edge forcing. Porous/contact heat, network and
 catchment coupling, runtime providers and borrowed owners retain first-order
 requirements. Surface reaction laws support enabled BULK/pollutant dependencies
-and DT/TEMP; unavailable hydraulic and WALL dependencies are refused. See the
+and DT/TEMP (local transported temperature when enabled); unavailable hydraulic and WALL dependencies are refused. See the
 [engine transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md)
 for activation, numerical limits and exact component restart scope.
 
