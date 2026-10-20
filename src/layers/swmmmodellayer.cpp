@@ -1107,6 +1107,9 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
         set2d("COUPLING_SYNC",       QString::number(t.couplingSync, 'g', 6));
         set2d("COUPLING_AREA",       t.couplingAreaAuto ? QStringLiteral("AUTO")
                                                         : QStringLiteral("DEFAULT"));
+        set2d("COUPLING_LAW",        t.couplingLaw);
+        set2d("COUPLING_HEAD",       t.couplingHead);
+        set2d("COUPLING_POND_MODE",  t.couplingPondMode);
         set2d("RAINFALL_MODE",       t.rainfallMode);
         set2d("REPORT_2D",           yn(t.report2D));
     }
@@ -5772,6 +5775,46 @@ bool SWMMModelLayer::pushInletUsageEdit(const SWMM_InletUsage &usage)
         return true;
     }
     return applySetInletUsage(usage);
+}
+
+bool SWMMModelLayer::nodeCoupling2D(const QString &node, nodecoupling2d::State *out) const
+{
+    return nodecoupling2d::read(m_engine, node, out);
+}
+
+bool SWMMModelLayer::applyNodeCoupling2D(const nodecoupling2d::State &state, QString *error)
+{
+    const bool ok = nodecoupling2d::write(m_engine, state, error);
+    emit attributeChanged(state.node);
+    markEdited();
+    return ok;
+}
+
+bool SWMMModelLayer::pushNodeCoupling2DEdits(const QVector<nodecoupling2d::State> &states,
+                                             const QString &text, QString *error)
+{
+    QVector<nodecoupling2d::State> changed;
+    for (const auto &s : states) {
+        if (s.authored && !nodecoupling2d::allowedTypes(m_engine, s.node).contains(s.type)) {
+            if (error) *error = tr("%1 cannot be a %2.").arg(s.node, nodecoupling2d::typeLabel(s.type));
+            return false;
+        }
+        nodecoupling2d::State now;
+        if (!nodeCoupling2D(s.node, &now)) {
+            if (error) *error = tr("Node \"%1\" not found.").arg(s.node);
+            return false;
+        }
+        if (now != s) changed.append(s);
+    }
+    if (changed.isEmpty()) return true;
+    if (m_editCanvas && m_editCanvas->undoStack()) {
+        m_editCanvas->undoStack()->push(
+            new SetNodeCoupling2DCommand(this, changed, text, m_editCanvas));
+        return true;
+    }
+    for (const auto &s : changed)
+        if (!applyNodeCoupling2D(s, error)) return false;
+    return true;
 }
 
 bool SWMMModelLayer::pushInletUsageRemoval(int hostKind, int hostIdx)

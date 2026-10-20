@@ -21,6 +21,8 @@
 #include <QPair>
 #include <QStringList>
 
+#include <functional>
+
 namespace mesh {
 
 /*! Defaults for mapper-authored cell couplings (plan decision 2026-07-28).
@@ -40,6 +42,9 @@ struct NodeMapResult
     QStringList           unmatched;      ///< Nodes outside the mesh.
     QStringList           skippedExisting;///< Nodes already coupled (preserved).
     int sharedCells = 0;                  ///< Cells receiving > 1 new node.
+    /// Whether the new rows author CD/AREA (the cell rows carry it; whoever
+    /// applies \ref vertexMatches sets MeshVertex::couplingCdSet/AreaSet).
+    bool authorCdArea = true;
 };
 
 /*! \brief Map SWMM nodes onto an existing mesh.
@@ -60,12 +65,43 @@ struct NodeMapResult
  *                          reported in \ref NodeMapResult::skippedExisting
  *                          instead of being re-mapped. Pass false after
  *                          clearing couplings for a full re-map.
+ *  \param authorCdArea     True (default, the legacy ORIFICE law) writes the
+ *                          default CD/AREA on new rows; false leaves them
+ *                          unauthored so a COUPLING_LAW WEIR_ORIFICE model's
+ *                          structure presets govern (see
+ *                          \ref couplingAuthorsCdArea).
  */
 [[nodiscard]] NodeMapResult mapNodesToMesh(
     const MeshResult &mesh,
     const QVector<QPair<QString, QPointF>> &nodes,
     double tol = -1.0,
-    bool preserveExisting = true);
+    bool preserveExisting = true,
+    bool authorCdArea = true);
+
+/*! \brief What a Remap 1D↔2D would change (the remap dialog's dry run and
+ *         its Apply are the same plan). */
+struct RemapPlan
+{
+    QVector<int>          vertices;   ///< vertices whose coupling changes
+    QVector<MeshVertex>   oldAttrs;   ///< parallel: before
+    QVector<MeshVertex>   newAttrs;   ///< parallel: after
+    QVector<CellCoupling> newCells;   ///< the complete new cell row set
+    NodeMapResult         mapped;     ///< the mapper's verdict on mapped nodes
+    QHash<QString, QString> current;  ///< node → "vertex 12, cell 40", empty if none
+    QHash<QString, QString> proposed; ///< node → mapping after the remap
+};
+
+/*! \brief Plan a remap of \a nodes onto \a mesh.
+ *
+ *  Couplings of nodes \a coupleable rejects are removed; the rest are
+ *  mapped with \ref mapNodesToMesh. \a clearRebuild drops every existing
+ *  coupling first (a vertex that re-matches its node keeps its CD/AREA, as
+ *  does a cell row the node lands in again); otherwise existing couplings
+ *  are kept and only uncoupled nodes are mapped. */
+[[nodiscard]] RemapPlan planRemap(const MeshResult &mesh,
+                                  const QVector<QPair<QString, QPointF>> &nodes,
+                                  const std::function<bool(const QString &)> &coupleable,
+                                  bool clearRebuild, bool authorCdArea);
 
 } // namespace mesh
 

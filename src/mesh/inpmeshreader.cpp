@@ -327,15 +327,19 @@ QString parseSection(const QString &sectionName,
                 if (v < 0) continue;
             }
             out.vertices[v].coupledNode = tok[1];
+            // A missing token stays unauthored so the save writes the row
+            // back as it was read (the engine applies COUPLING_CD / the
+            // node's coupling structure).
+            out.vertices[v].couplingCdSet = out.vertices[v].couplingAreaSet = false;
             if (tok.size() >= 3) {
                 bool okc = false;
                 const double cd = tok[2].toDouble(&okc);
-                if (okc) out.vertices[v].couplingCd = cd;
+                if (okc) { out.vertices[v].couplingCd = cd; out.vertices[v].couplingCdSet = true; }
             }
             if (tok.size() >= 4) {
                 bool oka = false;
                 const double a = tok[3].toDouble(&oka);
-                if (oka) out.vertices[v].couplingArea = a;
+                if (oka) { out.vertices[v].couplingArea = a; out.vertices[v].couplingAreaSet = true; }
             }
         }
         return {};
@@ -379,15 +383,16 @@ QString parseSection(const QString &sectionName,
             CellCoupling cc;
             cc.tri    = t;
             cc.nodeId = tok[1];
+            cc.cdSet = cc.areaSet = false;   // as read (see the vertex map)
             if (tok.size() >= 3) {
                 bool okc = false;
                 const double cd = tok[2].toDouble(&okc);
-                if (okc) cc.cd = cd;
+                if (okc) { cc.cd = cd; cc.cdSet = true; }
             }
             if (tok.size() >= 4) {
                 bool oka = false;
                 const double a = tok[3].toDouble(&oka);
-                if (oka) cc.area = a;
+                if (oka) { cc.area = a; cc.areaSet = true; }
             }
             out.cellCouplings.append(cc);
         }

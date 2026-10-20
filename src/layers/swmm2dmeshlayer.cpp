@@ -2340,6 +2340,8 @@ bool SWMM2DMeshLayer::applyMeshVertexCoupledNode(int vertexIdx, const QString &n
     if (node.isEmpty()) {
         m_mesh.vertices[vertexIdx].couplingCd   = 0.65;
         m_mesh.vertices[vertexIdx].couplingArea = 1.0;
+        m_mesh.vertices[vertexIdx].couplingCdSet   = true;
+        m_mesh.vertices[vertexIdx].couplingAreaSet = true;
     }
     // The scene node "tagged" flag tracks coupling — repaint so the
     // SWMM-coupled-vertex glyph reflects the change.
@@ -2373,8 +2375,22 @@ bool SWMM2DMeshLayer::applyMeshVertexCouplingCd(int vertexIdx, double cd)
     if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
     if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty()) return false;
     if (!(cd > 0.0)) return false;
-    if (m_mesh.vertices[vertexIdx].couplingCd == cd) return true;
+    // An explicit value authors the token even when it equals the default.
+    if (m_mesh.vertices[vertexIdx].couplingCd == cd
+        && m_mesh.vertices[vertexIdx].couplingCdSet) return true;
     m_mesh.vertices[vertexIdx].couplingCd = cd;
+    m_mesh.vertices[vertexIdx].couplingCdSet = true;
+    emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshVertexCouplingAuthored(int vertexIdx, bool cdSet, bool areaSet)
+{
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
+    mesh::MeshVertex &v = m_mesh.vertices[vertexIdx];
+    if (v.couplingCdSet == cdSet && v.couplingAreaSet == areaSet) return true;
+    v.couplingCdSet = cdSet;
+    v.couplingAreaSet = areaSet;
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     return true;
 }
@@ -2384,8 +2400,10 @@ bool SWMM2DMeshLayer::applyMeshVertexCouplingArea(int vertexIdx, double area)
     if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
     if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty()) return false;
     if (!(area > 0.0)) return false;
-    if (m_mesh.vertices[vertexIdx].couplingArea == area) return true;
+    if (m_mesh.vertices[vertexIdx].couplingArea == area
+        && m_mesh.vertices[vertexIdx].couplingAreaSet) return true;
     m_mesh.vertices[vertexIdx].couplingArea = area;
+    m_mesh.vertices[vertexIdx].couplingAreaSet = true;
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     return true;
 }

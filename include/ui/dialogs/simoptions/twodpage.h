@@ -131,6 +131,16 @@ private:
     QDoubleSpinBox *m_vfrMinWetFracSpin = nullptr;
     QDoubleSpinBox *m_couplingCdSpin    = nullptr;
     QDoubleSpinBox *m_couplingSyncSpin  = nullptr;
+    // 1D↔2D exchange law and coupled-junction ponds (fine-scale coupling plan
+    // §3–4): COUPLING_LAW / _HEAD / _COEFFS / _POND_MODE / _POND_RELAX /
+    // _RIM_BAND / _EQUALIZE.
+    QComboBox      *m_couplingLawCombo    = nullptr;
+    QComboBox      *m_couplingHeadCombo   = nullptr;
+    QComboBox      *m_couplingCoeffsCombo = nullptr;
+    QComboBox      *m_couplingPondCombo   = nullptr;
+    QDoubleSpinBox *m_couplingPondRelaxSpin = nullptr;
+    QDoubleSpinBox *m_couplingRimBandSpin = nullptr;   ///< minimum = "mode default"
+    QComboBox      *m_couplingEqualizeCombo = nullptr;
     QComboBox      *m_rainfall2DModeCombo = nullptr;
     QCheckBox      *m_report2DBox       = nullptr;
     QLineEdit      *m_output2DFileEdit  = nullptr;

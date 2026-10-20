@@ -21,6 +21,8 @@
 #include "mesh/meshhoverprobe.h"
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
+#include "layers/swmmmodellayer.h"
+#include "ui/dialogs/remap1d2ddialog.h"
 #include "ui/toolbars/ribbongroup.h"
 
 #include <QAction>
@@ -1334,72 +1336,25 @@ void MeshEditingToolbar::onAutoCoupleClicked()
 void MeshEditingToolbar::onRemapClicked()
 {
     if (!m_activeMesh) return;
-    if(m_surfaceOwnershipReview){
-        QMessageBox box(this);box.setWindowTitle(tr("Remap 1D↔2D"));box.setText(tr("Choose the mapping to review."));
-        auto* ownership=box.addButton(tr("Review surface ownership"),QMessageBox::ActionRole);
-        auto* hydraulic=box.addButton(tr("Remap hydraulic nodes"),QMessageBox::ActionRole);box.addButton(QMessageBox::Cancel);box.exec();
-        if(box.clickedButton()==ownership){m_surfaceOwnershipReview();return;}if(box.clickedButton()!=hydraulic)return;
-    }
     const QVector<QPair<QString, QPointF>> nodes =
         m_nodeLocator ? m_nodeLocator() : QVector<QPair<QString, QPointF>>{};
-    if (nodes.isEmpty()) {
+    SWMMModelLayer *model = nullptr;
+    if (m_canvas)
+        for (OpenSWMMVisLayer *l : m_canvas->layers())
+            if ((model = qobject_cast<SWMMModelLayer *>(l))) break;
+    if (nodes.isEmpty() || !model) {
         QMessageBox::information(this, tr("Remap 1D↔2D"),
             tr("No SWMM nodes with coordinates are available to map."));
         return;
     }
-
-    // Full re-map: every existing vertex and cell coupling is cleared first.
-    {
-        QMessageBox box(this);
-        box.setIcon(QMessageBox::Warning);
-        box.setWindowTitle(tr("Remap 1D↔2D"));
-        box.setText(tr("Re-map %1 SWMM node(s) onto the active mesh?").arg(nodes.size()));
-        box.setInformativeText(tr(
-            "All existing 1D↔2D couplings on this mesh (vertex and cell,\n"
-            "including manually edited ones) will be cleared and rebuilt."));
-        QPushButton *remapBtn = box.addButton(tr("Clear && Re-map"), QMessageBox::DestructiveRole);
-        QPushButton *cancelBtn = box.addButton(QMessageBox::Cancel);
-        box.setDefaultButton(cancelBtn);
-        box.exec();
-        if (box.clickedButton() != remapBtn) return;   // cancelled
-    }
-
-    mesh::MeshResult working = m_activeMesh->mesh();
-    working.cellCouplings.clear();
-    for (mesh::MeshVertex &v : working.vertices)
-        v.coupledNode.clear();
-
-    const auto r = mesh::mapNodesToMesh(working, nodes, -1.0, false);
-
-    // Apply — clear every vertex coupling, then set the new matches through
-    // the per-vertex mutator; cell rows wholesale (previous set returned for
-    // a future undo command).
-    const int nVerts = m_activeMesh->mesh().vertices.size();
-    for (int vi = 0; vi < nVerts; ++vi)
-        if (!r.vertexMatches.contains(vi))
-            m_activeMesh->applyMeshVertexCoupledNode(vi, QString());
-    int vApplied = 0;
-    for (auto it = r.vertexMatches.cbegin(); it != r.vertexMatches.cend(); ++it)
-        if (m_activeMesh->applyMeshVertexCoupledNode(it.key(), it.value())) ++vApplied;
-
-    m_activeMesh->applyCellCouplings(r.cellMatches);
-
-    QString msg = tr("Vertex-coupled %1 node(s); cell-coupled %2 node(s).")
-                      .arg(vApplied).arg(r.cellMatches.size());
-    if (r.sharedCells > 0)
-        msg += tr("\n%1 cell(s) received more than one node (e.g. weir/orifice "
-                  "endpoints).").arg(r.sharedCells);
-    if (!r.unmatched.isEmpty()) {
-        QStringList head = r.unmatched.mid(0, 8);
-        msg += tr("\n%1 node(s) fall outside the mesh: %2%3")
-                   .arg(r.unmatched.size())
-                   .arg(head.join(QStringLiteral(", ")))
-                   .arg(r.unmatched.size() > head.size()
-                            ? QStringLiteral(", …") : QString());
-    }
+    QStringList selected;
+    if (m_selection)
+        for (const SWMMObjectRef &r : m_selection->selection())
+            if (r.objectType == SWMMObjectRef::Node) selected.append(r.name);
 
     // 2D aquifer preview — read-only; the engine resolves the same mapping
     // at initialize (NODE_ENROLMENT / LINK_SEEPAGE AUTO).
+    QString msg;
     if (const auto gwIn = m_gwPreviewSource ? m_gwPreviewSource()
                                             : std::optional<mesh::GwPreviewInput>{}) {
         const mesh::GwPreviewResult g =
@@ -1413,7 +1368,7 @@ void MeshEditingToolbar::onRemapClicked()
             return whole > 0.0 ? QString::number(100.0 * part / whole, 'f', 0)
                                : QStringLiteral("0");
         };
-        msg += tr("\n\n2D aquifer (preview — resolved by the engine at run start):");
+        msg += tr("2D aquifer (preview — resolved by the engine at run start):");
         msg += tr("\n• Nodes exchanging with the aquifer: %1; outside the mesh "
                   "(legacy exfiltration, a system loss): %2")
                    .arg(g.nodesInside).arg(g.nodesOutside.size());
@@ -1442,7 +1397,11 @@ void MeshEditingToolbar::onRemapClicked()
                            .arg(g.subcatchNoPolygon.size()).arg(listed(g.subcatchNoPolygon));
         }
     }
-    QMessageBox::information(this, tr("Remap 1D↔2D"), msg);
+    // The dialog replaces the stacked message boxes (plan §7.3 / D8): the
+    // surface-ownership review is a button on it, and Apply is one undo step.
+    Remap1D2DDialog dlg(model, m_activeMesh, m_canvas, nodes, selected, msg,
+                        m_surfaceOwnershipReview, this);
+    dlg.exec();
 }
 
 void MeshEditingToolbar::refreshGroupWidths()

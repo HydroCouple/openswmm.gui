@@ -223,6 +223,9 @@ private:
     QDoubleSpinBox *m_twoDCouplingCdSpin      = nullptr;
     QDoubleSpinBox *m_twoDCouplingSyncSpin    = nullptr;
     QCheckBox      *m_twoDCouplingAreaAutoBox = nullptr;
+    QComboBox      *m_twoDCouplingLawCombo    = nullptr;
+    QComboBox      *m_twoDCouplingHeadCombo   = nullptr;
+    QComboBox      *m_twoDCouplingPondCombo   = nullptr;
     QComboBox      *m_twoDRainfallModeCombo   = nullptr;
     QCheckBox      *m_twoDReport2DBox         = nullptr;
     MeshResolutionWidget *m_meshResolution = nullptr;

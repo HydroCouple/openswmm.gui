@@ -160,12 +160,32 @@ void MeshSetVertexAttributeCommand::apply(const QVector<mesh::MeshVertex> &attrs
         m_layer->applyMeshVertexCoupledNode(v, a.coupledNode);
         m_layer->applyMeshVertexCouplingCd(v, a.couplingCd);
         m_layer->applyMeshVertexCouplingArea(v, a.couplingArea);
+        // The value setters author; put back whether the snapshot did.
+        m_layer->applyMeshVertexCouplingAuthored(v, a.couplingCdSet, a.couplingAreaSet);
         m_layer->applyMeshVertexZ(v, a.z);
     }
 }
 
 void MeshSetVertexAttributeCommand::undo() { apply(m_oldAttrs); }
 void MeshSetVertexAttributeCommand::redo() { apply(m_newAttrs); }
+
+// ===========================================================================
+// MeshSetCellCouplingsCommand
+// ===========================================================================
+
+MeshSetCellCouplingsCommand::MeshSetCellCouplingsCommand(
+        SWMM2DMeshLayer *layer, QVector<mesh::CellCoupling> newRows,
+        QVector<mesh::CellCoupling> oldRows, const QString &text,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(text, canvas, parent),
+      m_layer(layer),
+      m_newRows(std::move(newRows)),
+      m_oldRows(std::move(oldRows))
+{
+}
+
+void MeshSetCellCouplingsCommand::undo() { if (m_layer) m_layer->applyCellCouplings(m_oldRows); }
+void MeshSetCellCouplingsCommand::redo() { if (m_layer) m_layer->applyCellCouplings(m_newRows); }
 
 // ===========================================================================
 // MeshSetEdgeAttributeCommand
@@ -445,12 +465,14 @@ bool setVertexAttr(MeshVertex &attrs, const QByteArray &key,
         const double cd = value.toDouble();
         if (!(cd > 0.0)) return false;
         attrs.couplingCd = cd;
+        attrs.couplingCdSet = true;
         return true;
     }
     if (key == "couplingArea") {
         const double a = value.toDouble();
         if (!(a > 0.0)) return false;
         attrs.couplingArea = a;
+        attrs.couplingAreaSet = true;
         return true;
     }
     return false;
@@ -495,6 +517,8 @@ MeshVertex vertexAttrsOf(const MeshResult &m, int v)
         a.coupledNode  = src.coupledNode;
         a.couplingCd   = src.couplingCd;
         a.couplingArea = src.couplingArea;
+        a.couplingCdSet   = src.couplingCdSet;
+        a.couplingAreaSet = src.couplingAreaSet;
     }
     return a;
 }
@@ -503,7 +527,8 @@ MeshVertex vertexAttrsOf(const MeshResult &m, int v)
 bool sameVertexAttrs(const MeshVertex &a, const MeshVertex &b)
 {
     return a.z == b.z && a.tag == b.tag && a.coupledNode == b.coupledNode
-        && a.couplingCd == b.couplingCd && a.couplingArea == b.couplingArea;
+        && a.couplingCd == b.couplingCd && a.couplingArea == b.couplingArea
+        && a.couplingCdSet == b.couplingCdSet && a.couplingAreaSet == b.couplingAreaSet;
 }
 
 } // namespace

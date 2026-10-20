@@ -144,6 +144,30 @@ private:
 };
 
 /*!
+ * \class MeshSetCellCouplingsCommand
+ * \brief Undoable replacement of the node→cell coupling row set
+ *        ([2D_TRIANGLE_NODE_MAP]) — the Remap 1D↔2D dialog's cell half.
+ */
+class MeshSetCellCouplingsCommand : public MapCommand
+{
+public:
+    MeshSetCellCouplingsCommand(SWMM2DMeshLayer             *layer,
+                                QVector<mesh::CellCoupling>  newRows,
+                                QVector<mesh::CellCoupling>  oldRows,
+                                const QString               &text,
+                                MapCanvas                   *canvas,
+                                QUndoCommand                *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+private:
+    QPointer<SWMM2DMeshLayer>   m_layer;
+    QVector<mesh::CellCoupling> m_newRows;
+    QVector<mesh::CellCoupling> m_oldRows;
+};
+
+/*!
  * \class MeshSetEdgeAttributeCommand
  * \brief Undoable write of one per-edge attribute across a set of edge slots.
  * \details Slots are stored flat (`mesh::edgeSlot(cell, edgeLocal)`) and both sides of the

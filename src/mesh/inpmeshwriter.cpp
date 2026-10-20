@@ -166,8 +166,12 @@ QString formatVertexNodeMap(const MeshResult &mesh,
             s << mv.tag;
         else
             s << vIdx;
-        s << "        " << node
-          << "  " << mv.couplingCd << "  " << mv.couplingArea << "\n";
+        s << "        " << node;
+        // Unauthored tokens are left out (the engine applies COUPLING_CD /
+        // the node's structure); an authored AREA needs the CD column too.
+        if (mv.couplingCdSet || mv.couplingAreaSet) s << "  " << mv.couplingCd;
+        if (mv.couplingAreaSet) s << "  " << mv.couplingArea;
+        s << "\n";
     }
     s << "\n";
     return out;
@@ -199,15 +203,17 @@ QString formatTriangleNodeMap(const MeshResult &mesh,
         s << "      " << node << "\n";
     }
     // Node→cell coupling rows (Plan Part C) — repeated-row form: several
-    // nodes may couple to one triangle, one row each, CD + AREA explicit.
-    // Written by INDEX (not tag): coupling triangles usually carry a
-    // subcatchment tag that is not unique per triangle.
+    // nodes may couple to one triangle, one row each, CD + AREA when
+    // authored. Written by INDEX (not tag): coupling triangles usually carry
+    // a subcatchment tag that is not unique per triangle.
     for (const CellCoupling &cc : mesh.cellCouplings)
     {
         if (cc.tri < 0 || cc.tri >= mesh.triangles.size()) continue;
         if (cc.nodeId.isEmpty()) continue;
-        s << cc.tri << "      " << cc.nodeId
-          << "  " << cc.cd << "  " << cc.area << "\n";
+        s << cc.tri << "      " << cc.nodeId;
+        if (cc.cdSet || cc.areaSet) s << "  " << cc.cd;
+        if (cc.areaSet) s << "  " << cc.area;
+        s << "\n";
     }
     s << "\n";
     return out;

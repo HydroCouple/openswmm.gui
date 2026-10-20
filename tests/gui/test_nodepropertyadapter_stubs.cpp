@@ -34,6 +34,11 @@ openswmmvis::ui::UserFlagsModel *SWMMModelLayer::ensureUserFlagsModel() { return
 // without one.
 bool SWMMModelLayer::pushInletUsageEdit(const SWMM_InletUsage &) { return false; }
 
+// The 2D-coupling setters push through the layer when one is bound; without
+// one (this test) they write the engine directly via nodecoupling2d::write.
+bool SWMMModelLayer::pushNodeCoupling2DEdits(const QVector<nodecoupling2d::State> &,
+                                             const QString &, QString *) { return false; }
+
 openswmmvis::OutputIdentity
 openswmmvis::OutputStatsRegistry::identityFor(const QUuid &) const { return {}; }
 

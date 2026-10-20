@@ -828,6 +828,42 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                 applyStorageRowFlags();
             }
 
+            // 1D↔2D coupling rows: only the parameters the chosen structure
+            // uses are editable (a manhole its diameter, an inlet or open
+            // storage its opening area and perimeter), none when the node is
+            // not coupleable. Same trigger/contract as the blocks above.
+            if (m_nodeAdapter->metaObject()->indexOfProperty("coupleable") >= 0)
+            {
+                auto *a = m_nodeAdapter;
+                auto applyCouplingRowFlags = [pm, a]() {
+                    if (!pm) return;
+                    using A = SWMMNodePropertyAdapter;
+                    const auto t = a->couplingType();
+                    const bool structure = t != A::NOT_COUPLEABLE && t != A::OUTFALL_2D;
+                    const bool opening = t == A::GRATE || t == A::CURB || t == A::OPEN_STORAGE;
+                    const QList<QPair<const char *, bool>> rows = {
+                        {"couplingDiameter", t == A::MANHOLE},
+                        {"couplingPerimeter", opening},
+                        {"couplingStructureArea", opening},
+                        {"couplingChamberArea", structure},
+                        {"couplingLidOpenFraction", structure},
+                        {"couplingCrest", structure},
+                        {"couplingLaw", structure},
+                        {"couplingCoeffs", structure},
+                        {"couplingCw", structure},
+                        {"couplingCsw", structure},
+                        {"couplingCoi", structure},
+                        {"couplingCoo", structure},
+                        {"couplingSpread", t == A::OUTFALL_2D},
+                        {"couplingTailwaterRelax", t == A::OUTFALL_2D}};
+                    for (const auto &r : rows)
+                        if (a->metaObject()->indexOfProperty(r.first) >= 0)
+                            setRowEditable(pm, a, QString::fromLatin1(r.first), r.second);
+                };
+                connect(a, &SWMMNodePropertyAdapter::changed, pm, applyCouplingRowFlags);
+                applyCouplingRowFlags();
+            }
+
             // Read the adapter's CURRENT name: a rename after binding
             // re-keys the adapter, and a captured name would keep pointing
             // the other views at an object that no longer exists.

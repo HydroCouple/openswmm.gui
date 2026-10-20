@@ -1298,6 +1298,32 @@ private:
 };
 
 /*!
+ * \class SetNodeCoupling2DCommand
+ * \brief Records a change to one or more nodes' 1D↔2D coupling structure
+ *        ([2D_NODE_COUPLING]) — a property edit, a bulk "set coupleable" or
+ *        the remap dialog's node changes — as one undo step.
+ * \details The constructor snapshots each node's prior state; redo() writes
+ *          the new states (no first-redo skip: push() applies them).
+ */
+class SetNodeCoupling2DCommand : public MapCommand
+{
+public:
+    SetNodeCoupling2DCommand(SWMMModelLayer *layer,
+                             QVector<nodecoupling2d::State> newStates,
+                             const QString &text,
+                             MapCanvas *canvas,
+                             QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QVector<nodecoupling2d::State> m_new;
+    QVector<nodecoupling2d::State> m_old;
+};
+
+/*!
  * \class InsertInletJunctionCommand
  * \brief Records a STREET-conduit split that inserts a configured inlet
  *        junction (`swmm_conduit_split_inlet`).

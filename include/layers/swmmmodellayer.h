@@ -13,6 +13,7 @@
 
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm_category.h"
+#include "layers/nodecoupling2d.h"            // 1D↔2D node coupling snapshots
 #include "core/preferencesmanager.h"     // NewProjectSpec defaults structs
 #include "render/labelconfig.h"
 #include "render/iattributeprovider.h"   // Slice DM.3
@@ -1773,6 +1774,20 @@ public:
     bool pushInletUsageEdit(const SWMM_InletUsage &usage);
     /*! \brief Undoable counterpart of applyRemoveInletUsage(). */
     bool pushInletUsageRemoval(int hostKind, int hostIdx);
+
+    /*! \brief A node's 1D↔2D coupling structure ([2D_NODE_COUPLING]) as the
+     *         engine holds it; false for an unknown node. */
+    bool nodeCoupling2D(const QString &node, nodecoupling2d::State *out) const;
+    /*! \brief Make the engine hold \a state for its node, then emit
+     *         attributeChanged and mark the model edited. */
+    bool applyNodeCoupling2D(const nodecoupling2d::State &state, QString *error = nullptr);
+    /*! \brief Apply several nodes' coupling states as ONE undoable step
+     *         (SetNodeCoupling2DCommand on the edit canvas's stack; applied
+     *         directly without one). Every state is checked against the
+     *         node's allowed types first — nothing is written when one is
+     *         illegal. Unchanged nodes are skipped. */
+    bool pushNodeCoupling2DEdits(const QVector<nodecoupling2d::State> &states,
+                                 const QString &text, QString *error = nullptr);
 
     /*!
      * \brief Apply interior vertices to a link: engine + cache, rebuilding
