@@ -18,7 +18,7 @@
  *             the canonical text and unblocks.
  *          5. Per-element initial rows commit; species removal refusal
  *             (still referenced) reports rather than corrupting.
- *          6. The Sources tab is disabled (engine rejects the section).
+ *          6. Sources opens whole-file editing and preserves the extended sections.
  */
 
 #include "ui/dialogs/reactionsystemeditordialog.h"
@@ -72,7 +72,8 @@ private slots:
     void fileTabEditsReachEngine();
     void badTextGatesTheTabSwitch();
     void initOverridesCommit();
-    void sourcesTabIsDisabled();
+    void sourcesTabOpensConfiguration();
+    void extendedSectionsSurviveFileAndStructuredEdits();
     void survivingOverrideRemainsEditable();
     void removingUncommittedRowPreservesOtherOverride();
     void changingOverrideIdentityReplacesOriginal();
@@ -236,12 +237,48 @@ void TestReactionSystemEditor::initOverridesCommit()
     swmm_engine_destroy(e);
 }
 
-void TestReactionSystemEditor::sourcesTabIsDisabled()
+void TestReactionSystemEditor::sourcesTabOpensConfiguration()
 {
     SWMM_Engine e = makeEngine();
     ReactionSystemEditorDialog dlg(e, nullptr);
     auto *tabs = child<QTabWidget>(dlg, "rx_tabs");
-    QVERIFY(!tabs->isTabEnabled(tabs->count() - 1));
+    QVERIFY(tabs->isTabEnabled(tabs->count() - 1));
+    tabs->setCurrentIndex(tabs->count() - 1);
+    child<QPushButton>(dlg, "rx_editSourcesBtn")->click();
+    QCOMPARE(tabs->currentIndex(), tabs->count() - 2);
+    swmm_engine_destroy(e);
+}
+
+void TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
+{
+    SWMM_Engine e = makeEngine();
+    const char *text = "[REACTION_SPECIES]\nBULK A MG\n"
+        "[REACTION_COEFFICIENTS]\nPARAMETER k 1\n"
+        "[REACTION_PARAMETERS]\nNODE J0 k 2\n"
+        "[REACTION_PATTERNS]\npulse 1 0\n"
+        "[REACTION_SOURCES]\nMASS J0 A 28.317 pulse\n"
+        "[REACTION_REPORT]\nSPECIES ALL NO\n";
+    char error[512] = {};
+    QCOMPARE(swmm_reactions_apply_text(e, text, error, sizeof(error)), SWMM_OK);
+    ReactionSystemEditorDialog dlg(e, nullptr);
+    auto *tabs = child<QTabWidget>(dlg, "rx_tabs");
+    auto *file = child<QPlainTextEdit>(dlg, "rx_fileEdit");
+    tabs->setCurrentIndex(tabs->count() - 2);
+    QVERIFY(file->toPlainText().contains(QStringLiteral("[REACTION_SOURCES]")));
+    QString edited = file->toPlainText();
+    edited.replace(QStringLiteral("28.317"), QStringLiteral("56.634"));
+    file->setPlainText(edited);
+    tabs->setCurrentIndex(2); // applies text, then edit a structured coefficient
+    QCOMPARE(tabs->currentIndex(), 2);
+    child<QDoubleSpinBox>(dlg, "rx_coeffValue_0")->setValue(3);
+    tabs->setCurrentIndex(tabs->count() - 2);
+    const QString after = file->toPlainText();
+    for (const auto& section : {"REACTION_SOURCES", "REACTION_PATTERNS", "REACTION_PARAMETERS", "REACTION_REPORT"})
+        QVERIFY(after.contains(QLatin1String(section)));
+    QVERIFY(after.contains(QStringLiteral("56.634")));
+    int param = 0; double value = 0; char name[64];
+    QCOMPARE(swmm_reaction_coeff_get(e, 0, name, 64, &param, &value), SWMM_OK);
+    QCOMPARE(value, 3.0);
     swmm_engine_destroy(e);
 }
 

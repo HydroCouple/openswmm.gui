@@ -274,9 +274,13 @@ bar shows the bound file, or *(no file bound)*. Nothing is written to disk
 until you press Save — the structured edits before that live on the engine
 only.
 
-**Sources** tab — present but disabled. `[REACTION_SOURCES]` needs an engine
-phase this build does not have; the tab explains that instead of offering
-controls.
+**Sources** tab explains the supported node-source, cyclic-pattern,
+parameter-override and species-output sections. **Edit configuration** opens
+the File tab, where these sections are validated and applied with the rest of
+the reaction system. MASS source values use declared mass units per second;
+PATTERN_TIMESTEP is in seconds. Structured coefficient/species edits preserve
+these sections. Wet-subcatchment and porous LID-layer reactors remain
+unsupported.
 
 ### Water age — `WATER_AGE ON` and `[WATER_AGE_SOURCES]`
 

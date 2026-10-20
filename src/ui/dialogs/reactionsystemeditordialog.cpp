@@ -103,7 +103,10 @@ protected:
             QStringLiteral("SOLVER"), QStringLiteral("COUPLING"),
             QStringLiteral("RATE_UNITS"), QStringLiteral("AREA_UNITS"),
             QStringLiteral("TIMESTEP"), QStringLiteral("ATOL"),
-            QStringLiteral("RTOL"),
+            QStringLiteral("RTOL"), QStringLiteral("PATTERN_TIMESTEP"),
+            QStringLiteral("CONC"), QStringLiteral("MASS"),
+            QStringLiteral("SPECIES"), QStringLiteral("ALL"),
+            QStringLiteral("YES"), QStringLiteral("NO"),
         };
         static const QRegularExpression kWord(
             QStringLiteral("[A-Za-z_][A-Za-z0-9_]*"));
@@ -184,10 +187,8 @@ void ReactionSystemEditorDialog::buildUi()
     m_fileTabIndex = m_tabs->addTab(buildFileTab(), tr("File"));
     const int srcIdx =
         m_tabs->addTab(buildSourcesPlaceholderTab(), tr("Sources"));
-    m_tabs->setTabEnabled(srcIdx, false);
     m_tabs->setTabToolTip(srcIdx,
-                          tr("Requires engine phase R-sources — the engine "
-                             "rejects [REACTION_SOURCES] today."));
+                          tr("Node sources and cyclic patterns can be edited in the File tab."));
     connect(m_tabs, &QTabWidget::currentChanged,
             this, &ReactionSystemEditorDialog::onTabChanged);
     vlay->addWidget(m_tabs, 1);
@@ -585,12 +586,26 @@ QWidget *ReactionSystemEditorDialog::buildSourcesPlaceholderTab()
     auto *w = new QWidget(this);
     auto *lay = new QVBoxLayout(w);
     auto *note = new QLabel(
-        tr("[REACTION_SOURCES] arrives with engine phase R-sources; the "
-           "engine rejects the section today, so there is nothing to edit."),
+        tr("Edit node sources, source patterns, parameter overrides and species output "
+           "selection in the File tab.\n\n"
+           "[REACTION_SOURCES]: CONC or MASS, node, species, value, optional pattern. "
+           "MASS uses declared species mass units per second.\n"
+           "[REACTION_PATTERNS]: pattern name followed by cyclic factors. "
+           "PATTERN_TIMESTEP in Options is in seconds (default 3600).\n"
+           "[REACTION_PARAMETERS]: NODE or LINK, element, parameter, value.\n"
+           "[REACTION_REPORT]: SPECIES, ALL or species name, YES or NO.\n\n"
+           "Only BULK species can enter as node loads. Subcatchment and porous "
+           "LID-layer reactors remain unsupported."),
         w);
     note->setObjectName(QStringLiteral("rx_sourcesNote"));
     note->setWordWrap(true);
     lay->addWidget(note);
+    auto *edit = new QPushButton(tr("Edit configuration"), w);
+    edit->setObjectName(QStringLiteral("rx_editSourcesBtn"));
+    connect(edit, &QPushButton::clicked, this, [this]() {
+        m_tabs->setCurrentIndex(m_fileTabIndex);
+    });
+    lay->addWidget(edit);
     lay->addStretch();
     return w;
 }
