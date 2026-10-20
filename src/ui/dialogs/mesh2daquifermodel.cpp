@@ -7,6 +7,11 @@
 #include "ui/dialogs/mesh2daquifermodel.h"
 
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_gw_transport.h>
+#include <openswmm/engine/openswmm_2d.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_reactions.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
@@ -15,6 +20,9 @@
 #include <QBrush>
 #include <QColor>
 #include <QSet>
+#include <QHash>
+#include <QCryptographicHash>
+#include <algorithm>
 
 #include <cmath>
 
@@ -760,5 +768,205 @@ void Mesh2DAquiferNodeModel::setUnitLabels(const QString &lengthLabel,
     m_areaLabel   = areaLabel;
     emit headerDataChanged(Qt::Horizontal, 0, ColCount - 1);
 }
+
+
+
+QList<Mesh2DAquiferBoundaryModel::Row> Mesh2DAquiferBoundaryModel::canonical(const QList<Row>& rows)
+{
+    QList<Row> result;for(const auto& row:rows)if(row.species.isEmpty())result.append(row);
+    for(const auto& row:rows)if(!row.species.isEmpty())result.append(row);return result;
+}
+QVariant Mesh2DAquiferBoundaryModel::data(const QModelIndex& index,int role)const
+{
+    if(!index.isValid()||index.row()<0||index.row()>=m_rows.size())return {};
+    if(role==Qt::ToolTipRole)return tr("Local edge numbers start at 0. HEAD uses project elevation units. FLOW is total m³/s, positive inward. CONC uses native concentration; MASSFLUX uses native amount/s/m; HEATFLUX uses W/m. A series replaces the constant value.");
+    if(role!=Qt::DisplayRole&&role!=Qt::EditRole)return {};
+    const auto& row=m_rows[index.row()];
+    switch(index.column()) {
+    case Cell:return row.cell+1;case Edge:return row.edge;
+    case Species:return role==Qt::DisplayRole&&row.species.isEmpty()?tr("Water"):row.species;
+    case Kind:return row.kind;case Value:return role==Qt::EditRole?QVariant(row.value):QVariant(QString::number(row.value,'g',17));
+    case Series:return row.series;default:return {};
+    }
+}
+QVariant Mesh2DAquiferBoundaryModel::headerData(int section,Qt::Orientation orientation,int role)const
+{
+    if(role!=Qt::DisplayRole)return {};
+    if(orientation==Qt::Vertical)return section+1;
+    const QStringList names={tr("Cell"),tr("Local edge"),tr("Water / species"),tr("Kind"),tr("Constant value"),tr("Time series")};
+    return section>=0&&section<names.size()?names[section]:QString();
+}
+Qt::ItemFlags Mesh2DAquiferBoundaryModel::flags(const QModelIndex& index)const
+{return index.isValid()?(Qt::ItemIsEnabled|Qt::ItemIsSelectable|(m_editable?Qt::ItemIsEditable:Qt::NoItemFlags)):Qt::NoItemFlags;}
+bool Mesh2DAquiferBoundaryModel::setData(const QModelIndex& index,const QVariant& value,int role)
+{
+    if(!m_editable||role!=Qt::EditRole||!index.isValid()||index.row()<0||index.row()>=m_rows.size())return false;
+    auto next=m_rows[index.row()];bool ok=true;
+    switch(index.column()) {
+    case Cell:next.cell=value.toInt(&ok)-1;if(next.cell<0)ok=false;break;
+    case Edge:next.edge=value.toInt(&ok);if(next.edge<0||next.edge>3)ok=false;break;
+    case Species:next.species=value.toString().trimmed();if(next.species.compare("Water",Qt::CaseInsensitive)==0)next.species.clear();break;
+    case Kind:next.kind=value.toString().trimmed().toUpper();break;
+    case Value:next.value=value.toDouble(&ok);ok=ok&&std::isfinite(next.value);break;
+    case Series:next.series=value.toString().trimmed();break;default:return false;
+    }
+    if(!ok||next==m_rows[index.row()])return false;m_rows[index.row()]=next;emit dataChanged(index,index);return true;
+}
+void Mesh2DAquiferBoundaryModel::addHydraulic()
+{if(!m_editable)return;int row=0;while(row<m_rows.size()&&m_rows[row].species.isEmpty())++row;beginInsertRows({},row,row);m_rows.insert(row,Row{});endInsertRows();}
+void Mesh2DAquiferBoundaryModel::addChemistry()
+{if(!m_editable)return;const int row=int(m_rows.size());beginInsertRows({},row,row);Row value;value.species="Choose species";value.kind="CONC";m_rows.append(value);endInsertRows();}
+void Mesh2DAquiferBoundaryModel::remove(int row)
+{if(!m_editable||row<0||row>=m_rows.size())return;beginRemoveRows({},row,row);m_rows.removeAt(row);endRemoveRows();}
+QString Mesh2DAquiferBoundaryModel::read(SWMM_Engine engine,QList<Row>& rows)
+{
+    rows.clear();const int water=swmm_gw2d_boundary_count(engine),chemistry=swmm_gw_boundary_quality_count(engine);
+    if(water<0||chemistry<0)return tr("Cannot read groundwater edge records.");
+    for(int i=0;i<water;++i) {
+        SWMM_GwBoundary source{};char series[32768]{};
+        if(swmm_gw2d_boundary_get(engine,i,&source,series,sizeof series)!=SWMM_OK)return tr("Cannot read a hydraulic edge.");
+        Row row;row.cell=source.cell;row.edge=source.edge;row.kind=source.kind==SWMM_GW2D_BOUNDARY_HEAD?"HEAD":"FLOW";
+        row.value=source.value;row.series=QString::fromUtf8(series);rows.append(row);
+    }
+    for(int i=0;i<chemistry;++i) {
+        Row row;char species[4096]{},kind[64]{},series[32768]{};
+        if(swmm_gw_boundary_quality_get(engine,i,&row.cell,&row.edge,species,sizeof species,kind,sizeof kind,&row.value,series,sizeof series)!=SWMM_OK)return tr("Cannot read edge chemistry.");
+        row.species=QString::fromUtf8(species);row.kind=QString::fromUtf8(kind);row.series=QString::fromUtf8(series);rows.append(row);
+    }
+    return {};
+}
+QString Mesh2DAquiferBoundaryModel::identity(SWMM_Engine engine,QByteArray& result)
+{
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    const auto bytes=[&](const auto& value){hash.addData(QByteArrayView(reinterpret_cast<const char*>(&value),sizeof(value)));};
+    const auto text=[&](const QString& value){const auto data=value.toUtf8();const auto size=data.size();bytes(size);hash.addData(data);};
+    int vertices=0,cells=0;if(swmm_2d_vertex_count(engine,&vertices)!=SWMM_OK||swmm_2d_cell_count(engine,&cells)!=SWMM_OK)return tr("Cannot read boundary mesh identity.");
+    bytes(vertices);bytes(cells);
+    for(int i=0;i<vertices;++i){double x=0,y=0,z=0;if(swmm_2d_vertex_get_xyz(engine,i,&x,&y,&z)!=SWMM_OK)return tr("Cannot read boundary coordinates.");bytes(x);bytes(y);bytes(z);}
+    for(int i=0;i<cells;++i){int v[4]{},nv=0;if(swmm_2d_cell_get_vertices(engine,i,v,&nv)!=SWMM_OK)return tr("Cannot read boundary connectivity.");bytes(nv);for(int j=0;j<nv;++j)bytes(v[j]);}
+    for(int i=0;i<swmm_pollutant_count(engine);++i){const char* name=swmm_pollutant_id(engine,i);int unit=-1;if(!name||swmm_pollutant_get_units(engine,i,&unit)!=SWMM_OK)return tr("Cannot read pollutant units.");text(QString::fromUtf8(name));bytes(unit);}
+    for(int i=0;i<swmm_reaction_species_count(engine);++i){char name[4096]{},units[4096]{};int wall=0;double a=0,r=0;if(swmm_reaction_species_get(engine,i,name,sizeof name,&wall,units,sizeof units,&a,&r)!=SWMM_OK)return tr("Cannot read reaction units.");text(QString::fromUtf8(name));text(QString::fromUtf8(units));bytes(wall);}
+    result=hash.result();return {};
+}
+QString Mesh2DAquiferBoundaryModel::load(SWMM_Engine engine)
+{QList<Row> rows;m_error=read(engine,rows);if(m_error.isEmpty())m_error=identity(engine,m_identity);beginResetModel();m_rows=rows;m_loaded=rows;endResetModel();return m_error;}
+QString Mesh2DAquiferBoundaryModel::validate(SWMM_Engine engine,const QList<Row>& rows)
+{
+    if(rows.isEmpty())return {};
+    int count=0;if(swmm_2d_cell_count(engine,&count)!=SWMM_OK)return tr("Cannot read the mesh.");
+    char mode[128]{};if(swmm_gw2d_option_get(engine,"MODE",mode,sizeof mode)!=SWMM_OK||QString::fromUtf8(mode)=="PER_SUBCATCH")return tr("Hydraulic edge forcing requires a mesh aquifer.");
+    const auto flag=[&](const char* key,bool groundwater) {char value[128]{};const int rc=groundwater?swmm_gw_transport_option_get(engine,key,value,sizeof value):swmm_options_get(engine,key,value,sizeof value);return rc==SWMM_OK&&QString::fromUtf8(value)=="YES";};
+    QSet<QString> species,massSpecies;
+    if(!flag("IGNORE_QUALITY",false)) {
+        if(flag("TRANSPORT_POLLUTANTS",true))for(int p=0;p<swmm_pollutant_count(engine);++p)if(const char* name=swmm_pollutant_id(engine,p)){species.insert(QString::fromUtf8(name));massSpecies.insert(QString::fromUtf8(name));}
+        if(flag("TRANSPORT_MSX",true))for(int s=0;s<swmm_reaction_species_count(engine);++s) {
+            char name[4096]{},unit[4096]{};int wall=0;double a=0,r=0;
+            if(swmm_reaction_species_get(engine,s,name,sizeof name,&wall,unit,sizeof unit,&a,&r)!=SWMM_OK)return tr("Cannot read reaction species.");
+            if(!wall) {
+                species.insert(QString::fromUtf8(name));
+                QString basis=QString::fromUtf8(unit).trimmed().toUpper();if(basis.endsWith("/L"))basis.chop(2);
+                const QSet<QString> known{"MG","UG","G","KG","MOL","MMOL","UMOL","COUNT","#"};
+                if(known.contains(basis))massSpecies.insert(QString::fromUtf8(name));
+            }
+        }
+    }
+    if(flag("WATER_AGE",false)&&flag("TRANSPORT_AGE",true))species.insert("__WATER_AGE__");
+    if(flag("HEAT_TRANSPORT",false)&&flag("TRANSPORT_TEMPERATURE",true))species.insert("__TEMPERATURE__");
+    const auto edgeKey=[](int a,int b){if(a>b)std::swap(a,b);return (quint64(quint32(a))<<32)|quint32(b);};
+    QMap<QPair<int,int>,Row> hydraulic;QHash<quint64,int> occurrences;
+    QSet<QString> terms,concentrations;
+    const auto key=[](const Row& row){return QString::number(row.cell)+":"+QString::number(row.edge)+":"+row.species;};
+    for(const auto& row:rows) {
+        int vertices[4]{},nv=0;
+        if(row.cell<0||row.cell>=count||swmm_2d_cell_get_vertices(engine,row.cell,vertices,&nv)!=SWMM_OK||row.edge<0||row.edge>=nv||!std::isfinite(row.value))return tr("A boundary cell, local edge or value is invalid.");
+        if(row.series.contains('\n')||row.series.contains('\r')||row.series.contains('"'))return tr("A time-series name contains an invalid delimiter.");
+        if(!row.series.isEmpty()) {
+            bool found=false;for(int t=0;t<swmm_table_count(engine);++t){const char* id=swmm_table_id(engine,t);int type=-1;if(id&&swmm_table_get_type(engine,t,&type)==SWMM_OK&&type==0&&row.series==QString::fromUtf8(id)){found=true;break;}}
+            if(!found)return tr("A boundary time series is unavailable: %1.").arg(row.series);
+        }
+        if(row.species.isEmpty()) {
+            if(row.kind!="HEAD"&&row.kind!="FLOW")return tr("A Water row must use HEAD or FLOW.");
+            const QPair<int,int> location{row.cell,row.edge};if(hydraulic.contains(location))return tr("Each cell edge may have one hydraulic boundary.");hydraulic[location]=row;
+            const int a=(row.edge+1)%nv,b=(row.edge+2)%nv;
+            occurrences[edgeKey(vertices[a],vertices[b])]=0;
+        } else {
+            if(!species.contains(row.species))return tr("The groundwater species is unavailable: %1.").arg(row.species);
+            const bool flux=row.kind=="MASSFLUX"||row.kind=="HEATFLUX";
+            if(!flux&&row.kind!="CONC"&&row.kind!="TS")return tr("Chemistry uses CONC, TS, MASSFLUX or HEATFLUX.");
+            if(row.kind=="TS"&&row.series.isEmpty())return tr("TS chemistry requires a time series.");
+            if(row.kind=="HEATFLUX"&&row.species!="__TEMPERATURE__")return tr("HEATFLUX requires the temperature species.");
+            if(row.kind=="MASSFLUX"&&!massSpecies.contains(row.species))return tr("MASSFLUX requires a species with declared mass or count units.");
+            if(!flux&&row.species!="__TEMPERATURE__"&&row.value<0&&row.series.isEmpty())return tr("Concentration and age must be nonnegative.");
+            const QString identity=key(row)+(flux?":flux":":conc");if(terms.contains(identity))return tr("A species may have one concentration and one imposed flux on each edge.");terms.insert(identity);if(!flux)concentrations.insert(key(row));
+        }
+    }
+    // Build only requested edge counts from authoring connectivity: neighbour
+    // geometry need not have been initialized when this editor opens.
+    for(int cell=0;cell<count;++cell) {
+        int vertices[4]{},nv=0;if(swmm_2d_cell_get_vertices(engine,cell,vertices,&nv)!=SWMM_OK)return tr("Cannot read cell connectivity.");
+        for(int edge=0;edge<nv;++edge){const int a=(edge+1)%nv,b=(edge+2)%nv;auto found=occurrences.find(edgeKey(vertices[a],vertices[b]));if(found!=occurrences.end())++found.value();}
+    }
+    for(int found:occurrences)if(found!=1)return tr("Hydraulic groundwater boundaries must lie on exterior mesh edges.");
+    int aquifers=0;if(swmm_gw2d_row_count(engine,&aquifers)!=SWMM_OK)return tr("Cannot read aquifer coverage.");
+    for(auto it=hydraulic.cbegin();it!=hydraulic.cend();++it) {
+        char tag[4096]{};if(swmm_2d_get_triangle_tag(engine,it->cell,tag,sizeof tag)!=SWMM_OK)return tr("Cannot read the boundary cell tag.");
+        bool covered=false;
+        for(int pass=0;pass<3;++pass)for(int i=0;i<aquifers;++i) {
+            int scope=0,cell=-1;char rowTag[4096]{};double ks=0,zs=0,ts=0,tr=0,alpha=0;
+            if(swmm_gw2d_row_get(engine,i,&scope,rowTag,sizeof rowTag,&cell,&ks,&zs,&ts,&tr,&alpha)!=SWMM_OK)return Mesh2DAquiferBoundaryModel::tr("Cannot read an aquifer row.");
+            if(scope!=pass||(scope==2&&cell!=it->cell)||(scope==1&&QString::fromUtf8(rowTag)!=QString::fromUtf8(tag)))continue;
+            covered=ks>0&&zs>0&&ts>tr;
+        }
+        if(!covered)return tr("Define an active aquifer below each hydraulic boundary cell.");
+        if(it->kind=="HEAD"||it->value>0||!it->series.isEmpty())for(const auto& name:species) {
+            Row row=*it;row.species=name;if(!concentrations.contains(key(row)))return tr("Potential groundwater inflow requires an explicit concentration for %1 on cell %2, edge %3.").arg(name).arg(it->cell+1).arg(it->edge);
+        }
+    }
+    for(const auto& row:rows)if(!row.species.isEmpty()&&!hydraulic.contains({row.cell,row.edge}))return tr("Every chemistry row requires a matching hydraulic edge.");
+    return {};
+}
+QString Mesh2DAquiferBoundaryModel::validateCommit(SWMM_Engine engine,bool physical)const
+{
+    if(!m_error.isEmpty())return m_error;
+    int state=0;if(swmm_engine_get_state(engine,&state)!=SWMM_OK||(state!=SWMM_STATE_BUILDING&&state!=SWMM_STATE_OPENED))return tr("Reset the simulation before editing groundwater boundaries.");
+    QByteArray currentIdentity;auto error=identity(engine,currentIdentity);if(!error.isEmpty())return error;
+    if(currentIdentity!=m_identity)return tr("The mesh or species units changed outside this editor. Reopen it before applying.");
+    QList<Row> current;error=read(engine,current);if(!error.isEmpty())return error;
+    if(current!=m_loaded)return tr("Groundwater edges changed outside this editor. Reopen it before applying.");
+    return physical?validate(engine,canonical(m_rows)):QString();
+}
+QString Mesh2DAquiferBoundaryModel::write(SWMM_Engine engine,const QList<Row>& rows)
+{
+    for(int i=swmm_gw_boundary_quality_count(engine)-1;i>=0;--i)if(swmm_gw_boundary_quality_remove(engine,i)!=SWMM_OK)return tr("Cannot replace edge chemistry.");
+    for(int i=swmm_gw2d_boundary_count(engine)-1;i>=0;--i)if(swmm_gw2d_boundary_remove(engine,i)!=SWMM_OK)return tr("Cannot replace hydraulic edges.");
+    for(const auto& row:rows) {
+        int status=0;
+        if(row.species.isEmpty()) {const SWMM_GwBoundary native{row.cell,row.edge,row.kind=="HEAD"?SWMM_GW2D_BOUNDARY_HEAD:SWMM_GW2D_BOUNDARY_FLOW,row.value};status=swmm_gw2d_boundary_set(engine,&native,row.series.toUtf8().constData());}
+        else status=swmm_gw_boundary_quality_set(engine,row.cell,row.edge,row.species.toUtf8().constData(),row.kind.toUtf8().constData(),row.value,row.series.toUtf8().constData());
+        if(status!=SWMM_OK)return tr("The engine refused an edge record.");
+    }
+    QList<Row> actual;const auto error=read(engine,actual);if(!error.isEmpty())return error;
+    return actual==canonical(rows)?QString():tr("Saved edge records differ from the requested values.");
+}
+QString Mesh2DAquiferBoundaryModel::commit(SWMM_Engine engine,bool accept)
+{
+    auto error=validateCommit(engine);if(!error.isEmpty()||!isDirty())return error;
+    error=write(engine,canonical(m_rows));
+    if(!error.isEmpty()){const auto rollback=write(engine,m_loaded);if(!rollback.isEmpty())error+=tr(" Restoration failed: %1. Reload the saved model.").arg(rollback);return error;}
+    if(accept)acceptChanges();return {};
+}
+QString Mesh2DAquiferBoundaryModel::restoreLoaded(SWMM_Engine engine)
+{
+    QByteArray currentIdentity;const auto changed=identity(engine,currentIdentity);if(!changed.isEmpty())return changed;
+    if(currentIdentity!=m_identity)return tr("The mesh or species units changed; boundary restoration was refused.");
+    QList<Row> current;auto error=read(engine,current);if(!error.isEmpty())return error;
+    if(current==m_loaded)return {};
+    if(current!=canonical(m_rows))return tr("Groundwater boundaries changed after this edit; restoration was refused.");
+    return write(engine,m_loaded);
+}
+void Mesh2DAquiferBoundaryModel::acceptChanges()
+{beginResetModel();m_rows=canonical(m_rows);m_loaded=m_rows;endResetModel();}
+std::shared_ptr<Mesh2DAquiferBoundaryModel> Mesh2DAquiferBoundaryModel::transactionCopy()const
+{auto copy=std::make_shared<Mesh2DAquiferBoundaryModel>();copy->m_rows=m_rows;copy->m_loaded=m_loaded;copy->m_error=m_error;copy->m_identity=m_identity;return copy;}
 
 } // namespace openswmmvis::ui

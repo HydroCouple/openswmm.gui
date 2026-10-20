@@ -25,6 +25,7 @@
 #define OPENSWMMVIS_UI_DIALOGS_MESH2DAQUIFERMODEL_H
 
 #include <QAbstractTableModel>
+#include <QByteArray>
 #include <QList>
 #include <QMap>
 #include <memory>
@@ -191,6 +192,40 @@ private:
     QString    m_lengthLabel = QStringLiteral("m");
     QString    m_rateLabel   = QStringLiteral("mm/hr");
     QString    m_areaLabel   = QStringLiteral("m²");
+};
+
+/*! Staged hydraulic edge and chemistry records, one shared model for editors. */
+class Mesh2DAquiferBoundaryModel : public QAbstractTableModel {
+    Q_OBJECT
+public:
+    enum Column {Cell,Edge,Species,Kind,Value,Series,Columns};
+    struct Row {
+        int cell=0,edge=0;QString species,kind="FLOW",series;double value=0;
+        bool operator==(const Row&) const=default;
+    };
+    explicit Mesh2DAquiferBoundaryModel(QObject* parent=nullptr):QAbstractTableModel(parent){}
+    int rowCount(const QModelIndex& parent={})const override{return parent.isValid()?0:int(m_rows.size());}
+    int columnCount(const QModelIndex& parent={})const override{return parent.isValid()?0:Columns;}
+    QVariant data(const QModelIndex&,int role=Qt::DisplayRole)const override;
+    QVariant headerData(int,Qt::Orientation,int role=Qt::DisplayRole)const override;
+    Qt::ItemFlags flags(const QModelIndex&)const override;
+    bool setData(const QModelIndex&,const QVariant&,int role=Qt::EditRole)override;
+    void addHydraulic();void addChemistry();void remove(int row);
+    void setEditable(bool value){m_editable=value;}
+    QString load(SWMM_Engine);
+    bool isDirty()const{return canonical(m_rows)!=m_loaded;}
+    QString validateCommit(SWMM_Engine,bool physical=true)const;
+    QString commit(SWMM_Engine,bool accept=true);
+    QString restoreLoaded(SWMM_Engine);
+    void acceptChanges();
+    std::shared_ptr<Mesh2DAquiferBoundaryModel> transactionCopy()const;
+private:
+    static QList<Row> canonical(const QList<Row>&);
+    static QString read(SWMM_Engine,QList<Row>&);
+    static QString write(SWMM_Engine,const QList<Row>&);
+    static QString validate(SWMM_Engine,const QList<Row>&);
+    static QString identity(SWMM_Engine,QByteArray&);
+    QList<Row> m_rows,m_loaded;bool m_editable=true;QString m_error;QByteArray m_identity;
 };
 
 } // namespace openswmmvis::ui

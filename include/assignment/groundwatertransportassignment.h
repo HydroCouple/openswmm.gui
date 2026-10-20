@@ -56,7 +56,8 @@ struct GroundwaterTransportRequest {
     QVector<double> values; // initial values or per-cell constant source flow (m3/s)
     bool skipNoData=false;
     QString species;
-    int zone=0; // SAT=0 / UNSAT=1 only
+    int zone=0; // SAT=0 / UNSAT=1 / explicit SIGMA layer=2
+    int layer=1; // one-based, used only for zone=2
     QString sourceName=QStringLiteral("Assigned"),flowSeries;
     QVector<GroundwaterSpeciesTerm> terms;
     GroundwaterSourceDistribution distribution=GroundwaterSourceDistribution::PerCell;

@@ -449,6 +449,40 @@ class TestMesh2DH5Reader : public QObject
     Q_OBJECT
 
 private slots:
+    void groundwaterLayerSlicesKeepSpeciesAndLayerCoordinatesDistinct()
+    {
+        using V=openswmmvis::io::Mesh2DResultVariable;
+        const QString path=writeFixture();
+        hid_t file=H5Fopen(path.toUtf8().constData(),H5F_ACC_RDWR,H5P_DEFAULT);QVERIFY(file>=0);
+        const auto write=[&](const char* name,std::vector<hsize_t> dims,std::vector<double> values) {
+            hid_t space=H5Screate_simple(int(dims.size()),dims.data(),nullptr);
+            hid_t ds=H5Dcreate2(file,name,H5T_NATIVE_DOUBLE,space,H5P_DEFAULT,H5P_DEFAULT,H5P_DEFAULT);
+            const bool ok=ds>=0&&H5Dwrite(ds,H5T_NATIVE_DOUBLE,H5S_ALL,H5S_ALL,H5P_DEFAULT,values.data())>=0;
+            if(ds>=0&&dims.size()==4) {
+                writeStringAttr(ds,"species_names","A,B");writeStringAttr(ds,"species_units","mg/L,ug/L");
+                writeStringAttr(ds,"layout","[time,species,layer,face]; zero-based SIGMA layer");
+            }
+            if(ds>=0)H5Dclose(ds);H5Sclose(space);return ok;
+        };
+        QVERIFY(write("Mesh2_face_gw_closure",{2},{2,0}));
+        std::vector<double> values(3*2*2*2);
+        for(int t=0;t<3;++t)for(int species=0;species<2;++species)for(int layer=0;layer<2;++layer)for(int cell=0;cell<2;++cell)
+            values[((t*2+species)*2+layer)*2+cell]=100*t+10*species+2*layer+cell;
+        QVERIFY(write("Mesh2_face_gw_layer_conc",{3,2,2,2},values));
+        H5Fclose(file);
+        Mesh2DH5Reader reader;QVERIFY(reader.open(path));
+        QVector<V> layers;for(const auto& v:reader.faceVariables())if(v.dataset=="Mesh2_face_gw_layer_conc")layers.append(v);
+        QCOMPARE(layers.size(),4);QSet<QString> keys;
+        for(const auto& v:layers) {
+            keys.insert(v.key());QCOMPARE(v.zone,V::Zone::Sigma);QVERIFY(v.unitsKnown);
+            std::vector<float> out;std::vector<openswmmvis::io::Mesh2DValueStatus> status;
+            QVERIFY2(reader.readFaceVariableAt(v,2,out,status),qPrintable(reader.lastError()));
+            QCOMPARE(out[0],float(200+(v.species=="B"?10:0)+2*v.layer));
+            QCOMPARE(status[1],openswmmvis::io::Mesh2DValueStatus::NotApplicable);
+        }
+        QCOMPARE(keys.size(),4);
+    }
+
     void decodedRowsPreserveBlockBoundariesAndMissingChunks()
     {
         using S=openswmmvis::io::Mesh2DValueStatus;

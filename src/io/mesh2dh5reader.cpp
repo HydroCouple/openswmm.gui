@@ -172,7 +172,7 @@ bool datasetShape(hid_t data, std::vector<hsize_t>& dims)
     DataSpaceGuard space(H5Dget_space(data));
     if (space.id < 0) return false;
     const int rank = H5Sget_simple_extent_ndims(space.id);
-    if (rank < 1 || rank > 3) return false;
+    if (rank < 1 || rank > 4) return false;
     dims.resize(rank);
     if (H5Sget_simple_extent_dims(space.id, dims.data(), nullptr) < 0) return false;
     for (hsize_t dim : dims)
@@ -199,6 +199,18 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString& nam
         warn(QStringLiteral("unsupported rank/type or cell count"));
         return variables;
     }
+    const bool layered = name == "Mesh2_face_gw_layer_conc" || name == "Mesh2_face_gw_layer_mass";
+    if(layered && (dims.size()!=4 || dims[2]==0 || dims[2]>128 || dims[1]*dims[2]>65536)) {
+        warn(QStringLiteral("layer chemistry needs bounded [time,species,layer,face] dimensions"));
+        return variables;
+    }
+    if(layered) {
+        QString axes;
+        if(!readStringAttr(data,"layout",axes)||!axes.startsWith("[time,species,layer,face]")) {
+            warn(QStringLiteral("layer chemistry axis metadata is missing or ambiguous"));return variables;
+        }
+    }
+    if(dims.size()==4 && !layered) {warn(QStringLiteral("unsupported rank-four axes"));return variables;}
     const bool speciesDataset = name == "Mesh2_face_species_conc" || name == "Mesh2_face_buildup"
         || name == "Mesh2_face_gw_sat_conc" || name == "Mesh2_face_gw_unsat_conc";
     if ((speciesDataset || name == "Mesh2_face_gw_theta_sigma") && dims.size() != 3) {
@@ -266,7 +278,7 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString& nam
     const bool buildup = name == "Mesh2_face_buildup";
     const bool sat = name == "Mesh2_face_gw_sat_conc";
     const bool unsat = name == "Mesh2_face_gw_unsat_conc";
-    if (!surface && !buildup && !sat && !unsat) {
+    if (!surface && !buildup && !sat && !unsat && !layered) {
         warn(QStringLiteral("unsupported rank-three axis metadata"));
         return variables;
     }
@@ -300,6 +312,7 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString& nam
                        || H5Lexists(file, "Mesh2_face_gw_closure", H5P_DEFAULT) <= 0
                        || H5Lexists(file, "Mesh2_face_gw_theta_sigma", H5P_DEFAULT) <= 0)))
         warn(QStringLiteral("water-state metadata incomplete; raw zero alone does not establish a waterless zone"));
+    if (layered) base.zone = V::Zone::Sigma;
     if (sat) base.zone = V::Zone::Saturated;
     if (unsat) base.zone = V::Zone::Unsaturated;
     for (int row = 0; row < names.size(); ++row) {
@@ -314,7 +327,14 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString& nam
                : sat ? QStringLiteral(" — saturated concentration")
                : unsat ? QStringLiteral(" — unsaturated concentration")
                        : QStringLiteral(" — concentration"));
-        variables.append(variable);
+        if(layered) {
+            for(int layer=0;layer<int(dims[2]);++layer) {
+                auto slice=variable;slice.layer=layer;
+                slice.label=domainLabel+names[row]+QStringLiteral(" — soil layer %1 — %2")
+                    .arg(layer+1).arg(name.endsWith("_mass")?QStringLiteral("total inventory"):QStringLiteral("dissolved concentration"));
+                variables.append(slice);
+            }
+        } else variables.append(variable);
     }
     return variables;
 }
@@ -323,7 +343,7 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString& nam
 // on failure; raw missing values are normalised before optional water masks.
 bool readCellSlice(hid_t file, const char* name, int cells, int rank,
                    int time, int row, std::vector<float>& values,
-                   std::vector<Mesh2DValueStatus>& status, QString& error)
+                   std::vector<Mesh2DValueStatus>& status, QString& error, int layer = -1)
 {
     values.clear(); status.clear();
     const auto fail = [&](const QString& why) {
@@ -338,12 +358,14 @@ bool readCellSlice(hid_t file, const char* name, int cells, int rank,
     if (!datasetShape(data, dims) || int(dims.size()) != rank || cells <= 0
         || dims.back() != hsize_t(cells)) return fail(QStringLiteral("rank or cell count mismatch"));
     if (rank > 1 && (time < 0 || hsize_t(time) >= dims[0])) return fail(QStringLiteral("frame unavailable"));
-    if (rank == 3 && (row < 0 || hsize_t(row) >= dims[1])) return fail(QStringLiteral("species/layer unavailable"));
+    if (rank >= 3 && (row < 0 || hsize_t(row) >= dims[1])) return fail(QStringLiteral("species/layer unavailable"));
+    if(rank==4 && (layer<0 || hsize_t(layer)>=dims[2]))return fail(QStringLiteral("layer unavailable"));
     DataSpaceGuard fileSpace(H5Dget_space(data));
     std::vector<hsize_t> offset(rank, 0), count(rank, 1);
     count.back() = hsize_t(cells);
     if (rank > 1) offset[0] = hsize_t(time);
-    if (rank == 3) offset[1] = hsize_t(row);
+    if (rank >= 3) offset[1] = hsize_t(row);
+    if (rank == 4) offset[2] = hsize_t(layer);
     if (fileSpace.id < 0)
         return fail(QStringLiteral("cannot select requested slice"));
     double fill = 0., missing = 0., scale = 1., add = 0.;
@@ -980,11 +1002,21 @@ bool Mesh2DH5Reader::readFaceVariableAt(const Mesh2DResultVariable& variable, in
     const bool independent = resolved.temporal == V::Temporal::Static || resolved.temporal == V::Temporal::Envelope;
     if (!independent && (timeIdx < 0 || timeIdx >= timeCount()))
         return setError_(QStringLiteral("Requested report time is unavailable."));
-    const int rank = independent ? 1 : (!resolved.species.isEmpty() || resolved.layer >= 0) ? 3 : 2;
+    const bool layered=!resolved.species.isEmpty() && resolved.layer>=0;
+    const int rank = independent ? 1 : layered ? 4 : (!resolved.species.isEmpty() || resolved.layer >= 0) ? 3 : 2;
+    if(layered) {
+        // Discovery expands species-major layers; resolve the stored species
+        // coordinate without treating the layer as another species.
+        row=0;
+        for(const auto& candidate:candidates) {
+            if(candidate.species==resolved.species)break;
+            if(candidate.layer==0)++row;
+        }
+    }
     std::vector<float> out; std::vector<S> flags;
     QString error;
     const QByteArray dataset = resolved.dataset.toUtf8();
-    if (!readCellSlice(file, dataset.constData(), cells, rank, timeIdx, row, out, flags, error))
+    if (!readCellSlice(file, dataset.constData(), cells, rank, timeIdx, row, out, flags, error, resolved.layer))
         return setError_(error);
     const auto readMask = [&](const char* name, int maskRank, int layer,
                               std::vector<float>& data, std::vector<S>& valid) {
