@@ -1,0 +1,251 @@
+{
+  "date": "2026-10-20",
+  "scope": "BULK wet non-LID subcatchment mix/react/allocate reactor; C/Python and File editing; rain-fed example and conservation benchmark cells.",
+  "baseline_commits": {
+    "openswmm.engine": "770fe19d39e0fc495154e30fc32a611deafe97d7",
+    "openswmm.gui": "ef493e3faa8ebf01b71b69694573163c5ec1241a",
+    "openswmm.engine.benchmarks": "406ab68ddd50e48abb212dcd839528e2a9c4404f"
+  },
+  "local_working_tree_build": true,
+  "counts": {
+    "engine_ctest_targets": 10,
+    "surface_quality_cases": 41,
+    "python_reaction_checks": 56,
+    "gui_checks_including_setup_cleanup": 15,
+    "analytic_benchmark_cells": 24,
+    "wet_pool_self_consistency_cells": 3
+  },
+  "executable_sha256": "160de391a520222b1da8315bac6cca71c107b2501a90965aa5e9aa467385cf30",
+  "library_sha256": "8f526b529b6e1d3ae8ec43e3dcdd557d67f349fac16c26cb5b68a34aa97e0807",
+  "benchmark_negative_controls": {
+    "zero_output": "3 FAIL; nonzero gate",
+    "broken_sum": "3 FAIL; nonzero gate",
+    "missing_executable": "3 UNAVAILABLE"
+  },
+  "remaining": [
+    "porous LID-layer species transport and reaction adapters",
+    "dry buildup reactions and selective subcatchment laws",
+    "geometry-dependent WALL/BULK conversion",
+    "exact native reaction checkpoint/output continuation",
+    "SETPOINT/FLOWPACED sources",
+    "wet-pool splitting needs timestep sensitivity checks for rapid kinetics"
+  ],
+  "source_files": [
+    {
+      "repository": "openswmm.engine",
+      "path": "ROADMAP.md",
+      "sha256": "1db6b3a70a7cf63dfe3e5aa21859452156e7bb843003ca2672a643739807d120"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": ".gitignore",
+      "sha256": "a5846ed22f110572669e9e8e71345e47c58d2958f82ed5be1cbe1bd17fe76e0e"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "docs/manuals/application/sections/Chapter9-MultispeciesReactions.md",
+      "sha256": "ee1bb71bb06d4ab37640e96423190981a511356060b11a67cbab6ba970c93259"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "docs/manuals/engine/sections/Chapter2-InputFileReference.md",
+      "sha256": "60af68fad33e802608c7cfb87e82bf85cff3ebf8291ddccdf463bef583d9bf36"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "docs/manuals/reference/quality/sections/Chapter11-PlannedFormulations.md",
+      "sha256": "a330d8f037ae84a6d2d4a8b0da5ca2226b3fd4d71bf366ea91ad6208ebd17eca"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "docs/manuals/reference/quality/sections/Chapter8-MultiSpeciesReactions.md",
+      "sha256": "4144eece6b44ad95abb1cc93870eb4c1ac0f707815161c0d59a2c8a0b250bc75"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "examples/reactions/README.md",
+      "sha256": "7d5ec09e20e81aff0a3f8928d98644f49bda27d658a6f59c18a8e57938f51a63"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "examples/reactions/wet_pool.inp",
+      "sha256": "8299266eb1046f0aa6d9d78d9f29e5d96e78a049e721948c05db06d55a8477d3"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "examples/reactions/wet_pool.rxn",
+      "sha256": "58d8f5654fe452630c629b76f1039e4f72d7ffc99478457fc80b8be7074710c8"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "include/openswmm/engine/openswmm_reactions.h",
+      "sha256": "7a9f993be474543ad1f7e0604f844326d8916133b712034bad9cd76859a7562d"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "python/docs/guide/reactions.rst",
+      "sha256": "0943633483480a414916bdf3322e47fa732cbc05b3480a34ff6328bc67f5d3ac"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "python/openswmm/engine/_enums.py",
+      "sha256": "94d877a8f9db441e307014273783a4f23b5644edd3c4195b5fd12f0f66a5f30e"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "python/openswmm/engine/_enums.pyi",
+      "sha256": "ba89de114b2cce966b80666772e4aab70c3ac87d289758374a620479f560fcb4"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "python/openswmm/engine/_reactions.pyx",
+      "sha256": "9667d879eb338bb73789670e17036018c06d5e1958e56170af72ba8c5e62667c"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "python/tests/engine/test_reactions.py",
+      "sha256": "a046e4aba56eae8377677c07df7b8d3d020dc7beadb83edca48e1a678f4fff80"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/core/SWMMEngine.cpp",
+      "sha256": "69d1b979cb3b8d4b5aa9711e6ec830da6adc157ca3a7d44c7ec63dbf0783a82a"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/core/openswmm_reactions_impl.cpp",
+      "sha256": "71fa1fcc768bc863ee9105710149c043c46678fc9a6b4e84723fee7bebce19e7"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/data/MsxSurfaceData.hpp",
+      "sha256": "f7d0df6b93c7b1d29b15ff779c84c46f093a313e3c127fa4c677e42bfb4e8422"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/data/ReactionData.hpp",
+      "sha256": "512cca9018793f18a1a23279cd5602fbf828a519acf3daeec67a3526a60cf4cc"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/plugins/DefaultReportPlugin.cpp",
+      "sha256": "ae6fe76cd90ad72caaede041707843be09f18a910ebcd75640080d5b03b7fb01"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/quality/MsxSurfaceQuality.cpp",
+      "sha256": "a2719003e873a9eba37cc3980c891dada9f84d5440404c0fca6ce9c987d2c0bf"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/quality/SurfaceSpeciesKernel.cpp",
+      "sha256": "6e9226573081e748ba5edc568f2126637a5bf46c2e6ae607b36159bdd420a9ef"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/quality/SurfaceSpeciesKernel.hpp",
+      "sha256": "666589dd1374326dc78b868a5c454e62df1bf3a6552555ae8f0c1f99d4ba2941"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/transport/components/ReactionModule/ReactionExpression.cpp",
+      "sha256": "a4e5ac6305a419653a09526450600c6ed96f1e396dd272d618781e2fa65973ad"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/transport/components/ReactionModule/ReactionExpression.hpp",
+      "sha256": "eb3919730f35678220fb1f516fded2164c21836c627ae769317a338f61c59db0"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/transport/components/ReactionModule/ReactionsComponent.cpp",
+      "sha256": "bba0759919b13c2be8479437ad3c67b7bd9430f639e1f91524468a0a562f2b79"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/transport/components/ReactionModule/ReactionsComponent.hpp",
+      "sha256": "803492515a95c352f0c6212a3516cc5fea0e92d8a87bf3d4b7383b543d82a9f5"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "src/engine/transport/components/ReactionModule/ReactionsWriter.cpp",
+      "sha256": "852288dff143564a6c18d958ade7204bc4f32e891da942d7203db66fd8db0f9c"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "tests/unit/engine/test_msx_buildup_washoff.cpp",
+      "sha256": "4deb6fd5634bcca46e3aae11352c78699e20b7bb3a010df12f2fb9982c457b83"
+    },
+    {
+      "repository": "openswmm.engine",
+      "path": "tests/unit/engine/test_reactions_config.cpp",
+      "sha256": "5b67c8369437853749d4db736b0b117a5a18066d576135fcb84cf9f0e3d38d1a"
+    },
+    {
+      "repository": "openswmm.gui",
+      "path": "src/ui/dialogs/reactionsystemeditordialog.cpp",
+      "sha256": "cdea2e4f876bf70aa98cb039529fdce8ccefe4dc58365f1532d7bc6c420b49ef"
+    },
+    {
+      "repository": "openswmm.gui",
+      "path": "tests/gui/test_reactionsystemeditor.cpp",
+      "sha256": "2ca4d0b1fc1a82936e638e3e4e708bad58e2638ec60006c05a44bf6631b7e2fc"
+    },
+    {
+      "repository": "openswmm.gui",
+      "path": "docs/manual/16_water_quality.md",
+      "sha256": "23703f157ca24fb180cbab45612b1b2c228308227dd19756872026c1fab9957b"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "README.md",
+      "sha256": "c519cdc0f443c372915b7b7fa1b54572043166ec0c9bf82dbca7b755b60ceebf"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/README.md",
+      "sha256": "52753125cd82c558e99b3d84fac56b6a1a264341ad79ac4a9dfb903d7d2469f9"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/pool.inp",
+      "sha256": "d835faef7514d0553cb4bb9c6d2d13b2ac0203e20e90537632874cf39bec7f22"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/suite.py",
+      "sha256": "878be259843e2c3bd60e4b22bdea705716228849991d92f7ef946ae17132fe8b"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/VALIDATION.md",
+      "sha256": "ed0f780e717e85e690749458ba077503ee4318d76040da73ecb7b8f324bca3cf"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/wet_pool.rxn",
+      "sha256": "58d8f5654fe452630c629b76f1039e4f72d7ffc99478457fc80b8be7074710c8"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/README.md",
+      "sha256": "4f7ba8fec2758c4751ac0ca31a4173fbdb8aa13b28f002ba06d7ef9829c1809f"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/parent_product.rxn",
+      "sha256": "5d93b4a5d0521993449509b1d6199ad9533f92d3f7ff8795edd69d36026dfd86"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/verification.json",
+      "sha256": "4cad27fcbe5cf194ffc3746df4eba47f83a3483b19b6978591a5897e3c7937ad"
+    },
+    {
+      "repository": "openswmm.engine.benchmarks",
+      "path": "suites/quality/reactions/wet_pool.inp",
+      "sha256": "8299266eb1046f0aa6d9d78d9f29e5d96e78a049e721948c05db06d55a8477d3"
+    }
+  ],
+  "source_note": "Hashes describe complete local files, including unrelated pre-existing changes. This is not an isolated clean-checkout build."
+}

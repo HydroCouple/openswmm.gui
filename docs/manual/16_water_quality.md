@@ -279,8 +279,9 @@ parameter-override and species-output sections. **Edit configuration** opens
 the File tab, where these sections are validated and applied with the rest of
 the reaction system. MASS source values use declared mass units per second;
 PATTERN_TIMESTEP is in seconds. Structured coefficient/species edits preserve
-these sections. Wet-subcatchment and porous LID-layer reactors remain
-unsupported.
+these sections. `[REACTION_SUBCATCHMENTS]` now adds a BULK wet-pool scope on
+non-LID subcatchments through the same File editor. Porous LID-layer
+reactions remain unsupported.
 
 ### Water age — `WATER_AGE ON` and `[WATER_AGE_SOURCES]`
 

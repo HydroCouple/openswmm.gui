@@ -257,7 +257,8 @@ void TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
         "[REACTION_PARAMETERS]\nNODE J0 k 2\n"
         "[REACTION_PATTERNS]\npulse 1 0\n"
         "[REACTION_SOURCES]\nMASS J0 A 28.317 pulse\n"
-        "[REACTION_REPORT]\nSPECIES ALL NO\n";
+        "[REACTION_REPORT]\nSPECIES ALL NO\n"
+        "[REACTION_SUBCATCHMENTS]\nRATE A -k * A\n";
     char error[512] = {};
     QCOMPARE(swmm_reactions_apply_text(e, text, error, sizeof(error)), SWMM_OK);
     ReactionSystemEditorDialog dlg(e, nullptr);
@@ -273,7 +274,7 @@ void TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
     child<QDoubleSpinBox>(dlg, "rx_coeffValue_0")->setValue(3);
     tabs->setCurrentIndex(tabs->count() - 2);
     const QString after = file->toPlainText();
-    for (const auto& section : {"REACTION_SOURCES", "REACTION_PATTERNS", "REACTION_PARAMETERS", "REACTION_REPORT"})
+    for (const auto& section : {"REACTION_SOURCES", "REACTION_PATTERNS", "REACTION_PARAMETERS", "REACTION_REPORT", "REACTION_SUBCATCHMENTS"})
         QVERIFY(after.contains(QLatin1String(section)));
     QVERIFY(after.contains(QStringLiteral("56.634")));
     int param = 0; double value = 0; char name[64];
