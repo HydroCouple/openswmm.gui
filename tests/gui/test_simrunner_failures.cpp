@@ -141,6 +141,33 @@ private slots:
     void cleanup() { qunsetenv("SWMMVIS_TEST_FAULT"); }
 
 
+#ifdef OPENSWMM_HAS_2D
+    void autoBackendUsesCpuWithoutRewritingModel()
+    {
+        const QByteArray prior=qgetenv("OPENSWMM_2D_BACKEND");
+        const QByteArray floor=qgetenv("OPENSWMM_2D_MIN_PARALLEL_CELLS");
+        const auto restore=qScopeGuard([&] {
+            qputenv("OPENSWMM_2D_BACKEND",prior);
+            qputenv("OPENSWMM_2D_MIN_PARALLEL_CELLS",floor);
+        });
+        qunsetenv("OPENSWMM_2D_BACKEND");
+        qputenv("OPENSWMM_2D_MIN_PARALLEL_CELLS","0");
+        QByteArray deck(kMinimal1D);deck.replace("01:00:00","00:00:02");
+        deck+="\n[2D_OPTIONS]\nBACKEND AUTO\nMOMENTUM_EQUATION LOCAL_INERTIAL\nMAX_TIMESTEP .1\n"
+              "[2D_VERTICES]\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
+              "[2D_TRIANGLES]\n0 1 3 .03\n0 3 2 .03\n";
+        const auto inp=writeDeck("cpu_default",deck.constData());QVERIFY(!inp.isEmpty());
+        SimulationStatusModel status;const auto result=runToEnd(this,status,"cpu_default",inp);
+        QVERIFY2(result.success,qPrintable(result.message));
+        QCOMPARE(readAll(inp).toUtf8(),deck);
+        const auto log=readAll(QDir(outputDir()).filePath("cpu_default.runlog.txt"));
+        const auto report=readAll(QDir(outputDir()).filePath("cpu_default.rpt"));
+        QVERIFY2(report.contains("2D solver: cpu"),qPrintable(report));
+        QVERIFY(log.contains("2D AUTO uses the built-in CPU"));
+    }
+
+#endif
+
     void quotedLastOutputOption_data()
     {
         QTest::addColumn<QByteArray>("options"); QTest::addColumn<QString>("expected");

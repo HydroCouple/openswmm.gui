@@ -6,6 +6,7 @@
  */
 #include "simulation/simulationrunner.h"
 #include "simulation/runpathlease.h"
+#include "simulation/twodbackendpolicy.h"
 #include "simulation/snowledger.h"
 #include "simulation/lidstaterecorder.h"
 
@@ -745,6 +746,16 @@ void SimulationRunner::start()
                 }
                 return {false, rc, msg, 0.0, 0.0};   // engineGuard closes + destroys
             }
+
+            QString backendNotice;
+            rc = openswmmvis::simulation::applyTwoDBackendPolicy(eng, backendNotice);
+            if (!backendNotice.isEmpty()) {
+                runLog->line(backendNotice);
+                QMetaObject::invokeMethod(rawSelf, [rawSelf, backendNotice] {
+                    emit rawSelf->warningReceived(rawSelf->m_jobId, 0, backendNotice);
+                }, Qt::QueuedConnection);
+            }
+            if (rc != SWMM_OK) return {false, rc, backendNotice, 0.0, 0.0};
 
             // Initialize
             *phase = QStringLiteral("initialize");
