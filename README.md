@@ -28,7 +28,7 @@ Key capabilities:
 - Interactive map canvas with pan/zoom, CRS reprojection, and layer management (vector, raster, WMS/WMTS, XYZ tiles, SWMM model & results layers)
 - SWMM model setup, editing, and validation
 - Simulation control and results visualization
-- Groundwater options, exterior head/flow and chemistry boundaries, bulk/SIGMA layer initial assignments, and per-species layer results with validation and undo (requires the matching development engine)
+- Groundwater options, exterior head/flow and chemistry boundaries, bulk/SIGMA layer initial assignments, combined layered chemistry and porous soil heat, and per-species layer results with validation and undo (requires the matching development engine)
 - GIS data import/export via GDAL
 
 ## Dependencies
