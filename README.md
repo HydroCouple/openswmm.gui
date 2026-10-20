@@ -31,6 +31,8 @@ Key capabilities:
 - Groundwater options, exterior head/flow and chemistry boundaries, bulk/SIGMA layer initial assignments, combined layered chemistry and porous soil heat, and per-species layer results with validation and undo (requires the matching development engine)
 - GIS data import/export via GDAL
 
+The matching development engine supports standalone CPU RK2 water, pollutants/MSX, age and surface/aquifer reactions. Heat and network/catchment coupling retain first-order requirements; see the [qualified transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md).
+
 ## Dependencies
 
 | Dependency | Version | Notes |
