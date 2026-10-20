@@ -616,18 +616,23 @@ choices from use in the current model. Spatial variation comes from aquifer
 properties and surface coverage; the ET policy and wilting suction apply
 to the whole mesh.
 
-Groundwater temperature transport carries water temperature. Stored ground
-conduction and thermal boundary settings have no qualified runtime kernel
-in this version; the editor exposes those records read-only. Channel bed
-exchange is configured separately in Heat Configuration and is not a mesh
-hyporheic flow model.
+Groundwater temperature transport carries water temperature. Porous soil heat
+storage and conduction are opt-in: select **Porous soil heat storage** under
+**Transport and thermal settings**, and enable groundwater and the required
+temperature/heat processes. Thermal boundaries, material mixing and fixed
+thermal resolution are edited there. SIGMA chemistry and thermal layers may
+use different resolutions. These thermal profiles retain first-order coupling.
+Channel bed exchange is configured separately in Heat Configuration and is not
+a mesh hyporheic flow model.
 
 For a consistent spatial workflow, choose **Model → Assign Groundwater…**:
 
 1. Select mesh cells with the rectangle or polygon tool, or choose all cells,
    a mesh tag, explicit 1-based cell numbers or a polygon in mesh coordinates.
 2. Choose an aquifer property, initial water state, **Initial species
-   concentration — SAT / UNSAT**, or **Add injection / extraction sources**.
+   concentration — SAT / UNSAT / Soil layer**, or **Add injection / extraction sources**.
+   A soil-layer value requires **Separate soil layers** chemistry with a SIGMA
+   aquifer; layer 1 is the top layer.
 3. Choose **Manual constant**, **Feature layer** or **Raster**. Property and
    per-cell flow inputs sample cell centroids. For raster water flux density,
    choose the conservative meaning and explicitly select m/s, mm/h, m/day or
@@ -669,9 +674,19 @@ also refuse the preview.
 
 Save preserves authored records in the model and assignment provenance in the
 project sidecar. Provenance records the reviewed snapshot; reopening does not
-reapply or automatically refresh the source layer. Hydraulic groundwater
-boundary chemistry, per-sigma-layer initial chemistry and coupled groundwater
-RK2 are currently unsupported and report errors.
+reapply or automatically refresh the source layer. Exterior groundwater
+HEAD/FLOW edges require their own hydraulic binding and explicit inflow
+chemistry; quality rows do not create water flow.
+
+The matching development engine supports standalone CPU FULL_SWE reconstruction
+order 2 with CLOSED_FORM, ENSLAVED or SIGMA aquifers, bulk or SIGMA-layered
+pollutant/MSX/age transport, and symmetric aquifer/surface reactions. This
+profile uses one global tier and authored well/edge forcing. Heat, network and
+catchment coupling, runtime providers and borrowed owners retain first-order
+requirements. Surface reaction laws support enabled BULK/pollutant dependencies
+and DT/TEMP; unavailable hydraulic and WALL dependencies are refused. See the
+[engine transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md)
+for activation, numerical limits and exact component restart scope.
 
 ### Styling the mesh
 
