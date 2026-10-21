@@ -2718,7 +2718,7 @@ void SWMMVis::initializeLayersDockWidget()
     // (openTimeSeriesPlotFor pops the variable menu + opens Comparison
     // Plot Dialog).
     connect(mLayerTreePanel, &LayerTreePanel::plotKindObjectRequested,
-            this, [this](int kindOrd, const QString &name) {
+            this, [this](int kindOrd, const QString &name, SWMMResultsLayer *results) {
                 if (name.isEmpty()) return;
                 SWMMObjectRef ref;
                 ref.name = name;
@@ -2742,7 +2742,8 @@ void SWMMVis::initializeLayersDockWidget()
                 default:
                     ref.objectType = SWMMObjectRef::Unknown;  break;
                 }
-                openTimeSeriesPlotFor(ref);
+                if (results) openTimeSeriesPlotForOnLayer(ref, results);
+                else openTimeSeriesPlotFor(ref);
             });
 
     // Right-click on a SWMM Output layer → "Plot Time Series…" — pops an
@@ -3474,6 +3475,13 @@ void SWMMVis::onAddFromMapToggled(bool active, openswmmvis::ui::ComparisonPlotDi
         if (!mPlotPickTarget) return;
         QScopedValueRollback<QPointer<openswmmvis::ui::ComparisonPlotDialog>> route(mComparisonRouteTarget, mPlotPickTarget);
         openComparisonPlotForDescriptor(ref, descriptor);
+    });
+    connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::objectPickedFromLayer, this,
+            [this](const SWMMObjectRef &ref, const openswmmvis::plot::ResultDescriptor &descriptor,
+                   SWMMResultsLayer *layer) {
+        if (!mPlotPickTarget) return;
+        QScopedValueRollback<QPointer<openswmmvis::ui::ComparisonPlotDialog>> route(mComparisonRouteTarget, mPlotPickTarget);
+        openComparisonPlotForDescriptorOnLayer(ref, descriptor, layer);
     });
     connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::plotSystemRequested, this,
             [this](openswmmvis::plot::PlotAttribute attribute) {
@@ -7358,6 +7366,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // Time Series plot handler used by Object Browser. UniqueConnection
     // keeps repeated tab-switches from stacking duplicates.
     if (auto *st = pw->selectTool()) {
+        connect(st, &OpenSWMMVisMapToolSelect::resultsLayerPicked,
+                pw, &SWMMVisProjectWindow::setActiveResultsLayer, Qt::UniqueConnection);
         connect(st, &OpenSWMMVisMapToolSelect::plotTimeSeriesRequested,
                 this, &SWMMVis::openTimeSeriesPlotFor,
                 Qt::UniqueConnection);
@@ -7394,6 +7404,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // Slice BC — when MapToolSelectProfile finalizes a path, open the
     // profile plot dialog bound to the active model + animation controller.
     if (auto *pt = pw->selectProfileTool()) {
+        connect(pt, &OpenSWMMVisMapToolSelectProfile::resultsLayerPicked,
+                pw, &SWMMVisProjectWindow::setActiveResultsLayer, Qt::UniqueConnection);
         connect(pt, &OpenSWMMVisMapToolSelectProfile::profilePathSelected,
                 this, &SWMMVis::openProfilePlotFor,
                 Qt::UniqueConnection);

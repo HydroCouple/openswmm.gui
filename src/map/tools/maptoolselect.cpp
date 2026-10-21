@@ -11,6 +11,7 @@
 #include "layers/annotationlayer.h"
 #include "core/preferencesmanager.h"
 #include "map/mapcanvas.h"
+#include "map/networkplotpick.h"
 #include "swmmvisprojectwindow.h"
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
@@ -1244,28 +1245,35 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
     const double tolY = std::abs(mapY2 - mapY);
     const double tol  = std::max(tolX, tolY);
 
-    for (OpenSWMMVisLayer *l : m_canvas->layers())
+    const auto outputHit = openswmmvis::pickNetworkForPlot(m_canvas, mapX, mapY, tol);
+    auto layers = m_canvas->layers();
+    if (outputHit.results) layers.prepend(outputHit.results);
+    for (OpenSWMMVisLayer *l : layers)
     {
         if (!l->isVisible())
             continue;
 
-        if (auto *sl = qobject_cast<SWMMModelLayer *>(l))
+        auto *output = qobject_cast<SWMMResultsLayer *>(l);
+        auto *sl = output ? output->modelLayer() : qobject_cast<SWMMModelLayer *>(l);
+        if (sl)
         {
+            if (output && output != outputHit.results) continue;
             // SWMM network click-pick. identifyAt returns the nearest
             // node / link / subcatchment / gage within the tolerance.
             // Note the lower-case keys "elementName" / "elementType"
             // — identifyByName uses capitalised "Name" / "Type"; the
             // two methods are historically inconsistent, and selection
             // has to key on the layer's SoA name exactly.
-            const QVariantMap hit = sl->identifyAt(mapX, mapY, nullptr, tol);
-            const QString name = hit.value(QStringLiteral("elementName")).toString();
+            const QVariantMap hit = output ? QVariantMap{} : sl->identifyAt(mapX, mapY, nullptr, tol);
+            const QString name = output ? outputHit.object.name : hit.value(QStringLiteral("elementName")).toString();
             if (name.isEmpty()) continue;
             // Typed pick: the hit knows WHICH kind was clicked, and SWMM
             // names are per-type namespaces (a gage and a subcatchment may
             // share a name) — carrying the kind keeps a subcatchment click
             // from also selecting its same-named gage.
-            const quint8 kind = kindBitForElementType(
-                hit.value(QStringLiteral("elementType")).toString());
+            const quint8 kind = output ? kindBitForObjectType(outputHit.ref().objectType)
+                : kindBitForElementType(hit.value(QStringLiteral("elementType")).toString());
+            if (output) emit resultsLayerPicked(output);
 
             QVector<SWMMModelLayer::SelectedElement> sel = sl->selectedElements();
             if (mods & Qt::ShiftModifier) {
@@ -1469,32 +1477,12 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     const double tol = std::max(std::abs(mapX2 - mapX),
                                  std::abs(mapY2 - mapY));
 
-    // Walk visible SWMM layers; first hit wins (matches left-click order).
-    SWMMObjectRef ref{SWMMObjectRef::Unknown, {}};
-    SWMMModelLayer *hitLayer = nullptr;
-    for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if (!l->isVisible()) continue;
-        auto *sl = qobject_cast<SWMMModelLayer *>(l);
-        if (!sl) continue;
-        const QVariantMap hit = sl->identifyAt(mapX, mapY, nullptr, tol);
-        const QString name = hit.value(QStringLiteral("elementName")).toString();
-        if (name.isEmpty()) continue;
-        const QString type = hit.value(QStringLiteral("elementType")).toString();
-        SWMMObjectRef::ObjectType t = SWMMObjectRef::Unknown;
-        if      (type == QStringLiteral("Node"))         t = SWMMObjectRef::Node;
-        else if (type == QStringLiteral("Link"))         t = SWMMObjectRef::Link;
-        else if (type == QStringLiteral("Subcatchment")) t = SWMMObjectRef::Subcatchment;
-        else if (type == QStringLiteral("RainGage"))     t = SWMMObjectRef::RainGage;
-        ref = {t, name};
-        hitLayer = sl;
-        break;
-    }
+    const auto plotHit = openswmmvis::pickNetworkForPlot(m_canvas, mapX, mapY, tol);
+    const SWMMObjectRef ref = plotHit.ref();
+    SWMMModelLayer *hitLayer = plotHit.model;
     auto *widget = qobject_cast<QWidget *>(m_canvas);
     const QPoint globalPt = widget ? widget->mapToGlobal(pixel) : pixel;
 
-    // Slice AT.2 — background right-click opens a "Plot System Variable…"
-    // submenu instead of doing nothing. Returns early so the rest of the
-    // hit-object menu logic is untouched.
     if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
     {
         QMenu bgMenu(widget);
@@ -1585,6 +1573,8 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                 resultsLayers.push_back(r);
         }
     }
+
+    if (plotHit.results) resultsLayers = {plotHit.results};
 
     QMenu *plotSubmenu = nullptr;                                 // flat case
     QList<QMenu *> perLayerSubmenus;                              // 2+ case
@@ -1794,8 +1784,11 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (plotSubmenu && picked->parent() == plotSubmenu) {
         // Y2b-2: descriptorFrom tells fixed / species / sentinel apart —
         // attributeFrom would read a species action as the sentinel.
-        emit plotAttributeRequested(
-            ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked));
+        const auto descriptor = openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked);
+        if (!resultsLayers.isEmpty())
+            emit plotAttributeForLayerRequested(ref, descriptor, resultsLayers.first());
+        else
+            emit plotAttributeRequested(ref, descriptor);
         return;
     }
     // Two-level layout: the picked QAction's parent is the per-layer

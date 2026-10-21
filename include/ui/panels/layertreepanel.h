@@ -361,7 +361,8 @@ signals:
      *        (openTimeSeriesPlotFor) which pops the variable picker and
      *        opens the Comparison Plot Dialog.
      */
-    void plotKindObjectRequested(int kindOrdinal, const QString &objectName);
+    void plotKindObjectRequested(int kindOrdinal, const QString &objectName,
+                                 SWMMResultsLayer *resultsLayer = nullptr);
 
     /*!
      * \brief Emitted when the user right-clicks a SWMM Output (.out) layer

@@ -78,6 +78,7 @@ public:
                const SpatialReferenceSystem *canvasSRS) override;
 
 signals:
+    void resultsLayerPicked(class SWMMResultsLayer *layer);
     void pixelToleranceChanged(int pixels);
     void rubberBandColorChanged(const QColor &color);
 

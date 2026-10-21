@@ -58,6 +58,7 @@
 // Link full depth (y_full) — the divisor behind the max-filling / surcharge
 // statistics, and not derivable from the .out file alone.
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_xsect.h>
 
 #include <QDateTime>
@@ -289,6 +290,46 @@ int subcatchOutCodeForAttribute(const QString &attr)
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
+
+SWMMModelLayer::PickResult SWMMResultsLayer::pickAt(double mapX, double mapY, double tolerance) const
+{
+    if (!isVisible() || opacity() <= 0 || !m_modelLayer || !outputHandle()) return {};
+    const auto visible = [this](SWMMModelLayer::Category cat, int index) {
+        auto *sub = featureSublayer(cat);
+        if (!sub || !sub->isVisible() || sub->opacity() <= 0) return false;
+        auto engine = m_modelLayer->engine();
+        if (cat >= SWMMModelLayer::CatJunctions && cat <= SWMMModelLayer::CatDividers)
+            return nodeOutputIndex(QString::fromUtf8(swmm_node_id(engine, index))) >= 0;
+        if (cat >= SWMMModelLayer::CatConduits && cat <= SWMMModelLayer::CatOutlets)
+            return linkOutputIndex(QString::fromUtf8(swmm_link_id(engine, index))) >= 0;
+        if (cat == SWMMModelLayer::CatSubcatchments)
+            return subcatchOutputIndex(QString::fromUtf8(swmm_subcatch_id(engine, index))) >= 0;
+        return false;
+    };
+    auto hit = m_modelLayer->pickAt(mapX, mapY, tolerance, visible);
+    // Geographic inverse projection can return -160 for a node authored
+    // at 200 degrees. Match the forward-projected marker on those misses,
+    // including when the underlying model layer is hidden.
+    if (!hit.valid && m_modelLayer->srs() && m_modelLayer->srs()->isGeographic()) {
+        double nearest = tolerance * tolerance;
+        auto engine = m_modelLayer->engine();
+        for (int index = 0; index < m_modelLayer->cachedNodeCount(); ++index) {
+            int type = 0;
+            if (swmm_node_get_type(engine, index, &type) != 0) continue;
+            const auto cat = SWMMModelLayer::Category(int(SWMMModelLayer::CatJunctions)
+                + (type >= 0 && type < 4 ? type : 0));
+            if (!visible(cat, index)) continue;
+            double x = 0, y = 0;
+            if (!m_modelLayer->cachedNodeCoord(index, &x, &y)
+                || !m_modelLayer->transformLayerToCanvas(x, y, x, y)) continue;
+            const double distance = (x - mapX) * (x - mapX) + (y - mapY) * (y - mapY);
+            if (!std::isfinite(distance) || distance >= nearest) continue;
+            nearest = distance;
+            hit = {true, cat, index, QString::fromUtf8(swmm_node_id(engine, index))};
+        }
+    }
+    return hit;
+}
 
 SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
                                    class SWMMModelLayer *modelLayer,

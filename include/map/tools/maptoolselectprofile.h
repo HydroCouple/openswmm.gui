@@ -69,6 +69,7 @@ public:
     void clearSelection();
 
 signals:
+    void resultsLayerPicked(class SWMMResultsLayer *layer);
     /*!
      * \brief Fired immediately after the user accepts a path (or after a
      *        single-candidate route auto-confirms).  The path's node and
@@ -100,7 +101,7 @@ private:
     // Returns the engine node index for a click at (mapX, mapY), snapping
     // through a link's nearest endpoint if a link is hit.  Returns -1 on
     // miss.  `tolerance` is in map units.
-    [[nodiscard]] int resolveNodeAt(double mapX, double mapY, double tolerance) const;
+    [[nodiscard]] int resolveNodeAt(double mapX, double mapY, double tolerance);
 
     // Computes the click tolerance in map units for the current viewport
     // (12-pixel target like MapToolSelect).

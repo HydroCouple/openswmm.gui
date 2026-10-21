@@ -52,6 +52,9 @@ signals:
      *  attributes for the ref's kind. */
     void objectPicked(const SWMMObjectRef &ref,
                       const openswmmvis::plot::ResultDescriptor &descriptor);
+    void objectPickedFromLayer(const SWMMObjectRef &ref,
+                               const openswmmvis::plot::ResultDescriptor &descriptor,
+                               class SWMMResultsLayer *layer);
 
     /*! \brief A background click (no object under cursor) with a system
      *  attribute selected from the submenu. */

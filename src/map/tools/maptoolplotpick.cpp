@@ -7,6 +7,7 @@
 #include "map/tools/maptoolplotpick.h"
 
 #include "layers/swmmmodellayer.h"
+#include "map/networkplotpick.h"
 #include "map/mapcanvas.h"
 #include "ui/widgets/attributepickermenu.h"
 
@@ -46,24 +47,8 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
     toMapCoords(pixel.x() + kHitTolPx, pixel.y() + kHitTolPx, mapX2, mapY2);
     const double tol = std::max(std::abs(mapX2 - mapX), std::abs(mapY2 - mapY));
 
-    // Hit-test visible SWMM model layers — same walk as
-    // OpenSWMMVisMapToolSelect::showContextMenu (canonical pattern).
-    SWMMObjectRef ref{SWMMObjectRef::Unknown, {}};
-    for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if (!l->isVisible()) continue;
-        auto *sl = qobject_cast<SWMMModelLayer *>(l);
-        if (!sl) continue;
-        const QVariantMap hit = sl->identifyAt(mapX, mapY, nullptr, tol);
-        const QString name = hit.value(QStringLiteral("elementName")).toString();
-        if (name.isEmpty()) continue;
-        const QString type = hit.value(QStringLiteral("elementType")).toString();
-        SWMMObjectRef::ObjectType t = SWMMObjectRef::Unknown;
-        if      (type == QStringLiteral("Node"))         t = SWMMObjectRef::Node;
-        else if (type == QStringLiteral("Link"))         t = SWMMObjectRef::Link;
-        else if (type == QStringLiteral("Subcatchment")) t = SWMMObjectRef::Subcatchment;
-        ref = {t, name};
-        break;
-    }
+    const auto hit = openswmmvis::pickNetworkForPlot(m_canvas, mapX, mapY, tol);
+    const SWMMObjectRef ref = hit.ref();
 
     auto *widget = qobject_cast<QWidget *>(m_canvas);
     const QPoint globalPt = widget ? widget->mapToGlobal(pixel) : pixel;
@@ -95,14 +80,16 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
     if (kind == PKind::Unknown) { event->accept(); return; }
 
     QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-        kind, openswmmvis::plot::UnitSystem::US, widget, m_speciesNames);
+        kind, openswmmvis::plot::UnitSystem::US, widget,
+        hit.results ? hit.results->speciesNames() : m_speciesNames);
     if (!menu) { event->accept(); return; }
     QAction *picked = menu->exec(globalPt);
     const auto d = openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked);
     delete menu;
     if (picked) {
         // d is INVALID for the "All attributes" sentinel — owner fans out.
-        emit objectPicked(ref, d);
+        if (hit.results) emit objectPickedFromLayer(ref, d, hit.results);
+        else emit objectPicked(ref, d);
     }
     event->accept();
 }
