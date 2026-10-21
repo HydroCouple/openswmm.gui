@@ -259,7 +259,6 @@
 #include "ui/dialogs/assignraingagesdialog.h"
 #include "ui/dialogs/meshattributeassigndialog.h"
 #include "ui/dialogs/infilassigntoselectiondialog.h"
-#include "ui/properties/meshtrianglepropertyadapter.h"
 #include "animation/animationcontroller.h"
 #include "ui/toolbars/terraintoolbar.h"
 #include "ui/toolbars/mesheditingtoolbar.h"
@@ -6560,32 +6559,6 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
     }));
 }
 
-void SWMMVis::showMeshCellProperties(SWMMVisProjectWindow *window,
-                                     const SWMMObjectRef &ref)
-{
-    if (!window || !window->canvas() || !mPropertiesPanel) return;
-
-    QString layerKey;
-    int     triIdx = -1;
-    if (!mesh::MeshObjectRef::parseCell(ref, &layerKey, &triIdx)) return;
-
-    for (OpenSWMMVisLayer *l : window->canvas()->layers()) {
-        auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
-        if (!ml) continue;
-        if (mesh::MeshObjectRef::layerKey(ml->sourcePath()) != layerKey) continue;
-        if (triIdx < 0 || triIdx >= ml->mesh().triangles.size()) return;
-
-        // Panel takes ownership; the previous adapter dies with the old
-        // model, so one adapter per selection is enough.
-        auto *adapter = new MeshTrianglePropertyAdapter(ml, triIdx);
-        adapter->setCanvas(window->canvas());
-        if (window->unitSystem())
-            adapter->setDepthUnitLabel(window->unitSystem()->depthLabel());
-        mPropertiesPanel->showObject(adapter, tr("2D Cell %1").arg(triIdx));
-        return;
-    }
-}
-
 namespace {
 
 /*!
@@ -7637,8 +7610,6 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                         if (mSectionViewPanel) mSectionViewPanel->clearSelection();
                         return;
                     }
-                    auto *layer = pw->modelLayer();
-                    if (!layer) return;
                     const SWMMObjectRef first = *current.constBegin();
 
                     // Slice SP.4 — nodes and links get a drawing; everything
@@ -7648,15 +7619,20 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                         mSectionViewPanel->showObject(
                             static_cast<int>(first.objectType), first.name);
 
-                    // 2D mesh cells are not SWMM network objects, so they
-                    // never reach identifyByName — mount the cell adapter
-                    // directly. Single-cell only: multi-cell editing is the
-                    // mesh toolbar's parameter editor.
-                    if (first.objectType == SWMMObjectRef::ObjectType::MeshCell) {
+                    // Mesh selections work independently of a 1D network.
+                    // Route every mesh kind before the network-model guard.
+                    using Kind = SWMMObjectRef::ObjectType;
+                    if (first.objectType == Kind::MeshCell || first.objectType == Kind::MeshVertex
+                        || first.objectType == Kind::MeshEdge) {
                         if (current.size() == 1)
-                            showMeshCellProperties(pw, first);
+                            mPropertiesPanel->showMeshObject(pw->canvas(), first,
+                                pw->unitSystem() ? pw->unitSystem()->depthLabel() : QStringLiteral("m"));
+                        else
+                            mPropertiesPanel->clear();
                         return;
                     }
+                    auto *layer = pw->modelLayer();
+                    if (!layer) { mPropertiesPanel->clear(); return; }
 
                     // SVBC round B — GIS feature refs are not SWMM network
                     // objects either; identifyByName would mis-resolve the

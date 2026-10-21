@@ -23,6 +23,8 @@ class QComboBox;
 class QPushButton;
 class QAbstractItemModel;
 class QAbstractItemDelegate;
+class MapCanvas;
+struct SWMMObjectRef;
 #ifdef HAVE_QPROPERTYMODEL
 class QPropertyModel;     // from QPropertyModel library
 class QPropertyItemDelegate;
@@ -71,6 +73,10 @@ public:
      * \param title   Optional title shown in the tab or header.
      */
     void showObject(QObject *object, const QString &title = {});
+
+    /*! Resolve a mesh cell, vertex or edge selection without requiring a 1D model. */
+    void showMeshObject(MapCanvas *canvas, const SWMMObjectRef &ref,
+                        const QString &depthUnit = QStringLiteral("m"));
 
     /*!
      * \brief Shows the attribute results from an identify operation.
@@ -188,6 +194,7 @@ private slots:
     void onOpenInEditorClicked();
 
 private:
+    void releaseMeshAdapter();
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     void setupUi();
@@ -252,6 +259,7 @@ private:
     // is `deleteLater()`d so the QPropertyModel stops referencing it
     // before the new one binds.
     SWMMDataObjectPropertyAdapter *m_dataAdapter = nullptr;
+    QPointer<QObject> m_meshAdapter;
 
     bool m_suppressEditForward = false; ///< Set during onObjectEditedExternally to break loop.
 

@@ -22,6 +22,15 @@
 #include "mesh/meshobjectref.h"
 #include "mesh/meshresult.h"
 #include "ui/panels/meshattributetablemodel.h"
+#ifdef HAVE_QPROPERTYMODEL
+#include "ui/panels/propertiespanel.h"
+#include "ui/properties/meshtrianglepropertyadapter.h"
+#include "ui/properties/meshvertexpropertyadapter.h"
+#include "ui/properties/meshedgepropertyadapter.h"
+#include <QAbstractItemModelTester>
+#include <QTreeView>
+#include <qvariantpropertyItem.h>
+#endif
 
 #include <QSignalSpy>
 #include <QTest>
@@ -69,6 +78,82 @@ class TestMeshAttributeTable : public QObject
 {
     Q_OBJECT
 private slots:
+
+#ifdef HAVE_QPROPERTYMODEL
+    void meshPropertiesRemainVisibleAndEditable()
+    {
+        SWMM2DMeshLayer layer(makeStrip(1), QString());
+        MeshTrianglePropertyAdapter cell(&layer, 0);
+        MeshVertexPropertyAdapter vertex(&layer, 0);
+        MeshEdgePropertyAdapter edge(&layer, 0, 0);
+        MapCanvas canvas;
+        canvas.addLayer(&layer, false);
+        PropertiesPanel panel;
+        panel.resize(600, 600);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        QVERIFY(tree);
+        auto *model = tree->model();
+        QAbstractItemModelTester tester(model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        auto findProperty = [&](auto &&self, const QString &name, const QModelIndex &parent) -> QModelIndex {
+            for (int r = 0; r < model->rowCount(parent); ++r) {
+                const auto index = model->index(r, 0, parent);
+                auto *property = dynamic_cast<QVariantPropertyItem *>(static_cast<QPropertyItem *>(index.internalPointer()));
+                if (property && QString::fromLatin1(property->metaProperty().name()) == name)
+                    return index.siblingAtColumn(1);
+                const auto child = self(self, name, index);
+                if (child.isValid()) return child;
+            }
+            return {};
+        };
+        const QList<SWMMObjectRef> refs = {
+            mesh::MeshObjectRef::cell(layer.sourcePath(), 0),
+            mesh::MeshObjectRef::vertex(layer.sourcePath(), 0),
+            mesh::MeshObjectRef::edge(layer.sourcePath(), 0, 0),
+            mesh::MeshObjectRef::cell(layer.sourcePath(), 0)};
+        const QList<QObject *> adapters = {&cell, &vertex, &edge, &cell};
+        for (int i = 0; i < refs.size(); ++i) {
+            // Exercise the same ref-to-panel path as map/table selections,
+            // with no 1D model attached to either the panel or the canvas.
+            panel.showMeshObject(&canvas, refs[i]);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QCoreApplication::processEvents();
+            auto *adapter = adapters[i];
+            const auto *meta = adapter->metaObject();
+            for (int p = meta->propertyOffset(); p < meta->propertyCount(); ++p) {
+                const auto property = meta->property(p);
+                QVERIFY2(findProperty(findProperty, QString::fromLatin1(property.name()), {}).isValid(), property.name());
+            }
+            QCOMPARE(panel.findChildren<MeshTrianglePropertyAdapter *>().size()
+                     + panel.findChildren<MeshVertexPropertyAdapter *>().size()
+                     + panel.findChildren<MeshEdgePropertyAdapter *>().size(), 1);
+        }
+        const auto roughness = findProperty(findProperty, QStringLiteral("mannings"), {});
+        QVERIFY(roughness.isValid());
+        QVERIFY(model->setData(roughness, 0.045, Qt::EditRole));
+        QCOMPARE(cell.mannings(), 0.045);
+        QVERIFY(canvas.undoStack()->canUndo());
+        canvas.undoStack()->undo();
+        QVERIFY(cell.mannings() != 0.045);
+        panel.showMeshObject(&canvas, refs[1]);
+        const auto elevation = findProperty(findProperty, QStringLiteral("z"), {});
+        QVERIFY(model->setData(elevation, 2.5, Qt::EditRole));
+        QCOMPARE(vertex.z(), 2.5);
+        QSignalSpy changed(model, &QAbstractItemModel::dataChanged);
+        QVERIFY(layer.applyMeshVertexZ(0, 3.5));
+        QVERIFY(!changed.isEmpty());
+        QCOMPARE(elevation.data(Qt::EditRole).toDouble(), 3.5);
+        panel.showMeshObject(&canvas, refs[2]);
+        const auto flow = findProperty(findProperty, QStringLiteral("bcFlow"), {});
+        QVERIFY(model->setData(flow, 1.25, Qt::EditRole));
+        QCOMPARE(edge.bcFlow(), 1.25);
+        // A stale or unrelated ref clears the previous object's attributes.
+        panel.showMeshObject(&canvas, mesh::MeshObjectRef::cell("missing.2dm", 0));
+        QCOMPARE(model->rowCount(), 0);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(panel.findChildren<MeshEdgePropertyAdapter *>().isEmpty());
+    }
+#endif
 
     // ---- shape ----------------------------------------------------------
 
