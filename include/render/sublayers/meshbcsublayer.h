@@ -67,9 +67,9 @@ class MeshBcStyle : public SublayerStyle
 
     Q_CLASSINFO("group:wallVisible",        "Wall / interior")
     Q_CLASSINFO("group:wallColor",          "Wall / interior")
-    Q_CLASSINFO("group:normalFlowVisible",  "Normal flow")
-    Q_CLASSINFO("group:normalFlowColor",    "Normal flow")
-    Q_CLASSINFO("group:normalFlowWidthPx",  "Normal flow")
+    Q_CLASSINFO("group:normalFlowVisible",  "Normal depth")
+    Q_CLASSINFO("group:normalFlowColor",    "Normal depth")
+    Q_CLASSINFO("group:normalFlowWidthPx",  "Normal depth")
     Q_CLASSINFO("group:stageConstVisible",  "Stage (constant)")
     Q_CLASSINFO("group:stageConstColor",    "Stage (constant)")
     Q_CLASSINFO("group:stageConstWidthPx",  "Stage (constant)")

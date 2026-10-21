@@ -253,7 +253,7 @@ QVector<FeatureRoleSpec> buildRegistry()
                        mesh::MeshBCTypes::inpToken(mesh::MeshBCTypes::Type::Wall)),
             realField("head", "Water-surface elevation (Specified Stage).",
                       /*required=*/false, 0.0, FieldUnit::Length),
-            realField("slope", "Bed slope (Normal Flow).", /*required=*/false, 0.001),
+            realField("slope", "Friction slope (Normal Depth).", /*required=*/false, 0.001),
             realField("flow", "Discharge per unit length (Specified Flow).",
                       /*required=*/false, 0.0),
             modelField("tseries", "Time series (Stage or Flow time series).",

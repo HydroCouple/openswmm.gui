@@ -358,10 +358,10 @@ void MeshAttributeTableModel::rebuildColumns()
                    UnitKind::Length,
                    tr("Fixed water-surface elevation for a Specified Stage "
                       "(constant) boundary."))
-            << num(QStringLiteral("slope"), tr("Bed Slope"), 0.0, 1.0e6, 6,
+            << num(QStringLiteral("slope"), tr("Friction Slope"), 0.0, 1.0e6, 6,
                    UnitKind::None,
-                   tr("Bed slope for a Normal Flow boundary. Must be > 0 — the "
-                      "engine treats 0 as a wall."))
+                   tr("Dimensionless friction slope for a Normal Depth boundary. "
+                      "Zero conveys no flow and acts as a wall."))
             << num(QStringLiteral("flow"), tr("Flow"), -1.0e12, 1.0e12, 4,
                    UnitKind::None,
                    tr("Discharge per metre of edge for a Specified Flow "

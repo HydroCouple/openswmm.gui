@@ -14,7 +14,7 @@ QString MeshBCTypes::label(Type t)
 {
     switch (t) {
     case Type::Wall:                return QCoreApplication::translate("MeshBCTypes", "Wall");
-    case Type::NormalFlow:          return QCoreApplication::translate("MeshBCTypes", "Normal Flow");
+    case Type::NormalFlow:          return QCoreApplication::translate("MeshBCTypes", "Normal Depth");
     case Type::SpecifiedStageConst: return QCoreApplication::translate("MeshBCTypes", "Specified Stage (Constant)");
     case Type::SpecifiedStageTS:    return QCoreApplication::translate("MeshBCTypes", "Specified Stage (Timeseries)");
     case Type::SpecifiedFlowConst:  return QCoreApplication::translate("MeshBCTypes", "Specified Flow (Constant)");
