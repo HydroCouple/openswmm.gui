@@ -31,7 +31,7 @@ Key capabilities:
 - Groundwater options, exterior head/flow and chemistry boundaries, bulk/SIGMA layer initial assignments, combined layered chemistry and porous soil heat, and per-species layer results with validation and undo (requires the matching development engine)
 - GIS data import/export via GDAL
 
-The matching development engine supports qualified standalone CPU RK2 groundwater, chemistry/age, soil heat, finite surface/soil contacts and accepted surface latent cooling. Constant or in-memory series STAGE/FLOW boundaries, copied runtime sources and weather participate in the same accepted transaction. Managed numerical or mesh-HDF5 sessions preserve calendars, native weather, pending batches and receipts. Further thermal and network/catchment combinations retain their documented restrictions; see the [qualified transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md).
+The matching development engine supports qualified standalone CPU RK2 groundwater, chemistry/age, soil heat, finite surface/soil contacts and accepted surface latent cooling. Surface boundaries, copied runtime sources and weather participate in the same accepted transaction. Managed numerical or mesh-HDF5 sessions preserve calendars, native weather, pending batches and receipts. Further thermal and network/catchment combinations retain their documented restrictions; see the [qualified transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md).
 
 ## Dependencies
 
