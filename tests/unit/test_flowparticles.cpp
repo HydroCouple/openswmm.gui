@@ -778,7 +778,9 @@ private slots:
             snapshot->fields[i].depth[k]=float(snapshot->mesh->vertices[snapshot->mesh->triangles[i][k]].x()-.95);
         const QRectF view(.97,.2,.03,.6);const auto seeds=buildFlowParticleSeeds(*snapshot,view,0);
         QVERIFY(std::abs(seeds.wetArea-.018)<1e-8);
-        auto settings=longLife();settings.cutoff=0;FlowParticleSystem system;
+        // Only birth locations are tested; 2,000 longLife() history pools
+        // would reserve over 9 GiB despite never integrating a trail.
+        auto settings=longLife();settings.cutoff=0;settings.maxHistory=3;FlowParticleSystem system;
         system.setSettings(settings);system.setField(snapshot);
         for(quint64 i=0;i<2000;++i) {
             const auto point=seeds.sample(i);QVERIFY(view.contains(point.first));
