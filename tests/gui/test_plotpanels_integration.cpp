@@ -6,7 +6,10 @@
 #include "map/tools/maptoolselect.h"
 #include "map/tools/maptoolselectprofile.h"
 #include "map/networkplotpick.h"
+#include "core/preferencesmanager.h"
 #include "render/sublayers/feature/featuresublayer.h"
+#include "render/sublayers/feature/featuresublayerstyle.h"
+#include "render/renderers/singlesymbolrenderer.h"
 #include "ui/panels/layertreepanel.h"
 #include "map/tools/maptoolprofilemarker.h"
 #include "map/swmmlayerqsgrenderer.h"
@@ -30,6 +33,11 @@
 #include <QTreeView>
 #include <QSortFilterProxyModel>
 #include <QFile>
+#include <QGraphicsScene>
+#include <QGraphicsEllipseItem>
+#include <QGraphicsPathItem>
+#include <QGraphicsPolygonItem>
+#include <QScopeGuard>
 #include <QMdiArea>
 #include <QQmlEngine>
 #include <QSettings>
@@ -57,6 +65,29 @@ class TestPlotPanelsIntegration : public QObject
     Q_OBJECT
     QTemporaryDir files;
     QString path(const char *name) { return files.filePath(QString::fromUtf8(name)); }
+    void disableFlowArrows(SWMMResultsLayer &output)
+    {
+        // These checks hold scene-item pointers across incremental refreshes.
+        // Arrow-enabled layers deliberately rebuild their items per frame.
+        for (int cat = 0; cat < SWMMModelLayer::NumCategories; ++cat)
+            if (auto *style = output.featureSublayer(
+                    static_cast<SWMMModelLayer::Category>(cat))->lineStyle())
+                style->setShowFlowArrows(false);
+    }
+    void setSingleColor(SWMMResultsLayer &output, SWMMModelLayer::Category cat)
+    {
+        using namespace OpenSWMM::Render;
+        SymbolLayer pass;
+        pass.kind = cat == SWMMModelLayer::CatConduits ? SymbolLayerKind::SimpleLine
+                  : cat == SWMMModelLayer::CatSubcatchments ? SymbolLayerKind::SimpleFill
+                  : SymbolLayerKind::SimpleMarker;
+        SymbolProps::writeColor(pass.props, "color", QColor(Qt::gray));
+        SymbolStyle symbol;
+        symbol.layers.append(pass);
+        output.setKindRenderer(cat, std::make_unique<SingleSymbolRenderer>(symbol));
+        output.featureSublayer(cat)->setVisible(true);
+        output.featureSublayer(cat)->featureStyle()->setUseColorRamp(false);
+    }
     SWMMVisProjectWindow *open(PlotTestWindow &app, const char *name)
     {
         if (!QMetaObject::invokeMethod(&app, "onOpenProject", Qt::DirectConnection,
@@ -111,6 +142,152 @@ private slots:
                                  path("run.out").toUtf8(), nullptr), SWMM_OK);
     }
     void init() { QSettings().clear(); }
+    void outputSelectionUsesConfiguredHighlightAndSize()
+    {
+        SWMMModelLayer model(path("first.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY(model.loadModel(warnings, errors));
+        SWMMResultsLayer output(path("run.out"), &model);
+        QVERIFY(output.openResults(warnings, errors));
+        disableFlowArrows(output);
+        model.setVisible(false);
+        using namespace OpenSWMM::Render;
+        auto *nodes = output.featureSublayer(SWMMModelLayer::CatJunctions);
+        auto *links = output.featureSublayer(SWMMModelLayer::CatConduits);
+        for (auto cat : {SWMMModelLayer::CatJunctions, SWMMModelLayer::CatConduits})
+            setSingleColor(output, cat);
+        nodes->pointStyle()->setShape(PointFeatureSublayerStyle::Circle);
+        nodes->pointStyle()->setMarkerSizePx(18);
+        links->lineStyle()->setLineWidthPx(5);
+        links->lineStyle()->setRenderAsLine(true);
+        links->lineStyle()->setShowFlowArrows(false);
+
+        auto *prefs = PreferencesManager::instance();
+        const QPen oldNode = prefs->selectionPen("node"), oldLink = prefs->selectionPen("link");
+        const QBrush oldFill = prefs->selectionBrush("node");
+        const auto restore = qScopeGuard([&] {
+            prefs->setSelectionPen("node", oldNode);
+            prefs->setSelectionPen("link", oldLink);
+            prefs->setSelectionBrush("node", oldFill);
+        });
+        prefs->setSelectionPen("node", QPen(Qt::magenta, 3));
+        prefs->setSelectionBrush("node", QBrush(Qt::cyan, Qt::Dense4Pattern));
+        prefs->setSelectionPen("link", QPen(Qt::green, 4, Qt::DashLine));
+        model.setSelectedElements({{"J", SWMMModelLayer::kKindNode},
+                                   {"C", SWMMModelLayer::kKindLink}});
+        QGraphicsScene scene;
+        const MapExtent extent(-10, -10, 70, 70);
+        output.refreshScene(&scene, extent, model.srs());
+        QGraphicsEllipseItem *node = nullptr;
+        QGraphicsPathItem *link = nullptr;
+        for (auto *item : scene.items()) {
+            if (auto *e = qgraphicsitem_cast<QGraphicsEllipseItem *>(item);
+                e && e->pos() == QPointF(0, 0)) node = e;
+            if (auto *p = qgraphicsitem_cast<QGraphicsPathItem *>(item)) link = p;
+        }
+        QVERIFY(node); QVERIFY(link);
+        QCOMPARE(node->rect().width(), 18.0);
+        QCOMPARE(node->pen().color(), QColor(Qt::magenta));
+        QCOMPARE(node->pen().widthF(), 3.0);
+        QCOMPARE(node->brush(), QBrush(Qt::cyan, Qt::Dense4Pattern));
+        QCOMPARE(link->pen().color(), QColor(Qt::green));
+        QCOMPARE(link->pen().widthF(), 9.0);
+        QCOMPARE(link->pen().style(), Qt::DashLine);
+        QVERIFY(link->pen().isCosmetic());
+
+        QSignalSpy repaint(&output, &OpenSWMMVisLayer::repaintRequested);
+        prefs->setSelectionPen("node", QPen(Qt::red, 6));
+        QVERIFY(!repaint.isEmpty());
+        output.refreshScene(&scene, extent, model.srs());
+        QCOMPARE(node->pen().color(), QColor(Qt::red));
+        QCOMPARE(node->pen().widthF(), 6.0);
+        QCOMPARE(link->pen().widthF(), 9.0); // no cumulative halo growth
+        output.setCurrentTimeStep(1);
+        output.refreshScene(&scene, extent, model.srs());
+        QCOMPARE(node->brush(), QBrush(Qt::cyan, Qt::Dense4Pattern));
+        QCOMPARE(link->pen().widthF(), 9.0);
+        repaint.clear();
+        model.clearSelection();
+        QVERIFY(!repaint.isEmpty());
+        output.refreshScene(&scene, extent, model.srs());
+        QVERIFY(node->pen().color() != QColor(Qt::red));
+        QCOMPARE(node->rect().width(), 18.0);
+        QCOMPARE(link->pen().widthF(), 5.0);
+
+        // Style changes rebuild geometry; selection retains the new size.
+        model.setSelectedElements({{"J", SWMMModelLayer::kKindNode}});
+        nodes->pointStyle()->setMarkerSizePx(26);
+        output.refreshScene(&scene, extent, model.srs());
+        bool resized = false;
+        for (auto *item : scene.items())
+            if (auto *e = qgraphicsitem_cast<QGraphicsEllipseItem *>(item);
+                e && e->pos() == QPointF(0, 0)) {
+                resized = true;
+                QCOMPARE(e->rect().width(), 26.0);
+                QCOMPARE(e->pen().color(), QColor(Qt::red));
+            }
+        QVERIFY(resized);
+        output.depopulateScene(&scene);
+    }
+    void outputPolygonAndGageSelectionStayKindExact()
+    {
+        QFile source(path("first.inp")); QVERIFY(source.open(QIODevice::ReadOnly));
+        const QByteArray deck = source.readAll() +
+            "[RAINGAGES]\nG INTENSITY 0:05 1 TIMESERIES Rain\n"
+            "[TIMESERIES]\nRain 0:00 0\nRain 1:00 0\n"
+            "[SUBCATCHMENTS]\nG G J 1 50 100 1 0\n"
+            "[SUBAREAS]\nG .01 .1 .05 .05 25 OUTLET\n"
+            "[INFILTRATION]\nG 3 .5 4 7 0\n"
+            "[POLYGONS]\nG 40 40\nG 60 40\nG 60 60\nG 40 60\n"
+            "[SYMBOLS]\nG 80 80\n";
+        QFile file(path("selection.inp")); QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(deck), deck.size()); file.close();
+        QCOMPARE(swmm_engine_run(path("selection.inp").toUtf8(),
+                                 path("selection.rpt").toUtf8(),
+                                 path("selection.out").toUtf8(), nullptr), SWMM_OK);
+        SWMMModelLayer model(path("selection.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY(model.loadModel(warnings, errors));
+        SWMMResultsLayer output(path("selection.out"), &model);
+        QVERIFY(output.openResults(warnings, errors));
+        disableFlowArrows(output);
+        using namespace OpenSWMM::Render;
+        for (auto cat : {SWMMModelLayer::CatSubcatchments, SWMMModelLayer::CatRainGages})
+            setSingleColor(output, cat);
+        auto *prefs = PreferencesManager::instance();
+        const auto restore = qScopeGuard([&] {
+            prefs->resetSelectionStyleToDefault("gage");
+            prefs->resetSelectionStyleToDefault("subcatchment");
+        });
+        prefs->setSelectionPen("subcatchment", QPen(Qt::red, 4, Qt::DotLine));
+        prefs->setSelectionBrush("subcatchment", QBrush(Qt::blue, Qt::CrossPattern));
+        prefs->setSelectionPen("gage", QPen(Qt::magenta, 2));
+        prefs->setSelectionBrush("gage", QBrush(Qt::green));
+        model.setSelectedElements({{"G", SWMMModelLayer::kKindCatch}});
+        QGraphicsScene scene;
+        const MapExtent extent(0, 0, 100, 100);
+        output.refreshScene(&scene, extent, model.srs());
+        QAbstractGraphicsShapeItem *polygon = nullptr, *gage = nullptr;
+        for (auto *item : scene.items()) {
+            auto *shape = dynamic_cast<QAbstractGraphicsShapeItem *>(item);
+            if (!shape) continue;
+            if (shape->pos() == QPointF(80, -80)) gage = shape;
+            if (auto *p = qgraphicsitem_cast<QGraphicsPolygonItem *>(shape);
+                p && p->polygon().size() == 4 && p->polygon().boundingRect().width() == 20)
+                polygon = p;
+        }
+        QVERIFY(polygon); QVERIFY(gage);
+        QCOMPARE(polygon->brush(), QBrush(Qt::blue, Qt::CrossPattern));
+        QCOMPARE(polygon->pen().widthF(), 4.0);
+        QCOMPARE(polygon->pen().style(), Qt::DotLine);
+        QVERIFY(gage->brush().color() != QColor(Qt::green));
+        model.setSelectedElements({{"G", SWMMModelLayer::kKindGage}});
+        output.refreshScene(&scene, extent, model.srs());
+        QCOMPARE(gage->brush().color(), QColor(Qt::green));
+        QCOMPARE(gage->pen().color(), QColor(Qt::magenta));
+        QVERIFY(polygon->brush() != QBrush(Qt::blue, Qt::CrossPattern));
+        output.depopulateScene(&scene);
+    }
     void reprojectedOutputCanBePickedWithModelHidden()
     {
         SWMMModelLayer model(path("first.inp"));

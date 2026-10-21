@@ -742,6 +742,10 @@ private:
      *  refreshScene when m_sceneDirty == ValuesDirty. */
     void restyleScene(QGraphicsScene *scene);
 
+    /*! Apply the shared network selection pens and fills to rendered output
+     *  items, retaining each output sublayer's marker size and line width. */
+    void applySelectionStyles();
+
     /*! L-1 — (re)build / update per-feature labels from labelConfig(). Each
      *  visible feature gets a "name: value unit" text item showing the
      *  current timestep's value for the colouring attribute. Called at the

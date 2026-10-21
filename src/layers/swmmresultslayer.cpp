@@ -7,6 +7,7 @@
 
 #include "layers/swmmresultslayer.h"
 #include "core/swmmdatetime.h"
+#include "core/preferencesmanager.h"
 #include "layers/speciesattributes.h"   // Y2a — dynamic species attributes
 #include "layers/swmmmodellayer.h"
 #include "map/graphicsitems.h"
@@ -459,6 +460,23 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
     };
     for (auto *s : m_featureSublayers)
         wireRefresh(s);
+
+    // Output picks share the source model's typed selection. Refresh the
+    // output itself even when that model is hidden beneath the results.
+    auto refreshSelection = [this]() {
+        escalateSceneDirty(SceneDirty::Values);
+        emit repaintRequested();
+    };
+    if (m_modelLayer)
+        connect(m_modelLayer, &SWMMModelLayer::selectionChanged,
+                this, refreshSelection);
+    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
+            this, [refreshSelection](const QString &group, const QString &key) {
+                if (group == QLatin1String("Selection")
+                    && (key.startsWith(QLatin1String("Pen/"))
+                        || key.startsWith(QLatin1String("Brush/"))))
+                    refreshSelection();
+            });
 
     // Slice Z.7a / gap A1.1 — per-frame rebinning. Connected here (not in
     // buildRuleListLazy) so PerFrameAutoStretch works on projects restored
@@ -3778,7 +3796,13 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             if (!col.isValid()) continue;
 
             double mx = 0.0, my = 0.0;
-            if (!m_modelLayer->elementPosition(name, &mx, &my)) continue;
+            // Resolve geometry by category as well as name: rain gages
+            // and catchments may share IDs, and gage indices are not nodes.
+            const int soaIndex = m_modelLayer->soaIndexAt(cat, row);
+            const bool positioned = cat == SWMMModelLayer::CatRainGages
+                ? m_modelLayer->cachedGageCoord(soaIndex, &mx, &my)
+                : m_modelLayer->cachedNodeCoord(soaIndex, &mx, &my);
+            if (!positioned) continue;
 
             // Per-class override surfaces from the override cache (size /
             // shape come from extractStyleSize/Shape in
@@ -4087,7 +4111,8 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                         ds >= 0 ? static_cast<Qt::PenStyle>(ds) : Qt::SolidLine);
             }
 
-            const QVector<QPointF> verts = m_modelLayer->cachedSubcatchVertices(row);
+            const QVector<QPointF> verts = m_modelLayer->cachedSubcatchVertices(
+                m_modelLayer->soaIndexAt(cat, row));
             if (verts.size() >= 3) {
                 QPolygonF poly; poly.reserve(verts.size());
                 for (const QPointF &p : verts)
@@ -4132,6 +4157,8 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             case FeatureSublayer::Archetype::Polygon: paintPolygon(sub); break;
         }
     }
+
+    applySelectionStyles();
 
     // L-1 — build labels after the feature items exist (positions anchor off
     // m_itemByFeature). No-op when labelConfig().enabled is false.
@@ -4374,8 +4401,10 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
                         p->setPen(pen);
                     }
                 } else {
-                    if (auto *e = qgraphicsitem_cast<QGraphicsEllipseItem *>(item))
+                    if (auto *e = qgraphicsitem_cast<QGraphicsEllipseItem *>(item)) {
+                        e->setPen(QPen(Qt::NoPen));
                         e->setBrush(QBrush(col));
+                    }
                 }
             }
             break;
@@ -4475,8 +4504,64 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
         }
     }
 
+    applySelectionStyles();
+
     // L-1 — refresh per-feature labels with the new frame's values.
     refreshLabels(scene);
+}
+
+void SWMMResultsLayer::applySelectionStyles()
+{
+    if (!m_modelLayer || m_modelLayer->selectedElements().isEmpty()) return;
+
+    QHash<QString, quint8> selected;
+    for (const auto &entry : m_modelLayer->selectedElements())
+        selected[entry.name] |= entry.kinds;
+
+    auto *prefs = PreferencesManager::instance();
+    using OpenSWMM::Render::FeatureSublayer;
+    for (auto *base : sublayers()) {
+        auto *sub = qobject_cast<FeatureSublayer *>(base);
+        if (!sub || !sub->isVisible() || sub->opacity() <= 0.0) continue;
+        const auto cat = sub->category();
+        const auto kind = SWMMModelLayer::kindBitForCategory(cat);
+        const QString key = catIsLinkScope(cat) ? QStringLiteral("link")
+                          : catIsSubcatchScope(cat) ? QStringLiteral("subcatchment")
+                          : cat == SWMMModelLayer::CatRainGages ? QStringLiteral("gage")
+                          : QStringLiteral("node");
+        QPen pen = prefs->selectionPen(key);
+        pen.setCosmetic(true);
+        QBrush brush = prefs->selectionBrush(key);
+        auto fade = [sub](QColor color) {
+            color.setAlphaF(std::clamp(color.alphaF() * sub->opacity(), 0.0, 1.0));
+            return color;
+        };
+        pen.setColor(fade(pen.color()));
+        brush.setColor(fade(brush.color()));
+        const auto &items = m_itemByFeature[static_cast<int>(cat)];
+        for (int row = 0; row < items.size(); ++row) {
+            auto *item = dynamic_cast<QAbstractGraphicsShapeItem *>(items[row]);
+            if (!item || !item->isVisible()
+                || !(selected.value(m_modelLayer->objectNameAt(cat, row)) & kind))
+                continue;
+            if (catIsLinkScope(cat)) {
+                // Match model selection: the configured width adds a halo
+                // to the output's own (possibly data-driven) stroke width.
+                QPen halo = item->pen();
+                halo.setColor(pen.color());
+                halo.setWidthF(halo.widthF() + pen.widthF());
+                if (pen.style() != Qt::SolidLine) halo.setStyle(pen.style());
+                halo.setCosmetic(true);
+                item->setPen(halo);
+                // Links may also be rendered as midpoint markers.
+                if (sub->lineStyle() && !sub->lineStyle()->renderAsLine())
+                    item->setBrush(QBrush(pen.color()));
+            } else {
+                item->setPen(pen);
+                item->setBrush(brush);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
