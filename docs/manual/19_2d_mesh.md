@@ -684,13 +684,15 @@ pollutant/MSX/age/water-temperature transport, and symmetric aquifer/surface rea
 profile uses one global tier and authored well/edge forcing. The porous RK2 profile supports soil energy, conduction, chemical/age inventories
 and phase-aware reactions with surface TRANSPORT_ONLY, sensible or latent soil ET,
 and constant, project-series or held AIR thermal boundaries. Thermal knots align the shared stages;
-only accepted soil evaporation receives latent cooling. A separate finite-contact profile uses COUPLED/GROUND_COLUMN, complete aquifer coverage and nonlinear radiation/sensible atmosphere (EVAPORATION NO for sensible exchange), with reciprocal heat, chemical/age contact, reactions and exact component continuation. It protects accepted exports and uses the physical VFR wetted footprint. Further heat owners, network/catchment coupling, runtime groundwater/forcing providers and borrowed owners retain
+only accepted soil evaporation receives latent cooling. A separate finite-contact profile uses COUPLED/GROUND_COLUMN, complete aquifer coverage and nonlinear radiation/sensible atmosphere (EVAPORATION NO for sensible exchange), with reciprocal heat, chemical/age contact, reactions and exact component continuation. It protects accepted exports and uses the physical VFR wetted footprint. Further heat owners, network/catchment coupling, runtime groundwater/boundary providers and borrowed owners retain
 first-order requirements. Surface reaction laws support enabled BULK/pollutant dependencies
 and DT/TEMP (local transported temperature when enabled); unavailable hydraulic and WALL dependencies are refused. See the
 [engine transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md)
 for activation, numerical limits and exact component restart scope.
 
-The matching engine also qualifies copied surface runtime source frames under standalone CPU RK2. Water, chemical/age/signed-temperature and heat receipts share bounded beginning donors and chronological expiry. Component restart binds prescriptions and preserves cleared/expired receipts; it does not capture an external provider program. Capability flags expose surface sources/heat and atomic source frames, while runtime groundwater, boundary and forcing frames remain refused for this profile.
+The matching engine also qualifies copied surface runtime source frames under standalone CPU RK2. Water, chemical/age/signed-temperature and heat receipts share bounded beginning donors and chronological expiry. Component restart binds prescriptions and preserves cleared/expired receipts; it does not capture an external provider program. Capability flags expose surface sources/heat and atomic source frames, while runtime groundwater and boundary frames remain refused for this profile.
+
+Runtime rain/quality, evaporation demand and paired infiltration also share the accepted RK2 water transaction on wall-bounded surfaces. Beginning donors exclude already accepted face exports, preserving passive temperature bounds during cold-rain dry-out. Rain that expires between report times remains in cell and HDF5 cumulative reports; heat evaporation diagnostics now match accepted hydraulic evaporation. Surface plugins need an ABI7 rebuild. Historical finite-heat RK2 component identities without the accepted-evaporation policy refuse exact continuation; this remains distinct from a full engine/session checkpoint. Positive runtime ET remains refused under sensible atmospheric heat.
 
 ### Styling the mesh
 
