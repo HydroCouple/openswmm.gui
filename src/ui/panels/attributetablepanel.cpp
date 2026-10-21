@@ -1375,8 +1375,7 @@ void AttributeTablePanel::refresh()
             m_tabularModel->setLayer(tab);
             m_proxy->setSourceModel(m_tabularModel);
             // Tabular layer: no SWMM delegates / no per-category widths.
-            for (int c = 0; c < m_proxy->columnCount(); ++c)
-                m_view->setItemDelegateForColumn(c, nullptr);
+            installColumnDelegates({}, m_proxy->columnCount());
         } else if (data.toString().startsWith(QStringLiteral("gis:"))) {
             const QString layerId = data.toString().mid(4);
             GISVectorLayer *gis = nullptr;
@@ -1532,8 +1531,7 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
         }
         m_tabularModel->setLayer(tab);
         m_proxy->setSourceModel(m_tabularModel);
-        for (int c = 0; c < m_proxy->columnCount(); ++c)
-            m_view->setItemDelegateForColumn(c, nullptr);
+        installColumnDelegates({}, m_proxy->columnCount());
     } else if (data.toString().startsWith(QStringLiteral("gis:"))) {
         // External OGR feature-layer source.
         const QString layerId = data.toString().mid(4);
@@ -1681,24 +1679,22 @@ void AttributeTablePanel::installColumnDelegates(
     const QList<openswmmvis::ColumnSpec> &specs, int clearUpTo)
 {
     if (!m_view) return;
-    // Clear any delegates installed from the previous category.
-    // QTableView doesn't own the delegate; we keep parents on the
-    // panel so they're destroyed with the panel.  The header count is in the
-    // sweep because the outgoing source may have had MORE columns than the
-    // incoming one — a delegate left on a high index would otherwise linger.
+    // The model has already switched, so its current column count cannot
+    // tell us which columns held editors in the previous (possibly wider)
+    // schema. Detach every recorded binding before deleting any delegate.
+    // Otherwise Qt retains a null QPointer for a high column and drawCell()
+    // dereferences it when that column becomes visible again.
+    for (auto it = m_installedDelegates.cbegin(); it != m_installedDelegates.cend(); ++it)
+        m_view->setItemDelegateForColumn(it.key(), nullptr);
+    for (QStyledItemDelegate *old : std::as_const(m_installedDelegates))
+        if (old) old->deleteLater();
+    m_installedDelegates.clear();
+
     int clearTo = std::max(clearUpTo, int(specs.size()));
     if (auto *header = m_view->horizontalHeader())
         clearTo = std::max(clearTo, header->count());
     for (int col = 0; col < clearTo; ++col)
         m_view->setItemDelegateForColumn(col, nullptr);
-    // Perf-plan Phase B2: detaching alone leaked one delegate per column per
-    // refresh (panel-parented, so they piled up until the panel died — and
-    // refresh() runs many times per file open).  Delete the outgoing set now
-    // that no column references it; deleteLater so an editor mid-commit on
-    // this event-loop turn can finish first.
-    for (QStyledItemDelegate *old : std::as_const(m_installedDelegates))
-        if (old) old->deleteLater();
-    m_installedDelegates.clear();
 
     for (int col = 0; col < specs.size(); ++col) {
         const auto &spec = specs[col];
@@ -1743,7 +1739,7 @@ void AttributeTablePanel::installColumnDelegates(
         // Delegate column index is the *proxy* column; since proxy
         // doesn't reorder columns, source-col == proxy-col here.
         m_view->setItemDelegateForColumn(col, del);
-        m_installedDelegates.append(del);
+        m_installedDelegates.insert(col, del);
     }
 }
 
@@ -3295,7 +3291,7 @@ void AttributeTablePanel::installFeatureDelegates()
                 list == openswmmvis::feature::ModelList::TimeSeries ? 0 : -1);
         });
         m_view->setItemDelegateForColumn(i + 1, del);
-        m_installedDelegates.append(del);
+        m_installedDelegates.insert(i + 1, del);
     }
 }
 

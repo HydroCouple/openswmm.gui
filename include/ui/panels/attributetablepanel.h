@@ -21,6 +21,7 @@
 #include "layers/swmmmodellayer.h"
 
 #include <QPointer>
+#include <QMap>
 #include <QSet>
 #include <QWidget>
 
@@ -248,7 +249,9 @@ private:
     /*! Delegates currently installed on the view — the outgoing set is
      *  deleted (not just detached) on the next install, closing the
      *  one-leaked-delegate-per-column-per-refresh hole (perf plan B2). */
-    QList<QStyledItemDelegate *> m_installedDelegates;
+    // Keep the original column indices: the model may already have changed
+    // to a narrower schema when these bindings need to be removed.
+    QMap<int, QStyledItemDelegate *> m_installedDelegates;
 
     /*! Bind the table to a mesh layer's vertices / edges / cells.
      *  `key` is the combo's `"mesh:<layerId>:<v|e|c>"` payload; a key that no
