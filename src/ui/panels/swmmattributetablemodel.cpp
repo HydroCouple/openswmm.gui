@@ -30,6 +30,7 @@
 #include <QUndoCommand>
 #include <QUndoStack>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <optional>
@@ -2269,11 +2270,13 @@ void SWMMAttributeTableModel::rebuildColumnSchema()
     }
     appendInitialQualityColumns();
     appendUserFlagColumns();
-    // Dynamics last — after the initial-quality and user-flag columns the
-    // two append calls above tack on. Ordering the whole table as
-    // [inputs | initial quality | user flags | results] means the editable
-    // model never drifts rightwards as a project defines more flags, and
-    // the run output is always found at the same end.
+    // Keep all ordinary attributes (including dynamic flags and initial
+    // quality) together, then the node coupling block, then run summaries.
+    // Stable ordering preserves the relative order inside each group.
+    std::stable_partition(m_columnSpecs.begin(), m_columnSpecs.end(),
+                          [](const ColumnSpec &spec) {
+        return !spec.setter.startsWith(QLatin1String("node_2d_"));
+    });
     appendDynamicsColumns();
     m_columnKeys.clear();
     m_columnLabels.clear();

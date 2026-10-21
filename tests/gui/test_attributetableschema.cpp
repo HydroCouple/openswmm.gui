@@ -334,6 +334,30 @@ private slots:
     // 2 — dynamics columns are a contiguous suffix
     // =====================================================================
 
+    void attributeGroupsAreContiguous()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        for (const auto category : allCategories()) {
+            SWMMAttributeTableModel model;
+            model.setSource(layer.get(), category);
+            QSet<QString> completed;
+            QString previous;
+            for (int column = 0; column < model.columnCount(); ++column) {
+                QString group = model.headerData(column, Qt::Horizontal,
+                    openswmmvis::AttributeGroupRole).toString().section(" / ", 0, 0);
+                if (group.isEmpty()) group = QStringLiteral("Model Attributes");
+                if (group != previous) {
+                    QVERIFY2(!completed.contains(group),
+                        qPrintable(QString("Group %1 reappears in category %2 at column %3")
+                            .arg(group).arg(int(category)).arg(column)));
+                    completed.insert(group);
+                    previous = group;
+                }
+            }
+        }
+    }
+
     void dynamicsColumnsAreAppendedLast()
     {
         auto layer = openLayer();
@@ -521,6 +545,42 @@ private slots:
     // =====================================================================
     // Panel-level: the delegates actually reach the view
     // =====================================================================
+
+    void categorySwitchesRetainLiveDelegates()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), nullptr, nullptr);
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(view);
+        panel.resize(1000, 600);
+        panel.show();
+        // Narrower schemas used to leave high-numbered column bindings behind
+        // when their delegates were deleted. Returning to a wider table then
+        // crashed in Qt's drawCell() on a null delegate.
+        const QList<SWMMModelLayer::Category> categories = {
+            SWMMModelLayer::CatConduits, SWMMModelLayer::CatRainGages,
+            SWMMModelLayer::CatJunctions, SWMMModelLayer::CatOutfalls,
+            SWMMModelLayer::CatSubcatchments, SWMMModelLayer::CatConduits};
+        for (int pass = 0; pass < 3; ++pass) {
+            for (const auto category : categories) {
+                panel.showModelCategory(layer.get(), category);
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                QVERIFY(view->model()->rowCount() > 0);
+                for (int column = 0; column < view->model()->columnCount(); ++column) {
+                    QVERIFY2(view->itemDelegateForIndex(view->model()->index(0, column)),
+                             qPrintable(QString("Missing delegate in category %1, column %2")
+                                            .arg(int(category)).arg(column)));
+                }
+                // Retired editors must be released as well as detached.
+                QVERIFY(panel.findChildren<QStyledItemDelegate *>(QString(), Qt::FindDirectChildrenOnly).size()
+                        <= view->model()->columnCount());
+                QCoreApplication::processEvents();
+                QVERIFY(!panel.grab().isNull());
+            }
+        }
+    }
 
     void panelInstallsCrossSectionDelegates()
     {
