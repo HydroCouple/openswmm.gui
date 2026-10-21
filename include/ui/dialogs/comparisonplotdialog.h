@@ -71,6 +71,7 @@ class ComparisonPlotDialog : public openswmmvis::ui::PlotPanelView
 public:
     explicit ComparisonPlotDialog(QWidget *parent = nullptr);
     ~ComparisonPlotDialog() override;
+    void showEvent(QShowEvent *event) override;
     void removeProjectSources(SWMMVisProjectWindow *project);
 
     /*! \brief Underlying model — exposed so callers (Object Browser wiring,
@@ -198,6 +199,7 @@ private:
     void propagateModeToRows();
     /*! \brief Equalise splitter row sizes (called after add/remove). */
     void equaliseChartSplitterSizes();
+    void fitSeriesPanelToContents();
     /*! \brief Hook up X-axis rangeChanged on a row's xAxis to mirror across rows. */
     void wireXAxisSync(int rowIndex);
     /*! \brief Prompt for a CSV / SWMM .dat path and write the given series
@@ -249,9 +251,11 @@ private:
     // Cached splitter sizes for restore when a pane is re-shown.
     QList<int>    m_savedSplitterSizes;       ///< outer (series | charts)
     QList<int>    m_savedChartsOuterSizes;    ///< charts | slider | stats
+    bool m_seriesPanelResized = false;
 
     // Per-row chart bookkeeping. Key = row index in model->rows().
     struct RowWidgets {
+        openswmmvis::plot::ResultDescriptor descriptor;
         // Outer per-row frame placed into m_chartsSplitter.
         QWidget            *rowFrame  = nullptr;
 

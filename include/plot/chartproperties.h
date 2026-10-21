@@ -71,6 +71,9 @@ public:
     };
     Q_ENUM(AxisNumberFormat)
 
+    enum LegendPosition { Top = 0, Bottom, Left, Right };
+    Q_ENUM(LegendPosition)
+
     Q_PROPERTY(QString titleText        READ titleText        WRITE setTitleText        NOTIFY titleTextChanged)
     Q_PROPERTY(QFont   titleFont        READ titleFont        WRITE setTitleFont        NOTIFY titleFontChanged)
 
@@ -88,6 +91,7 @@ public:
     Q_PROPERTY(QColor  gridColor        READ gridColor        WRITE setGridColor        NOTIFY gridColorChanged)
 
     Q_PROPERTY(int     chartTheme       READ chartTheme       WRITE setChartTheme       NOTIFY chartThemeChanged)
+    Q_PROPERTY(ChartProperties::LegendPosition legendPosition READ legendPosition WRITE setLegendPosition NOTIFY legendPositionChanged)
 
     Q_PROPERTY(ChartProperties::AxisNumberFormat xAxisNumberFormat READ xAxisNumberFormat WRITE setXAxisNumberFormat NOTIFY xAxisNumberFormatChanged)
     Q_PROPERTY(QString xLabelFormat    READ xLabelFormat    WRITE setXLabelFormat    NOTIFY xLabelFormatChanged)
@@ -124,6 +128,7 @@ public:
     QColor  plotAreaColor()   const;
     QColor  gridColor()       const noexcept { return m_gridColor; }
     int     chartTheme()      const;
+    LegendPosition legendPosition() const;
 
     /*! Combined format per axis, derived from the mode + digit count that
      *  remain the internal representation. */
@@ -160,6 +165,7 @@ public slots:
     void setPlotAreaColor(const QColor &c);
     void setGridColor(const QColor &c);
     void setChartTheme(int theme);
+    void setLegendPosition(ChartProperties::LegendPosition position);
 
     void setXAxisNumberFormat(ChartProperties::AxisNumberFormat f);
     void setYAxisNumberFormat(ChartProperties::AxisNumberFormat f);
@@ -189,6 +195,7 @@ signals:
     void plotAreaColorChanged(const QColor &);
     void gridColorChanged(const QColor &);
     void chartThemeChanged(int);
+    void legendPositionChanged(ChartProperties::LegendPosition);
 
     void xLabelFormatModeChanged(ChartProperties::LabelFormatMode);
     void xLabelPrecisionChanged(int);
@@ -216,6 +223,7 @@ private:
     // (grid colour isn't a first-class QChart attribute; it's per-axis pen).
     bool   m_yAutoRange = true;
     QColor m_gridColor  = QColor("#cccccc");
+    LegendPosition m_legendPosition = Top;
 
     // Axis label number formats. Seeded from the global Preferences default
     // in the constructor; per-chart edits override them (cached because a

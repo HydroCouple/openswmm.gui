@@ -12,6 +12,7 @@
 
 #include <QAbstractAxis>
 #include <QBrush>
+#include <QLegend>
 #include <QValueAxis>
 
 #include "plot/utctimeaxis.h"
@@ -49,6 +50,7 @@ ChartProperties::ChartProperties(QChart *chart, QObject *parent)
     m_yLabelPrecision = prefs->plotYAxisPrecision();
     m_statisticsMode      = m_yLabelMode;
     m_statisticsPrecision = m_yLabelPrecision;
+    m_legendPosition = legendPosition();
     applyLabelFormats_();
 }
 
@@ -107,6 +109,7 @@ QString ChartProperties::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("plotAreaColor"))   return QStringLiteral("Colours — Plot area");
     if (name == QStringLiteral("gridColor"))       return QStringLiteral("Colours — Grid");
     if (name == QStringLiteral("chartTheme"))      return QStringLiteral("Theme");
+    if (name == QStringLiteral("legendPosition"))  return tr("Legend — Position");
     if (name == QStringLiteral("xAxisNumberFormat")) return QStringLiteral("X Axis — Number format");
     if (name == QStringLiteral("xLabelFormat"))     return QStringLiteral("X Axis — Custom format");
     if (name == QStringLiteral("yAxisNumberFormat")) return QStringLiteral("Y Axis — Number format");
@@ -117,6 +120,27 @@ QString ChartProperties::displayLabelFor(const QString &name) const
 }
 
 // ----- Getters --------------------------------------------------------------
+
+ChartProperties::LegendPosition ChartProperties::legendPosition() const
+{
+    if (!m_chart) return m_legendPosition;
+    switch (m_chart->legend()->alignment()) {
+    case Qt::AlignBottom: return Bottom;
+    case Qt::AlignLeft: return Left;
+    case Qt::AlignRight: return Right;
+    default: return Top;
+    }
+}
+
+void ChartProperties::setLegendPosition(LegendPosition position)
+{
+    if (position < Top || position > Right || position == legendPosition()) return;
+    m_legendPosition = position;
+    const Qt::Alignment alignments[] = {Qt::AlignTop, Qt::AlignBottom,
+                                        Qt::AlignLeft, Qt::AlignRight};
+    if (m_chart) m_chart->legend()->setAlignment(alignments[position]);
+    emit legendPositionChanged(position);
+}
 
 QString ChartProperties::titleText() const
 {

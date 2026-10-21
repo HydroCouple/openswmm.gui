@@ -169,14 +169,13 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
         return;
     }
 
-    // Build the matching time axis: start_julian + i * (report_step / 86400).
+    // The cursor uses the recorded report clock. Use that same clock for
+    // series points, including restarted or delayed-report output files.
     const double t0 = startDateJulian();
-    const int stepSec = reportStepSeconds();
-    if (!std::isfinite(t0) || stepSec <= 0) {
-        out.errorMessage = QStringLiteral("Missing start date or report step");
+    if (!std::isfinite(t0)) {
+        out.errorMessage = QStringLiteral("Missing start date");
         return;
     }
-    const double step_days = static_cast<double>(stepSec) / 86400.0;
 
     std::vector<float> snowTimes;
     if(ref.kind==ObjectRef::Kind::Subcatch && varCode>=SWMM_OUT_SUBCATCH_SNOW_SWE) {
@@ -188,13 +187,16 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
     out.timesJulian.resize(static_cast<std::size_t>(count));
     out.values.resize(static_cast<std::size_t>(count));
     for (int i = 0; i < count; ++i) {
-        // SWMM .out report periods are 1-based in the file but the engine API
-        // exposes 0-based indexing for start/end periods (start_period=0,
-        // end_period=n-1 returns n values).  Each value at period p corresponds
-        // to time t0 + (p+1) * stepSec (the engine writes at the END of each
-        // reporting interval — same convention TimeSeriesPlotDialog uses).
         const int p = from + i;
-        out.timesJulian[i] = snowTimes.empty()?t0+(p+1)*step_days:t0+snowTimes[i]/86400.;
+        double time = std::nan("");
+        if (!snowTimes.empty()) time = t0 + snowTimes[i] / 86400.;
+        else if (swmm_output_get_period_time(handle, p, &time) != 0 || !std::isfinite(time)) {
+            out.timesJulian.clear();
+            out.values.clear();
+            out.errorMessage = QStringLiteral("Missing report time for period %1").arg(p);
+            return;
+        }
+        out.timesJulian[i] = time;
         out.values[i]      = static_cast<double>(values[i]);
     }
     out.ok = true;
