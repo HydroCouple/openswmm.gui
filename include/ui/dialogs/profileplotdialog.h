@@ -27,7 +27,7 @@
 #include "selection/selectionmanager.h"   // SWMMObjectRef (AT.3)
 
 #include <QDateTime>
-#include <QDialog>
+#include "ui/panels/plotpanelview.h"
 #include <QBrush>
 #include <QHash>
 #include <QPointer>
@@ -58,7 +58,7 @@ class SWMMModelLayer;
 class SWMMResultsLayer;
 class SWMMVisProjectWindow;
 
-class ProfilePlotDialog : public QDialog
+class ProfilePlotDialog : public openswmmvis::ui::PlotPanelView
 {
     Q_OBJECT
 
@@ -91,8 +91,10 @@ public:
      *         signal into a half-destroyed dialog.
      */
     ~ProfilePlotDialog() override;
+    SWMMVisProjectWindow *projectWindow() const;
 
 protected:
+    void plotActivationChanged(bool active) override;
     /*!
      * \brief  After DialogLayoutWatcher restores the splitter state on this
      *         first Show, makes sure a shown attribute-tracks pane actually

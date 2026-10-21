@@ -4369,3 +4369,20 @@ add_swmmvis_gui_test(test_hydrothermalgis
 swmmvis_link_full_app_deps(test_hydrothermalgis)
 
 add_swmmvis_gui_test(test_twodbackendpolicy test_twodbackendpolicy.cpp)
+
+# Docked plot content: lifecycle, tab isolation, activation and layout persistence.
+add_swmmvis_gui_test(test_plotdock
+    test_plotdock.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/plotdock.h
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/plotdock.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/plotpanelview.h
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/plotpanelview.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp)
+
+add_swmmvis_gui_test(test_plotpanels_integration
+    test_plotpanels_integration.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
+swmmvis_link_full_app_deps(test_plotpanels_integration)
+set_property(TEST test_plotpanels_integration APPEND PROPERTY ENVIRONMENT "QT_QUICK_BACKEND=software")

@@ -3,7 +3,8 @@
 ## What you'll do
 
 Draw a longitudinal section through the model and see what the water does along
-it. There are three profile tools, each with its own dialog:
+it. The 1D and 2D tools open tabs in dockable profile panels; the terrain tool
+opens its own window:
 
 | Tool | Section through | Shows |
 |------|-----------------|-------|
@@ -24,6 +25,24 @@ it. There are three profile tools, each with its own dialog:
 
 All three are checkable map tools: clicking the action arms the tool, clicking it
 again returns to the select tool.
+
+## Dockable profile panels
+
+**1D Profiles** and **2D Profiles** each hold multiple independent tabs. A new
+network path or mesh trace opens another tab. Drag tabs to reorder them; use the
+tab close button to remove one profile. Reopening an already-open saved 2D section
+selects its existing tab. Closing a tab does not delete a saved section.
+
+The panels start in the bottom docking area alongside **Time Series**. Drag a
+panel's title bar to move, float, or dock it beside another panel. Closing the
+panel only hides it: reopen it through **View → Panels → 1D Profiles / 2D Profiles**.
+Dock positions are remembered after restart; unsaved plot tabs are not.
+
+Each tab keeps its own sources, zoom, cursor and display settings. Selecting a
+tab for another project activates that project. Only the active, visible 2D tab
+controls the map's profile line and marker. Switching tabs or hiding the panel
+ends marker dragging; returning to a tab restores its cursor and current results.
+Closing a project removes its profile tabs and its sources from comparison plots.
 
 ## Step-by-step
 
@@ -97,7 +116,7 @@ station).
 
 \figtodo{23_profile_anatomy.png, An annotated 1D profile identifying ground; inverts; crowns; HGL; max HGL and node glyphs}
 
-### The profile window
+### The 1D profile panel
 
 | Region | Contents |
 |--------|----------|
@@ -114,7 +133,7 @@ extent.
 
 Right-clicking a node or a link in the profile gives **Zoom to on map**, a
 **Plot Time Series…** submenu of that kind's attributes, and **Properties…**. The
-time-series pick opens a comparison plot that floats over the profile window —
+time-series pick opens a dedicated tab in the **Time Series** panel —
 see \ref manual_time_series_plots.
 
 The profile follows the global animation cursor, so pressing **Play** on the
@@ -206,7 +225,7 @@ double-click or `Enter` to finish, right-click to undo the last vertex, `Esc` to
 cancel. The action tells you so in its tooltip, and refuses to arm when the
 project has no mesh loaded.
 
-The **2D Mesh Profile** window draws, along the traced chainage:
+The **2D Profiles** panel draws, along the traced chainage:
 
 - the **bed elevation** sampled from the mesh, with soil fill below it;
 - the **water depth** as a fill and a **water-surface (WSE) line**, animated with
@@ -234,7 +253,7 @@ legend and time-label groups as the 1D profile.
 
 #### Combined groundwater and overland sections
 
-Use **Series and styles** in the 2D section dialog to add groundwater table/base
+Use **Series and styles** in the 2D section tab to add groundwater table/base
 elevations and separate scalar tracks for available surface or SAT/UNSAT species.
 Each series chooses its result source, variable, visibility and appearance.
 Groundwater remains visible when the surface cell is dry. Concentrations retain

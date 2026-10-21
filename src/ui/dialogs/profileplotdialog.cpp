@@ -101,7 +101,7 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
                                      const ProfileRouter::Path   &path,
                                      SWMMVisProjectWindow        *projectWindow,
                                      QWidget                     *parent)
-    : QDialog(parent),
+    : openswmmvis::ui::PlotPanelView(parent),
       m_model(model),
       m_canvas(projectWindow ? projectWindow->canvas() : nullptr),
       m_projectWindow(projectWindow),
@@ -111,7 +111,6 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
     setWindowTitle(tr("Profile Plot"));
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("ProfilePlotDialog"));
-    setModal(false);
     // Single options object — shared by the layer panel (visibility
     // checkboxes), the plot widget (theming + legend), and the property-
     // model-driven Display Options dialog.  Any setter on it propagates
@@ -127,17 +126,6 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
         m_trackOptions->readFrom(s);
         s.endGroup();
     }
-    // Promote the dialog to a regular top-level window so the OS gives it
-    // minimize / maximize / zoom controls instead of the macOS "panel"
-    // treatment that QDialog's default flags trigger.
-    // WindowStaysOnTopHint keeps the dialog visible while the user
-    // interacts with the main window's animation toolbar.
-    setWindowFlags(Qt::Window
-                   | Qt::WindowSystemMenuHint
-                   | Qt::WindowTitleHint
-                   | Qt::WindowMinMaxButtonsHint
-                   | Qt::WindowCloseButtonHint
-                   | openswmmvis::ui::stayAboveAppFlags());
     resize(960, 560);
 
     // Materialize static path geometry from the model.  Terrain sampling
@@ -174,21 +162,19 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
                 this, refreshForResultLayerChange);
     }
 
-    // Lifetime: this dialog is a top-level window parented to its project
-    // sub-window (see SWMMVis::openProfilePlotFor — parentage keeps it in
-    // the Qt object tree so it closes with its document), and it holds
-    // raw pointers to
-    // the primary project's model layer, animation controller, project
-    // window, plus result-layer pointers belonging to *other* projects
-    // when the user opts into multi-source comparison.  Each owning
-    // SWMMVisProjectWindow emits `aboutToClose()` from its closeEvent
-    // BEFORE Qt's teardown chain begins — connecting there lets us drop
-    // references while everything is still alive.  Subscribing to
-    // `destroyed()` is too late: the model layer / canvas / results
-    // layers are already gone by then, so any handler that touches them
-    // would crash.  Subscriptions for secondary-source projects are
-    // added in populateSourcesPanel() when each layer is discovered.
+    // The dock owns the view; the project owns its data. Disconnect before
+    // project teardown, including secondary projects used as result sources.
     subscribeProjectClose(m_projectWindow);
+}
+
+SWMMVisProjectWindow *ProfilePlotDialog::projectWindow() const
+{
+    return m_projectWindow.data();
+}
+
+void ProfilePlotDialog::plotActivationChanged(bool active)
+{
+    if (active && m_anim) onAnimationTimeChanged(m_anim->currentDateTime());
 }
 
 ProfilePlotDialog::~ProfilePlotDialog()
@@ -258,6 +244,7 @@ void ProfilePlotDialog::buildLayout()
     actZoomIn ->setToolTip(tr("Zoom In  —  click or drag a rectangle"));
     actZoomOut->setToolTip(tr("Zoom Out  —  click or drag a rectangle"));
     actFit    ->setShortcut(QKeySequence(Qt::Key_Home));
+    actFit    ->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     // Mutually-exclusive mode group — Qt handles the un-checking so our
     // toggled() handlers don't cross-call each other and recurse into a
     // stack overflow when the user switches modes.
@@ -933,11 +920,6 @@ void ProfilePlotDialog::buildLayout()
     m_loadingBar->setVisible(false);
     root->addWidget(m_loadingBar);
 
-    // Close button.
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
-    root->addWidget(buttons);
-
     // Source-toggle wiring happens per-action inside populateSourcesPanel().
 }
 
@@ -1080,8 +1062,10 @@ void ProfilePlotDialog::onObservedProjectAboutToClose(SWMMVisProjectWindow *pw)
     if (pw == m_projectWindow) {
         // The dialog's primary project is going away: every back-pointer
         // owned by that project (model layer, canvas) is about to die.
-        // Drop them now and close — WA_DeleteOnClose will tear down the
-        // dialog on the next event-loop iteration.
+        // Drop them now and close; the dock disposes of this tab.
+        setPlotActive(false);
+        ++m_loadCookie;
+        ++m_trackLoadCookie;
         m_projectWindow = nullptr;
         m_canvas        = nullptr;
         m_model         = nullptr;
@@ -1891,7 +1875,7 @@ void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
     // layers, so a hidden layer's overlay would otherwise freeze. No-op
     // when already on that frame; currentTimeChanged → refreshSurface2DDepths.
     // A minimized dialog does not drive it; showEvent catches up on restore.
-    if (m_surface2DLayer && !isMinimized())
+    if (m_surface2DLayer && isPlotActive())
         m_surface2DLayer->setCurrentSimTimeAsOf(dt);
 }
 
@@ -2110,7 +2094,7 @@ void ProfilePlotDialog::ensureTracksPaneExpanded()
 
 void ProfilePlotDialog::showEvent(QShowEvent *event)
 {
-    QDialog::showEvent(event);
+    openswmmvis::ui::PlotPanelView::showEvent(event);
     if (m_surface2DLayer && m_anim)
         m_surface2DLayer->setCurrentSimTimeAsOf(m_anim->currentDateTime());
     // DialogLayoutWatcher restores the named splitter's state synchronously
@@ -2128,7 +2112,7 @@ bool ProfilePlotDialog::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_tracks && event->type() == QEvent::Resize)
         syncTracksGutter();
-    return QDialog::eventFilter(watched, event);
+    return openswmmvis::ui::PlotPanelView::eventFilter(watched, event);
 }
 
 void ProfilePlotDialog::syncTracksGutter()

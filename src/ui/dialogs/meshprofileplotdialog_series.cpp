@@ -87,7 +87,7 @@ void MeshProfilePlotDialog::setResultSources(const QList<SWMM2DResultsLayer *> &
         m_sectionConnections.append(connect(source,&SWMM2DResultsLayer::timeRangeChanged,this,[this] {
             m_seriesStations.clear(); refreshSourceChoices(); refreshSectionSeries();
         }));
-        if(source!=m_results)m_sectionConnections.append(connect(source,&SWMM2DResultsLayer::currentTimeChanged,this,[this](int) { refreshSectionSeries(); }));
+        if(source!=m_results)m_sectionConnections.append(connect(source,&SWMM2DResultsLayer::currentTimeChanged,this,[this](int) { if (isPlotActive()) refreshSectionSeries(); }));
         const QString id=sourceId(source); bool referenced=false;
         for(const auto &ref:m_definition.sources)if(ref.id==id)referenced=true;
         if(!referenced)m_definition.sources.append({id,source->source() ? source->source()->sourcePath() : QString(),{}});
@@ -178,7 +178,7 @@ void MeshProfilePlotDialog::buildSectionControls(QVBoxLayout *layout)
     m_samplesTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     tabs->addTab(m_samplesTable,tr("Sample table")); tabs->setMaximumHeight(270); layout->addWidget(tabs);
     m_sectionStatus=new QLabel(this); m_sectionStatus->setObjectName("sectionStatus"); m_sectionStatus->setTextFormat(Qt::PlainText); m_sectionStatus->setWordWrap(true); m_sectionStatus->setAccessibleName(tr("Section availability and validation")); layout->addWidget(m_sectionStatus);
-    connect(title,&QLineEdit::textEdited,this,[this](const QString &text) { m_definition.title=text; emit definitionChanged(); });
+    connect(title,&QLineEdit::textEdited,this,[this](const QString &text) { m_definition.title=text; setWindowTitle(text.isEmpty() ? tr("2D Mesh Profile") : text); emit definitionChanged(); });
     connect(m_seriesEditor,&MeshProfileSeriesEditor::definitionEdited,this,[this] { m_definition.series=m_seriesEditor->definition().series; refreshSectionSeries(); emit definitionChanged(); });
     connect(m_options,&MeshProfilePlotOptions::changed,this,[this] { if(!m_loadingDefinition)emit definitionChanged(); });
     connect(save,&QPushButton::clicked,this,[this] { QString error; const auto def=definition(); if(!validateDefinition(def,&error)) {m_sectionStatus->setText(error);return;} emit saveDefinitionRequested(def); });
