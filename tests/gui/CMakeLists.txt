@@ -27,6 +27,9 @@ function(add_swmmvis_gui_test TEST_NAME)
     target_link_libraries(${TEST_NAME} PRIVATE
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
     )
+    if("${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp" IN_LIST ARGN)
+        target_link_libraries(${TEST_NAME} PRIVATE swmmvis_build_info)
+    endif()
     # Engine is brought in via add_subdirectory at the root; link target is
     # `openswmm_engine`. HAVE_OPENSWMMENGINE is set globally there too.
     if(TARGET openswmm_engine)

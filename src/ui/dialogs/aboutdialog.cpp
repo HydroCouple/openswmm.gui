@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/aboutdialog.h"
+#include "core/buildinfo.h"
 #include "version.h"
 
 #include <QApplication>
@@ -53,13 +54,12 @@ QString environmentSummary()
 {
     return QStringLiteral(
                "SWMMVis %1\n"
-               "Build:    %2 %3\n"
-               "Qt:       %4\n"
-               "OS:       %5 (%6)\n"
-               "Arch:     %7")
+               "Build:    %2\n"
+               "Qt:       %3\n"
+               "OS:       %4 (%5)\n"
+               "Arch:     %6")
         .arg(applicationVersionString())
-        .arg(QStringLiteral(__DATE__))
-        .arg(QStringLiteral(__TIME__))
+        .arg(QString::fromLatin1(openswmmvis::buildTimestamp()))
         .arg(QString::fromLatin1(qVersion()))
         .arg(QSysInfo::prettyProductName())
         .arg(QSysInfo::kernelType() + QStringLiteral(" ") + QSysInfo::kernelVersion())

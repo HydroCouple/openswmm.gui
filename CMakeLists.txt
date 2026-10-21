@@ -89,6 +89,7 @@ option(SWMMVIS_BUILD_TESTS "Build unit tests" ON)
 
 # Project CMake helpers live under cmake/.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+include(BuildInfo)
 
 # ── Qt root discovery from env ──────────────────────────────────────────────
 # CMakePresets inject CMAKE_PREFIX_PATH from $env{QT_ROOT_DIR}. Replicate the
@@ -1848,6 +1849,7 @@ target_include_directories(SWMMVis PRIVATE ${HDF5_INCLUDE_DIRS})
 
 target_link_libraries(SWMMVis
     PRIVATE
+        swmmvis_build_info
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::OpenGL
         Qt${QT_VERSION_MAJOR}::OpenGLWidgets
