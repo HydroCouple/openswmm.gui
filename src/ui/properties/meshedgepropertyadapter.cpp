@@ -139,7 +139,7 @@ QString MeshEdgePropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QStringLiteral("length"))     return QCoreApplication::translate("MeshEdge", "Length");
     if (property == QStringLiteral("bcType"))     return QCoreApplication::translate("MeshEdge", "BC type");
     if (property == QStringLiteral("bcHead"))     return QCoreApplication::translate("MeshEdge", "BC stage");
-    if (property == QStringLiteral("bcSlope"))    return QCoreApplication::translate("MeshEdge", "BC bed slope");
+    if (property == QStringLiteral("bcSlope"))    return QCoreApplication::translate("MeshEdge", "BC friction slope");
     if (property == QStringLiteral("bcFlow"))     return QCoreApplication::translate("MeshEdge", "BC flow / m");
     if (property == QStringLiteral("bcTseries"))  return QCoreApplication::translate("MeshEdge", "BC timeseries");
     if (property == QStringLiteral("bcCurve"))    return QCoreApplication::translate("MeshEdge", "BC rating curve");

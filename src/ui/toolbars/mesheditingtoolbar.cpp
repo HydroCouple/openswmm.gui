@@ -365,11 +365,11 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // 0 Wall — empty page.
     m_bcParamStack->addWidget(new QWidget(m_bcParamStack));
     // 1 NormalFlow — slope spin.
-    makeSpinPage(&m_slopeSpin, tr("Slope:"), -1.0, 1.0, 5, 0.001,
-                 tr("Bed slope (dimensionless), SIGNED.\n\n"
-                    "Positive — the bed falls away from the domain, so the "
+    makeSpinPage(&m_slopeSpin, tr("Friction slope:"), -1.0, 1.0, 5, 0.001,
+                 tr("Friction slope for a Normal Depth boundary (dimensionless), SIGNED.\n\n"
+                    "Positive — the energy gradient points out of the domain, so the "
                     "edge drains it (Manning outflow).\n"
-                    "Negative — the bed falls toward the domain, so the edge "
+                    "Negative — the energy gradient points into the domain, so the edge "
                     "feeds it at the same Manning rate.\n"
                     "Zero — conveys nothing; the edge behaves as a wall "
                     "(there is no auto-compute).\n\n"
