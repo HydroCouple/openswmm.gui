@@ -76,6 +76,7 @@
 // QPropertyModel library
 #ifdef HAVE_QPROPERTYMODEL
 #include <qpropertymodel.h>
+#include "ui/properties/groupedpropertymodel.h"
 #include <qpropertyitem.h>
 #include <qpropertyitemdelegate.h>
 #include <qvariantpropertyItem.h>
@@ -437,7 +438,13 @@ void PropertiesPanel::setupUi()
     m_model    = new QStandardItemModel(this);
 #endif
 
+#ifdef HAVE_QPROPERTYMODEL
+    auto *grouped = new GroupedPropertyModel(this);
+    grouped->setSourceModel(m_model);
+    m_treeView->setModel(grouped);
+#else
     m_treeView->setModel(m_model);
+#endif
     if (m_delegate)
         m_treeView->setItemDelegate(m_delegate);
     m_treeView->header()->setDefaultSectionSize(150);
@@ -445,6 +452,7 @@ void PropertiesPanel::setupUi()
     // horizontal column collapse. A minimum section size keeps the name/value
     // columns readable and lets the tree's own horizontal scrollbar take over.
     m_treeView->header()->setMinimumSectionSize(90);
+    m_treeView->setColumnWidth(0, 300);
 
     // Slice BM.0-Browse-Edit (2026-05-25) — right-click on a complex-typed
     // property row offers an "Edit in <editor>…" shortcut to the
@@ -1367,7 +1375,7 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         ? idx : idx.sibling(idx.row(), 1);
     if (!valueIdx.isValid()) return;
 
-    const QVariant value = m_model->data(valueIdx, Qt::EditRole);
+    const QVariant value = valueIdx.data(Qt::EditRole);
     if (!value.isValid()) return;
 
     QMenu menu(m_treeView);
@@ -1529,7 +1537,7 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
 
         DataObjectRef updated = ref;
         updated.currentName = chosen;
-        m_model->setData(valueIdx, QVariant::fromValue(updated), Qt::EditRole);
+        m_treeView->model()->setData(valueIdx, QVariant::fromValue(updated), Qt::EditRole);
         return;
     }
 
@@ -1551,7 +1559,7 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         // commits some pages immediately, so pull the updated summary back.
         NodeCompoundEditRef updated = ref;
         updated.summary = dlg.updatedSummary();
-        m_model->setData(valueIdx, QVariant::fromValue(updated), Qt::EditRole);
+        m_treeView->model()->setData(valueIdx, QVariant::fromValue(updated), Qt::EditRole);
         return;
     }
 
@@ -1568,7 +1576,7 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         dlg.exec();
         LinkCompoundEditRef updated = ref;
         updated.summary = dlg.updatedSummary();
-        m_model->setData(valueIdx, QVariant::fromValue(updated), Qt::EditRole);
+        m_treeView->model()->setData(valueIdx, QVariant::fromValue(updated), Qt::EditRole);
         return;
     }
 
