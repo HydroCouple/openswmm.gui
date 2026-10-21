@@ -314,10 +314,12 @@ QWidget *PreferencesDialog::buildSelectionPage()
     gv->setContentsMargins(8, 8, 8, 8);
 
     auto *intro = new QLabel(
-        tr("Edit the stroke pen for each class (link halo, polygon "
+        tr("These settings apply to both SWMM model instances and output layers. "
+           "Edit the stroke pen for each class (link halo, polygon "
            "outline, glyph outline) and the fill brush for polygonal "
            "and glyph classes. Link pen width adds on top of the "
-           "link's own pen — a width of 2 means a 2 px halo."),
+           "link's own pen — a width of 2 means a 2 px halo. "
+           "Marker size is set in each layer's symbology."),
         selGroup);
     intro->setWordWrap(true);
     gv->addWidget(intro);
