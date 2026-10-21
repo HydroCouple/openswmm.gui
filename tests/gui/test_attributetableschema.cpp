@@ -56,6 +56,7 @@
 
 #include <QComboBox>
 #include <QDir>
+#include <QHeaderView>
 #include <QLineEdit>
 #include <QLocale>
 #include <QObject>
@@ -545,6 +546,52 @@ private slots:
     // =====================================================================
     // Panel-level: the delegates actually reach the view
     // =====================================================================
+
+    void columnHeaderClicksSortRows()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        // Deliberately use values whose numeric and text orders differ.
+        QCOMPARE(swmm_node_set_invert_elev(engine, swmm_node_index(engine, "J1"), 2.0), SWMM_OK);
+        QCOMPARE(swmm_node_set_invert_elev(engine, swmm_node_index(engine, "X1"), 10.0), SWMM_OK);
+        AttributeTablePanel panel;
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(view);
+        QVERIFY(view->horizontalHeader()->sectionsClickable());
+        panel.setProject(layer.get(), nullptr, nullptr);
+        panel.resize(1000, 600);
+        panel.show();
+
+        for (int pass = 0; pass < 2; ++pass) {
+            panel.showModelCategory(layer.get(), SWMMModelLayer::CatJunctions);
+            QCoreApplication::processEvents();
+            SWMMAttributeTableModel schema;
+            schema.setSource(layer.get(), SWMMModelLayer::CatJunctions);
+            const int numericColumn = colFor(schema.columnSpecs(), QStringLiteral("Invert elev"));
+            QVERIFY(numericColumn >= 0);
+            QCOMPARE(view->model()->rowCount(), 2);
+            auto *header = view->horizontalHeader();
+            for (const int column : {0, numericColumn}) {
+                view->sortByColumn(column, Qt::DescendingOrder);
+                const QPoint click(header->sectionViewportPosition(column) + header->sectionSize(column) / 2,
+                                   header->height() - 5); // ordinary label below the group band
+                for (const auto order : {Qt::AscendingOrder, Qt::DescendingOrder}) {
+                    QTest::mouseClick(header->viewport(), Qt::LeftButton, Qt::NoModifier, click);
+                    QCOMPARE(header->sortIndicatorSection(), column);
+                    QCOMPARE(header->sortIndicatorOrder(), order);
+                    QCOMPARE(view->model()->index(0, 0).data().toString(),
+                             order == Qt::AscendingOrder ? QStringLiteral("J1") : QStringLiteral("X1"));
+                    QCOMPARE(view->model()->index(1, 0).data().toString(),
+                             order == Qt::AscendingOrder ? QStringLiteral("X1") : QStringLiteral("J1"));
+                }
+            }
+            // Reproduce header state saved by the broken grouped header.
+            // Restoring column widths must not restore disabled sorting clicks.
+            header->setSectionsClickable(false);
+            panel.showModelCategory(layer.get(), SWMMModelLayer::CatRainGages);
+        }
+    }
 
     void categorySwitchesRetainLiveDelegates()
     {
