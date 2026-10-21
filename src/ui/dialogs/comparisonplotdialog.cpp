@@ -163,6 +163,14 @@ void ComparisonPlotDialog::plotActivationChanged(bool active)
     if (!active) setAddFromMapChecked(false);
 }
 
+void ComparisonPlotDialog::showEvent(QShowEvent *event)
+{
+    PlotPanelView::showEvent(event);
+    // Layout restoration makes tree headers non-stretching by default.
+    // This single-column tree should always fill its resizable pane.
+    fitSeriesPanelToContents();
+}
+
 void ComparisonPlotDialog::buildUi()
 {
     auto *root = new QVBoxLayout(this);
@@ -195,6 +203,8 @@ void ComparisonPlotDialog::buildUi()
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setObjectName(QStringLiteral("main"));
+    connect(m_splitter, &QSplitter::splitterMoved, this,
+            [this] { m_seriesPanelResized = true; });
 
     // ----- Left pane: series tree + add/remove ------------------------------
     m_leftHost = new QWidget(this);
@@ -202,8 +212,11 @@ void ComparisonPlotDialog::buildUi()
     leftCol->setContentsMargins(0, 0, 0, 0);
 
     m_seriesTree = new QTreeWidget(m_leftHost);
+    m_seriesTree->setObjectName(QStringLiteral("seriesTree"));
     m_seriesTree->setHeaderLabels({tr("Series")});
-    m_seriesTree->header()->setStretchLastSection(false);
+    m_seriesTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_seriesTree->header()->setStretchLastSection(true);
+    m_seriesTree->setTextElideMode(Qt::ElideNone);
     m_seriesTree->setRootIsDecorated(true);
     // Slice AT.3 — right-click context menu on tree items.
     m_seriesTree->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -301,6 +314,8 @@ void ComparisonPlotDialog::buildUi()
             });
 
     m_splitter->addWidget(m_chartsOuter);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
     m_splitter->setSizes({280, 820});
     root->addWidget(m_splitter, 1);
 
@@ -910,6 +925,10 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
     rs.isBaseline = makeBaseline;
     observeSourceLifetime(layer, rs.layer);
     const int idx = m_model->addRunSource(std::move(rs));
+    // A new plot starts at its own output's current frame, even if the
+    // shared animation controller was previously displaying another run.
+    if (idx == 0)
+        m_model->setAnimationTime(layer->currentDateTime());
     if (makeBaseline)
         m_model->setBaseline(idx);
     // Live 1D results: the layer grows while its run writes the .out;
@@ -959,7 +978,10 @@ int ComparisonPlotDialog::ensureRunSourceForMeshLayer(SWMM2DResultsLayer *layer)
     // source, so appending the tail is all that is needed.
     connect(layer, &SWMM2DResultsLayer::timeRangeChanged, this,
             [this](int, int) { appendChartTails(); }, Qt::UniqueConnection);
-    return m_model->addRunSource(std::move(rs));
+    const int idx = m_model->addRunSource(std::move(rs));
+    if (idx == 0 && layer->source())
+        m_model->setAnimationTime(layer->source()->simTimeAt(layer->currentTimeIndex()));
+    return idx;
 }
 
 int ComparisonPlotDialog::addCellSeries(int runIndex,
@@ -1052,12 +1074,14 @@ void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
                     auto *item = parent->child(child);
                     if (item->data(0, Qt::UserRole + 1).toInt() != seriesIndex) continue;
                     item->setText(0, legendNameFor(spec));
+                    item->setToolTip(0, legendNameFor(spec));
                     item->setCheckState(0, spec.style.showLine ? Qt::Checked : Qt::Unchecked);
                     QPixmap swatch(12, 12);
                     swatch.fill(spec.style.color);
                     item->setData(0, Qt::DecorationRole, swatch);
                 }
             }
+            fitSeriesPanelToContents();
             return;
         }
     }
@@ -1106,6 +1130,7 @@ void ComparisonPlotDialog::rebuildSeriesTree()
         else
             label = QStringLiteral("● ") + label;
         auto *it = new QTreeWidgetItem({label});
+        it->setToolTip(0, label);
         it->setData(0, Qt::UserRole, QVariant(r));   // run index
         it->setData(0, Qt::UserRole + 1, QVariant(-1)); // -1 = run row, not series
         m_seriesTree->addTopLevelItem(it);
@@ -1128,9 +1153,11 @@ void ComparisonPlotDialog::rebuildSeriesTree()
             objLabel = spec.objectRef.name;
             break;
         }
-        const QString itemLabel = tr("%1 — %2")
-                                     .arg(objLabel, labelFor(spec.attribute));
+        const QString itemLabel = spec.legendOverride.isEmpty()
+            ? tr("%1 — %2").arg(objLabel, spec.descriptor().label())
+            : spec.legendOverride;
         auto *child = new QTreeWidgetItem({itemLabel});
+        child->setToolTip(0, itemLabel);
         child->setData(0, Qt::UserRole, QVariant(spec.runIndex));
         child->setData(0, Qt::UserRole + 1, QVariant(s));
         // Show series color swatch via Qt::DecorationRole.
@@ -1144,6 +1171,23 @@ void ComparisonPlotDialog::rebuildSeriesTree()
     }
 
     m_seriesTree->expandAll();
+    fitSeriesPanelToContents();
+}
+
+void ComparisonPlotDialog::fitSeriesPanelToContents()
+{
+    m_seriesTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_seriesTree->header()->setStretchLastSection(true);
+    m_seriesTree->resizeColumnToContents(0);
+    // Grow the initial pane to its labels, leaving space for the charts.
+    // A manual splitter adjustment remains authoritative on later additions.
+    if (!m_seriesPanelResized && m_splitter->width() > 0) {
+        const int available = m_splitter->width() - m_splitter->handleWidth();
+        const int desired = m_seriesTree->columnWidth(0)
+                          + 2 * m_seriesTree->frameWidth() + 24;
+        const int width = std::clamp(desired, 60, std::max(60, available * 3 / 5));
+        m_splitter->setSizes({width, std::max(0, available - width)});
+    }
 }
 
 // Slice AT.3 — checkbox toggle slot.
@@ -1603,6 +1647,10 @@ void ComparisonPlotDialog::appendChartTails()
 void ComparisonPlotDialog::rebuildCharts()
 {
     const auto resolved = m_model->resolveAllSeries();
+    QVector<QPair<ResultDescriptor, Qt::Alignment>> legendAlignments;
+    for (const auto &rw : m_rowWidgets)
+        if (rw.chart)
+            legendAlignments.append({rw.descriptor, rw.chart->legend()->alignment()});
     // Tear down existing row frames (splitter children — deleting frame
     // also deletes its child views, charts, and series via Qt parenting).
     for (RowWidgets &rw : m_rowWidgets) {
@@ -1628,16 +1676,16 @@ void ComparisonPlotDialog::rebuildCharts()
         RowWidgets rw;
         rw.chart = new QChart;
         const ResultDescriptor rowDesc = row.descriptor();
+        rw.descriptor = rowDesc;
         const QString rowUnits = rowDesc.unitLabel(row.unitSystem);
         const QString rowTitle = rowUnits.isEmpty()
             ? rowDesc.label()
             : QStringLiteral("%1 (%2)").arg(rowDesc.label(), rowUnits);
         rw.chart->setTitle(rowTitle);
         rw.chart->legend()->setVisible(true);
-        // A top legend takes its full height from the plot for every series
-        // in the row, squeezing the time axis until its labels vanish. A
-        // right legend is width-capped by Qt Charts and leaves the height.
-        rw.chart->legend()->setAlignment(Qt::AlignRight);
+        rw.chart->legend()->setAlignment(Qt::AlignTop);
+        for (const auto &saved : legendAlignments)
+            if (saved.first == rowDesc) rw.chart->legend()->setAlignment(saved.second);
 
         rw.xAxis = new openswmmvis::plot::UtcTimeAxis;
         rw.xAxis->setTitleText(tr("Time"));
@@ -2195,16 +2243,13 @@ void ComparisonPlotDialog::updateChartForRow(int rowIndex)
 
 void ComparisonPlotDialog::applyAnimationCursorToCharts()
 {
-    if (!m_curAnimTime.isValid()) {
-        for (RowWidgets &rw : m_rowWidgets) {
-            if (rw.cursorLine) rw.cursorLine->clear();
-        }
-        return;
-    }
-    const qint64 ms = m_curAnimTime.toMSecsSinceEpoch();
     for (RowWidgets &rw : m_rowWidgets) {
         if (!rw.cursorLine || !rw.yAxis) continue;
         rw.cursorLine->clear();
+        const QDateTime time = m_curAnimTime.isValid() ? m_curAnimTime
+                             : rw.xAxis ? rw.xAxis->min() : QDateTime();
+        if (!time.isValid()) continue;
+        const qint64 ms = time.toMSecsSinceEpoch();
         rw.cursorLine->append(ms, rw.yAxis->min());
         rw.cursorLine->append(ms, rw.yAxis->max());
     }

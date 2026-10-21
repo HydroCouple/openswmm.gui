@@ -19,6 +19,10 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "mesh/meshresult.h"
 #include "plot/swmmoutrunlayer.h"
+#include "plot/chartproperties.h"
+#include "plot/utctimeaxis.h"
+#include "core/swmmdatetime.h"
+#include "ui/widgets/interactivechartview.h"
 #include "project/profilesectionstore.h"
 #include "ui/dialogs/comparisonplotdialog.h"
 #include "ui/dialogs/profileplotdialog.h"
@@ -27,10 +31,16 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_output.h>
 #include <QAction>
 #include <QMenu>
 #include <QTimer>
 #include <QTreeView>
+#include <QTreeWidget>
+#include <QHeaderView>
+#include <QSplitter>
+#include <QLineSeries>
+#include <QLegend>
 #include <QSortFilterProxyModel>
 #include <QFile>
 #include <QGraphicsScene>
@@ -142,6 +152,120 @@ private slots:
                                  path("run.out").toUtf8(), nullptr), SWMM_OK);
     }
     void init() { QSettings().clear(); }
+    void timeSeriesUsesRecordedReportTimes()
+    {
+        SWMMModelLayer model(path("first.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY(model.loadModel(warnings, errors));
+        SWMMResultsLayer original(path("run.out"), &model);
+        QVERIFY(original.openResults(warnings, errors));
+        QFile source(path("run.out")); QVERIFY(source.open(QIODevice::ReadOnly));
+        QByteArray bytes = source.readAll();
+        QVector<double> expected;
+        // Keep the header origin unchanged while shifting the actual report
+        // records. This catches adapters that infer times from the header
+        // instead of using the same recorded clock as the animation cursor.
+        for (int period = 0; period < original.totalTimeSteps(); ++period) {
+            double time = 0;
+            QCOMPARE(swmm_output_get_period_time(original.outputHandle(), period, &time), 0);
+            const QByteArray stored(reinterpret_cast<const char *>(&time), sizeof(time));
+            const auto offset = bytes.indexOf(stored);
+            QVERIFY(offset >= 0);
+            QCOMPARE(bytes.indexOf(stored, offset + 1), -1);
+            time += 1.0 / 24.0;
+            bytes.replace(offset, sizeof(time), reinterpret_cast<const char *>(&time), sizeof(time));
+            expected.append(time);
+        }
+        QFile file(path("shifted-clock.out")); QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), bytes.size()); file.close();
+        SWMMResultsLayer output(path("shifted-clock.out"), &model);
+        QVERIFY(output.openResults(warnings, errors));
+        SwmmOutRunLayer adapter(&output);
+        SeriesData data;
+        adapter.getSeriesAt(ObjectRef::forNode("J"), PlotAttribute::NodeDepth, data);
+        QVERIFY(data.ok);
+        QCOMPARE(data.timesJulian.size(), size_t(expected.size()));
+        for (int period = 0; period < expected.size(); ++period)
+            QCOMPARE(data.timesJulian[period], expected[period]);
+        QCOMPARE(openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian.front()),
+                 output.currentDateTime());
+        SeriesData tail;
+        tail.firstPeriod = 1;
+        adapter.getSeriesAt(ObjectRef::forNode("J"), PlotAttribute::NodeDepth, tail);
+        QVERIFY(tail.ok);
+        QCOMPARE(tail.timesJulian.front(), expected[1]);
+    }
+    void timeSeriesStartsAtItsOwnClockAndKeepsLayoutChoices()
+    {
+        SWMMModelLayer model(path("first.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY(model.loadModel(warnings, errors));
+        SWMMResultsLayer output(path("run.out"), &model);
+        QVERIFY(output.openResults(warnings, errors));
+        ComparisonPlotDialog view;
+        view.resize(1400, 800);
+        view.show();
+        // A previously active output must not seed a newly opened plot.
+        view.model()->setAnimationTime(output.currentDateTime().addDays(1));
+        const int run = view.ensureRunSourceForLayer(&output);
+        QCOMPARE(view.model()->animationTime(), output.currentDateTime());
+        const int series = view.addSeries(run, ObjectRef::forNode("J"), PlotAttribute::NodeDepth);
+        QVERIFY(series >= 0);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        auto *chartView = view.findChild<InteractiveChartView *>(); QVERIFY(chartView);
+        auto *chart = chartView->chart();
+        QCOMPARE(chart->legend()->alignment(), Qt::AlignTop);
+        auto *axis = qobject_cast<UtcTimeAxis *>(chart->axes(Qt::Horizontal).first());
+        QVERIFY(axis);
+        QLineSeries *cursor = nullptr, *line = nullptr;
+        for (auto *entry : chart->series())
+            if (auto *s = qobject_cast<QLineSeries *>(entry)) {
+                if (s->name() == "Current time") cursor = s;
+                else line = s;
+            }
+        QVERIFY(cursor); QVERIFY(line);
+        QCOMPARE(cursor->count(), 2);
+        QVERIFY(!line->points().isEmpty());
+        const qint64 start = output.currentDateTime().toMSecsSinceEpoch();
+        QCOMPARE(qRound64(cursor->at(0).x()), start);
+        QCOMPARE(qRound64(line->at(0).x()), start);
+        QCOMPARE(axis->min().toMSecsSinceEpoch(), start);
+        output.setCurrentTimeStep(1);
+        view.model()->setAnimationTime(output.currentDateTime());
+        QCOMPARE(qRound64(cursor->at(0).x()), output.currentDateTime().toMSecsSinceEpoch());
+
+        ChartProperties properties(chart);
+        properties.setLegendPosition(ChartProperties::Right);
+        view.addSeries(run, ObjectRef::forNode("O"), PlotAttribute::NodeDepth);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        chart = view.findChild<InteractiveChartView *>()->chart();
+        QCOMPARE(chart->legend()->alignment(), Qt::AlignRight);
+
+        auto *tree = view.findChild<QTreeWidget *>("seriesTree"); QVERIFY(tree);
+        auto *splitter = view.findChild<QSplitter *>("main"); QVERIFY(splitter);
+        const QString name = "Upstream monitoring station — detailed output series with a long descriptive label";
+        view.model()->updateLegendOverride(series, name);
+        QCoreApplication::processEvents();
+        QCOMPARE(tree->textElideMode(), Qt::ElideNone);
+        QVERIFY(tree->header()->stretchLastSection());
+        QCOMPARE(tree->header()->sectionResizeMode(0), QHeaderView::Interactive);
+        QVERIFY(tree->columnWidth(0) >= tree->fontMetrics().horizontalAdvance(name));
+        QVERIFY(splitter->sizes().first() > 280);
+
+        auto *handle = splitter->handle(1);
+        const int before = splitter->sizes().first();
+        QTest::mousePress(handle, Qt::LeftButton, Qt::NoModifier, handle->rect().center());
+        QTest::mouseMove(handle, handle->rect().center() - QPoint(120, 0));
+        QTest::mouseRelease(handle, Qt::LeftButton);
+        const int resized = splitter->sizes().first();
+        QVERIFY(resized != before);
+        view.addSeries(run, ObjectRef::forNode("J"), PlotAttribute::NodeTotalInflow);
+        QCoreApplication::processEvents();
+        QCOMPARE(splitter->sizes().first(), resized);
+        for (auto *item : view.findChildren<InteractiveChartView *>())
+            if (!item->isHidden() && item->chart()->title().startsWith("Depth"))
+                QCOMPARE(item->chart()->legend()->alignment(), Qt::AlignRight);
+    }
     void outputSelectionUsesConfiguredHighlightAndSize()
     {
         SWMMModelLayer model(path("first.inp"));

@@ -23,6 +23,7 @@
 #include <QChart>
 #include <QFont>
 #include <QLineSeries>
+#include <QLegend>
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
@@ -45,6 +46,7 @@ private slots:
     void dialogUsesQPropertyModelDelegate();
     void statisticsNumberFormatRoundTripsThroughPropertySurface();
     void xLabelFormatSkipsUtcTimeAxis();
+    void legendPositionAppliesThroughProperties();
 
 private:
     QChart *makeChart()
@@ -63,6 +65,31 @@ private:
         return chart;
     }
 };
+
+void TestComparisonPlotChartProperties::legendPositionAppliesThroughProperties()
+{
+    auto *chart = makeChart();
+    chart->legend()->setAlignment(Qt::AlignTop);
+    ChartProperties props(chart);
+    QCOMPARE(props.legendPosition(), ChartProperties::Top);
+    QVERIFY(props.metaObject()->indexOfProperty("legendPosition") >= 0);
+    QCOMPARE(props.displayLabelFor("legendPosition"), QString("Legend — Position"));
+    QSignalSpy changed(&props, &ChartProperties::legendPositionChanged);
+    const Qt::Alignment alignments[] = {Qt::AlignTop, Qt::AlignBottom,
+                                       Qt::AlignLeft, Qt::AlignRight};
+    for (int position : {1, 2, 3, 0}) {
+        const auto value = static_cast<ChartProperties::LegendPosition>(position);
+        QVERIFY(props.setProperty("legendPosition", QVariant::fromValue(value)));
+        QCOMPARE(props.legendPosition(), value);
+        QCOMPARE(chart->legend()->alignment(), alignments[position]);
+    }
+    QCOMPARE(changed.count(), 4);
+    props.setLegendPosition(ChartProperties::Top);
+    QCOMPARE(changed.count(), 4);
+    delete chart;
+    props.setLegendPosition(ChartProperties::Bottom);
+    QCOMPARE(props.legendPosition(), ChartProperties::Bottom);
+}
 
 void TestComparisonPlotChartProperties::yRangeSettersApplyToAxis()
 {
