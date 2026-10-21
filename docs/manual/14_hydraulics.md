@@ -351,6 +351,49 @@ first two parameters are the **full** axes, not semi-axes.
 
 \figtodo{14_storage_shapes.png, Storage shape rows for a conical unit}
 
+### Node coupling to a 2D mesh {#manual_node_2d_coupling}
+
+Select a junction, divider, storage unit or outfall and use its Properties
+panel to choose how it exchanges water with a 2D surface. **2D Coupleable**
+and **2D Coupling Structure** describe the node's opening; the mesh must also
+map that node to a cell or vertex. See \ref manual_2d_mesh for generating or
+remapping those spatial connections.
+
+| Property | What it does | Writes |
+|---|---|---|
+| **2D Coupleable** | Allows the node to participate in mesh coupling. Turning it off selects `NOT_COUPLEABLE` and clears its structure parameters; turning it back on restores the node class's default structure. | `[2D_NODE_COUPLING]` type |
+| **2D Coupling Structure** | Chooses `NOT_COUPLEABLE`, `MANHOLE`, `GRATE`, `CURB`, `OPEN_STORAGE` or `OUTFALL_2D`, as allowed for the node class. Changing the structure clears its previous parameters. | `[2D_NODE_COUPLING]` type (`NONE`, `MANHOLE`, `GRATE`, `CURB`, `OPEN` or `OUTFALL`) |
+| **2D Manhole Diameter** | Diameter of a MANHOLE opening, in project length units; must be positive. | `D` |
+| **2D Inlet Perimeter** | Weir crest length for GRATE, CURB or OPEN_STORAGE, in project length units; must be positive. | `PERIMETER` |
+| **2D Opening Area** | Orifice/open area for GRATE, CURB or OPEN_STORAGE, in project area units; must be positive. | `AREA` |
+| **2D Chamber Area** | 1D chamber plan area above the rim, in project area units; must be positive. | `CHAMBER_AREA` |
+| **2D Lid Open Fraction** | Open fraction of the lid, greater than zero and at most one. | `LID_OPEN_FRACTION` |
+| **2D Crest Elevation** | Crest policy: `NODE_RIM`, `MESH_BED`, `CREST_MAX` or `CREST_MIN`; the last two choose the higher/lower elevation. `CREST_DEFAULT` leaves the policy at its structure default. This is a policy selector, not a numeric elevation. | `CREST` |
+| **2D Exchange Law** | `ORIFICE` or `WEIR_ORIFICE`; `LAW_GLOBAL` inherits the global coupling law from Simulation Options. | `LAW` |
+| **2D Coefficients** | Selects `COEFFS_DEFAULT`, `RUBINATO2017`, `RUBINATO2017_LOWER` or `RUBINATO2017_UPPER` for WEIR_ORIFICE. `COEFFS_GLOBAL` inherits the global preset; individual coefficient rows override the selected preset. | `COEFFS` |
+| **2D Weir Coeff. (Cw)** | Positive free-weir coefficient override for WEIR_ORIFICE. | `CW` |
+| **2D Submerged Weir Coeff. (Csw)** | Positive submerged-weir coefficient override for WEIR_ORIFICE. | `CSW` |
+| **2D Orifice Coeff. In (Coi)** | Positive surface-to-sewer orifice coefficient override for WEIR_ORIFICE. | `COI` |
+| **2D Orifice Coeff. Out (Coo)** | Positive sewer-to-surface orifice coefficient override for WEIR_ORIFICE. | `COO` |
+| **2D Discharge Spread** | OUTFALL_2D discharge spread radius, in project length units; must be nonnegative. | `SPREAD` |
+| **2D Tailwater Relaxation (s)** | OUTFALL_2D tailwater relaxation time in seconds; must be nonnegative. | `TAILWATER_RELAX` |
+
+The numeric rows are text fields: leave one blank to use the inherited or
+structure default. Length/area labels carry the current project units, and
+all supplied numbers must be finite. Structure parameters belong to
+`[2D_NODE_COUPLING]`; edits are undoable. A legacy coupling-map **Cd** or
+**Area**, when explicitly authored, retains precedence over the corresponding
+resolved orifice coefficients or opening area.
+
+The panel greys out parameters that do not apply to the selected structure.
+Diameter is editable for MANHOLE; opening area and perimeter for GRATE, CURB
+and OPEN_STORAGE; discharge spread and tailwater relaxation for OUTFALL_2D.
+Other structure rows apply to non-outfall openings. An outfall can use only
+OUTFALL_2D or NOT_COUPLEABLE; OPEN_STORAGE requires a storage node. Ordinary
+junctions and dividers default to MANHOLE, storage units to OPEN_STORAGE,
+and outfalls to OUTFALL_2D. Inlet and virtual junctions remain excluded from
+mesh coupling as described above.
+
 ### Storage-node LID hydraulics
 
 Assign a **LID Control** and **LID Initial Saturation (%)** to the storage
