@@ -8,6 +8,11 @@
 #include "ui/panels/swmmattributetablemodel.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshobjectref.h"
+#include "ui/properties/meshtrianglepropertyadapter.h"
+#include "ui/properties/meshvertexpropertyadapter.h"
+#include "ui/properties/meshedgepropertyadapter.h"
 #include "layers/swmmresultslayer.h"     // active-run stats binding
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 #include "output/outputstatsregistry.h"  // Slice QA.2 (full type for QPointer / connect)
@@ -472,6 +477,7 @@ void PropertiesPanel::setupUi()
 
 void PropertiesPanel::showObject(QObject *object, const QString &title)
 {
+    if (object != m_meshAdapter) releaseMeshAdapter();
     setWindowTitle(title.isEmpty() ? tr("Properties") : title);
     m_layerCombo->clear();
     m_lastResults.clear();
@@ -496,8 +502,63 @@ void PropertiesPanel::showObject(QObject *object, const QString &title)
     m_treeView->expandAll();
 }
 
+void PropertiesPanel::releaseMeshAdapter()
+{
+    if (!m_meshAdapter) return;
+    m_meshAdapter->deleteLater();
+    m_meshAdapter.clear();
+}
+
+void PropertiesPanel::showMeshObject(MapCanvas *canvas, const SWMMObjectRef &ref,
+                                     const QString &depthUnit)
+{
+    QString key;
+    int index = -1, edgeLocal = -1;
+    using K = SWMMObjectRef::ObjectType;
+    const bool valid = ref.objectType == K::MeshCell ? mesh::MeshObjectRef::parseCell(ref, &key, &index)
+        : ref.objectType == K::MeshVertex ? mesh::MeshObjectRef::parseVertex(ref, &key, &index)
+        : ref.objectType == K::MeshEdge && mesh::MeshObjectRef::parseEdge(ref, &key, &index, &edgeLocal);
+    if (canvas && valid) {
+        for (auto *candidate : canvas->layers()) {
+            auto *layer = qobject_cast<SWMM2DMeshLayer *>(candidate);
+            if (!layer || mesh::MeshObjectRef::layerKey(layer->sourcePath()) != key) continue;
+            QObject *adapter = nullptr;
+            QString title;
+            if (ref.objectType == K::MeshCell && index >= 0 && index < layer->triangleCount()) {
+                auto *cell = new MeshTrianglePropertyAdapter(layer, index, this);
+                cell->setCanvas(canvas);
+                cell->setDepthUnitLabel(depthUnit);
+                adapter = cell;
+                title = tr("2D Cell %1").arg(index);
+            } else if (ref.objectType == K::MeshVertex && index >= 0 && index < layer->vertexCount()) {
+                adapter = new MeshVertexPropertyAdapter(layer, index, this);
+                title = tr("2D Vertex %1").arg(index);
+            } else if (ref.objectType == K::MeshEdge && index >= 0 && index < layer->triangleCount()
+                       && edgeLocal >= 0 && edgeLocal < 3) {
+                adapter = new MeshEdgePropertyAdapter(layer, index, edgeLocal, this);
+                title = tr("2D Edge %1:%2").arg(index).arg(edgeLocal);
+            }
+            if (!adapter) break;
+            showObject(adapter, title);
+            m_meshAdapter = adapter;
+            connect(layer, &SWMM2DMeshLayer::attributeChanged, adapter, [this, adapter] {
+#ifdef HAVE_QPROPERTYMODEL
+                if (m_meshAdapter == adapter)
+                    if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->refreshValues();
+#endif
+            });
+            connect(layer, &QObject::destroyed, adapter, [this, adapter] {
+                if (m_meshAdapter == adapter) clear();
+            });
+            return;
+        }
+    }
+    clear();
+}
+
 void PropertiesPanel::showIdentifyResults(const QList<IdentifyResult> &results)
 {
+    releaseMeshAdapter();
     m_lastResults = results;
     m_layerCombo->clear();
     // 2026-05-29 — identify results route to spatial / SWMM-feature
@@ -526,6 +587,7 @@ void PropertiesPanel::showLayerProperties(OpenSWMMVisLayer *layer)
 
 void PropertiesPanel::clear()
 {
+    releaseMeshAdapter();
 #ifdef HAVE_QPROPERTYMODEL
     if (auto *pm = qobject_cast<QPropertyModel*>(m_model))
         pm->clear();
@@ -1069,6 +1131,7 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
 void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
                                       const QString &name)
 {
+    releaseMeshAdapter();
 #ifdef HAVE_QPROPERTYMODEL
     if (!layer || !layer->engine() || name.isEmpty()) {
         if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->clear();
