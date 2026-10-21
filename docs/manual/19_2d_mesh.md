@@ -682,8 +682,9 @@ The matching development engine supports standalone CPU FULL_SWE reconstruction
 order 2 with CLOSED_FORM, ENSLAVED or SIGMA aquifers, bulk or SIGMA-layered
 pollutant/MSX/age/water-temperature transport, and symmetric aquifer/surface reactions. Water temperature uses surface HEAT_MODEL TRANSPORT_ONLY and groundwater THERMAL_MODEL WATER_ONLY; cold Celsius values are supported. This
 profile uses one global tier and authored well/edge forcing. The porous RK2 profile supports soil energy, conduction, chemical/age inventories
-and phase-aware reactions with surface TRANSPORT_ONLY, sensible-only soil ET and
-constant thermal boundaries. Further heat owners, network/catchment coupling, runtime providers and borrowed owners retain
+and phase-aware reactions with surface TRANSPORT_ONLY, sensible or latent soil ET,
+and constant or project-series thermal boundaries. Thermal knots align the shared stages;
+only accepted soil evaporation receives latent cooling. Further heat owners, network/catchment coupling, runtime providers and borrowed owners retain
 first-order requirements. Surface reaction laws support enabled BULK/pollutant dependencies
 and DT/TEMP (local transported temperature when enabled); unavailable hydraulic and WALL dependencies are refused. See the
 [engine transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md)
