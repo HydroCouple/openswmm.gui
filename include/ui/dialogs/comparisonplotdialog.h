@@ -23,7 +23,7 @@
 #include "plot/comparisonplotmodel.h"
 
 #include <QDateTime>
-#include <QDialog>
+#include "ui/panels/plotpanelview.h"
 #include <QHash>
 #include <QPointer>
 #include <QString>
@@ -31,6 +31,7 @@
 #include <memory>
 #include <thread>
 
+class SWMMVisProjectWindow;
 class QAction;
 class QProgressBar;
 class QTimer;
@@ -64,12 +65,13 @@ class InteractiveChartView;
 class RangeSliderWidget;
 class StatsSummaryPanel;
 
-class ComparisonPlotDialog : public QDialog
+class ComparisonPlotDialog : public openswmmvis::ui::PlotPanelView
 {
     Q_OBJECT
 public:
     explicit ComparisonPlotDialog(QWidget *parent = nullptr);
     ~ComparisonPlotDialog() override;
+    void removeProjectSources(SWMMVisProjectWindow *project);
 
     /*! \brief Underlying model — exposed so callers (Object Browser wiring,
      *  CF.3's openComparisonPlotForCells) can add runs/series directly. */
@@ -131,6 +133,9 @@ signals:
      *  about the canvas; SWMMVis owns the MapToolPlotPick lifecycle. */
     void addFromMapToggled(bool active);
 
+protected:
+    void plotActivationChanged(bool active) override;
+
 private slots:
     void onRunSourceAdded(int runIndex);
     void onRunSourceRemoved(int runIndex);
@@ -178,6 +183,7 @@ private slots:
     void onConfigure1v1Clicked();
 
 private:
+    void observeSourceLifetime(QObject *layer, const std::shared_ptr<openswmmvis::plot::IRunLayer> &source);
     void buildUi();
     void buildToolBar();
     void rebuildSeriesTree();

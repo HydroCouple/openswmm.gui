@@ -630,7 +630,16 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                        : QFileInfo(filePath).baseName());
 }
 
-SWMMVisProjectWindow::~SWMMVisProjectWindow() = default;
+SWMMVisProjectWindow::~SWMMVisProjectWindow()
+{
+    // Docked plot views outlive the document's widget tree. Direct deletion
+    // (including main-window shutdown) must notify them while the canvas and
+    // result layers still exist, just like an accepted closeEvent does.
+    if (!mClosing) {
+        mClosing = true;
+        emit aboutToClose();
+    }
+}
 
 MapCanvas        *SWMMVisProjectWindow::canvas()           const { return mCanvas; }
 SWMMModelLayer   *SWMMVisProjectWindow::modelLayer()       const { return mModelLayer; }

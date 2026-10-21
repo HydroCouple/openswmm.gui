@@ -216,6 +216,9 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     //    the View → Panels menu is built) ────────────────────────────────
     {"view.styleManager",       "actionStyleManager",             "View",   "",           "StyleManager", "view", "Tools", NoTags},
     {"view.layerStylingDock",   "actionLayerStylingDock",         "Panels", "Ctrl+Alt+8", "LayerStyling", "view", "View", NoTags},
+    {"view.dock.timeSeries", "actionToggleDockTimeSeries", "Panels", "", "Profile", "view", "View/Panels", NoTags},
+    {"view.dock.profiles1D", "actionToggleDockProfiles1D", "Panels", "", "Profile", "view", "View/Panels", NoTags},
+    {"view.dock.profiles2D", "actionToggleDockProfiles2D", "Panels", "", "Profile2D", "view", "View/Panels", NoTags},
     {"view.dock.layers",        "actionToggleDockLayers",         "Panels", "Ctrl+Alt+1", "DockLayers", "view", "View/Panels", NoTags},
     {"view.dock.objectBrowser", "actionToggleDockObjectBrowser",  "Panels", "Ctrl+Alt+2", "DockObjectBrowser", "view", "View/Panels", NoTags},
     {"view.dock.properties",    "actionToggleDockProperties",     "Panels", "Ctrl+Alt+3", "DockProperties", "view", "View/Panels", NoTags},

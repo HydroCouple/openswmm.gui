@@ -42,7 +42,7 @@ namespace ProfileSection { struct Definition; }
 QT_END_NAMESPACE
 
 namespace openswmmvis::ui { class CompactToolbarController; }
-namespace openswmmvis::ui { class ComparisonPlotDialog; }
+namespace openswmmvis::ui { class ComparisonPlotDialog; class PlotDock; }
 namespace openswmmvis::ui { class RainfallVisualizationDialog; }
 namespace openswmmvis::ui { class RibbonGroup; }
 namespace openswmmvis::project::examples { struct ExampleInfo; }
@@ -560,11 +560,14 @@ private slots:
     void openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
                                        SWMMResultsLayer *layer);
 
-    /*! Find-or-create the shared ComparisonPlotDialog (WA_DeleteOnClose;
+    /*! Find-or-create the shared comparison view in the Time Series dock (
      *  wires addFromMapToggled + the AnimationController cursor). Every
      *  plot entry point goes through this so the wiring exists exactly
      *  once. */
     openswmmvis::ui::ComparisonPlotDialog *ensureComparisonPlotDialog();
+    void initializePlotDocks();
+    void wireComparisonPlot(openswmmvis::ui::ComparisonPlotDialog *view);
+    void cancelPlotPick();
 
     /*! Find-or-create the shared Rainfall Visualization dialog
      *  (WA_DeleteOnClose, parented to this main window). Re-binds the
@@ -621,11 +624,8 @@ private slots:
         const openswmmvis::plot::ResultDescriptor &descriptor,
         SWMMResultsLayer *layer);
 
-    /*! Profile-dialog overlay variant: opens / focuses a ComparisonPlotDialog
-     *  parented to \p profileDlg (rather than this main window) and given
-     *  Qt::Tool flags so it floats above the profile. Reused across multiple
-     *  right-click "Plot Time Series" picks from the same profile; dies with
-     *  the profile dialog. */
+    /*! Open the dedicated Time Series tab for this profile using its owning
+     *  project. Reused for later picks and closed with the profile tab. */
     void openComparisonPlotOverlayForProfile(
         ProfilePlotDialog *profileDlg,
         const SWMMObjectRef &ref,
@@ -646,15 +646,15 @@ private slots:
     /*! Slice AT.2 — toggle the MapToolPlotPick on/off in response to
      *  the dialog's "Add from Map…" action. Saves the previously active
      *  map tool on push and restores it on pop. */
-    void onAddFromMapToggled(bool active);
+    void onAddFromMapToggled(bool active, openswmmvis::ui::ComparisonPlotDialog *target = nullptr);
 
     /*! Slice BC — open the profile plot dialog for the path the
      *  MapToolSelectProfile just confirmed.  Builds the dialog on the
-     *  fly so each path gets a fresh non-modal window. */
+     *  fly so each path gets an independent dock tab. */
     void openProfilePlotFor(const ProfileRouter::Path &path);
 
     /*! Open the 2D-mesh longitudinal profile dialog for the polyline the
-     *  MapToolMeshProfile just traced (scene coords). One window per trace.
+     *  MapToolMeshProfile just traced (scene coords). One tab per trace.
      *
      *  Slice US.A1 — openMeshProfilePlotFor is the ANALYSIS variant (ground +
      *  animated depth + envelope against the active 2D results layer);
@@ -857,6 +857,14 @@ private:
     // target.
     openswmmvis::ui::FeatureLayerPanel *mFeatureLayerPanel = nullptr;
     class QDockWidget     *mFeatureDock           = nullptr;
+    openswmmvis::ui::PlotDock *mTimeSeriesDock = nullptr;
+    openswmmvis::ui::PlotDock *mProfiles1DDock = nullptr;
+    openswmmvis::ui::PlotDock *mProfiles2DDock = nullptr;
+    QPointer<openswmmvis::ui::ComparisonPlotDialog> mComparisonPlot;
+    QHash<ProfilePlotDialog *, QPointer<openswmmvis::ui::ComparisonPlotDialog>> mProfileComparisons;
+    QPointer<openswmmvis::ui::ComparisonPlotDialog> mComparisonRouteTarget;
+    QPointer<openswmmvis::ui::ComparisonPlotDialog> mPlotPickTarget;
+    QPointer<MapCanvas> mPlotPickCanvas;
     SimulationStatusModel *mSimStatusModel        = nullptr;
     // Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
     openswmmvis::ui::LegendDock *mLegendDock      = nullptr;

@@ -8,10 +8,9 @@
  *         and drives the animated depth column from the 2D results layer's
  *         frame changes (which the global AnimationController advances).
  *
- *         Mirrors ProfilePlotDialog's lifetime model: a top-level window
- *         parented to its project window, WA_DeleteOnClose, that severs
- *         external connections on the project's aboutToClose so a multi-
- *         window teardown can't deliver into a half-destroyed dialog.
+ *         Widget content hosted in a PlotDock tab. Project closure severs
+ *         source connections before removing the tab; activation owns the
+ *         canvas overlay and map marker tool.
  */
 #ifndef MESH_PROFILE_PLOT_DIALOG_H
 #define MESH_PROFILE_PLOT_DIALOG_H
@@ -21,12 +20,13 @@
 
 #include <QDateTime>
 #include <QHash>
-#include <QDialog>
+#include "ui/panels/plotpanelview.h"
 #include <QPointer>
 #include <QPointF>
 #include <QVector>
 
 class QVBoxLayout;
+class QAction;
 class QComboBox;
 class QLabel;
 class QTableView;
@@ -43,7 +43,7 @@ class SWMM2DMeshLayer;
 class SWMM2DResultsLayer;
 class SWMMVisProjectWindow;
 
-class MeshProfilePlotDialog : public QDialog
+class MeshProfilePlotDialog : public openswmmvis::ui::PlotPanelView
 {
     Q_OBJECT
 public:
@@ -75,7 +75,7 @@ private:
     void rebuildProfile();          // full resample (geometry + envelope)
     void requestEnvelope();         // ask the layer for the temporal maximum
     void applyEnvelope();           // sample that maximum onto the profile
-    void changeEvent(QEvent *event) override;
+    void plotActivationChanged(bool active) override;
     void refreshCurrentDepths();    // per-frame depth-column update
     void openDisplayOptions();
 
@@ -114,6 +114,7 @@ private:
     double m_verticalScale = 1.0;
     double m_mapUnitsPerMetre = 1.0;
 
+    QAction                      *m_markerAction = nullptr;
     MeshProfileOverlay           *m_overlay    = nullptr;  // owned by map scene
     MapToolProfileMarker         *m_markerTool = nullptr;  // parented to dialog
     QPointer<OpenSWMMVisMapTool>  m_prevTool;              // restore on toggle-off/close

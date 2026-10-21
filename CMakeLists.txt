@@ -737,6 +737,8 @@ set(
         include/ui/panels/timeseriestablemodel.h
         include/ui/panels/overviewmappanel.h
         # Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
+        include/ui/panels/plotpanelview.h
+        include/ui/panels/plotdock.h
         include/ui/panels/legenddock.h
         # Slice Z.18 — always-open layer-styling editor dock.
         include/ui/panels/layerstylingdock.h
@@ -1543,6 +1545,8 @@ set(
         src/ui/panels/timeserieslistmodel.cpp
         src/ui/panels/timeseriestablemodel.cpp
         # Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
+        src/ui/panels/plotpanelview.cpp
+        src/ui/panels/plotdock.cpp
         src/ui/panels/legenddock.cpp
         # Slice Z.18 — always-open layer-styling editor dock.
         src/ui/panels/layerstylingdock.cpp

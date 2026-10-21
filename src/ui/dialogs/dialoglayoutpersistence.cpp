@@ -34,10 +34,10 @@ bool userNamed_(const QString &name)
     return !name.isEmpty() && !name.startsWith(QLatin1String("qt_"));
 }
 
-QString rootGroupName_(QWidget *root)
+QString rootGroupName_(QWidget *root, bool windowLayout)
 {
     if (!root) return {};
-    QWidget *w = root->isWindow() ? root : root->window();
+    QWidget *w = !windowLayout || root->isWindow() ? root : root->window();
     return w ? w->objectName() : QString();
 }
 
@@ -162,15 +162,15 @@ void ensureWindowOnScreen(QWidget *widget, const QScreen *preferred)
         w->setGeometry(target);
 }
 
-void saveDialogLayout(QWidget *root)
+void saveDialogLayout(QWidget *root, bool windowLayout)
 {
-    const QString name = rootGroupName_(root);
+    const QString name = rootGroupName_(root, windowLayout);
     if (name.isEmpty()) return;
 
     QSettings s;
     s.beginGroup(QStringLiteral("Dialogs"));
     s.beginGroup(name);
-    s.setValue(QStringLiteral("geometry"), root->window()->geometry());
+    if (windowLayout) s.setValue(QStringLiteral("geometry"), root->window()->geometry());
 
     s.beginGroup(QStringLiteral("splitter"));
     const QList<QSplitter *> splitters = root->findChildren<QSplitter *>();
@@ -216,7 +216,8 @@ void saveDialogLayout(QWidget *root)
     s.beginGroup(QStringLiteral("toggle"));
     const QList<QAction *> actions = root->findChildren<QAction *>();
     for (QAction *a : actions) {
-        if (!a->isCheckable() || !userNamed_(a->objectName())) continue;
+        if (!a->isCheckable() || !userNamed_(a->objectName())
+            || a->property("noLayoutPersistence").toBool()) continue;
         s.setValue(a->objectName(), a->isChecked());
     }
     s.endGroup();   // toggle
@@ -224,9 +225,9 @@ void saveDialogLayout(QWidget *root)
     s.endGroup();   // Dialogs
 }
 
-bool restoreDialogLayout(QWidget *root)
+bool restoreDialogLayout(QWidget *root, bool windowLayout)
 {
-    const QString name = rootGroupName_(root);
+    const QString name = rootGroupName_(root, windowLayout);
     if (name.isEmpty()) return false;
 
     QSettings s;
@@ -235,7 +236,7 @@ bool restoreDialogLayout(QWidget *root)
     const bool hadGeometry = s.contains(QStringLiteral("geometry"));
     bool restored = false;
 
-    if (hadGeometry) {
+    if (windowLayout && hadGeometry) {
         const QRect saved = s.value(QStringLiteral("geometry")).toRect();
         if (saved.isValid()) {
             QWidget *w = root->window();
@@ -305,7 +306,8 @@ bool restoreDialogLayout(QWidget *root)
     s.beginGroup(QStringLiteral("toggle"));
     const QList<QAction *> actions = root->findChildren<QAction *>();
     for (QAction *a : actions) {
-        if (!a->isCheckable() || !userNamed_(a->objectName())) continue;
+        if (!a->isCheckable() || !userNamed_(a->objectName())
+            || a->property("noLayoutPersistence").toBool()) continue;
         if (!s.contains(a->objectName())) continue;
         // setChecked fires toggled() so dependent views update themselves.
         a->setChecked(s.value(a->objectName()).toBool());

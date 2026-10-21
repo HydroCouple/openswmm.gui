@@ -32,6 +32,7 @@
 #endif
 
 #include <QActionGroup>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QKeySequence>
@@ -48,7 +49,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
                                              const QVector<QPointF> &scenePolyline,
                                              SWMMVisProjectWindow   *projectWindow,
                                              QWidget                *parent)
-    : QDialog(parent),
+    : openswmmvis::ui::PlotPanelView(parent),
       m_mesh(mesh),
       m_results(results),
       m_anim(anim),
@@ -58,14 +59,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
     setWindowTitle(tr("2D Mesh Profile"));
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("MeshProfilePlotDialog"));
-    setModal(false);
     m_options = new MeshProfilePlotOptions(this);
-    setWindowFlags(Qt::Window
-                   | Qt::WindowSystemMenuHint
-                   | Qt::WindowTitleHint
-                   | Qt::WindowMinMaxButtonsHint
-                   | Qt::WindowCloseButtonHint
-                   | openswmmvis::ui::stayAboveAppFlags());
     resize(900, 520);
 
     m_definition.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -116,6 +110,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
         connect(m_results, &SWMM2DResultsLayer::currentTimeChanged,
                 this, [this](int index) {
             if (!m_settingTimeFromAnimation && m_results && m_results->source()) m_requestedTime = m_results->source()->simTimeAt(index);
+            if (!isPlotActive()) return;
             refreshCurrentDepths();
             // A replacement live frame may reduce the maximum without
             // extending the time range. Refresh that envelope as well.
@@ -132,7 +127,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
             connect(m_anim, &AnimationController::currentTimeChanged,
                     this, [this](const QDateTime &dt) {
                 m_requestedTime = dt;
-                if (isMinimized()) return;   // caught up in changeEvent on restore
+                if (!isPlotActive()) return;   // caught up on tab activation
                 m_settingTimeFromAnimation = true;
                 m_seriesRefreshed = false;
                 if (m_results) m_results->setCurrentSimTimeAsOf(dt);
@@ -206,6 +201,8 @@ void MeshProfilePlotDialog::buildLayout()
     actCells->setToolTip(tr("Show mesh-cell edge crossings as dots on the ground line"));
     auto *actMapMarker = toolbar->addAction(
         openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileMarker")), tr("Move marker on map"));
+    m_markerAction = actMapMarker;
+    actMapMarker->setProperty("noLayoutPersistence", true);
     actMapMarker->setCheckable(true);
     actMapMarker->setObjectName(QStringLiteral("showMapMarker"));
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
@@ -241,17 +238,6 @@ void MeshProfilePlotDialog::buildLayout()
     connect(m_plot,&MeshProfilePlotWidget::viewRangeChanged,m_tracks,&MeshProfileTracksWidget::setViewRange);
     connect(m_plot,&MeshProfilePlotWidget::cursorChainageChanged,m_tracks,&MeshProfileTracksWidget::setCursorChainage);
     connect(m_tracks,&MeshProfileTracksWidget::cursorChainageChanged,this,[this](double station) { m_plot->setCursorChainage(station); emit m_plot->cursorChainageChanged(station); });
-
-    // Close row, as ProfilePlotDialog has. Wired to close() so every exit
-    // (button, Esc, title bar) takes the same path.
-    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    closeBox->setObjectName(QStringLiteral("meshprof_closeBox"));
-    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
-    closeBtn->setObjectName(QStringLiteral("meshprof_closeBtn"));
-    closeBtn->setAutoDefault(false);
-    closeBtn->setDefault(false);
-    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
-    root->addWidget(closeBox);
 
     // Axis labels from the project unit system.
     auto *us = m_projectWindow ? m_projectWindow->unitSystem() : UnitSystem::instance();
@@ -305,17 +291,25 @@ void MeshProfilePlotDialog::applyEnvelope()
     if (!m_rebuildingProfile) refreshSectionSeries();
 }
 
-void MeshProfilePlotDialog::changeEvent(QEvent *event)
+void MeshProfilePlotDialog::plotActivationChanged(bool active)
 {
-    QDialog::changeEvent(event);
-    // Animation ticks are ignored while minimized; show the requested time.
-    if (event->type() == QEvent::WindowStateChange && !isMinimized()
-        && m_results && m_requestedTime.isValid()) {
+    auto *canvas = m_projectWindow ? m_projectWindow->canvas() : nullptr;
+    if (!active) {
+        if (m_markerAction) m_markerAction->setChecked(false);
+        setMarkerToolActive(false);
+        if (canvas && canvas->meshProfileOverlay() == m_overlay)
+            canvas->setMeshProfileOverlay(nullptr);
+        return;
+    }
+    if (canvas && m_overlay) canvas->setMeshProfileOverlay(m_overlay);
+    if (m_anim) m_requestedTime = m_anim->currentDateTime();
+    if (m_results && m_requestedTime.isValid()) {
         m_settingTimeFromAnimation = true;
         m_results->setCurrentSimTimeAsOf(m_requestedTime);
         m_settingTimeFromAnimation = false;
-        refreshSectionSeries();
+        refreshCurrentDepths();
     }
+    refreshSectionSeries();
 }
 
 void MeshProfilePlotDialog::refreshCurrentDepths()
@@ -353,7 +347,7 @@ void MeshProfilePlotDialog::setupMapOverlay()
     // Bound to the canvas, which paints it ABOVE the QSG flood-map mesh.
     m_overlay = new MeshProfileOverlay();
     m_overlay->setPolyline(m_scenePolyline);
-    canvas->setMeshProfileOverlay(m_overlay);
+    if (isPlotActive()) canvas->setMeshProfileOverlay(m_overlay);
 
     // Chart cursor → map arrow. setCursorChainage on the chart is display-only,
     // so this connection cannot echo back into the chart.
@@ -385,6 +379,7 @@ void MeshProfilePlotDialog::setMarkerToolActive(bool on)
     MapCanvas *canvas = m_projectWindow->canvas();
     if (!canvas) return;
     if (on) {
+        if (!isPlotActive()) return;
         if (canvas->activeTool() == m_markerTool) return;
         m_prevTool = canvas->activeTool();
         canvas->setActiveTool(m_markerTool);

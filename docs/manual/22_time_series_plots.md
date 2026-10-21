@@ -7,8 +7,9 @@ several objects and observed measurements on the same chart; style each series;
 zoom, pan and read values off the chart; compute summary statistics and
 goodness-of-fit metrics against a baseline; and export the numbers or the picture.
 
-All of this happens in one window — the **Comparison Plot** dialog. Every
-time-series entry point in SWMMVis feeds it.
+All of this happens in the dockable **Time Series** panel. Its **Comparison**
+tab collects map and Object Browser requests; each 1D profile can also open its
+own comparison tab.
 
 \fig{22_comparison_plot_overview.png, The Comparison Plot dialog — series tree; stacked chart rows; range slider and statistics panel}
 
@@ -20,10 +21,17 @@ time-series entry point in SWMMVis feeds it.
 | Right-click a node / link / subcatchment on the **map** → **Plot Time Series** | Pops the attribute menu for that kind; the pick is added as one series |
 | Right-click an object in the **Object Browser** → **Plot Time Series** | Same. With more than one `.out` loaded the entry becomes a **Plot Time Series ▸ *run*** submenu so you choose which run |
 | Right-click a **2D mesh cell / edge / vertex** on the map | The mesh attribute menu — see \ref manual_analysis_tools |
-| **Add from Map…** on the dialog's own toolbar | Arms a one-shot map pick so you can keep adding objects without leaving the dialog |
+| **Add from Map…** on the plot toolbar | Arms a one-shot map pick so you can keep adding objects without leaving the plot |
 
-The dialog is shared: every entry point reuses the one open window rather than
-stacking new ones. `Ctrl+T` needs an **active 1D results layer** — if none is
+Map and Object Browser commands reuse the **Comparison** tab in the **Time Series**
+panel. A time-series request from a 1D profile opens a separate tab associated with
+that profile and uses its owning project's results. **Add from Map…** adds to the
+tab where it was activated; switching tabs or hiding the panel ends that pick mode.
+
+Open a hidden panel from **View → Panels → Time Series**. Drag its title bar to
+move or float the entire panel, or dock it beside a profile for comparison. Closing
+the panel hides it and preserves all tabs; a tab's close button removes that plot.
+Closing a profile tab also closes its associated time-series tab. `Ctrl+T` needs an **active 1D results layer** — if none is
 set it tells you to pick one in the Analysis toolbar's **1D results:** selector.
 
 ## Step-by-step
@@ -84,7 +92,7 @@ budgets (m³) and UEB energy residuals (kJ).
 Every attribute menu also carries an **All attributes** entry that adds one
 series per attribute for that object in a single click.
 
-### Dialog layout
+### Panel layout
 
 | Region | Contents |
 |--------|----------|
@@ -94,9 +102,10 @@ series per attribute for that object in a single click.
 | Range slider | An X-range slider under the charts with a date/time read-out |
 | **Statistics** panel (bottom) | One tab per chart row |
 
-Rows are separated by splitters you can drag; the splitter sizes, the window
-geometry, table header layouts and the view toggles are all remembered between
-sessions (per dialog, under the application's `Dialogs/` settings).
+Rows are separated by splitters you can drag. Dock placement and visibility are
+remembered between sessions, together with internal splitter sizes, table header
+layouts and view-toggle defaults. Switching tabs preserves each plot's current
+state. Unsaved plot tabs themselves are not restored after restarting the app.
 
 The toolbar's **Series Panel**, **Range Slider**, **Stats Panel** and **1v1
 Plots** toggles hide and show each region; **Charts Only** (`Ctrl+Shift+F`) hides
@@ -205,7 +214,7 @@ you care about. New series are assigned colours from a 12-colour cycle.
 ### Chart properties
 
 **Chart Properties…** (right-click a chart) opens a modeless editor that floats
-above the dialog:
+above the panel:
 
 | Property | Effect |
 |----------|--------|

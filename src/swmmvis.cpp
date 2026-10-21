@@ -177,6 +177,9 @@
 
 #include <QClipboard>
 #include <QDockWidget>
+#include <QScopedValueRollback>
+#include <QTabWidget>
+#include "ui/panels/plotdock.h"
 #include <QGuiApplication>
 #include <QPainter>
 #include <QPrintDialog>
@@ -2563,6 +2566,7 @@ void SWMMVis::initializeDockWidgets()
     initializeSimulationStatusDockWidget();
     initializeMessageLogDockWidget();
     initializeLegendDockWidget();
+    initializePlotDocks();
     logInheritedThreadEnvironment();
 }
 
@@ -3171,32 +3175,62 @@ void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
         layer);
 }
 
+void SWMMVis::initializePlotDocks()
+{
+    // Allow dragging plots beside one another; the .ui's ForceTabbedDocks
+    // otherwise confines every bottom panel to a single tab stack.
+    setDockOptions(dockOptions() & ~QMainWindow::ForceTabbedDocks);
+    using openswmmvis::ui::PlotDock;
+    mTimeSeriesDock = new PlotDock(tr("Time Series"), QStringLiteral("dockWidgetTimeSeries"), this);
+    mProfiles1DDock = new PlotDock(tr("1D Profiles"), QStringLiteral("dockWidgetProfiles1D"), this);
+    mProfiles2DDock = new PlotDock(tr("2D Profiles"), QStringLiteral("dockWidgetProfiles2D"), this);
+    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock}) {
+        addDockWidget(Qt::BottomDockWidgetArea, dock);
+        if (dock != mTimeSeriesDock) tabifyDockWidget(mTimeSeriesDock, dock);
+        dock->hide();
+        connect(dock, &PlotDock::viewSelected, this, [this, dock](openswmmvis::ui::PlotPanelView *view) {
+            auto *owner = qobject_cast<SWMMVisProjectWindow *>(dock->contextFor(view));
+            if (owner && !owner->isClosing() && activeProjectWindow() != owner)
+                ui->mdiAreaCentral->setActiveSubWindow(owner);
+        });
+    }
+    // Use the full bottom width on first launch. Existing saved layouts are
+    // restored afterwards, and users can split any of these panels again.
+    for (QDockWidget *peer : {ui->dockWidgetSimulationStatus, ui->dockWidgetLogs,
+             findChild<QDockWidget *>(QStringLiteral("dockWidgetAttributeTable"))}) {
+        if (peer) tabifyDockWidget(mTimeSeriesDock, peer);
+    }
+    if (auto *table = findChild<QDockWidget *>(QStringLiteral("dockWidgetAttributeTable")))
+        resizeDocks({table}, {400}, Qt::Vertical);
+}
+
+void SWMMVis::wireComparisonPlot(openswmmvis::ui::ComparisonPlotDialog *view)
+{
+    connect(view, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
+            this, [this, view](bool on) { onAddFromMapToggled(on, view); });
+    connect(view, &openswmmvis::ui::PlotPanelView::closed, this, [this, view] {
+        if (mPlotPickTarget == view) cancelPlotPick();
+        if (mComparisonPlot == view) mComparisonPlot.clear();
+        for (auto it = mProfileComparisons.begin(); it != mProfileComparisons.end(); ++it)
+            if (it.value() == view) it.value().clear();
+    });
+    if (mAnimationController) {
+        connect(mAnimationController, &AnimationController::currentTimeChanged,
+                view->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
+        view->model()->setAnimationTime(mAnimationController->currentDateTime());
+    }
+}
+
 openswmmvis::ui::ComparisonPlotDialog *SWMMVis::ensureComparisonPlotDialog()
 {
-    // Find-or-create the shared dialog; reuse across calls.
-    //
-    // FindDirectChildrenOnly is load-bearing: the profile-plot route creates
-    // its OWN overlay ComparisonPlotDialog parented to a ProfilePlotDialog,
-    // which is itself a descendant of this main window (project window → MDI
-    // area → this). A recursive search therefore found and hijacked that
-    // overlay instead of the map's shared dialog.
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>(
-        QString(), Qt::FindDirectChildrenOnly);
-    if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        // Slice AT.3 polish — drive the dialog's animation cursor from the
-        // global AnimationController so the dashed vertical line moves
-        // during sim playback. Connection auto-disconnects when the dialog
-        // dies via WA_DeleteOnClose.
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
+    // A map-pick callback supplies its explicit destination for this call only.
+    if (mComparisonRouteTarget) return mComparisonRouteTarget;
+    if (!mComparisonPlot) {
+        mComparisonPlot = new openswmmvis::ui::ComparisonPlotDialog(mTimeSeriesDock);
+        wireComparisonPlot(mComparisonPlot);
+        mTimeSeriesDock->addView(mComparisonPlot, tr("Comparison"));
     }
-    return dlg;
+    return mComparisonPlot;
 }
 
 openswmmvis::ui::RainfallVisualizationDialog *SWMMVis::ensureRainfallVisualizationDialog()
@@ -3300,9 +3334,7 @@ void SWMMVis::openComparisonPlotForOnLayer(const SWMMObjectRef &ref,
         dlg->addSeries(runIdx, objRef, defaultAttr);
     }
 
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    mTimeSeriesDock->reveal(dlg);
 }
 
 void SWMMVis::openComparisonPlotForAttribute(const SWMMObjectRef &ref,
@@ -3362,7 +3394,7 @@ void SWMMVis::openComparisonPlotForDescriptorOnLayer(
     case SWMMObjectRef::Subcatchment: kind = PKind::Subcatch; break;
     default: break;
     }
-    if (kind == PKind::Unknown) { dlg->show(); dlg->raise(); dlg->activateWindow(); return; }
+    if (kind == PKind::Unknown) { mTimeSeriesDock->reveal(dlg); return; }
 
     openswmmvis::plot::ObjectRef objRef(kind, ref.name);
 
@@ -3379,9 +3411,7 @@ void SWMMVis::openComparisonPlotForDescriptorOnLayer(
         dlg->addSeries(runIdx, objRef, descriptor);
     }
 
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    mTimeSeriesDock->reveal(dlg);
 }
 
 void SWMMVis::openComparisonPlotForSystemAttribute(openswmmvis::plot::PlotAttribute attribute)
@@ -3405,57 +3435,56 @@ void SWMMVis::openComparisonPlotForSystemAttribute(openswmmvis::plot::PlotAttrib
     const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
     dlg->addSeries(runIdx, openswmmvis::plot::ObjectRef::forSystem(), attribute);
 
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    mTimeSeriesDock->reveal(dlg);
 }
 
-void SWMMVis::onAddFromMapToggled(bool active)
+void SWMMVis::cancelPlotPick()
 {
-    auto *pw = activeProjectWindow();
-    if (!pw || !pw->canvas()) return;
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
-    if (!dlg) return;
-    MapCanvas *canvas = pw->canvas();
+    auto target = mPlotPickTarget;
+    if (mPlotPickCanvas && mPlotPickCanvas->activeTool() == mPlotPickTool && mPlotPickTool)
+        mPlotPickCanvas->setActiveTool(mPrevMapTool ? mPrevMapTool.data() : nullptr);
+    if (mPlotPickTool) mPlotPickTool->deleteLater();
+    mPlotPickTool.clear();
+    mPrevMapTool.clear();
+    mPlotPickTarget.clear();
+    mPlotPickCanvas.clear();
+    if (target) target->setAddFromMapChecked(false);
+}
 
-    if (active) {
-        // Avoid double-push (dialog re-toggles during programmatic setChecked).
-        if (mPlotPickTool) return;
-
-        mPrevMapTool   = canvas->activeTool();
-        mPlotPickTool  = new OpenSWMMVisMapToolPlotPick(canvas, this);
-
-        // Y2b-2: snapshot the active run's species so the pick menu can
-        // offer them; the tool lives for one pick session.
-        if (auto *apw = activeProjectWindow())
-            if (auto *rl = apw->activeResultsLayer())
-                mPlotPickTool->setSpeciesNames(rl->speciesNames());
-        connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::objectPicked,
-                this, &SWMMVis::openComparisonPlotForDescriptor);
-        connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::plotSystemRequested,
-                this, &SWMMVis::openComparisonPlotForSystemAttribute);
-        connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::cancelled,
-                this, [this, dlg]() {
-                    // Bouncing through the dialog's action keeps the
-                    // toolbar button in sync; setAddFromMapChecked(false)
-                    // re-fires addFromMapToggled(false) which lands us
-                    // back here with active=false.
-                    dlg->setAddFromMapChecked(false);
-                });
-
-        canvas->setActiveTool(mPlotPickTool);
-        statusBar()->showMessage(
-            tr("Click an object on the map to plot. Esc cancels."), 5000);
-    } else {
-        if (!mPlotPickTool) return;
-        // Restore the previously active tool (which may be a Select
-        // tool that's been since destroyed — guard with the QPointer).
-        canvas->setActiveTool(mPrevMapTool ? mPrevMapTool.data() : nullptr);
-        mPlotPickTool->deleteLater();
-        mPlotPickTool.clear();
-        mPrevMapTool.clear();
-        statusBar()->showMessage(tr("Add-from-Map cancelled."), 3000);
+void SWMMVis::onAddFromMapToggled(bool active, openswmmvis::ui::ComparisonPlotDialog *target)
+{
+    if (!active) {
+        if (!target || target == mPlotPickTarget) cancelPlotPick();
+        return;
     }
+    auto *pw = activeProjectWindow();
+    if (!target || !target->isPlotActive() || !pw || !pw->canvas()) {
+        if (target) target->setAddFromMapChecked(false);
+        return;
+    }
+    if (mPlotPickTarget == target && mPlotPickTool) return;
+    cancelPlotPick();
+    auto *canvas = pw->canvas();
+    mPlotPickTarget = target;
+    mPlotPickCanvas = canvas;
+    mPrevMapTool = canvas->activeTool();
+    mPlotPickTool = new OpenSWMMVisMapToolPlotPick(canvas, this);
+    if (auto *layer = pw->activeResultsLayer()) mPlotPickTool->setSpeciesNames(layer->speciesNames());
+    connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::objectPicked, this,
+            [this](const SWMMObjectRef &ref, const openswmmvis::plot::ResultDescriptor &descriptor) {
+        if (!mPlotPickTarget) return;
+        QScopedValueRollback<QPointer<openswmmvis::ui::ComparisonPlotDialog>> route(mComparisonRouteTarget, mPlotPickTarget);
+        openComparisonPlotForDescriptor(ref, descriptor);
+    });
+    connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::plotSystemRequested, this,
+            [this](openswmmvis::plot::PlotAttribute attribute) {
+        if (!mPlotPickTarget) return;
+        QScopedValueRollback<QPointer<openswmmvis::ui::ComparisonPlotDialog>> route(mComparisonRouteTarget, mPlotPickTarget);
+        openComparisonPlotForSystemAttribute(attribute);
+    });
+    connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::cancelled, this, &SWMMVis::cancelPlotPick);
+    canvas->setActiveTool(mPlotPickTool);
+    statusBar()->showMessage(tr("Click an object on the map to plot. Esc cancels."), 5000);
 }
 
 void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
@@ -3489,9 +3518,7 @@ void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
     }
 
     dlg->addCellDescriptorSeries(runIdx, triIdxList, attrs);
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    mTimeSeriesDock->reveal(dlg);
 }
 
 void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
@@ -3529,9 +3556,7 @@ void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edg
     // (m²/s) — for the picked edge; it lands on its own chart row.
     const auto edgeRef = openswmmvis::plot::ObjectRef::forMesh2DEdge(triIdx, edgeLocal);
     dlg->addSeries(runIdx, edgeRef, attr);
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    mTimeSeriesDock->reveal(dlg);
 }
 
 void SWMMVis::openMeshVertexSeriesFor(SWMM2DMeshLayer *mesh,
@@ -3576,9 +3601,7 @@ void SWMMVis::openMeshVertexSeriesFor(SWMM2DMeshLayer *mesh,
         for (const auto attr : attrs)
             items.append({ObjectRef::forMesh2DVertex(v), ResultDescriptor::forAttribute(attr)});
     dlg->addSeriesBatch(runIdx, items);
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    mTimeSeriesDock->reveal(dlg);
 }
 
 void SWMMVis::openProfilePlotFor(const ProfileRouter::Path &path)
@@ -3593,29 +3616,19 @@ void SWMMVis::openProfilePlotFor(const ProfileRouter::Path &path)
     }
     if (path.nodes.size() < 2) return;
 
-    // Parent the dialog to its project sub-window so it lives in the Qt
-    // object tree: it still floats above the project (Qt::Window |
-    // StaysOnTop are set in the ctor — stacking hints, independent of
-    // parentage), but it now closes with its document and is destroyed
-    // when the app shuts down.  A parentless dialog is a "primary window"
-    // and, per QApplication::quitOnLastWindowClosed, keeps the whole app
-    // alive after the main window closes.  WA_DeleteOnClose still owns
-    // per-close cleanup.  The dialog queries the project window
-    // dynamically for the active terrain raster so loading a terrain
-    // *after* the dialog is open still updates the ground line.
-    auto *dlg = new ProfilePlotDialog(model, mAnimationController, path,
-                                      pw, /*parent=*/pw);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
-    // Route the profile dialog's attribute-picker right-click into a
-    // ComparisonPlotDialog that floats above the profile (parented to it
-    // with Qt::Tool flags) rather than the shared main-window-parented
-    // dialog used by the map view.
-    connect(dlg, &ProfilePlotDialog::plotAttributeRequested,
-            this, [this, dlg](const SWMMObjectRef &ref,
-                              const openswmmvis::plot::ResultDescriptor &d) {
-        openComparisonPlotOverlayForProfile(dlg, ref, d);
+    auto *view = new ProfilePlotDialog(model, mAnimationController, path, pw, mProfiles1DDock);
+    connect(view, &ProfilePlotDialog::plotAttributeRequested,
+            this, [this, view](const SWMMObjectRef &ref,
+                              const openswmmvis::plot::ResultDescriptor &descriptor) {
+        openComparisonPlotOverlayForProfile(view, ref, descriptor);
     });
-    dlg->show();
+    connect(view, &openswmmvis::ui::PlotPanelView::closed, this, [this, view] {
+        if (auto comparison = mProfileComparisons.take(view)) mTimeSeriesDock->closeView(comparison);
+    });
+    const QString start = QString::fromUtf8(swmm_node_id(model->engine(), path.nodes.first()));
+    const QString end = QString::fromUtf8(swmm_node_id(model->engine(), path.nodes.last()));
+    view->setWindowTitle(tr("%1 → %2").arg(start, end));
+    mProfiles1DDock->addView(view, tr("%1 — %2").arg(pw->windowTitle(), view->windowTitle()), pw);
 }
 
 void SWMMVis::openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
@@ -3626,6 +3639,14 @@ void SWMMVis::openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
 {
     auto *pw = owner ? owner : activeProjectWindow();
     if (!pw || scenePolyline.size() < 2) return;
+    if (definition) {
+        for (auto *view : mProfiles2DDock->findChildren<MeshProfilePlotDialog *>()) {
+            if (mProfiles2DDock->contextFor(view) == pw && view->definition().id == definition->id) {
+                mProfiles2DDock->reveal(view);
+                return;
+            }
+        }
+    }
     SWMM2DMeshLayer *mesh = nullptr;
     const bool savedMesh = definition && definition->primarySourceId.startsWith(QStringLiteral("mesh:"));
     QString savedMeshPath;
@@ -3650,8 +3671,7 @@ void SWMMVis::openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
         return;
     }
     auto *dlg = new MeshProfilePlotDialog(mesh, results, mAnimationController,
-                                          scenePolyline, pw, pw);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
+                                          scenePolyline, pw, mProfiles2DDock);
     dlg->setResultSources(sources);
     auto *store = ProfileSectionStore::forOwner(pw);
     dlg->setSavedDefinitions(store->definitions());
@@ -3675,7 +3695,9 @@ void SWMMVis::openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
         }
     }
     if (!title.isEmpty()) dlg->setWindowTitle(title);
-    dlg->show();
+    const QString tabTitle = definition ? definition->title : dlg->windowTitle();
+    mProfiles2DDock->addView(dlg, tr("%1 — %2").arg(pw->windowTitle(), tabTitle), pw);
+
 }
 
 void SWMMVis::openSavedMeshProfile(SWMMVisProjectWindow *pw, const QString &id)
@@ -3805,7 +3827,7 @@ void SWMMVis::openComparisonPlotOverlayForProfile(
     const openswmmvis::plot::ResultDescriptor &descriptor)
 {
     if (!profileDlg) return;
-    auto *pw = activeProjectWindow();
+    auto *pw = profileDlg->projectWindow();
     if (!pw || !pw->canvas()) return;
 
     SWMMResultsLayer *resultsLayer = pw->activeResultsLayer();
@@ -3816,36 +3838,14 @@ void SWMMVis::openComparisonPlotOverlayForProfile(
         return;
     }
 
-    // Find-or-create an overlay CPD as a direct child of the profile dialog
-    // so it floats above and is destroyed with it. The Qt parentage is for
-    // LIFETIME ONLY — on macOS the window-stacking attachment deliberately
-    // skips dialog parents (see platform::attachAsChildWindow) so this
-    // overlay no longer drags along when the profile dialog is moved.
-    auto *dlg = profileDlg->findChild<openswmmvis::ui::ComparisonPlotDialog *>(
-        QString(), Qt::FindDirectChildrenOnly);
+    auto *dlg = mProfileComparisons.value(profileDlg).data();
     if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(profileDlg);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        // Distinct objectName: layout persistence keys off it, and sharing
-        // "ComparisonPlotDialog" with the map-route instance made the two
-        // fight over one saved geometry (last close wins). They are separate
-        // windows the user positions separately, so they get separate keys.
+        dlg = new openswmmvis::ui::ComparisonPlotDialog(mTimeSeriesDock);
         dlg->setObjectName(QStringLiteral("ComparisonPlotDialogProfileOverlay"));
-        // Qt::Tool ⇒ utility window that stacks above its parent; reinforce
-        // with WindowStaysOnTopHint because the profile dialog itself sets
-        // that flag, so a plain Tool child can otherwise sink behind it on
-        // some platforms.
-        dlg->setWindowFlags(openswmmvis::ui::floatingPanelFlags()
-                            | Qt::WindowTitleHint
-                            | Qt::WindowSystemMenuHint
-                            | Qt::WindowMinMaxButtonsHint
-                            | Qt::WindowCloseButtonHint);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
+        dlg->setWindowTitle(profileDlg->windowTitle());
+        mProfileComparisons.insert(profileDlg, dlg);
+        wireComparisonPlot(dlg);
+        mTimeSeriesDock->addView(dlg, tr("%1 — %2").arg(pw->windowTitle(), profileDlg->windowTitle()), pw);
     }
     const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
 
@@ -3857,7 +3857,7 @@ void SWMMVis::openComparisonPlotOverlayForProfile(
     case SWMMObjectRef::Subcatchment: kind = PKind::Subcatch; break;
     default: break;
     }
-    if (kind == PKind::Unknown) { dlg->show(); dlg->raise(); dlg->activateWindow(); return; }
+    if (kind == PKind::Unknown) { mTimeSeriesDock->reveal(dlg); return; }
 
     openswmmvis::plot::ObjectRef objRef(kind, ref.name);
 
@@ -3874,9 +3874,7 @@ void SWMMVis::openComparisonPlotOverlayForProfile(
         dlg->addSeries(runIdx, objRef, descriptor);
     }
 
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    mTimeSeriesDock->reveal(dlg);
 }
 
 // ---------------------------------------------------------------------------
@@ -4829,6 +4827,9 @@ void SWMMVis::initializeMenus()
             {findChild<QDockWidget *>(QStringLiteral("dockWidgetAttributeTable")),
                                                 "actionToggleDockAttributeTable"},
             {mFeatureDock,                      "actionToggleDockFeatures"},
+            {mTimeSeriesDock,                    "actionToggleDockTimeSeries"},
+            {mProfiles1DDock,                    "actionToggleDockProfiles1D"},
+            {mProfiles2DDock,                    "actionToggleDockProfiles2D"},
             {mLegendDock,                       "actionToggleDockLegend"},
             {ui->dockWidgetSimulationStatus,    "actionToggleDockSimulationStatus"},
             {ui->dockWidgetLogs,                "actionToggleDockMessageLogs"},
@@ -5209,6 +5210,8 @@ void SWMMVis::initializeSettings()
 
 void SWMMVis::saveSettings()
 {
+    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock})
+        if (dock) dock->saveLayouts();
     mSettings.beginGroup("SWMMVis::MainWindow");
     mSettings.setValue("SWMMVis::WindowState",     saveState(2));
     mSettings.setValue("SWMMVis::WindowStateEnum", static_cast<int>(windowState()));
@@ -5870,6 +5873,10 @@ SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
     // drop the per-job state keyed on this window.
     connect(window, &SWMMVisProjectWindow::aboutToClose, this,
             [this, window]() {
+                if (mPlotPickCanvas == window->canvas()) cancelPlotPick();
+                if (mTimeSeriesDock)
+                    for (auto *view : mTimeSeriesDock->findChildren<openswmmvis::ui::ComparisonPlotDialog *>())
+                        view->removeProjectSources(window);
                 clearSimulationStatusForProject(window);
                 // Rebind the docks / toolbars AWAY from this window's canvas
                 // while it is still alive. The MDI area does not always
@@ -7074,6 +7081,9 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         if (anyProjectStillOpen)
             return;   // spurious null — keep existing bindings
 
+        cancelPlotPick();
+        for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock})
+            if (dock) dock->setActiveContext(nullptr);
         // Real "all projects closed" — clear bindings.
         setWindowTitle(QStringLiteral("SWMMVis"));
         UnitSystem::setActiveProject(nullptr);
@@ -7114,7 +7124,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     // resets that flash the Layers dock empty for a frame).
     if (pw == mActiveProjectWindow)
         return;
+    if (mPlotPickCanvas && mPlotPickCanvas != pw->canvas()) cancelPlotPick();
     mActiveProjectWindow = pw;
+    for (auto *dock : {mTimeSeriesDock, mProfiles1DDock, mProfiles2DDock})
+        if (dock) dock->setActiveContext(pw);
     rebindUndoRedoActions(pw);
     updateContextualTabs();
 
@@ -10434,9 +10447,7 @@ void SWMMVis::onPlotTimeSeries()
         items.append({e.ref, e.descriptor()});
     cmp->addSeriesBatch(runIdx, items);
 
-    cmp->show();
-    cmp->raise();
-    cmp->activateWindow();
+    mTimeSeriesDock->reveal(cmp);
 }
 
 void SWMMVis::onShowReport()

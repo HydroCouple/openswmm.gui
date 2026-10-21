@@ -48,8 +48,10 @@ namespace openswmmvis::ui {
  *  Splitters without an `objectName` are skipped (forces deliberate opt-in).
  *
  *  No-op when \p root has no objectName (we'd have nowhere to file it).
- *  Safe to call on any QWidget — passes through to its window. */
-void saveDialogLayout(QWidget *root);
+ *  With windowLayout=true (default), geometry is saved for the containing
+ *  window. Pass false for embedded plot content: use the root objectName
+ *  and persist only child layout state, never the containing window geometry. */
+void saveDialogLayout(QWidget *root, bool windowLayout = true);
 
 /*! \brief Inverse of saveDialogLayout — restore geometry + splitter states.
  *
@@ -59,7 +61,7 @@ void saveDialogLayout(QWidget *root);
  *
  *  \returns true if any state was restored (caller can skip its defaults);
  *           false on first-open (caller applies its hard-coded defaults). */
-bool restoreDialogLayout(QWidget *root);
+bool restoreDialogLayout(QWidget *root, bool windowLayout = true);
 
 /*! \brief Clamp a saved top-level geometry into currently-available screen
  *  space, so a window can never be restored somewhere unreachable.

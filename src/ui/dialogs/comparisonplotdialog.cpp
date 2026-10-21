@@ -25,6 +25,8 @@
 #include "ui/widgets/seriesstyleeditor.h"
 #include "ui/widgets/statssummarypanel.h"
 #include "layers/swmmresultslayer.h"
+#include "swmmvisprojectwindow.h"
+#include "map/mapcanvas.h"
 #include "layers/swmm2dresultslayer.h"
 
 #include <QAction>
@@ -38,6 +40,7 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include "plot/utctimeaxis.h"
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -104,7 +107,7 @@ using namespace openswmmvis::plot;
 // ---------------------------------------------------------------------------
 
 ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
-    : QDialog(parent, floatingPanelFlags()),
+    : PlotPanelView(parent),
       m_model(std::make_unique<ComparisonPlotModel>())
 {
     setWindowTitle(tr("Comparison Plot"));
@@ -153,6 +156,11 @@ ComparisonPlotDialog::~ComparisonPlotDialog()
     // one frame read. Nothing in the job refers to this dialog.
     if (m_load) m_load->cancel.store(true);
     if (m_loadThread.joinable()) m_loadThread.join();
+}
+
+void ComparisonPlotDialog::plotActivationChanged(bool active)
+{
+    if (!active) setAddFromMapChecked(false);
 }
 
 void ComparisonPlotDialog::buildUi()
@@ -296,11 +304,6 @@ void ComparisonPlotDialog::buildUi()
     m_splitter->setSizes({280, 820});
     root->addWidget(m_splitter, 1);
 
-    // ----- Bottom: close button ---------------------------------------------
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);
-    root->addWidget(bb);
-
     // Wiring
     connect(m_addBtn,     &QPushButton::clicked,
             this,         &ComparisonPlotDialog::onAddSeriesClicked);
@@ -390,6 +393,7 @@ void ComparisonPlotDialog::buildToolBar()
     m_actAnimCursor->setCheckable(true);
     m_actAnimCursor->setChecked(true);
     m_actAnimCursor->setShortcut(QKeySequence(tr("Ctrl+Shift+C")));
+    m_actAnimCursor->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actAnimCursor->setStatusTip(tr("Toggle the vertical line at the current animation time"));
     m_actAnimCursor->setToolTip(m_actAnimCursor->statusTip());
     connect(m_actAnimCursor, &QAction::toggled,
@@ -407,6 +411,7 @@ void ComparisonPlotDialog::buildToolBar()
     m_actAddFromMap = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PickFromMap")),
                                     tr("Add from Map…"), this);
     m_actAddFromMap->setObjectName(QStringLiteral("addFromMap"));
+    m_actAddFromMap->setProperty("noLayoutPersistence", true);
     m_actAddFromMap->setCheckable(true);
     m_actAddFromMap->setStatusTip(tr("Click objects on the map to add them as series"));
     m_actAddFromMap->setToolTip(m_actAddFromMap->statusTip());
@@ -484,6 +489,7 @@ void ComparisonPlotDialog::buildToolBar()
     m_actChartsOnly->setStatusTip(tr("Hide series, slider, and stats panels to show only the charts"));
     m_actChartsOnly->setToolTip(m_actChartsOnly->statusTip());
     m_actChartsOnly->setShortcut(QKeySequence(tr("Ctrl+Shift+F")));
+    m_actChartsOnly->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     connect(m_actChartsOnly, &QAction::toggled,
             this, &ComparisonPlotDialog::onChartsOnlyToggled);
     m_toolBar->addAction(m_actChartsOnly);
@@ -835,6 +841,55 @@ void ComparisonPlotDialog::wireXAxisSync(int rowIndex)
 // Convenience: add 1D run from a SWMMResultsLayer + add a series
 // ---------------------------------------------------------------------------
 
+void ComparisonPlotDialog::removeProjectSources(SWMMVisProjectWindow *project)
+{
+    if (!project || !project->canvas()) return;
+    const auto layers = project->canvas()->layers();
+    bool changed = false;
+    {
+        QSignalBlocker block(m_model.get());
+        for (int i = m_model->runSourceCount() - 1; i >= 0; --i) {
+            const auto source = m_model->runSource(i).layer;
+            const auto one = std::dynamic_pointer_cast<SwmmOutRunLayer>(source);
+            const auto two = std::dynamic_pointer_cast<Mesh2DRunLayer>(source);
+            if ((one && one->layer() && (layers.contains(one->layer())
+                    || (project->modelLayer() && one->layer()->modelLayer() == project->modelLayer())))
+                || (two && layers.contains(two->layer()))) {
+                if (m_load && m_load->layer.lock() == source) m_load->cancel.store(true);
+                m_model->removeRunSource(i);
+                changed = true;
+            }
+        }
+    }
+    if (changed) onRunSourceRemoved(-1);
+}
+
+void ComparisonPlotDialog::observeSourceLifetime(QObject *layer, const std::shared_ptr<IRunLayer> &source)
+{
+    const std::weak_ptr<IRunLayer> weak = source;
+    auto remove = [this, weak] {
+        const auto source = weak.lock();
+        if (!source) return;
+        const int index = m_model->findRunByLayer(source.get());
+        if (index < 0) return;
+        if (m_load && m_load->layer.lock() == source) m_load->cancel.store(true);
+        // removeRunSource emits intermediate series signals before rebuilding
+        // its rows. Rebuild the view only after the whole removal is complete.
+        {
+            QSignalBlocker block(m_model.get());
+            m_model->removeRunSource(index);
+        }
+        onRunSourceRemoved(index);
+    };
+    connect(layer, &QObject::destroyed, this, remove);
+    for (QObject *owner = layer->parent(); owner; owner = owner->parent()) {
+        if (auto *project = qobject_cast<SWMMVisProjectWindow *>(owner)) {
+            connect(project, &SWMMVisProjectWindow::aboutToClose, this, remove);
+            break;
+        }
+    }
+}
+
 int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
                                                   bool makeBaseline)
 {
@@ -853,6 +908,7 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
     RunSource rs;
     rs.layer = std::make_shared<SwmmOutRunLayer>(layer);
     rs.isBaseline = makeBaseline;
+    observeSourceLifetime(layer, rs.layer);
     const int idx = m_model->addRunSource(std::move(rs));
     if (makeBaseline)
         m_model->setBaseline(idx);
@@ -891,15 +947,14 @@ int ComparisonPlotDialog::ensureRunSourceForMeshLayer(SWMM2DResultsLayer *layer)
     if (!layer)
         return -1;
 
-    const QString key = QStringLiteral("mesh2d://") + layer->name();
     for (int i = 0; i < m_model->runSourceCount(); ++i) {
-        const RunSource &rs = m_model->runSource(i);
-        if (rs.layer && rs.layer->persistenceKey() == key)
-            return i;
+        const auto source = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(i).layer);
+        if (source && source->layer() == layer) return i;
     }
 
     RunSource rs;
     rs.layer = std::make_shared<Mesh2DRunLayer>(layer);
+    observeSourceLifetime(layer, rs.layer);
     // Live 2D: frames stream in during the run; the run layer re-polls the
     // source, so appending the tail is all that is needed.
     connect(layer, &SWMM2DResultsLayer::timeRangeChanged, this,

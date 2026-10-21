@@ -78,7 +78,7 @@ C1 J1 O1 30.0 0.013 0 0 0
 C1 CIRCULAR 0.5 0 0 0 1
 
 [RAINGAGES]
-RG1 INTENSITY 1:00 1.0 TIMESERIES RAIN
+RG1 INTENSITY 0:10 1.0 TIMESERIES RAIN
 
 [TIMESERIES]
 RAIN 0:00 20.0
@@ -339,6 +339,9 @@ private slots:
         const QVector<QPointF> path={{500001,-4500005},{500009,-4500005}};
         MeshProfilePlotDialog reference(nullptr,sync,nullptr,path,&window,&window);
         MeshProfilePlotDialog dialog(nullptr,async,nullptr,path,&window,&window);
+        // These content widgets have no dock host in this sampling test.
+        reference.setPlotActive(true);
+        dialog.setPlotActive(true);
         auto same=[](double a,double b) { return (std::isnan(a) && std::isnan(b)) || a==b; };
         for(int frame:{0,last,0}) {
             sync->setCurrentTimeIndex(frame);async->setCurrentTimeIndex(frame);
@@ -358,6 +361,15 @@ private slots:
             }
             QVERIFY(wet);   // the maximum really reached the worker dialog
         }
+        // Inactive dock tabs catch up to the source frame when selected again.
+        dialog.setPlotActive(false);
+        sync->setCurrentTimeIndex(last); async->setCurrentTimeIndex(last);
+        QTRY_VERIFY_WITH_TIMEOUT(!async->surfaceBusy() && async->currentTimeIndex()==last,10000);
+        dialog.setPlotActive(true);
+        QCOMPARE(dialog.section().effectiveTime, reference.section().effectiveTime);
+        for(int i=0;i<dialog.section().samples.size();++i)
+            QVERIFY(same(dialog.section().samples[i].signedDepthNow,
+                         reference.section().samples[i].signedDepthNow));
     }
 };
 QTEST_MAIN(TestPhase35SectionJourney)
