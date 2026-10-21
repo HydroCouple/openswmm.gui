@@ -684,7 +684,7 @@ pollutant/MSX/age/water-temperature transport, and symmetric aquifer/surface rea
 profile uses one global tier and authored well/edge forcing. The porous RK2 profile supports soil energy, conduction, chemical/age inventories
 and phase-aware reactions with surface TRANSPORT_ONLY, sensible or latent soil ET,
 and constant, project-series or held AIR thermal boundaries. Thermal knots align the shared stages;
-only accepted soil evaporation receives latent cooling. A separate temperature-only finite-contact profile uses COUPLED/GROUND_COLUMN, complete aquifer coverage and surface atmospheric/radiative exchange disabled, with reciprocal heat receipts and exact component continuation. Finite chemical/age and further heat owners, network/catchment coupling, runtime providers and borrowed owners retain
+only accepted soil evaporation receives latent cooling. A separate finite-contact profile uses COUPLED/GROUND_COLUMN, complete aquifer coverage and surface atmospheric/radiative exchange disabled, with reciprocal heat, chemical/age contact, reactions and exact component continuation. It protects accepted exports and uses the physical VFR wetted footprint. Further heat owners, network/catchment coupling, runtime providers and borrowed owners retain
 first-order requirements. Surface reaction laws support enabled BULK/pollutant dependencies
 and DT/TEMP (local transported temperature when enabled); unavailable hydraulic and WALL dependencies are refused. See the
 [engine transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md)

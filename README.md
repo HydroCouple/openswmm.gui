@@ -31,7 +31,7 @@ Key capabilities:
 - Groundwater options, exterior head/flow and chemistry boundaries, bulk/SIGMA layer initial assignments, combined layered chemistry and porous soil heat, and per-species layer results with validation and undo (requires the matching development engine)
 - GIS data import/export via GDAL
 
-The matching development engine supports standalone CPU RK2 water, pollutants/MSX, age, transported water temperature and surface/aquifer reactions. The porous profile also supports RK2 soil energy, conduction, chemistry and age under constant, time-series or held air thermal boundaries, with sensible or latent soil evaporation. Temperature-only fully covered surface/soil contacts also support RK2 with surface atmospheric/radiative exchange disabled. Further heat owners and network/catchment coupling retain first-order requirements; see the [qualified transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md).
+The matching development engine supports standalone CPU RK2 water, pollutants/MSX, age, transported water temperature and surface/aquifer reactions. The porous profile also supports RK2 soil energy, conduction, chemistry and age under constant, time-series or held air thermal boundaries, with sensible or latent soil evaporation. Fully covered surface/soil RK2 contacts also support chemistry, age and reactions with surface atmospheric/radiative exchange disabled. Further heat owners and network/catchment coupling retain first-order requirements; see the [qualified transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md).
 
 ## Dependencies
 
