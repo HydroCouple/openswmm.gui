@@ -1001,6 +1001,8 @@ void AttributeTablePanel::buildUi()
 
     m_view = new QTableView(this);
     m_view->setHorizontalHeader(new GroupedAttributeHeader(m_view));
+    // A replacement header does not inherit QTableView's clickable default.
+    m_view->horizontalHeader()->setSectionsClickable(true);
     m_view->setModel(m_proxy);
     m_view->setSortingEnabled(true);
     connect(m_proxy, &QAbstractItemModel::modelReset, this, &AttributeTablePanel::updateQueryFields);
@@ -1620,6 +1622,9 @@ void AttributeTablePanel::restoreColumnWidths(const QString &sourceKey)
         s.value(QStringLiteral("SWMMVis/AttributeTablePanel/projects/%1/%2/columnWidths")
                     .arg(scope, sourceKey)).toByteArray();
     if (!state.isEmpty()) header->restoreState(state);
+    // Header state includes clickability, not just column widths. Repair
+    // layouts saved before the grouped header enabled sorting clicks.
+    header->setSectionsClickable(true);
     ensureMinColumnWidths();
 }
 
@@ -1648,6 +1653,7 @@ void AttributeTablePanel::restoreColumnWidths(SWMMModelLayer::Category cat)
     if (!state.isEmpty())
         header->restoreState(state);
 
+    header->setSectionsClickable(true);
     ensureMinColumnWidths();
 }
 
