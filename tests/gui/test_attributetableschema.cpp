@@ -24,6 +24,13 @@
 #include "layers/swmmmodellayer.h"
 #include "ui/panels/attributetablepanel.h"
 #include "ui/panels/swmmattributetablemodel.h"
+#include "ui/properties/attributegroups.h"
+#ifdef HAVE_QPROPERTYMODEL
+#include "ui/properties/groupedpropertymodel.h"
+#include "ui/properties/swmmnodepropertyadapter.h"
+#include <qpropertymodel.h>
+#include <QAbstractItemModelTester>
+#endif
 #include "ui/properties/xsectshapegeom.h"
 
 #include "ui/properties/nodecompoundeditref.h"
@@ -131,6 +138,77 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void groupingDoesNotMistakeStationForStatistics()
+    {
+        QVERIFY(openswmmvis::attributeGroup("stationId").isEmpty());
+        QVERIFY(openswmmvis::attributeGroup("gage_station_id").isEmpty());
+        QCOMPARE(openswmmvis::attributeGroup("statMaxDepth"),
+                 openswmmvis::attributeGroup("node_stat_max_depth"));
+        QCOMPARE(openswmmvis::attributeGroup("couplingType"),
+                 openswmmvis::attributeGroup("node_2d_coupling_type"));
+    }
+
+#ifdef HAVE_QPROPERTYMODEL
+    void propertyGroupsPreserveEditingAndReset()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        const QString name = layer->objectNameAt(SWMMModelLayer::CatJunctions, 0);
+        QVERIFY(!name.isEmpty());
+        SWMMJunctionPropertyAdapter adapter(layer->engine(), name);
+        adapter.setModelLayer(layer.get());
+        QPropertyModel source(nullptr);
+        GroupedPropertyModel grouped;
+        grouped.setSourceModel(&source);
+        source.setData(QVariant::fromValue<QObject *>(&adapter));
+        QAbstractItemModelTester tester(&grouped, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        auto find = [&](const QString &label, const QModelIndex &parent = QModelIndex()) {
+            for (int r = 0; r < grouped.rowCount(parent); ++r) {
+                auto index = grouped.index(r, 0, parent);
+                if (index.data().toString() == label) return index;
+            }
+            return QModelIndex();
+        };
+        auto coupling = find("2D Coupling");
+        auto output = find("Output Summary");
+        QVERIFY(coupling.isValid());
+        QVERIFY(output.isValid());
+        QCOMPARE(output.row(), grouped.rowCount() - 1);
+        QVERIFY(find("Setup", coupling).isValid());
+        auto geometry = find("Geometry", coupling);
+        QVERIFY(geometry.isValid());
+        QVERIFY(find("Exchange", coupling).isValid());
+        QVERIFY(find("Node Depth", output).isValid());
+        auto flooding = find("Node Flooding", output);
+        QCOMPARE(grouped.rowCount(flooding), 3);
+        QVERIFY(!(grouped.flags(grouped.index(0, 1, flooding)) & Qt::ItemIsEditable));
+        auto properties = find("Properties");
+        auto invert = find(adapter.displayLabelFor("invertElev"), properties).siblingAtColumn(1);
+        QVERIFY(invert.isValid());
+        QCOMPARE(grouped.mapFromSource(grouped.mapToSource(invert)), invert);
+        double previous = adapter.invertElev();
+        QVERIFY(grouped.setData(invert, previous + 0.25));
+        QCOMPARE(adapter.invertElev(), previous + 0.25);
+        QVERIFY(grouped.setData(invert, previous));
+        const auto diameter = find(adapter.displayLabelFor("couplingDiameter"), geometry).siblingAtColumn(1);
+        QVERIFY(diameter.isValid());
+        QVERIFY(grouped.setData(diameter, QStringLiteral("1.2")));
+        QCOMPARE(adapter.couplingDiameter(), QStringLiteral("1.2"));
+        source.refreshValues();
+        QVERIFY(find("Geometry", find("2D Coupling")).isValid());
+        source.clear();
+        QCOMPARE(grouped.rowCount(), 0);
+        source.setData(QVariant::fromValue<QObject *>(&adapter));
+        QVERIFY(find("Output Summary").isValid());
+        SWMMOutfallPropertyAdapter outfall(layer->engine(), QStringLiteral("O1"));
+        source.setData(QVariant::fromValue<QObject *>(&outfall));
+        const auto outfallCoupling = find("2D Coupling");
+        QVERIFY(find("Outfall", outfallCoupling).isValid());
+        QVERIFY(!find("Geometry", outfallCoupling).isValid());
+        source.clear();
+    }
+#endif
+
 
     // =====================================================================
     // 1 — conduit cross-section block
@@ -281,6 +359,10 @@ private slots:
             for (int i = std::max(firstDynamic, 0); i < specs.size(); ++i) {
                 if (!isDynamics(specs[i])) continue;
                 QCOMPARE(specs[i].editor, EditorKind::ReadOnly);
+                QVERIFY(model.headerData(i, Qt::Horizontal, openswmmvis::AttributeGroupRole)
+                            .toString().startsWith("Output Summary / "));
+                // Group headings must not become part of exported column names.
+                QVERIFY(!model.headerData(i, Qt::Horizontal).toString().contains("Output Summary"));
                 if (model.rowCount() > 0)
                     QVERIFY(!(model.flags(model.index(0, i)) & Qt::ItemIsEditable));
             }

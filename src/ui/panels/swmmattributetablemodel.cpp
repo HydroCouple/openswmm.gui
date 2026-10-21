@@ -5,6 +5,7 @@
  */
 
 #include "core/attributevalue.h"
+#include "ui/properties/attributegroups.h"
 #include "core/displaynumber.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/heatpropertyedit.h"
@@ -2518,6 +2519,8 @@ QVariant SWMMAttributeTableModel::headerData(int section,
     if (orientation == Qt::Horizontal && section >= 0
         && section < m_columnSpecs.size()) {
         const auto &spec = m_columnSpecs[section];
+        if (role == openswmmvis::AttributeGroupRole)
+            return openswmmvis::attributeGroup(spec.setter);
         const QString u = unitLabel(spec.unit);
         if (role == Qt::ToolTipRole) {
             // User-flag columns carry the flag description instead of a

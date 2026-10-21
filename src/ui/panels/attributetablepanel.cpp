@@ -6,6 +6,7 @@
 
 #include "ui/panels/attributevalueproxy.h"
 #include "ui/panels/attributetablepanel.h"
+#include "ui/panels/groupedattributeheader.h"
 #include "ui/panels/attributedelegates.h"
 #include "ui/panels/dataobjectattributetablemodel.h"
 #include "ui/models/userflagsmodel.h"
@@ -999,6 +1000,7 @@ void AttributeTablePanel::buildUi()
     // is also what column 0 displays), so an exact match always holds.
 
     m_view = new QTableView(this);
+    m_view->setHorizontalHeader(new GroupedAttributeHeader(m_view));
     m_view->setModel(m_proxy);
     m_view->setSortingEnabled(true);
     connect(m_proxy, &QAbstractItemModel::modelReset, this, &AttributeTablePanel::updateQueryFields);
