@@ -3457,8 +3457,12 @@ swmmvis_link_full_app_deps(test_attributenulls)
 add_swmmvis_gui_test(test_profile_lid_model
     test_profile_lid_model.cpp
     ${SWMMVIS_TEST_SOURCES}
-    ${SWMMVIS_TEST_EXTRA_SOURCES})
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc)
 swmmvis_link_full_app_deps(test_profile_lid_model)
+# The live simulation case permits 120 seconds for the run itself.
+set_property(TEST test_profile_lid_model APPEND PROPERTY ENVIRONMENT_MODIFICATION
+    "QTEST_FUNCTION_TIMEOUT=set:180000")
 
 
 # Stale-render invalidation — vertex-Z edits must invalidate the renderer's

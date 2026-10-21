@@ -1896,6 +1896,22 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         actAttrTableS->setEnabled(subTable.isValid());
         QAction *actExportS = subMenu.addAction(exportActionText(subExport, sub->displayName()));
         actExportS->setEnabled(subExport.isValid());
+        QMenu *plotObjects = nullptr;
+        auto *output = qobject_cast<SWMMResultsLayer *>(parentLayer);
+        auto *feature = qobject_cast<OpenSWMM::Render::FeatureSublayer *>(sub);
+        if (output && feature && output->modelLayer()) {
+            plotObjects = subMenu.addMenu(tr("Plot Time Series…"));
+            const auto category = feature->category();
+            auto *objects = output->modelLayer();
+            for (int row = 0; row < objects->categoryCount(category) && plotObjects->actions().size() < 50; ++row) {
+                const auto name = objects->objectNameAt(category, row);
+                const int index = category <= SWMMModelLayer::CatDividers ? output->nodeOutputIndex(name)
+                    : category <= SWMMModelLayer::CatOutlets ? output->linkOutputIndex(name)
+                    : output->subcatchOutputIndex(name);
+                if (index >= 0) plotObjects->addAction(name);
+            }
+            plotObjects->setEnabled(!plotObjects->actions().isEmpty());
+        }
         subMenu.addSeparator();
         if(auto *flow=qobject_cast<OpenSWMM::Render::FlowStreakSublayer *>(sub)) {
             auto *action=subMenu.addAction(tr("Animate flow streaks"));action->setObjectName("flowMotionAction");action->setCheckable(true);
@@ -1932,7 +1948,9 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 
         QAction *picked = subMenu.exec(m_treeView->viewport()->mapToGlobal(pos));
         if (!picked) return;
-        if (picked == actAttrTableS) {
+        if (plotObjects && picked->parent() == plotObjects) {
+            emit plotKindObjectRequested(int(feature->category()), picked->text(), output);
+        } else if (picked == actAttrTableS) {
             emit attributeTableRequested(subTable);
         } else if (picked == actExportS) {
             emit exportRequested(subExport);
@@ -2035,8 +2053,9 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         // queue plots even before running.
         QMenu *plotSubmenu = nullptr;
         QList<QAction *> plotObjActs;
-        const int featureCount = swmm ? swmm->categoryCount(cat) : 0;
-        if (swmm && featureCount > 0
+        auto *objects = swmm ? swmm : results->modelLayer();
+        const int featureCount = objects ? objects->categoryCount(cat) : 0;
+        if (objects && featureCount > 0
             && (cat == SWMMModelLayer::CatJunctions
                 || cat == SWMMModelLayer::CatOutfalls
                 || cat == SWMMModelLayer::CatStorage
@@ -2056,8 +2075,14 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             const int cap = std::min(featureCount, 50);
             plotObjActs.reserve(cap);
             for (int i = 0; i < cap; ++i) {
-                const QString name = swmm->objectNameAt(cat, i);
+                const QString name = objects->objectNameAt(cat, i);
                 if (name.isEmpty()) continue;
+                if (results) {
+                    const int outputIndex = cat <= SWMMModelLayer::CatDividers ? results->nodeOutputIndex(name)
+                        : cat <= SWMMModelLayer::CatOutlets ? results->linkOutputIndex(name)
+                        : results->subcatchOutputIndex(name);
+                    if (outputIndex < 0) continue;
+                }
                 plotObjActs.append(plotSubmenu->addAction(name));
             }
             if (featureCount > cap) {
@@ -2128,7 +2153,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         } else if (plotSubmenu && plotObjActs.contains(pickedK)) {
             // Slice PT.1 — Plot timeseries… → emit so SWMMVis pops the
             // AttributePickerMenu and opens the Comparison Plot Dialog.
-            emit plotKindObjectRequested(kindOrd, pickedK->text());
+            emit plotKindObjectRequested(kindOrd, pickedK->text(), results);
         }
         return;
     }

@@ -11,6 +11,7 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
+#include "map/networkplotpick.h"
 #include "map/openswmmvisscene.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
@@ -341,19 +342,21 @@ double OpenSWMMVisMapToolSelectProfile::clickTolerance() const
 
 int OpenSWMMVisMapToolSelectProfile::resolveNodeAt(double mapX,
                                                     double mapY,
-                                                    double tolerance) const
+                                                    double tolerance)
 {
     SWMMModelLayer *model = activeModel();
     if (!model) return -1;
 
-    const auto hit = model->pickAt(mapX, mapY, tolerance);
+    const auto plotted = openswmmvis::pickNetworkForPlot(canvas(), mapX, mapY, tolerance);
+    const auto hit = plotted.object;
+    if (plotted.results) emit resultsLayerPicked(plotted.results);
 
     // A geographic coordinate can have more than one longitude spelling:
     // the inverse projection returns -160 for a node authored at 200.
     // Recover those misses against the forward-projected node positions,
     // which are also what the map draws. Keep the indexed pick for normal
     // clicks and avoid this scan for projected/local coordinate systems.
-    if (!hit.valid && model->srs() && model->srs()->isGeographic()) {
+    if (!hit.valid && model->isVisible() && model->srs() && model->srs()->isGeographic()) {
         double bestDist2 = tolerance * tolerance;
         int nearest = -1;
         for (int i = 0; i < model->cachedNodeCount(); ++i) {

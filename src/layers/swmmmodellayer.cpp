@@ -4096,7 +4096,8 @@ MapExtent SWMMModelLayer::objectExtent(const QString &name) const
 
 QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
                                         const SpatialReferenceSystem * /*canvasSRS*/,
-                                        double tolerance) const
+                                        double tolerance,
+                                        const std::function<bool(Category, int)> &visibility) const
 {
     // CRS-aware hit-testing.
     //
@@ -4154,7 +4155,15 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     // Typed hidden test — hit-testing must skip only the KIND that is
     // hidden. The old name-based check made a same-named gage
     // unselectable whenever its subcatchment was hidden (and vice versa).
-    const auto hiddenKind = [this](const QString &n, quint8 bit) -> bool {
+    const auto hiddenKind = [this, &visibility](const QString &n, quint8 bit, int index) -> bool {
+        // Outputs render the same geometry with independent visibility.
+        if (visibility) {
+            Category cat = CatRainGages;
+            if (bit == kKindNode) cat = Category(int(CatJunctions) + qBound(0, m_nodes[index].nodeType, 3));
+            else if (bit == kKindLink) cat = Category(int(CatConduits) + qBound(0, m_links[index].linkType, 4));
+            else if (bit == kKindCatch) cat = CatSubcatchments;
+            return !visibility(cat, index);
+        }
         const auto it = m_hiddenKindMask.constFind(n);
         if (it != m_hiddenKindMask.constEnd()) return (it.value() & bit) != 0;
         return m_hiddenObjects.contains(n);
@@ -4178,7 +4187,7 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
             {
                 if (hit.second >= bestDist2) continue;
                 const int i = static_cast<int>(hit.first);
-                if (hiddenKind(src[i].name, kindBit)) continue;
+                if (hiddenKind(src[i].name, kindBit, i)) continue;
                 bestDist2 = hit.second;
                 best.clear();
                 best[QStringLiteral("elementType")] = QString::fromLatin1(elemType);
@@ -4200,11 +4209,11 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
             auto scan = [&](const QVector<NodeGeom> &src, const char *elemType,
                             quint8 kindBit) {
                 for (int i = 0; i < src.size(); ++i) {
-                    if (hiddenKind(src[i].name, kindBit)) continue;
                     const double dx = src[i].x - clickLX;
                     const double dy = src[i].y - clickLY;
                     const double d2 = dx * dx + dy * dy;
                     if (d2 < bestDist2) {
+                        if (hiddenKind(src[i].name, kindBit, i)) continue;
                         bestDist2 = d2;
                         best.clear();
                         best[QStringLiteral("elementType")] = QString::fromLatin1(elemType);
@@ -4243,7 +4252,6 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
         for (int li = 0; li < m_links.size(); ++li)
         {
             const LinkGeom &l = m_links[li];
-            if (hiddenKind(l.name, kKindLink)) continue;
             if (haveBboxes) {
                 const MapExtent &bb = m_linkBboxes[li];
                 // NaN bbox (empty polyline) fails every comparison, so such a
@@ -4254,6 +4262,7 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
                       && clickLY <= bb.yMax() + linkTolerLayer))
                     continue;
             }
+            if (hiddenKind(l.name, kKindLink, li)) continue;
             const QVector<QPointF> verts = cachedLinkPolyline(li);
             for (int i = 1; i < verts.size(); ++i)
             {
@@ -4285,9 +4294,10 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     }
 
     // --- Tier 3: subcatchments (point-in-polygon) ----------------------
-    for (const CatchGeom &c : m_catchments)
+    for (int ci = 0; ci < m_catchments.size(); ++ci)
     {
-        if (hiddenKind(c.name, kKindCatch)) continue;
+        const auto &c = m_catchments[ci];
+        if (hiddenKind(c.name, kKindCatch, ci)) continue;
         const auto &v = c.vertices;
         if (v.size() < 3) continue;
         bool inside = false;
@@ -4560,13 +4570,14 @@ bool SWMMModelLayer::cachedGageCoord(int idx, double *x, double *y) const
 }
 
 SWMMModelLayer::PickResult
-SWMMModelLayer::pickAt(double sceneX, double sceneY, double tolerance) const
+SWMMModelLayer::pickAt(double sceneX, double sceneY, double tolerance,
+                       const std::function<bool(Category, int)> &visibility) const
 {
     // Reuse identifyAt — it already does CRS-aware, tiered-priority
     // hit-testing, and returns both the element type and the name.
     // This wrapper just translates the result into the typed struct
     // tools consume.
-    const QVariantMap hit = identifyAt(sceneX, sceneY, nullptr, tolerance);
+    const QVariantMap hit = identifyAt(sceneX, sceneY, nullptr, tolerance, visibility);
     PickResult r;
     const QString name = hit.value(QStringLiteral("elementName")).toString();
     const QString type = hit.value(QStringLiteral("elementType")).toString();

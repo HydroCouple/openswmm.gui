@@ -3,6 +3,11 @@
 #include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
 #include "map/tools/maptoolplotpick.h"
+#include "map/tools/maptoolselect.h"
+#include "map/tools/maptoolselectprofile.h"
+#include "map/networkplotpick.h"
+#include "render/sublayers/feature/featuresublayer.h"
+#include "ui/panels/layertreepanel.h"
 #include "map/tools/maptoolprofilemarker.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dmeshqsgrenderer.h"
@@ -20,6 +25,10 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <QAction>
+#include <QMenu>
+#include <QTimer>
+#include <QTreeView>
+#include <QSortFilterProxyModel>
 #include <QFile>
 #include <QMdiArea>
 #include <QQmlEngine>
@@ -102,6 +111,159 @@ private slots:
                                  path("run.out").toUtf8(), nullptr), SWMM_OK);
     }
     void init() { QSettings().clear(); }
+    void reprojectedOutputCanBePickedWithModelHidden()
+    {
+        SWMMModelLayer model(path("first.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY(model.loadModel(warnings, errors));
+        model.setSRS(SpatialReferenceSystem::fromAuthCode("EPSG", 4326), true);
+        QVERIFY(model.applyNodeMove(swmm_node_index(model.engine(), "J"), 200, 0));
+        SWMMResultsLayer output(path("run.out"), &model);
+        QVERIFY(output.openResults(warnings, errors));
+        output.featureSublayer(SWMMModelLayer::CatJunctions)->setVisible(true);
+        MapCanvas canvas;
+        canvas.setCanvasSRS(SpatialReferenceSystem::fromAuthCode("EPSG", 3857), true);
+        canvas.addLayer(&model, false);
+        canvas.addLayer(&output, false);
+        model.setVisible(false);
+        double x = 200, y = 0;
+        QVERIFY(model.transformLayerToCanvas(x, y, x, y));
+        QVERIFY(x < -17000000); // exercises longitude wrapping, not an identity transform
+        const auto hit = openswmmvis::pickNetworkForPlot(&canvas, x, y, 10);
+        QVERIFY(hit.object.valid);
+        QCOMPARE(hit.results, &output);
+        QCOMPARE(hit.ref().name, QString("J"));
+        output.setVisible(false);
+        QVERIFY(!openswmmvis::pickNetworkForPlot(&canvas, x, y, 10).object.valid);
+    }
+    void renderedOutputSelectionsUseTheirOwnRun()
+    {
+        PlotTestWindow app; app.resize(1200, 850); app.show();
+        auto *project = open(app, "first.inp"); QVERIFY(project);
+        auto *first = results(project); QVERIFY(first);
+        QVERIFY(QFile::copy(path("run.out"), path("other.out")));
+        auto *second = new SWMMResultsLayer(path("other.out"), project->modelLayer());
+        QList<QString> warnings, errors;
+        QVERIFY(second->openResults(warnings, errors));
+        auto *canvas = project->canvas();
+        canvas->addLayer(second, false);
+        auto *model = project->modelLayer();
+        model->setVisible(false);
+        model->setCategoryVisible(SWMMModelLayer::CatJunctions, false);
+        for (auto *output : {first, second}) {
+            output->setVisible(true);
+            for (const auto cat : {SWMMModelLayer::CatJunctions, SWMMModelLayer::CatOutfalls,
+                                   SWMMModelLayer::CatConduits})
+                output->featureSublayer(cat)->setVisible(true);
+        }
+        QVERIFY(canvas->setCanvasSRSByCode("EPSG", 32618));
+        canvas->setExtent(MapExtent(-10, -10, 20, 20), false);
+        QCoreApplication::processEvents();
+        auto hit = openswmmvis::pickNetworkForPlot(canvas, 0, 0, 0.2);
+        QVERIFY(hit.object.valid); QCOMPARE(hit.ref().name, QString("J"));
+        QCOMPARE(hit.results, second);
+        second->featureSublayer(SWMMModelLayer::CatJunctions)->setVisible(false);
+        QVERIFY(second->pickAt(0, 0, 0.2).cat != SWMMModelLayer::CatJunctions);
+        second->featureSublayer(SWMMModelLayer::CatJunctions)->setVisible(true);
+        second->setVisible(false);
+        QCOMPARE(openswmmvis::pickNetworkForPlot(canvas, 0, 0, 0.2).results, first);
+        second->setVisible(true);
+        project->setActiveResultsLayer(first); // deliberately a different run
+
+        int px = 0, py = 0;
+        canvas->toPixelCoords(0, 0, px, py);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(px,py), QPointF(px,py),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(px,py), QPointF(px,py),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        project->selectTool()->mousePressEvent(&press);
+        project->selectTool()->mouseReleaseEvent(&release);
+        QCOMPARE(project->activeResultsLayer(), second);
+        QVERIFY(!model->selectedElements().isEmpty());
+        QCOMPARE(model->selectedElements().first().name, QString("J"));
+        model->clearSelection();
+
+        // The map plot picker must carry the clicked output, even when
+        // another run is active. Choose Depth from its real popup menu.
+        project->setActiveResultsLayer(first);
+        const SWMMObjectRef node{SWMMObjectRef::Node, QStringLiteral("J")};
+        QVERIFY(QMetaObject::invokeMethod(&app, "openComparisonPlotFor", Qt::DirectConnection,
+                                         Q_ARG(SWMMObjectRef, node)));
+        auto *time = app.findChild<PlotDock *>("dockWidgetTimeSeries"); QVERIFY(time);
+        auto *comparison = qobject_cast<ComparisonPlotDialog *>(time->tabs()->currentWidget()); QVERIFY(comparison);
+        QTRY_VERIFY(comparison->isPlotActive());
+        comparison->setAddFromMapChecked(true);
+        auto *picker = qobject_cast<OpenSWMMVisMapToolPlotPick *>(canvas->activeTool()); QVERIFY(picker);
+        QSignalSpy picked(picker, &OpenSWMMVisMapToolPlotPick::objectPickedFromLayer);
+        QTimer::singleShot(0, [&] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu) return;
+            for (auto *action : menu->actions()) {
+                if (!action->text().startsWith("Depth")) continue;
+                menu->setActiveAction(action);
+                QTest::keyClick(menu, Qt::Key_Return);
+                return;
+            }
+            menu->close();
+        });
+        picker->mousePressEvent(&press);
+        QCOMPARE(picked.count(), 1);
+        QCOMPARE(qvariant_cast<SWMMResultsLayer *>(picked.first()[2]), second);
+        QCOMPARE(comparison->model()->runSourceCount(), 2);
+        QCOMPARE(std::dynamic_pointer_cast<SwmmOutRunLayer>(comparison->model()->runSource(1).layer)->layer(), second);
+        comparison->setAddFromMapChecked(false);
+
+        // Output categories are sublayers in the actual layer tree. Their
+        // plot menu must name the selected run, rather than the active run.
+        auto *panel = app.findChild<LayerTreePanel *>(); QVERIFY(panel);
+        panel->show(); panel->raise();
+        auto *tree = panel->findChild<QTreeView *>(); QVERIFY(tree);
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(tree->model()); QVERIFY(proxy);
+        auto *layers = qobject_cast<LayerTreeModel *>(proxy->sourceModel()); QVERIFY(layers);
+        tree->expandAll();
+        const auto row = proxy->mapFromSource(layers->indexForSublayer(second,
+            second->featureSublayer(SWMMModelLayer::CatJunctions)));
+        QVERIFY(row.isValid()); tree->scrollTo(row);
+        QCoreApplication::processEvents();
+        QSignalSpy fromTree(panel, &LayerTreePanel::plotKindObjectRequested);
+        QObject::disconnect(panel, &LayerTreePanel::plotKindObjectRequested, &app, nullptr);
+        QTimer::singleShot(0, [&] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu) return;
+            for (auto *action : menu->actions()) {
+                if (!action->menu() || !action->text().contains("Plot Time Series")) continue;
+                auto *objects = action->menu();
+                menu->setActiveAction(action); QTest::keyClick(menu, Qt::Key_Right);
+                QTimer::singleShot(0, objects, [objects] {
+                    objects->setActiveAction(objects->actions().first());
+                    QTest::keyClick(objects, Qt::Key_Return);
+                });
+                return;
+            }
+            menu->close();
+        });
+        QVERIFY(QMetaObject::invokeMethod(panel, "onContextMenuRequested", Qt::DirectConnection,
+                                         Q_ARG(QPoint, tree->visualRect(row).center())));
+        QCOMPARE(fromTree.count(), 1);
+        QCOMPARE(fromTree.first()[1].toString(), QString("J"));
+        QCOMPARE(qvariant_cast<SWMMResultsLayer *>(fromTree.first()[2]), second);
+
+        // Profiles use the same output hit while retaining model topology.
+        auto *profileTool = project->selectProfileTool();
+        profileTool->clearSelection(); profileTool->activate();
+        QCoreApplication::processEvents();
+        canvas->toPixelCoords(0, 0, px, py); // the plot dock changed the canvas size
+        QMouseEvent start(QEvent::MouseButtonPress, QPointF(px,py), QPointF(px,py),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        profileTool->mousePressEvent(&start);
+        QCOMPARE(project->activeResultsLayer(), second);
+        canvas->toPixelCoords(10, 10, px, py);
+        QMouseEvent end(QEvent::MouseButtonPress, QPointF(px,py), QPointF(px,py),
+                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        profileTool->mousePressEvent(&end);
+        QTRY_VERIFY_WITH_TIMEOUT(!profileTool->acceptedPath().nodes.isEmpty(), 5000);
+        QCOMPARE(profileTool->acceptedPath().nodes, route(project).nodes);
+    }
     void profileTabsAndDedicatedComparisonsUseTheirOwnProject()
     {
         PlotTestWindow app; app.resize(1200, 850); app.show();

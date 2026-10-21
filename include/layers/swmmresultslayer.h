@@ -144,6 +144,9 @@ public:
      *  categorical strings ("tag", "Link type", …) through here. */
     [[nodiscard]] class SWMMModelLayer *modelLayer() const { return m_modelLayer; }
 
+    /*! Pick this output's visible network categories independently of model visibility. */
+    [[nodiscard]] SWMMModelLayer::PickResult pickAt(double mapX, double mapY, double tolerance) const;
+
     // ----- Results file ---------------------------------------------------
 
     [[nodiscard]] QString resultsFilePath() const;

@@ -21,6 +21,7 @@
 #include "render/legendsymbolitem.h"     // X4 — legend-as-editor facade
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -1053,12 +1054,16 @@ public:
      * \param mapY        Y in canvas CRS.
      * \param canvasSRS   Canvas CRS (may be nullptr).
      * \param tolerance   Search radius in map units.
+     * \param visibility  Optional visibility for another view of this geometry;
+     *                    receives the category and engine/SoA index, and replaces
+     *                    the model's own hidden-object filter (used by outputs).
      * \returns           Attribute map, or an empty map if nothing was found.
      *                    Includes "elementType", "elementName", and all SWMM properties.
      */
     [[nodiscard]] QVariantMap identifyAt(double mapX, double mapY,
                                          const SpatialReferenceSystem *canvasSRS,
-                                         double tolerance = 1e-6) const;
+                                         double tolerance = 1e-6,
+                                         const std::function<bool(Category, int)> &visibility = {}) const;
 
     /*!
      * \brief Convenience overload — no CRS needed.
@@ -1456,7 +1461,8 @@ public:
      *  `identifyAt`). \p tolerance is also in canvas CRS units; the
      *  layer inverts through its m_transform as needed. */
     [[nodiscard]] PickResult pickAt(double sceneX, double sceneY,
-                                    double tolerance) const;
+                                    double tolerance,
+                                    const std::function<bool(Category, int)> &visibility = {}) const;
 
     /*! Live-preview a node move — mutates the cached SoA coord plus
      *  every attached link's endpoint, emits `repaintRequested()`,
