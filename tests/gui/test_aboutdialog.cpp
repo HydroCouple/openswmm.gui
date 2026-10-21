@@ -5,12 +5,15 @@
 
 #include "ui/dialogs/aboutdialog.h"
 #include "ui/dialogs/dialoglayoutwatcher.h"
+#include "core/buildinfo.h"
 
 #include <QApplication>
 #include <QClipboard>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLabel>
 #include <QObject>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -30,6 +33,7 @@ private slots:
     void rejectsNonArrayRoot();
     void skipsRowsWithoutName();
     void copiesAllExpectedFields();
+    void buildTimestampDisplayAndCopy();
     void applicationLicenseDisplayAndCopy();
     void restoredPanelFillsAndScrolls();
 };
@@ -100,6 +104,30 @@ void TestAboutDialog::copiesAllExpectedFields()
     QCOMPARE(c.spdx,        QStringLiteral("MIT"));
     QCOMPARE(c.provenance,  QStringLiteral("vcpkg"));
     QCOMPARE(c.licenseFile, QStringLiteral(":/licenses/gdal.txt"));
+}
+
+void TestAboutDialog::buildTimestampDisplayAndCopy()
+{
+    const QString timestamp = QString::fromLatin1(openswmmvis::buildTimestamp());
+    QVERIFY(timestamp.endsWith(QStringLiteral(" UTC")));
+    QVERIFY(QDateTime::fromString(timestamp, QStringLiteral("yyyy-MM-dd HH:mm:ss 'UTC'")).isValid());
+    const QString buildLine = QStringLiteral("Build:    ") + timestamp;
+
+    AboutDialog dialog;
+    QLabel *summary = nullptr;
+    for (auto *label : dialog.findChildren<QLabel *>())
+        if (label->text().contains(QStringLiteral("Build:"))) summary = label;
+    QVERIFY(summary);
+    QVERIFY(summary->text().contains(buildLine));
+
+    QPushButton *copy = nullptr;
+    for (auto *button : dialog.findChildren<QPushButton *>())
+        if (button->text() == QStringLiteral("Copy environment")) copy = button;
+    QVERIFY(copy);
+    copy->click();
+    QCOMPARE(QApplication::clipboard()->text(),
+             QString(summary->text()).replace(QStringLiteral("<br>"), QStringLiteral("\n")));
+    QVERIFY(QApplication::clipboard()->text().contains(buildLine));
 }
 
 void TestAboutDialog::applicationLicenseDisplayAndCopy()
