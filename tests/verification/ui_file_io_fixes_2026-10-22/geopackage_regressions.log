@@ -1,0 +1,140 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 61 tests from 4 test suites.
+[----------] Global test environment set-up.
+[----------] 41 tests from GeoPackageTest
+[ RUN      ] GeoPackageTest.CreateSchema
+[       OK ] GeoPackageTest.CreateSchema (34 ms)
+[ RUN      ] GeoPackageTest.VariablesCatalog
+[       OK ] GeoPackageTest.VariablesCatalog (41 ms)
+[ RUN      ] GeoPackageTest.PointRoundTrip
+[       OK ] GeoPackageTest.PointRoundTrip (0 ms)
+[ RUN      ] GeoPackageTest.LinestringRoundTrip
+[       OK ] GeoPackageTest.LinestringRoundTrip (0 ms)
+[ RUN      ] GeoPackageTest.MultipolygonRoundTrip
+[       OK ] GeoPackageTest.MultipolygonRoundTrip (0 ms)
+[ RUN      ] GeoPackageTest.OptionsRoundTrip
+[       OK ] GeoPackageTest.OptionsRoundTrip (45 ms)
+[ RUN      ] GeoPackageTest.ClimateSettingsRoundTrip
+[       OK ] GeoPackageTest.ClimateSettingsRoundTrip (45 ms)
+[ RUN      ] GeoPackageTest.JunctionsRoundTrip
+[       OK ] GeoPackageTest.JunctionsRoundTrip (32 ms)
+[ RUN      ] GeoPackageTest.VirtualJunctionFlagAndRimRoundTrip
+[       OK ] GeoPackageTest.VirtualJunctionFlagAndRimRoundTrip (30 ms)
+[ RUN      ] GeoPackageTest.StreetsInletsAndInletUsageRoundTrip
+[       OK ] GeoPackageTest.StreetsInletsAndInletUsageRoundTrip (39 ms)
+[ RUN      ] GeoPackageTest.LegacyGpkgWithoutVirtualColumnsOpens
+[       OK ] GeoPackageTest.LegacyGpkgWithoutVirtualColumnsOpens (50 ms)
+[ RUN      ] GeoPackageTest.OutfallRoundTrip
+[       OK ] GeoPackageTest.OutfallRoundTrip (41 ms)
+[ RUN      ] GeoPackageTest.NodeSubtypeChildTablesRoundTrip
+[       OK ] GeoPackageTest.NodeSubtypeChildTablesRoundTrip (38 ms)
+[ RUN      ] GeoPackageTest.StorageShapeChildTableRoundTrip
+[       OK ] GeoPackageTest.StorageShapeChildTableRoundTrip (41 ms)
+[ RUN      ] GeoPackageTest.LegacyGpkgWithoutShapeColumnsFallsBack
+[       OK ] GeoPackageTest.LegacyGpkgWithoutShapeColumnsFallsBack (66 ms)
+[ RUN      ] GeoPackageTest.LegacyGpkgWithoutScaleColumnsDefaultsToOne
+[       OK ] GeoPackageTest.LegacyGpkgWithoutScaleColumnsDefaultsToOne (44 ms)
+[ RUN      ] GeoPackageTest.LinkSubtypeChildTablesRoundTrip
+[       OK ] GeoPackageTest.LinkSubtypeChildTablesRoundTrip (44 ms)
+[ RUN      ] GeoPackageTest.CoordinatesRoundTrip
+[       OK ] GeoPackageTest.CoordinatesRoundTrip (48 ms)
+[ RUN      ] GeoPackageTest.ConduitsRoundTrip
+[       OK ] GeoPackageTest.ConduitsRoundTrip (48 ms)
+[ RUN      ] GeoPackageTest.LinkConnectivity
+[       OK ] GeoPackageTest.LinkConnectivity (45 ms)
+[ RUN      ] GeoPackageTest.VerticesRoundTrip
+[       OK ] GeoPackageTest.VerticesRoundTrip (46 ms)
+[ RUN      ] GeoPackageTest.VerticesFollowNodeToNodeOrder
+[       OK ] GeoPackageTest.VerticesFollowNodeToNodeOrder (48 ms)
+[ RUN      ] GeoPackageTest.VertexBuffersAreRebuiltOnRead
+[       OK ] GeoPackageTest.VertexBuffersAreRebuiltOnRead (44 ms)
+[ RUN      ] GeoPackageTest.SubcatchmentsRoundTrip
+[       OK ] GeoPackageTest.SubcatchmentsRoundTrip (44 ms)
+[ RUN      ] GeoPackageTest.InfiltrationRoundTrip
+[       OK ] GeoPackageTest.InfiltrationRoundTrip (45 ms)
+[ RUN      ] GeoPackageTest.PolygonsRoundTrip
+[       OK ] GeoPackageTest.PolygonsRoundTrip (46 ms)
+[ RUN      ] GeoPackageTest.PolygonBuffersAreRebuiltOnRead
+[       OK ] GeoPackageTest.PolygonBuffersAreRebuiltOnRead (45 ms)
+[ RUN      ] GeoPackageTest.RainGagesRoundTrip
+[       OK ] GeoPackageTest.RainGagesRoundTrip (43 ms)
+[ RUN      ] GeoPackageTest.TimeseriesRoundTrip
+[       OK ] GeoPackageTest.TimeseriesRoundTrip (61 ms)
+[ RUN      ] GeoPackageTest.CurvesRoundTrip
+[       OK ] GeoPackageTest.CurvesRoundTrip (45 ms)
+[ RUN      ] GeoPackageTest.PollutantsRoundTrip
+[       OK ] GeoPackageTest.PollutantsRoundTrip (40 ms)
+[ RUN      ] GeoPackageTest.QualityTablesRoundTrip
+[       OK ] GeoPackageTest.QualityTablesRoundTrip (32 ms)
+[ RUN      ] GeoPackageTest.PatternsRoundTrip
+[       OK ] GeoPackageTest.PatternsRoundTrip (111 ms)
+[ RUN      ] GeoPackageTest.TagsRoundTrip
+[       OK ] GeoPackageTest.TagsRoundTrip (135 ms)
+[ RUN      ] GeoPackageTest.TopologyTablesPopulated
+[       OK ] GeoPackageTest.TopologyTablesPopulated (81 ms)
+[ RUN      ] GeoPackageTest.MultipleSimulationRuns
+[       OK ] GeoPackageTest.MultipleSimulationRuns (59 ms)
+[ RUN      ] GeoPackageTest.FeatureTablesRegistered
+[       OK ] GeoPackageTest.FeatureTablesRegistered (45 ms)
+[ RUN      ] GeoPackageTest.SpeciesAreRegisteredAsVariables
+[       OK ] GeoPackageTest.SpeciesAreRegisteredAsVariables (48 ms)
+[ RUN      ] GeoPackageTest.SpeciesRowsReachResultTimeseries
+[       OK ] GeoPackageTest.SpeciesRowsReachResultTimeseries (36 ms)
+[ RUN      ] GeoPackageTest.IgnoreQualityRegistersNoSpeciesVariables
+[       OK ] GeoPackageTest.IgnoreQualityRegistersNoSpeciesVariables (32 ms)
+[ RUN      ] GeoPackageTest.SpeciesCollidingWithHydraulicVariableFailsPrepare
+[       OK ] GeoPackageTest.SpeciesCollidingWithHydraulicVariableFailsPrepare (40 ms)
+[----------] 41 tests from GeoPackageTest (1889 ms total)
+
+[----------] 7 tests from GeoPackagePluginInfoTest
+[ RUN      ] GeoPackagePluginInfoTest.Metadata
+[       OK ] GeoPackagePluginInfoTest.Metadata (0 ms)
+[ RUN      ] GeoPackagePluginInfoTest.RegistrationInitiallyFalse
+[       OK ] GeoPackagePluginInfoTest.RegistrationInitiallyFalse (0 ms)
+[ RUN      ] GeoPackagePluginInfoTest.RegisterSucceeds
+[       OK ] GeoPackagePluginInfoTest.RegisterSucceeds (0 ms)
+[ RUN      ] GeoPackagePluginInfoTest.FactoryCreatesInputPlugin
+[       OK ] GeoPackagePluginInfoTest.FactoryCreatesInputPlugin (0 ms)
+[ RUN      ] GeoPackagePluginInfoTest.FactoryCreatesOutputPlugin
+[       OK ] GeoPackagePluginInfoTest.FactoryCreatesOutputPlugin (0 ms)
+[ RUN      ] GeoPackagePluginInfoTest.FactoryCreatesReportPlugin
+[       OK ] GeoPackagePluginInfoTest.FactoryCreatesReportPlugin (0 ms)
+[ RUN      ] GeoPackagePluginInfoTest.CExportFunction
+[       OK ] GeoPackagePluginInfoTest.CExportFunction (0 ms)
+[----------] 7 tests from GeoPackagePluginInfoTest (0 ms total)
+
+[----------] 12 tests from GeoPackageCApiTest
+[ RUN      ] GeoPackageCApiTest.OpenClose
+[       OK ] GeoPackageCApiTest.OpenClose (39 ms)
+[ RUN      ] GeoPackageCApiTest.OpenNullPath
+[       OK ] GeoPackageCApiTest.OpenNullPath (30 ms)
+[ RUN      ] GeoPackageCApiTest.Registration
+[       OK ] GeoPackageCApiTest.Registration (30 ms)
+[ RUN      ] GeoPackageCApiTest.ReadModelCounts
+[       OK ] GeoPackageCApiTest.ReadModelCounts (38 ms)
+[ RUN      ] GeoPackageCApiTest.TransactionCommit
+[       OK ] GeoPackageCApiTest.TransactionCommit (31 ms)
+[ RUN      ] GeoPackageCApiTest.TransactionRollback
+[       OK ] GeoPackageCApiTest.TransactionRollback (32 ms)
+[ RUN      ] GeoPackageCApiTest.BulkWriteObservedValues
+[       OK ] GeoPackageCApiTest.BulkWriteObservedValues (34 ms)
+[ RUN      ] GeoPackageCApiTest.BulkWriteNullFlags
+[       OK ] GeoPackageCApiTest.BulkWriteNullFlags (36 ms)
+[ RUN      ] GeoPackageCApiTest.BulkReadObservedValues
+[       OK ] GeoPackageCApiTest.BulkReadObservedValues (42 ms)
+[ RUN      ] GeoPackageCApiTest.ReadResultTimeseries
+[       OK ] GeoPackageCApiTest.ReadResultTimeseries (33 ms)
+[ RUN      ] GeoPackageCApiTest.ReadSummary
+[       OK ] GeoPackageCApiTest.ReadSummary (39 ms)
+[ RUN      ] GeoPackageCApiTest.QueryHelpers
+[       OK ] GeoPackageCApiTest.QueryHelpers (33 ms)
+[----------] 12 tests from GeoPackageCApiTest (422 ms total)
+
+[----------] 1 test from GeoPackageElevationOffsets
+[ RUN      ] GeoPackageElevationOffsets.ElevationOffsetsSurviveAGpkgRoundTrip
+[       OK ] GeoPackageElevationOffsets.ElevationOffsetsSurviveAGpkgRoundTrip (52 ms)
+[----------] 1 test from GeoPackageElevationOffsets (52 ms total)
+
+[----------] Global test environment tear-down
+[==========] 61 tests from 4 test suites ran. (2365 ms total)
+[  PASSED  ] 61 tests.

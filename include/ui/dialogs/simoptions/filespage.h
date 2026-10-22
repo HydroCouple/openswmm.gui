@@ -279,7 +279,7 @@ private:
      * without explicit sync/status check, engine write count, changesApplied signal or
      * project-file save. Does not create parent directories or output files.
      */
-    void writeOutputPathsToSettings();
+    int writeOutputPathsToSettings();
     /**
      * @brief Hydrate interface-file paths/modes and replace the hot-start save draft list.
      * Absent engine leaves old drafts unchanged. Local key reader uses 1024 bytes, returning

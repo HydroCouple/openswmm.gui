@@ -250,7 +250,7 @@ void DatesPage::buildUi()
 
     m_dryDaysSpin = new QDoubleSpinBox(sweepGroup);
     m_dryDaysSpin->setRange(0.0, 3650.0);
-    m_dryDaysSpin->setDecimals(2);
+    m_dryDaysSpin->setDecimals(6);
     m_dryDaysSpin->setSuffix(QStringLiteral(" d"));
     sweepForm->addRow(tr("Antecedent dry days:"), m_dryDaysSpin);
 
@@ -406,11 +406,11 @@ void DatesPage::read()
 
     bool ok = false;
     const double routeStep =
-        ctx_.option("ROUTING_STEP", QString::number(sim.routingStepSec, 'g', 6)).toDouble(&ok);
-    m_routingStepEdit->setText(QString::number(ok ? routeStep : sim.routingStepSec, 'g', 6));
+        ctx_.option("ROUTING_STEP", QString::number(sim.routingStepSec, 'g', 17)).toDouble(&ok);
+    m_routingStepEdit->setText(QString::number(ok ? routeStep : sim.routingStepSec, 'g', 17));
 
     const double dryDays =
-        ctx_.option("DRY_DAYS", QString::number(sim.dryDays, 'g', 6)).toDouble(&ok);
+        ctx_.option("DRY_DAYS", QString::number(sim.dryDays, 'g', 17)).toDouble(&ok);
     m_dryDaysSpin->setValue(ok ? dryDays : sim.dryDays);
 
     // Sweep window — engine stores "MM/DD"; map into a fixed-year QDate
@@ -435,6 +435,7 @@ void DatesPage::read()
 
     readEventsFromEngine();
     emit scheduleChanged();
+    ctx_.captureEditors(this);
 }
 
 int DatesPage::write()
@@ -444,37 +445,38 @@ int DatesPage::write()
 
     QString d, t;
     SOD::formatEngineDateTime(m_startEdit->dateTime(), d, t);
-    n += ctx_.writeIfChanged("START_DATE", d);
-    n += ctx_.writeIfChanged("START_TIME", t);
+    n += writeOption("START_DATE", d);
+    n += writeOption("START_TIME", t);
 
     SOD::formatEngineDateTime(m_endEdit->dateTime(), d, t);
-    n += ctx_.writeIfChanged("END_DATE", d);
-    n += ctx_.writeIfChanged("END_TIME", t);
+    n += writeOption("END_DATE", d);
+    n += writeOption("END_TIME", t);
 
     SOD::formatEngineDateTime(m_reportStartEdit->dateTime(), d, t);
-    n += ctx_.writeIfChanged("REPORT_START_DATE", d);
-    n += ctx_.writeIfChanged("REPORT_START_TIME", t);
+    n += writeOption("REPORT_START_DATE", d);
+    n += writeOption("REPORT_START_TIME", t);
 
-    n += ctx_.writeIfChanged("REPORT_STEP", QString::number(m_reportStepEdit->totalSeconds()));
-    n += ctx_.writeIfChanged("DRY_STEP", QString::number(m_dryStepEdit->totalSeconds()));
-    n += ctx_.writeIfChanged("WET_STEP", QString::number(m_wetStepEdit->totalSeconds()));
-    n += ctx_.writeIfChanged("RULE_STEP", QString::number(m_ruleStepEdit->totalSeconds()));
+    n += writeOption("REPORT_STEP", QString::number(m_reportStepEdit->totalSeconds()));
+    n += writeOption("DRY_STEP", QString::number(m_dryStepEdit->totalSeconds()));
+    n += writeOption("WET_STEP", QString::number(m_wetStepEdit->totalSeconds()));
+    n += writeOption("RULE_STEP", QString::number(m_ruleStepEdit->totalSeconds()));
     {
         // Routing step is a plain text box; preserve the user's typed
         // decimal precision but normalise to a canonical %g rendering.
         bool ok = false;
         const double v = m_routingStepEdit->text().trimmed().toDouble(&ok);
         if (ok)
-            n += ctx_.writeIfChanged("ROUTING_STEP", QString::number(v, 'g', 6));
+            n += writeOption("ROUTING_STEP", QString::number(v, 'g', 17));
     }
-    n += ctx_.writeIfChanged("DRY_DAYS", QString::number(m_dryDaysSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("SWEEP_START",
+    n += writeOption("DRY_DAYS", QString::number(m_dryDaysSpin->value(), 'g', 17));
+    n += writeOption("SWEEP_START",
                              m_sweepStartEdit->date().toString(QStringLiteral("MM/dd")));
-    n += ctx_.writeIfChanged("SWEEP_END", m_sweepEndEdit->date().toString(QStringLiteral("MM/dd")));
+    n += writeOption("SWEEP_END", m_sweepEndEdit->date().toString(QStringLiteral("MM/dd")));
 
     // [EVENTS] (Slice CW). writeEventsToEngine() returns the number of rows
     // it actually pushed; folded into n so wroteChanges flips.
     n += writeEventsToEngine();
+    ctx_.captureEditors(this);
     return n;
 }
 

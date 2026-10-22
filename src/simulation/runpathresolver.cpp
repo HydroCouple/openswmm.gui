@@ -64,7 +64,10 @@ QString resolveRunOutputPathFromSettings(const QString &inpPath, RunOutputKind k
                                                        : QStringLiteral("OutputFilePath"));
 
     QSettings s;
-    const QString override_ = s.value(settingsKey).toString();
+    const QString writerKey = QStringLiteral("SWMMVis/Project/%1/%2").arg(inpPath,
+        kind == RunOutputKind::Rpt ? "ReportWriter" : "OutputWriter");
+    const QString override_ = s.value(writerKey).toString().isEmpty()
+        ? s.value(settingsKey).toString() : QString();
     return resolveRunOutputPath(inpPath, override_, kind);
 }
 

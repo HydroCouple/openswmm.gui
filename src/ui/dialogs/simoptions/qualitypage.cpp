@@ -159,7 +159,7 @@ void QualityPage::buildUi()
 
     m_qualityStepSpin = new QDoubleSpinBox(lardGroup);
     m_qualityStepSpin->setRange(0.0, 3600.0);
-    m_qualityStepSpin->setDecimals(2);
+    m_qualityStepSpin->setDecimals(6);
     m_qualityStepSpin->setSuffix(QStringLiteral(" s"));
     m_qualityStepSpin->setToolTip(
         tr("Transport substep (QUALITY_STEP). 0 follows the routing step; "
@@ -358,7 +358,7 @@ void QualityPage::read()
     };
     auto optDouble = [this](const char *key, double fallback) {
         bool okNum = false;
-        const double v = ctx_.option(key, QString::number(fallback, 'g', 6)).toDouble(&okNum);
+        const double v = ctx_.option(key, QString::number(fallback, 'g', 17)).toDouble(&okNum);
         return okNum ? v : fallback;
     };
     auto optInt = [this](const char *key, int fallback) {
@@ -383,6 +383,7 @@ void QualityPage::read()
                                        "HEAT_TRANSPORT", QStringLiteral("NO"))) == Qt::Checked);
     selectComboByData(m_fvScalarSchemeCombo,
                       ctx_.option("FV_SCALAR_SCHEME", QStringLiteral("MUSCL")));
+    ctx_.captureEditors(this);
 }
 
 int QualityPage::write()
@@ -393,18 +394,19 @@ int QualityPage::write()
     // before switching to it and the settings survive. The context's
     // numeric-aware compare keeps QUALITY_STEP from churning against the
     // engine's "0.000000" rendering.
-    n += ctx_.writeIfChanged("QUALITY_SOLVER", m_qualitySolverCombo->currentData().toString());
-    n += ctx_.writeIfChanged("OUTFALL_BACKFLOW_QUALITY",
+    n += writeOption("QUALITY_SOLVER", m_qualitySolverCombo->currentData().toString());
+    n += writeOption("OUTFALL_BACKFLOW_QUALITY",
                              m_outfallBackflowCombo->currentData().toString());
-    n += ctx_.writeIfChanged("QUALITY_STEP", QString::number(m_qualityStepSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("MAX_SEGMENTS_PER_LINK", QString::number(m_maxSegmentsSpin->value()));
-    n += ctx_.writeIfChanged("DISPERSION", m_dispersionCombo->currentData().toString());
-    n += ctx_.writeIfChanged("RWPT_SEED", QString::number(m_rwptSeedSpin->value()));
-    n += ctx_.writeIfChanged("WATER_AGE",
+    n += writeOption("QUALITY_STEP", QString::number(m_qualityStepSpin->value(), 'g', 17));
+    n += writeOption("MAX_SEGMENTS_PER_LINK", QString::number(m_maxSegmentsSpin->value()));
+    n += writeOption("DISPERSION", m_dispersionCombo->currentData().toString());
+    n += writeOption("RWPT_SEED", QString::number(m_rwptSeedSpin->value()));
+    n += writeOption("WATER_AGE",
                              SimulationOptionsDialog::engineBoolString(m_waterAgeBox->isChecked()));
-    n += ctx_.writeIfChanged("HEAT_TRANSPORT", SimulationOptionsDialog::engineBoolString(
+    n += writeOption("HEAT_TRANSPORT", SimulationOptionsDialog::engineBoolString(
                                                    m_heatTransportBox->isChecked()));
-    n += ctx_.writeIfChanged("FV_SCALAR_SCHEME", m_fvScalarSchemeCombo->currentData().toString());
+    n += writeOption("FV_SCALAR_SCHEME", m_fvScalarSchemeCombo->currentData().toString());
+    ctx_.captureEditors(this);
     return n;
 }
 

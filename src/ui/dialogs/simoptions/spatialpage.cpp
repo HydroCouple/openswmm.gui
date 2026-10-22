@@ -91,12 +91,14 @@ void SpatialPage::buildUi()
 void SpatialPage::read()
 {
     refreshSummary();
+    ctx_.captureEditors(this);
 }
 
 int SpatialPage::write()
 {
     // Nothing to do: the CRS is written the moment it is picked (onPickCRS),
     // not deferred to the write pass, so this page contributes no keys.
+    ctx_.captureEditors(this);
     return 0;
 }
 
@@ -116,10 +118,10 @@ void SpatialPage::refreshSummary()
         const MapExtent ext = layer->extent();
         if (ext.isValid()) {
             m_extentLabel->setText(tr("X: [%1, %2]   Y: [%3, %4]")
-                                       .arg(ext.xMin(), 0, 'g', 8)
-                                       .arg(ext.xMax(), 0, 'g', 8)
-                                       .arg(ext.yMin(), 0, 'g', 8)
-                                       .arg(ext.yMax(), 0, 'g', 8));
+                                       .arg(ext.xMin(), 0, 'g', 17)
+                                       .arg(ext.xMax(), 0, 'g', 17)
+                                       .arg(ext.yMin(), 0, 'g', 17)
+                                       .arg(ext.yMax(), 0, 'g', 17));
         } else {
             m_extentLabel->setText(tr("(extent invalid / not yet computed)"));
         }
@@ -144,7 +146,7 @@ void SpatialPage::onPickCRS()
 
     layer->setSRS(srs, true);
     // Also write the engine's CRS option so it round-trips through .inp save.
-    ctx_.writeIfChanged("CRS", srs->toAuthority().isEmpty() ? srs->toWkt() : srs->toAuthority());
+    writeOption("CRS", srs->toAuthority().isEmpty() ? srs->toWkt() : srs->toAuthority());
     emit crsChanged();
     refreshSummary();
 }

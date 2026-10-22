@@ -660,7 +660,14 @@ three writer roles:
 | **Report writer** | Plugin that writes the report; empty id = the built-in `.rpt` writer |
 | **Single container (write input, output, and report to one file)** | Enabled only when the chosen input-writer plugin advertises all three roles for one extension (a GeoPackage, for instance); checking it locks the other two combos to that plugin |
 
-Picking a non-default entry adds the matching `[PLUGINS]` row on Apply.
+Writer choices are stored separately for each role, including an explicit built-in
+choice. Output paths and single-container mode travel with the model and project.
+Single-container mode uses one destination for model configuration, results and
+report data. Separate native `.out` and `.rpt` companions are also produced for
+viewing results in the GUI.
+
+HDF5 model saves now include the complete editable native configuration. Older
+column-only HDF5 exports cannot be reopened because they omitted model fields.
 
 *Report contents ([REPORT])* — what the engine prints to the `.rpt` text file.
 This is independent of the **Reporting step** on *Dates & Times*, which controls
@@ -699,8 +706,8 @@ selected writer plugin advertises.
 
 **Add** appends a blank row; **Remove** drops the current one. A row naming a
 plugin that is statically linked into this build is annotated as such. The first
-input-capable row is also what **File → Save As** uses when you pick a
-non-`.inp` extension. See \ref manual_plugins.
+input-capable row provides a fallback for **File → Save As** when no explicit
+input writer has been chosen. See \ref manual_plugins.
 
 ### Apply, OK and Cancel
 

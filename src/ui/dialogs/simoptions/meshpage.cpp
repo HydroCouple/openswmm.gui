@@ -60,12 +60,14 @@ void MeshPage::set2DModuleSetter(std::function<void(bool)> setter)
 void MeshPage::read()
 {
     refreshMeshList();
+    ctx_.captureEditors(this);
 }
 
 int MeshPage::write()
 {
     // The mesh reference is patched the moment Set Active / Import / Remove
     // runs, not deferred to the write pass.
+    ctx_.captureEditors(this);
     return 0;
 }
 

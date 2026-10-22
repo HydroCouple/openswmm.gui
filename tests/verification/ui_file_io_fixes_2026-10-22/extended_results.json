@@ -1,0 +1,58 @@
+{
+  "surface_quality": {
+    "inp": {
+      "section_count": 7,
+      "differences": {}
+    },
+    "gpkg": {
+      "section_count": 7,
+      "differences": {}
+    },
+    "h5": {
+      "section_count": 7,
+      "differences": {}
+    }
+  },
+  "mesh_heat": {
+    "inp": {
+      "section_count": 3,
+      "differences": {}
+    },
+    "gpkg": {
+      "section_count": 3,
+      "differences": {}
+    },
+    "h5": {
+      "section_count": 3,
+      "differences": {}
+    }
+  },
+  "radiation_snow": {
+    "inp": {
+      "section_count": 4,
+      "differences": {}
+    },
+    "gpkg": {
+      "section_count": 4,
+      "differences": {}
+    },
+    "h5": {
+      "section_count": 4,
+      "differences": {}
+    }
+  },
+  "lid": {
+    "inp": {
+      "section_count": 2,
+      "differences": {}
+    },
+    "gpkg": {
+      "section_count": 2,
+      "differences": {}
+    },
+    "h5": {
+      "section_count": 2,
+      "differences": {}
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+    "after_apply": {
+        "DRY_DAYS": "1.230000",
+        "FV_CFL": "0.050000",
+        "LIMITER_EPSILON edited to 1e-9": "0",
+        "MINIMUM_STEP": "0.010000",
+        "QUALITY_STEP": "0.000000",
+        "ROUTING_STEP": "0.123457"
+    },
+    "before_unedited_apply": {
+        "DRY_DAYS": "1.234500",
+        "FV_CFL": "0.025000",
+        "MINIMUM_STEP": "0.001000",
+        "QUALITY_STEP": "0.001000",
+        "ROUTING_STEP": "0.123457"
+    },
+    "ui_display": {
+        "DRY_DAYS": 1.23,
+        "FV_CFL": 0.05,
+        "MINIMUM_STEP": 0.01,
+        "QUALITY_STEP": 0
+    },
+    "writers_after_reopen": [
+        "org.hydrocouple.openswmm.plugins.geopackage",
+        "org.hydrocouple.openswmm.plugins.geopackage",
+        "org.hydrocouple.openswmm.plugins.geopackage"
+    ],
+    "writers_before_setting_builtin": [
+        "org.hydrocouple.openswmm.plugins.geopackage",
+        "org.hydrocouple.openswmm.plugins.geopackage",
+        "org.hydrocouple.openswmm.plugins.geopackage"
+    ]
+}

@@ -1,3 +1,21 @@
+#include "core/enginestring.h"
+#include "core/delimitedexport.h"
+#include "project/projectserializer.h"
+#include "layers/gisvectorlayer.h"
+#include "layers/swmmresultslayer.h"
+#include "map/mapcanvas.h"
+#include "map/spatialreferencesystem.h"
+#include "ui/dialogs/simoptions/qualitypage.h"
+#include "ui/dialogs/simoptions/performancepage.h"
+#include <QSpinBox>
+#include "ui/dialogs/simoptions/datespage.h"
+#include "ui/dialogs/simoptions/twodpage.h"
+#include "ui/dialogs/simoptions/filespage.h"
+#include "ui/dialogs/simoptions/titlenotespage.h"
+#include <QTextEdit>
+#include <QSignalSpy>
+#include <QStandardItemModel>
+#include <QJsonDocument>
 /**
  * @file      test_simulationoptions_roundtrip.cpp
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
@@ -30,6 +48,8 @@
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
+#include "ui/dialogs/pluginstablemodel.h"
+#include "simulation/runpathresolver.h"
 #include "ui/dialogs/nodecompoundeditdialog.h"
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
@@ -48,6 +68,8 @@
 #include "street/streetregistry.h"
 #include "inlet/inletregistry.h"
 #include <QListView>
+#include <QComboBox>
+#include "ui/dialogs/simoptions/hydraulicspage.h"
 #include <QLineEdit>
 #include <QTableView>
 #include <QUndoStack>
@@ -225,6 +247,175 @@ private:
     }
 
 private slots:
+    void fileIoImportedPrecisionAndTinyEdit()
+    {
+        auto layer = openLayer(fixture("mini_2d.inp"));
+        QVERIFY(layer);
+        auto engine = layer->engine();
+        const QMap<QString, QString> values{{"MINIMUM_STEP","0.001"}, {"FV_CFL","0.025"},
+            {"QUALITY_STEP","0.001"}, {"DRY_DAYS","1.2345"}, {"ROUTING_STEP","0.123456789"}};
+        auto read = [&](const QString& key, bool ext = false) {
+            return openswmmvis::readEngineString([&](char* b,int n) {
+                return ext ? swmm_options_get_ext(engine,key.toUtf8().constData(),b,n)
+                           : swmm_options_get(engine,key.toUtf8().constData(),b,n);
+            });
+        };
+        QMap<QString,QString> expected;
+        for (auto it=values.begin(); it!=values.end(); ++it) {
+            QCOMPARE(swmm_options_set(engine,it.key().toUtf8().constData(),it.value().toUtf8().constData()),0);
+            expected[it.key()] = read(it.key());
+        }
+        QCOMPARE(swmm_options_set_ext(engine,"LIMITER_EPSILON","0"),0);
+        SimulationOptionsDialog dialog(engine,layer.get(),"6.0.0",nullptr,nullptr);
+        dialog.findChild<openswmmvis::ui::HydraulicsPage*>()->write();
+        dialog.findChild<openswmmvis::ui::QualityPage*>()->write();
+        dialog.findChild<openswmmvis::ui::DatesPage*>()->write();
+        for (auto it=expected.begin(); it!=expected.end(); ++it) QCOMPARE(read(it.key()),it.value());
+        auto* page = dialog.findChild<openswmmvis::ui::TwoDPage*>();
+        QVERIFY(page);
+        bool edited=false;
+        for (auto* spin:page->findChildren<QDoubleSpinBox*>())
+            if(spin->property("optionKey").toString()=="LIMITER_EPSILON") {spin->setValue(1e-9);edited=true;}
+        QVERIFY(edited);
+        page->write();
+        QCOMPARE(read("LIMITER_EPSILON",true).toDouble(),1e-9);
+        page->write(); // The applied draft becomes the next baseline.
+        QCOMPARE(read("LIMITER_EPSILON",true).toDouble(),1e-9);
+        auto *performance = dialog.findChild<openswmmvis::ui::PerformancePage*>();
+        QVERIFY(performance);
+        auto *threads = performance->findChild<QSpinBox*>();
+        QVERIFY(threads);
+        const int count = threads->value() == 1 ? 2 : 1;
+        threads->setValue(count);
+        QCOMPARE(performance->write(), 1);
+        QCOMPARE(read("THREADS").toInt(), count);
+        QCOMPARE(performance->write(), 0);
+    }
+
+    void fileIoLongStringsAndBuiltinWriterSelection()
+    {
+        auto layer = openLayer(fixture("mini_2d.inp"));
+        QVERIFY(layer);
+        auto engine=layer->engine();
+        const QString notes=QString(5000,'x')+QString::fromUtf8(" 洪水");
+        QCOMPARE(swmm_title_set(engine,notes.toUtf8().constData()),0);
+        QStringList names;for(int i=0;i<50;++i) names<<QString("node_%1").arg(i,4,10,QChar('0'));
+        QCOMPARE(swmm_options_set(engine,"RPT_NODES",names.join(' ').toUtf8().constData()),0);
+        const QString pluginArgs(6000, 'a');
+        QCOMPARE(swmm_plugin_set(engine,"org.hydrocouple.openswmm.plugins.geopackage",pluginArgs.toUtf8().constData()),0);
+        {
+            SimulationOptionsDialog dialog(engine,layer.get(),"6.0.0",nullptr,nullptr);
+            auto* title=dialog.findChild<openswmmvis::ui::TitleNotesPage*>();
+            QCOMPARE(title->findChild<QTextEdit*>()->toPlainText(),notes);
+            auto* files=dialog.findChild<openswmmvis::ui::FilesPage*>();
+            auto* plugins = files->findChild<PluginsTableModel*>();
+            QVERIFY(plugins); QCOMPARE(plugins->argsAt(0), pluginArgs);
+            bool complete=false;
+            for(auto* edit:files->findChildren<QLineEdit*>())
+                if(edit->text().contains("node_0049")) complete=true;
+            QVERIFY(complete);
+            int writers=0;
+            for(auto* combo:files->findChildren<QComboBox*>())
+                if(combo->property("optionKey").toString().startsWith("IO_") &&
+                   combo->property("optionKey").toString().endsWith("_WRITER")) {
+                    QVERIFY(!combo->currentData().toString().isEmpty());
+                    combo->setCurrentIndex(0);++writers;
+                }
+            QCOMPARE(writers,3);files->write();
+        }
+        SimulationOptionsDialog reopened(engine,layer.get(),"6.0.0",nullptr,nullptr);
+        QCOMPARE(reopened.findChild<PluginsTableModel*>()->argsAt(0), pluginArgs);
+        for(auto* combo:reopened.findChild<openswmmvis::ui::FilesPage*>()->findChildren<QComboBox*>())
+            if(combo->property("optionKey").toString().startsWith("IO_") &&
+               combo->property("optionKey").toString().endsWith("_WRITER"))
+                QVERIFY(combo->currentData().toString().isEmpty());
+    }
+
+    void fileIoQuotedExportAndFailure()
+    {
+        const QString root=fixture("ui_file_io");QVERIFY(QDir().mkpath(root));
+        QStandardItemModel model(1,1);
+        model.setHeaderData(0,Qt::Horizontal,"label,header");
+        model.setData(model.index(0,0),"a,\"b\"\nnext");
+        QString error;const QString path=root+"/quoted.csv";
+        QVERIFY2(openswmmvis::exportDelimitedModel(model,path,',',error),qPrintable(error));
+        QFile file(path);QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(QString::fromUtf8(file.readAll()),QString("\"label,header\"\n\"a,\"\"b\"\"\nnext\"\n"));
+        QVERIFY(!openswmmvis::exportDelimitedModel(model,root,',',error));
+        QVERIFY(!error.isEmpty());
+    }
+
+    void fileIoProjectDisplayCalibrationAndPaths()
+    {
+        QSettings priorSettings;
+        QMap<QString,QVariant> priorValues;
+        for (const auto& key : priorSettings.allKeys()) priorValues[key] = priorSettings.value(key);
+        const auto restoreSettings = qScopeGuard([&] {
+            QSettings settings; settings.clear();
+            for (auto it=priorValues.begin(); it!=priorValues.end(); ++it) settings.setValue(it.key(),it.value());
+        });
+
+        const QString root=fixture("ui_file_io");QVERIFY(QDir().mkpath(root));
+        QString error;auto window=openProjectWindow(fixture("mini_2d.inp"),&error);
+        QVERIFY2(window,qPrintable(error));
+        const QString observations=QDir(root).absoluteFilePath("observed.csv");
+        window->setCalibrationEntries(QJsonArray{QJsonObject{{"kind","Link"},{"name","C1"},
+            {"attribute","depth"},{"path",observations},{"column","observed"}}});
+        auto* custom=SpatialReferenceSystem::fromWktOrProj(
+            "+proj=aeqd +lat_0=47.1234 +lon_0=-122.1234 +datum=WGS84 +units=m +no_defs",window->canvas());
+        QVERIFY(custom);window->canvas()->setCanvasSRS(custom,true);
+        const auto wkt=custom->toWkt();
+        const QString vectorPath=QDir(root).absoluteFilePath("points.geojson");
+        {QFile file(vectorPath);QVERIFY(file.open(QIODevice::WriteOnly));
+         file.write(R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"id":1},"geometry":{"type":"Point","coordinates":[0,0]}}]})");}
+        auto* vector=new GISVectorLayer(QString());QSignalSpy opened(vector,&GISVectorLayer::openFinished);
+        vector->openAsync(vectorPath);QVERIFY(opened.wait(10000));QVERIFY(opened.first().first().toBool());
+        auto symbol=vector->symbol();symbol.markerSize=9.25;symbol.markerFill=Qt::cyan;vector->setSymbol(symbol);
+        vector->setFilterExpression("id = 1");window->canvas()->addLayer(vector,false);
+        QCOMPARE(swmm_options_set_ext(window->modelLayer()->engine(),"IO_OUTPUT_PATH","results/custom.out"),0);
+        QCOMPARE(swmm_options_set_ext(window->modelLayer()->engine(),"IO_OUTPUT_WRITER","BUILTIN"),0);
+        const QString portableModel=QDir(root).absoluteFilePath("portable.inp");
+        QCOMPARE(swmm_model_write(window->modelLayer()->engine(),portableModel.toUtf8().constData()),0);
+        auto portable=openProjectWindow(portableModel,&error);QVERIFY2(portable,qPrintable(error));
+        QCOMPARE(QDir::cleanPath(openswmmvis::resolveRunOutputPathFromSettings(portableModel,
+                    openswmmvis::RunOutputKind::Out)),
+                 QFileInfo(fixture("mini_2d.inp")).absoluteDir().filePath("results/custom.out"));
+        const QString output=QDir(root).absoluteFilePath("results.out"), report=QDir(root).absoluteFilePath("results.rpt");
+        QCOMPARE(swmm_engine_run(fixture("mini_2d.inp").toUtf8().constData(),report.toUtf8().constData(),output.toUtf8().constData(),nullptr),0);
+        auto* results=new SWMMResultsLayer(output,window->modelLayer());
+        QList<QString> warnings,errors;QVERIFY(results->openResults(warnings,errors));
+        results->setName("Retained results name");results->setVisible(false);results->setOpacity(.37);
+        window->canvas()->addLayer(results,false);
+        const QString project=QDir(root).absoluteFilePath("saved.oswp");
+        QVERIFY2(ProjectSerializer::saveToFile(project,window.get(),&error),qPrintable(error));
+        auto restored=openProjectWindow(fixture("mini_2d.inp"),&error);QVERIFY2(restored,qPrintable(error));
+        QVERIFY(restored->calibrationEntries().isEmpty());
+        QStringList restoreWarnings;
+        QVERIFY2(ProjectSerializer::applyFromFile(project,restored.get(),&error,&restoreWarnings),qPrintable(error));
+        QCOMPARE(restored->calibrationEntries().size(),1);
+        QCOMPARE(restored->calibrationEntries().first().toObject().value("path").toString(),observations);
+        QCOMPARE(restored->canvas()->canvasSRS()->toWkt(),wkt);
+        auto findVector=[&]() -> GISVectorLayer* {
+            for(auto* item:restored->canvas()->layers())
+                if(auto* layer=qobject_cast<GISVectorLayer*>(item)) return layer;
+            return nullptr;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(findVector(),10000);
+        QCOMPARE(findVector()->filterExpression(),QString("id = 1"));
+        QCOMPARE(findVector()->symbol().markerSize,9.25);
+        QCOMPARE(findVector()->symbol().markerFill,QColor(Qt::cyan));
+        bool resultRestored=false;
+        for(auto* item:restored->canvas()->layers())
+            if(auto* layer=qobject_cast<SWMMResultsLayer*>(item)) {
+                QCOMPARE(layer->name(),QString("Retained results name"));
+                QVERIFY(!layer->isVisible());QCOMPARE(layer->opacity(),.37);resultRestored=true;
+            }
+        QVERIFY(resultRestored);
+        const auto value=openswmmvis::readEngineString([&](char*b,int n){
+            return swmm_options_get_ext(restored->modelLayer()->engine(),"IO_OUTPUT_PATH",b,n);});
+        QCOMPARE(value,QFileInfo(fixture("mini_2d.inp")).absoluteDir().filePath("results/custom.out"));
+    }
+
 
     void modelEditorOwnerLifetime_data()
     {

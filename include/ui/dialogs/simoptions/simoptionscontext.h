@@ -17,6 +17,10 @@
 #ifndef SIMOPTIONSCONTEXT_H
 #define SIMOPTIONSCONTEXT_H
 
+#include <QHash>
+#include <QPointer>
+#include <QVariant>
+#include <QWidget>
 #include <QString>
 #include <QStringList>
 
@@ -73,9 +77,9 @@ public:
      * @brief Read a trimmed common OPTIONS value through the borrowed engine.
      * @param key Borrowed non-null null-terminated engine key when an engine is bound.
      * @param fallback Copied result for no engine or getter failure, default empty.
-     * @return Owned UTF-8 value from a 256-byte buffer on success, including an empty
-     * trimmed value; success does not substitute fallback. No buffer growth, writes
-     * or lifetime validation are performed.
+     * @return Owned UTF-8 value from a growing buffer on success, including an empty
+     * trimmed value; success does not substitute fallback. No writes or lifetime
+     * validation are performed.
      */
     [[nodiscard]] QString option(const char *key, const QString &fallback = {}) const;
 
@@ -85,13 +89,13 @@ public:
      * @param newVal Borrowed proposed text, passed to the setter without normalization.
      * @return One for a successful layer/raw setter, zero for unchanged values,
      * missing engine or setter refusal; there is no separate failure result.
-     * FV_IMPLICIT_ keys compare parsed numbers exactly (or text exactly); other keys
-     * use the dialog trimmed/numeric relative comparison. Prefers layer setOption
+     * Unedited controls retain their original engine text. Parsed numbers compare
+     * exactly; other values compare trimmed text. Prefers layer setOption
      * for notification, otherwise the raw engine setter. Caller keeps layer/engine
      * identities consistent. Every call is logged, including no-ops/failures and
      * duplicates. No undo command, aggregate rollback or file save is created.
      */
-    int writeIfChanged(const char *key, const QString &newVal);
+    int writeIfChanged(const char *key, const QString &newVal, const QWidget *owner = nullptr);
 
     /**
      * @brief Append an option key to the current consideration log without an engine write.
@@ -117,6 +121,11 @@ public:
      * @brief Clear the option-key consideration log for the next Apply pass.
      * Does not change engine state, capabilities or borrowed identities.
      */
+    void captureEditors(QWidget *root);
+    [[nodiscard]] QString valueForWrite(const char *key, const QString &value,
+                                        const QWidget *owner, bool extended = false) const;
+    [[nodiscard]] bool editorChanged(const char *key, const QWidget *owner = nullptr) const;
+
     void beginWritePass(); ///< Clears writtenKeys().
     /**
      * @brief Copy the current pass consideration log.
@@ -131,6 +140,8 @@ private:
     SWMMVisProjectWindow *pw_ = nullptr;
     EngineCapabilities caps_;
     QStringList written_;
+    QHash<QString, QList<QPair<QPointer<QWidget>, QVariant>>> baselines_;
+    QHash<QString, QString> original_, originalExtended_;
 };
 
 } // namespace openswmmvis::ui
