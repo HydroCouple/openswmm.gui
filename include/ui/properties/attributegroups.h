@@ -33,6 +33,8 @@ inline QString attributeGroup(QString key)
         }
     key.remove(QLatin1Char('_'));
     key = key.toLower();
+    if (key == "2dcoupleable") key = "coupleable";
+    if (key.startsWith("2dparam")) key = "coupling" + key.mid(7);
     auto label = [](const char *text) {
         return QCoreApplication::translate("AttributeGroups", text);
     };

@@ -110,6 +110,7 @@
 #include <ogr_geometry.h>
 
 #include <algorithm> // std::sort / std::unique — selectionAsTsv row ordering
+#include <cmath>
 #include <utility>   // std::move — GIS attribute-row caching
 
 Q_LOGGING_CATEGORY(lcAttrTbl, "openswmm.attr-table")
@@ -1103,6 +1104,18 @@ bool AttributeTablePanel::eventFilter(QObject *watched, QEvent *event)
         (watchedWidget == m_view) || m_view->isAncestorOf(watchedWidget);
     if (!isViewOrDescendant)
         return QWidget::eventFilter(watched, event);
+
+    // Do not intercept paste in a live line/spin/combo editor.
+    if ((watchedWidget == m_view || watchedWidget == m_view->viewport()) &&
+        (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->matches(QKeySequence::Paste)) {
+            if (event->type() == QEvent::KeyPress)
+                pasteFromClipboard();
+            event->accept();
+            return true;
+        }
+    }
 
     if (event->type() == QEvent::ShortcutOverride) {
         auto *key = static_cast<QKeyEvent *>(event);
@@ -2709,6 +2722,110 @@ void AttributeTablePanel::copySelectionToClipboard()
     QGuiApplication::clipboard()->setText(tsv);
 }
 
+bool AttributeTablePanel::pasteText(const QString &text, QString *error)
+{
+    auto refuse = [error](const QString &message) {
+        if (error) *error = message;
+        return false;
+    };
+    if (!m_model || !m_proxy || m_proxy->sourceModel() != m_model || !m_view)
+        return refuse(tr("Select a SWMM object attribute table to paste values."));
+    const QModelIndex start = m_view->currentIndex();
+    if (!start.isValid())
+        return refuse(tr("Select the first target cell before pasting."));
+    QString normalized = text;
+    normalized.replace("\r\n", "\n");
+    normalized.replace('\r', '\n');
+    QStringList lines = normalized.split('\n', Qt::KeepEmptyParts);
+    if (lines.size() > 1 && lines.last().isEmpty()) lines.removeLast();
+    const int width = lines.first().split('\t', Qt::KeepEmptyParts).size();
+    for (const auto &line : lines)
+        if (line.split('\t', Qt::KeepEmptyParts).size() != width)
+            return refuse(tr("Paste needs a rectangular tab-separated block without a header row."));
+    QList<int> columns;
+    const auto *header = m_view->horizontalHeader();
+    for (int v = header->visualIndex(start.column()); v < header->count(); ++v) {
+        const int c = header->logicalIndex(v);
+        if (!m_view->isColumnHidden(c)) columns.append(c);
+    }
+    if (width > columns.size())
+        return refuse(tr("The pasted block extends beyond the visible columns."));
+    QList<int> rows;
+    for (const auto &idx : m_view->selectionModel()->selectedRows()) rows.append(idx.row());
+    std::sort(rows.begin(), rows.end());
+    const bool scalar = lines.size() == 1 && width == 1;
+    if (rows.isEmpty() || (!scalar && rows.size() != lines.size())) {
+        rows.clear();
+        for (int r = 0; r < lines.size(); ++r) rows.append(start.row() + r);
+    }
+    if (rows.last() >= m_proxy->rowCount())
+        return refuse(tr("The pasted block extends beyond the visible rows."));
+    // Resolve identities before editing: changing a sort/filter field can move rows.
+    struct Edit { QModelIndex index; QVariant value; };
+    QList<Edit> edits;
+    const auto specs = m_model->columnSpecs();
+    for (int r = 0; r < rows.size(); ++r) {
+        const auto cells = lines[scalar ? 0 : r].split('\t', Qt::KeepEmptyParts);
+        for (int c = 0; c < width; ++c) {
+            const auto idx = m_proxy->mapToSource(m_proxy->index(rows[r], columns[c]));
+            const auto &spec = specs[idx.column()];
+            if (!(m_model->flags(idx) & Qt::ItemIsEditable))
+                return refuse(tr("%1 is read-only. Paste into editable columns only.").arg(spec.label));
+            const QString token = cells[c].trimmed();
+            QVariant value = token;
+            using openswmmvis::EditorKind;
+            if (spec.editor == EditorKind::Enum) {
+                bool found = false;
+                for (const auto &entry : spec.enumValues) {
+                    const auto pair = entry.toList();
+                    if (token.compare(pair[0].toString(), Qt::CaseInsensitive) == 0 ||
+                        token.compare(pair[1].toString(), Qt::CaseInsensitive) == 0) {
+                        value = pair[1];
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return refuse(tr("Invalid %1 value: %2").arg(spec.label, token));
+            } else if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer) {
+                bool ok = false;
+                const double n = token.toDouble(&ok);
+                if (!ok || !std::isfinite(n) || n < spec.minValue || n > spec.maxValue ||
+                    (spec.editor == EditorKind::Integer && n != std::floor(n)))
+                    return refuse(tr("Invalid %1 value: %2").arg(spec.label, token));
+                value = n;
+            } else if (spec.editor != EditorKind::Text) {
+                return refuse(tr("%1 uses a dedicated editor.").arg(spec.label));
+            }
+            edits.append({idx, value});
+        }
+    }
+    auto *undo = m_model->undoStack();
+    if (undo) undo->beginMacro(tr("Paste attributes"));
+    int rejected = 0;
+    QString firstRejected;
+    for (const auto &edit : edits) {
+        if (!m_model->setData(edit.index, edit.value, Qt::EditRole)) {
+            ++rejected;
+            if (firstRejected.isEmpty())
+                firstRejected = tr("%1 / %2").arg(m_model->objectNameAt(edit.index.row()),
+                                                    specs[edit.index.column()].label);
+        }
+    }
+    if (undo) undo->endMacro();
+    if (rejected)
+        return refuse(tr("%1 cell(s) rejected, starting at %2. Other accepted edits can be undone "
+                         "together. Check the structure, allowed range and node class.")
+                          .arg(rejected).arg(firstRejected));
+    return true;
+}
+
+void AttributeTablePanel::pasteFromClipboard()
+{
+    QString error;
+    if (!pasteText(QGuiApplication::clipboard()->text(), &error))
+        QMessageBox::warning(this, tr("Paste attributes"), error);
+}
+
 void AttributeTablePanel::onExportCsvClicked()
 {
     if (!m_proxy || !m_proxy->sourceModel() || m_proxy->sourceModel()->rowCount() == 0)
@@ -2884,6 +3001,11 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
 
     QAction *copyAct = menu.addAction(tr("Copy (Ctrl+C)"));
     connect(copyAct, &QAction::triggered, this, &AttributeTablePanel::copySelectionToClipboard);
+    auto *pasteAct = menu.addAction(tr("Paste (Ctrl/Cmd+V)"));
+    connect(pasteAct, &QAction::triggered, this, [this, proxyIdx] {
+        m_view->selectionModel()->setCurrentIndex(proxyIdx, QItemSelectionModel::NoUpdate);
+        pasteFromClipboard();
+    });
     menu.addSeparator();
 
     // §S.SC.1.c — Cell-type-aware "Edit in …" actions surfacing the

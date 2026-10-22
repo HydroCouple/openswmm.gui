@@ -328,6 +328,34 @@ Two edits are deliberately atomic: setting a rain gage's **Rain File** path also
 commits the column selector and the file-format flip that a column implies, as
 one undo step — otherwise undo would restore the path and keep a stale column.
 
+### Pasting cells and node coupling settings
+
+In a SWMM object table, select the first target cell and press **Ctrl/Cmd+V**, or
+right-click and choose **Paste**. Paste values without a header row.
+
+- One value fills that column for all selected rows; with one row selected it
+  edits one cell. Boolean columns, including **2D Coupleable**, use **YES/NO**
+  choices and accept pasted Yes/No text without regard to case (or 1/0).
+- A tab-separated spreadsheet block fills visible columns from the current
+  column in their displayed order. Hidden columns are skipped. When the selected
+  row count matches the block height, values follow those rows in visible order;
+  otherwise the block starts at the current row. Sorting and filtering are respected.
+- Read-only cells, unsupported dedicated editors, malformed blocks and invalid
+  enumeration/numeric input report an error. Node-specific validation may reject
+  individual cells; the message identifies the first refusal. Accepted cells
+  remain one **Undo** step. Paste inside an open text editor follows normal text editing.
+
+The **2D Coupling** group in junction, divider and storage tables contains
+eligibility, structure, diameter, perimeter, opening/chamber areas, lid fraction,
+crest, law, coefficient preset and four coefficient overrides. Outfalls expose
+eligibility, structure, spread radius and tailwater relaxation. Numeric override
+cells display `NULL` when no override is authored; clear the editor to restore
+inheritance. Enum overrides have **(inherit)**. Changing structure or disabling coupling clears its parameters,
+so paste the structure first and geometry second. Undo restores the whole prior
+node configuration. Eligibility does not create or relocate a spatial mesh map.
+See @ref manual_node_coupling_settings for defaults, units, applicability and the
+meshing/remapping workflow.
+
 ### Applying one value to many rows
 
 Select several rows, right-click an editable cell, and pick one of:

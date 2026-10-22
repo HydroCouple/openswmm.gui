@@ -221,6 +221,12 @@ public slots:
      * selection/source data, and does not return a platform clipboard success receipt.
      */
     void copySelectionToClipboard();
+    /** @brief Paste scalar or TSV input into SWMM cells in visible row order.
+     * Scalar input fills selected rows in the current column. Returns false with
+     * feedback for refused cells; accepted cells form one undo step. No dialogs. */
+    bool pasteText(const QString &text, QString *error = nullptr);
+    /** @brief Paste clipboard text and show any refused-cell feedback. */
+    void pasteFromClipboard();
 
     /**
      * @brief Refresh a named retained SWMM row or select its known spatial category after an
