@@ -120,6 +120,8 @@ coupling itself is authored after generation.
 | Control | What it does |
 | --- | --- |
 | **Map model nodes to the mesh after generation** | Runs the node→mesh mapper once mesh generation finishes. Independent of the junctions-as-Steiner box, and re-runnable later from the toolbar's **Remap 1D↔2D** |
+| **Map only coupleable nodes** | On by default. Filters out nodes whose effective structure is `NONE`; does not change the geometry-influence controls above |
+| **Set coupleable…** | Opens the node selector to stage eligibility and structure changes, filter by category/name or map selection, and Apply as one undo step. The readout reports eligible nodes; it is not a count of successful spatial mappings |
 
 **Elevation interpolation (no DTM)** — the whole group is disabled while a DTM
 is selected.
@@ -525,41 +527,135 @@ therefore mass conservation — is preserved.
 
 ### 1D–2D coupling
 
-Coupling is authored *after* the mesh exists and can be redone at any time. Two
-mechanisms exist, and both write the same two sections:
+A node needs both a hydraulic **structure** and a spatial **map**. Set the
+structure in the node property view's **2D Coupling** group or in the node
+attribute table. Map it to the mesh after generation or with **Remap 1D↔2D**.
+The node can be eligible while still unmapped; eligibility alone transfers no water.
 
-- `[2D_VERTEX_NODE_MAP]` — a mesh **vertex** exchanges with a SWMM node. This is
-  what a node sitting exactly on a mesh vertex gets.
-- `[2D_TRIANGLE_NODE_MAP]` — a mesh **cell** exchanges with a SWMM node, using
-  the engine's orifice exchange law. Several nodes may share one cell (a weir or
-  orifice pair, for instance).
+| Saved section | Purpose | Edited from |
+| --- | --- | --- |
+| `[2D_NODE_COUPLING]` | Eligibility, structure, geometry and per-node overrides | Node properties, node attribute table; type/eligibility also in **Set coupleable…** and **Remap 1D↔2D** |
+| `[2D_VERTEX_NODE_MAP]` | Connects a node to a coincident mesh vertex | Meshing mapper, remap, vertex controls/table, **Auto-couple** |
+| `[2D_TRIANGLE_NODE_MAP]` | Connects a node to a containing mesh cell; multiple nodes may share a cell | Meshing mapper and remap |
+| `[2D_OPTIONS]` | Global exchange law, head sampling, ponding and numerical controls | **Simulation Options → 2D Surface Routing → Coupling** |
 
-Both carry a **CD** (discharge coefficient) and an **AREA** (exchange area). The
-area is in the *mesh's* length units squared — on a US-units project without an
-SI mesh tag, 2.0 means 2.0 ft², not 2.0 m². `[2D_OPTIONS] COUPLING_AREA AUTO`
-overrides authored areas from the connected conduit area either way; set it on
-*2D Surface Routing* > *Coupling* in \ref manual_simulation_options.
+Both map types support `ORIFICE` and `WEIR_ORIFICE`. Optional map **Cd** and
+**Area** are hydraulic overrides, not the node's chamber size. Map areas use
+mesh length units squared; node geometry uses project length units squared.
+This distinction matters when a US project uses an SI-tagged mesh.
 
-\figtodo{19_coupling.png, Coupled vertices and cells highlighted with their SWMM node ids}
+#### Choosing a node structure {#manual_node_coupling_settings}
 
-**Auto-couple** pairs mesh vertices with the SWMM node at the same map
-coordinate, within a scale-free tolerance of 1e-6 × the mesh bounding-box
-diagonal. It acts on the selected vertices, or scans the whole mesh when nothing
-is selected, and never changes an already-coupled vertex. A summary reports how
-many were coupled, how many were already coupled, and how many nodes had no
-coincident vertex.
+| Structure | Use and eligible node classes | When no row has been authored |
+| --- | --- | --- |
+| `NONE` / Not coupleable | Excludes the node from surface exchange. Existing map rows for it are ignored at run initialization | Default for inlet junctions and virtual junctions |
+| `MANHOLE` | Circular access opening, with optional geometry overrides. Junction, divider or storage | Default for ordinary junctions and dividers |
+| `GRATE` | Grated opening: enter the effective exchange area and weir perimeter. Junction, divider or storage | Explicit choice |
+| `CURB` | Curb opening: enter its hydraulic opening area and effective weir length/perimeter. Junction, divider or storage | Explicit choice; currently shares the grate geometry resolution |
+| `OPEN` | Open-top pond/storage represented by a storage node's area-depth relationship | Default for storage nodes; legal only on storage |
+| `OUTFALL` | Transfers connected-link flow to/from the surface and uses surface tailwater | Default for outfall nodes; outfalls accept only `OUTFALL` or `NONE` |
 
-**Remap 1D↔2D** is the superset and the answer to *"the mesh changed, now
-what?"*. It clears and re-authors the whole mapping: coincident nodes get vertex
-coupling, non-coincident nodes inside the mesh get cell coupling, and nodes
-outside the mesh are reported by name. It confirms first, because it discards
-the existing mapping. This is what decouples the 1D–2D relationship from mesh
-generation: regenerate the mesh, remap, and the coupling is correct again
-without rebuilding the model.
+**2D Coupleable = NO** sets `NONE` and clears structure overrides.
+**YES** restores the class default; a class whose default is `NONE` is explicitly
+set to `MANHOLE`. Changing the structure also clears its old overrides. Set the
+structure first, then its parameters. **Undo** restores the complete previous
+configuration, including inherited values. Enabling an inlet junction can
+introduce a second street-to-sewer route alongside its inlet representation;
+choose the intended route deliberately. A virtual split junction normally stays `NONE`.
 
-Individual couplings can always be typed by hand: select a vertex, pick the node
-in the coupled-node combo, and set its Cd and area. Blanking the combo removes
-the coupling.
+#### What each field means
+
+Blank numeric editors and **(inherit)** choices omit the override. The table
+shows `NULL` for an unauthored numeric override; this does not mean zero. A displayed default structure does not mean a row is saved in the INP.
+Lengths below are m for SI projects and ft for US projects; areas are m² or ft².
+All numeric values must be finite. Positive means strictly greater than zero.
+
+| Field / INP key | Meaning and configuration |
+| --- | --- |
+| Opening diameter / `D` | Positive diameter. `MANHOLE` derives area as πD²/4 and perimeter as πD. Default 1.2 m or 4 ft. Grate/curb use this circular area as a fallback when no area is provided; specify their actual area/perimeter |
+| Weir perimeter / `PERIMETER` | Positive effective exchange length. Overrides the derived perimeter. For `GRATE`/`CURB`, default is 4√A; for `OPEN`, √(4πA). It is a hydraulic opening dimension, not a mesh-cell boundary length |
+| Opening area / `AREA` | Positive flow opening area. Overrides diameter-derived area. `OPEN` otherwise uses storage surface area at full depth. A map-row area can override this again |
+| Chamber area / `CHAMBER_AREA` | Positive above-rim chamber plan area used by the chamber/tracking ponding treatment. Under `WEIR_ORIFICE`, defaults to resolved opening area before lid scaling. It does not replace a storage node's storage curve |
+| Lid open fraction / `LID_OPEN_FRACTION` | Fraction in (0,1], default 1. Scales both flow opening area and weir perimeter, not chamber area. Use `NONE` to disable exchange; zero is invalid |
+| Crest policy / `CREST` | `NODE_RIM` (default) uses invert + maximum depth; `MESH_BED` uses mapped vertex elevation or cell-centroid bed; `MAX`/`MIN` use the higher/lower of these. Fix datum/elevation mistakes before selecting a policy |
+| Exchange law / `LAW` | Inherit global `COUPLING_LAW`, or choose `ORIFICE` / `WEIR_ORIFICE`. `ORIFICE` uses map/global Cd and area; the diameter, perimeter, opening fraction, crest and coefficient-preset controls describe `WEIR_ORIFICE` and do not redefine that legacy orifice |
+| Coefficient preset / `COEFFS` | Inherit global preset, or choose `DEFAULT`, `RUBINATO2017`, `_LOWER`, `_UPPER`. The numerical values and conventions are in the hydraulic reference's node coupling section. Rubinato presets reproduce a laboratory coefficient set, not universal calibration |
+| Free-weir / `CW` | Positive free-drainage coefficient; overrides preset. In `DEFAULT`, changing CW also sets the default CSW to 2CW/3 |
+| Submerged-weir / `CSW` | Positive submerged-drainage coefficient; overrides preset or 2CW/3 relationship |
+| Drainage orifice / `COI` | Positive surface-to-sewer coefficient. Explicit map Cd overrides it |
+| Surcharge orifice / `COO` | Positive sewer-to-surface coefficient. Explicit map Cd overrides it |
+| Outfall spread / `SPREAD` | Nonnegative radius in project length units, default 0. Positive discharge reaches the original receiving cells plus connected cells in the radius that are wet or no higher than the original footprint's highest bed; area weighted. Reverse flow uses the original donor reservations |
+| Tailwater relaxation / `TAILWATER_RELAX` | Nonnegative seconds, default 0 (immediate feedback). Positive values smooth the cached surface tailwater with a bounded Δt/τ update. This affects timing; check timestep sensitivity. The ordinary outfall flap-gate setting controls reverse link flow |
+
+Outfall tables expose spread and relaxation instead of opening-law geometry.
+Junction, storage and divider tables expose all opening-law parameters, even
+when inherited or unused by the current law. Set `NONE` nodes to the desired
+structure before entering parameters. See @ref manual_attribute_tables for
+single-cell, selected-row and spreadsheet-block paste.
+
+#### Registering the connection from the meshing UI
+
+1. Configure each node's structure and geometry. For structure-based exchange,
+   select global `WEIR_ORIFICE` before generating or remapping. New mapper rows
+   then leave Cd/Area unauthored so the structures govern. An existing authored
+   map override remains significant, even if a per-node law is later changed.
+2. In mesh generation, choose **1D geometry influence** independently: Steiner
+   vertices and conduit constraints shape the mesh. Eligibility does not remove
+   those constraints. Minimum node separation can omit a node's Steiner vertex
+   while retaining it as a candidate for cell mapping.
+3. Enable **Map model nodes to the mesh after generation** and normally retain
+   **Map only coupleable nodes**. Use **Set coupleable…** to review the eligible
+   set. Nodes with coordinates are collected independently of the Steiner option.
+4. Generate the mesh. A coincident node gets a vertex map; another node inside
+   the mesh gets a containing-cell map. Several nodes can share a cell. Nodes
+   outside the domain are reported. Missing coordinates cannot provide a map target.
+5. Open **Mesh 2D → Remap 1D↔2D** to inspect **Current**, **Proposed**, and
+   **|rim − bed|**. A large elevation difference needs review. **Preserve existing**
+   keeps eligible mappings and fills gaps; **Clear & rebuild** relocates them from
+   coordinates. A mapping that returns to the same location retains its Cd/Area.
+   Switching a node off removes its map when **Map only coupleable nodes** is on.
+   Review the proposal and **Apply**; configuration and map edits are undoable.
+6. Inspect mesh **Vertices** / **Coupled Nodes**, save, and review initialization
+   warnings and a short run's spill, drainback, depth and continuity. Re-run remap
+   after geometry changes or mesh regeneration. Changing a node's structure in
+   the attribute table updates hydraulic configuration; it does not relocate a map.
+
+**Auto-couple** is the simpler vertex-only action: it finds coincident nodes
+within 1e-6 times the mesh bounding-box diagonal (minimum 1e-9), works on selected
+vertices or the whole mesh, and leaves already-coupled vertices alone. It does
+not supply the containing-cell fallback or the eligibility review of Remap.
+Use Remap for a full review of node eligibility and registration.
+
+Individual vertex mappings can also be edited with **Coupled SWMM node**, **Cd**
+and **Area** in the vertex controls/table. Blanking the node removes that map.
+For `WEIR_ORIFICE`, an explicitly authored map Area overrides the node opening
+area, and map Cd overrides both COI and COO. Old maps can therefore mask a new
+node parameter. `COUPLING_AREA AUTO` derives an area from connected conduits only
+for `ORIFICE`; it does not replace structure-based `WEIR_ORIFICE` geometry.
+
+#### Configuration examples
+
+For a surveyed open manhole in an SI project, select `MANHOLE`, `WEIR_ORIFICE`,
+enter its measured `D`, and use `NODE_RIM` after verifying the rim datum. A
+0.24 m opening is the Rubinato laboratory geometry, not a typical default for
+all sites. Use the measured opening geometry and suitable coefficients for the
+site. A street grate instead needs its effective `AREA` and `PERIMETER`; a
+storage pond normally starts from `OPEN` and its storage curve. An outlet at the
+edge of a meshed channel uses `OUTFALL`, its normal 1D boundary/gate settings,
+and optional spread/relaxation only where physically and numerically justified.
+
+```
+[2D_NODE_COUPLING]
+J1 MANHOLE D=0.24 LAW=WEIR_ORIFICE CREST=NODE_RIM COEFFS=RUBINATO2017
+J2 GRATE AREA=0.18 PERIMETER=1.8 LAW=WEIR_ORIFICE
+ST1 OPEN
+OUT1 OUTFALL SPREAD=2 TAILWATER_RELAX=5
+J3 NONE
+```
+
+These illustrative rows require existing nodes of the stated classes and
+appropriate mesh maps. The Rubinato example's experimental limitations are
+reported in @ref tutorial_rubinato_exchange.
 
 On save, the GUI's edits — vertex Z, per-edge conveyance, per-edge boundary
 conditions — are pushed back into the live engine's in-memory 2D mesh before the

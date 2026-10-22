@@ -774,6 +774,79 @@ QList<ColumnSpec> dynamicsForCategory(SWMMModelLayer::Category cat)
     }
 }
 
+// Node parameters remain optional text tokens: blank restores inheritance.
+// Numeric scalar metadata preserves numeric sorting without fabricating defaults.
+QList<ColumnSpec> nodeCouplingColumns(SWMMModelLayer::Category cat)
+{
+    auto types = coupling2DTypeValues();
+    const bool outfall = cat == SWMMModelLayer::CatOutfalls;
+    for (int i = types.size() - 1; i >= 0; --i) {
+        const int type = types[i].toList()[1].toInt();
+        if ((outfall && type != 0 && type != 5) || (!outfall && type == 5) ||
+            (type == 4 && cat != SWMMModelLayer::CatStorage))
+            types.removeAt(i);
+    }
+    QList<ColumnSpec> cols = {
+        enumCol("2D coupleable", "2D Coupleable", "node_2d_coupleable", yesNoValues()),
+        enumCol("2D coupling", "1D-2D Coupling Structure", "node_2d_coupling_type", types)};
+    cols[0].tooltip = "YES permits mesh mapping; NO sets NONE and clears structure overrides. "
+                      "Enabling restores the class default. Run Remap 1D↔2D to update the map.";
+    cols[1].tooltip = "Changing structure clears its parameter overrides. Geometry and mapping "
+                      "are separate; select the structure before pasting its parameters.";
+    const QMap<QString, QString> hints = {
+        {"D", "Positive diameter; default 1.2 m / 4 ft. WEIR_ORIFICE geometry."},
+        {"PERIMETER", "Positive effective weir length; blank derives it from the structure."},
+        {"AREA", "Positive opening area. Authored mesh-map Area takes precedence."},
+        {"CHAMBER_AREA", "Positive above-rim chamber plan area; storage nodes retain their curve."},
+        {"LID_OPEN_FRACTION", "Fraction > 0 and <= 1; default 1. Scales opening area and weir length."},
+        {"CREST", "NODE_RIM uses invert + full depth; MESH_BED uses the mapped bed; MAX/MIN compare both."},
+        {"LAW", "Inherit global law. ORIFICE uses map/global Cd and Area; WEIR_ORIFICE uses structure geometry."},
+        {"COEFFS", "WEIR_ORIFICE preset. Individual coefficients and mesh-map overrides take precedence."},
+        {"CW", "Positive free-weir coefficient. DEFAULT derives CSW = 2CW/3 unless CSW is authored."},
+        {"CSW", "Positive submerged-weir coefficient; overrides the preset."},
+        {"COI", "Positive surface-to-sewer coefficient. Authored mesh-map Cd takes precedence."},
+        {"COO", "Positive sewer-to-surface coefficient. Authored mesh-map Cd takes precedence."},
+        {"SPREAD", "Nonnegative outfall discharge radius; default 0. Does not expand reverse-flow donors."},
+        {"TAILWATER_RELAX", "Nonnegative tailwater smoothing time in seconds; default 0 (immediate)."}};
+    auto param = [&](const char *key, const char *label, UnitKind unit,
+                     const QStringList &tokens = {}) {
+        ColumnSpec c;
+        c.key = QStringLiteral("2D ") + key;
+        c.label = label;
+        c.setter = QStringLiteral("node_2d_param_") + key;
+        c.unit = unit;
+        c.editor = tokens.isEmpty() ? EditorKind::Text : EditorKind::Enum;
+        c.scalarType = tokens.isEmpty() ? QMetaType::Double : QMetaType::QString;
+        c.tooltip = hints.value(key) + " Blank restores inheritance. See the node coupling guide "
+                                       "in the 2D mesh manual.";
+        if (!tokens.isEmpty()) {
+            c.enumValues.append(QVariant(QVariantList{QStringLiteral("(inherit)"), QString()}));
+            for (const auto &token : tokens)
+                c.enumValues.append(QVariant(QVariantList{token, token}));
+        }
+        cols.append(c);
+    };
+    if (outfall) {
+        param("SPREAD", "2D Outfall spread", UnitKind::Length);
+        param("TAILWATER_RELAX", "2D Tailwater relaxation (s)", UnitKind::None);
+    } else {
+        param("D", "2D Opening diameter", UnitKind::Length);
+        param("PERIMETER", "2D Weir perimeter", UnitKind::Length);
+        param("AREA", "2D Opening area", UnitKind::Area);
+        param("CHAMBER_AREA", "2D Chamber area", UnitKind::Area);
+        param("LID_OPEN_FRACTION", "2D Lid open fraction", UnitKind::None);
+        param("CREST", "2D Crest policy", UnitKind::None, {"NODE_RIM", "MESH_BED", "MAX", "MIN"});
+        param("LAW", "2D Exchange law", UnitKind::None, {"ORIFICE", "WEIR_ORIFICE"});
+        param("COEFFS", "2D Coefficient preset", UnitKind::None,
+              {"DEFAULT", "RUBINATO2017", "RUBINATO2017_LOWER", "RUBINATO2017_UPPER"});
+        param("CW", "2D Free-weir coefficient", UnitKind::None);
+        param("CSW", "2D Submerged-weir coefficient", UnitKind::None);
+        param("COI", "2D Drainage orifice coefficient", UnitKind::None);
+        param("COO", "2D Surcharge orifice coefficient", UnitKind::None);
+    }
+    return cols;
+}
+
 // Column schema per category.  Z.5.1 made `Name` always column 0;
 // the rest are sourced from `identifyByName()` for display and
 // (when editable) from a setter dispatch table for commit.
@@ -803,10 +876,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                 UnitKind::Length),
             num("Ponded area", "Ponded Area", "node_ponded_area", 0.0, 1e9, 2, UnitKind::Area),
         };
-        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
-        // coupleable. The class default shows until a type is set.
-        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure", "node_2d_coupling_type",
-                            coupling2DTypeValues()));
+        cols.append(nodeCouplingColumns(cat));
         cols.append(nodeComputedBlock());
         // Compound-attribute columns — each cell shows a "summary —
         // Edit…" button that opens NodeCompoundEditDialog at the right
@@ -846,10 +916,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // had the accessors; the table never surfaced them.
             compoundCol("Route to", "Route To Subcatchment", "node_outfall_route_to_ref"),
         };
-        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
-        // coupleable. The class default shows until a type is set.
-        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure", "node_2d_coupling_type",
-                            coupling2DTypeValues()));
+        cols.append(nodeCouplingColumns(cat));
         cols.append(nodeComputedBlock());
         cols.append(compoundCol("Inflows", "External Inflows", "node_inflows_ref"));
         cols.append(compoundCol("DWF", "Dry Weather Flow", "node_dwf_ref"));
@@ -908,10 +975,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         cols.append(num("Exfil conduct.", "Exfil. Conductivity", "node_exfil_ksat", 0.0, 1e6, 4,
                         UnitKind::Rate));
         cols.append(num("Exfil deficit", "Exfil. Initial Deficit", "node_exfil_imd", 0.0, 1.0, 4));
-        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
-        // coupleable. The class default shows until a type is set.
-        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure", "node_2d_coupling_type",
-                            coupling2DTypeValues()));
+        cols.append(nodeCouplingColumns(cat));
         cols.append(nodeComputedBlock());
         // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — browser
         // shows the four compound cells on every node kind.
@@ -941,10 +1005,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // browser's SWMMDividerPropertyAdapter exposes ponded area.
             num("Ponded area", "Ponded Area", "node_ponded_area", 0.0, 1e9, 2, UnitKind::Area),
         };
-        // 1D↔2D coupling structure ([2D_NODE_COUPLING]); NONE = not
-        // coupleable. The class default shows until a type is set.
-        cols.append(enumCol("2D coupling", "1D-2D Coupling Structure", "node_2d_coupling_type",
-                            coupling2DTypeValues()));
+        cols.append(nodeCouplingColumns(cat));
         cols.append(nodeComputedBlock());
         cols.append(compoundCol("Inflows", "External Inflows", "node_inflows_ref"));
         cols.append(compoundCol("DWF", "Dry Weather Flow", "node_dwf_ref"));
@@ -3763,7 +3824,26 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return meaning.isEmpty() ? QVariant() : QVariant(meaning);
         }
         const QString u = unitLabel(spec.unit);
+        if (!spec.tooltip.isEmpty())
+            return spec.tooltip + (u.isEmpty() ? QString() : tr(" Units: %1.").arg(u));
         return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
+    }
+
+    if (spec.setter.startsWith(QLatin1String("node_2d_")) && m_layer) {
+        nodecoupling2d::State state;
+        if (!m_layer->nodeCoupling2D(objectNameAt(row), &state))
+            return {};
+        if (spec.setter == QLatin1String("node_2d_coupling_type"))
+            return role == Qt::DisplayRole ? QVariant(nodecoupling2d::typeToken(state.type))
+                                           : QVariant(state.type);
+        if (spec.setter == QLatin1String("node_2d_coupleable")) {
+            const bool enabled = state.type != nodecoupling2d::None;
+            return role == Qt::DisplayRole ? QVariant(enabled ? "YES" : "NO") : QVariant(int(enabled));
+        }
+        const QString token = state.params.value(spec.setter.mid(14)); // node_2d_param_
+        if (role == Qt::EditRole || spec.editor == EditorKind::Enum)
+            return token;
+        return token.isEmpty() ? QVariant() : QVariant(token.toDouble());
     }
 
     // Round-4 follow-up 2026-05-12 — Enum columns render the label
@@ -4339,6 +4419,30 @@ namespace
 {
 
 // One undo command per cell edit.
+class NodeCouplingAttributeCommand : public QUndoCommand
+{
+public:
+    NodeCouplingAttributeCommand(SWMMModelLayer *layer, nodecoupling2d::State before,
+                                nodecoupling2d::State after)
+        : m_layer(layer), m_before(std::move(before)), m_after(std::move(after))
+    {
+        setText(QObject::tr("Edit 2D Coupling"));
+    }
+    void redo() override
+    {
+        if (m_layer)
+            m_layer->applyNodeCoupling2D(m_after);
+    }
+    void undo() override
+    {
+        if (m_layer)
+            m_layer->applyNodeCoupling2D(m_before);
+    }
+private:
+    QPointer<SWMMModelLayer> m_layer;
+    nodecoupling2d::State m_before, m_after;
+};
+
 class AttributeEditCommand : public QUndoCommand
 {
 public:
@@ -5012,6 +5116,79 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     const auto &spec = m_columnSpecs[col];
     if (spec.editor == EditorKind::ReadOnly || spec.setter.isEmpty())
         return false;
+
+    if (spec.setter.startsWith(QLatin1String("node_2d_"))) {
+        if (!(flags(index) & Qt::ItemIsEditable))
+            return false;
+        nodecoupling2d::State before;
+        if (!m_layer->nodeCoupling2D(objectNameAt(row), &before))
+            return false;
+        auto after = before;
+        QString token = value.toString().trimmed();
+        if (spec.setter == QLatin1String("node_2d_coupleable")) {
+            const QString upper = token.toUpper();
+            if (upper != "YES" && upper != "NO" && upper != "1" && upper != "0" &&
+                upper != "TRUE" && upper != "FALSE")
+                return false;
+            const bool on = upper == "YES" || upper == "1" || upper == "TRUE";
+            if (on == (before.type != nodecoupling2d::None))
+                return true;
+            const int def = nodecoupling2d::defaultType(m_layer->engine(), before.node);
+            after.params.clear();
+            after.type = !on ? nodecoupling2d::None : def == nodecoupling2d::None
+                                                        ? nodecoupling2d::Manhole : def;
+            after.authored = !on || def == nodecoupling2d::None;
+        } else if (spec.setter == QLatin1String("node_2d_coupling_type")) {
+            int type = -1;
+            for (const auto &entry : spec.enumValues) {
+                const auto pair = entry.toList();
+                if (token.compare(pair[0].toString(), Qt::CaseInsensitive) == 0 ||
+                    token == pair[1].toString())
+                    type = pair[1].toInt();
+            }
+            if (!nodecoupling2d::allowedTypes(m_layer->engine(), before.node).contains(type))
+                return false;
+            if (after.type != type)
+                after.params.clear();
+            after.type = type;
+            after.authored = true;
+        } else {
+            const QString key = spec.setter.mid(14);
+            if (before.type == nodecoupling2d::None)
+                return false;
+            if (spec.editor == EditorKind::Enum) {
+                token = token.toUpper();
+                if (token == "(INHERIT)")
+                    token.clear();
+                bool valid = false;
+                for (const auto &entry : spec.enumValues)
+                    valid |= entry.toList()[1].toString() == token;
+                if (!valid)
+                    return false;
+            } else if (!token.isEmpty()) {
+                bool ok = false;
+                const double number = token.toDouble(&ok);
+                const bool zeroAllowed = key == "SPREAD" || key == "TAILWATER_RELAX";
+                if (!ok || !std::isfinite(number) || (zeroAllowed ? number < 0 : number <= 0) ||
+                    (key == "LID_OPEN_FRACTION" && number > 1))
+                    return false;
+            }
+            if (token.isEmpty())
+                after.params.remove(key);
+            else
+                after.params.insert(key, token);
+            after.authored = true;
+        }
+        if (after == before)
+            return true;
+        if (m_undoStack)
+            m_undoStack->push(new NodeCouplingAttributeCommand(m_layer, before, after));
+        else if (!m_layer->applyNodeCoupling2D(after))
+            return false;
+        refreshObject(before.node);
+        emit objectEdited(before.node);
+        return true;
+    }
 
     if (const int attr = OpenSWMMVis::heatPropertyIndex(spec.key); attr >= 0) {
         QString error;

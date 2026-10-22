@@ -67,6 +67,10 @@ Under **Performance & Output**, enable 2D output and keep
 
 ### Node coupling settings and INP storage
 
+For the complete field definitions, inheritance rules and generation/remap
+workflow, see @ref manual_node_coupling_settings. These settings are also editable
+in the node attribute tables, including Yes/No eligibility and spreadsheet paste.
+
 In the node property view, **2D Coupling** groups **Setup**, **Geometry**,
 **Exchange**, and (for outfalls) **Outfall** settings. **2D Coupleable** is a
 convenient switch: disabling it selects `NONE`; enabling it restores the node
