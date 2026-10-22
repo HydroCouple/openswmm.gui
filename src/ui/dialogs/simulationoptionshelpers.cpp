@@ -167,10 +167,7 @@ bool SimulationOptionsDialog::optionValueEquals(const QString &a, const QString 
     if (!okA || !okB)
         return false;
 
-    // Formatting differences ("0.000000" vs "0.00") are exactly equal after
-    // parsing; the relative tolerance only absorbs last-digit rounding.
-    const double scale = std::max({1.0, std::abs(da), std::abs(db)});
-    return std::abs(da - db) <= 1e-9 * scale;
+    return da == db;
 }
 
 QList<int> SimulationOptionsDialog::selectedRowsDescending(const QTableWidget *table)

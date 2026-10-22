@@ -1,0 +1,25 @@
+Internal ctest changing into directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/build/hotstart-format
+Test project /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/build/hotstart-format
+    Start  23: test_engine_options_parser
+1/8 Test  #23: test_engine_options_parser ...............   Passed    0.37 sec
+    Start  32: test_engine_inp_writer_roundtrip
+2/8 Test  #32: test_engine_inp_writer_roundtrip .........   Passed    0.12 sec
+    Start  33: test_engine_ui_file_io_roundtrip
+3/8 Test  #33: test_engine_ui_file_io_roundtrip .........   Passed    0.40 sec
+    Start  35: test_engine_filled_circular_offset_api
+4/8 Test  #35: test_engine_filled_circular_offset_api ...   Passed    0.02 sec
+    Start  36: test_engine_timeseries_time_modes
+5/8 Test  #36: test_engine_timeseries_time_modes ........   Passed    0.02 sec
+    Start  37: test_engine_plugin_lifecycle
+6/8 Test  #37: test_engine_plugin_lifecycle .............   Passed    0.02 sec
+    Start 271: test_engine_hdf5_model
+7/8 Test #271: test_engine_hdf5_model ...................   Passed    0.08 sec
+    Start 272: test_engine_geopackage
+8/8 Test #272: test_engine_geopackage ...................   Passed    2.76 sec
+
+100% tests passed, 0 tests failed out of 8
+
+Label Time Summary:
+unit    =   3.79 sec*proc (8 tests)
+
+Total Test time (real) =   3.82 sec

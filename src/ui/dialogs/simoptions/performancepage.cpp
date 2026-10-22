@@ -173,13 +173,16 @@ void PerformancePage::read()
     const QString raw = ctx_.option("THREADS");
     const int v = raw.toInt(&ok);
     m_threadsSpin->setValue(ok ? v : sim.threads);
+    ctx_.captureEditors(this);
 }
 
 int PerformancePage::write()
 {
     if (!m_threadsSpin)
         return 0;
-    return ctx_.writeIfChanged("THREADS", QString::number(m_threadsSpin->value()));
+    const int written = writeOption("THREADS", QString::number(m_threadsSpin->value()));
+    ctx_.captureEditors(this);
+    return written;
 }
 
 } // namespace openswmmvis::ui

@@ -13,6 +13,8 @@
  */
 
 #include "project/projectserializer.h"
+#include "core/enginestring.h"
+#include <QSettings>
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
 #include "project/meshcorridorrecipe.h"
@@ -352,9 +354,39 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     if (!pw)
         return obj;
 
+    QJsonArray calibration;
+    for (const auto &value : pw->calibrationEntries()) {
+        auto entry = value.toObject();
+        entry["path"] = toRelativePath(entry.value("path").toString(), oswpFile);
+        calibration.append(entry);
+    }
+    obj["calibrationData"] = calibration;
+
     auto *layer = pw->modelLayer();
     if (!layer)
         return obj;
+
+    QJsonObject outputConfiguration;
+    QSettings ioSettings;
+    const auto sourcePath = pw->property("ioSaveSourcePath").toString();
+    const QString ioBase = QStringLiteral("SWMMVis/Project/%1/")
+        .arg(sourcePath.isEmpty() ? layer->modelFilePath() : sourcePath);
+    for (const auto *key : {"IO_INPUT_WRITER", "IO_OUTPUT_WRITER", "IO_REPORT_WRITER",
+                            "IO_SINGLE_CONTAINER", "IO_OUTPUT_PATH", "IO_REPORT_PATH"}) {
+        QString value = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_options_get_ext(layer->engine(), key, b, n);
+        });
+        const bool path = QByteArray(key).endsWith("_PATH");
+        if (path && value.isEmpty())
+            value = ioSettings.value(ioBase + (QByteArray(key) == "IO_OUTPUT_PATH" ? "OutputFilePath" : "ReportFilePath")).toString();
+        if (path && !value.isEmpty()) {
+            const QString anchor = sourcePath.isEmpty() ? layer->modelFilePath() : sourcePath;
+            if (QDir::isRelativePath(value)) value = QFileInfo(anchor).absoluteDir().filePath(value);
+            value = toRelativePath(value, oswpFile);
+        }
+        outputConfiguration[key] = value;
+    }
+    obj["outputConfiguration"] = outputConfiguration;
 
     if (auto *store = ProfileSectionStore::forOwner(pw, false)) {
         QJsonArray sections;
@@ -640,6 +672,10 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
                 const QString rel = toRelativePath(rl->resultsFilePath(), oswpFile);
                 if (!rel.isEmpty()) {
                     resultArr.append(rel);
+                    QJsonObject displays = obj.value("resultLayerDisplay").toObject();
+                    displays[rel] = QJsonObject{{"name", rl->name()}, {"visible", rl->isVisible()},
+                                               {"opacity", rl->opacity()}};
+                    obj["resultLayerDisplay"] = displays;
                     if (!rl->reportFilePath().isEmpty())
                         reportMap.insert(rel, toRelativePath(rl->reportFilePath(), oswpFile));
                     // S2.4 adopted ISublayerHost on SWMMResultsLayer. The
@@ -822,6 +858,14 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
     if (!pw)
         return false;
 
+    QJsonArray calibration;
+    for (const auto &value : sessionObj.value("calibrationData").toArray()) {
+        auto entry = value.toObject();
+        entry["path"] = resolveStoredPath(entry.value("path").toString(), oswpFile);
+        calibration.append(entry);
+    }
+    pw->setCalibrationEntries(calibration);
+
     pw->statsRegistry()->restoreRuns(sessionObj.value("analysisRuns").toArray(),
                                      QFileInfo(oswpFile).absolutePath());
     pw->setProperty("tracePanelState", sessionObj.value("tracePanel").toObject());
@@ -860,6 +904,23 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
     auto *layer = pw->modelLayer();
     if (!layer)
         return true;
+
+    if (sessionObj.contains("outputConfiguration")) {
+        const auto config = sessionObj.value("outputConfiguration").toObject();
+        QSettings settings;
+        const QString base = QStringLiteral("SWMMVis/Project/%1/").arg(layer->modelFilePath());
+        for (auto it = config.begin(); it != config.end(); ++it) {
+            QString value = it.value().toString();
+            const auto key = it.key().toUtf8();
+            if (key.endsWith("_PATH") && !value.isEmpty()) value = resolveStoredPath(value, oswpFile);
+            if (!value.isEmpty() || key.endsWith("_PATH"))
+                swmm_options_set_ext(layer->engine(), key.constData(), value.toUtf8().constData());
+            if (key == "IO_OUTPUT_PATH") settings.setValue(base + "OutputFilePath", value);
+            if (key == "IO_REPORT_PATH") settings.setValue(base + "ReportFilePath", value);
+            if (key == "IO_OUTPUT_WRITER") settings.setValue(base + "OutputWriter", value == "BUILTIN" ? QString() : value);
+            if (key == "IO_REPORT_WRITER") settings.setValue(base + "ReportWriter", value == "BUILTIN" ? QString() : value);
+        }
+    }
 
     const QJsonObject layerObj = sessionObj.value(kLayer).toObject();
 
@@ -1050,7 +1111,10 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
                 continue;
             }
             auto *rl = new SWMMResultsLayer(absPath, pw->modelLayer());
-            rl->setName(QFileInfo(absPath).fileName());
+            const auto display = sessionObj.value("resultLayerDisplay").toObject().value(relPath).toObject();
+            rl->setName(display.value("name").toString(QFileInfo(absPath).fileName()));
+            rl->setVisible(display.value("visible").toBool(true));
+            rl->setOpacity(display.value("opacity").toDouble(1.0));
 
             // Restore the run's .rpt association for the Report Viewer.
             const QString relRpt = reportMap.value(relPath).toString();
@@ -1423,6 +1487,7 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
     if (canvas) {
         QJsonObject canvasObj;
         if (auto *srs = canvas->canvasSRS()) {
+            canvasObj["crsWkt"] = srs->toWkt();
             const QString auth = srs->authName();
             const int code = srs->code();
             if (!auth.isEmpty() && code > 0) {
@@ -1661,7 +1726,10 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath, SWMMVisProjectWin
     // --- Canvas block (project-scope, same shape v1→v4) -------------------
     if (canvas) {
         const QJsonObject canvasObj = root.value(kCanvas).toObject();
-        if (canvasObj.contains(kCrsAuthority) && canvasObj.contains(kCrsCode)) {
+        if (!canvasObj.value("crsWkt").toString().isEmpty()) {
+            if (auto *srs = SpatialReferenceSystem::fromWktOrProj(canvasObj.value("crsWkt").toString(), canvas))
+                canvas->setCanvasSRS(srs, true);
+        } else if (canvasObj.contains(kCrsAuthority) && canvasObj.contains(kCrsCode)) {
             const QString auth = canvasObj.value(kCrsAuthority).toString();
             const int code = canvasObj.value(kCrsCode).toInt();
             if (!auth.isEmpty() && code > 0) {
@@ -1910,6 +1978,8 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer, const 
         obj[kGisName] = v->name();
         obj[kGisVisible] = v->isVisible();
         obj[kGisOpacity] = v->opacity();
+        obj["vectorStyle"] = OpenSWMM::Render::StyleFileIO::styleToJson(v);
+        obj["filterExpression"] = v->filterExpression();
         obj[kGisLayerName] = v->ogrLayerName(); // OGR sublayer (may be empty)
     }
     if (!obj.isEmpty())
@@ -1978,11 +2048,15 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
     } else if (type == QStringLiteral("vector")) {
         const QString layerName = obj.value(kGisLayerName).toString();
         auto *layer = new GISVectorLayer(QString());
+        const auto style = obj.value("vectorStyle").toObject();
+        const auto filter = obj.value("filterExpression").toString();
         QObject::connect(
             layer, &GISVectorLayer::openFinished, canvas,
-            [canvas, layer, applyCommon](bool ok) {
+            [canvas, layer, applyCommon, style, filter](bool ok) {
                 if (ok) {
                     applyCommon(layer);
+                    if (!style.isEmpty()) OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, style);
+                    layer->setFilterExpression(filter);
                     canvas->addLayer(layer, /*pushUndo=*/false);
                 } else {
                     layer->deleteLater();

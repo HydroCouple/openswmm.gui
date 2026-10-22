@@ -1,5 +1,6 @@
 #include "ui/dialogs/textlayersdialog.h"
 #include "simulation/runpathresolver.h"
+#include "core/enginestring.h"
 #include "map/mapundostack.h"
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -950,6 +951,23 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
         // Sync per-project options from the engine.
         if (mModelLayer->engine()) {
             mUnits->syncFromEngine(mModelLayer->engine());
+
+            // Model-authored destinations also apply when no OSWP sidecar or
+            // prior local settings exist. The run resolver uses this cache.
+            QSettings ioSettings;
+            const QString ioBase = QStringLiteral("SWMMVis/Project/%1/").arg(loadedPath);
+            for (const auto& keys : {QPair{"IO_OUTPUT_PATH", "OutputFilePath"},
+                                      QPair{"IO_REPORT_PATH", "ReportFilePath"},
+                                      QPair{"IO_OUTPUT_WRITER", "OutputWriter"},
+                                      QPair{"IO_REPORT_WRITER", "ReportWriter"}}) {
+                const QString missing = QStringLiteral("__unset_io_option__");
+                QString value = openswmmvis::readEngineString([&](char *b, int n) {
+                    return swmm_options_get_ext(loadedEngine, keys.first, b, n);
+                }, missing);
+                if (value != missing)
+                    ioSettings.setValue(ioBase + QLatin1String(keys.second),
+                                        value == "BUILTIN" ? QString() : value);
+            }
 
             char buf[32] = {};
             if (swmm_options_get(mModelLayer->engine(), "LINK_OFFSETS", buf, sizeof(buf)) == 0) {
@@ -2340,9 +2358,11 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 // but publish the new identity only after the sidecar commits.
                 const QSignalBlocker blocker(mModelLayer);
                 const QString originalPath = mModelLayer->modelFilePath();
+                setProperty("ioSaveSourcePath", originalPath);
                 const QString originalMeshPath = chosenMesh ? chosenMesh->sourcePath() : QString();
                 const auto restorePath = qScopeGuard([&] {
                     mModelLayer->setModelFilePath(originalPath);
+                    setProperty("ioSaveSourcePath", QVariant());
                     if (chosenMesh)
                         chosenMesh->setSourcePath(originalMeshPath);
                 });

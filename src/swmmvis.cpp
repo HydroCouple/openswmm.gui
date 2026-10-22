@@ -88,6 +88,7 @@
 #include <cpl_conv.h> // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+#include "core/enginestring.h"
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
 #include "ui/dialogs/groundwaterassigndialog.h"
@@ -5959,6 +5960,18 @@ bool SWMMVis::saveProjectWindowAs(SWMMVisProjectWindow *pw)
             applyDefaultSuffixForFilter(restoredFilter);
         } else {
             dlg.setDefaultSuffix(QStringLiteral("inp"));
+        }
+    }
+
+    if (pw->modelLayer()) {
+        const QString writer = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_options_get_ext(pw->modelLayer()->engine(), "IO_INPUT_WRITER", b, n);
+        });
+        for (const auto &entry : kFilters->entriesFor(openswmmvis::FilterKind::InputRead)) {
+            if (entry.enabled && entry.canWrite && entry.pluginId == writer) {
+                const QString filter = entry.description + " (" + entry.patterns.join(' ') + ")";
+                dlg.selectNameFilter(filter); applyDefaultSuffixForFilter(filter); break;
+            }
         }
     }
 

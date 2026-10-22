@@ -790,6 +790,10 @@ public:
  */
     void setEngineVersion(const QString &version, bool markDirty = true);
 
+    /** Per-project calibration bindings; callers mark accepted edits dirty. */
+    QJsonArray calibrationEntries() const { return mCalibrationEntries; }
+    void setCalibrationEntries(const QJsonArray &entries) { mCalibrationEntries = entries; }
+
     /** Rich-text notes mirrored to the engine's [TITLE] section as plain text.
      *  HTML form is preserved in the .oswp sidecar; the engine only ever sees
      *  the flattened plain text.
@@ -1235,6 +1239,7 @@ private:
     QString mEngineVersion = "6.0.0";       // Default to newest version
     QString mNotesHtml;                     // [TITLE] notes (rich HTML)
     mesh::ChannelBurnSettings mChannelBurn; // Channel burn-in tab state
+    QJsonArray mCalibrationEntries;
     QJsonObject mMeshGenerationOptions;
     QVector<mesh::CorridorSource> mCorridorSources; // adopted GIS corridor recipe
     QString mCorridorRecipeLoadError;               // prevents overwriting an unsupported recipe

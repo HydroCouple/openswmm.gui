@@ -180,9 +180,9 @@ void HydraulicsPage::buildUi()
     solForm->addRow(tr("Varia&ble step factor:"), m_variableStepSpin);
 
     m_minStepSpin = new QDoubleSpinBox(solGroup);
-    m_minStepSpin->setRange(0.01, 60.0);
+    m_minStepSpin->setRange(0.000001, 360.0);
     m_minStepSpin->setSingleStep(0.1);
-    m_minStepSpin->setDecimals(3);
+    m_minStepSpin->setDecimals(6);
     m_minStepSpin->setSuffix(QStringLiteral(" s"));
     m_minStepSpin->setToolTip(
         tr("Smallest routing step the adaptive solver may take (MINIMUM_STEP).\n"
@@ -216,9 +216,9 @@ void HydraulicsPage::buildUi()
     fvForm->addRow(tr("Min cells per conduit:"), m_fvMinCellsSpin);
 
     m_fvCflSpin = new QDoubleSpinBox(m_fvGroup);
-    m_fvCflSpin->setRange(0.05, 1.0);
+    m_fvCflSpin->setRange(0.000001, 1.0);
     m_fvCflSpin->setSingleStep(0.05);
-    m_fvCflSpin->setDecimals(2);
+    m_fvCflSpin->setDecimals(6);
     m_fvCflSpin->setToolTip(tr("Courant number the explicit substep targets (FV_CFL)."));
     fvForm->addRow(tr("CFL number:"), m_fvCflSpin);
 
@@ -524,7 +524,7 @@ void HydraulicsPage::read()
     // write() would then persist as a real edit).
     auto optDouble = [this](const char *key, double fallback) {
         bool okNum = false;
-        const double v = ctx_.option(key, QString::number(fallback, 'g', 6)).toDouble(&okNum);
+        const double v = ctx_.option(key, QString::number(fallback, 'g', 17)).toDouble(&okNum);
         return okNum ? v : fallback;
     };
     auto optInt = [this](const char *key, int fallback) {
@@ -605,74 +605,76 @@ void HydraulicsPage::read()
                                ctx_.option("FV_LTS", QStringLiteral("YES"))) == Qt::Checked);
     m_fvLtsTiersSpin->setValue(optInt("FV_LTS_MAX_TIERS", 6));
     m_fvCflCensusSpin->setValue(optInt("FV_CFL_CENSUS_INTERVAL", 1));
+    ctx_.captureEditors(this);
 }
 
 int HydraulicsPage::write()
 {
     int n = 0;
     // Page header
-    n += ctx_.writeIfChanged("FLOW_ROUTING", flowRouting());
+    n += writeOption("FLOW_ROUTING", flowRouting());
     // Tab 3 — Routing & Hydraulics
-    n += ctx_.writeIfChanged("SURCHARGE_METHOD", m_surchargeCombo->currentData().toString());
-    n += ctx_.writeIfChanged("DPS_CELERITY", QString::number(m_dpsCelerSpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("DPS_ALPHA", QString::number(m_dpsAlphaSpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("DPS_DECAY_TIME", QString::number(m_dpsDecaySpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("TPA_CELERITY", QString::number(m_tpaCeleritySpin->value(), 'f', 1));
+    n += writeOption("SURCHARGE_METHOD", m_surchargeCombo->currentData().toString());
+    n += writeOption("DPS_CELERITY", QString::number(m_dpsCelerSpin->value(), 'g', 17));
+    n += writeOption("DPS_ALPHA", QString::number(m_dpsAlphaSpin->value(), 'g', 17));
+    n += writeOption("DPS_DECAY_TIME", QString::number(m_dpsDecaySpin->value(), 'g', 17));
+    n += writeOption("TPA_CELERITY", QString::number(m_tpaCeleritySpin->value(), 'g', 17));
     // Unsteady friction (engine issue #156) — consumed by DW and FV; the
     // engine accepts the keys under any routing model.
-    n += ctx_.writeIfChanged("UNSTEADY_FRICTION", m_ufMethodCombo->currentData().toString());
-    n += ctx_.writeIfChanged("UF_K3", QString::number(m_ufK3Spin->value(), 'f', 3));
-    n += ctx_.writeIfChanged("NODE_CONTINUITY", m_nodeContinuityCombo->currentData().toString());
-    n += ctx_.writeIfChanged("ANDERSON_ACCEL", SimulationOptionsDialog::engineBoolString(
+    n += writeOption("UNSTEADY_FRICTION", m_ufMethodCombo->currentData().toString());
+    n += writeOption("UF_K3", QString::number(m_ufK3Spin->value(), 'g', 17));
+    n += writeOption("NODE_CONTINUITY", m_nodeContinuityCombo->currentData().toString());
+    n += writeOption("ANDERSON_ACCEL", SimulationOptionsDialog::engineBoolString(
                                                    m_andersonAccelBox->isChecked()));
-    n += ctx_.writeIfChanged("FORCE_MAIN_EQUATION", m_forceMainCombo->currentData().toString());
-    n += ctx_.writeIfChanged("NORMAL_FLOW_LIMITED", m_normalFlowCombo->currentData().toString());
-    n += ctx_.writeIfChanged("INERTIAL_DAMPING", m_inertialDampCombo->currentData().toString());
-    n += ctx_.writeIfChanged("LENGTHENING_STEP",
-                             QString::number(m_lengtheningSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("VARIABLE_STEP", QString::number(m_variableStepSpin->value(), 'f', 3));
-    n += ctx_.writeIfChanged("MINIMUM_STEP", QString::number(m_minStepSpin->value(), 'f', 3));
-    n += ctx_.writeIfChanged("MAX_TRIALS", QString::number(m_maxTrialsSpin->value()));
-    n += ctx_.writeIfChanged("HEAD_TOLERANCE", QString::number(m_headTolSpin->value(), 'f', 6));
+    n += writeOption("FORCE_MAIN_EQUATION", m_forceMainCombo->currentData().toString());
+    n += writeOption("NORMAL_FLOW_LIMITED", m_normalFlowCombo->currentData().toString());
+    n += writeOption("INERTIAL_DAMPING", m_inertialDampCombo->currentData().toString());
+    n += writeOption("LENGTHENING_STEP",
+                             QString::number(m_lengtheningSpin->value(), 'g', 17));
+    n += writeOption("VARIABLE_STEP", QString::number(m_variableStepSpin->value(), 'g', 17));
+    n += writeOption("MINIMUM_STEP", QString::number(m_minStepSpin->value(), 'g', 17));
+    n += writeOption("MAX_TRIALS", QString::number(m_maxTrialsSpin->value()));
+    n += writeOption("HEAD_TOLERANCE", QString::number(m_headTolSpin->value(), 'g', 17));
     // LAT/SYS_FLOW_TOL speak percent through the options API, matching the
     // spin display and the .inp surface.
-    n += ctx_.writeIfChanged("LAT_FLOW_TOL", QString::number(m_latFlowTolSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("SYS_FLOW_TOL", QString::number(m_sysFlowTolSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("MIN_SURFAREA", QString::number(m_minSurfAreaSpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("MIN_SLOPE", QString::number(m_minSlopeSpin->value(), 'f', 4));
+    n += writeOption("LAT_FLOW_TOL", QString::number(m_latFlowTolSpin->value(), 'g', 17));
+    n += writeOption("SYS_FLOW_TOL", QString::number(m_sysFlowTolSpin->value(), 'g', 17));
+    n += writeOption("MIN_SURFAREA", QString::number(m_minSurfAreaSpin->value(), 'g', 17));
+    n += writeOption("MIN_SLOPE", QString::number(m_minSlopeSpin->value(), 'g', 17));
 
     // Tab 3 — Finite volume solver. Written regardless of the routing
     // selection: the engine accepts FV_* keys as inert under non-FV routing
     // and its InpWriter only persists them when FLOW_ROUTING is FV.
     n +=
-        ctx_.writeIfChanged("FV_CELL_LENGTH", QString::number(m_fvCellLengthSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("FV_MIN_CELLS", QString::number(m_fvMinCellsSpin->value()));
-    n += ctx_.writeIfChanged("FV_CFL", QString::number(m_fvCflSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("FV_RIEMANN", m_fvRiemannCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_ORDER", m_fvOrderCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_LIMITER", m_fvLimiterCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_TIME_INTEGRATION", m_fvTimeIntCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_SLOT_CELERITY",
-                             QString::number(m_fvSlotCeleritySpin->value(), 'f', 1));
-    n += ctx_.writeIfChanged("FV_PRESSURE_CLOSURE",
+        writeOption("FV_CELL_LENGTH", QString::number(m_fvCellLengthSpin->value(), 'g', 17));
+    n += writeOption("FV_MIN_CELLS", QString::number(m_fvMinCellsSpin->value()));
+    n += writeOption("FV_CFL", QString::number(m_fvCflSpin->value(), 'g', 17));
+    n += writeOption("FV_RIEMANN", m_fvRiemannCombo->currentData().toString());
+    n += writeOption("FV_ORDER", m_fvOrderCombo->currentData().toString());
+    n += writeOption("FV_LIMITER", m_fvLimiterCombo->currentData().toString());
+    n += writeOption("FV_TIME_INTEGRATION", m_fvTimeIntCombo->currentData().toString());
+    n += writeOption("FV_SLOT_CELERITY",
+                             QString::number(m_fvSlotCeleritySpin->value(), 'g', 17));
+    n += writeOption("FV_PRESSURE_CLOSURE",
                              m_fvPressureClosureCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_PRESSURIZED_IMPLICIT", SimulationOptionsDialog::engineBoolString(
+    n += writeOption("FV_PRESSURIZED_IMPLICIT", SimulationOptionsDialog::engineBoolString(
                                                             m_fvPressImplicitBox->isChecked()));
     // FV_SCALAR_SCHEME is edited on the Quality & Transport page (ARD group)
     // but is an FV_* key; written with its siblings so the engine sees one
     // coherent FV block.
-    n += ctx_.writeIfChanged("FV_STRUCTURE_COUPLING",
+    n += writeOption("FV_STRUCTURE_COUPLING",
                              m_fvStructCouplingCombo->currentData().toString());
-    n += ctx_.writeIfChanged(
+    n += writeOption(
         "FV_COMPACTION", SimulationOptionsDialog::engineBoolString(m_fvCompactionBox->isChecked()));
-    n += ctx_.writeIfChanged("FV_BACKEND", m_fvBackendCombo->currentData().toString());
+    n += writeOption("FV_BACKEND", m_fvBackendCombo->currentData().toString());
     n +=
-        ctx_.writeIfChanged("FV_MIN_PARALLEL_CELLS", QString::number(m_fvMinParallelSpin->value()));
-    n += ctx_.writeIfChanged("FV_LTS",
+        writeOption("FV_MIN_PARALLEL_CELLS", QString::number(m_fvMinParallelSpin->value()));
+    n += writeOption("FV_LTS",
                              SimulationOptionsDialog::engineBoolString(m_fvLtsBox->isChecked()));
-    n += ctx_.writeIfChanged("FV_LTS_MAX_TIERS", QString::number(m_fvLtsTiersSpin->value()));
-    n += ctx_.writeIfChanged("FV_CFL_CENSUS_INTERVAL", QString::number(m_fvCflCensusSpin->value()));
+    n += writeOption("FV_LTS_MAX_TIERS", QString::number(m_fvLtsTiersSpin->value()));
+    n += writeOption("FV_CFL_CENSUS_INTERVAL", QString::number(m_fvCflCensusSpin->value()));
 
+    ctx_.captureEditors(this);
     return n;
 }
 

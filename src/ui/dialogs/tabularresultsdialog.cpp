@@ -10,6 +10,8 @@
  */
 
 #include "ui/dialogs/tabularresultsdialog.h"
+#include "core/delimitedexport.h"
+#include <QMessageBox>
 
 #include "layers/swmmresultslayer.h"
 #include "ui/theme/iconfactory.h"
@@ -336,26 +338,9 @@ void TabularResultsDialog::rebuildByVariable()
 
 void TabularResultsDialog::exportDelimited(const QString &path, QChar delim)
 {
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
-        return;
-    QTextStream out(&f);
-    const int rows = m_model->rowCount();
-    const int cols = m_model->columnCount();
-    for (int c = 0; c < cols; ++c) {
-        if (c)
-            out << delim;
-        out << m_model->headerData(c, Qt::Horizontal).toString();
-    }
-    out << '\n';
-    for (int r = 0; r < rows; ++r) {
-        for (int c = 0; c < cols; ++c) {
-            if (c)
-                out << delim;
-            out << m_model->index(r, c).data(Qt::DisplayRole).toString();
-        }
-        out << '\n';
-    }
+    QString error;
+    if (!openswmmvis::exportDelimitedModel(*m_model, path, delim, error))
+        QMessageBox::warning(this, tr("Export failed"), tr("Cannot export %1: %2").arg(path, error));
 }
 
 void TabularResultsDialog::onExportCsvClicked()

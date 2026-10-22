@@ -870,7 +870,7 @@ class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(
         SWMMLinkPropertyAdapter::WeirType weirType READ weirType WRITE setWeirType NOTIFY changed)
     Q_PROPERTY(double offsetUp READ offsetUp WRITE setOffsetUp NOTIFY changed)
-    Q_PROPERTY(double offsetDn READ offsetDn WRITE setOffsetDn NOTIFY changed)
+    Q_PROPERTY(double offsetDn READ offsetDn NOTIFY changed)
     Q_PROPERTY(double crestHeight READ crestHeight WRITE setCrestHeight NOTIFY changed)
     Q_PROPERTY(double dischargeCoeff READ dischargeCoeff WRITE setDischargeCoeff NOTIFY changed)
     Q_PROPERTY(double endContractions READ endContractions WRITE setEndContractions NOTIFY changed)

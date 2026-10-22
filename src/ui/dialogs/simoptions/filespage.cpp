@@ -66,6 +66,7 @@
 #include <QRegularExpression>
 #include <QSet> // Slice RC.4 — built-in plugin-id lookup
 #include <QSettings>
+#include "core/enginestring.h"
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QTableView>
@@ -106,6 +107,7 @@ void FilesPage::read()
     readWriterCombosFromEngine();
     readReportContentsFromEngine();
     readOutputPathsFromSettings();
+    ctx_.captureEditors(this);
 }
 
 int FilesPage::write()
@@ -116,12 +118,20 @@ int FilesPage::write()
     n += writeFilesSectionToEngine();
     n += writeWriterCombosToEngine();
     n += writeReportContentsToEngine();
-    writeOutputPathsToSettings();
+    n += writeOutputPathsToSettings();
+    ctx_.captureEditors(this);
     return n;
 }
 
 void FilesPage::tagWidgets()
 {
+    tagOption(m_inputWriterCombo, "IO_INPUT_WRITER");
+    tagOption(m_outputWriterCombo, "IO_OUTPUT_WRITER");
+    tagOption(m_reportWriterCombo, "IO_REPORT_WRITER");
+    tagOption(m_singleContainerBox, "IO_SINGLE_CONTAINER");
+    tagOption(m_reportFilePathEdit, "IO_REPORT_PATH");
+    tagOption(m_outputFilePathEdit, "IO_OUTPUT_PATH");
+
     // Moved verbatim from the monolith's tagOptionWidgets(): every editor that
     // reads or writes an option key carries its key, so the reachability gate
     // can prove the key has a laid-out widget behind it.
@@ -433,7 +443,7 @@ int FilesPage::writeReportContentsToEngine()
     // Routed through the context so the key is recorded for the
     // reachability seam and the numeric-aware compare stays in one place.
     auto writeIfChanged = [this, &n](const char *key, const QString &newVal) {
-        n += ctx_.writeIfChanged(key, newVal);
+        n += writeOption(key, newVal);
     };
 
     auto boolStr = [](QCheckBox *box, bool def) {
@@ -1068,26 +1078,23 @@ void FilesPage::readPluginsFromEngine()
     if (swmm_plugins_count(ctx_.engine(), &count) != 0)
         return;
 
-    char path_buf[1024];
-    char args_buf[2048];
     for (int i = 0; i < count; ++i) {
-        path_buf[0] = '\0';
-        args_buf[0] = '\0';
-        if (swmm_plugin_get(ctx_.engine(), i, path_buf, sizeof(path_buf), args_buf,
-                            sizeof(args_buf)) != 0)
-            continue;
-        m_pluginsModel->appendRow(QString::fromUtf8(path_buf), QString::fromUtf8(args_buf));
+        const auto path = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_plugin_get(ctx_.engine(), i, b, n, nullptr, 0);
+        });
+        const auto args = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_plugin_get(ctx_.engine(), i, nullptr, 0, b, n);
+        });
+        m_pluginsModel->appendRow(path, args);
     }
 }
 
 // ---------------------------------------------------------------------------
 // Writer / Container combos (Slice AA-3.5 full design)
 //
-// The combos drive a derived view onto the [PLUGINS] section: the user
-// picks which plugin handles each role (input writer, results output,
-// report).  Apply collects the selected plugin ids and ensures each
-// non-empty id has a matching [PLUGINS] row — without disturbing any
-// rows the user may have added manually via the table below.
+// Role selections are explicit IO_ options. Legacy PLUGINS discovery is a
+// fallback until a role has been selected; manually configured plugin rows
+// and their initialization arguments remain independent.
 // ---------------------------------------------------------------------------
 
 namespace
@@ -1101,8 +1108,7 @@ namespace
  * @param engine Borrowed handle valid during count/get calls; null returns empty.
  * @param role Engine SDK role enum, compared exactly against discovery entries.
  * @return Owned exact id from the first matching model row, empty on no match/count
- * failure. Uses 1024-byte id and 512-byte ignored-args buffers; failed row reads are
- * skipped. Does not resolve id:version/library paths to catalog ids or load libraries.
+ * failure. Uses growing buffers. Does not resolve id:version/library paths to catalog ids or load libraries.
  */
 QString findActivePluginForRole(SWMM_Engine engine, openswmm::PluginRole role)
 {
@@ -1115,14 +1121,10 @@ QString findActivePluginForRole(SWMM_Engine engine, openswmm::PluginRole role)
     // Build the role index once: plugin_id → roles-bitset.
     auto plugins = openswmm::discover_plugins_by_id();
 
-    char path_buf[1024];
-    char args_buf[512]; // ignored
     for (int i = 0; i < count; ++i) {
-        path_buf[0] = '\0';
-        args_buf[0] = '\0';
-        if (swmm_plugin_get(engine, i, path_buf, sizeof(path_buf), args_buf, sizeof(args_buf)) != 0)
-            continue;
-        const QString rowId = QString::fromUtf8(path_buf);
+        const QString rowId = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_plugin_get(engine, i, b, n, nullptr, 0);
+        });
         for (const auto &p : plugins) {
             if (QString::fromStdString(p.plugin_id) != rowId)
                 continue;
@@ -1184,79 +1186,50 @@ void selectComboByPluginId(QComboBox *c, const QString &pluginId)
 
 void FilesPage::readWriterCombosFromEngine()
 {
-    selectComboByPluginId(m_inputWriterCombo,
-                          findActivePluginForRole(ctx_.engine(), openswmm::PluginRole::INPUT_READ));
-    selectComboByPluginId(
-        m_outputWriterCombo,
-        findActivePluginForRole(ctx_.engine(), openswmm::PluginRole::OUTPUT_WRITE));
-    selectComboByPluginId(
-        m_reportWriterCombo,
-        findActivePluginForRole(ctx_.engine(), openswmm::PluginRole::REPORT_WRITE));
-
+    auto selected = [&](const char *key, openswmm::PluginRole role) {
+        const QString token = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_options_get_ext(ctx_.engine(), key, b, n);
+        }, QStringLiteral("__unset__"));
+        return token == QLatin1String("__unset__") ? findActivePluginForRole(ctx_.engine(), role)
+             : token == QLatin1String("BUILTIN") ? QString() : token;
+    };
+    selectComboByPluginId(m_inputWriterCombo, selected("IO_INPUT_WRITER", openswmm::PluginRole::INPUT_READ));
+    selectComboByPluginId(m_outputWriterCombo, selected("IO_OUTPUT_WRITER", openswmm::PluginRole::OUTPUT_WRITE));
+    selectComboByPluginId(m_reportWriterCombo, selected("IO_REPORT_WRITER", openswmm::PluginRole::REPORT_WRITE));
     updateSingleContainerEnabled();
     if (m_singleContainerBox && m_singleContainerBox->isEnabled()) {
-        // Auto-check when all three combos already resolve to the same id
-        // — the simulation was previously set up as a single-container.
-        const QString in =
-            m_inputWriterCombo ? m_inputWriterCombo->currentData().toString() : QString();
-        const QString out =
-            m_outputWriterCombo ? m_outputWriterCombo->currentData().toString() : QString();
-        const QString rpt =
-            m_reportWriterCombo ? m_reportWriterCombo->currentData().toString() : QString();
-        if (!in.isEmpty() && in == out && in == rpt) {
-            QSignalBlocker block(m_singleContainerBox);
-            m_singleContainerBox->setChecked(true);
-            // Also disable the locked combos so the UI is consistent.
-            if (m_outputWriterCombo)
-                m_outputWriterCombo->setEnabled(false);
-            if (m_reportWriterCombo)
-                m_reportWriterCombo->setEnabled(false);
-        }
+        const QString token = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_options_get_ext(ctx_.engine(), "IO_SINGLE_CONTAINER", b, n);
+        });
+        QSignalBlocker block(m_singleContainerBox);
+        m_singleContainerBox->setChecked(token == QLatin1String("YES"));
+        onSingleContainerToggled(m_singleContainerBox->isChecked());
     }
+
 }
 
 int FilesPage::writeWriterCombosToEngine()
 {
-    if (!ctx_.engine())
-        return 0;
-    QStringList wanted;
-    auto addWanted = [&](QComboBox *c) {
-        if (!c)
-            return;
-        const QString id = c->currentData().toString();
-        if (!id.isEmpty() && !wanted.contains(id))
-            wanted << id;
+    if (!ctx_.engine()) return 0;
+    int written = 0;
+    auto store = [&](const char *key, const QString &value) {
+        ctx_.recordWrittenKey(key);
+        if (!ctx_.editorChanged(key, this)) return;
+        const QString previous = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_options_get_ext(ctx_.engine(), key, b, n);
+        }, QStringLiteral("__unset__"));
+        if (previous != value && swmm_options_set_ext(ctx_.engine(), key, value.toUtf8().constData()) == 0)
+            ++written;
     };
-    addWanted(m_inputWriterCombo);
-    addWanted(m_outputWriterCombo);
-    addWanted(m_reportWriterCombo);
-
-    // Collect existing [PLUGINS] row keys to check before inserting.  We
-    // never auto-remove rows — the user manages those via the table so
-    // any args they added stay intact.
-    QSet<QString> existing;
-    int count = 0;
-    swmm_plugins_count(ctx_.engine(), &count);
-    char path_buf[1024];
-    char args_buf[512];
-    for (int i = 0; i < count; ++i) {
-        path_buf[0] = '\0';
-        args_buf[0] = '\0';
-        if (swmm_plugin_get(ctx_.engine(), i, path_buf, sizeof(path_buf), args_buf,
-                            sizeof(args_buf)) != 0)
-            continue;
-        existing.insert(QString::fromUtf8(path_buf));
-    }
-
-    int added = 0;
-    for (const QString &id : wanted) {
-        if (existing.contains(id))
-            continue;
-        const QByteArray utf = id.toUtf8();
-        if (swmm_plugin_set(ctx_.engine(), utf.constData(), nullptr) == SWMM_OK)
-            ++added;
-    }
-    return added;
+    auto role = [&](QComboBox *combo, const char *key) {
+        if (combo) store(key, combo->currentData().toString().isEmpty()
+                                ? QStringLiteral("BUILTIN") : combo->currentData().toString());
+    };
+    role(m_inputWriterCombo, "IO_INPUT_WRITER");
+    role(m_outputWriterCombo, "IO_OUTPUT_WRITER");
+    role(m_reportWriterCombo, "IO_REPORT_WRITER");
+    store("IO_SINGLE_CONTAINER", m_singleContainerBox && m_singleContainerBox->isChecked() ? "YES" : "NO");
+    return written;
 }
 
 // ---------------------------------------------------------------------------
@@ -1266,24 +1239,45 @@ int FilesPage::writeWriterCombosToEngine()
 
 void FilesPage::readOutputPathsFromSettings()
 {
-    if (!ctx_.modelLayer() || !m_reportFilePathEdit || !m_outputFilePathEdit)
-        return;
-    QSettings s;
-    const QString base =
-        QStringLiteral("SWMMVis/Project/%1/").arg(ctx_.modelLayer()->modelFilePath());
-    m_reportFilePathEdit->setText(s.value(base + QStringLiteral("ReportFilePath")).toString());
-    m_outputFilePathEdit->setText(s.value(base + QStringLiteral("OutputFilePath")).toString());
+    if (!m_reportFilePathEdit || !m_outputFilePathEdit) return;
+    QSettings settings;
+    const QString base = QStringLiteral("SWMMVis/Project/%1/")
+        .arg(ctx_.modelLayer() ? ctx_.modelLayer()->modelFilePath() : QString());
+    auto read = [&](const char *key, const char *legacy) {
+        return openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_options_get_ext(ctx_.engine(), key, b, n);
+        }, settings.value(base + QLatin1String(legacy)).toString());
+    };
+    m_reportFilePathEdit->setText(read("IO_REPORT_PATH", "ReportFilePath"));
+    m_outputFilePathEdit->setText(read("IO_OUTPUT_PATH", "OutputFilePath"));
 }
 
-void FilesPage::writeOutputPathsToSettings()
+int FilesPage::writeOutputPathsToSettings()
 {
-    if (!ctx_.modelLayer() || !m_reportFilePathEdit || !m_outputFilePathEdit)
-        return;
-    QSettings s;
-    const QString base =
-        QStringLiteral("SWMMVis/Project/%1/").arg(ctx_.modelLayer()->modelFilePath());
-    s.setValue(base + QStringLiteral("ReportFilePath"), m_reportFilePathEdit->text().trimmed());
-    s.setValue(base + QStringLiteral("OutputFilePath"), m_outputFilePathEdit->text().trimmed());
+    if (!m_reportFilePathEdit || !m_outputFilePathEdit || !ctx_.engine()) return 0;
+    int written = 0;
+    if (m_singleContainerBox && m_singleContainerBox->isChecked()) {
+        const QString target = !m_outputFilePathEdit->text().trimmed().isEmpty()
+            ? m_outputFilePathEdit->text().trimmed() : m_reportFilePathEdit->text().trimmed();
+        m_outputFilePathEdit->setText(target); m_reportFilePathEdit->setText(target);
+    }
+    auto save = [&](const char *key, QLineEdit *edit) {
+        ctx_.recordWrittenKey(key);
+        if (!ctx_.editorChanged(key, this)) return;
+        if (swmm_options_set_ext(ctx_.engine(), key, edit->text().trimmed().toUtf8().constData()) == 0)
+            ++written;
+    };
+    save("IO_REPORT_PATH", m_reportFilePathEdit);
+    save("IO_OUTPUT_PATH", m_outputFilePathEdit);
+    if (ctx_.modelLayer()) {
+        QSettings settings;
+        const QString base = QStringLiteral("SWMMVis/Project/%1/").arg(ctx_.modelLayer()->modelFilePath());
+        settings.setValue(base + "ReportFilePath", m_reportFilePathEdit->text().trimmed());
+        settings.setValue(base + "OutputFilePath", m_outputFilePathEdit->text().trimmed());
+        settings.setValue(base + "OutputWriter", m_outputWriterCombo->currentData().toString());
+        settings.setValue(base + "ReportWriter", m_reportWriterCombo->currentData().toString());
+    }
+    return written;
 }
 
 void FilesPage::browseForReportFile()
@@ -1456,13 +1450,10 @@ void FilesPage::readFilesSectionFromEngine()
 {
     if (!ctx_.engine())
         return;
-    char buf[1024];
-
-    auto getStr = [&](const char *key) -> QString {
-        buf[0] = '\0';
-        if (swmm_files_get(ctx_.engine(), key, buf, sizeof(buf)) != SWMM_OK)
-            return {};
-        return QString::fromUtf8(buf);
+    auto getStr = [&](const char *key) {
+        return openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_files_get(ctx_.engine(), key, b, n);
+        });
     };
     // The page writes paths absolute (see writeFilesSectionToEngine); show
     // them relative to the .inp folder, as the file itself does.
@@ -1506,13 +1497,14 @@ void FilesPage::readFilesSectionFromEngine()
         if (swmm_hotstart_saves_count(ctx_.engine(), &count) != SWMM_OK)
             count = 0;
         for (int i = 0; i < count; ++i) {
-            char pbuf[1024] = {0};
+            const auto path = openswmmvis::readEngineString([&](char *b, int n) {
+                return swmm_hotstart_saves_get_path(ctx_.engine(), i, b, n);
+            });
             double dt = 0.0;
             int fmt = SWMM_HOTSTART_FORMAT_AUTO;
-            swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &dt);
             swmm_hotstart_saves_get_format(ctx_.engine(), i, &fmt);
-            m_hotstartSavesModel->appendRow(shown(QString::fromUtf8(pbuf)), dt > 0.0 ? dt : 0.0,
+            m_hotstartSavesModel->appendRow(shown(path), dt > 0.0 ? dt : 0.0,
                                             fmt);
         }
     }
@@ -1523,12 +1515,10 @@ int FilesPage::writeFilesSectionToEngine()
     if (!ctx_.engine())
         return 0;
     int written = 0;
-    char buf[1024];
-
-    auto getCurrent = [&](const char *key) -> QString {
-        buf[0] = '\0';
-        swmm_files_get(ctx_.engine(), key, buf, sizeof(buf));
-        return QString::fromUtf8(buf);
+    auto getCurrent = [&](const char *key) {
+        return openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_files_get(ctx_.engine(), key, b, n);
+        });
     };
 
     // Paths go to the engine absolute, resolved against the .inp folder:
@@ -1609,13 +1599,14 @@ int FilesPage::writeFilesSectionToEngine()
         swmm_hotstart_saves_count(ctx_.engine(), &curCount);
         bool changed = (curCount != desired.size());
         for (int i = 0; !changed && i < curCount; ++i) {
-            char pbuf[1024] = {0};
+            const auto path = openswmmvis::readEngineString([&](char *b, int n) {
+                return swmm_hotstart_saves_get_path(ctx_.engine(), i, b, n);
+            });
             double curDt = 0.0;
             int curFmt = SWMM_HOTSTART_FORMAT_AUTO;
-            swmm_hotstart_saves_get_path(ctx_.engine(), i, pbuf, sizeof(pbuf));
             swmm_hotstart_saves_get_datetime(ctx_.engine(), i, &curDt);
             swmm_hotstart_saves_get_format(ctx_.engine(), i, &curFmt);
-            if (toAbsolute(QString::fromUtf8(pbuf)) != desired[i].path)
+            if (toAbsolute(path) != desired[i].path)
                 changed = true;
             else if (curDt != desired[i].dt)
                 changed = true;
@@ -1646,15 +1637,14 @@ int FilesPage::writePluginsToEngine()
     swmm_plugins_count(ctx_.engine(), &existingCount);
 
     QHash<QString, QString> existing;
-    char path_buf[1024];
-    char args_buf[2048];
     for (int i = 0; i < existingCount; ++i) {
-        path_buf[0] = '\0';
-        args_buf[0] = '\0';
-        if (swmm_plugin_get(ctx_.engine(), i, path_buf, sizeof(path_buf), args_buf,
-                            sizeof(args_buf)) != 0)
-            continue;
-        existing.insert(QString::fromUtf8(path_buf), QString::fromUtf8(args_buf));
+        const auto path = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_plugin_get(ctx_.engine(), i, b, n, nullptr, 0);
+        });
+        const auto args = openswmmvis::readEngineString([&](char *b, int n) {
+            return swmm_plugin_get(ctx_.engine(), i, nullptr, 0, b, n);
+        });
+        existing.insert(path, args);
     }
 
     int written = 0;

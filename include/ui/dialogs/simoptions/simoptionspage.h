@@ -102,6 +102,9 @@ protected:
      */
     static void tagOption(QWidget *w, const char *key);
 
+    int writeOption(const char *key, const QString &value) {
+        return ctx_.writeIfChanged(key, value, this);
+    }
     SimOptionsContext &ctx_;
 };
 

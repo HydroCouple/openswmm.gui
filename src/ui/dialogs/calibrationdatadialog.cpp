@@ -19,7 +19,8 @@
 #include <QHeaderView>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QSettings>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -75,11 +76,17 @@ void CalibrationDataDialog::onAddClicked()
     const int r = m_table->rowCount();
     m_table->insertRow(r);
     auto *kind = new QComboBox(m_table);
-    kind->addItems({tr("Node"), tr("Link"), tr("Subcatch")});
+    kind->addItem(tr("Node"), "Node");
+    kind->addItem(tr("Link"), "Link");
+    kind->addItem(tr("Subcatch"), "Subcatch");
     m_table->setCellWidget(r, 0, kind);
     m_table->setItem(r, 1, new QTableWidgetItem());
     auto *attr = new QComboBox(m_table);
-    attr->addItems({tr("Depth"), tr("Head"), tr("Flow"), tr("Velocity"), tr("Runoff")});
+    attr->addItem(tr("Depth"), "depth");
+    attr->addItem(tr("Head"), "head");
+    attr->addItem(tr("Flow"), "flow");
+    attr->addItem(tr("Velocity"), "velocity");
+    attr->addItem(tr("Runoff"), "runoff");
     m_table->setCellWidget(r, 2, attr);
     m_table->setItem(r, 3, new QTableWidgetItem());
     m_table->setItem(r, 4, new QTableWidgetItem(QStringLiteral("col_1")));
@@ -115,8 +122,10 @@ void CalibrationDataDialog::loadFromProject()
         m_table->insertRow(r);
 
         auto *kind = new QComboBox(m_table);
-        kind->addItems({tr("Node"), tr("Link"), tr("Subcatch")});
-        const int kIdx = kind->findText(e.objectKind);
+        kind->addItem(tr("Node"), "Node");
+        kind->addItem(tr("Link"), "Link");
+        kind->addItem(tr("Subcatch"), "Subcatch");
+        const int kIdx = kind->findData(e.objectKind);
         if (kIdx >= 0)
             kind->setCurrentIndex(kIdx);
         m_table->setCellWidget(r, 0, kind);
@@ -124,8 +133,16 @@ void CalibrationDataDialog::loadFromProject()
         m_table->setItem(r, 1, new QTableWidgetItem(e.objectName));
 
         auto *attr = new QComboBox(m_table);
-        attr->addItems({tr("Depth"), tr("Head"), tr("Flow"), tr("Velocity"), tr("Runoff")});
-        attr->setCurrentText(openswmmvis::plot::labelFor(e.attribute));
+        attr->addItem(tr("Depth"), "depth");
+        attr->addItem(tr("Head"), "head");
+        attr->addItem(tr("Flow"), "flow");
+        attr->addItem(tr("Velocity"), "velocity");
+        attr->addItem(tr("Runoff"), "runoff");
+        using A = openswmmvis::plot::PlotAttribute;
+        const QString key = (e.attribute == A::NodeDepth || e.attribute == A::LinkDepth) ? "depth"
+            : e.attribute == A::NodeHead ? "head" : e.attribute == A::LinkFlow ? "flow"
+            : e.attribute == A::LinkVelocity ? "velocity" : "runoff";
+        attr->setCurrentIndex(attr->findData(key));
         m_table->setCellWidget(r, 2, attr);
 
         m_table->setItem(r, 3, new QTableWidgetItem(e.observedPath));
@@ -137,28 +154,19 @@ void CalibrationDataDialog::saveToProject()
 {
     if (!m_projectWindow)
         return;
-    // Persist into the project's QSettings group "calibrationData".
-    QSettings settings;
-    settings.beginGroup(QStringLiteral("project/calibrationData"));
-    settings.remove(QString()); // wipe old
-    settings.beginWriteArray(QStringLiteral("entries"));
+    QJsonArray entries;
     for (int r = 0; r < m_table->rowCount(); ++r) {
         auto *kind = qobject_cast<QComboBox *>(m_table->cellWidget(r, 0));
         auto *attr = qobject_cast<QComboBox *>(m_table->cellWidget(r, 2));
-        if (!kind || !attr)
-            continue;
-        settings.setArrayIndex(r);
-        settings.setValue(QStringLiteral("kind"), kind->currentText());
-        settings.setValue(QStringLiteral("name"),
-                          m_table->item(r, 1) ? m_table->item(r, 1)->text() : QString());
-        settings.setValue(QStringLiteral("attr"), attr->currentText());
-        settings.setValue(QStringLiteral("path"),
-                          m_table->item(r, 3) ? m_table->item(r, 3)->text() : QString());
-        settings.setValue(QStringLiteral("column"),
-                          m_table->item(r, 4) ? m_table->item(r, 4)->text() : QString());
+        if (!kind || !attr) continue;
+        auto text = [&](int c) { return m_table->item(r,c) ? m_table->item(r,c)->text() : QString(); };
+        entries.append(QJsonObject{{"kind",kind->currentData().toString()}, {"name",text(1)},
+            {"attribute",attr->currentData().toString()}, {"path",text(3)}, {"column",text(4)}});
     }
-    settings.endArray();
-    settings.endGroup();
+    if (entries != m_projectWindow->calibrationEntries()) {
+        m_projectWindow->setCalibrationEntries(entries);
+        m_projectWindow->setHasChanges(true);
+    }
 }
 
 void CalibrationDataDialog::accept()
@@ -167,37 +175,26 @@ void CalibrationDataDialog::accept()
     QDialog::accept();
 }
 
-QVector<CalibrationEntry> CalibrationDataDialog::entriesFromProject(SWMMVisProjectWindow *)
+QVector<CalibrationEntry> CalibrationDataDialog::entriesFromProject(SWMMVisProjectWindow *pw)
 {
     QVector<CalibrationEntry> out;
-    QSettings settings;
-    settings.beginGroup(QStringLiteral("project/calibrationData"));
-    const int n = settings.beginReadArray(QStringLiteral("entries"));
-    out.reserve(n);
-    for (int i = 0; i < n; ++i) {
-        settings.setArrayIndex(i);
+    if (!pw) return out;
+    for (const auto &value : pw->calibrationEntries()) {
+        const auto row = value.toObject();
         CalibrationEntry e;
-        e.objectKind = settings.value(QStringLiteral("kind")).toString();
-        e.objectName = settings.value(QStringLiteral("name")).toString();
-        const QString attrLabel = settings.value(QStringLiteral("attr")).toString();
-        // Reverse-lookup PlotAttribute from label.
-        using openswmmvis::plot::PlotAttribute;
-        if (attrLabel.contains(QStringLiteral("Depth")))
-            e.attribute = PlotAttribute::NodeDepth;
-        else if (attrLabel.contains(QStringLiteral("Head")))
-            e.attribute = PlotAttribute::NodeHead;
-        else if (attrLabel.contains(QStringLiteral("Flow")))
-            e.attribute = PlotAttribute::LinkFlow;
-        else if (attrLabel.contains(QStringLiteral("Velocity")))
-            e.attribute = PlotAttribute::LinkVelocity;
-        else if (attrLabel.contains(QStringLiteral("Runoff")))
-            e.attribute = PlotAttribute::SubcatchRunoff;
-        e.observedPath = settings.value(QStringLiteral("path")).toString();
-        e.observedColumn = settings.value(QStringLiteral("column")).toString();
+        e.objectKind = row.value("kind").toString();
+        e.objectName = row.value("name").toString();
+        const auto attr = row.value("attribute").toString();
+        using A = openswmmvis::plot::PlotAttribute;
+        if (attr == "depth") e.attribute = e.objectKind == "Link" ? A::LinkDepth : A::NodeDepth;
+        else if (attr == "head") e.attribute = A::NodeHead;
+        else if (attr == "flow") e.attribute = A::LinkFlow;
+        else if (attr == "velocity") e.attribute = A::LinkVelocity;
+        else if (attr == "runoff") e.attribute = A::SubcatchRunoff;
+        e.observedPath = row.value("path").toString();
+        e.observedColumn = row.value("column").toString();
         out.append(e);
     }
-    settings.endArray();
-    settings.endGroup();
     return out;
 }
 

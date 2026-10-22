@@ -1,3 +1,5 @@
+#include "core/delimitedexport.h"
+#include <QMessageBox>
 /**
  * @file      customreportdialog.cpp
  * @brief     A table of clauses lets the user assemble custom reports
@@ -385,25 +387,9 @@ void CustomReportDialog::onExportClicked()
         this, tr("Export CSV"), QStringLiteral("custom_report.csv"), tr("CSV (*.csv)"));
     if (path.isEmpty())
         return;
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
-        return;
-    QTextStream out(&f);
-    const int cols = m_resultModel->columnCount();
-    for (int c = 0; c < cols; ++c) {
-        if (c)
-            out << ',';
-        out << m_resultModel->headerData(c, Qt::Horizontal).toString();
-    }
-    out << '\n';
-    for (int r = 0; r < m_resultModel->rowCount(); ++r) {
-        for (int c = 0; c < cols; ++c) {
-            if (c)
-                out << ',';
-            out << m_resultModel->index(r, c).data().toString();
-        }
-        out << '\n';
-    }
+    QString error;
+    if (!openswmmvis::exportDelimitedModel(*m_resultModel, path, QLatin1Char(','), error))
+        QMessageBox::warning(this, tr("Export failed"), tr("Cannot export %1: %2").arg(path, error));
 }
 
 } // namespace openswmmvis::ui

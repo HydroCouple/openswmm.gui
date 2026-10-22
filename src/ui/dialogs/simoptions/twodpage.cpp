@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/simoptions/twodpage.h"
+#include "core/enginestring.h"
 #include "assignment/groundwaterassignment.h"
 #include "ui/hydrothermalstate.h"
 
@@ -1288,17 +1289,16 @@ void TwoDPage::read()
     auto getExt = [&](const char *key, const QString &fallback) -> QString {
         if (!e)
             return fallback;
-        char buf[256] = {};
-        if (swmm_options_get_ext(e, key, buf, sizeof(buf)) == 0)
-            return QString::fromUtf8(buf).trimmed();
-        return fallback;
+        return openswmmvis::readEngineString([&](char *buf, int size) {
+            return swmm_options_get_ext(e, key, buf, size);
+        }, fallback).trimmed();
     };
     // Same fallback-on-garbage semantics as the [OPTIONS] pages: never seed 0
     // into a spin box from an unparseable engine string (write() would then
     // persist it as a real edit).
     auto extDouble = [&](const char *key, double fallback) {
         bool okNum = false;
-        const double v = getExt(key, QString::number(fallback, 'g', 8)).toDouble(&okNum);
+        const double v = getExt(key, QString::number(fallback, 'g', 17)).toDouble(&okNum);
         return okNum ? v : fallback;
     };
     auto extInt = [&](const char *key, int fallback) {
@@ -1336,7 +1336,7 @@ void TwoDPage::read()
     // Explicit-marcher configuration (the only 2D integrator; no INTEGRATOR
     // read/write — the engine default is EXPLICIT).
     m_thetaSpin->setValue(extDouble("THETA", t.theta));
-    m_thetaSpin->setProperty("originalText", getExt("THETA", QString::number(t.theta, 'g', 12)));
+    m_thetaSpin->setProperty("originalText", getExt("THETA", QString::number(t.theta, 'g', 17)));
     m_thetaSpin->setProperty("originalDisplay", m_thetaSpin->value());
     const QString thetaReference = getExt("THETA_REFERENCE_STEP", QString());
     const bool hasThetaReference = !thetaReference.isEmpty();
@@ -1480,6 +1480,7 @@ void TwoDPage::read()
     m_gwWilting->setSuffix(us ? " ft" : " m");
     m_gwWilting->setValue(QString::fromUtf8(effective).toDouble());
     refreshGates();
+    ctx_.captureEditors(this);
 }
 
 int TwoDPage::write()
@@ -1489,10 +1490,9 @@ int TwoDPage::write()
     auto getExt = [&](const char *key) -> QString {
         if (!e)
             return {};
-        char buf[256] = {};
-        if (swmm_options_get_ext(e, key, buf, sizeof(buf)) == 0)
-            return QString::fromUtf8(buf).trimmed();
-        return {};
+        return openswmmvis::readEngineString([&](char *buf, int size) {
+            return swmm_options_get_ext(e, key, buf, size);
+        }).trimmed();
     };
     auto setExt = [&](const char *key, const QString &v) -> bool {
         if (!e)
@@ -1506,22 +1506,22 @@ int TwoDPage::write()
         // through the context either way.
         ctx_.recordWrittenKey(key);
         // Numeric-aware compare, same rationale as the [OPTIONS] pages.
-        if (SimulationOptionsDialog::optionValueEquals(getExt(key), nv))
-            return;
-        if (setExt(key, nv))
+        const QString desired = ctx_.valueForWrite(key, nv, this, true);
+        if (SimulationOptionsDialog::optionValueEquals(getExt(key), desired)) return;
+        if (setExt(key, desired))
             ++n;
     };
     using SOD = SimulationOptionsDialog;
 
-    writeIfChanged("MAX_TIMESTEP", QString::number(m_maxTimestepSpin->value(), 'g', 8));
-    writeIfChanged("DRY_DEPTH", QString::number(m_dryDepthSpin->value(), 'g', 8));
-    writeIfChanged("LIMITER_EPSILON", QString::number(m_limiterEpsSpin->value(), 'g', 8));
-    writeIfChanged("FLUX_DH_EPS", QString::number(m_fluxDhEpsSpin->value(), 'g', 8));
+    writeIfChanged("MAX_TIMESTEP", QString::number(m_maxTimestepSpin->value(), 'g', 17));
+    writeIfChanged("DRY_DEPTH", QString::number(m_dryDepthSpin->value(), 'g', 17));
+    writeIfChanged("LIMITER_EPSILON", QString::number(m_limiterEpsSpin->value(), 'g', 17));
+    writeIfChanged("FLUX_DH_EPS", QString::number(m_fluxDhEpsSpin->value(), 'g', 17));
     writeIfChanged("CELL_CLOSURE", m_cellClosureCombo->currentData().toString());
     writeIfChanged("FACE_RECONSTRUCTION", m_faceReconCombo->currentData().toString());
-    writeIfChanged("VFR_MIN_WET_FRAC", QString::number(m_vfrMinWetFracSpin->value(), 'g', 6));
-    writeIfChanged("COUPLING_CD", QString::number(m_couplingCdSpin->value(), 'f', 4));
-    writeIfChanged("COUPLING_SYNC", QString::number(m_couplingSyncSpin->value(), 'g', 6));
+    writeIfChanged("VFR_MIN_WET_FRAC", QString::number(m_vfrMinWetFracSpin->value(), 'g', 17));
+    writeIfChanged("COUPLING_CD", QString::number(m_couplingCdSpin->value(), 'g', 17));
+    writeIfChanged("COUPLING_SYNC", QString::number(m_couplingSyncSpin->value(), 'g', 17));
     writeIfChanged("RAINFALL_MODE", m_rainfall2DModeCombo->currentData().toString());
     writeIfChanged("REPORT_2D", SOD::engineBoolString(m_report2DBox->isChecked()));
 
@@ -1529,17 +1529,17 @@ int TwoDPage::write()
     writeIfChanged("THETA",
                    m_thetaSpin->value() == m_thetaSpin->property("originalDisplay").toDouble()
                        ? m_thetaSpin->property("originalText").toString()
-                       : QString::number(m_thetaSpin->value(), 'g', 6));
+                       : QString::number(m_thetaSpin->value(), 'g', 17));
     if (m_thetaReferenceStepSpin->property("engineSupported").toBool())
         writeIfChanged("THETA_REFERENCE_STEP",
                        m_thetaReferenceStepSpin->value() ==
                                m_thetaReferenceStepSpin->property("originalDisplay").toDouble()
                            ? m_thetaReferenceStepSpin->property("originalText").toString()
-                           : QString::number(m_thetaReferenceStepSpin->value(), 'g', 12));
-    writeIfChanged("CFL_NUMBER", QString::number(m_cflNumberSpin->value(), 'g', 6));
+                           : QString::number(m_thetaReferenceStepSpin->value(), 'g', 17));
+    writeIfChanged("CFL_NUMBER", QString::number(m_cflNumberSpin->value(), 'g', 17));
     writeIfChanged("LTS_TIERS", QString::number(m_ltsTiersSpin->value()));
-    writeIfChanged("H_MOVE", QString::number(m_hMoveSpin->value(), 'g', 6));
-    writeIfChanged("FROUDE_MAX", QString::number(m_froudeMaxSpin->value(), 'g', 6));
+    writeIfChanged("H_MOVE", QString::number(m_hMoveSpin->value(), 'g', 17));
+    writeIfChanged("FROUDE_MAX", QString::number(m_froudeMaxSpin->value(), 'g', 17));
     writeIfChanged("MOMENTUM_EQUATION", m_momentum2DCombo->currentData().toString());
     writeIfChanged("RECONSTRUCTION_ORDER", QString::number(m_reconOrder2DSpin->value()));
     writeIfChanged("ADVECTION", SOD::engineBoolString(m_advection2DBox->isChecked()));
@@ -1551,11 +1551,11 @@ int TwoDPage::write()
     writeIfChanged("COUPLING_HEAD", m_couplingHeadCombo->currentData().toString());
     writeIfChanged("COUPLING_POND_MODE", m_couplingPondCombo->currentData().toString());
     writeIfChanged("COUPLING_POND_RELAX",
-                   QString::number(m_couplingPondRelaxSpin->value(), 'g', 6));
+                   QString::number(m_couplingPondRelaxSpin->value(), 'g', 17));
     writeIfChanged("COUPLING_RIM_BAND",
                    m_couplingRimBandSpin->value() < 0.0
                        ? QStringLiteral("DEFAULT")
-                       : QString::number(m_couplingRimBandSpin->value(), 'g', 6));
+                       : QString::number(m_couplingRimBandSpin->value(), 'g', 17));
     writeIfChanged("COUPLING_EQUALIZE", m_couplingEqualizeCombo->currentData().toString());
     // Empty clears the key — InpWriter omits OUTPUT_FILE when unset and the
     // run wiring falls back to <model>.2d.h5.
@@ -1662,6 +1662,7 @@ int TwoDPage::write()
                     {"GW_ET", "LINK_SEEPAGE", "WILTING_SUCTION"});
         }
     }
+    ctx_.captureEditors(this);
     return n;
 }
 

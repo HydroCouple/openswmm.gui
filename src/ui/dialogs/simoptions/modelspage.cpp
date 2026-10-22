@@ -490,6 +490,7 @@ void ModelsPage::read()
     refreshTransportMatrix();
     refreshSnowSummary();
     emit gateInputsChanged();
+    ctx_.captureEditors(this);
 }
 
 void ModelsPage::refreshSnowSummary()
@@ -515,20 +516,20 @@ int ModelsPage::write()
     using SOD = SimulationOptionsDialog;
     int n = 0;
 
-    n += ctx_.writeIfChanged("INFILTRATION", m_infiltrationCombo->currentData().toString());
+    n += writeOption("INFILTRATION", m_infiltrationCombo->currentData().toString());
     n +=
-        ctx_.writeIfChanged("ALLOW_PONDING", SOD::engineBoolString(m_allowPondingBox->isChecked()));
+        writeOption("ALLOW_PONDING", SOD::engineBoolString(m_allowPondingBox->isChecked()));
     // Inverted UI: checked = active = IGNORE_X NO. Unchecked = ignore.
-    n += ctx_.writeIfChanged("IGNORE_RAINFALL",
+    n += writeOption("IGNORE_RAINFALL",
                              SOD::engineBoolString(!m_ignoreRainfallBox->isChecked()));
-    n += ctx_.writeIfChanged("IGNORE_SNOWMELT",
+    n += writeOption("IGNORE_SNOWMELT",
                              SOD::engineBoolString(!m_ignoreSnowmeltBox->isChecked()));
-    n += ctx_.writeIfChanged("IGNORE_GROUNDWATER",
+    n += writeOption("IGNORE_GROUNDWATER",
                              SOD::engineBoolString(!m_ignoreGroundwaterBox->isChecked()));
-    n += ctx_.writeIfChanged("IGNORE_RDII", SOD::engineBoolString(!m_ignoreRDIIBox->isChecked()));
-    n += ctx_.writeIfChanged("IGNORE_QUALITY",
+    n += writeOption("IGNORE_RDII", SOD::engineBoolString(!m_ignoreRDIIBox->isChecked()));
+    n += writeOption("IGNORE_QUALITY",
                              SOD::engineBoolString(!m_ignoreQualityBox->isChecked()));
-    n += ctx_.writeIfChanged("IGNORE_ROUTING",
+    n += writeOption("IGNORE_ROUTING",
                              SOD::engineBoolString(!m_ignoreRoutingBox->isChecked()));
 
     // 2D module toggle — IGNORE_2D is the engine-honored gate (unchecked ⇒
@@ -540,7 +541,7 @@ int ModelsPage::write()
     // unchecked box merely describes the .inp, and materialising IGNORE_2D
     // from it made every no-edit Apply dirty the project.
     if (m_module2DBox && m_module2DIntentKnown) {
-        n += ctx_.writeIfChanged("IGNORE_2D", SOD::engineBoolString(!m_module2DBox->isChecked()));
+        n += writeOption("IGNORE_2D", SOD::engineBoolString(!m_module2DBox->isChecked()));
         if (SWMMModelLayer *layer = ctx_.modelLayer()) {
             // Same condition as the IGNORE_2D write above: persisting an
             // inferred state would make s.contains(key) true on the next open,
@@ -550,6 +551,7 @@ int ModelsPage::write()
             s.setValue(module2DSettingsKey(layer), m_module2DBox->isChecked());
         }
     }
+    ctx_.captureEditors(this);
     return n;
 }
 

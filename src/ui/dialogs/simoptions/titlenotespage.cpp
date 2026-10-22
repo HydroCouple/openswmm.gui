@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/simoptions/titlenotespage.h"
+#include "core/enginestring.h"
 
 #include <QAction>
 #include <QFont>
@@ -134,9 +135,9 @@ void TitleNotesPage::read()
         if (swmm_title_get_count(e, &count) == 0 && count > 0) {
             lines.reserve(count);
             for (int i = 0; i < count; ++i) {
-                char buf[1024] = {0};
-                if (swmm_title_get_line(e, i, buf, sizeof(buf)) == 0)
-                    lines << QString::fromUtf8(buf);
+                lines << openswmmvis::readEngineString([&](char *buf, int size) {
+                    return swmm_title_get_line(e, i, buf, size);
+                });
             }
         }
         m_notesEdit->setPlainText(lines.join(QChar('\n')));
@@ -144,6 +145,7 @@ void TitleNotesPage::read()
         m_notesEdit->clear();
     }
     m_initialHtml = m_notesEdit->toHtml();
+    ctx_.captureEditors(this);
 }
 
 int TitleNotesPage::write()
@@ -170,6 +172,7 @@ int TitleNotesPage::write()
         pw->setNotesHtml(plain.isEmpty() ? QString() : currentHtml);
     }
     m_initialHtml = currentHtml;
+    ctx_.captureEditors(this);
     return n;
 }
 

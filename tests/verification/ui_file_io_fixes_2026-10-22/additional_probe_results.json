@@ -1,0 +1,130 @@
+{
+  "snow": {
+    "before": {
+      "gage_scale": 10.0,
+      "subcatch_rain_scale": 0.8,
+      "subcatch_snow_scale": 1.3,
+      "snowpack": "SP1",
+      "snow_step": 73.0
+    },
+    "formats": {
+      "inp": {
+        "gage_scale": 10.0,
+        "subcatch_rain_scale": 0.8,
+        "subcatch_snow_scale": 1.3,
+        "snowpack": "SP1",
+        "snow_step": 73.0
+      },
+      "gpkg": {
+        "gage_scale": 10.0,
+        "subcatch_rain_scale": 0.8,
+        "subcatch_snow_scale": 1.3,
+        "snowpack": "SP1",
+        "snow_step": 73.0
+      }
+    }
+  },
+  "groundwater": {
+    "before": {
+      "aquifer_count": 1
+    },
+    "formats": {
+      "inp": {
+        "aquifer_count": 1
+      },
+      "gpkg": {
+        "aquifer_count": 1
+      }
+    }
+  },
+  "copollutant": {
+    "before": {
+      "co_pollutants": [
+        [
+          1,
+          0.5
+        ],
+        [
+          -1,
+          0.0
+        ]
+      ]
+    },
+    "formats": {
+      "inp": {
+        "co_pollutants": [
+          [
+            1,
+            0.5
+          ],
+          [
+            -1,
+            0.0
+          ]
+        ]
+      },
+      "gpkg": {
+        "co_pollutants": [
+          [
+            1,
+            0.5
+          ],
+          [
+            -1,
+            0.0
+          ]
+        ]
+      }
+    }
+  },
+  "weir": {
+    "before": {
+      "offset_up": 0.7,
+      "offset_down": 0.7
+    },
+    "formats": {
+      "inp": {
+        "offset_up": 0.7,
+        "offset_down": 0.7
+      },
+      "gpkg": {
+        "offset_up": 0.7,
+        "offset_down": 0.7
+      }
+    }
+  },
+  "outlet": {
+    "before": {
+      "offset_up": 0.7,
+      "offset_down": 0.7
+    },
+    "formats": {
+      "inp": {
+        "offset_up": 0.7,
+        "offset_down": 0.7
+      },
+      "gpkg": {
+        "offset_up": 0.7,
+        "offset_down": 0.7
+      }
+    }
+  },
+  "no_mesh": {
+    "before": {
+      "MAX_TIMESTEP": "1.2345"
+    },
+    "formats": {
+      "inp": {
+        "MAX_TIMESTEP": "1.2345"
+      },
+      "gpkg": {
+        "MAX_TIMESTEP": "1.2345"
+      }
+    }
+  },
+  "gpkg_mwt_getter": {
+    "returncode": 0,
+    "stdout": "58.44\n",
+    "stderr": ""
+  }
+}

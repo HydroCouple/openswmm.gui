@@ -1,0 +1,395 @@
+{
+  "library": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/build/hotstart-format/src/engine/libopenswmm.engine.6.dylib",
+  "refused_values": {},
+  "before": {
+    "options": {
+      "VARIABLE_STEP": "0.755000",
+      "ROUTING_STEP": "0.125000",
+      "RULE_STEP": "37",
+      "FLOW_ROUTING": "FV",
+      "FV_CELL_LENGTH": "17.250000",
+      "FV_MIN_CELLS": "7",
+      "FV_CFL": "0.630000",
+      "FV_RIEMANN": "HLLC",
+      "FV_ORDER": "2",
+      "FV_LIMITER": "SUPERBEE",
+      "FV_SCALAR_SCHEME": "MUSCL",
+      "FV_TIME_INTEGRATION": "RK2",
+      "FV_SLOT_CELERITY": "122.500000",
+      "FV_BACKEND": "CPU",
+      "FV_MIN_PARALLEL_CELLS": "1234",
+      "FV_LTS": "NO",
+      "FV_LTS_MAX_TIERS": "3",
+      "FV_CFL_CENSUS_INTERVAL": "4",
+      "FV_STRUCTURE_COUPLING": "ROUTING_STEP",
+      "FV_PRESSURIZED_IMPLICIT": "YES",
+      "FV_PRESSURE_CLOSURE": "TPA",
+      "QUALITY_SOLVER": "LAGRANGIAN",
+      "QUALITY_STEP": "0.250000",
+      "MAX_SEGMENTS_PER_LINK": "73",
+      "DISPERSION": "RWPT",
+      "RWPT_SEED": "123",
+      "WATER_AGE": "YES",
+      "HEAT_TRANSPORT": "YES",
+      "OUTFALL_BACKFLOW_QUALITY": "ZERO",
+      "SKIP_STEADY_STATE": "YES",
+      "WATER_DENSITY": "997",
+      "WATER_SPECIFIC_HEAT_CAPACITY": "4200",
+      "WIND_FUNC_COEFF_A": "11",
+      "WIND_FUNC_COEFF_B": "13",
+      "PRESSURE_RATIO": "0.9",
+      "SURCHARGE_METHOD": "EXTRAN",
+      "DPS_CELERITY": "42.000000",
+      "DPS_ALPHA": "0.200000",
+      "DPS_DECAY_TIME": "17.000000",
+      "TPA_CELERITY": "777.000000"
+    },
+    "2d_options": {
+      "RECONSTRUCTION_ORDER": "2",
+      "THETA_REFERENCE_STEP": "7.5",
+      "INFIL_STEP": "00:02:00",
+      "THETA": "0.8"
+    },
+    "pollutant_mwt": 58.44,
+    "pollutant_rain_conc": 1.2345e-05,
+    "transect_encroachment": [
+      1.25,
+      8.75
+    ],
+    "transect_comment": "Audit transect comment"
+  },
+  "formats": {
+    "inp": {
+      "write_rc": 0,
+      "warnings": [],
+      "after": {
+        "options": {
+          "VARIABLE_STEP": "0.760000",
+          "ROUTING_STEP": "0.125000",
+          "RULE_STEP": "37",
+          "FLOW_ROUTING": "FV",
+          "FV_CELL_LENGTH": "17.250000",
+          "FV_MIN_CELLS": "7",
+          "FV_CFL": "0.630000",
+          "FV_RIEMANN": "HLLC",
+          "FV_ORDER": "2",
+          "FV_LIMITER": "SUPERBEE",
+          "FV_SCALAR_SCHEME": "MUSCL",
+          "FV_TIME_INTEGRATION": "RK2",
+          "FV_SLOT_CELERITY": "122.500000",
+          "FV_BACKEND": "CPU",
+          "FV_MIN_PARALLEL_CELLS": "1234",
+          "FV_LTS": "NO",
+          "FV_LTS_MAX_TIERS": "3",
+          "FV_CFL_CENSUS_INTERVAL": "4",
+          "FV_STRUCTURE_COUPLING": "ROUTING_STEP",
+          "FV_PRESSURIZED_IMPLICIT": "YES",
+          "FV_PRESSURE_CLOSURE": "TPA",
+          "QUALITY_SOLVER": "LAGRANGIAN",
+          "QUALITY_STEP": "0.250000",
+          "MAX_SEGMENTS_PER_LINK": "73",
+          "DISPERSION": "RWPT",
+          "RWPT_SEED": "123",
+          "WATER_AGE": "YES",
+          "HEAT_TRANSPORT": "YES",
+          "OUTFALL_BACKFLOW_QUALITY": "ZERO",
+          "SKIP_STEADY_STATE": "YES",
+          "WATER_DENSITY": "997",
+          "WATER_SPECIFIC_HEAT_CAPACITY": "4200",
+          "WIND_FUNC_COEFF_A": "11",
+          "WIND_FUNC_COEFF_B": "13",
+          "PRESSURE_RATIO": "0.9",
+          "SURCHARGE_METHOD": "EXTRAN",
+          "DPS_CELERITY": "25.000000",
+          "DPS_ALPHA": "3.000000",
+          "DPS_DECAY_TIME": "0.500000",
+          "TPA_CELERITY": "100.000000"
+        },
+        "2d_options": {
+          "RECONSTRUCTION_ORDER": "2",
+          "THETA_REFERENCE_STEP": "7.5",
+          "INFIL_STEP": "00:02:00",
+          "THETA": "0.8"
+        },
+        "pollutant_mwt": 1.0,
+        "pollutant_rain_conc": 0.0,
+        "transect_encroachment": [
+          0.0,
+          0.0
+        ],
+        "transect_comment": ""
+      },
+      "differences": {
+        "options": {
+          "VARIABLE_STEP": {
+            "before": "0.755000",
+            "after": "0.760000"
+          },
+          "DPS_CELERITY": {
+            "before": "42.000000",
+            "after": "25.000000"
+          },
+          "DPS_ALPHA": {
+            "before": "0.200000",
+            "after": "3.000000"
+          },
+          "DPS_DECAY_TIME": {
+            "before": "17.000000",
+            "after": "0.500000"
+          },
+          "TPA_CELERITY": {
+            "before": "777.000000",
+            "after": "100.000000"
+          }
+        },
+        "2d_options": {},
+        "pollutant_mwt": {
+          "before": 58.44,
+          "after": 1.0
+        },
+        "pollutant_rain_conc": {
+          "before": 1.2345e-05,
+          "after": 0.0
+        },
+        "transect_encroachment": {
+          "before": [
+            1.25,
+            8.75
+          ],
+          "after": [
+            0.0,
+            0.0
+          ]
+        },
+        "transect_comment": {
+          "before": "Audit transect comment",
+          "after": ""
+        }
+      }
+    },
+    "gpkg": {
+      "write_rc": 0,
+      "warnings": [],
+      "after": {
+        "options": {
+          "VARIABLE_STEP": "0.755000",
+          "ROUTING_STEP": "0.125000",
+          "RULE_STEP": "0",
+          "FLOW_ROUTING": "FV",
+          "FV_CELL_LENGTH": "0.000000",
+          "FV_MIN_CELLS": "4",
+          "FV_CFL": "0.500000",
+          "FV_RIEMANN": "HLLC",
+          "FV_ORDER": "1",
+          "FV_LIMITER": "MINMOD",
+          "FV_SCALAR_SCHEME": "MUSCL",
+          "FV_TIME_INTEGRATION": "EULER",
+          "FV_SLOT_CELERITY": "100.000000",
+          "FV_BACKEND": "AUTO",
+          "FV_MIN_PARALLEL_CELLS": "20000",
+          "FV_LTS": "YES",
+          "FV_LTS_MAX_TIERS": "6",
+          "FV_CFL_CENSUS_INTERVAL": "1",
+          "FV_STRUCTURE_COUPLING": "SUBSTEP",
+          "FV_PRESSURIZED_IMPLICIT": "NO",
+          "FV_PRESSURE_CLOSURE": "TPA",
+          "QUALITY_SOLVER": "LEGACY",
+          "QUALITY_STEP": "0.000000",
+          "MAX_SEGMENTS_PER_LINK": "100",
+          "DISPERSION": "OFF",
+          "RWPT_SEED": "0",
+          "WATER_AGE": "NO",
+          "HEAT_TRANSPORT": "NO",
+          "OUTFALL_BACKFLOW_QUALITY": "LAST",
+          "SKIP_STEADY_STATE": "NO",
+          "WATER_DENSITY": "1000",
+          "WATER_SPECIFIC_HEAT_CAPACITY": "4184",
+          "WIND_FUNC_COEFF_A": "1.505e-08",
+          "WIND_FUNC_COEFF_B": "1.6e-08",
+          "PRESSURE_RATIO": "1",
+          "SURCHARGE_METHOD": "EXTRAN",
+          "DPS_CELERITY": "25.000000",
+          "DPS_ALPHA": "3.000000",
+          "DPS_DECAY_TIME": "0.500000",
+          "TPA_CELERITY": "777.000000"
+        },
+        "2d_options": {
+          "RECONSTRUCTION_ORDER": "1",
+          "THETA_REFERENCE_STEP": "0",
+          "INFIL_STEP": "00:00:00",
+          "THETA": "0.8"
+        },
+        "pollutant_mwt": "getter crashes: GeoPackage reader does not populate mwt",
+        "pollutant_rain_conc": 1.2345e-05,
+        "transect_encroachment": [
+          1.25,
+          8.75
+        ],
+        "transect_comment": "Audit transect comment"
+      },
+      "differences": {
+        "options": {
+          "RULE_STEP": {
+            "before": "37",
+            "after": "0"
+          },
+          "FV_CELL_LENGTH": {
+            "before": "17.250000",
+            "after": "0.000000"
+          },
+          "FV_MIN_CELLS": {
+            "before": "7",
+            "after": "4"
+          },
+          "FV_CFL": {
+            "before": "0.630000",
+            "after": "0.500000"
+          },
+          "FV_ORDER": {
+            "before": "2",
+            "after": "1"
+          },
+          "FV_LIMITER": {
+            "before": "SUPERBEE",
+            "after": "MINMOD"
+          },
+          "FV_TIME_INTEGRATION": {
+            "before": "RK2",
+            "after": "EULER"
+          },
+          "FV_SLOT_CELERITY": {
+            "before": "122.500000",
+            "after": "100.000000"
+          },
+          "FV_BACKEND": {
+            "before": "CPU",
+            "after": "AUTO"
+          },
+          "FV_MIN_PARALLEL_CELLS": {
+            "before": "1234",
+            "after": "20000"
+          },
+          "FV_LTS": {
+            "before": "NO",
+            "after": "YES"
+          },
+          "FV_LTS_MAX_TIERS": {
+            "before": "3",
+            "after": "6"
+          },
+          "FV_CFL_CENSUS_INTERVAL": {
+            "before": "4",
+            "after": "1"
+          },
+          "FV_STRUCTURE_COUPLING": {
+            "before": "ROUTING_STEP",
+            "after": "SUBSTEP"
+          },
+          "FV_PRESSURIZED_IMPLICIT": {
+            "before": "YES",
+            "after": "NO"
+          },
+          "QUALITY_SOLVER": {
+            "before": "LAGRANGIAN",
+            "after": "LEGACY"
+          },
+          "QUALITY_STEP": {
+            "before": "0.250000",
+            "after": "0.000000"
+          },
+          "MAX_SEGMENTS_PER_LINK": {
+            "before": "73",
+            "after": "100"
+          },
+          "DISPERSION": {
+            "before": "RWPT",
+            "after": "OFF"
+          },
+          "RWPT_SEED": {
+            "before": "123",
+            "after": "0"
+          },
+          "WATER_AGE": {
+            "before": "YES",
+            "after": "NO"
+          },
+          "HEAT_TRANSPORT": {
+            "before": "YES",
+            "after": "NO"
+          },
+          "OUTFALL_BACKFLOW_QUALITY": {
+            "before": "ZERO",
+            "after": "LAST"
+          },
+          "SKIP_STEADY_STATE": {
+            "before": "YES",
+            "after": "NO"
+          },
+          "WATER_DENSITY": {
+            "before": "997",
+            "after": "1000"
+          },
+          "WATER_SPECIFIC_HEAT_CAPACITY": {
+            "before": "4200",
+            "after": "4184"
+          },
+          "WIND_FUNC_COEFF_A": {
+            "before": "11",
+            "after": "1.505e-08"
+          },
+          "WIND_FUNC_COEFF_B": {
+            "before": "13",
+            "after": "1.6e-08"
+          },
+          "PRESSURE_RATIO": {
+            "before": "0.9",
+            "after": "1"
+          },
+          "DPS_CELERITY": {
+            "before": "42.000000",
+            "after": "25.000000"
+          },
+          "DPS_ALPHA": {
+            "before": "0.200000",
+            "after": "3.000000"
+          },
+          "DPS_DECAY_TIME": {
+            "before": "17.000000",
+            "after": "0.500000"
+          }
+        },
+        "2d_options": {
+          "RECONSTRUCTION_ORDER": {
+            "before": "2",
+            "after": "1"
+          },
+          "THETA_REFERENCE_STEP": {
+            "before": "7.5",
+            "after": "0"
+          },
+          "INFIL_STEP": {
+            "before": "00:02:00",
+            "after": "00:00:00"
+          }
+        },
+        "pollutant_mwt": {
+          "before": 58.44,
+          "after": "getter crashes: GeoPackage reader does not populate mwt"
+        }
+      }
+    },
+    "h5": {
+      "write_rc": 0,
+      "warnings": [],
+      "reopen_error": "(PosixPath('/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/verification/ui_file_io_audit_2026-10-22/saved.h5'), 5, b'')"
+    }
+  },
+  "microstep": {
+    "before": "0.000500",
+    "reopen_error": "(PosixPath('/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/verification/ui_file_io_audit_2026-10-22/microstep.inp'), 5, b'  ERROR 211: invalid number 0:00:00.')"
+  },
+  "report_list": {
+    "full": "node_0000,node_0001,node_0002,node_0003,node_0004,node_0005,node_0006,node_0007,node_0008,node_0009,node_0010,node_0011,node_0012,node_0013,node_0014,node_0015,node_0016,node_0017,node_0018,node_0019,node_0020,node_0021,node_0022,node_0023,node_0024,node_0025,node_0026,node_0027,node_0028,node_0029,node_0030,node_0031,node_0032,node_0033,node_0034,node_0035,node_0036,node_0037,node_0038,node_0039,node_0040,node_0041,node_0042,node_0043,node_0044,node_0045,node_0046,node_0047,node_0048,node_0049",
+    "ui_256": "node_0000,node_0001,node_0002,node_0003,node_0004,node_0005,node_0006,node_0007,node_0008,node_0009,node_0010,node_0011,node_0012,node_0013,node_0014,node_0015,node_0016,node_0017,node_0018,node_0019,node_0020,node_0021,node_0022,node_0023,node_0024,node_"
+  }
+}
