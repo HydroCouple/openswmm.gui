@@ -40,7 +40,12 @@ namespace
 const QString kGeoTiff = QStringLiteral("GTiff");
 
 /*! \p path made absolute and canonical where it exists (symlinks resolved),
- *  else cleaned. */
+ *  else cleaned.
+ * @param[in] path Raw path interpreted relative to current process directory, no existence
+ *   requirement.
+ * @return Existing canonical path when available (resolves symlinks), otherwise cleaned absolute
+ *   spelling. No file creation, identity pinning, explicit case folding or diagnostics.
+ */
 QString normalPath(const QString &path)
 {
     const QFileInfo fi(path);
@@ -50,7 +55,16 @@ QString normalPath(const QString &path)
 
 /*! Whether writing \p target would replace \p kept: the same file (by
  *  identity when both exist — symlinks, case-insensitive volumes) or a file
- *  inside \p target when that is a folder (a .gdb is replaced whole). */
+ *  inside \p target when that is a folder (a .gdb is replaced whole).
+ * @param[in] target Potential target path; empty returns false.
+ * @param[in] kept Protected path; empty returns false.
+ * @return True for existing QFileInfo equality, equal normalized paths, or protected path beginning
+ *   normalized target plus separator. Uses case-insensitive comparison on macOS/Windows, sensitive
+ *   elsewhere.
+ * @note Prefix rule is applied even when target is not known directory, intentionally protects
+ *   nested contents for whole-container replacement. Preliminary comparison only, no filesystem
+ *   mutation, inode/fingerprint pin or race protection.
+ */
 bool replaces(const QString &target, const QString &kept)
 {
     if (target.isEmpty() || kept.isEmpty())

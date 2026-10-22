@@ -40,38 +40,168 @@ class TestRuleSymbologyTab : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     * @brief Retain the no-op suite setup because QTEST_MAIN already owns QApplication.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void initTestCase();
 
+    /**
+     * @brief Verify an empty rule list exposes existing combo/list widgets with zero entries.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void empty_listShowsPlaceholderBody();
+    /**
+     * @brief Verify three named rules populate active combo in model order.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_comboHasOneEntryPerRule();
+    /**
+     * @brief Verify list rows correspond one-for-one to A/B rule names.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_listHasOneRowPerRule();
+    /**
+     * @brief Verify rule list rows expose user-checkable visibility flags.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_listRowsHaveCheckboxes();
+    /**
+     * @brief Verify visible/hidden model rules initialize checked/unchecked rows.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_listRowsReflectVisibility();
 
+    /**
+     * @brief Verify selecting combo index1 writes RuleList active index1.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void comboChange_updatesModelActiveIndex();
+    /**
+     * @brief Verify selecting list row1 writes RuleList active index1.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void listRowChange_updatesModelActiveIndex();
+    /**
+     * @brief Verify model active index1 synchronizes combo and list selections.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void modelActiveIndexChange_updatesUi();
 
+    /**
+     * @brief Verify unchecked/checked row state writes false/true Rule visibility.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void checkboxToggle_writesThroughToRule();
+    /**
+     * @brief Verify external Rule visibility toggles synchronize row checkbox state.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void ruleVisibilityChange_updatesCheckbox();
+    /**
+     * @brief Verify external rename updates both active combo and visible row labels.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void ruleNameChange_updatesComboAndList();
 
+    /**
+     * @brief Verify clicking Add rule on an empty model appends one rule.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void addButton_appendsNewRule();
+    /**
+     * @brief Verify Duplicate appends a second rule with a copy-marked name.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void duplicateButton_clonesActiveRule();
+    /**
+     * @brief Verify Delete removes active A while B survives as first rule.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void deleteButton_removesActiveRule();
+    /**
+     * @brief Verify moving active B up places it before A.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void moveUpButton_movesActiveRule();
+    /**
+     * @brief Verify moving active A down places it after B.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void moveDownButton_movesActiveRule();
 
+    /**
+     * @brief Verify duplicate/delete/up/down actions are disabled with no rules.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void buttons_disabledForEmptyList();
+    /**
+     * @brief Verify Up is disabled when first rule is active.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void upButton_disabledForFirstRow();
+    /**
+     * @brief Verify Down is disabled when last rule is active.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void downButton_disabledForLastRow();
 
     // Z.3a — Renderer-class picker.
+    /**
+     * @brief Verify renderer picker has single/graduated/categorized/rule IDs in fixed order.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_populatedWithFourChoices();
+    /**
+     * @brief Verify renderer picker refuses interaction without active rules.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_disabledForEmptyList();
+    /**
+     * @brief Verify active graduated Rule initializes the renderer picker to graduated.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_reflectsActiveRuleRenderer();
+    /**
+     * @brief Verify choosing graduated replaces active single-symbol renderer in the Rule.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_picksGraduatedSwapsRulesRenderer();
+    /**
+     * @brief Verify an external categorized renderer replacement updates the picker.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_syncsWhenRulesRendererReplacedExternally();
+    /**
+     * @brief Verify switching active rule changes picker from single to graduated.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_updatesOnActiveRuleChange();
 
 private:
@@ -388,6 +518,15 @@ namespace
 {
 // Locate the renderer-class combo inside the body region (the second
 // QComboBox in the widget tree — the first is the Active Rule combo).
+/**
+ * @brief Borrow the second descendant combo, used as the renderer-class picker in this widget
+ * fixture.
+ * @param[in] tab Borrowed live GUI-thread widget, unchanged apart from ordinary child lookup.
+ * @return Nonowning combo pointer, nullptr for fewer than two descendants; identity depends on
+ * child
+ * construction order, lifetime bounded by tab/child. Never delete returned pointer; no ownership
+ * transfer.
+ */
 QComboBox *findRendererCombo(QWidget &tab)
 {
     const auto combos = tab.findChildren<QComboBox *>();

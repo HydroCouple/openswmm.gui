@@ -32,6 +32,16 @@ namespace
 {
 enum Column { ColFlag = 0, ColType = 1, ColValue = 2 };
 
+/**
+ *
+ * @brief Build a detached NODE editing reference and compute its current user-flag summary.
+ * @param model Borrowed model pointer, retained only as the ref's nonowning target;
+ * summary helper tolerates null, but later dialog editing requires a live model.
+ * @param name Borrowed object identity copied verbatim.
+ * @return Owned reference value with copied type/name/summary and borrowed model;
+ * caller keeps model and its engine alive while using the reference/dialog.
+ *
+ */
 UserFlagsEditRef makeRef(UserFlagsModel *model, const QString &name)
 {
     UserFlagsEditRef ref;
@@ -49,6 +59,14 @@ class TestUserFlagValuesDialog : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require null/empty models to show no definitions, defined-but-unset to show none
+     * set, and one assignment to show one-of-two.
+     * Uses native flags without creating actual node topology and destroys the engine on
+     * the success path; no dialog or filesystem operation.
+     *
+     */
     void summaryHelper()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -73,6 +91,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require staged boolean YES and blank integer edits to commit set/clear and recompute
+     * the one-of-two summary.
+     * Checks loaded values/unset combo, shared accessibility assertions, write flag and
+     * native found/value results. Confirmations disabled; no file serialization or undo.
+     *
+     */
     void stagedEditRoundTrip()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -115,6 +141,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require noninteger text for an Integer flag to fail with a diagnostic and leave no
+     * assigned value.
+     * Checks wroteAnyChanges false and found false; no earlier successful rows exist to
+     * exercise multirow rollback.
+     *
+     */
     void engineRejectsBadTypedValue()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -138,6 +172,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require unchanged Apply on an existing string assignment to succeed without marking
+     * writes.
+     * Confirmations disabled; does not separately compare stored value after Apply or save
+     * an input file.
+     *
+     */
     void noopApplyWritesNothing()
     {
         SWMM_Engine eng = swmm_engine_new();

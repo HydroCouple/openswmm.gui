@@ -40,14 +40,35 @@ namespace
  *  once per burn, not per frame, and the invert is where accuracy is won. */
 constexpr int kSectionSamples = 128;
 
+/**
+ * @brief Copy a readable engine link ID into independently owned Unicode text.
+ * @param[in] eng Borrowed live stable engine, not closed/mutated concurrently, read only.
+ * @param[in] idx Zero-based link index; engine handles invalid indices by returning no
+ * identifier.
+ * @return UTF-8-decoded identifier, empty for null/empty engine ID. Never frees or retains
+ * engine-owned character pointer; no model mutation or filesystem access.
+ */
 QString linkId(SWMM_Engine eng, int idx)
 {
     const char *id = swmm_link_id(eng, idx);
     return (id && *id) ? QString::fromUtf8(id) : QString();
 }
 
-/*! The [TRANSECTS] entry behind an IRREGULAR section, modifiers applied to a
- *  copy exactly as the engine and the GUI spell them. */
+/**
+ * @brief Copy raw transect geometry, bank/roughness metadata and modifiers into a section.
+ * @param[in] eng Borrowed live stable engine, queried read only on model-owning thread.
+ * @param[in] transectIdx Zero-based transect index; fewer than two readable stations fails.
+ * @param[out] reason Optional borrowed diagnostic, set on insufficient/unreadable station
+ * failure, not cleared on success and not retained.
+ * @return Owned section in model units using sectionFromTransect(). Individual failed station
+ * reads skip; optional bank/roughness/modifier getter failures leave local NaN/default values.
+ * Equal/reversed banks are unset. Horizontal factor and elevation offset are applied to copies,
+ * length factor is read but not used here. Does not mutate model or fully validate reconstructed
+ * station geometry.
+ *
+ * @details The [TRANSECTS] entry behind an IRREGULAR section, modifiers applied to a copy
+ * exactly as the engine and the GUI spell them.
+ */
 SectionGeometry transectSection(SWMM_Engine eng, int transectIdx, QString *reason)
 {
     SectionGeometry g;

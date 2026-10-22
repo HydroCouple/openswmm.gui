@@ -62,6 +62,12 @@ namespace
 class RetentionCurves : public QWidget
 {
 public:
+    /**
+     * @brief Build a small borrowed-material retention/conductivity plot widget.
+     * @param[in] parent Optional Qt owner; sets a 185-pixel minimum height and no engine
+     * ownership.
+     * @details Caller populates public material/porosity values before requesting repaint.
+     */
     explicit RetentionCurves(QWidget *parent) : QWidget(parent)
     {
         setMinimumHeight(185);
@@ -71,6 +77,15 @@ public:
     double porosity = 0;
 
 protected:
+    /**
+     * @brief Plot sampled van Genuchten moisture and relative conductivity against log suction.
+     * @details The unnamed paint event is ignored and the whole widget is drawn. Requires
+     * alpha>0, n>1, porosity>theta_r and l>=0 for plotting; otherwise shows a parameter-entry
+     * prompt. Samples 201 suction heads from 0.001 to 1000 metres, drawing
+     * moisture/relative-conductivity curves on the zero-to-one vertical scale. Reads stored
+     * material values without converting or editing them; this is a schematic, not solver
+     * validation.
+     */
     void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);
@@ -123,6 +138,14 @@ class TreatmentRateDelegate final : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
+    /**
+     * @brief Allocate a native numeric treatment-rate editor for the table column.
+     * @param[in] parent Optional Qt owner of the returned editor.
+     * @param[in] index Borrowed target index; column one uses removal range 0..100 percent and
+     * step one, other columns 0..1e12 and step 0.01.
+     * @return New QDoubleSpinBox with eight decimals and keyboard tracking disabled;
+     * parent/caller owns it. The unnamed style option is ignored.
+     */
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
                           const QModelIndex &index) const override
     {
@@ -133,10 +156,26 @@ public:
         spin->setKeyboardTracking(false);
         return spin;
     }
+    /**
+     * @brief Hydrate a treatment-rate spin box from the cell's edit-role numeric value.
+     * @param[in,out] editor Non-null QDoubleSpinBox produced by createEditor(), assumed by
+     * static_cast.
+     * @param[in] index Borrowed source cell; toDouble() and Qt widget range/precision determine
+     * displayed value.
+     * @details Does not write model data or block editor signals.
+     */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override
     {
         static_cast<QDoubleSpinBox *>(editor)->setValue(index.data(Qt::EditRole).toDouble());
     }
+    /**
+     * @brief Interpret pending numeric text and commit it to the treatment model cell.
+     * @param[in,out] editor Non-null QDoubleSpinBox produced by this delegate; interpretText()
+     * settles its current value.
+     * @param[in,out] model Non-null borrowed model receiving setData(Qt::EditRole).
+     * @param[in] index Borrowed target cell passed unchanged.
+     * @details Setter success is not inspected and no arguments are retained.
+     */
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &index) const override
     {
@@ -145,6 +184,15 @@ public:
         model->setData(index, spin->value(), Qt::EditRole);
     }
 };
+/**
+ * @brief Allocate a four-decimal native LID numeric editor.
+ * @param[in] parent Optional Qt parent taking ownership of the new control.
+ * @param[in] minV Lower bound passed to Qt; caller supplies an ordered finite range.
+ * @param[in] maxV Upper bound passed to Qt.
+ * @param[in] step Single-step increment passed to Qt, in the field's native units.
+ * @return Newly allocated spin box owned by parent/caller; no automatic physical-unit
+ * conversion.
+ */
 QDoubleSpinBox *makeSpin(QWidget *parent, double minV, double maxV, double step)
 {
     auto *s = new QDoubleSpinBox(parent);
@@ -1032,8 +1080,8 @@ void LidControlEditorDialog::refreshLayerDiagram_()
         in.lengthLabel = us->lengthLabel();
 
     // Highlight the layer whose tab is in front. Tab order is fixed at build
-    // time (Surface / Soil / Storage / Drain); Drain is not a layer, so it
-    // highlights the lowest storage-like layer instead of nothing.
+    // time (Surface / Soil / Storage / Drain). Drain is not a layer, so it
+    // leaves the explicit active-layer highlight unset.
     if (m_tabs) {
         switch (m_tabs->currentIndex()) {
         case 0:

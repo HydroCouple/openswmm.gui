@@ -30,6 +30,15 @@ using openswmmvis::ui::ExportLayerDialog;
 namespace
 {
 
+/**
+ *
+ * @brief Build detached export options for junctions, conduits and an initially unchecked empty
+ * subcatchment category.
+ * @return Owned setup with results enabled, source label EPSG25832, project directory
+ * /data/project and model_objects basename. Does not create/open files or validate the
+ * assumed directory; dialog tests only collect options.
+ *
+ */
 ExportDialogSetup swmmSetup()
 {
     ExportDialogSetup s;
@@ -54,6 +63,14 @@ class TestExportLayerDialog : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require default GPKG setup to resolve one destination file, checked category IDs0/4
+     * and expected option defaults.
+     * Checks results enabled, add-to-map false, empty target CRS override and no validation
+     * error. No actual GeoPackage is written.
+     *
+     */
     void geoPackageIsTheDefaultAndOneFile()
     {
         ExportLayerDialog dlg(swmmSetup());
@@ -68,6 +85,14 @@ private slots:
         QVERIFY(dlg.validationError().isEmpty());
     }
 
+    /**
+     *
+     * @brief Require Shapefile selection to build a folder plus per-category paths and include a
+     * newly checked third item.
+     * Skips when the driver is unavailable; checks planned paths/count only, without writing
+     * files or testing empty-source export results.
+     *
+     */
     void singleLayerFormatsWriteAFolder()
     {
         if (!openswmmvis::io::gdalcaps::driverAvailable("ESRI Shapefile"))
@@ -82,6 +107,13 @@ private slots:
         QCOMPARE(dlg.targetPaths().size(), 3);
     }
 
+    /**
+     *
+     * @brief Require the CRS label to show the source initially and WGS84 after GeoJSON
+     * selection.
+     * Skips if GeoJSON unavailable; no coordinate transformation, export or target WKT check.
+     *
+     */
     void geoJsonSaysWgs84()
     {
         if (!openswmmvis::io::gdalcaps::driverAvailable("GeoJSON"))
@@ -94,6 +126,14 @@ private slots:
         QVERIFY(label->text().contains(QStringLiteral("WGS 84")));
     }
 
+    /**
+     *
+     * @brief Require an explicitly chosen destination string to remain unchanged across a format
+     * switch.
+     * Keeps the authored .gpkg suffix even after GeoJSON choice; does not validate resulting
+     * file extension, driver availability or export content.
+     *
+     */
     void aUserDestinationSurvivesAFormatChange()
     {
         ExportLayerDialog dlg(swmmSetup());
@@ -102,6 +142,13 @@ private slots:
         QCOMPARE(dlg.destination(), QStringLiteral("/elsewhere/out.gpkg"));
     }
 
+    /**
+     *
+     * @brief Require no checked categories and later an empty destination to produce validation
+     * errors.
+     * Checks nonempty diagnostics only, without trying to accept or write the dialog.
+     *
+     */
     void nothingTickedIsRefused()
     {
         ExportLayerDialog dlg(swmmSetup());
@@ -113,6 +160,15 @@ private slots:
         QVERIFY(!dlg.validationError().isEmpty());
     }
 
+    /**
+     *
+     * @brief Require protected destination aliases and file-mode directory destinations to be
+     * refused before export.
+     * Checks cleaned-path equivalence, folder diagnostic, and when Shapefile exists a
+     * protected per-layer output inside its destination folder. A different folder is valid;
+     * no file replacement is attempted and symlink aliases are not tested.
+     *
+     */
     void theSourceAndTheFeatureStoreAreNeverReplaced()
     {
         ExportDialogSetup s = swmmSetup();
@@ -146,6 +202,14 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Require vector selected-only to disable without selection and become usable when
+     * selection metadata is present.
+     * Checks absence of results checkbox, selectedOnly getter and sole checked item0;
+     * no real feature selection or file export occurs.
+     *
+     */
     void selectedOnlyNeedsASelection()
     {
         ExportDialogSetup s;
@@ -165,6 +229,13 @@ private slots:
         QCOMPARE(with.checkedItems(), QList<int>{0}); // no checklist: the one item
     }
 
+    /**
+     *
+     * @brief Require raster setup to default to GTiff/.tif with no selected-only or add-to-map
+     * controls.
+     * Checks collected destination/options only, without creating a raster or sampling pixels.
+     *
+     */
     void rasterExportIsOneGeoTiff()
     {
         ExportDialogSetup s;

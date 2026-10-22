@@ -41,6 +41,15 @@ namespace
 
 // Two junctions + one conduit C1 (J1 → J2). Mirrors the fixture in
 // test_linkpropertyadapter.cpp.
+/**
+ *
+ * @brief Allocate a BUILDING engine with two junctions and an attempted conduit binding between
+ * them.
+ * @return Caller-owned engine, destroyed with swmm_engine_destroy(), or null if allocation
+ * fails. Individual add/index/set-nodes statuses are unchecked; caller assertions cover
+ * needed behavior. No geometry initialization or solver run.
+ *
+ */
 SWMM_Engine buildFixture()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -66,6 +75,13 @@ private slots:
     // Pure text builders
     // ====================================================================
 
+    /**
+     *
+     * @brief Pin four native node labels, virtual/inlet GUI pseudo-types and empty labels for
+     * invalid values.
+     * No conversion, dialog or native engine is involved.
+     *
+     */
     void nodeLabels()
     {
         QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_JUNCTION), QStringLiteral("Junction"));
@@ -81,6 +97,12 @@ private slots:
         QVERIFY(TypeConversionFlow::nodeTypeLabel(6).isEmpty());
     }
 
+    /**
+     *
+     * @brief Pin all five native link labels and empty labels for minus one/five.
+     * No conversion or model layer is instantiated.
+     *
+     */
     void linkLabels()
     {
         QCOMPARE(TypeConversionFlow::linkTypeLabel(SWMM_LINK_CONDUIT), QStringLiteral("Conduit"));
@@ -92,6 +114,14 @@ private slots:
         QVERIFY(TypeConversionFlow::linkTypeLabel(5).isEmpty());
     }
 
+    /**
+     *
+     * @brief Require pure confirmation text to mention node/link identity and source/destination
+     * types.
+     * Checks cleared warning for node conversion only; no modal confirmation or HTML-escaping
+     * edge case is exercised.
+     *
+     */
     void confirmTextMentionsNameAndBothTypes()
     {
         const QString t = TypeConversionFlow::confirmText(
@@ -109,6 +139,14 @@ private slots:
         QVERIFY(l.contains(QStringLiteral("Pump")));
     }
 
+    /**
+     *
+     * @brief Require cleared-only, warning-only, both and neither summary variants to
+     * include/exclude their section text.
+     * Checks representative supplied strings and no-side-effects wording; no rendered HTML,
+     * escaping or native conversion occurs.
+     *
+     */
     void summaryHtmlVariants()
     {
         // Cleared only.
@@ -145,6 +183,14 @@ private slots:
     // Engine conversion contract (what the layer methods wrap)
     // ====================================================================
 
+    /**
+     *
+     * @brief Require conduit-to-pump conversion to return/store Pump and retain both native
+     * endpoint indices.
+     * Frees conversion-result allocations then destroys the engine on success; early Qt
+     * assertion return lacks scope cleanup. No hydraulic initialization or GUI action.
+     *
+     */
     void linkConvertPreservesEndpoints()
     {
         SWMM_Engine e = buildFixture();
@@ -173,6 +219,13 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require conduit-to-conduit conversion to return BADPARAM.
+     * Frees the result and engine on success; does not independently compare all post-refusal
+     * model fields or error text.
+     *
+     */
     void sameTypeConvertIsRejected()
     {
         SWMM_Engine e = buildFixture();
@@ -186,6 +239,15 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require junction-to-storage conversion and counted cleared-field strings to marshal
+     * safely.
+     * Checks native/result new type, nonnegative count, each counted pointer nonnull and
+     * copied-list length. Does not inspect an extra null terminator after n_cleared despite
+     * the older comment's broader claim. Frees result/engine on the successful path.
+     *
+     */
     void nodeConvertMarshalsResult()
     {
         SWMM_Engine e = buildFixture();
@@ -224,30 +286,87 @@ private slots:
 // ----------------------------------------------------------------------------
 #include "layers/swmmmodellayer.h"
 
-bool SWMMModelLayer::applyNodeConvert(const QString &, int, QStringList *, QStringList *, QString *)
+/**
+ *
+ * @brief Refuse node conversion in the unused isolated-link stand-in.
+ * @param name Borrowed ignored identity.
+ * @param type Ignored requested type.
+ * @param cleared Optional borrowed output, left unchanged.
+ * @param warnings Optional borrowed output, left unchanged.
+ * @param error Optional borrowed output, left unchanged.
+ * @return Always false, with no native edit, signal or retained reference.
+ *
+ */
+bool SWMMModelLayer::applyNodeConvert(const QString &name, int type, QStringList *cleared,
+                                      QStringList *warnings, QString *error)
 {
     return false;
 }
-bool SWMMModelLayer::applyLinkConvert(const QString &, int, QStringList *, QStringList *, QString *)
+/**
+ *
+ * @brief Refuse link conversion in the unused isolated-link stand-in.
+ * @param name Borrowed ignored identity.
+ * @param type Ignored requested type.
+ * @param cleared Optional borrowed output, left unchanged.
+ * @param warnings Optional borrowed output, left unchanged.
+ * @param error Optional borrowed output, left unchanged.
+ * @return Always false, with no native edit, signal or retained reference.
+ *
+ */
+bool SWMMModelLayer::applyLinkConvert(const QString &name, int type, QStringList *cleared,
+                                      QStringList *warnings, QString *error)
 {
     return false;
 }
-bool SWMMModelLayer::applySetVirtual(const QString &, bool, QString *)
+/**
+ *
+ * @brief Refuse virtual-node mutation in the unused isolated-link stand-in.
+ * @param name Borrowed ignored identity.
+ * @param enabled Ignored requested flag.
+ * @param error Optional borrowed output, left unchanged.
+ * @return Always false without native access or retained references.
+ *
+ */
+bool SWMMModelLayer::applySetVirtual(const QString &name, bool enabled, QString *error)
 {
     return false;
 }
 // Inlet-junction promotion / demotion + the usage row run() and
 // runToInletJunction() touch. Same never-called link-time stubs.
-bool SWMMModelLayer::applySetInlet(const QString &, bool, QString *)
+/**
+ *
+ * @brief Refuse inlet-node mutation in the unused isolated-link stand-in.
+ * @param name Borrowed ignored identity.
+ * @param enabled Ignored requested flag.
+ * @param error Optional borrowed output, left unchanged.
+ * @return Always false without native access or retained references.
+ *
+ */
+bool SWMMModelLayer::applySetInlet(const QString &name, bool enabled, QString *error)
 {
     return false;
 }
-bool SWMMModelLayer::applySetInletUsage(const SWMM_InletUsage &, QString *)
+/**
+ *
+ * @brief Refuse inlet-usage mutation in the unused isolated-link stand-in.
+ * @param usage Borrowed ignored native record; embedded names are not retained.
+ * @param error Optional borrowed output, left unchanged.
+ * @return Always false without native access, copy or retained references.
+ *
+ */
+bool SWMMModelLayer::applySetInletUsage(const SWMM_InletUsage &usage, QString *error)
 {
     return false;
 }
 // run() reads the engine handle to probe the inlet flag before deciding how
 // to demote; nullptr short-circuits that probe.
+/**
+ *
+ * @brief Return no engine from the unused isolated-link stand-in.
+ * @return Null borrowed handle; no allocation. These stand-ins only link the uncalled
+ * modal conversion path and are not production model behavior.
+ *
+ */
 SWMM_Engine SWMMModelLayer::engine() const
 {
     return nullptr;

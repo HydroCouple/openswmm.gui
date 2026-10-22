@@ -47,6 +47,19 @@ namespace
 
 // J1→J2 with a single link of the requested type (0=Conduit, 1=Pump,
 // 2=Orifice, 3=Weir, 4=Outlet). The engine seeds a CIRCULAR section.
+/**
+ * @brief Allocate a BUILDING engine containing J1/J2 and one requested link joining them.
+ * @param[in] id Required borrowed NUL-terminated link ID, copied by engine, not retained by
+ * helper.
+ * @param[in] linkType Engine link-type code, intended Conduit/Pump/Orifice/Weir/Outlet,
+ * unchecked here.
+ * @return Owning engine handle or nullptr allocation failure; caller destroys it. Subsequent
+ * node/link/
+ * endpoint edit statuses are not checked, so nonnull does not certify successful complete
+ * fixture.
+ * No initialization, simulation or disk access; adapters must not outlive usable borrowed
+ * handle.
+ */
 SWMM_Engine buildLinkFixture(const char *id, int linkType)
 {
     SWMM_Engine e = swmm_engine_new();
@@ -70,6 +83,13 @@ private slots:
 
     // -- Shared applicability helper ------------------------------------
 
+    /**
+     * @brief Verify shape-specific dimension applicability/labels and absent tabulated-shape
+     * dimensions, including invalid ordinals.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void applicabilityHelper()
     {
         using namespace openswmmvis;
@@ -102,6 +122,13 @@ private slots:
 
     // -- Adapter read-modify-write round-trip ---------------------------
 
+    /**
+     * @brief Verify rectangular-conduit inline geom edits preserve shape/sibling values and emit
+     * one change notification.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void roundTripPreservesShapeAndSiblings()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
@@ -141,6 +168,13 @@ private slots:
     //! to be a no-op, which meant a CIRCULAR conduit offered three dead,
     //! permanently blank geom fields and silently discarded a width typed
     //! before switching to RECT_CLOSED.
+    /**
+     * @brief Verify unused circular geom2 remains writable/stored and survives a later switch to
+     * rectangular shape.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void geomWritableEvenWhenShapeDoesNotUseIt()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
@@ -176,6 +210,13 @@ private slots:
     //! IRREGULAR (and STREET) geom1 holds a transect-list INDEX, so a raw
     //! number would silently re-point the section at another transect.
     //! Its siblings are plain unused storage and stay writable.
+    /**
+     * @brief Verify IRREGULAR geom1 transect index rejects numeric editing without a signal
+     * while unused geom2 remains writable.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void pickerIndexGeomRejectsInlineWrite()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
@@ -209,6 +250,13 @@ private slots:
 
     //! CUSTOM is the mixed case: geom1 is a real depth, geom2 is a
     //! shape-curve index.
+    /**
+     * @brief Verify CUSTOM locks curve-index geom2 but retains real-depth geom1, with
+     * corresponding IRREGULAR/STREET index rules.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void customShapeLocksOnlyItsCurveIndex()
     {
         using namespace openswmmvis;
@@ -224,6 +272,13 @@ private slots:
 
     // -- Metaobject contract --------------------------------------------
 
+    /**
+     * @brief Verify Conduit geom properties are writable/notifying, Orifice/Weir expose them and
+     * Pump/Outlet omit them.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void geomsWritableOnXsectionKindsOnly()
     {
         const QStringList geoms = {
@@ -281,6 +336,13 @@ private slots:
     // Initial-quality UI round — link-side "Initial Quality" cell
     // ====================================================================
 
+    /**
+     * @brief Verify link initial-quality identity/summary excludes same-index node rows and
+     * counts an authored TSS link row.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void initialQualityRefTracksEngineRows()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
@@ -319,6 +381,13 @@ private slots:
     // must NOT expose. Reading through the meta-object catches READ-
     // accessor typos moc only surfaces at runtime; the never-run editing
     // engine yields zeros.
+    /**
+     * @brief Verify shared statistics read-only zero before simulation, pump-only utilization
+     * rows and idempotent stats-source notifications.
+     * @note Builds/destroys local editing engines and uses adapters borrowing those handles
+     * within the case. No simulation or project file write; assertions can return early before
+     * explicit destruction on failure.
+     */
     void statRowsPerSubclassReadOnlyZeroPreRun()
     {
         const QStringList shared = {

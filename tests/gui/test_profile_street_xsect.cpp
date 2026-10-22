@@ -51,17 +51,67 @@ class TestProfileStreetXsect : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Open the street-inlet engine fixture with report/output targets under configured
+     * review directory.
+     * @note Creates output directory and engine, asserts open success; engine remains
+     * fixture-owned until
+     * cleanupTestCase. Writes only configured ps.rpt/ps.out artifacts, does not run hydraulic
+     * simulation.
+     */
     void initTestCase();
+    /**
+     * @brief Destroy the fixture's open engine when present and clear its owning handle.
+     * @note Safe for null setup result, no assertions or source input changes; releases engine
+     * resources.
+     */
     void cleanupTestCase();
 
+    /**
+     * @brief Verify STREET full depth comes from resolved section geometry rather than geom1
+     * table index.
+     * @note C1 street index zero still yields positive plausible 0.05..5 ft depth equal to
+     * sampler yFull,
+     * and differs from index-derived 1+g1. Reads existing fixture only, no simulation/model
+     * edits.
+     */
     void streetDepthIsTheSectionDepthNotTheStreetIndex();
+    /**
+     * @brief Verify profile presentation draws STREET open while engine fullProps still
+     * classifies it closed.
+     * @note C1 sampler valid, openTop true from adapter and engine-open false; explicit
+     * regression gate for
+     * intentional presentation policy, no shape/engine mutation.
+     */
     void streetIsDrawnOpenTopped();
+    /**
+     * @brief Verify ordinary circular pipe retains geom1 full depth and a closed profile crown.
+     * @note D1 depth equals raw g1 and fixture 1.5 ft, openTop false; read-only engine fixture
+     * path.
+     */
     void closedPipeKeepsGeom1AndStaysClosed();
 
 private:
     SWMM_Engine m_engine = nullptr;
 
-    /*! Read a link's shape + geoms exactly as the profile adapter does. */
+    /**
+     * @brief Read one named link's engine section fields as the profile adapter does.
+     * @param[in] link Required NUL-terminated borrowed engine link ID, not retained; test engine
+     * already open.
+     * @param[out] shape Borrowed shape enum output, assigned by successful engine getter; may be
+     * unchanged on failure.
+     * @param[out] g1 Borrowed first geometry output, section-dependent (STREET index versus
+     * ordinary depth).
+     * @param[out] g2 Borrowed second engine-authored geometry output, shape-dependent.
+     * @param[out] g3 Borrowed third geometry output, shape-dependent.
+     * @param[out] g4 Borrowed fourth geometry output, shape-dependent.
+     * @param[out] idx Borrowed zero-based link index, assigned before getter, -1 on lookup miss.
+     * @return True for found link and SWMM_OK getter; false otherwise, other outputs can retain
+     * prior values.
+     * No engine mutation or output retention; all numeric fields retain model convention.
+     *
+     * @details Read a link's shape + geoms exactly as the profile adapter does.
+     */
     bool readXsect(const char *link, int &shape, double &g1, double &g2, double &g3, double &g4,
                    int &idx) const
     {

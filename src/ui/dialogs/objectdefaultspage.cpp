@@ -24,6 +24,14 @@
 namespace
 {
 
+/**
+ * @brief Allocate an unparented nonnegative numeric defaults editor.
+ * @param[in] max Upper bound passed to QDoubleSpinBox::setRange(0,max); caller supplies a
+ * nonnegative finite bound.
+ * @param[in] decimals Decimal precision passed to Qt, which applies its own supported limits.
+ * @return Newly allocated spin box owned by the caller until a page/layout adopts it;
+ * initialized range is zero through max.
+ */
 QDoubleSpinBox *makeSpin(double max, int decimals)
 {
     auto *s = new QDoubleSpinBox;
@@ -32,7 +40,15 @@ QDoubleSpinBox *makeSpin(double max, int decimals)
     return s;
 }
 
-//! Combo whose currentData() carries the keyword the struct stores.
+/**
+ * @brief Allocate an unparented keyword-backed defaults combo.
+ * @param[in] labelKeyword Borrowed ordered pairs of display labels and stored keyword strings,
+ * copied into item text/data.
+ * @return Newly allocated combo; caller or its adopting Qt layout/parent owns it. Empty input
+ * yields an empty combo.
+ *
+ * @details Combo whose currentData() carries the keyword the struct stores.
+ */
 QComboBox *makeCombo(const QList<QPair<QString, QString>> &labelKeyword)
 {
     auto *c = new QComboBox;
@@ -41,6 +57,13 @@ QComboBox *makeCombo(const QList<QPair<QString, QString>> &labelKeyword)
     return c;
 }
 
+/**
+ * @brief Select an exact stored keyword or fall back to the first combo row.
+ * @param[in,out] c Non-null borrowed combo whose current index is updated; not retained.
+ * @param[in] keyword Data value matched by findData() using Qt's default role/matching policy.
+ * @details Selects zero when absent; an empty combo remains without a valid item. Signals are
+ * not blocked here.
+ */
 void selectData(QComboBox *c, const QString &keyword)
 {
     const int i = c->findData(keyword);

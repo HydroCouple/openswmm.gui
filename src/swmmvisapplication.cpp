@@ -40,7 +40,7 @@
 #include "ui/theme/thememanager.h"
 #include "platform/macoswindowutils.h"
 
-/*! \class SWMMVisCoreApplication
+/* \class SWMMVisCoreApplication
  * \brief The SWMMVisCoreApplication class is a subclass of QCoreApplication.
  *
  * The SWMMVisCoreApplication class is a subclass of QCoreApplication.
@@ -59,7 +59,7 @@ SWMMVisCoreApplication::SWMMVisCoreApplication(int &argc, char *argv[])
     setApplicationName("SWMMVis Stormwater Management Model");
 }
 
-/*!
+/*
  * \brief SWMMVisCoreApplication::~SWMMVisCoreApplication
  * The destructor for the SWMMVisCoreApplication class.
  */
@@ -99,7 +99,7 @@ void SWMMVisApplication::reportHandlerException(QObject *receiver, const QString
     });
 }
 
-/*!
+/*
  * \brief SWMMVisApplication::SWMMVisApplication
  * \param argc The number of arguments passed to the application.
  * \param argv The arguments passed to the application.
@@ -280,7 +280,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     });
 }
 
-/*!
+/*
  * \brief SWMMVisApplication::~SWMMVisApplication
  * The destructor for the SWMMVisApplication class.
  */

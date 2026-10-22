@@ -27,15 +27,95 @@ class TestProfilePlotAxisEdges : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     * @brief Verify1D profile gutter identifies four axis endpoints, independently accepts valid
+     * edge edits and refuses min/max crossings.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void profilePlotHitTestsAndSetsEdges();
+    /**
+     * @brief Verify automatic axes fit finite visible geometry/results only, hidden EGL does not
+     * expand range and manual navigation survives live appends.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void liveFitIgnoresMissingAndHiddenOutputs();
+    /**
+     * @brief Verify LID material/aggregate/ponding remain distinct, full column selectable,
+     * tooltips informative and endpoint fit/manual resize behavior preserved.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void lidLayersStayVisibleAndSelectable();
+    /**
+     * @brief Verify bottom-layer ports, reversed paths and compact overflow weirs remain
+     * selectable without fictitious long barrels/walls.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void lidBottomPortsAndCompactWeirs();
+    /**
+     * @brief Verify recorded LID moisture/head coloring, layer-anchored drain tooltip,
+     * missing-state material fallback and wet/dry animation preserve axes.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void lidWaterStatesAnimateWithoutMovingAxes();
+    /**
+     * @brief Register ordinary-conduit and LID-bottom-outlet rows for hydraulic line/glyph
+     * rendering checks.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void hydraulicLinesAndFloodGlyphs_data();
+    /**
+     * @brief Verify HGL/EGL remain visible across periods, flooding glyphs follow rim exceedance
+     * and fit margins/visibility toggles preserve manual view.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void hydraulicLinesAndFloodGlyphs();
+    /**
+     * @brief Verify mesh profile gutter hit tests and four visible-range edits with rejection of
+     * inverted ranges.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void meshProfilePlotHitTestsAndSetsEdges();
+    /**
+     * @brief Verify coarse/dense flat-WSE samples clip at analytic x9.5 shoreline with<=3px
+     * endpoint error and<=1px density dependence.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void inundationClipsToAnalyticShoreline();
+    /**
+     * @brief Verify terrain kink sets shoreline at x9, explicit result gap stays unpainted and
+     * lower display DEM cannot wet dry result bed.
+     * @note GUI-thread local synthetic profile/options/results fixtures; QApplication
+     * rendering/event support required. Optional review images write only when configured
+     * artifact-directory environment variables are nonempty. No engine simulation or project
+     * mutation.
+     */
     void inundationRespectsGroundKnotsAndDryGaps();
 };
 
@@ -95,6 +175,16 @@ void TestProfilePlotAxisEdges::meshProfilePlotHitTestsAndSetsEdges()
 
 namespace
 {
+/**
+ * @brief Render a fixed-range synthetic12-unit profile with translucent red2D inundation.
+ * @param[in] samples Borrowed supplied surface records, copied to local widget, unchanged.
+ * @param[in] ground Borrowed NONEMPTY ground polyline, unchanged; first/last values used
+ * unchecked
+ * for endpoint rim metadata. Coordinates/elevations share fixture units.
+ * @return Owned700x360 premultiplied image; widget borrows stack options only during scope, no
+ * retained
+ * caller pointers, engine/results source or file output. Requires GUI-thread QApplication.
+ */
 QImage renderInundation(const QVector<ProfilePlotWidget::Surface2DSample> &samples,
                         const QVector<QPointF> &ground)
 {
@@ -134,11 +224,26 @@ QImage renderInundation(const QVector<ProfilePlotWidget::Surface2DSample> &sampl
     w.render(&img);
     return img;
 }
+/**
+ * @brief Classify the fixture's translucent red inundation color by RGB thresholds.
+ * @param[in] img Borrowed readable image, unchanged.
+ * @param[in] x Valid horizontal pixel index, unchecked.
+ * @param[in] y Valid vertical pixel index, unchecked.
+ * @return True for red>220, green80..180 exclusive and blue<180. Not a general color/alpha
+ * classifier,
+ * no allocation, source mutation or retention.
+ */
 bool waterPixel(const QImage &img, int x, int y)
 {
     const auto c = img.pixelColor(x, y);
     return c.red() > 220 && c.green() < 180 && c.blue() < 180 && c.green() > 80;
 }
+/**
+ * @brief Find the rightmost image column containing a fixture water-color pixel.
+ * @param[in] img Borrowed image, unchanged; entire extent scanned right-to-left.
+ * @return Pixel x or-1 when absent. No scene geometry inference, allocation, mutation or file
+ * IO.
+ */
 int lastWaterColumn(const QImage &img)
 {
     for (int x = img.width() - 1; x >= 0; --x)
@@ -147,6 +252,14 @@ int lastWaterColumn(const QImage &img)
                 return x;
     return -1;
 }
+/**
+ * @brief Optionally write a review image beneath SWMMVIS_SHORELINE_ARTIFACT_DIR.
+ * @param[in] img Borrowed image, unchanged.
+ * @param[in] name Borrowed safe caller filename, unchanged, appended to configured directory.
+ * Empty environment variable does nothing; otherwise directory creation/image save are
+ * best-effort,
+ * unchecked and can replace existing file. No atomic publication or input retention.
+ */
 void saveInundation(const QImage &img, const QString &name)
 {
     const QString dir = qEnvironmentVariable("SWMMVIS_SHORELINE_ARTIFACT_DIR");
@@ -194,6 +307,12 @@ void TestProfilePlotAxisEdges::inundationRespectsGroundKnotsAndDryGaps()
 
 namespace
 {
+/**
+ * @brief Build a three-node/two-link shallow synthetic profile for fit/LID rendering assertions.
+ * @return Owned nodes N0..N2 at invert100/rim depth2, stations0/500/1000, link depth0.3 and
+ * length500
+ * in common fixture units. No engine, results file, live layer or retained caller storage.
+ */
 ProfileBuilder::PathStatic shallowProfile()
 {
     ProfileBuilder::PathStatic path;

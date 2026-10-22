@@ -36,6 +36,14 @@
 class TestMainWindow : public SWMMVis
 {
 public:
+    /**
+     *
+     * @brief Suppress unsaved prompts and close every descendant project before base-window
+     * destruction.
+     * Sends pending DeferredDelete events globally afterward; does not wait for all worker
+     * jobs here. Project pointers are borrowed during iteration, and Qt owns their deletion.
+     *
+     */
     ~TestMainWindow()
     {
         for (auto *window : findChildren<SWMMVisProjectWindow *>()) {
@@ -50,12 +58,37 @@ class TestDatasetMultiselect : public QObject
 {
     Q_OBJECT
     QString root;
+    /**
+     *
+     * @brief Write a complete byte fixture to a file, truncating existing content.
+     * @param path Borrowed destination path; parent directory must already exist.
+     * @param bytes Borrowed content copied synchronously to QFile.
+     * @return True only if open succeeds and byte count exactly matches; closes on return.
+     * May leave truncated/partial content on failure, without atomic replacement or cleanup.
+     *
+     */
     bool write(const QString &path, const QByteArray &bytes)
     {
         QFile f(path);
         return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size();
     }
+    /**
+     *
+     * @brief Join the initialized fixture root with a slash and supplied name.
+     * @param name Borrowed suffix copied verbatim; expected fixture-relative, not sanitized.
+     * @return Owned string, without canonicalization, existence check or directory creation.
+     *
+     */
     QString path(const QString &name) const { return root + "/" + name; }
+    /**
+     *
+     * @brief Invoke project opening and poll briefly for its editing engine.
+     * @param app Borrowed live main window that owns the resulting project window.
+     * @return Borrowed first descendant project with an engine, or null on invocation/
+     * lookup/load timeout. Polls up to200 times at10ms while delivering Qt events; not proof
+     * all background loads finished. Caller retains app/window lifetime during later actions.
+     *
+     */
     SWMMVisProjectWindow *open(SWMMVis &app)
     {
         if (!QMetaObject::invokeMethod(&app, "onOpenProject", Qt::DirectConnection,
@@ -68,6 +101,20 @@ class TestDatasetMultiselect : public QObject
             QTest::qWait(10);
         return window->modelLayer()->engine() ? window : nullptr;
     }
+    /**
+     *
+     * @brief Drive an application add-dataset slot through a real nonnative multi-file picker.
+     * @param app Borrowed live main window and Qt connection context.
+     * @param slot Borrowed null-terminated Qt method name invoked synchronously.
+     * @param files Borrowed selection paths; must be nonempty unless cancel is true.
+     * @param cancel If true, reject the encountered picker without reading files.first().
+     * @return True only if invocation succeeded and a visited picker used ExistingFiles;
+     * this does not prove acceptance, successful imports or all worker completion. A10ms
+     * local timer fills quoted basenames; absent fileNameEdit rejects. A10-second watchdog
+     * rejects the active modal dialog once. Callbacks borrow locals during modal execution,
+     * and both timers are destroyed on return; logs selected dataset paths.
+     *
+     */
     bool select(SWMMVis &app, const char *slot, const QStringList &files, bool cancel = false)
     {
         bool visited = false, multi = false;
@@ -108,6 +155,15 @@ class TestDatasetMultiselect : public QObject
         const bool invoked = QMetaObject::invokeMethod(&app, slot, Qt::DirectConnection);
         return invoked && visited && multi;
     }
+    /**
+     *
+     * @brief Count currently attached canvas layers of the requested QObject-derived type.
+     * @tparam T Layer class used for qobject_cast, including derived instances.
+     * @param window Borrowed non-null project with a live canvas.
+     * @return Current matching layer count; no wait, mutation, ownership transfer or
+     * background-job completion guarantee.
+     *
+     */
     template <class T> int count(SWMMVisProjectWindow *window)
     {
         int n = 0;
@@ -117,6 +173,17 @@ class TestDatasetMultiselect : public QObject
         return n;
     }
 private slots:
+    /**
+     *
+     * @brief Create persistent valid/broken dataset fixtures and2D/1D result copies for
+     * batch-open cases.
+     * Registers QML renderer types/GDAL, chooses environment or source-relative evidence
+     * root and redirects process-wide INI settings path/format without restoration. Writes
+     * a mini2D deck, runs the engine, copies outputs, disables automatic2D sibling load,
+     * creates vector/CSV/raster/multilayer GeoPackage data and invalid placeholders.
+     * Existing fixture names are overwritten/removed and generated evidence remains.
+     *
+     */
     void initTestCase()
     {
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
@@ -175,6 +242,13 @@ private slots:
         QVERIFY(d->CreateLayer("second", nullptr, wkbPoint));
         GDALClose(d);
     }
+    /**
+     *
+     * @brief Require two valid vector files around one broken input to load as two layers.
+     * Checks attached filenames a/b.geojson, clears project dirty state and waits for the
+     * global pool; no exact diagnostic or layer-order assertion.
+     *
+     */
     void vectorBatchContinuesAfterBadFile()
     {
         TestMainWindow app;
@@ -192,6 +266,14 @@ private slots:
         window->setHasChanges(false);
         QThreadPool::globalInstance()->waitForDone();
     }
+    /**
+     *
+     * @brief Require a raster batch to continue after a broken middle file and attach two valid
+     * rasters.
+     * Waits up to10seconds for layer count, clears dirty state and drains the global worker
+     * pool; no raster pixel/CRS or exact error-message comparison.
+     *
+     */
     void rasterBatchContinuesAfterBadFile()
     {
         TestMainWindow app;
@@ -203,6 +285,14 @@ private slots:
         window->setHasChanges(false);
         QThreadPool::globalInstance()->waitForDone();
     }
+    /**
+     *
+     * @brief Require canceled multi-selection to add no tabular layers and a subsequent two-file
+     * selection to add both.
+     * Uses placeholder CSV fixtures and Qt retry polling; no field mapping or cell-value
+     * assertion and no explicit worker-pool drain in this case.
+     *
+     */
     void delimitedBatchAndCancel()
     {
         TestMainWindow app;
@@ -213,6 +303,15 @@ private slots:
         QVERIFY(select(app, "onAddDelimitedData", {path("a.csv"), path("b.csv")}));
         QTRY_COMPARE(count<TabularDataLayer>(window), 2);
     }
+    /**
+     *
+     * @brief Require rejecting a multilayer GeoPackage's sublayer dialog to permit the next
+     * vector file to load.
+     * A10ms timer detects/rejects the modal sublayer picker, checks it was visited and only
+     * one vector layer attaches, then stops it and drains workers. Callback borrows live
+     * local state during the synchronous add action.
+     *
+     */
     void skippedVectorSublayersContinueBatch()
     {
         TestMainWindow app;
@@ -236,6 +335,15 @@ private slots:
         window->setHasChanges(false);
         QThreadPool::globalInstance()->waitForDone();
     }
+    /**
+     *
+     * @brief Require1D/2D result batches to skip broken inputs, activate the last valid1D run and
+     * deduplicate repeats.
+     * Checks three1D layers including the project-loaded result, active b.out with two
+     * periods, and two2D layers after replay. Mixes retry polling, worker drains and short
+     * waits; no numerical sample or detailed load-error assertion.
+     *
+     */
     void resultBatchesAndDeduplication()
     {
         TestMainWindow app;
@@ -261,6 +369,14 @@ private slots:
         QTest::qWait(100);
         QCOMPARE(count<SWMM2DResultsLayer>(window), 2);
     }
+    /**
+     *
+     * @brief Require deleting the main window after two tabular imports to destroy its project
+     * child.
+     * Uses QPointer to observe deletion; does not separately inspect all layers, engine
+     * handles or worker lifetimes after teardown.
+     *
+     */
     void mainWindowTeardownAfterBatch()
     {
         auto *app = new SWMMVis;
@@ -272,6 +388,14 @@ private slots:
         delete app;
         QVERIFY(target.isNull());
     }
+    /**
+     *
+     * @brief Require deleting a raster batch's target project to leave no descendant raster
+     * layers after workers finish.
+     * Observes target deletion through QPointer, drains the global pool and delivers events;
+     * does not count canceled jobs or assert exact cancellation diagnostics.
+     *
+     */
     void closedTargetStopsBatch()
     {
         TestMainWindow app;

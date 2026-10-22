@@ -32,10 +32,24 @@ public:
     int reads = 0;
     float scale = 1;
     int generation = 0;
+    /** @brief Expose the synthetic square's vertex count.
+     * @return Four vertices. */
     int vertexCount() const override { return 4; }
+    /** @brief Expose the synthetic square's cell count.
+     * @return Two triangles. */
     int triangleCount() const override { return 2; }
+    /** @brief Expose the synthetic variable history length.
+     * @return Two frames. */
     int timeCount() const override { return 2; }
+    /** @brief Expose the manually controlled history revision used by cache tests.
+     * @return The current generation field; tests increment it to invalidate cached history. */
     int historyGeneration() const override { return generation; }
+    /** @brief Replace geometry outputs with a flat two-triangle unit square.
+     * @param[out] x Four x coordinates: 0, 1, 1, 0.
+     * @param[out] y Four y coordinates: 0, 0, 1, 1.
+     * @param[out] z Four zero bed elevations.
+     * @param[out] tris Two zero-based triangles (0,1,2) and (0,2,3).
+     * @return Always true. This synthetic source does not override coordinate-reference metadata. */
     bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z,
                           std::vector<std::array<int, 3>> &tris) override
     {
@@ -45,11 +59,18 @@ public:
         tris = {{0, 1, 2}, {0, 2, 3}};
         return true;
     }
+    /** @brief Return two dry surface cells regardless of the requested frame.
+     * The unnamed frame index is intentionally ignored and not validated.
+     * @param[out] d Replaced with two zero depths.
+     * @return Always true. */
     bool readDepthsAt(int, std::vector<float> &d) override
     {
         d = {0, 0};
         return true;
     }
+    /** @brief Describe one saturated-groundwater Nitrate variable in mg/L.
+     * The optional unnamed diagnostic-list pointer is ignored and left untouched.
+     * @return A single descriptor with a stable dataset/species/domain/zone key, known units and two frames. */
     QVector<Mesh2DResultVariable> faceVariables(QStringList * = nullptr) const override
     {
         Mesh2DResultVariable v;
@@ -63,6 +84,12 @@ public:
         v.frameCount = 2;
         return {v};
     }
+    /** @brief Read the synthetic variable while counting every read attempt.
+     * @param[in] v Descriptor whose key must equal this source's sole advertised variable key.
+     * @param[in] t Zero-based frame index, restricted to 0 or 1.
+     * @param[out] values Replaced on success with (10*t*scale, 2*scale) in the advertised mg/L units; unchanged on failure.
+     * @param[out] status Replaced on success with Valid for cell zero and Waterless for cell one at frame zero, otherwise Valid; unchanged on failure.
+     * @return True for an accepted key/frame, false otherwise. The reads counter increments even on rejected requests. */
     bool readFaceVariableAt(const Mesh2DResultVariable &v, int t, std::vector<float> &values,
                             std::vector<Mesh2DValueStatus> &status) override
     {
@@ -79,11 +106,15 @@ class TestResultVariables : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Verify native scalar contours cache geometry and render nonempty CPU pixels and scene-graph vertices.
+     * Checks half-opacity propagation and presented-frame availability, switches to CPU labels and checks nonempty text rendering, then depopulates the scene. Scene-graph geometry is inspected without requiring GPU readback. */
     void nativeScalarContoursAndLabelsUseBothRenderPaths()
     {
         class Renderer : public SWMM2DResultsQSGRenderer
         {
         public:
+            /** @brief Build a fresh test renderer scene graph by invoking the protected paint-node hook.
+             * Returns: Newly returned scene-tree root, owned by the test's unique pointer; may be nullptr when no content is produced. */
             QSGNode *sync() { return updatePaintNode(nullptr, nullptr); }
         };
         SWMM2DResultsLayer layer;
@@ -160,6 +191,8 @@ private slots:
         QVERIFY(painted > 0);
         layer.depopulateScene(&scene);
     }
+    /** @brief Verify an authored two-cell HDF5 species fixture preserves native units, wet-zero and waterless statuses through reader, style restore and CSV export.
+     * Distinguishes explicitly declared surface mg/L from unknown groundwater units and wet groundwater under dry surface; retains the HDF5 and CSV under SWMMVIS_RESULTS_TEST_OUTPUT or the source-relative artifact directory. */
     void hdf5SpeciesRoundTripRendersNativeValuesAndExportsCsv()
     {
         const QString root = qEnvironmentVariable(
@@ -172,6 +205,8 @@ private slots:
         const QString path = QDir(root).filePath("two_cell_species.h5");
         struct FileGuard {
             hid_t id;
+            /** @brief Close the owned HDF5 file when its identifier remains nonnegative.
+             * The test sets id to -1 after an explicit successful close; destructor close errors are ignored. */
             ~FileGuard()
             {
                 if (id >= 0)
@@ -179,6 +214,11 @@ private slots:
             }
         } file{H5Fcreate(path.toUtf8().constData(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT)};
         QVERIFY(file.id >= 0);
+        /** @brief Create and write one fixed-size null-terminated HDF5 string attribute.
+         * Argument `ds`: Borrowed valid dataset identifier; ownership remains with the caller.
+         * Argument `name`: Required attribute name accepted by HDF5.
+         * Argument `value`: Attribute bytes, stored in a type sized to value.size()+1.
+         * Returns: True when type/space/attribute creation and writing succeed, false otherwise; closes all locally created handles but does not check close errors. */
         auto attr = [](hid_t ds, const char *name, const QByteArray &value) {
             const hid_t type = H5Tcopy(H5T_C_S1), space = H5Screate(H5S_SCALAR);
             bool ok = type >= 0 && space >= 0 && H5Tset_size(type, size_t(value.size() + 1)) >= 0;
@@ -192,6 +232,14 @@ private slots:
                 H5Tclose(type);
             return ok;
         };
+        /** @brief Create a numeric fixture dataset in the captured owned HDF5 file.
+         * Argument `name`: Required dataset name.
+         * Argument `dims`: Dimensions whose product must match the supplied values; not checked locally.
+         * Argument `values`: Contiguous double payload of the required size.
+         * Argument `units`: Optional units attribute; nullptr omits it.
+         * Argument `species`: Add a Nitrate species_names attribute when true.
+         * Argument `declaredSpeciesUnits`: Add a species_units attribute of mg/L when true.
+         * Returns: True when dataset creation, payload and requested attributes succeed; closes local handles on every path and leaves any partially written dataset in the fixture file on failure. */
         auto dataset = [&](const char *name, const std::vector<hsize_t> &dims,
                            const std::vector<double> &values, const char *units = nullptr,
                            bool species = false, bool declaredSpeciesUnits = false) {
@@ -287,6 +335,8 @@ private slots:
         QVERIFY(bytes.contains(",0,12.5,valid,\"mg/L\"\n"));
         QVERIFY(bytes.contains(",1,4,waterless,\"mg/L\"\n"));
     }
+    /** @brief Verify valid zero is distinct from waterless cells and cached frames invalidate on history revision or source replacement.
+     * Checks read counts, scaled ranges and immutability of an already published frame. */
     void framesKeepZeroSeparateAndCacheBySourceHistory()
     {
         SWMM2DResultsLayer layer;
@@ -312,6 +362,8 @@ private slots:
         QCOMPARE(layer.resultFrame(key, 1)->maximum, 40.);
         QCOMPARE(f->values[0], 0.f); // published frame remains immutable
     }
+    /** @brief Verify whole-run range spans all valid samples and is reused for the next frame.
+     * Checks only one extra read for that frame, an unavailable variable error and empty values for an out-of-range frame. */
     void wholeRunIncludesEveryFrameAndCachesRange()
     {
         SWMM2DResultsLayer layer;
@@ -330,6 +382,8 @@ private slots:
         QVERIFY(!layer.resultFrame("missing", 0)->error.isEmpty());
         QVERIFY(layer.resultFrame(key, 8)->values.empty());
     }
+    /** @brief Verify duplicate variable sublayers keep distinct IDs and styles across JSON restore.
+     * Malformed structures leave both live sublayers intact; restoring the original base snapshot removes the added sublayers. */
     void independentlyStyledVariablesRestoreAndRollbackStructure()
     {
         SWMM2DResultsLayer layer;
@@ -375,11 +429,16 @@ private slots:
         QVERIFY(!ISublayerHost::findSublayer(layer, aid));
         QVERIFY(!ISublayerHost::findSublayer(layer, bid));
     }
+    /** @brief Verify saturated-groundwater scalar colors render over a dry surface in CPU pixels and scene-graph geometry.
+     * Requires six colored vertices, removes the scalar sublayer and verifies its colored geometry disappears. */
     void cpuAndQsgRenderGroundwaterOnDrySurfaceAndRemoveIt()
     {
         class Renderer : public SWMM2DResultsQSGRenderer
         {
         public:
+            /** @brief Synchronize a test scene tree through the protected renderer hook.
+             * Argument `old`: Nullable existing tree whose ownership is passed into updatePaintNode; the caller must release any owning pointer before supplying it.
+             * Returns: Updated/replacement root to adopt into the caller's owning pointer; the hook may reuse or replace the supplied tree. */
             QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
         };
         SWMM2DResultsLayer layer;
@@ -412,6 +471,8 @@ private slots:
         std::unique_ptr<QSGNode> root(renderer.sync());
         QVERIFY(root);
         bool colorsMatch = true;
+        /** @brief Count opaque colored-point vertices in the captured scene tree and accumulate the red-color match flag.
+         * Returns: count of vertices with alpha greater than zero in two-attribute geometry; updates captured colorsMatch by requiring red=255 and green=0 for each counted vertex. The current root must exist. */
         auto coloredVertices = [&] {
             int count = 0;
             QVector<QSGNode *> pending{root.get()};
@@ -440,6 +501,8 @@ private slots:
         root.reset(renderer.sync(root.release()));
         QCOMPARE(coloredVertices(), 0);
     }
+    /** @brief Verify additional scalar fields retain the complete old frame until asynchronous contour publication completes.
+     * Runs only with OPENSWMM_QSG_ASYNC_CONTOURS=1, waits up to five seconds for contentReady, and checks color plus presented-frame index switch together from frame zero to one. */
     void additionalFieldsFollowDisplayedAsyncFrame()
     {
         if (qEnvironmentVariableIntValue("OPENSWMM_QSG_ASYNC_CONTOURS") != 1)
@@ -448,6 +511,9 @@ private slots:
         class Renderer : public SWMM2DResultsQSGRenderer
         {
         public:
+            /** @brief Synchronize a test scene tree through the protected renderer hook.
+             * Argument `old`: Nullable existing tree whose ownership is passed into updatePaintNode; the caller must release any owning pointer before supplying it.
+             * Returns: Updated/replacement root to adopt into the caller's owning pointer; the hook may reuse or replace the supplied tree. */
             QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
         };
         SWMM2DResultsLayer layer;
@@ -476,6 +542,8 @@ private slots:
         QSignalSpy ready(&renderer, &SWMM2DResultsQSGRenderer::contentReady);
         std::unique_ptr<QSGNode> root(renderer.sync());
         QVERIFY(root);
+        /** @brief Find the first colored-point vertex in breadth-first scene-tree order.
+         * Returns: its RGBA color, or an invalid QColor if none exists. The captured root must exist, and two-attribute geometry is assumed to use ColoredPoint2D. */
         auto firstColor = [&]() {
             QVector<QSGNode *> pending{root.get()};
             for (qsizetype n = 0; n < pending.size(); ++n) {
@@ -506,6 +574,7 @@ private slots:
         QVERIFY(sub->presentedFrame());
         QCOMPARE(sub->presentedFrame()->time, 1);
     }
+    /** @brief Verify restoring an unavailable saved variable preserves its key and reports an error instead of substituting the available species. */
     void unavailableSavedVariableNeverSubstitutesFirstSpecies()
     {
         SWMM2DResultsLayer layer;

@@ -47,6 +47,13 @@ namespace
 
 constexpr const char *kReactionsId = "org.hydrocouple.openswmm.reactions";
 
+/**
+ * @brief Copy current serialized .rxn text using the native size-query protocol.
+ * @param[in] e Borrowed engine queried synchronously; never owned or retained.
+ * @return Owned UTF-8 string on both successful native calls, otherwise empty (also when
+ * required size is <=1). Allocates the reported buffer size once; no retry on a changing
+ * required size and no file I/O.
+ */
 QString engineText(SWMM_Engine e)
 {
     int need = 0;
@@ -63,6 +70,15 @@ QString engineText(SWMM_Engine e)
 class RxnFileHighlighter : public QSyntaxHighlighter
 {
 public:
+    /**
+     * @brief Attach a palette-themed .rxn syntax highlighter to a text document.
+     * @param[in,out] doc Borrowed document to attach to and own this highlighter through
+     * QSyntaxHighlighter.
+     * @param[in] pal Borrowed palette copied into section/keyword/comment/number formats; not
+     * retained.
+     * @details Uses active palette roles with literal fallback colors; does not parse or
+     * validate reaction semantics.
+     */
     explicit RxnFileHighlighter(QTextDocument *doc, const QPalette &pal) : QSyntaxHighlighter(doc)
     {
         const QColor link = pal.color(QPalette::Active, QPalette::Link);
@@ -79,6 +95,13 @@ public:
     }
 
 protected:
+    /**
+     * @brief Format one document block using lexical .rxn patterns.
+     * @param[in] line Borrowed block text; semicolon starts a comment, section headers
+     * short-circuit keyword/number formatting.
+     * @details Uses case-insensitive keyword lookup and unsigned-looking numeric regex spans
+     * before the comment. No multiline state, engine access or text mutation.
+     */
     void highlightBlock(const QString &line) override
     {
         // Comment from ';' to end of line.
@@ -133,6 +156,16 @@ private:
     QTextCharFormat m_fmtSection, m_fmtKeyword, m_fmtComment, m_fmtNumber;
 };
 
+/**
+ * @brief Allocate a numeric editor with the requested range and decimal count.
+ * @param[in] parent Optional Qt parent owning the returned widget.
+ * @param[in] lo Inclusive minimum in the caller's numeric convention.
+ * @param[in] hi Inclusive maximum, expected not below lo.
+ * @param[in] decimals Fractional decimal digits passed to QDoubleSpinBox, whose supported
+ * bounds/clamping apply.
+ * @return Newly allocated spin box; caller/parent owns it. Does not set units, bind signals or
+ * publish engine state.
+ */
 QDoubleSpinBox *makeValueSpin(QWidget *parent, double lo = 0.0, double hi = 1.0e9, int decimals = 6)
 {
     auto *s = new QDoubleSpinBox(parent);

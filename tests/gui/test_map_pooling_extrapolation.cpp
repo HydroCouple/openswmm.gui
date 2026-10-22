@@ -57,6 +57,13 @@ struct Strip {
     std::vector<float> sd; // per-vertex signed depth
 };
 
+/**
+ * @brief Construct a two-cell-wide four-triangle bank strip and reconstruct its vertex signed
+ * depths.
+ * @return Owned arrays at x0/10/20, y0/10, bed0/0/8; flat cells depth5, bank cells dry,
+ * threshold1e-4.
+ * Uses local reconstruction scratch, no source pointers, simulation, IO or global mutation.
+ */
 Strip buildStrip()
 {
     Strip s;
@@ -99,6 +106,16 @@ struct Corners {
     float sd[3];
 };
 
+/**
+ * @brief Copy one valid strip triangle's bed/signed-depth corners, optionally extrapolating dry
+ * corners.
+ * @param[in] s Borrowed consistent strip arrays, unchanged.
+ * @param[in] tri Valid zero-based triangle index and connectivity, unchecked.
+ * @param[in] extrapolate Apply adverse-dry-corner extrapolation to the local copy only when
+ * true.
+ * @return Value with three bed elevations and float signed depths, common vertical units; no
+ * retention/IO.
+ */
 Corners cornersOf(const Strip &s, int tri, bool extrapolate)
 {
     Corners c;
@@ -112,8 +129,19 @@ Corners cornersOf(const Strip &s, int tri, bool extrapolate)
     return c;
 }
 
-/*! Barycentric weights of \p p in triangle \p tri (w,v,u for corners 0,1,2) —
- *  the same construction the marching passes and CellSurfaceInterp use. */
+/**
+ * @brief Compute query barycentric weights and tolerant containment for a strip triangle.
+ * @param[in] s Borrowed consistent coordinate/connectivity arrays, unchanged.
+ * @param[in] tri Valid zero-based triangle position, unchecked.
+ * @param[in] p Borrowed finite same-frame XY query, unchanged.
+ * @param[out] w Required writable three-double array in corner0/1/2 order, assigned for nonzero
+ * denominator even outside triangle, untouched for exact degeneracy. Not retained.
+ * @return True for all weights>=-1e-9, false outside/degenerate. No finite audit, allocation or
+ * mutation.
+ *
+ * @details Barycentric weights of \p p in triangle \p tri (w,v,u for corners 0,1,2) —
+ *  the same construction the marching passes and CellSurfaceInterp use.
+ */
 bool baryAt(const Strip &s, int tri, const QPointF &p, double w[3])
 {
     const QPointF a(s.vx[s.tris[tri][0]], s.vy[s.tris[tri][0]]);
@@ -136,6 +164,15 @@ bool baryAt(const Strip &s, int tri, const QPointF &p, double w[3])
     return w[0] >= -1e-9 && w[1] >= -1e-9 && w[2] >= -1e-9;
 }
 
+/**
+ * @brief Find the first strip triangle tolerantly containing a Cartesian point.
+ * @param[in] s Borrowed consistent strip, unchanged.
+ * @param[in] p Borrowed finite same-frame query, unchanged.
+ * @param[out] w Required writable three-double weights, assigned by each nondegenerate tested
+ * face;
+ * on -1 can contain last attempted outside weights rather than unchanged. Not retained.
+ * @return Zero-based triangle or -1, linear scan, no allocation or source mutation.
+ */
 int locate(const Strip &s, const QPointF &p, double w[3])
 {
     for (int t = 0; t < int(s.tris.size()); ++t)
@@ -144,9 +181,22 @@ int locate(const Strip &s, const QPointF &p, double w[3])
     return -1;
 }
 
-/*! What the marching bands/isolines see: the plain linear blend of the corner
+/**
+ * @brief Interpolate renderer-equivalent signed corner depths at one located strip point.
+ * @param[in] s Borrowed valid strip, unchanged.
+ * @param[in] p Borrowed finite XY query, unchanged.
+ * @param[in] extrapolate Apply adverse-corner reconstruction to copied corners when true.
+ * @param[out] groundOut Optional borrowed interpolated bed elevation, assigned only for located
+ * face,
+ * untouched on miss, not retained.
+ * @return Raw linear signed depth in vertical units, possibly negative, or0 on miss. No clamp to
+ * dry
+ * threshold, allocation, source mutation, terrain lookup or IO.
+ *
+ * @details What the marching bands/isolines see: the plain linear blend of the corner
  *  values. This is the quantity whose dryDepth crossing IS the painted
- *  shoreline. */
+ *  shoreline.
+ */
 double marchingValueAt(const Strip &s, const QPointF &p, bool extrapolate,
                        double *groundOut = nullptr)
 {
@@ -160,8 +210,17 @@ double marchingValueAt(const Strip &s, const QPointF &p, bool extrapolate,
     return w[0] * double(c.sd[0]) + w[1] * double(c.sd[1]) + w[2] * double(c.sd[2]);
 }
 
-/*! The widened fill gate from Phase 3 — strictly additive over the old
- *  cell-mean test, so no cell that painted before stops painting. */
+/**
+ * @brief Evaluate additive cell-mean-or-wet-corner fill admission.
+ * @param[in] cellMeanDepth Stored cell mean depth in common vertical units.
+ * @param[in] c Borrowed corner signed depths, unchanged; bed values unused here.
+ * @param[in] dryDepth Inclusive wet threshold in same units, intended positive finite.
+ * @return True if mean or any corner>=threshold, false otherwise. No finite
+ * validation/mutation/IO.
+ *
+ * @details The widened fill gate from Phase 3 — strictly additive over the old
+ *  cell-mean test, so no cell that painted before stops painting.
+ */
 bool fillGatePasses(double cellMeanDepth, const Corners &c, double dryDepth)
 {
     if (cellMeanDepth >= dryDepth)
@@ -170,6 +229,15 @@ bool fillGatePasses(double cellMeanDepth, const Corners &c, double dryDepth)
            double(c.sd[2]) >= dryDepth;
 }
 
+/**
+ * @brief Write a synthetic bank transect comparison CSV under current working directory.
+ * @param[in] s Borrowed consistent strip, unchanged, all queries within its fixed x9..20
+ * transect.
+ * Creates test_artifacts/map_pooling_extrapolation best-effort and truncates bank_transect.csv.
+ * Open
+ * failure silently returns, later write/flush status unchecked; no atomic publication. No
+ * retained inputs.
+ */
 void writeSeriesCsv(const Strip &s)
 {
     QDir().mkpath(QStringLiteral("test_artifacts/map_pooling_extrapolation"));
@@ -195,11 +263,26 @@ class TestMapPoolingExtrapolation : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Write the synthetic bank transect before/after/truth CSV to the review artifact
+     * directory.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     */
     void initTestCase() { writeSeriesCsv(buildStrip()); }
 
-    /*! The extrapolated field is EXACT on this fixture: z is linear on the
+    /**
+     * @brief Verify adverse-bank marching signed depth equals pool stage5 minus linear bed
+     * within1e-9, including negative dry values.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details The extrapolated field is EXACT on this fixture: z is linear on the
      *  triangle and η is constant in the dry direction, so the linear blend the
-     *  marching passes take reproduces max(0, η − z) everywhere. */
+     *  marching passes take reproduces the signed field η − z everywhere; painting applies its dry threshold.
+     */
     void extrapolatedFieldMatchesTruth()
     {
         const Strip s = buildStrip();
@@ -213,9 +296,17 @@ private slots:
         }
     }
 
-    /*! The painted shoreline (dryDepth crossing of the marching field) lands on
+    /**
+     * @brief Verify extrapolated dry-depth crossing is within1e-3 of x16.25 while old sentinel
+     * field extends past19.9.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details The painted shoreline (dryDepth crossing of the marching field) lands on
      *  the bed intercept, not on the dry vertex. Before the fix the sentinel
-     *  pulled it out to x = 20. */
+     *  pulled it out to x = 20.
+     */
     void bandWaterlineLandsOnBedIntercept()
     {
         const Strip s = buildStrip();
@@ -236,9 +327,17 @@ private slots:
         QVERIFY(crossing(false) > 19.9);
     }
 
-    /*! No painted water anywhere the bed stands above the pool that supplies
+    /**
+     * @brief Verify bed above pool yields marching value below dry threshold and old field
+     * exposes >1-unit false depth.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details No painted water anywhere the bed stands above the pool that supplies
      *  it. Before the fix the bands painted 1.5 m of depth at x = 17, where the
-     *  bed is 0.6 m ABOVE the free surface. */
+     *  bed is 0.6 m ABOVE the free surface.
+     */
     void noWaterPaintedAbovePoolSurface()
     {
         const Strip s = buildStrip();
@@ -257,7 +356,15 @@ private slots:
         QVERIFY(worstBefore > 1.0); // the defect was gross, not marginal
     }
 
-    /*! No extrapolated corner may sit above the pool surface that drives it. */
+    /**
+     * @brief Verify no extrapolated corner elevation-plus-signed-depth exceeds maximum supplying
+     * wet-corner stage.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details No extrapolated corner may sit above the pool surface that drives it.
+     */
     void extrapolationRespectsDrivingHead()
     {
         const Strip s = buildStrip();
@@ -281,8 +388,16 @@ private slots:
         }
     }
 
-    /*! Fully-wet and fully-dry cells are untouched — the common case carries no
-     *  regression risk and no cost. */
+    /**
+     * @brief Verify fully wet strip corner depths and synthetic all-zero no-data corners remain
+     * unchanged.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details Fully-wet and fully-dry cells are untouched — the common case carries no
+     *  regression risk and no cost.
+     */
     void fullyWetAndFullyDryCellsUnchanged()
     {
         const Strip s = buildStrip();
@@ -303,11 +418,19 @@ private slots:
         QCOMPARE(sd2, 0.0f);
     }
 
-    /*! ADVERSE SLOPE ONLY. A dry corner whose bed falls BELOW the driving head
+    /**
+     * @brief Verify downhill dry corner stays unavailable0 while adverse dry corner becomes
+     * negative maxEta-bed.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details ADVERSE SLOPE ONLY. A dry corner whose bed falls BELOW the driving head
      *  keeps the sentinel: extrapolating there would inject standing water into
      *  a dry cell and spread the pool one cell downhill in every direction —
      *  the flood-fill behaviour this feature does not do. Regression pin for
-     *  the 2026-08-04 live-render breakage. */
+     *  the 2026-08-04 live-render breakage.
+     */
     void doesNotExtrapolateDownhill()
     {
         // One wet corner at η = 5 (z = 0, sd = 5); one dry corner well BELOW
@@ -319,9 +442,17 @@ private slots:
         QCOMPARE(sd2, -3.0f); // adverse dry corner carries maxEta − z
     }
 
-    /*! No corner may be turned wet by extrapolation — the fill gate and
+    /**
+     * @brief Verify dry corner remains nonpositive across bed elevations below/at/above pool
+     * stage.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details No corner may be turned wet by extrapolation — the fill gate and
      *  CellSurfaceInterp both key on sd > 0, so a positive extrapolated value
-     *  would paint invented water and flip the profile's supplying set. */
+     *  would paint invented water and flip the profile's supplying set.
+     */
     void extrapolationNeverCreatesAWetCorner()
     {
         const double beds[] = {-50.0, -2.0, 0.0, 4.999, 5.0, 5.001, 8.0, 90.0};
@@ -332,9 +463,17 @@ private slots:
         }
     }
 
-    /*! The profile path is bitwise unaffected on the canonical bank: an
+    /**
+     * @brief Verify CellSurfaceInterp depth remains exactly equal before/after adverse-bank
+     * sentinel extrapolation.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details The profile path is bitwise unaffected on the canonical bank: an
      *  extrapolated corner below the pool (maxEta − z < 0) is non-supplying in
-     *  CellSurfaceInterp exactly as the 0 sentinel was. */
+     *  CellSurfaceInterp exactly as the 0 sentinel was.
+     */
     void profilePathUnchangedOnBank()
     {
         const Strip s = buildStrip();
@@ -356,8 +495,16 @@ private slots:
         }
     }
 
-    /*! The widened fill gate admits the dry bank cell (it carries a wet corner)
-     *  while a cell with no wet corner still paints nothing. */
+    /**
+     * @brief Verify wet-corner fill admission includes solver-dry bank cells but excludes an
+     * all-no-data dry cell.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details The widened fill gate admits the dry bank cell (it carries a wet corner)
+     *  while a cell with no wet corner still paints nothing.
+     */
     void widenedFillGateAdmitsBankCellOnly()
     {
         const Strip s = buildStrip();
@@ -378,13 +525,21 @@ private slots:
         QVERIFY(!fillGatePasses(0.0, dry, kDryDepth));
     }
 
-    /*! Tri-quad G1 (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md): the
+    /**
+     * @brief Verify triangle overload parity,3/nv mixed-cell weighting and nonplanar quad
+     * mean-depth closure within stated1e-6/1e-9 tolerances.
+     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
+     * hydraulic simulation.
+     *
+     * @details Tri-quad G1 (workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md): the
      *  CellSplit overload. (a) The triangle path is bit-identical to the
      *  historical array<int,3> overload on the strip. (b) On a flat mesh where
      *  a quad shares an edge with a triangle, each incident cell votes with
      *  depth × 3/nv — the plan's 1/nv weighting normalised so triangles are
      *  unchanged — so the shared vertex blends 3/4·h_q against 1·h_t, and a
-     *  quad-only vertex reads the quad's own depth. */
+     *  quad-only vertex reads the quad's own depth.
+     */
     void cellSplitOverloadWeightsQuadByThreeQuarters()
     {
         using VertexDepthReconstruct::CellSplit;

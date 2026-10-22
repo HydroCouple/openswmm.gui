@@ -10,8 +10,8 @@
  *         Contracts pinned here:
  *           - Continuous mode colours a value exactly as the scheme's ramp
  *             would at the LUT texel position (ScalarRampLut contract),
- *             inversion included; out-of-range clamps to the end colours
- *             unless clipOutOfRange, which makes them transparent.
+ *             inversion included; underflow is hidden and overflow saturates to the end colour
+ *             regardless of the retained legacy clip flag.
  *           - Classified mode colours by class edge interval; data-driven
  *             methods use the sample handed to reclassify(); Manual breaks
  *             and per-class colour overrides are honoured.
@@ -52,20 +52,39 @@ namespace
 
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
+/**
+ * @brief Read a legend item's first symbol layer color using shared SymbolProps conversion.
+ * @param[in] item Borrowed legend item, unchanged; requires at least one symbol layer,
+ * unchecked.
+ * @return QColor value for color property, no ownership transfer or source mutation.
+ */
 QColor swatchColor(const LegendSymbolItem &item)
 {
     return SymbolProps::readColor(item.symbol.layers.first().props, QStringLiteral("color"));
 }
 
-/*! The renderer quantises to the 8-bit QRgb the tile pixel actually holds;
+/**
+ * @brief Quantize a QColor to the actual packed 8-bit RGBA comparison representation.
+ * @param[in] c Borrowed color, unchanged; float-component QColor equality is intentionally
+ * avoided.
+ * @return QRgb packed RGBA value, no allocation/mutation or retained input.
+ *
+ * @details The renderer quantises to the 8-bit QRgb the tile pixel actually holds;
  *  scheme colours built via fromRgbF carry float components that do not
- *  round-trip through QColor::operator==, so compare on the packed value. */
+ *  round-trip through QColor::operator==, so compare on the packed value.
+ */
 QRgb px(const QColor &c)
 {
     return c.rgba();
 }
 
-/*! Classified, 4 equal-interval classes of viridis over [0, 100]. */
+/**
+ * @brief Create four equal-interval Viridis classes over scalar range0..100.
+ * @return Owned configured graduated renderer; fixture changes local scheme/data only, no
+ * external inputs or IO.
+ *
+ * @details Classified, 4 equal-interval classes of viridis over [0, 100].
+ */
 GraduatedRasterRenderer makeClassified4()
 {
     GraduatedRasterRenderer r;
@@ -86,23 +105,126 @@ class TestGraduatedRasterRenderer : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Verify graduatedraster and multibandcolor expose stable class IDs.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void rendererId_isStable();
+    /**
+     * @brief Verify default continuous grayscale0..1 stretches black-to-white with legacy clip
+     * flag false.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void defaults_continuousGrayscale();
+    /**
+     * @brief Verify six exact LUT texel values reproduce scheme packed colors and midpoint RGB
+     * differs by at most2.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void continuous_lutMatchesSchemeAtTexels();
+    /**
+     * @brief Verify ramp inversion swaps default black/white endpoint colors.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void continuous_invertFlipsEnds();
+    /**
+     * @brief Verify range10..20 hides underflow, saturates overflow and includes endpoints
+     * regardless of legacy clip flag.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void continuous_underflowHiddenOverflowSaturates();
+    /**
+     * @brief Verify custom0..10 stretch overrides broader0..1000 data range and saturates larger
+     * values.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void continuous_customRangeDrivesStretch();
+    /**
+     * @brief Verify four equal classes use edges0/25/50/75/100, interior edges select upper
+     * class and overflow saturates.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void classified_equalIntervalEdgesAndColours();
+    /**
+     * @brief Verify skewed sample moves two-class median below20, while absent samples fall back
+     * to equal intervals.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void classified_quantileUsesSamples();
+    /**
+     * @brief Verify manual breaks30/70 produce three intended intervals and class colors.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void classified_manualBreaks();
+    /**
+     * @brief Verify explicit red class1 override wins while adjacent class retains scheme color.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void classified_colorOverrideWins();
+    /**
+     * @brief Verify explicit NoData and nonfinite scalar values are transparent in
+     * continuous/classified modes.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void noData_andNonFinite_transparent();
+    /**
+     * @brief Verify continuous legend has configured row count, endpoint labels/colors, ordered
+     * indices and no editable class key.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void legend_continuousSampledRows();
+    /**
+     * @brief Verify classified legend preserves each range/key/color and user label override for
+     * class2.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void legend_classifiedOnePerClass();
+    /**
+     * @brief Verify persisted quantile edges, styling, labels and colors restore losslessly
+     * without original sample.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void json_roundTripReproducesColours();
+    /**
+     * @brief Verify absent or descending serialized edges rederive equal-interval classification
+     * from range.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void json_missingEdgesAreRederived();
+    /**
+     * @brief Verify clone keeps original0..100 class edges after source range changes to0..1.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void clone_isIndependent();
+    /**
+     * @brief Verify default RGB1/2/3 no-alpha mapping and explicit3/2/1/4 mapping round-trip
+     * with transparent scalar fallback.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void multiband_bandsAndJson();
+    /**
+     * @brief Verify raster factory restores graduated, paletted, multiband and pseudocolor types
+     * and refuses missing/unknown IDs.
+     * @note Owned renderer/value fixtures only, packed color comparisons where needed, no
+     * widgets/GDAL/engine or filesystem writes.
+     */
     void factory_dispatchesOnId();
 };
 

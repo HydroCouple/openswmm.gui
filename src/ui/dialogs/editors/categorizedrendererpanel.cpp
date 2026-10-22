@@ -10,7 +10,7 @@
  *         Layout (QGIS-aligned):
  *           - Attribute combo (picks the classifyAttribute on the renderer)
  *           - Categories table   : Value | Label | Colour
- *           - Buttons            : Sample unique values / Add / Remove / Reset
+ *           - Buttons            : Sample unique values / Add / Remove / Clear / Edit symbol
  *
  *         Every edit writes through `setKindRenderer(category, clone)` on
  *         the host so the layer's rebuildKindFeatureOverrides repaints the
@@ -69,6 +69,13 @@ namespace
 using OpenSWMM::Render::CategorizedRenderer;
 using OpenSWMM::Render::IFeatureRenderer;
 
+/**
+ * @brief Resolve canonical item data for an unchanged selected label, otherwise trim the editable
+ * text.
+ * @param combo Borrowed non-null live attribute combo.
+ * @return Owned canonical key or trimmed free text; no provider/schema validation,
+ * mutation or retained reference. An empty/invalid selection can return empty.
+ */
 QString attributeKey(const QComboBox *combo)
 {
     const int row = combo->currentIndex();
@@ -86,6 +93,13 @@ class CategoryColorDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    /**
+     * @brief Draw the BackgroundRole color swatch over optional selection highlight.
+     * @param p Borrowed non-null active painter, saved/restored around drawing.
+     * @param opt Borrowed cell geometry/palette/state, using a four-pixel inset.
+     * @param idx Borrowed color-cell index; invalid color draws no swatch.
+     * No text/focus decoration or model write.
+     */
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override
     {
         const QColor c = idx.data(Qt::BackgroundRole).value<QColor>();
@@ -101,13 +115,31 @@ public:
         p->restore();
     }
 
-    QWidget *createEditor(QWidget *, const QStyleOptionViewItem &,
-                          const QModelIndex &) const override
+    /**
+     * @brief Disable the standard inline color-cell editor.
+     * @param parent Borrowed ignored candidate owner.
+     * @param option Borrowed ignored option.
+     * @param index Borrowed ignored model index.
+     * @return Null; double-click colors are handled by editorEvent's modal picker.
+     */
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override
     {
         return nullptr;
     }
 
-    bool editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &,
+    /**
+     * @brief Open an alpha-enabled color picker on double-click and submit BackgroundRole.
+     * @param e Borrowed non-null event; other event types are not consumed.
+     * @param m Borrowed non-null writable model, required to survive nested dialog execution.
+     * @param option Borrowed ignored option.
+     * @param idx Borrowed cell index whose model/row must remain valid and unchanged across
+     * modal reentry; no persistent index or post-dialog lifetime check.
+     * @return False for other events, true for double-click including Cancel/refused setData.
+     * Invalid current color seeds white; no parent is given to picker and write result is
+     * ignored.
+     */
+    bool editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &option,
                      const QModelIndex &idx) override
     {
         if (e->type() != QEvent::MouseButtonDblClick)
@@ -123,10 +155,12 @@ public:
     }
 };
 
-/*! Suggested attribute list per Category.  Mirrors the columns the
- *  categorized renderer can usefully partition on without pulling in the
- *  full attribute schema editor (Slice deferred).  "tag" is always
- *  available because SWMM lets users tag every object. */
+/**
+ * @brief Build fallback category attribute suggestions when no provider exists.
+ * @param cat Category enumeration.
+ * @return Owned tag plus Node type for node kinds, Link type/shape for links, Outlet for
+ * subcatchments, otherwise tag alone. Suggestions are strings, not verified available keys.
+ */
 QStringList suggestedAttributesFor(OpenSWMMVis::SwmmCategory cat)
 {
     using namespace OpenSWMMVis;
@@ -153,9 +187,11 @@ QStringList suggestedAttributesFor(OpenSWMMVis::SwmmCategory cat)
     }
 }
 
-/*! Make a colour-only SymbolStyle for a fresh category.  Layer-archetype
- *  agnostic — populateScene applies the colour wherever an override is
- *  set, regardless of point / line / polygon. */
+/**
+ * @brief Create a detached one-default-layer symbol with a canonical color QVariant.
+ * @param c Borrowed QColor copied without validity validation.
+ * @return Owned style, retaining no caller reference and modifying no renderer.
+ */
 OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
 {
     OpenSWMM::Render::SymbolStyle s;
@@ -167,12 +203,13 @@ OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
     return s;
 }
 
-/*! Read/write helpers for the optional shape / size / width / dash
- *  properties on the first SymbolLayer of a SymbolStyle.  Categorized
- *  rendering treats absent keys as "use the kind's archetype default"
- *  — the paint path reads them via `extractStyleSize` on the sublayer
- *  override cache.  Keeping the schema flat (no nested objects) means
- *  any consumer reading just "color" today keeps working. */
+/**
+ * @brief Convert the first symbol layer's exact shape property to an integer.
+ * @param s Borrowed style; later layers are ignored.
+ * @param fallback Value returned for absent layer/key or failed QVariant conversion, default
+ * minus one.
+ * @return Converted raw integer or fallback, without MarkerShape enum-bound validation.
+ */
 int readSymbolShape(const OpenSWMM::Render::SymbolStyle &s, int fallback = -1)
 {
     if (s.layers.isEmpty())
@@ -184,6 +221,13 @@ int readSymbolShape(const OpenSWMM::Render::SymbolStyle &s, int fallback = -1)
     const int v = it.value().toInt(&ok);
     return ok ? v : fallback;
 }
+/**
+ * @brief Convert the first symbol layer's exact size property to a scalar.
+ * @param s Borrowed style; later layers are ignored.
+ * @param fallback Missing/unconvertible value, default minus one.
+ * @return Converted double in stored pixel units or fallback; no positive/finite/range
+ * validation.
+ */
 double readSymbolSize(const OpenSWMM::Render::SymbolStyle &s, double fallback = -1.0)
 {
     if (s.layers.isEmpty())
@@ -195,6 +239,12 @@ double readSymbolSize(const OpenSWMM::Render::SymbolStyle &s, double fallback = 
     const double v = it.value().toDouble(&ok);
     return ok ? v : fallback;
 }
+/**
+ * @brief Convert the first symbol layer's exact width property to a scalar.
+ * @param s Borrowed style; later layers are ignored.
+ * @param fallback Missing/unconvertible value, default minus one.
+ * @return Converted double in stored pixel units or fallback, without domain/finite validation.
+ */
 double readSymbolWidth(const OpenSWMM::Render::SymbolStyle &s, double fallback = -1.0)
 {
     if (s.layers.isEmpty())
@@ -206,6 +256,12 @@ double readSymbolWidth(const OpenSWMM::Render::SymbolStyle &s, double fallback =
     const double v = it.value().toDouble(&ok);
     return ok ? v : fallback;
 }
+/**
+ * @brief Convert the first symbol layer's exact dash property to an integer.
+ * @param s Borrowed style; later layers are ignored.
+ * @param fallback Missing/unconvertible value, default SolidLine integer.
+ * @return Raw integer or fallback; no Qt pen-style enum validation.
+ */
 int readSymbolDash(const OpenSWMM::Render::SymbolStyle &s, int fallback = int(Qt::SolidLine))
 {
     if (s.layers.isEmpty())
@@ -218,6 +274,17 @@ int readSymbolDash(const OpenSWMM::Render::SymbolStyle &s, int fallback = int(Qt
     return ok ? v : fallback;
 }
 
+/**
+ * @brief Upsert accepted shape/size/width/dash values on the first layer, creating a default
+ * layer when absent.
+ * @param s Borrowed mutable symbol; unrelated keys/later layers remain intact.
+ * @param shape Nonnegative raw shape integer to store; negative preserves any old key.
+ * @param size Positive pixel size to store; nonpositive/NaN preserves the old key.
+ * @param width Positive pixel width to store; nonpositive/NaN preserves the old key.
+ * @param dash Nonnegative raw dash integer to store; negative preserves the old key.
+ * Does not remove keys for sentinels, validate enums or reject positive infinity. Even
+ * when all values are skipped an initially empty style gains a default layer.
+ */
 void writeSymbolKnobs(OpenSWMM::Render::SymbolStyle &s, int shape, double size, double width,
                       int dash)
 {
@@ -242,6 +309,16 @@ void writeSymbolKnobs(OpenSWMM::Render::SymbolStyle &s, int shape, double size, 
 class SymbolDetailsDialog : public QDialog
 {
 public:
+    /**
+     * @brief Stage noncolor symbol controls applicable to one geometry archetype.
+     * @param arch Point builds shape/size; Line/Polygon build width/dash; other values build
+     * only buttons. Stored archetype is not used to validate applyTo later.
+     * @param initial Borrowed style read synchronously; no reference retained. Missing keys
+     * seed defaults that a later apply materializes.
+     * @param parent Optional Qt owner of this dialog; caller controls modal execution/lifetime.
+     * Owns controls, with point size1..96pixels/one decimal or width0.1..32/two decimals.
+     * Constructor does not mutate a renderer, execute modally, snapshot or create undo.
+     */
     SymbolDetailsDialog(OpenSWMM::Render::FeatureSublayer::Archetype arch,
                         const OpenSWMM::Render::SymbolStyle &initial, QWidget *parent)
         : QDialog(parent), m_archetype(arch)
@@ -284,8 +361,14 @@ public:
         connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
     }
 
-    /*! Apply the dialog's choices to \p s, preserving any property the
-     *  dialog doesn't surface for this archetype. */
+    /**
+     * @brief Write displayed archetype controls into the supplied detached/live symbol without
+     * checking dialog result.
+     * @param s Borrowed mutable target, preserving keys not represented by controls. Creates
+     * first layer if empty through writeSymbolKnobs, even for unsupported archetype.
+     * Caller checks Accepted before use and issues renderer notifications/undo policy.
+     * Display defaults/clamps can materialize or change previously absent/precise properties.
+     */
     void applyTo(OpenSWMM::Render::SymbolStyle &s) const
     {
         const int shape = m_shape ? m_shape->shapeValue() : -1;
@@ -308,6 +391,18 @@ private:
 class CategorizedPanel : public IRendererPanel
 {
 public:
+    /**
+     * @brief Build a live category table, editable attribute picker and optional shared
+     * base-symbol group.
+     * @param ctx Borrowed context copied into panel storage; raw host/rule/style targets must
+     * outlive panel and modal/edit callbacks. Rule renderer takes priority; category/host
+     * metadata still drive field hints, sampling and geometry-specific symbol controls.
+     * @param parent Optional Qt owner; caller owns parentless panel.
+     * Owns model/table/delegate/actions and immediately refreshes, which can store the first
+     * provider field on a renderer without an attribute. Edits mutate the live renderer
+     * then clone-install for notifications. No undo, snapshot, external-change subscription
+     * or provider membership enforcement here; GUI thread only.
+     */
     explicit CategorizedPanel(const RendererPanelContext &ctx, QWidget *parent)
         : IRendererPanel(parent), m_ctx(ctx)
     {
@@ -402,6 +497,15 @@ public:
         refreshFromModel();
     }
 
+    /**
+     * @brief Rebuild field hints and category rows, possibly store a first provider field for an
+     * unset attribute.
+     * Provider fields list exact QString types first then all others; without a provider
+     * uses unverified suggested text. Preserves nonempty current key as editable text.
+     * Blocks combo signals and suppresses table edit callbacks during rebuild. If live
+     * attribute is empty and first item's data is nonempty, mutates it then clone-installs;
+     * text-only fallback suggestions do not seed this way. Loses table selection/drafts.
+     */
     void refreshFromModel() override
     {
         auto *cz = currentRenderer();
@@ -460,9 +564,19 @@ public:
         }
     }
 
+    /**
+     * @brief Return the translated panel label.
+     * @return Owned Categorized string, without target/state inspection.
+     */
     QString displayName() const override { return tr("Categorized"); }
 
 private:
+    /**
+     * @brief Resolve the live rule-first or model/results per-kind renderer and require
+     * categorized type.
+     * @return Borrowed renderer or null; expires on target replacement/destruction. No
+     * layer-level fallback, cloning, renderer creation or ownership transfer.
+     */
     CategorizedRenderer *currentRenderer() const
     {
         IFeatureRenderer *r = nullptr;
@@ -478,10 +592,13 @@ private:
         return dynamic_cast<CategorizedRenderer *>(r);
     }
 
-    /*! Push the live renderer back through setKindRenderer / Rule so the
-     *  host rebuilds its per-feature overrides and emits repaintRequested.
-     *  Always clones — the renderer instance the panel mutated is the
-     *  one the layer/Rule owns, but the setters expect a unique_ptr. */
+    /**
+     * @brief Clone an already-mutated categorized renderer and install it through
+     * rule/model/results target.
+     * @param cz Optional borrowed live renderer; null is a no-op. Clone ownership transfers
+     * to the selected target, or is discarded without one/category. Successful installation
+     * invalidates old renderer pointers. No rollback, undo, validation or success result.
+     */
     void pushBack(CategorizedRenderer *cz)
     {
         if (!cz)
@@ -500,6 +617,13 @@ private:
             m_resultsLayer->setKindRenderer(*m_ctx.category, std::move(fresh));
     }
 
+    /**
+     * @brief Replace table rows from a copy of current categories under the item-edit suppression
+     * flag.
+     * Uses value as label when saved label is empty and deterministic HSV color when symbol
+     * color is unreadable. Substitutes are display-only until another row edit writes the
+     * entire table. Missing renderer clears rows; selection/drafts are lost. No install.
+     */
     void rebuildTable()
     {
         m_suppress = true;
@@ -532,7 +656,13 @@ private:
         m_suppress = false;
     }
 
-    void onAttributeChanged(const QString &)
+    /**
+     * @brief Read the canonical/current editable key and mutate/clone-install it when different.
+     * @param text Borrowed notification text, ignored in favor of attributeKey(m_attrCombo).
+     * No-op under suppression, missing renderer or unchanged key. Unknown/empty keys are
+     * accepted without provider validation; no resampling, undo or retained text reference.
+     */
+    void onAttributeChanged(const QString &text)
     {
         if (m_suppress)
             return;
@@ -546,11 +676,17 @@ private:
         pushBack(cz);
     }
 
-    /*! Walk every feature in the kind, look up the configured attribute
-     *  via the layer's identify path, collect the distinct string
-     *  values, and seed one category per unique value.  Existing
-     *  categories are merged — values that already exist keep their
-     *  colour/label, new ones get a HSV-spread auto colour. */
+    /**
+     * @brief Synchronously scan underlying model identities and rebuild categories from
+     * first-seen string values.
+     * Requires categorized target, model/results host, category, nonempty key and model rows;
+     * results use their linked model, not per-frame values. Reads identifyByName exact-key
+     * values converted to strings; empty/missing maps to literal (none), conflating it with
+     * that actual string. No decimation/cancellation. Retains payloads for observed matching
+     * values (last old duplicate wins), appends new deterministic colors and drops old values
+     * not observed; this is not a union retaining every old category. Sets attribute,
+     * mutates/clone-installs and rebuilds; no undo or diagnostic result.
+     */
     void onSampleUniqueValues()
     {
         auto *cz = currentRenderer();
@@ -623,6 +759,11 @@ private:
         rebuildTable();
     }
 
+    /**
+     * @brief Append a default value/label and deterministic color, then clone-install/rebuild.
+     * No-op without categorized renderer; duplicate default values are allowed. No editor
+     * prompt, validation, undo or snapshot.
+     */
     void onAddCategory()
     {
         auto *cz = currentRenderer();
@@ -639,6 +780,11 @@ private:
         rebuildTable();
     }
 
+    /**
+     * @brief Remove selected category rows in descending index order, install and rebuild.
+     * No-op without target/selection; skips invalid copied indices. No confirmation or undo;
+     * table rebuild loses selection/drafts.
+     */
     void onRemoveSelected()
     {
         auto *cz = currentRenderer();
@@ -662,6 +808,10 @@ private:
         rebuildTable();
     }
 
+    /**
+     * @brief Clear all live categories, clone-install and rebuild an empty table.
+     * No-op without target; no confirmation, undo or already-empty change comparison.
+     */
     void onClearAll()
     {
         auto *cz = currentRenderer();
@@ -672,9 +822,14 @@ private:
         rebuildTable();
     }
 
-    /*! Open SymbolDetailsDialog on the selected row.  Honours the host
-     *  category's archetype so points get shape/size, lines get
-     *  width/dash, polygons get outline-width/dash. */
+    /**
+     * @brief Open geometry-specific symbol details for exactly one selected category and apply
+     * accepted controls.
+     * Requires category, valid row and categorized renderer. Copies category values before
+     * modal execution but reuses the raw live renderer afterward; targets/renderer/row must
+     * survive modal reentry unchanged. On Accepted writes controls, sets full category list,
+     * clone-installs, rebuilds and reselects row. No post-dialog identity check or undo.
+     */
     void onEditSelectedSymbol()
     {
         auto *cz = currentRenderer();
@@ -702,10 +857,16 @@ private:
         m_table->selectRow(row);
     }
 
-    /*! Pull row state out of the table and push it back into the
-     *  renderer.  Called from QStandardItemModel::itemChanged on every
-     *  cell edit including the colour delegate. */
-    void onRowEdited(QStandardItem *)
+    /**
+     * @brief Serialize the full complete table after any cell edit, retaining existing symbols by
+     * row position.
+     * @param item Borrowed notification item, ignored; each row must have all three items.
+     * No-op under suppression/missing target. Updates first-layer canonical color when valid,
+     * preserves other symbol keys/layers, and synthesizes color-only symbols for new/empty
+     * rows. Display fallback labels/colors can become stored even on unrelated edits.
+     * Does not deduplicate values, validate keys, identity-match categories or create undo.
+     */
+    void onRowEdited(QStandardItem *item)
     {
         if (m_suppress)
             return;

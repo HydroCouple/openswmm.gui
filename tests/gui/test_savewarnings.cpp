@@ -63,6 +63,8 @@
 namespace
 {
 
+/** @brief Create the retained save-test evidence directory.
+ * @return SWMMVIS_SAVE_TEST_OUTPUT, or test_savewarnings_output when unset; directory creation is attempted without checking its result. */
 QString outDir()
 {
     const QString path = qEnvironmentVariable("SWMMVIS_SAVE_TEST_OUTPUT",
@@ -75,6 +77,10 @@ QString outDir()
  *  the configuration the engine writer drops on save. A reactions config is
  *  rejected without at least one species, so the block carries one — species
  *  `A`, chosen not to collide with the TSS pollutant (its own open error). */
+/** @brief Truncate a fixture file and emit a small CFS dynamic-wave network.
+ * @param[in] path Output deck path; its parent directory must already exist.
+ * @param[in] withEmbedded Append embedded RK5 reaction options and one bulk species when true.
+ * @return False when opening the file fails; true after streaming the deck. Stream and flush errors are not checked. */
 bool writeDeck(const QString &path, bool withEmbedded)
 {
     QFile f(path);
@@ -100,6 +106,10 @@ bool writeDeck(const QString &path, bool withEmbedded)
 }
 
 /*! Window on \p deckPath, model loaded; nullptr + \p why on failure. */
+/** @brief Allocate a workspace and synchronously load a project window for save tests.
+ * @param[in] deckPath Input deck to load; associated production loading may open sidecar resources.
+ * @param[out] why Required writable error string, assigned on workspace or load failure; unchanged on success.
+ * @return Newly allocated, parentless window on success, or nullptr on failure. The caller must arrange window deletion; this helper does not explicitly destroy a workspace or a window whose load failed. */
 SWMMVisProjectWindow *openWindow(const QString &deckPath, QString *why)
 {
     auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -123,6 +133,7 @@ class TestSaveWarnings : public QObject
     Q_OBJECT
 private slots:
 
+    /** @brief Register centerline and bank-pair recipes with direct, dependency, settings, and symbolic-link destination collisions. */
     void corridorRecipeProtectsSources_data()
     {
         QTest::addColumn<QString>("scenario");
@@ -132,6 +143,8 @@ private slots:
                 QTest::newRow(qPrintable(QString(banks ? "banks-" : "centerline-") + name))
                     << QString::fromLatin1(name) << banks;
     }
+    /** @brief Verify recipe source protection rejects Save As without changing any captured input or destination bytes.
+     * Uses the current scenario and bankPair rows, checks a diagnostic and retained dirty state, and keeps the recipe's referenced source/dependency files as evidence. */
     void corridorRecipeProtectsSources()
     {
         QFETCH(QString, scenario);
@@ -181,6 +194,7 @@ private slots:
         QVERIFY(window->hasChanges());
     }
 
+    /** @brief Register single-centerline and paired-bank corridor recipe round trips. */
     void corridorRecipeSaveRoundTripAndMalformedLoad_data()
     {
         QTest::addColumn<bool>("bankPair");
@@ -188,6 +202,8 @@ private slots:
         QTest::newRow("bank-pair") << true;
     }
 
+    /** @brief Verify recipe persistence preserves 64-bit feature IDs and original source paths across Save As.
+     * Also checks malformed sidecars fail without applying notes, a load error blocks saving until a valid sidecar is applied, and an invalid draft recipe leaves saved model bytes unchanged. */
     void corridorRecipeSaveRoundTripAndMalformedLoad()
     {
         QFETCH(bool, bankPair);
@@ -272,6 +288,7 @@ private slots:
         QCOMPARE(before.readAll(), modelBefore);
     }
 
+    /** @brief Register eight generated-artifact publication, external-edit, protected-input, discard, and ownership scenarios. */
     void generatedArtifactsSave_data()
     {
         QTest::addColumn<int>("scenario");
@@ -285,6 +302,8 @@ private slots:
         QTest::newRow("companion-appeared") << 7;
     }
 
+    /** @brief Verify generated DEM/report jobs publish only with a successful project save and are discarded with their owning layer.
+     * Exercises existing destinations, changed final or staged bytes, unexpected companions, protected inputs and job-directory destinations. Failed staging retains edits and the job for retry; successful save clears the job and dirty flags while preserving source inputs. */
     void generatedArtifactsSave()
     {
         QFETCH(int, scenario);
@@ -408,6 +427,7 @@ private slots:
         delete w;
     }
 
+    /** @brief Register inline/external generated meshes replacing absent, equal-count, or changed-count topology. */
     void generatedTopologySave_data()
     {
         QTest::addColumn<bool>("external");
@@ -419,6 +439,8 @@ private slots:
                     << external << scenario;
     }
 
+    /** @brief Verify generated topology survives failed staging and two successful saves without mutating the old live engine topology.
+     * Reads back coordinates, elevations, roughness and vertex/cell coupling, reopens each saved project, preserves the source model, and retains generated-topology ownership after saving because the live engine is not reloaded. */
     void generatedTopologySave()
     {
         QFETCH(bool, external);
@@ -522,6 +544,7 @@ private slots:
         }
         w->deleteLater();
     }
+    /** @brief Register inline and external generated meshes with existing cell-indexed initial quality. */
     void generatedTopologyRejectsIndexedQuality_data()
     {
         QTest::addColumn<bool>("external");
@@ -529,6 +552,8 @@ private slots:
         QTest::newRow("external") << true;
     }
 
+    /** @brief Verify unrelated generated cells cannot inherit existing cell-indexed quality during Save.
+     * Checks the named quality-section error, unchanged source/mesh bytes and pending edits, then destroys the preview and confirms discard did not modify either file. */
     void generatedTopologyRejectsIndexedQuality()
     {
         QFETCH(bool, external);
@@ -580,6 +605,7 @@ private slots:
         QCOMPARE(bytes(meshPath), meshBefore);
     }
 
+    /** @brief Register inline/external precision fixtures for metric projects, US feet meshes and SI meshes in US projects. */
     void meshSave_preservesNumericPrecision_data()
     {
         QTest::addColumn<bool>("external");
@@ -593,6 +619,8 @@ private slots:
         }
     }
 
+    /** @brief Verify two saves exactly round-trip narrow-cell coordinates and small mesh/coupling/boundary attributes.
+     * Uses mesh-declared metres or feet and checks engine initialization converts US feet to metres with 0.3048. The engine is opened and initialized to distinguish nearby vertices; this deliberately extreme geometry is not hydraulically simulated. */
     void meshSave_preservesNumericPrecision()
     {
         QFETCH(bool, external);
@@ -694,6 +722,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Register eighteen model/settings/active-or-inactive mesh ownership collisions, including hard links and directory aliases. */
     void savePathCollision_preservesFiles_data()
     {
         QTest::addColumn<int>("collision");
@@ -719,6 +748,8 @@ private slots:
             QTest::newRow(names[i]) << i;
     }
 
+    /** @brief Verify conflicting save roles fail before file bytes, engine elevation, model path or completion signals change.
+     * Retains dirty mesh edits, then repairs ownership with independent mesh and model paths and confirms the pending elevation saves. Link creation is required by the selected filesystem scenario. */
     void savePathCollision_preservesFiles()
     {
         QFETCH(int, collision);
@@ -867,6 +898,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Register independent equal basenames and symbolic, hard-link or directory aliases of the model's own file. */
     void savePathOwnership_allowsIndependentAndOwnFiles_data()
     {
         QTest::addColumn<int>("alias");
@@ -876,6 +908,8 @@ private slots:
         QTest::newRow("directory-symlink-to-own-model") << 3;
     }
 
+    /** @brief Verify valid own-file aliases and distinct same-basename resources allow two consecutive saves.
+     * Checks the active inline elevation is persisted while the unrelated inactive external mesh remains byte-identical and dirty flags clear. */
     void savePathOwnership_allowsIndependentAndOwnFiles()
     {
         QFETCH(int, alias);
@@ -937,6 +971,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Register seventeen malformed geometry, numeric, boundary and coupling payloads for both inline and external meshes. */
     void invalidMesh_failsBeforeMutation_data()
     {
         QTest::addColumn<int>("failure");
@@ -961,6 +996,8 @@ private slots:
         }
     }
 
+    /** @brief Verify save preflight rejects deliberately corrupted mesh state before engine or final-file mutation.
+     * Checks field-specific diagnostics, unchanged model/mesh/destination/settings bytes, retained paths and edits, and absent completion signals; restores the valid cached payload and verifies retry persists elevation. */
     void invalidMesh_failsBeforeMutation()
     {
         QFETCH(int, failure);
@@ -1101,6 +1138,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Register inline geometry edits for metric, US feet and US SI-mesh projects plus a boundary-group-only edit. */
     void inlineMeshPayload_data()
     {
         QTest::addColumn<bool>("usProject");
@@ -1112,6 +1150,8 @@ private slots:
         QTest::newRow("boundary-group-only") << false << true << false;
     }
 
+    /** @brief Verify two saves persist the complete inline geometry, attributes and boundary-group payload with mesh units intact.
+     * Checks connectivity, coordinates, elevation, roughness, initial depth, flow and conveyance; opens and initializes a real engine to verify physical metre coordinates using 0.3048 for a feet mesh in a US project, without time stepping. */
     void inlineMeshPayload()
     {
         QFETCH(bool, usProject);
@@ -1205,6 +1245,8 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Verify a truncated boundary-condition vector fails save before overwriting an existing destination.
+     * Loads the mesh fixture, removes its last boundary entry, checks pending state and source path, then restores the complete vector and confirms a successful retry clears both dirty flags. */
     void incompleteBoundaryState_failsBeforeWriting()
     {
         const QString dir = outDir() + QStringLiteral("/incomplete_boundary");
@@ -1250,6 +1292,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Register eight inactive-edit, active-selection, topology-count and external-reference ownership scenarios. */
     void meshOwnership_data()
     {
         QTest::addColumn<int>("scenario");
@@ -1263,6 +1306,8 @@ private slots:
         QTest::newRow("save-as-does-not-overwrite-unrelated-sidecar") << 7;
     }
 
+    /** @brief Verify saving chooses one active mesh and refuses ambiguous ownership or dirty inactive meshes.
+     * Checks rejected saves retain files, signals and edits; repairs ambiguous selection where possible. Accepted cases preserve unrelated external/decoy files, serialize the chosen elevation and correct MESH_FILE reference, and repeat the save to detect stale references. */
     void meshOwnership()
     {
         QFETCH(int, scenario);
@@ -1394,6 +1439,8 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Verify a directory obstruction during model staging restores the external mesh reference and preserves mesh bytes.
+     * Checks source path and dirty edits remain, then saves to an independent file and reads back the pending elevation. */
     void meshDestinationFailure_preservesEngineReference()
     {
         const QString dir = outDir() + QStringLiteral("/writer_reference_failure");
@@ -1443,6 +1490,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Register six invalid vertex/cell coupling and out-of-range conveyance payloads with expected diagnostic fragments. */
     void meshRejection_keepsPendingState_data()
     {
         QTest::addColumn<int>("failure");
@@ -1455,6 +1503,8 @@ private slots:
         QTest::newRow("edge-conveyance") << 5 << QStringLiteral("conveyance");
     }
 
+    /** @brief Verify engine mesh validation failure preserves model/settings destinations, paths, signals and pending elevation.
+     * Checks contextual diagnostics, removes or repairs the invalid coupling/conveyance field, and confirms retry adopts the target and clears edits. */
     void meshRejection_keepsPendingState()
     {
         QFETCH(int, failure);
@@ -1552,6 +1602,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Verify saving the active inline mesh emits no external mesh reference and leaves an inactive external file unchanged. */
     void activeInlineMesh_isNotRetargetedToInactiveExternal()
     {
         const QString deck = outDir() + QStringLiteral("/active_inline.inp");
@@ -1595,6 +1646,8 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Verify an unresolved authored component config blocks staged-model validation without publishing the model or settings.
+     * Removes the unresolved registration and checks retry adopts the target and clears dirty state. */
     void stagedReferenceFailure_preservesFilesAndPendingState()
     {
         const QString dir = outDir() + QStringLiteral("/staged_reference_validation");
@@ -1636,12 +1689,15 @@ private slots:
         window->deleteLater();
     }
 
+    /** @brief Register synchronous and asynchronous project opens after interrupted publication. */
     void interruptedSave_recoversBeforeOpen_data()
     {
         QTest::addColumn<bool>("async");
         QTest::newRow("synchronous") << false;
         QTest::newRow("asynchronous") << true;
     }
+    /** @brief Verify opening recovers an interrupted save journal before parsing the model.
+     * Injects an exception at the first publication checkpoint, expects a recovery warning and original model bytes, and checks a clean subsequent save. The asynchronous branch waits up to ten seconds for modelLoadFinished. */
     void interruptedSave_recoversBeforeOpen()
     {
         QFETCH(bool, async);
@@ -1698,6 +1754,8 @@ private slots:
         window->deleteLater();
     }
 
+    /** @brief Verify staging leaves final model/settings files and new component directories untouched until publication.
+     * Checks repeated model staging reuses its path, publication installs all three payloads, and manifest destruction removes staged files. */
     void outputManifest_stagesPublishesAndCleansUp()
     {
         const QString dir = outDir() + QStringLiteral("/manifest_publish");
@@ -1744,6 +1802,7 @@ private slots:
             QVERIFY(!QFileInfo::exists(path));
     }
 
+    /** @brief Register duplicate paths, hard links, symbolic links, protected sources and duplicate component roles. */
     void outputManifest_refusesAliases_data()
     {
         QTest::addColumn<int>("kind");
@@ -1753,6 +1812,8 @@ private slots:
         QTest::newRow("protected-source") << 3;
         QTest::newRow("duplicate-component") << 4;
     }
+    /** @brief Verify conflicting output roles fail before publication and cleanup removes any staged path.
+     * Checks original model bytes survive; skips link-specific rows when the filesystem cannot create the required link. */
     void outputManifest_refusesAliases()
     {
         QFETCH(int, kind);
@@ -1795,6 +1856,8 @@ private slots:
         QCOMPARE(file.readAll(), QByteArray("old model"));
     }
 
+    /** @brief Verify a hard-link collision introduced after staging is rejected before publication starts.
+     * Checks the original model remains unchanged and skips when hard links are unsupported. */
     void outputManifest_rechecksBeforePublication()
     {
         const QString dir = outDir() + QStringLiteral("/manifest_recheck");
@@ -1819,6 +1882,8 @@ private slots:
         QCOMPARE(file.readAll(), QByteArray("old model"));
     }
 
+    /** @brief Verify an obstructed reaction-config destination rolls back detached mesh references without publishing model, settings or mesh.
+     * Retains mesh edits and source identity, removes the directory obstruction, then checks successful component publication, saved elevation and project reopen. */
     void componentFailure_keepsPendingStateAndAllowsRetry()
     {
         const QString dir = outDir() + QStringLiteral("/component_failure");
@@ -1911,6 +1976,8 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Verify engine model short writes preserve existing Save and Save As destinations and allow retry.
+     * On POSIX runs an isolated child with a 20-second parent timeout, caps file size at 32768 bytes while ignoring SIGXFSZ, restores the previous limit/handler, checks contextual errors and dirty state, then retries and reopens. Other platforms skip; the child report is retained. */
     void engineShortWrite_preservesModelAndPendingState()
     {
 #ifndef Q_OS_UNIX
@@ -1986,6 +2053,8 @@ private slots:
 #endif
     }
 
+    /** @brief Verify an oversized external-mesh snapshot cannot partially publish under a POSIX file-size limit.
+     * Runs in an isolated child with a 20-second parent timeout, limits writes to 32768 bytes, restores the limit and SIGXFSZ handler, and checks original mesh bytes, source identity and pending elevation survive. Other platforms skip and the child log is retained. */
     void externalMesh_shortWriteFailsSave()
     {
 #ifndef Q_OS_UNIX
@@ -2060,6 +2129,8 @@ private slots:
 #endif
     }
 
+    /** @brief Verify a late external boundary patch failure preserves the original mesh after the attribute patch would fit.
+     * An isolated POSIX child uses a large GUI-only boundary group and a 32768-byte limit, restores process limits/signals, checks pending state, then shortens the group and verifies retry saves its boundary and elevation. Parent waits twenty seconds; other platforms skip. */
     void externalMesh_lateBoundaryFailurePreservesFile()
     {
 #ifndef Q_OS_UNIX
@@ -2145,6 +2216,7 @@ private slots:
 #endif
     }
 
+    /** @brief Register missing, directory, empty and mismatched-topology active meshes, including inline topology mismatch. */
     void meshFailure_keepsPendingState_data()
     {
         QTest::addColumn<int>("failure");
@@ -2155,6 +2227,8 @@ private slots:
         QTest::newRow("inline-topology-mismatch") << 4;
     }
 
+    /** @brief Verify mesh preparation failure preserves destination bytes, project identity, pending edits and completion silence.
+     * Checks a missing active mesh never falls back to an unrelated layer; repairs missing/directory/empty external files and verifies retry, while topology-mismatch rows remain rejected. */
     void meshFailure_keepsPendingState()
     {
         QFETCH(int, failure);
@@ -2266,6 +2340,7 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Register Save, Save As and untitled Save As with an obstructed settings destination. */
     void sidecarFailure_keepsPendingState_data()
     {
         QTest::addColumn<int>("kind");
@@ -2274,6 +2349,8 @@ private slots:
         QTest::newRow("untitled-save-as") << 2;
     }
 
+    /** @brief Verify settings staging failure preserves source bytes, project identity, untitled state and pending mesh/notes edits.
+     * Removes the directory obstruction, retries, and checks adopted paths, cleared dirty state, serialized notes/session path and saved elevation. */
     void sidecarFailure_keepsPendingState()
     {
         QFETCH(int, kind);
@@ -2353,6 +2430,8 @@ private slots:
         w->deleteLater();
     }
 
+    /** @brief Verify the production Save command presents a critical modal containing the settings failure path.
+     * Hosts the project in the real MDI window, polls and dismisses the active modal every ten milliseconds, checks dirty state, then removes the obstruction and clears dirty state for teardown. */
     void saveCommand_showsFailure()
     {
         const QString deck = outDir() + QStringLiteral("/save_command.inp");
@@ -2399,6 +2478,8 @@ private slots:
         w->setHasChanges(false);
     }
 
+    /** @brief Verify atomic settings serialization preserves existing bytes on a POSIX short write.
+     * Runs an isolated child with a 20-second parent timeout, limits writes to 512 bytes for oversized notes, restores the file-size limit and SIGXFSZ handler, and checks false/error plus original bytes. Other platforms skip; retains the child report. */
     void atomicSidecar_shortWritePreservesOriginal()
     {
 #ifndef Q_OS_UNIX
@@ -2458,6 +2539,8 @@ private slots:
      *  reaction system must leave the loss visible on the window — in
      *  lastSaveWarnings() AND through the signal SWMMVis routes to the log
      *  panel and the modal. */
+    /** @brief Verify saving embedded reaction sections reports their actual loss through the window warning list and one completion signal.
+     * Checks the warning names REACTION_OPTIONS and the loss, and confirms the saved deck lacks that section. This fixture expects the current lossy writer rather than testing reaction round-trip support. */
     void embeddedSectionLoss_surfacesOnSave()
     {
         const QString deck = outDir() + QStringLiteral("/sw_embed.inp");
@@ -2502,6 +2585,7 @@ private slots:
     /*! Lesson-148 guard: a clean save must warn about NOTHING — no signal,
      *  empty lastSaveWarnings(). A notice that fires on every save is one
      *  users learn to ignore, which re-creates the silence. */
+    /** @brief Verify a deck without embedded reaction sections saves with an empty warning list and no warning-completion signal. */
     void cleanSave_staysSilent()
     {
         const QString deck = outDir() + QStringLiteral("/sw_clean.inp");
@@ -2522,6 +2606,8 @@ private slots:
     /*! Two saves in a row: the second save's delta must not re-report the
      *  first save's warnings on top (the engine list is CUMULATIVE — the
      *  bracketing is what keeps the GUI honest about what THIS save did). */
+    /** @brief Verify two saves of the same embedded-reaction engine context report equal per-save warning counts.
+     * The engine retains the embedded sections, so the second save legitimately warns again; the assertion detects cumulative warning growth rather than expecting silence. */
     void secondSave_reportsOnlyItsOwnDelta()
     {
         const QString deck = outDir() + QStringLiteral("/sw_twice.inp");

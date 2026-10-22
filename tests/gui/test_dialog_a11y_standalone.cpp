@@ -43,6 +43,13 @@ public:
     using QPushButton::QPushButton;
 
 protected:
+    /**
+     *
+     * @brief Paint the normal button then overlay a blue interior swatch without text or QIcon.
+     * @param event Borrowed paint event forwarded to QPushButton; valid for this callback.
+     * Uses local painter lifetime and does not assign any accessible name itself.
+     *
+     */
     void paintEvent(QPaintEvent *event) override
     {
         QPushButton::paintEvent(event);
@@ -72,6 +79,13 @@ private:
     QTemporaryDir mSettingsDir;
 };
 
+/**
+ *
+ * @brief Isolate process-wide settings identity, INI format and user path in a member-owned
+ * temporary directory.
+ * Requires valid directory retained for the suite; does not restore prior global values.
+ *
+ */
 void TestDialogA11yStandalone::initTestCase()
 {
     QVERIFY(mSettingsDir.isValid());
@@ -81,24 +95,50 @@ void TestDialogA11yStandalone::initTestCase()
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, mSettingsDir.path());
 }
 
+/**
+ *
+ * @brief Run shared dialog accessibility assertions on a local About dialog.
+ * No modal acceptance, native engine or screenshot is involved.
+ *
+ */
 void TestDialogA11yStandalone::aboutDialog()
 {
     AboutDialog dlg;
     assertDialogA11y(&dlg);
 }
 
+/**
+ *
+ * @brief Run shared dialog accessibility assertions on a local Plugins dialog.
+ * Does not install/uninstall a plugin or exercise external services.
+ *
+ */
 void TestDialogA11yStandalone::pluginsDialog()
 {
     PluginsDialog dlg;
     assertDialogA11y(&dlg);
 }
 
+/**
+ *
+ * @brief Run shared accessibility assertions on a local license-agreement dialog.
+ * Does not accept/reject a modal license flow or modify licensing preferences explicitly.
+ *
+ */
 void TestDialogA11yStandalone::licenseAgreementDialog()
 {
     LicenseAgreementDialog dlg;
     assertDialogA11y(&dlg);
 }
 
+/**
+ *
+ * @brief Require the shared button-name assertion to detect a textless painted swatch despite its
+ * tooltip.
+ * Checks Qt's accessible Name is empty, then registers an expected failure before the
+ * shared assertion. Does not render/grab the button or test a screen reader.
+ *
+ */
 void TestDialogA11yStandalone::unnamedPaintedButtonIsDetected()
 {
     QDialog dialog;
@@ -113,6 +153,14 @@ void TestDialogA11yStandalone::unnamedPaintedButtonIsDetected()
     assertIconButtonsNamed(&dialog);
 }
 
+/**
+ *
+ * @brief Require a tooltip-only icon button to fail the shared accessible-name assertion as
+ * expected.
+ * Checks Qt's Name role is empty despite icon/tooltip; the expected failure is deliberate
+ * regression coverage, not an unhandled suite error.
+ *
+ */
 void TestDialogA11yStandalone::tooltipOnlyIconButtonIsDetected()
 {
     QDialog dialog;
@@ -129,6 +177,12 @@ void TestDialogA11yStandalone::tooltipOnlyIconButtonIsDetected()
     assertIconButtonsNamed(&dialog);
 }
 
+/**
+ *
+ * @brief Register explicit accessible-name and label-buddy naming paths for a drawn ColorButton.
+ * Supplies a boolean consumed by namedColorButtonPasses().
+ *
+ */
 void TestDialogA11yStandalone::namedColorButtonPasses_data()
 {
     QTest::addColumn<bool>("buddyName");
@@ -136,6 +190,14 @@ void TestDialogA11yStandalone::namedColorButtonPasses_data()
     QTest::newRow("label-buddy-context") << true;
 }
 
+/**
+ *
+ * @brief Require a textless/iconless color swatch to expose its contextual name and pass shared
+ * assertions.
+ * Checks exact Corridor colour before/after validation for both explicit and mnemonic
+ * buddy naming. Local dialog owns child controls; no color picker is opened.
+ *
+ */
 void TestDialogA11yStandalone::namedColorButtonPasses()
 {
     QFETCH(bool, buddyName);
@@ -158,6 +220,14 @@ void TestDialogA11yStandalone::namedColorButtonPasses()
     QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor colour"));
 }
 
+/**
+ *
+ * @brief Require shared icon-button auditing not to mutate a native combo's Name role,
+ * accessibleName or selection.
+ * Checks both item selections while explicit name remains Quantity; no key navigation
+ * or spoken-output assertion.
+ *
+ */
 void TestDialogA11yStandalone::nativeComboNameIsUntouched()
 {
     QDialog dialog;

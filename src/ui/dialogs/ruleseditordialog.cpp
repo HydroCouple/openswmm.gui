@@ -48,6 +48,12 @@ namespace
 {
 
 // Default skeleton for the "+ Add" path. Matches DA.3's "Empty" skeleton.
+/**
+ * @param[in] name Raw token inserted after RULE, not escaped/validated here.
+ * @return Owned three-line sample using literal J1 depth>5 and P1 ON; numeric depth follows
+ *   rule/engine project units, no model existence or syntax validation. Pure formatting, no
+ *   registry/engine writes.
+ */
 QString defaultRuleSkeleton(const QString &name)
 {
     return QStringLiteral("RULE %1\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON").arg(name);

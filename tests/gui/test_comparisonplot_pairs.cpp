@@ -34,11 +34,24 @@ using namespace openswmmvis::plot;
 class StubRunLayer : public IRunLayer
 {
 public:
+    /** @brief Name the synthetic empty run.
+     * @return Stub. */
     QString scenarioName() const override { return QStringLiteral("Stub"); }
+    /** @brief Identify the stub series units.
+     * @return SI. */
     UnitSystem unitSystem() const override { return UnitSystem::SI; }
+    /** @brief Expose the empty stub start timestamp.
+     * @return Zero Julian days. */
     double startDateJulian() const override { return 0.0; }
+    /** @brief Expose the stub report count.
+     * @return Zero periods. */
     int periodCount() const override { return 0; }
+    /** @brief Expose the empty stub report interval.
+     * @return Zero seconds. */
     int reportStepSeconds() const override { return 0; }
+    /** @brief Reject every series request with the fixed stub error.
+     * The unnamed object and attribute arguments are ignored.
+     * @param[out] out Required series object whose success flag becomes false and error becomes stub; other fields are left unchanged. */
     void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
     {
         out.ok = false;
@@ -65,6 +78,9 @@ private:
 };
 
 std::unique_ptr<ComparisonPlotModel>
+/** @brief Build a uniquely owned model with two stub runs and ordered J1 series.
+ * @param[in] seriesSpecs Pairs of zero-based run index (0 or 1) and plot attribute to add; add failures are not checked in this helper.
+ * @return New model owning both shared run sources and accepted series. */
 TestComparisonPlotPairs::makeModel(const QVector<QPair<int, PlotAttribute>> &seriesSpecs)
 {
     auto model = std::make_unique<ComparisonPlotModel>();
@@ -84,6 +100,8 @@ TestComparisonPlotPairs::makeModel(const QVector<QPair<int, PlotAttribute>> &ser
     return model;
 }
 
+/** @brief Verify adding fifty mesh-depth series emits one batch and one row signal, no individual-add signal, and one attribute row.
+ * An empty batch returns zero without emitting again. */
 void TestComparisonPlotPairs::batchAdditionEmitsOnce()
 {
     auto model = makeModel({});
@@ -110,6 +128,7 @@ void TestComparisonPlotPairs::batchAdditionEmitsOnce()
     QCOMPARE(batch.count(), 1);
 }
 
+/** @brief Verify invalid indices, self-pairing and mixed attributes reject pairing without changing pairs or emitting. */
 void TestComparisonPlotPairs::addPairValidates()
 {
     // Series 0/1 = NodeDepth, series 2 = LinkFlow.
@@ -126,6 +145,7 @@ void TestComparisonPlotPairs::addPairValidates()
     QVERIFY(model->pairs().isEmpty());
 }
 
+/** @brief Verify a valid pair stores its indices and emits once, duplicates are refused and the reversed pair is distinct. */
 void TestComparisonPlotPairs::addPairEmitsAndStores()
 {
     auto model = makeModel({{0, PlotAttribute::NodeDepth}, {1, PlotAttribute::NodeDepth}});
@@ -144,6 +164,7 @@ void TestComparisonPlotPairs::addPairEmitsAndStores()
     QCOMPARE(spy.count(), 2);
 }
 
+/** @brief Verify removing a valid pair emits once while an out-of-range removal is silent. */
 void TestComparisonPlotPairs::removePairRemoves()
 {
     auto model = makeModel({{0, PlotAttribute::NodeDepth}, {1, PlotAttribute::NodeDepth}});
@@ -160,6 +181,7 @@ void TestComparisonPlotPairs::removePairRemoves()
     QCOMPARE(spy.count(), 1);
 }
 
+/** @brief Verify clearing populated pairs removes them and emits, while clearing an already empty list is silent. */
 void TestComparisonPlotPairs::clearPairsResetsToAuto()
 {
     auto model = makeModel({{0, PlotAttribute::NodeDepth}, {1, PlotAttribute::NodeDepth}});
@@ -174,6 +196,7 @@ void TestComparisonPlotPairs::clearPairsResetsToAuto()
     QVERIFY(model->pairs().isEmpty());
 }
 
+/** @brief Verify removing a series drops pairs referencing it and shifts surviving higher indices with one notification. */
 void TestComparisonPlotPairs::removeSeriesReindexesPairs()
 {
     // Series 0,1,2 all NodeDepth: pairs (0,2) and (1,2).
@@ -192,6 +215,7 @@ void TestComparisonPlotPairs::removeSeriesReindexesPairs()
     QCOMPARE(model->pairs().first().ySeriesIndex, 1);
 }
 
+/** @brief Verify deleting a run source removes its referencing comparison pair and emits once. */
 void TestComparisonPlotPairs::removeRunSourceDropsReferencingPairs()
 {
     // Series 0 (run 0) + series 1 (run 1), paired. Removing run 1 removes

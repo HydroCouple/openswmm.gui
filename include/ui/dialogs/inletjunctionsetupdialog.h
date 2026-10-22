@@ -50,45 +50,132 @@ class InletJunctionSetupDialog : public QDialog
     Q_OBJECT
 
 public:
-    /*! \param layer        Model layer (engine + inlet registry source; its
-     *                      editCanvas() hosts the map pick).
-     *  \param excludeNodes Node indices the capture-node list must omit — the
-     *                      host conduit's two end nodes for the split flow,
-     *                      or the node being promoted for the convert flow.
-     *                      Virtual and inlet junctions are excluded already
-     *                      (engine rule 627). */
+    /**
+     * @brief Build a nonmodal chooser for a new or converted inlet junction.
+     * @param[in] layer Borrowed nullable model supplying engine, inlet registry and map canvas;
+     * stored as a raw pointer and must outlive the dialog and its pick callbacks.
+     * @param[in] excludeNodes Owned vector of zero-based nodes excluded as capture destinations,
+     * moved into the dialog; usually host-link ends or the node being converted.
+     * @param[in] parent Optional Qt owner of this floating panel and child controls.
+     * @details Initializes design/node choices and placement, excluding virtual/inlet nodes from
+     * receiver choices. Creates no node or usage row; the caller connects accepted() to its own
+     * mutation. Use on the GUI thread with a live stable model context.
+     */
     InletJunctionSetupDialog(SWMMModelLayer *layer, QVector<int> excludeNodes,
                              QWidget *parent = nullptr);
+    /**
+     * @brief End any active capture-node pick before Qt destroys owned controls.
+     * @details Restores the previous map tool through endCaptureNodePick(); never owns the model
+     * layer.
+     */
     ~InletJunctionSetupDialog() override;
 
-    /*! Chosen inlet design name. Never empty once the dialog was accepted. */
+    /**
+     * @brief Copy the selected design identity without creating an inlet.
+     * @return Current picker text, or empty when its control is absent. OK is enabled only when
+     * this and captureNode() are nonempty; programmatic accept() does not itself enforce that
+     * gate.
+     *
+     */
     [[nodiscard]] QString inletDesign() const;
-    /*! Chosen capture (underdrain) node name. Never empty once accepted. */
+    /**
+     * @brief Copy the selected capture-node identity without changing the engine.
+     * @return Current picker text, or empty when its control is absent; names come from eligible
+     * choices or the map picker.
+     *
+     */
     [[nodiscard]] QString captureNode() const;
-    /*! Chosen placement, as a `SWMM_InletPlacement` ordinal. */
+    /**
+     * @brief Read the selected placement enum ordinal.
+     * @return SWMM_INLET_AUTOMATIC, SWMM_INLET_ON_GRADE or SWMM_INLET_ON_SAG from combo user
+     * data; automatic if the control is absent.
+     *
+     * @details Chosen placement, as a `SWMM_InletPlacement` ordinal.
+     */
     [[nodiscard]] int placement() const;
 
-    /*! Start picking the capture node on the map (the "…" button's action).
-     *  No-op when the layer has no edit canvas. */
+    /**
+     * @brief Begin one nonmodal capture-node map-picking session.
+     * @details No-ops without a model canvas or while a session is active; otherwise finishes
+     * the previous session, creates a dialog-owned NodePickSession and connects
+     * completion/cancellation. The session manages temporary map-tool replacement; eligible
+     * picks populate only the local form.
+     *
+     * @details Start picking the capture node on the map (the "…" button's action).
+     *  No-op when the layer has no edit canvas.
+     */
     void startCaptureNodePick();
-    /*! Stop picking and restore the previous canvas tool. */
+    /**
+     * @brief Finish the current session, restore its previous map tool and clear the hint.
+     * @details Safe when no session exists. Schedules the session for Qt deletion and
+     * immediately clears the guarded pointer.
+     *
+     * @details Stop picking and restore the previous canvas tool.
+     */
     void endCaptureNodePick();
+    /**
+     * @brief Query whether the guarded node-pick session remains active.
+     * @return True only for a live session whose isActive() is true; no state changes.
+     */
     [[nodiscard]] bool isPickingCaptureNode() const;
 
 private slots:
-    /*! Enable OK only once both identity fields are set — the engine rejects
-     *  a partial usage row, so an incomplete OK could only fail. */
+    /**
+     * @brief Enable OK exactly when both picker identity strings are nonempty.
+     * @details Returns before button construction; does not independently re-resolve names or
+     * validate placement against the engine.
+     *
+     * @details Enable OK only once both identity fields are set — the engine rejects
+     *  a partial usage row, so an incomplete OK could only fail.
+     */
     void updateOkEnabled();
-    /*! Open `InletEditorDialog::pickInlet` filtered to the gutter types and
-     *  select the returned design. */
+    /**
+     * @brief Open the model's inlet chooser constrained to street/gutter-compatible designs.
+     * @details No-ops without model/registry or an empty returned identity; otherwise reloads
+     * design choices and selects the chosen name. The child editor can create/edit registry
+     * designs; this panel still creates no inlet junction.
+     *
+     * @details Open `InletEditorDialog::pickInlet` filtered to the gutter types and
+     *  select the returned design.
+     */
     void onDesignPickerClicked();
-    /*! A node was clicked on the map: adopt it if eligible, else explain and
-     *  keep picking. */
+    /**
+     * @brief Accept an eligible map-picked receiver and finish the pick session.
+     * @param[in] layer Borrowed layer reporting the pick; must equal the bound model to be
+     * accepted.
+     * @param[in] name Borrowed node ID copied into the capture picker after eligibility checks.
+     * @param[in] nodeIdx Valid zero-based index for name in layer's live engine; supplied by
+     * NodePickSession, not independently bounds-checked here.
+     * @details Rejects another model, excluded host nodes or virtual/inlet junctions with a hint
+     * while keeping picking active. An accepted pick refreshes OK, ends the session and raises
+     * the panel; no engine mutation occurs.
+     *
+     * @details A node was clicked on the map: adopt it if eligible, else explain and
+     *  keep picking.
+     */
     void onCaptureNodePicked(SWMMModelLayer *layer, const QString &name, int nodeIdx);
 
 private:
+    /**
+     * @brief Reload all nonempty inlet IDs from the bound engine.
+     * @param[in] selected Optional identity passed to the picker as the preferred selection;
+     * empty leaves selection policy to setItems().
+     * @details No-ops without constructed picker, bound layer or engine; the basic list is not
+     * itself gutter-type filtered.
+     */
     void refreshDesignItems(const QString &selected = {});
+    /**
+     * @brief Reload eligible capture nodes and preselect the first case-insensitive sorted name.
+     * @details Skips excluded indices and nodes reported virtual by the engine, then sets an
+     * empty selection if no names remain. No-ops without picker/model/engine. Does not retain
+     * pointers returned by engine ID queries.
+     */
     void refreshCaptureItems();
+    /**
+     * @brief Replace the local map-picking hint and toggle its visibility.
+     * @param[in] text Copied plain hint text; empty hides the label.
+     * @details No-ops before label creation; does not change map tools or model state.
+     */
     void setPickHint(const QString &text);
 
     SWMMModelLayer *m_layer = nullptr;

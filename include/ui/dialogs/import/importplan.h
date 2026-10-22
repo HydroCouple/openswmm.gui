@@ -49,6 +49,12 @@ struct ImportPlan {
     QVector<PlannedItem> items;
     int createCount = 0, updateCount = 0, skipCount = 0, errorCount = 0;
 
+    /**
+     * @brief Zero and recompute four action counters by iterating current items, preserving all
+     *   item payloads/messages/order.
+     * @note No target/source query or validation; invalid cast Action values match no switch case
+     *   and do not count. Integer counters assume collection fits int.
+     */
     void recount()
     {
         createCount = updateCount = skipCount = errorCount = 0;

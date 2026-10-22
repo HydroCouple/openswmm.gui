@@ -22,6 +22,18 @@
 namespace openswmmvis::ui
 {
 
+/**
+ * @param[in] anim Optional borrowed controller; append allLayers in its supplied order first.
+ * @param[in] projectWindow Optional borrowed project; append activeResultsLayer next, use its
+ *   canvas only if explicit canvas absent.
+ * @param[in] canvas Optional borrowed explicit canvas to scan last; replaces project canvas
+ *   fallback, not controller/active-source contributions.
+ * @return Owned list of borrowed distinct nonnull SWMMResultsLayer pointers, deduplicated by
+ *   pointer in first occurrence order. Includes unchecked/invisible/unready/duplicate-path layers;
+ *   no eligibility/file compatibility check or lifetime pinning.
+ * @note Synchronous GUI-thread QObject/canvas reads only, no source creation, selection change,
+ *   style write or registration. Caller keeps all owners alive while iterating.
+ */
 inline QList<SWMMResultsLayer *> profileResultSources(AnimationController *anim,
                                                       SWMMVisProjectWindow *projectWindow,
                                                       MapCanvas *canvas = nullptr)

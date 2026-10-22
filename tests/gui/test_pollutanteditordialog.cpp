@@ -30,6 +30,13 @@ class PollutantTestOwner : public QObject
 {
     Q_OBJECT
 signals:
+    /**
+     *
+     * @brief Notify test registry consumers that their borrowed engine owner is closing.
+     * Signal carries no handle and performs no destruction itself; cases emit it to exercise
+     * invalidation before queued or modal callbacks can write.
+     *
+     */
     void engineAboutToClose();
 };
 
@@ -46,6 +53,12 @@ private slots:
     void listAndActionsAreAccessible();
 };
 
+/**
+ *
+ * @brief Register no-op, unrelated snow-checkbox and explicit rain-concentration edits.
+ * Each row distinguishes unchanged full-precision storage from intended field mutation.
+ *
+ */
 void TestPollutantEditorDialog::editsPreserveUnchangedExactValues_data()
 {
     QTest::addColumn<QString>("edit");
@@ -54,6 +67,14 @@ void TestPollutantEditorDialog::editsPreserveUnchangedExactValues_data()
     QTest::newRow("explicit-rain") << QStringLiteral("rain");
 }
 
+/**
+ *
+ * @brief Require binding and unrelated edits not to round stored pollutant parameters through
+ * display controls.
+ * Checks seven exact parameter values, intended rain9.25 or snowOnly change, and zero/
+ * one registry notification according to the fetched edit. No native engine/file save.
+ *
+ */
 void TestPollutantEditorDialog::editsPreserveUnchangedExactValues()
 {
     QFETCH(QString, edit);
@@ -92,6 +113,13 @@ void TestPollutantEditorDialog::editsPreserveUnchangedExactValues()
     QCOMPARE(changes.count(), edit == QStringLiteral("none") ? 0 : 1);
 }
 
+/**
+ *
+ * @brief Require missing-registry construction to disable the name edit, all double spins and
+ * New/Delete buttons.
+ * Does not attempt mutations through other controls or test late registry attachment.
+ *
+ */
 void TestPollutantEditorDialog::absentRegistryDisablesEditors()
 {
     PollutantEditorDialog dialog(nullptr, nullptr);
@@ -104,6 +132,12 @@ void TestPollutantEditorDialog::absentRegistryDisablesEditors()
     }
 }
 
+/**
+ *
+ * @brief Require a named pollutant list and New/Delete buttons without auto-default behavior.
+ * Does not test every control, full mnemonic uniqueness or a screen reader.
+ *
+ */
 void TestPollutantEditorDialog::listAndActionsAreAccessible()
 {
     PollutantRegistry registry;
@@ -115,6 +149,14 @@ void TestPollutantEditorDialog::listAndActionsAreAccessible()
     }
 }
 
+/**
+ *
+ * @brief Require owner-close notification to hide/disable the editor and block late
+ * New/name/checkbox mutations.
+ * Checks no current provider, one original TSS provider, unchanged name and no registry
+ * parameter notification. Registry/provider remain alive; no engine is destroyed here.
+ *
+ */
 void TestPollutantEditorDialog::ownerClosingInvalidatesExistingRegistry()
 {
     PollutantTestOwner owner;
@@ -136,6 +178,15 @@ void TestPollutantEditorDialog::ownerClosingInvalidatesExistingRegistry()
     QCOMPARE(changed.count(), 0);
 }
 
+/**
+ *
+ * @brief Require owner closure after a real Yes click but before modal unwind to prevent provider
+ * deletion.
+ * Queued callback borrows live owner/dialog/local flag, finds the QMessageBox Yes button,
+ * clicks then emits closure. Checks prompt visited, provider count one and disabled
+ * editor; absent prompt/button makes callback return without dismissing a modal loop.
+ *
+ */
 void TestPollutantEditorDialog::ownerClosingDuringDeleteRefusesLateConfirmation()
 {
     PollutantTestOwner owner;
@@ -162,6 +213,14 @@ void TestPollutantEditorDialog::ownerClosingDuringDeleteRefusesLateConfirmation(
     QVERIFY(!dialog.isEnabled());
 }
 
+/**
+ *
+ * @brief Require registry destruction to hide/disable its editor and leave no provider after a
+ * late New request.
+ * Deletes the heap registry while the local dialog survives; does not dereference the
+ * destroyed registry/provider or test undo ownership.
+ *
+ */
 void TestPollutantEditorDialog::registryDestructionClosesEditor()
 {
     auto *registry = new PollutantRegistry;

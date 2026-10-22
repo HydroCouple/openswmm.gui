@@ -58,6 +58,12 @@ constexpr double kContinuityErrorThresholdPct = 10.0;
 class RptSyntaxHighlighter final : public QSyntaxHighlighter
 {
 public:
+    /**
+     * @param[in] doc Document passed to Qt highlighter parent/binding; dialog supplies persistent
+     *   viewer document.
+     * @brief Initialize fixed header/divider/unit/error colors; document owns highlighter through
+     *   Qt. No theme-following connection.
+     */
     explicit RptSyntaxHighlighter(QTextDocument *doc) : QSyntaxHighlighter(doc)
     {
         m_headerFmt.setForeground(QColor(0x1f, 0x4e, 0x79)); // muted accent blue
@@ -72,6 +78,14 @@ public:
     }
 
 protected:
+    /**
+     * @param[in] text Borrowed current document block, without line terminator.
+     * @brief Apply first matching divider/title/continuity format, otherwise mark supported
+     *   lowercase unit tokens.
+     * @note Title heuristic (nonspace start, less than 80 chars, no equals/double dot) precedes
+     *   continuity check. Signed continuity magnitude above 10 percent is red only if it reaches
+     *   that branch; no content changes.
+     */
     void highlightBlock(const QString &text) override
     {
         // Asterisk dividers and dash dividers — section delimiters.
@@ -124,6 +138,13 @@ private:
     QTextCharFormat m_errorFmt;
 };
 
+/**
+ * @param[in] path File path used directly for read-only access.
+ * @param[in] errorOut Optional borrowed output assigned open error only; not cleared on success.
+ * @return Whole UTF-8 decoded file, CRLF/CR normalized to LF and trailing LF added when nonempty.
+ *   Empty on open failure or empty file; errorOut distinguishes only failed open. No size limit or
+ *   file writes.
+ */
 QString readReportText(const QString &path, QString *errorOut = nullptr)
 {
     QFile f(path);
@@ -141,6 +162,10 @@ QString readReportText(const QString &path, QString *errorOut = nullptr)
     return text;
 }
 
+/**
+ * @param[in] sections Borrowed sections in desired order.
+ * @return Concatenated bodies verbatim with no extra separator/title/line-ending normalization.
+ */
 QString joinedSectionBodies(const QVector<openswmmvis::io::RptSection> &sections)
 {
     QString text;
@@ -159,6 +184,11 @@ QString joinedSectionBodies(const QVector<openswmmvis::io::RptSection> &sections
 class RptViewer : public QPlainTextEdit
 {
 public:
+    /**
+     * @param[in] parent Optional Qt owner; viewer owns its gutter.
+     * @brief Create live line-number gutter and connect block-count/update notifications to
+     *   viewport margins and gutter repaint/scroll. Caller configures read-only/no-wrap/font.
+     */
     explicit RptViewer(QWidget *parent = nullptr) : QPlainTextEdit(parent)
     {
         m_gutter = new Gutter(this);
@@ -175,6 +205,10 @@ public:
         applyGutterWidth();
     }
 
+    /**
+     * @return Logical-pixel width: 12 plus current digit-9 advance times decimal digits in max(1,
+     *   blockCount). No font or margin changes.
+     */
     [[nodiscard]] int gutterWidth() const
     {
         int digits = 1;
@@ -184,6 +218,11 @@ public:
     }
 
 protected:
+    /**
+     * @param[in] e Borrowed Qt resize event forwarded to base; do not retain.
+     * @brief Let plain-text editor resize, then place gutter across full contents height using
+     *   current width.
+     */
     void resizeEvent(QResizeEvent *e) override
     {
         QPlainTextEdit::resizeEvent(e);
@@ -195,18 +234,41 @@ private:
     class Gutter : public QWidget
     {
     public:
+        /**
+         * @param[in] v Required live parent viewer, retained raw; ownership is via QWidget parent.
+         * @brief Bind gutter paint and size calculations to its owning viewer.
+         */
         explicit Gutter(RptViewer *v) : QWidget(v), m_v(v) {}
+        /**
+         * @return Current viewer gutter width and zero preferred height; viewer controls actual
+         *   rectangle.
+         */
         [[nodiscard]] QSize sizeHint() const override { return QSize(m_v->gutterWidth(), 0); }
 
     protected:
+        /**
+         * @param[in] e Borrowed repaint region forwarded to owning viewer for immediate drawing.
+         * @brief Paint line numbers through viewer; event is not retained or forwarded to QWidget
+         *   base.
+         */
         void paintEvent(QPaintEvent *e) override { m_v->paintGutter(e); }
 
     private:
         RptViewer *m_v;
     };
 
+    /**
+     * @brief Reserve current gutter width on left viewport margin; other margins set to zero. Does
+     *   not reposition gutter by itself.
+     */
     void applyGutterWidth() { setViewportMargins(gutterWidth(), 0, 0, 0); }
 
+    /**
+     * @param[in] e Borrowed update region in gutter coordinates; limits fill and visible block
+     *   iteration.
+     * @brief Draw right-aligned one-based document block numbers for intersecting visible lines
+     *   with current palette/font. No text mutations.
+     */
     void paintGutter(QPaintEvent *e)
     {
         QPainter p(m_gutter);

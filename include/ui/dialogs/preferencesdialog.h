@@ -47,43 +47,210 @@ class PreferencesDialog : public QDialog
     Q_OBJECT
 
 public:
+    /**
+     * @brief Build and hydrate GUI-thread application preferences, initially selecting Selection.
+     * @param[in] parent Optional Qt owner; singleton PreferencesManager/ThemeManager remain
+     * externally owned.
+     * Most controls are drafts until Apply/OK. Rendering/selection property bridges and shortcut
+     * edits persist immediately and Cancel does not roll them back; Reset also immediately resets
+     * selected live style keys. No global rollback snapshot is held.
+     */
     explicit PreferencesDialog(QWidget *parent = nullptr);
+    /**
+     * @brief Destroy owned pages, property models/delegates and connections; does not reset
+     * persistent/live preference edits.
+     */
     ~PreferencesDialog() override = default;
 
     /*! Select the category page whose list label matches \a label
      *  (e.g. "Appearance"). No-op when no category matches. */
+    /**
+     * @brief Restore persisted dialog layout once, then select an exact sidebar caption.
+     * @param[in] label Translated visible category label; unknown labels leave selection unchanged.
+     * Missing list is a no-op.
+     */
     void openAtCategory(const QString &label);
 
 private slots:
+    /**
+     * @brief Validate mesh-resolution settings and write pending controls to the singleton.
+     * Invalid settings show a warning and skip the batch; prior live property/shortcut changes
+     * remain. Leaves the dialog open, without a rollback checkpoint.
+     */
     void onApply();
+    /**
+     * @brief Validate mesh-resolution settings, persist pending controls and accept the dialog.
+     * Invalid settings warn and leave it open; calls accept only after the complete write path.
+     */
     void onAccept();
+    /**
+     * @brief Reset draft widgets to compiled defaults and immediately reset live
+     * selection/link/node style keys.
+     * Updates their property models, but does not globally clear all preferences: mesh-BC and
+     * keyboard live settings are not reset here. Most remaining seeds require Apply/OK, object
+     * defaults reset their local page, and worker threads reset to engine auto (zero). Cancel
+     * cannot undo the live style resets.
+     */
     void onResetToDefaults();
 
 private:
+    /**
+     * @brief Create owned category pages, scrolling stack and Reset/Apply/Cancel/OK controls once.
+     * Starts on Selection, synchronizes sidebar/stack and connects Cancel directly to reject
+     * without restoring live edits.
+     */
     void buildUi();
+    /**
+     * @brief Hydrate draft widgets and refresh live property models from the singleton.
+     * Requires all page controls constructed. Resolves absent combo keys to first entries, converts
+     * report/dry/wet seconds to whole minutes for display (minimum one), applies 2D seeds and loads
+     * both object-default unit systems. Does not globally block signals; connected gating helpers
+     * may run.
+     */
     void readFromManager();
+    /**
+     * @brief Persist pending page values through singleton setters and apply the selected app
+     * theme.
+     * Requires all controls and caller mesh-resolution validation. Converts report/dry/wet minutes
+     * to seconds, packages simulation/2D defaults, writes both object-default unit sets and saves
+     * only nonempty trimmed naming prefixes. Live rendering/selection/keyboard edits are already
+     * persisted and are not replayed. Writes are sequential, with normal notifications, not an
+     * atomic transaction.
+     */
     void writeToManager();
+    /**
+     * @brief Populate 2D solver/coupling/rainfall/mesh default controls without saving the manager.
+     * @param[in] d Borrowed seed value; distances are metres, angles degrees and times seconds.
+     * Resolution settings are copied, widget bounds may clamp display values, and unmatched combo
+     * data falls back to index zero.
+     */
     void applyTwoDDefaultsToWidgets(const PreferencesManager::TwoDDefaults &d);
 
+    /**
+     * @brief Create license-startup, auto-length, project-open folder, engine choice and
+     * profile-selection defaults. Profile path cap [1,1000000], halo [1,200] px, pen widths [.5,20]
+     * px; color pickers update pending swatches, not settings.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildGeneralPage();
+    /**
+     * @brief Create draft pick/drag thresholds [1,200] px and clear-on-miss, plus a live
+     * SelectionRenderingPrefs property tree. Property edits write immediately; link selection
+     * widths are additive halos.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildSelectionPage();
+    /**
+     * @brief Create draft initial map tool, auto/custom CRS authority/code [1,999999], and snapping
+     * controls. Snap tolerance [4,64] px; gating only enables custom/snap controls, without
+     * validating a CRS or changing a project.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildCanvasPage();
+    /**
+     * @brief Create draft label threshold [.01,100] view scale and GPU flags, with live
+     * link/node/mesh-BC property trees. Builds four concern tabs; bridge setters immediately affect
+     * manager settings/normal listeners, independently of Apply.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildRenderingPage();
+    /**
+     * @brief Create draft progress update [50,10000] ms, live-history frame cap [100,200000] and
+     * budget [64,32768] MB. These are manager defaults; construction does not start or resize a
+     * running history.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildSimulationPage();
-    /*! \brief The Simulation Defaults page: five inner tabs (PLAN §3).
+    /*! \brief The Simulation Defaults page: seven inner tabs (PLAN §3).
      *
      *  Hosts what used to be the separate Dynamic Wave Defaults and 2D
      *  Defaults sidebar rows, which now fill tab layouts this hands them
      *  rather than returning pages of their own. */
+    /**
+     * @brief Create seven inner tabs for new-project process/schedule/hydraulic, dynamic-wave and
+     * 2D seeds. Report/dry/wet spins [1,1440] minutes convert to seconds when saved; routing
+     * [.1,3600] s, rule [0,86400] s (zero follows routing), slope/tolerances percent. No existing
+     * model is edited.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildSimulationDefaultsPage();
+    /**
+     * @brief Create dynamic-wave default groups inside existing tab layouts.
+     * @param[in,out] stepsLay Required borrowed layout receiving variable-step controls.
+     * @param[in,out] solverLay Required borrowed layout receiving conduit/solver controls and
+     * explanatory text.
+     * Layouts reparent groups into their owning pages. Timing fields use seconds, factor [0,1],
+     * UF_K3 [0,.05], head tolerance [1e-6,1], threads [0,256] with zero auto. Queries thread limits
+     * only for UI hints; no simulation starts.
+     */
     void addDynamicWaveDefaultGroups(QVBoxLayout *stepsLay, QVBoxLayout *solverLay);
+    /**
+     * @brief Create 2D solver, coupling and mesh seed controls for future projects.
+     * @param[in,out] lay Required borrowed layout for solver/wet-dry groups.
+     * @param[in,out] cplLay Required borrowed layout for coupling/rainfall/reporting.
+     * @param[in,out] meshLay Required borrowed layout for resolution and geometry/elevation seeds.
+     * Layouts reparent groups; distance values remain SI metres here (Generate Mesh handles project
+     * conversion), time seconds and angles degrees. Numeric UI bounds and enum catalogs gate
+     * inputs; no model/mesh is generated by construction.
+     */
     void addTwoDDefaultGroups(QVBoxLayout *lay, QVBoxLayout *cplLay, QVBoxLayout *meshLay);
+    /**
+     * @brief Create the self-contained ObjectDefaultsPage; later load/apply/reset forwards both US
+     * and SI seeds.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildObjectDefaultsPage();
+    /**
+     * @brief Create draft scale-bar color/font, unit/position choices, line width [1,20] px,
+     * reference length [20,500] px and decimal [-1,4] precision (-1 auto). Dialog pickers update
+     * pending values only.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildMapDisplayPage();
+    /**
+     * @brief Create draft measurement line/fill colors, label font/precision [0,6] and fill opacity
+     * [0,100] percent. Color/font cancellation preserves pending values; no map measurement is
+     * performed.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildMeasureToolPage();
+    /**
+     * @brief Create draft X/Y number-format presets, representing stored mode plus precision.
+     * Time/date axes are unaffected; these seed newly opened charts rather than rewriting existing
+     * plot overrides.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildPlotsPage();
+    /**
+     * @brief Create draft prefixes for the eleven supported element kinds. Placeholders show seed
+     * examples; whitespace-only values are ignored on Apply and no elements are renamed.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildNamingPage();
+    /**
+     * @brief Create draft System/Light/Dark radio choices. ThemeManager is changed on Apply/OK, not
+     * during construction.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildAppearancePage();
+    /**
+     * @brief Create the self-contained ShortcutEditorWidget. Edits persist immediately through
+     * ActionRegistry; no Apply batch or Cancel rollback is provided here.
+     * @return Newly allocated dialog-owned page (reparented into a scrolling stack); child
+     * controls/models remain Qt-owned.
+     */
     QWidget *buildKeyboardPage();
 
     QListWidget *m_categoryList = nullptr;

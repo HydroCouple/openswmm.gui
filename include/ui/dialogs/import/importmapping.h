@@ -34,6 +34,11 @@ struct AttributeBinding {
     QString sourceField;   ///< OGR field name; empty = unmapped
     QVariant defaultValue; ///< used when sourceField is empty or the cell is null
 
+    /**
+     * @return Source field string NONEMPTY or default QVariant isValid, including whitespace-only
+     *   field name and valid null default. Does not verify column exists, default converts or value
+     *   is nonnull. Pure predicate, no mutation.
+     */
     [[nodiscard]] bool isBound() const { return !sourceField.isEmpty() || defaultValue.isValid(); }
 };
 
@@ -59,19 +64,44 @@ struct ImportMapping {
     // ---- source-side filter -------------------------------------------
     bool selectedFeaturesOnly = false;
 
+    /**
+     * @param[in] targetKey Exact case-sensitive key, no trimming/registry validation.
+     * @return Borrowed FIRST matching vector entry or null; pointer valid only while mapping/vector
+     *   entry remains alive and unmodified, append/reallocation can invalidate. Duplicate bindings
+     *   not reconciled. No mutation.
+     */
     [[nodiscard]] const AttributeBinding *binding(const QString &targetKey) const;
     /*! Returns the existing binding for \p targetKey, creating an
-     *  unbound one if absent. */
+     *  unbound one if absent.
+     * @param[in] targetKey Exact raw key, including empty/unknown, copied on new entry.
+     * @return Borrowed first existing entry or appended unbound entry reference. May
+     *   grow/reallocate bindings, invalidating earlier references/pointers. Does not validate known
+     *   target, source schema or preserve uniqueness of pre-existing duplicates.
+     */
     AttributeBinding &ensureBinding(const QString &targetKey);
 
     /*! Serialize for presets. Field bindings are stored by source-field
      *  *name* so a preset survives re-application to a different layer
-     *  with the same schema. */
+     *  with the same schema.
+     * @return New version 1 preset object with numeric kind, bound entries only,
+     *   endpoint/conflict/selected options. Source field names preserved raw, default via
+     *   QJsonValue conversion; non-JSON QVariant fidelity follows Qt. Unbound entries omitted,
+     *   ordering/duplicates otherwise retained. No validation, file write or input mutation.
+     */
     [[nodiscard]] QJsonObject toJson() const;
 
     /*! Tolerant parse — unknown keys ignored, missing keys defaulted.
      *  Returns std::nullopt (with \p errorOut set) only when the JSON
-     *  is structurally unusable (no valid "kind"). */
+     *  is structurally unusable (no valid "kind").
+     * @param[in] j Borrowed preset JSON; version/unknown keys ignored, kind must be numeric and
+     *   toInt within Junction..Outlet.
+     * @param[out] errorOut Optional localized-independent error string set ONLY invalid/missing
+     *   kind; not cleared on success.
+     * @return Parsed value or nullopt for kind error. Missing/wrong-typed sections default per Qt
+     *   conversions; empty binding target skipped, unknown/duplicate targets preserved. No
+     *   schema/source-field/default/tolerance/prefix validation; exact lowercase update policy
+     *   selects Update, all others Skip. No file/source write.
+     */
     [[nodiscard]] static std::optional<ImportMapping> fromJson(const QJsonObject &j,
                                                                QString *errorOut = nullptr);
 };

@@ -63,6 +63,11 @@ namespace
 using ShapeRow = openswmmvis::XsectShapeRow;
 constexpr const auto &kShapes = openswmmvis::kXsectShapes;
 
+/**
+ * @param[in] engineId Raw engine SWMM_XSECT enum value, no validation.
+ * @return Borrowed immutable shared metadata row, CIRCULAR fallback for unknown; never null/free.
+ *   No source read/write or enum renumbering.
+ */
 inline const ShapeRow *findShapeRow(int engineId)
 {
     return openswmmvis::findXsectShapeRow(engineId);
@@ -74,12 +79,23 @@ inline const ShapeRow *findShapeRow(int engineId)
 // beside it from ever disagreeing, themes the artwork with the palette, and
 // gives the five shapes that never had art (BASKETHANDLE / SEMICIRCULAR /
 // CUSTOM / FORCE_MAIN / DUMMY) correct tiles for free.
+/**
+ * @param[in] engineId Raw shape enum forwarded to shared engine-geometry icon builder.
+ * @param[in] size Requested logical-pixel thumbnail size forwarded unchanged.
+ * @param[in] palette Borrowed drawing colors copied/used by shared renderer.
+ * @return Owned icon value from xsectShapeIcon; placeholder/failure handling delegated there. No
+ *   model link geometry writes or callback ownership. GUI-thread rendering.
+ */
 QIcon makeShapeIcon(int engineId, const QSize &size, const QPalette &palette)
 {
     return openswmmvis::sectionview::xsectShapeIcon(engineId, size, palette);
 }
 
 //! Unit context for the preview, from the active project's UnitSystem.
+/**
+ * @return Diagram-unit defaults updated from current global UnitSystem SI flag/length label when
+ *   available. Label/context only, no numeric conversion or bound-layer lookup.
+ */
 openswmmvis::sectionview::DiagramUnits previewUnits()
 {
     openswmmvis::sectionview::DiagramUnits u;

@@ -38,11 +38,15 @@
 namespace
 {
 
+/** @brief Resolve outlier-coordinate fixtures.
+ * @return SWMMVIS_GUI_TEST_DATA or ".". */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Locate the dense-network/outlier fixture.
+ * @return Joined corrupt_coords_fixture.inp path. */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("corrupt_coords_fixture.inp"));
@@ -60,6 +64,7 @@ private slots:
     void extentReflectsTheCorruptCoordinates();
 };
 
+/** @brief Require the corrupt-coordinate fixture file. */
 void TestLinkGridOutliers::initTestCase()
 {
     QVERIFY2(QFile::exists(fixturePath()),
@@ -70,6 +75,8 @@ void TestLinkGridOutliers::initTestCase()
 // still found by a click on it, even though the model's raw extent is
 // degenerate. This passed before too (a linear scan finds everything) — it is
 // here so a future indexing change cannot trade correctness for speed.
+/** @brief Verify dense-network conduit C0 remains identifiable despite distant coordinate outliers.
+ * This asserts hit-test correctness without measuring spatial-index performance. */
 void TestLinkGridOutliers::normalLinkStaysHitTestable()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -89,6 +96,7 @@ void TestLinkGridOutliers::normalLinkStaysHitTestable()
 // cells, so query() must clamp as well. If it instead rejected rects falling
 // outside the fenced extent, these links would be stored but unreachable —
 // present in the model, invisible to every click.
+/** @brief Verify a far-away conduit remains identifiable through the clamped spatial index. */
 void TestLinkGridOutliers::corruptCoordinateLinkStaysHitTestable()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -110,6 +118,7 @@ void TestLinkGridOutliers::corruptCoordinateLinkStaysHitTestable()
 // The layer extent still covers everything — the fence changes how the index
 // is sized, not what the model contains. Pins that the fix did not "solve" the
 // problem by dropping the offending objects.
+/** @brief Verify all forty-five nodes and their distant coordinates remain in the model extent. */
 void TestLinkGridOutliers::extentReflectsTheCorruptCoordinates()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);

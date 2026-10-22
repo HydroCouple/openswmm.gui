@@ -41,11 +41,16 @@ using openswmmvis::ui::RainfallVisualizationDialog;
 namespace
 {
 
+/** @brief Resolve rainfall input fixtures.
+ * @return SWMMVIS_GUI_TEST_DATA or "." when unset. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Load an independent owned rainfall model.
+ * @param[in] inp Model filename/path joined under the fixture directory.
+ * @return Unique loaded layer or nullptr on failure, discarding local diagnostics. */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &inp)
 {
     auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(inp), nullptr);
@@ -55,6 +60,9 @@ std::unique_ptr<SWMMModelLayer> openLayer(const QString &inp)
     return layer;
 }
 
+/** @brief Count line-series objects attached to a chart.
+ * @param[in] c Required borrowed chart.
+ * @return Number of QLineSeries instances; other series types are ignored. */
 int lineSeriesCount(QChart *c)
 {
     int n = 0;
@@ -66,6 +74,8 @@ int lineSeriesCount(QChart *c)
 
 /*! Check every gage's visibility box in the stats table (default is
  *  only-the-first-gage; comparison tests want all series plotted). */
+/** @brief Enable all gage visibility checkboxes and allow ten milliseconds for chart updates.
+ * @param[in,out] dlg Dialog expected to contain its statistics table and column-zero items; a missing table records a QtTest failure and returns from this helper. */
 void checkAllGages(RainfallVisualizationDialog &dlg)
 {
     auto *statsTable = dlg.findChild<QTableWidget *>(QStringLiteral("statsTable"));
@@ -83,6 +93,8 @@ class TestRainfallVisualizationDialog : public QObject
 
 private slots:
 
+    /** @brief Verify all six rainfall sources expose their full five-sample record outside simulation dates.
+     * Checks a focused cumulative series reaches seventeen inches, represents the first fifteen-minute accumulation correctly and reports all sources OK. */
     void fullFilePlotsOutsideSimulationDates()
     {
         auto layer = openLayer(QStringLiteral("full_rain_record/rain_full_record.inp"));
@@ -117,6 +129,8 @@ private slots:
             QCOMPARE(stats->item(row, 11)->text(), QStringLiteral("OK"));
     }
 
+    /** @brief Verify inline, standard-file and CSV gages all resolve while only the first plots by default.
+     * Checking all visibility boxes produces three overlay lines and three panels. */
     void assemblesAllThreeSourceKinds()
     {
         auto layer = openLayer(QStringLiteral("gage_assignment_files.inp"));
@@ -152,6 +166,7 @@ private slots:
         QCOMPARE(dlg.panelCharts().size(), 3);
     }
 
+    /** @brief Verify a missing-file gage remains visible as a failed statistics row while only the two healthy sources plot. */
     void failedFileGageSurfacesInStatsNotChart()
     {
         // Fixture variant where CSV_SOUTH points at a nonexistent file. The
@@ -194,6 +209,8 @@ private slots:
         QCOMPARE(dlg.panelCharts().size(), 2);
     }
 
+    /** @brief Verify selecting cumulative-depth basis changes model basis and produces monotone plotted series.
+     * The implemented assertions do not inspect the axis title despite the slot name. */
     void basisSwitchRetitlesAxisAndChangesValues()
     {
         auto layer = openLayer(QStringLiteral("gage_assignment_files.inp"));
@@ -223,6 +240,7 @@ private slots:
         }
     }
 
+    /** @brief Verify nudging one gage panel time range by five minutes at each edge synchronizes every panel axis. */
     void perGagePanelsShareTheTimeAxis()
     {
         auto layer = openLayer(QStringLiteral("gage_assignment_files.inp"));
@@ -247,6 +265,8 @@ private slots:
         }
     }
 
+    /** @brief Verify gage checkboxes add/remove chart panels and focusing one gage makes it solely visible with matching checkboxes.
+     * An unknown focus identifier preserves the current view. */
     void checkboxAndFocusControlVisibility()
     {
         auto layer = openLayer(QStringLiteral("gage_assignment_files.inp"));
@@ -298,6 +318,7 @@ private slots:
     // The window used to be dismissable only from the title bar. The Close
     // box must hide it, and must not be the default button — Enter in the
     // stats table has to act on the table, never close the window.
+    /** @brief Verify Close is nondefault, the dialog passes shared accessibility checks and clicking Close hides it. */
     void closeButton_HidesDialog()
     {
         auto layer = openLayer(QStringLiteral("gage_assignment_files.inp"));

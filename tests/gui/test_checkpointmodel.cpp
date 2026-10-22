@@ -32,6 +32,9 @@
 
 namespace
 {
+/** @brief Create/name the retained checkpoint-model evidence directory.
+ * @return Owned output_checkpointmodel path under SWMMVIS_GUI_TEST_DATA or dot.
+ * mkpath status is unchecked, existing contents remain and cwd is unchanged. */
 QString root()
 {
     const auto p = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -39,6 +42,13 @@ QString root()
     QDir().mkpath(p);
     return p;
 }
+/** @brief Create a new retained fixture file and write all supplied bytes.
+ * @param[in] name Controlled relative filename beneath root; no parent creation
+ * or path sanitization beyond root itself. Existing targets are refused.
+ * @param[in] bytes Content borrowed for this synchronous write.
+ * @return Owned destination path after a full write.
+ * Uses NewOnly and qFatal on open/short-write refusal, terminating the process
+ * rather than returning an error; local QFile closes on return. */
 QString put(const QString &name, const QByteArray &bytes)
 {
     const auto p = QDir(root()).filePath(name);
@@ -49,6 +59,10 @@ QString put(const QString &name, const QByteArray &bytes)
         qFatal("write test file");
     return p;
 }
+/** @brief Read the current fixture-file bytes into owned storage.
+ * @param[in] path Filename borrowed for synchronous read.
+ * @return Owned bytes or empty on open refusal; empty/partial reads have no
+ * independent status and the input file is not changed. */
 QByteArray bytes(const QString &path)
 {
     QFile f(path);
@@ -56,6 +70,11 @@ QByteArray bytes(const QString &path)
         return {};
     return f.readAll();
 }
+/** @brief Construct synthetic checkpoint-inspection metadata for model presentation tests.
+ * @param[in] companion Required source-history filename copied into JSON.
+ * @return Owned schema-one metadata with elapsed 12.5 s, completed source 12 s,
+ * OADate clocks, decimal-string large counts, binary/mesh coverage and one companion.
+ * Does not inspect the filesystem or prove the referenced checkpoint is valid. */
 QJsonObject metadata(const QString &companion)
 {
     const double date = 46307.0;
@@ -84,6 +103,13 @@ QJsonObject metadata(const QString &companion)
             {"companions", QJsonArray{QJsonObject{
                                {"role", "source"}, {"path", companion}, {"required_bytes", "2"}}}}};
 }
+/** @brief Write a synthetic retained checkpoint catalog with predictable lineage/pin fields.
+ * @param[in] name New catalog filename passed to put; an existing file is refused.
+ * @param[in] paths Checkpoint paths copied in encounter order.
+ * @param[in] companion Shared required source-history filename for all metadata.
+ * @return Owned catalog filename, or process termination under put failure.
+ * Assigns sequential IDs/publications, pins entry zero and places entry four on a
+ * branch; does not inspect checkpoint bytes or validate compatibility. */
 QString catalog(const QString &name, const QStringList &paths, const QString &companion)
 {
     QJsonArray entries;
@@ -97,6 +123,12 @@ QString catalog(const QString &name, const QStringList &paths, const QString &co
                                    {"metadata", metadata(companion)}});
     return put(name, QJsonDocument(QJsonObject{{"schema", 1}, {"entries", entries}}).toJson());
 }
+/** @brief Write/hash a minimal real runtime deck for checkpoint-model worker cases.
+ * @param[in] name Controlled new model basename beneath root.
+ * @return Owned request with snapshot revision, retained staging root, model path
+ * and SHA-256 bytes. Other request settings keep defaults.
+ * Deck uses CMS, 0.01 s fixed routing and a ten-minute 1D storage/conduit model
+ * with quality/2D/snow/GW ignored. No engine is opened by this helper. */
 CheckpointRequest request(const QString &name)
 {
     CheckpointRequest r;
@@ -113,6 +145,11 @@ class TestCheckpointModel : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Require millisecond OADate formatting and checkpoint coverage/source-clock labels to preserve their semantics.
+     * Checks epoch/negative dates, year rollover, NaN, a DST-gap wall clock, enabled
+     * zero-record coverage, pending/not-applicable/due/exhausted sources and exact
+     * decimal large sequence text. Temporarily changes process TZ and restores its
+     * byte value on the success path; fatal assertions can skip that restoration. */
     void millisecondWallClockCoverageAndSources()
     {
         using openswmmvis::core::swmmDateTimeToMilliseconds;
@@ -150,6 +187,9 @@ private slots:
         m["driver"] = QJsonObject{{"next_update_seconds", -1}};
         QVERIFY(CheckpointModel::clocks(m).contains("Exhausted"));
     }
+    /** @brief Require retention suggestions to protect pins, branches, unknown lineage, active companions and missing checkpoint groups.
+     * Creates controlled catalog/files, varies inventory/pins and forgets one entry
+     * while asserting its file bytes remain unchanged; artifacts are retained. */
     void retentionProtectsPinsBranchesUnknownMissingAndActiveGroups()
     {
         auto companion = put("retention.history", "later live tail");
@@ -172,6 +212,10 @@ private slots:
         QVERIFY(model.forget(2));
         QCOMPARE(bytes(paths[2]), old);
     }
+    /** @brief Require checkpoint storage accounting to deduplicate hardlinks and include current shared-file bytes.
+     * Checks 13 bytes across two unique paths, displays required versus live lengths
+     * and treats a removed companion as incomplete with no retention suggestions.
+     * Creates real hardlinks; filesystem failures propagate and fixtures remain. */
     void storageDeduplicatesHardlinksAndDistinguishesRequiredFromLiveBytes()
     {
         const auto source = put("shared-source.history", "0123456789"),
@@ -193,6 +237,10 @@ private slots:
         QVERIFY(!model.storage({0, 1}).complete);
         QVERIFY(model.suggestions(1).isEmpty());
     }
+    /** @brief Require two checkpoint dialogs to share profile/pin changes through one model and honor capabilities.
+     * Checks coverage/files/storage text, visible button minimum widths and disabled
+     * unsupported choices. Saves narrow/wide UI screenshots under root for review;
+     * uses real widgets without starting a simulation. */
     void sharedViewsStaySynchronizedAndNarrowLayoutIsReviewable()
     {
         const auto source = put("views.history", "history"), cp = put("views.chk", "chk");
@@ -243,6 +291,10 @@ private slots:
         QVERIFY(!choices->item(2)->isEnabled());
         QVERIFY(!choices->item(4)->isEnabled());
     }
+    /** @brief Require an initial checkpoint run to publish a saved checkpoint while the dialog can close independently.
+     * Waits up to 30 s for publication/completion, cancels, reloads catalog and requires
+     * reinspection before compatibility. Changing the project revision disables resume;
+     * a revision changed during inspection must prevent stale compatibility publication. */
     void initialRunPublishesImmediatelyAndStaleResumeIsDisabled()
     {
         auto r = request("initial");
@@ -286,6 +338,10 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!model.ioBusy(), 30000);
         QVERIFY(!model.entry(0)->compatible);
     }
+    /** @brief Require a published checkpoint file to survive catalog-write failure and project close.
+     * Checks a saved/list-update notice, concurrent catalog instances preserving
+     * existing bytes, and invalid catalog content remaining intact after import.
+     * Runs/cancels workers with 30 s waits and retains files for review. */
     void savedCheckpointSurvivesCatalogWriteFailureAndProjectClose()
     {
         auto r = request("list-failure");
@@ -320,6 +376,10 @@ private slots:
         QVERIFY(corrupt.importFile(cp));
         QCOMPARE(bytes(invalid), QByteArray("bad json"));
     }
+    /** @brief Require checkpoint and ordinary run workers to refuse paths held by the same RunPathLease.
+     * Reserves an absent destination subtree, checks both asynchronous failures mention
+     * conflicts and verifies no destination/report is created. Uses real worker signals
+     * with 30 s waits; the QObject-owned lease releases reservations on destruction. */
     void ordinaryRunnerAndCheckpointWorkersShareReservations()
     {
         auto r = request("ordinary-lease");

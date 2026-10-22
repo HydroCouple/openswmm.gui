@@ -50,8 +50,16 @@ constexpr int kModeNone = 0;
 constexpr int kModeGraduated = 1;
 constexpr int kModeCategorized = 2;
 
-/*! Install a fresh renderer through whichever target the panel is bound to
- *  (Rule, model layer kind, or results layer kind). Slice B.6a. */
+/**
+ * @brief Transfer a replacement renderer to the first available rule/model/results target.
+ * @param rule Optional borrowed highest-priority rule.
+ * @param modelLayer Optional borrowed model fallback.
+ * @param resultsLayer Optional borrowed results fallback.
+ * @param category Kind used only for layer fallback slots.
+ * @param next Owning renderer unique_ptr moved into the selected setter; null is forwarded.
+ * With no target, destroys the renderer on return. Setters supply notifications; caller
+ * keeps target live. No type/applicability check, clone, undo, rollback or status.
+ */
 void installRenderer(OpenSWMM::Render::Rule *rule, SWMMModelLayer *modelLayer,
                      SWMMResultsLayer *resultsLayer, OpenSWMMVis::SwmmCategory category,
                      std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> next)
@@ -64,9 +72,16 @@ void installRenderer(OpenSWMM::Render::Rule *rule, SWMMModelLayer *modelLayer,
         resultsLayer->setKindRenderer(category, std::move(next));
 }
 
-/*! Reset to defaults — Rule has no "default" notion, so it falls back to a
- *  fresh SingleSymbolRenderer. Layer paths use their existing
- *  resetKindRendererToDefaults which picks per-kind glyph defaults. */
+/**
+ * @brief Reset a rule or per-kind host renderer through the first available target.
+ * @param rule Optional borrowed highest-priority rule, receiving a new default unseeded
+ * SingleSymbolRenderer rather than preserving its previous base symbol.
+ * @param modelLayer Optional borrowed model fallback using resetKindRendererToDefaults.
+ * @param resultsLayer Optional borrowed results fallback using its normal per-kind reset.
+ * @param category Kind used for layer paths only.
+ * No-op without target. Host/rule setters notify normally; no ownership of targets,
+ * undo command, confirmation or returned success.
+ */
 void resetToDefaults(OpenSWMM::Render::Rule *rule, SWMMModelLayer *modelLayer,
                      SWMMResultsLayer *resultsLayer, OpenSWMMVis::SwmmCategory category)
 {

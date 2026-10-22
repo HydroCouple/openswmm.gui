@@ -20,6 +20,14 @@
 
 using openswmmvis::ui::FileOpenDialog;
 
+/**
+ *
+ * @brief Resolve the persistent evidence/settings directory without creating it.
+ * @return Cleaned SWMMVIS_FILE_OPEN_TEST_OUTPUT path or source-relative workplans
+ * artifact directory. An environment-relative path remains relative; no canonicalization,
+ * existence check or temporary cleanup.
+ *
+ */
 static QString outputRoot()
 {
     return QDir::cleanPath(qEnvironmentVariable(
@@ -30,6 +38,14 @@ static QString outputRoot()
                 "../../workplans/artifacts/file_open_directories_2026-10-04/tests"))));
 }
 
+/**
+ *
+ * @brief Configure process-wide INI user-scope settings under outputRoot() and fixed test app
+ * identity.
+ * Changes organization/application names, format and path without restoring prior values;
+ * called by main before normal cases and directory-probe subprocess handling.
+ *
+ */
 static void configureSettings()
 {
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -41,7 +57,22 @@ static void configureSettings()
 class TestFileOpenDialog : public QObject
 {
     Q_OBJECT
+    /**
+     *
+     * @brief Resolve a fixture-relative path against outputRoot() without creating it.
+     * @param path Borrowed path forwarded to QDir::filePath; may itself be absolute.
+     * @return Owned joined path, without canonicalization, existence/type check or write.
+     *
+     */
     QString file(const QString &path) const { return QDir(outputRoot()).filePath(path); }
+    /**
+     *
+     * @brief Create parent directories and write a15-byte picker fixture at the supplied path.
+     * @param path Borrowed target filename, opened WriteOnly and truncated if it exists.
+     * QVERIFY/QCOMPARE failures return from this helper after recording failure, not from
+     * the caller. QFile closes on return; generated files remain in the evidence directory.
+     *
+     */
     void createFile(const QString &path)
     {
         QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
@@ -51,6 +82,14 @@ class TestFileOpenDialog : public QObject
     }
 
 private slots:
+    /**
+     *
+     * @brief Create persistent vector/raster/project/series placeholder files for picker
+     * selection tests.
+     * Creates the output root and five15-byte fixtures; files are selection placeholders,
+     * not valid GeoPackage, raster or engine data. Existing same-name files are overwritten.
+     *
+     */
     void initTestCase()
     {
         QVERIFY(QDir().mkpath(outputRoot()));
@@ -60,12 +99,26 @@ private slots:
         createFile(file("series/one.csv"));
         createFile(file("series/two.csv"));
     }
+    /**
+     *
+     * @brief Clear and sync the isolated configured settings store before each case.
+     * Does not remove fixture files or restore global settings identity/path.
+     *
+     */
     void init()
     {
         QSettings settings;
         settings.clear();
         settings.sync();
     }
+    /**
+     *
+     * @brief Require vector/raster folder history to remain separate and persist into a fresh
+     * process.
+     * Checks project fallback for an unknown type, launches this executable in directory-probe
+     * mode and requires normal zero exit within a5-second wait; does not run a file dialog.
+     *
+     */
     void separatesTypesAndPersistsAcrossProcesses()
     {
         FileOpenDialog::rememberSelection("vector", {file("vectors/a.gpkg")});
@@ -80,6 +133,13 @@ private slots:
         QCOMPARE(freshProcess.exitStatus(), QProcess::NormalExit);
         QCOMPARE(freshProcess.exitCode(), 0);
     }
+    /**
+     *
+     * @brief Require empty and invalid selections not to replace valid vector folder history.
+     * Supplies empty filename, missing file and directory, then checks the original vector
+     * folder remains; no modal picker is opened.
+     *
+     */
     void cancelOrInvalidSelectionPreservesHistory()
     {
         FileOpenDialog::rememberSelection("vector", {file("vectors/a.gpkg")});
@@ -88,6 +148,14 @@ private slots:
                                           {QString(), file("missing.gpkg"), file("project")});
         QCOMPARE(FileOpenDialog::startDirectory("vector"), file("vectors"));
     }
+    /**
+     *
+     * @brief Require missing remembered folders to fall back to existing project directory, file
+     * parent or home.
+     * Creates/remembers a raster, renames its directory with a millisecond suffix and checks
+     * all three fallback paths. The moved evidence directory remains; no cleanup/restoration.
+     *
+     */
     void missingFolderFallsBack()
     {
         createFile(file("removed-folder/a.tif"));
@@ -101,6 +169,14 @@ private slots:
         QCOMPARE(FileOpenDialog::startDirectory("raster", file("no-folder/invalid/file.inp")),
                  QDir::homePath());
     }
+    /**
+     *
+     * @brief Require remembered folder history to survive removal of its selected file when the
+     * folder still exists.
+     * Renames the fixture file with a timestamp suffix and checks existing-folder selection;
+     * leaves renamed evidence on disk.
+     *
+     */
     void missingFileRetainsExistingFolder()
     {
         createFile(file("existing-folder/removed.csv"));
@@ -111,6 +187,14 @@ private slots:
         QCOMPARE(FileOpenDialog::startDirectory("timeseries", file("project")),
                  file("existing-folder"));
     }
+    /**
+     *
+     * @brief Require a mixed list of valid and missing paths to remember the last valid file's
+     * directory.
+     * Selects series then vector then missing file; checks vector history without opening
+     * a picker or asserting source file contents.
+     *
+     */
     void multipleSelectionUsesLastValidFolder()
     {
         FileOpenDialog::rememberSelection(
@@ -118,6 +202,13 @@ private slots:
             {file("series/one.csv"), file("vectors/a.gpkg"), file("does-not-exist.csv")});
         QCOMPARE(FileOpenDialog::startDirectory("delimited"), file("vectors"));
     }
+    /**
+     *
+     * @brief Pin canonical type keys for common extensions and normalized custom-filter identity.
+     * Checks uppercase, reordered/duplicate extensions and translated labels share keys,
+     * while differing single extensions differ; no path lookup or modal dialog.
+     *
+     */
     void filterKeysIgnoreLabelsAndOrder()
     {
         QCOMPARE(FileOpenDialog::typeForFilter("Rasters (*.tiff)"), QStringLiteral("raster"));
@@ -133,6 +224,15 @@ private slots:
         QVERIFY(FileOpenDialog::typeForFilter("Plugin (*.foo)") !=
                 FileOpenDialog::typeForFilter("Plugin (*.bar)"));
     }
+    /**
+     *
+     * @brief Require a real nonnative single-file picker to start in history and remember the
+     * accepted file's folder.
+     * Queued callback borrows live local state during modal execution, records directory,
+     * selects the raster placeholder and queues accept. Checks chosen path and changed
+     * vector history; a missing modal picker causes callback return without dismissing it.
+     *
+     */
     void singlePickerStartsAtHistoryAndRemembersAcceptedFile()
     {
         FileOpenDialog::rememberSelection("vector", {file("vectors/a.gpkg")});
@@ -152,6 +252,15 @@ private slots:
         QCOMPARE(chosen, file("rasters/b.tif"));
         QCOMPARE(FileOpenDialog::startDirectory("vector"), file("rasters"));
     }
+    /**
+     *
+     * @brief Require a nonnative multi-file picker to return two named CSV fixtures and
+     * cancellation to retain history.
+     * Queued callbacks run during modal execution; the first sets fileNameEdit and accepts,
+     * rejecting if that control is absent. Checks initial directory, exact returned order,
+     * empty canceled single selection and retained series directory.
+     *
+     */
     void multiplePickerAndCancellation()
     {
         FileOpenDialog::rememberSelection("timeseries", {file("series/one.csv")});
@@ -184,6 +293,15 @@ private slots:
                     .isEmpty());
         QCOMPARE(FileOpenDialog::startDirectory("timeseries"), file("series"));
     }
+    /**
+     *
+     * @brief Require shared open browsing to use type history and display an accepted external
+     * file relative to the project.
+     * Checks absolute selected path and ../series/two.csv display; then canceled AcceptSave
+     * browsing must start at project rather than history and leave history unchanged.
+     * Callbacks borrow locals during modal execution; no new saved file or overwrite occurs.
+     *
+     */
     void sharedPathPickerRetainsRelativePathsAndSaveBehavior()
     {
         FileOpenDialog::rememberSelection("timeseries", {file("series/one.csv")});
@@ -217,6 +335,16 @@ private slots:
     }
 };
 
+/**
+ *
+ * @brief Run the Qt file-picker suite or a settings-only directory probe in a fresh GUI process.
+ * @param argc Process argument count passed through QApplication/QtTest.
+ * @param argv Borrowed process argument vector; QApplication may rewrite argc/argv.
+ * @return Probe0 for matching remembered folder or1 for mismatch when exactly four
+ * arguments select --directory-probe; otherwise QtTest result. Disables native dialogs
+ * and configures persistent test settings before either path; app lifetime is scoped.
+ *
+ */
 int main(int argc, char **argv)
 {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);

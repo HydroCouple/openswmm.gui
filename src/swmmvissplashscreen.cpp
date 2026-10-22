@@ -1,6 +1,6 @@
 /**
  * @file      swmmvissplashscreen.cpp
- * @brief     and text alignment.
+ * @brief     Custom startup message painting, color and alignment.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @details
  * @date      2026

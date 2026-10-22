@@ -17,9 +17,9 @@
  * Closure" never held a mesh setting — its first group is the depth thresholds
  * that decide when a cell counts as wet.
  *
- * Surface keys use the extended option API and a local change detector. Shared
- * groundwater ET/link/wilting settings use the dedicated aquifer process API;
- * all considered keys are recorded through the common context.
+ * Every key on this page is an `[2D_OPTIONS]` key and goes through
+ * `swmm_options_set_ext`, not the plain `[OPTIONS]` setter — so the page keeps
+ * its own writeIfChanged rather than using the context's.
  *
  * The page is only built when the engine ships the 2D module; the whole class
  * is compiled out otherwise.
@@ -141,6 +141,7 @@ public:
      */
     void setScheduleHooks(ScheduleHooks hooks);
 
+    /*! \brief TRANSPORT_* state, read by the Models page's matrix. */
     /**
      * @brief Read one surface transport-class draft checkbox.
      * @param speciesClass SWMM_TRANSPORT_CLASS_* index zero..three, not a species row index.
@@ -164,6 +165,8 @@ public:
     int groundwaterRequested() const;
 
 public slots:
+    /*! \brief Dates & Times moved a step or the run window; re-mirror and
+     *         re-estimate. */
     /**
      * @brief Mirror inherited reporting/wet-weather steps from available hooks, then re-estimate
      * output.
@@ -189,12 +192,15 @@ signals:
      * Does not itself commit climate or surface evaporation drafts.
      */
     void showEvaporationSettingsRequested();
+    /*! \brief A TRANSPORT_* box moved — the Models page's matrix is stale. */
     /**
      * @brief Notify the Models preview after a user transport-class toggle or completed read.
      * Listeners re-query class drafts; no engine setter or runtime success is implied.
      * Programmatic setTransport2DEnabled suppresses this echo.
      */
     void transportSelectionChanged();
+    /*! \brief A sub-dialog wrote straight to the engine; the project is
+     *         dirty regardless of this dialog's own write pass. */
     /**
      * @brief Provide a direct-edit notification seam for host dirty-state tracking.
      * Carries no key/value or persistence guarantee; declaration alone does not mean

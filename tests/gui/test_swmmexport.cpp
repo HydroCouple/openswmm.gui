@@ -46,12 +46,18 @@ using openswmmvis::import::TargetKind;
 namespace
 {
 
+/** @brief Locate an export fixture input.
+ * @param[in] name Required Latin-1 filename under SWMMVIS_GUI_TEST_DATA or ".".
+ * @return Joined path without checking existence. */
 QString fixture(const char *name)
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
         .filePath(QLatin1String(name));
 }
 
+/** @brief Prepare a retained export destination by attempting to remove its existing file.
+ * @param[in] name Required Latin-1 filename under SWMMEXPORT_OUT_DIR.
+ * @return Absolute destination; directory creation/removal results are unchecked and companion files are not explicitly removed. */
 QString outPath(const char *name)
 {
     QDir().mkpath(QStringLiteral(SWMMEXPORT_OUT_DIR));
@@ -61,6 +67,10 @@ QString outPath(const char *name)
     return p;
 }
 
+/** @brief Borrow an export table by exact name.
+ * @param[in] tables Stable container retaining ownership of its elements.
+ * @param[in] name Required Latin-1 table name.
+ * @return First matching element pointer or nullptr; invalid after container reallocation/destruction. */
 const ExportTable *table(const QVector<ExportTable> &tables, const char *name)
 {
     for (const ExportTable &t : tables)
@@ -69,6 +79,9 @@ const ExportTable *table(const QVector<ExportTable> &tables, const char *name)
     return nullptr;
 }
 
+/** @brief Copy canonical export field names in order.
+ * @param[in] t Borrowed table metadata.
+ * @return Independent ordered name list. */
 QStringList fieldNames(const ExportTable &t)
 {
     QStringList out;
@@ -78,6 +91,10 @@ QStringList fieldNames(const ExportTable &t)
 }
 
 /*! Field names of \p layer in the GeoPackage at \p path. */
+/** @brief Read field names from a retained vector dataset.
+ * @param[in] path GeoPackage opened read-only.
+ * @param[in] layer Required dataset layer name.
+ * @return UTF-8 field names in source order, or empty on dataset/layer absence. Closes the local dataset before returning. */
 QStringList gpkgFields(const QString &path, const char *layer)
 {
     QStringList out;
@@ -101,6 +118,7 @@ class TestSwmmExport : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Register GDAL and load two shared project windows for all-types and geometry export probes. */
     void initTestCase()
     {
         GDALAllRegister();
@@ -116,12 +134,15 @@ private slots:
         QTest::qWait(50);
     }
 
+    /** @brief Delete all owned project windows before their shared workspace. */
     void cleanupTestCase()
     {
         qDeleteAll(m_windows);
         delete m_workspace;
     }
 
+    /** @brief Verify all eleven spatial categories export matching counts/geometry kinds, preserve choice tokens and omit statistics without results.
+     * Writes a retained eleven-layer GeoPackage and checks its report layer count. */
     void elevenLayersWithTheRightCounts()
     {
         SWMMModelLayer *model = m_windows.at(0)->modelLayer();
@@ -162,6 +183,7 @@ private slots:
         QCOMPARE(rep.layers.size(), 11);
     }
 
+    /** @brief Verify exported C1 retains its interior bend and the subcatchment retains all four polygon points. */
     void conduitVerticesAndPolygonsAreIntact()
     {
         SWMMModelLayer *model = m_windows.at(1)->modelLayer();
@@ -186,6 +208,8 @@ private slots:
         QCOMPARE(subs->rows.first().points.size(), 4);
     }
 
+    /** @brief Verify exported junction/conduit GeoPackage field names auto-match every required import target key.
+     * This validates mapping metadata, not execution of an import or equality of imported engine values. */
     void exportedLayersReimportWithAutoMatch()
     {
         SWMMModelLayer *model = m_windows.at(0)->modelLayer();

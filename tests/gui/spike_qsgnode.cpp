@@ -39,6 +39,9 @@
 namespace
 {
 
+/** @brief Name a Qt scene-graph backend for diagnostic logging.
+ * @param[in] api Backend enum to map.
+ * @return Borrowed static literal for known backends, or Unknown; never free the returned pointer. */
 const char *graphicsApiName(QSGRendererInterface::GraphicsApi api)
 {
     switch (api) {
@@ -66,12 +69,18 @@ class TriangleItem : public QQuickItem
     Q_OBJECT
 
 public:
+    /** @brief Construct a scene-graph content item.
+     * @param[in] parent Optional Qt Quick parent controlling item ownership; marks ItemHasContents true. */
     explicit TriangleItem(QQuickItem *parent = nullptr) : QQuickItem(parent)
     {
         setFlag(ItemHasContents, true);
     }
 
 protected:
+    /** @brief Create or update the triangle scene node during the Qt scene-graph synchronization phase.
+     * @param[in,out] oldNode Nullable node returned by the previous call; any non-null node must be this helper's QSGGeometryNode.
+     * The unnamed synchronization-data pointer is ignored.
+     * @return Scene-graph-owned geometry node with owned Point2D geometry and flat-color material; updates coordinates from current item size and marks geometry dirty. Must execute in Qt's rendering synchronization context; callers do not delete the live returned tree. */
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override
     {
         ++m_paintCount;
@@ -110,6 +119,10 @@ private:
 
 } // namespace
 
+/** @brief Run the interactive rendering probe until its window closes.
+ * @param[in] argc Process argument count passed to QApplication.
+ * @param[in,out] argv Standard mutable process argument array, whose storage must outlive QApplication.
+ * @return Application event-loop exit code; visual correctness and warning inspection are manual, not automated assertions. Creates a content-parented triangle that tracks window size and logs the renderer backend on scene-graph initialization. */
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);

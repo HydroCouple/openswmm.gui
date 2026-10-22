@@ -64,6 +64,12 @@ struct Grid {
 };
 
 /// nx × ny unit squares, two triangles each, bed sloping down in +x.
+/** @brief Build the SI synthetic sloping triangular grid for live-source tests.
+ * @param[in] nx Positive x-square count with products/count conversions fitting int.
+ * @param[in] ny Positive y-square count.
+ * @return Owned unit-meter vertices, bed 10-0.01*x meters, two triangles per square
+ * and corresponding counts; fourth connectivity slot is minus one.
+ * No topology cache, solver state, boundary forcing or files are created. */
 Grid makeGrid(int nx, int ny)
 {
     Grid g;
@@ -84,12 +90,24 @@ Grid makeGrid(int nx, int ny)
     return g;
 }
 
+/** @brief Copy the synthetic grid into a new independently owned live mesh source.
+ * @param[in] g Consistent SI vertex/connectivity arrays, unchanged.
+ * @return Exclusive source owner with copied geometry and no frames.
+ * Caller may transfer ownership to a results layer; pointers borrowed from the
+ * owner expire when it is destroyed/replaced. */
 std::unique_ptr<EngineMesh2DSource> makeSource(const Grid &g)
 {
     return std::make_unique<EngineMesh2DSource>(g.vx, g.vy, g.vz, g.cells);
 }
 
 /// Deterministic per-tick depth field: a wave of wet cells moving in +x.
+/** @brief Construct the deterministic moving wet-wave test depth field.
+ * @param[in] g Consistent grid/count/connectivity with valid first two vertex indices.
+ * @param[in] tick Integer step whose moving crest is 0.1*tick meters; arithmetic
+ * and cell-index products must remain representable.
+ * @return Owned one-float-per-cell depth meters, clamped to zero when the authored
+ * linear profile is dry. Uses the first-edge x midpoint plus deterministic cell
+ * perturbation rather than the triangle centroid; no physical solve or mutation. */
 std::vector<float> frameDepths(const Grid &g, int tick)
 {
     std::vector<float> d(size_t(g.nCells), 0.0f);
@@ -103,12 +121,25 @@ std::vector<float> frameDepths(const Grid &g, int tick)
     return d;
 }
 
+/** @brief Map a synthetic tick to the fixed UTC test epoch.
+ * @param[in] tick Signed elapsed seconds from 2026-01-01 midnight.
+ * @return Owned Qt timestamp from addSecs, subject to Qt date-range validity.
+ * Does not read wall-clock time or advance a source. */
 QDateTime tickTime(int tick)
 {
     return QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC).addSecs(tick);
 }
 
 /// Deliver one tick the way SWMMVis::onRunSimulation's handlers do.
+/** @brief Deliver one synthetic multi-field GUI tick and drain its coalesced refresh event.
+ * @param[in,out] layer Live results layer borrowing/owning src for the entire call.
+ * @param[in,out] src Matching mutable source; must not be replaced during event processing.
+ * @param[in] g Consistent source geometry/counts.
+ * @param[in] tick Elapsed seconds/frame identifier and synthetic depth-wave index.
+ * Pushes depth m, empty flux, vertex signed depth 0.05 m and rain 1e-6 m/s with
+ * zero cumulative rain values, issues repeated refresh requests and pumps the
+ * application event loop. Reentrant queued UI work can run before return; no
+ * engine worker or ownership transfer is started by this helper. */
 void deliverTick(SWMM2DResultsLayer &layer, EngineMesh2DSource &src, const Grid &g, int tick)
 {
     const double t = tick;
@@ -132,11 +163,22 @@ class CountingMeshSource : public EngineMesh2DSource
 public:
     using EngineMesh2DSource::EngineMesh2DSource;
     int depthReads = 0, rainReads = 0, volumeReads = 0;
+    /** @brief Count a bulk-depth read before delegating to the live source.
+     * @param[in] t Frame index passed unchanged to the base reader.
+     * @param[out] out Caller-owned depth buffer; follows base success/failure mutation semantics.
+     * @return Base readDepthsAt result. Increments depthReads even when the request
+     * fails; adds no validation, retention or simulation update. */
     bool readDepthsAt(int t, std::vector<float> &out) override
     {
         ++depthReads;
         return EngineMesh2DSource::readDepthsAt(t, out);
     }
+    /** @brief Count selected rainfall-field reads before delegating to the live source.
+     * @param[in] name Non-null field name borrowed for this call.
+     * @param[in] t Frame index passed unchanged.
+     * @param[out] out Caller-owned field buffer following the base reader contract.
+     * @return Base readFaceFieldAt result. Counts rainfall and rain_cum attempts
+     * separately, including failures; other fields do not alter either counter. */
     bool readFaceFieldAt(const char *name, int t, std::vector<float> &out) override
     {
         if (QString::fromLatin1(name) == QStringLiteral("Mesh2_face_rainfall"))
@@ -153,6 +195,8 @@ class TestLive2DCoalesce : public QObject
 
 private slots:
 
+    /** @brief Set this process's Qt organization/application identity for isolated live-source preferences.
+     * Does not restore previous identity or change the settings path itself. */
     void initTestCase()
     {
         // Scope QSettings to this test so the tick-rate preference the live
@@ -161,6 +205,9 @@ private slots:
         QCoreApplication::setApplicationName(QStringLiteral("live2d-coalesce-test"));
     }
 
+    /** @brief Require 25 synthetic multi-field ticks to produce one range signal each and at most one current-time advance per tick.
+     * Checks frame count, lower-bound advance count and following the newest index;
+     * observes signals rather than directly counting every internal frame read. */
     void oneRangeEmissionAndOneFrameLoadPerTick()
     {
         const Grid g = makeGrid(20, 10);
@@ -185,6 +232,9 @@ private slots:
         QCOMPARE(layer.currentTimeIndex(), ticks - 1);
     }
 
+    /** @brief Require incrementally queried vertex maximum depths to fuzzy-equal a once-queried fresh layer fed the same 30 frames.
+     * Checks a nonzero envelope; comparison is floating-point fuzzy equality, not
+     * a raw-byte identity proof. */
     void maxEnvelopeIsIncrementalAndExact()
     {
         const Grid g = makeGrid(16, 8);
@@ -218,6 +268,10 @@ private slots:
         QVERIFY(*std::max_element(scratch.begin(), scratch.end()) > 0.0f);
     }
 
+    /** @brief Require capped live history to retain monotone times/newest frame and a vertex envelope matching a replay of retained frames.
+     * Pushes 120 ticks under a 40-frame cap, checks generation change and 20..40
+     * remaining frames, then verifies bulk/scalar cell read agreement and refusal
+     * of an out-of-range cell. */
     void historyCapThinsOlderHalfAndKeepsTheEnvelopeExact()
     {
         const Grid g = makeGrid(12, 6);
@@ -264,6 +318,9 @@ private slots:
         QVERIFY(!src->readDepthAt(n - 1, g.nCells + 5, one));
     }
 
+    /** @brief Require depth/vertex/rain history to stay within a measured 40-tick byte budget and thin to at most 75 percent on generation change.
+     * Checks fewer than forty thins, newest frame retention, monotone timestamps and
+     * scalar read accuracy after 200 synthetic ticks. */
     void byteBudgetBoundsTheHistoryAndThinsToThreeQuarters()
     {
         const Grid g = makeGrid(12, 6);
@@ -318,6 +375,9 @@ private slots:
         QCOMPARE(one, frameDepths(g, 199)[0]);
     }
 
+    /** @brief Require 150 cell-series requests to read each field once per requested frame and preserve depth/rain units.
+     * Checks m/s-to-mm/hr rainfall conversion, unchanged m3 cumulative rain and a
+     * ten-frame tail requiring only ten reads per field while reporting full count. */
     void batchReadsEachFieldOnceAndPreservesUnitsAndTails()
     {
         const Grid g = makeGrid(20, 10);
@@ -363,6 +423,7 @@ private slots:
         QCOMPARE(batch[0].values[0], double(frameDepths(g, 90)[0]));
     }
 
+    /** @brief Require an existing run-layer wrapper to recompute HGL with a replacement source whose bed is twenty meters higher. */
     void runLayerRefreshesBedWhenSourceIsReplaced()
     {
         Grid g = makeGrid(1, 1);
@@ -383,6 +444,9 @@ private slots:
         QVERIFY(std::abs(after.values[0] - before.values[0] - 20) < 1e-5);
     }
 
+    /** @brief Require firstPeriod cursors to return exact tails for cell/vertex depth and rainfall, with full period count.
+     * A cursor at or beyond the end must succeed with empty values; compares times
+     * and samples against a full series without re-running an engine. */
     void runLayerResolvesOnlyTheRequestedTail()
     {
         // The comparison plot asks a live source for periods [consumed, n)
@@ -452,6 +516,10 @@ private slots:
         QCOMPARE(over.periodCount, 30);
     }
 
+    /** @brief Bound measured late synthetic tick/envelope cost against early ticks on a 14400-cell mesh.
+     * Records wall-clock milliseconds over 160 ticks and requires late mean<=2.5*
+     * early+2 ms; generous timing noise is allowed and no general complexity proof
+     * or real-engine performance claim follows from this fixture alone. */
     void perTickCostDoesNotGrowWithHistory()
     {
         const Grid g = makeGrid(120, 60); // 14,400 cells
@@ -484,6 +552,8 @@ private slots:
 
     /// While pinned the cap is not enforced (frames keep their indices and
     /// the generation stays put); unpinning thins once.
+    /** @brief Require a pinned 40-frame history to retain all 120 pushed frames without a generation change until unpinned.
+     * Unpinning must enforce the cap and retain the latest timestamp. */
     void pinnedHistoryDefersThinning()
     {
         const Grid g = makeGrid(6, 4);
@@ -503,6 +573,12 @@ private slots:
 
     /// The live source serves the fields the export needs: head (pushed),
     /// vx/vy (RT0 from flux ÷ depth, engine formula) and the envelopes.
+    /** @brief Require a synthetic live source to expose pushed heads, RT0 reconstructed velocity and authoritative engine envelopes for export.
+     * Builds outward edge geometry and uniform 0.3/-0.2 m/s flow at 0.5 m depth,
+     * checks dry-cutoff zero velocity and field availability, then exports retained
+     * Shapefiles and validates per-cell max depths/velocity attributes with GDAL.
+     * Replaces envelope arrays directly; does not infer the true engine maximum
+     * from its single depth frame. Fatal assertions can skip raw GDAL cleanup. */
     void liveSourceServesHeadVelocityAndEnvelopes()
     {
         const Grid g = makeGrid(4, 3);
@@ -676,6 +752,13 @@ private slots:
     /// tight frame cap, so only the pin keeps the frame indices still. After
     /// the run, the engine's own .h5 envelope must dominate the mid-run max.
     /// Run artifacts: tests/gui/data/output_live2d_export/ (reviewable).
+    /** @brief Require a real coupled 512-cell run to support pinned three-frame export while further live ticks arrive.
+     * Writes retained CMS/run/HDF/export files, lowers tick preference to 50 ms with
+     * scope restoration and pins CPU backend without restoring that environment.
+     * Checks all live field feeds, stable generation during export, six output files,
+     * post-unpin thinning and final HDF envelope dominating mid-run maxima/exported
+     * frames. Waits up to 60 s for readiness and 120 s for completion; parent-owned
+     * runner outlives callback locals only after successful completion/teardown. */
     void liveRunExportsMidRunWithRealTicks()
     {
         const QString dir = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
@@ -908,6 +991,13 @@ private slots:
     /// output directory. VFR_LIVE_GRID = squares per side (default 48; 150 is
     /// about Bellinge-sized), VFR_LIVE_HOURS = simulated hours (default 2),
     /// VFR_LIVE_TICK_MS = runner tick (default 100).
+    /** @brief Record synchronous versus worker surface-fitting wall time, GUI timer gaps and skipped ticks for an opt-in real live run.
+     * Skips unless VFR_PERF_OUT names retained evidence. Uses grid/hours/tick env
+     * settings with defaults, writes live-run-stall.csv, restores tick preference
+     * and leaves CPU backend selected. Waits up to 30 minutes per arm plus two
+     * minutes for surface drain, requires positive tick/frame counts and disconnects
+     * runner callbacks capturing iteration locals. Does not assert a speedup, stall
+     * threshold or finished-payload success; it is an observational performance case. */
     void liveRunMainThreadStall()
     {
         const QString outDir = qEnvironmentVariable("VFR_PERF_OUT");

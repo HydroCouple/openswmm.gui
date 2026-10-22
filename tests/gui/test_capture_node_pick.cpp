@@ -48,6 +48,8 @@
 namespace
 {
 
+/** @brief Locate the local-CRS street/inlet model.
+ * @return SWMMVIS_GUI_TEST_DATA/street_inlet_local.inp, using "." when unset. */
 QString fixturePath()
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -60,6 +62,8 @@ struct Harness {
     MapCanvas *canvas = nullptr;
     SWMMModelLayer *layer = nullptr;
 
+    /** @brief Allocate/load/show the owned project harness and zoom its borrowed canvas to full extent.
+     * @return True after successful model load, window exposure and canvas/layer checks; false otherwise. Failure retains allocated owners for the destructor. Waits 200 milliseconds before borrowing children and 100 after zooming. */
     bool open()
     {
         ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -80,25 +84,38 @@ struct Harness {
         QTest::qWait(100);
         return true;
     }
+    /** @brief Destroy the owned project window before its workspace; canvas and layer are borrowed child pointers. */
     ~Harness()
     {
         delete window;
         delete ws;
     }
+    /** @brief Convert local model/map coordinates to canvas pixel position.
+     * @param[in] mapX Horizontal coordinate in the fixture local CRS.
+     * @param[in] mapY Vertical coordinate in the same CRS.
+     * @return Integer canvas pixel point; requires a successfully opened harness. */
     QPoint pixelOf(double mapX, double mapY) const
     {
         int px = 0, py = 0;
         canvas->toPixelCoords(mapX, mapY, px, py);
         return {px, py};
     }
+    /** @brief Drive the real canvas move/left press-release path and wait twenty milliseconds.
+     * @param[in] at Canvas-local pixel coordinates; requires an open live canvas. */
     void clickAt(const QPoint &at)
     {
         QTest::mouseMove(canvas, at);
         QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, at); // press + release
         QTest::qWait(20);
     }
+    /** @brief Locate the SEWER fixture node on the current canvas.
+     * @return Pixel position of local coordinate (200,-100). */
     QPoint sewer() const { return pixelOf(200.0, -100.0); }
+    /** @brief Locate the OUT1 fixture node on the current canvas.
+     * @return Pixel position of local coordinate (400,-100). */
     QPoint out1() const { return pixelOf(400.0, -100.0); }
+    /** @brief Locate the J1 fixture node on the current canvas.
+     * @return Pixel position of local coordinate (0,0). */
     QPoint j1() const { return pixelOf(0.0, 0.0); }
 };
 
@@ -106,6 +123,8 @@ struct Harness {
 class DummyTool : public OpenSWMMVisMapTool
 {
 public:
+    /** @brief Construct an inert previous-tool identity for restoration tests.
+     * @param[in] c Borrowed canvas passed to the map-tool base; the stack-owned test tool is not deleted by this helper. */
     explicit DummyTool(MapCanvas *c) : OpenSWMMVisMapTool(QStringLiteral("Dummy"), c) {}
 };
 
@@ -116,6 +135,7 @@ class TestCaptureNodePick : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Verify an empty click leaves picking active, a node click emits its layer/name/index, and explicit finish restores the prior tool without cancellation. */
     void sessionPicksNodeAndRestoresTool()
     {
         Harness h;
@@ -148,6 +168,7 @@ private slots:
         h.canvas->setActiveTool(nullptr);
     }
 
+    /** @brief Verify Escape emits one cancellation, ends the session and restores the previous tool. */
     void sessionEscapeCancelsAndRestoresTool()
     {
         Harness h;
@@ -166,6 +187,7 @@ private slots:
         h.canvas->setActiveTool(nullptr);
     }
 
+    /** @brief Verify the nonmodal inlet setup refuses excluded host nodes, adopts SEWER and restores its prior map tool. */
     void dialogRejectsExcludedThenAdoptsPick()
     {
         Harness h;
@@ -199,6 +221,7 @@ private slots:
         QCOMPARE(h.canvas->activeTool(), previous); // previous tool restored
     }
 
+    /** @brief Verify clicking the street opens a nonmodal setup before insertion and accepting a picked capture creates one inlet junction/link split with GRATE1/SEWER usage. */
     void inletToolOpensNonModalDialogAndInsertsWithPickedCapture()
     {
         Harness h;
@@ -253,6 +276,8 @@ private slots:
         h.canvas->setActiveTool(nullptr);
     }
 
+    /** @brief Verify the property picker refuses its own inlet host, accepts OUT1, emits a change and writes an undoable layer update.
+     * Checks ending the pick restores no active tool and undo restores the original SEWER capture. */
     void propertyEditorPickWritesThroughLayer()
     {
         Harness h;

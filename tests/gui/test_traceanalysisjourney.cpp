@@ -61,6 +61,10 @@ using namespace openswmmvis::trace;
 class TestTraceJourney : public QObject
 {
     Q_OBJECT
+    /** @brief Find the registry identity associated with a results-layer pointer.
+     * @param[in] registry Required borrowed registry whose identities are traversed.
+     * @param[in] output Borrowed identity pointer matched without dereferencing.
+     * @return First matching run ID, or empty when no identity matches. */
     QString runIdFor(OutputStatsRegistry *registry, SWMMResultsLayer *output)
     {
         for (const auto &id : registry->identities())
@@ -69,7 +73,13 @@ class TestTraceJourney : public QObject
         return {};
     }
     QString folder;
+    /** @brief Join a retained trace-journey artifact path.
+     * @param[in] name Path appended under the per-run folder without sanitization or directory creation.
+     * @return Joined artifact path. */
     QString path(QString name) { return QDir(folder).filePath(name); }
+    /** @brief Initialize a borrowed blank Flow analysis project for one hour on October 1, 2026.
+     * @param[in,out] w Project receiving the blank model.
+     * @return Production initialization result; local warnings/errors are discarded. */
     bool initialize(SWMMVisProjectWindow &w)
     {
         SWMMModelLayer::NewProjectSpec spec;
@@ -79,6 +89,10 @@ class TestTraceJourney : public QObject
         QList<QString> a, b;
         return w.initializeBlankModel(spec, a, b);
     }
+    /** @brief Build a shared four-node split/rejoin trace estimate using authored hydraulic averages.
+     * @param[in] run Run identity copied into the dataset.
+     * @param[in] package Target analysis-package path stored as metadata; this helper does not create the package.
+     * @return Shared estimate/dataset with a unique analysis ID, ten m3/s source and six/four m3/s branches, or empty if trace-handle creation fails. Subsequent average/info/estimate return codes are unchecked; the temporary trace handle is closed before returning. */
     std::shared_ptr<Result> fixture(QString run, QString package)
     {
         auto d = std::make_shared<Dataset>();
@@ -124,6 +138,8 @@ class TestTraceJourney : public QObject
         return r;
     }
 private slots:
+    /** @brief Create a unique retained TRACE_JOURNEY_OUTPUT subfolder and register canvas QML renderers.
+     * Optionally registers SWMMVIS_TEST_RESOURCES and requires that resource registration to succeed. */
     void initTestCase()
     {
         folder = QStringLiteral(TRACE_JOURNEY_OUTPUT) + "/" +
@@ -136,6 +152,7 @@ private slots:
         qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
         qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
     }
+    /** @brief Verify tapered paths handle duplicate/degenerate vertices and TraceStyle JSON round-trips numeric themes and taper. */
     void taperAndStyle()
     {
         auto p = taperedPath({{0, 0}, {0, 0}, {20, 0}}, 10, 2);
@@ -155,6 +172,8 @@ private slots:
         b.fromJson(a.toJson());
         QCOMPARE(a.toJson(), b.toJson());
     }
+    /** @brief Verify contribution filtering excludes tiny/unreachable links and persists the minimum threshold.
+     * Checks sampled theme values and seed visibility directly; this slot does not render or inspect label pixels. */
     void negligibleContributionsAreHiddenAndUnlabelled()
     {
         auto r =
@@ -181,6 +200,8 @@ private slots:
         QCOMPARE(copy.minContribution(), 0.05);
         QVERIFY(!layer.contributes(false, 1));
     }
+    /** @brief Verify flow/ratio width, size, color classification, picking and labels share configured numeric theme semantics.
+     * Checks square-root/log scaling, proportional node area, SI flow/minute/coverage text and unavailable times; retains two painted label images and validates modern/legacy style JSON. */
     void themesAndNumericLabels()
     {
         auto result = fixture("theme-run", path("themes.gpkg"));
@@ -254,6 +275,9 @@ private slots:
         style->nodeLabels.percent = true;
         style->nodeLabels.showId = true;
         // Save a reproducible visual of flow labels and classified colors.
+        /** @brief Paint the captured synthetic trace into a retained 920-by-600 image.
+         * Argument `name`: output path relative to the per-run evidence folder.
+         * Returns: image-save result after applying the fixture translation/scale; paints current layer styles without a live canvas. */
         auto capture = [&](QString name) {
             QImage image(920, 600, QImage::Format_ARGB32_Premultiplied);
             image.fill(Qt::white);
@@ -296,6 +320,8 @@ private slots:
         QCOMPARE(restored.linkColor.colors.classCount(), 4);
         QVERIFY(restored.linkColor.colors.hasCustomRamp());
     }
+    /** @brief Run a retained one-conduit model and verify automatic tracing creates one reusable package with separately attached flow/travel views.
+     * Checks overwrite retention moves the old analysis to its own results identity, offline rerun reuses the saved estimate, and cancellation publishes no partial estimate. Completion waits range from ten to fifteen seconds. */
     void toolPreparesOnceAndKeepsRerunsSeparate()
     {
         const auto inp = path("automatic.inp"), out = path("automatic.out"),
@@ -375,9 +401,15 @@ private slots:
         QCOMPARE(AnalysisStore::analyses(package, &error).size(), 1);
         w.setHasChanges(false);
     }
+    /** @brief Verify running/cancelled outputs produce marked partial analyses and completion refreshes the same analysis ID in place.
+     * Replaces output with doubled flow, recalculates both views while preserving independent styles, and verifies cancelled recalculation preserves displayed data while removing the package for a later rebuild. Each async request is limited to fifteen seconds. */
     void partialRunsAndRecalculate()
     {
         // One conduit S -> O carrying a constant dry-weather flow.
+        /** @brief Write and simulate a one-conduit CMS trace fixture with constant dry-weather inflow.
+         * Argument `stem`: stem under the captured evidence folder for INP/report/output files.
+         * Argument `flow`: source flow in cubic metres per second.
+         * Returns: output path when model-open-for-writing and engine run succeed, otherwise empty; file-write byte counts are unchecked. */
         auto writeModel = [&](const QString &stem, double flow) {
             const auto inp = path(stem + ".inp"), out = path(stem + ".out"),
                        rpt = path(stem + ".rpt");
@@ -413,10 +445,17 @@ private slots:
         QSignalSpy failed(controller, &TraceController::failed);
         QSignalSpy ready(controller, &TraceController::resultReady);
         QString error;
+        /** @brief Read a retained output fixture.
+         * Argument `file`: input path opened read-only.
+         * Returns: all bytes, or empty on open failure. */
         auto readBytes = [](const QString &file) {
             QFile f(file);
             return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
         };
+        /** @brief Replace retained fixture bytes to emulate growing/replaced output files.
+         * Argument `file`: destination truncated on open.
+         * Argument `bytes`: complete replacement payload.
+         * Returns: true only for successful open and a full-length write; flush is not separately checked and failure may leave partial output. */
         auto writeBytes = [](const QString &file, const QByteArray &bytes) {
             QFile f(file);
             return f.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
@@ -508,6 +547,8 @@ private slots:
         QVERIFY(QFile::exists(livePackage));
         w.setHasChanges(false);
     }
+    /** @brief Verify result features/labels and attached trace geometry respect canvas stack order above or below model subcatchments.
+     * Runs a retained fixture, checks scene z-values and red-pixel differences, and verifies QSG handoff honors the global preference without changing it; saves above/below screenshots. */
     void resultsFollowLayerOrder()
     {
         const auto inp = path("stacking.inp"), out = path("stacking.out");
@@ -590,6 +631,9 @@ private slots:
         QCOMPARE(model->qsgRenderKinds(), SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNone));
         QCOMPARE(PreferencesManager::instance()->qsgRenderEnabled(), gpuPreference);
         QVERIFY(above.save(path("results-above-subcatchment.png")));
+        /** @brief Count image pixels representing the red trace rather than the green model background.
+         * Argument `image`: source image scanned in pixel coordinates.
+         * Returns: count with red greater than 200 and green/blue each below 40, without filtering alpha. */
         auto redPixels = [](const QImage &image) {
             int n = 0;
             for (int y = 0; y < image.height(); ++y)
@@ -618,6 +662,7 @@ private slots:
         QCOMPARE(model->qsgRenderKinds() != SWMMModelLayer::QsgNone, gpuPreference);
         w.setHasChanges(false);
     }
+    /** @brief Verify corner-drag resizing records explicit legend geometry, preserves the opposite corner and survives title edits plus JSON restore. */
     void legendResizePersists()
     {
         MapCanvas canvas;
@@ -627,6 +672,10 @@ private slots:
         style->setTitle("Flow balance legend");
         style->setShowTitle(true);
         style->setAnchor(OpenSWMM::Render::LegendOverlayStyle::Anchor::TopLeft);
+        /** @brief Drive legend resize press/move/release events directly through QApplication.
+         * Argument `start`: legend-local press position in pixels.
+         * Argument `delta`: movement in pixels, also applied in global coordinates.
+         * Returns: legend geometry captured after movement and before release; the captured legend must remain live. */
         auto drag = [&](QPoint start, QPoint delta) {
             const QPoint global = legend.mapToGlobal(start);
             QMouseEvent press(QEvent::MouseButtonPress, start, global, Qt::LeftButton,
@@ -659,6 +708,8 @@ private slots:
         reopened.setStyle(&restored);
         QCOMPARE(reopened.geometry(), reduced);
     }
+    /** @brief Verify trace legends share numeric labels and proportional stroke/marker symbols with the layer and overlay.
+     * Inspects a retained screenshot for seven/fourteen-pixel strokes and a twenty-four-pixel marker within one pixel and checks travel labels use minutes. */
     void legendValuesAndSymbols()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(
@@ -715,6 +766,9 @@ private slots:
                 length = 0;
             }
         }
+        /** @brief Search measured legend color runs for an expected symbol dimension.
+         * Argument `size`: desired stroke/marker size in device-independent pixels.
+         * Returns: true when a captured run differs by at most one pixel. */
         auto hasSize = [&](double size) {
             return std::any_of(runs.begin(), runs.end(),
                                [=](double run) { return qAbs(run - size) <= 1; });
@@ -728,6 +782,8 @@ private slots:
         QVERIFY(timeRows[1].label.front().isDigit());
         w.setHasChanges(false);
     }
+    /** @brief Verify trace sublayer menus expose Properties/Remove Layer and clean scene graphics/style dialogs before deferred deletion.
+     * Checks removing flow/time views preserves parent output and saved estimates, persists their absence through project restore, and permits recreation from the existing analysis package. */
     void analysisMenusAndRemoval()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(
@@ -755,6 +811,9 @@ private slots:
         QVERIFY(view);
         auto *proxy = qobject_cast<QSortFilterProxyModel *>(view->model());
         QVERIFY(proxy);
+        /** @brief Select and reveal a trace child in the layer-tree proxy view.
+         * Argument `part`: borrowed trace sublayer belonging to the captured results parent.
+         * Returns: mapped proxy index; expands the tree, changes current selection and scrolls the row into view without validating the index locally. */
         auto select = [&](TraceSublayer *part) {
             view->expandAll();
             auto index = proxy->mapFromSource(panel.model()->indexForSublayer(output, part));
@@ -762,6 +821,10 @@ private slots:
             view->scrollTo(index);
             return index;
         };
+        /** @brief Open a trace context menu and activate an exact-text action with Return.
+         * Argument `part`: borrowed target sublayer passed through the captured selection helper.
+         * Argument `label`: exact action text to choose.
+         * Returns: true only when invocation, selection and expected menu membership succeed. A two-second timer closes a remaining popup; queued selection requires the nested GUI event loop. */
         auto menuAction = [&](TraceSublayer *part, const QString &label) {
             const auto index = select(part);
             bool picked = false, consistent = false;
@@ -806,6 +869,8 @@ private slots:
         auto *scene = w.canvas()->mapScene();
         const auto painterTag = reinterpret_cast<quintptr>(flow->layer());
         flow->layer()->populateScene(scene, MapExtent(-25, -115, 280, 115), nullptr);
+        /** @brief Check whether the captured scene still holds graphics owned by the trace painter tag.
+         * Returns: true when any item data(0) matches the saved identity; compares the tag without dereferencing a potentially removed painter. */
         auto hasGraphics = [&] {
             for (auto *item : scene->items())
                 if (item->data(0).value<quintptr>() == painterTag)
@@ -860,6 +925,8 @@ private slots:
         w.setHasChanges(false);
         restored.setHasChanges(false);
     }
+    /** @brief Verify analysis packages and retained output/report identities survive reruns and missing original output.
+     * Checks offline multi-seed estimates, reused/separate views, stale-run rejection, live style editing with cancel/accept, parent-layer removal/reinsert and repeated sidecar saves/restores preserving accepted styles and three run records. Retains map, tree and style screenshots. */
     void retainedRunsAndOfflineReopen()
     {
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(

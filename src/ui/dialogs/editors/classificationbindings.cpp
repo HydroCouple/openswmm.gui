@@ -32,10 +32,12 @@ namespace openswmmvis::ui
 namespace
 {
 
-/*! Best-effort reverse match of a renderer's RasterColorRamp to a built-in
- *  name, so the editor's ramp combo reflects the renderer instead of always
- *  showing the default. Returns "" when no built-in matches (custom ramp) —
- *  the scheme then keeps its default name (today's behaviour). */
+/**
+ * @brief Find the first builtin whose gradient stops exactly equal the supplied ramp stops.
+ * @param ramp Borrowed ramp; numeric range and other metadata are ignored.
+ * @return Owned builtin name or empty for no exact match. No approximate color comparison,
+ * inversion inference or ramp mutation.
+ */
 QString builtinNameFor(const RasterColorRamp &ramp)
 {
     for (const QString &name : RasterColorRamp::builtinNames()) {
@@ -45,9 +47,15 @@ QString builtinNameFor(const RasterColorRamp &ramp)
     return QString();
 }
 
-/*! Translate the editor's scheme into the renderer's ramp: stops from the
- *  resolved ramp (inverted in place when requested), value range preserved
- *  from the renderer so FixedUser bounds aren't clobbered. */
+/**
+ * @brief Resolve and optionally invert scheme gradient stops while retaining supplied scalar
+ * endpoints.
+ * @param s Borrowed configuration supplying resolved ramp and inversion flag.
+ * @param preserveMin Scalar minimum copied verbatim into returned ramp.
+ * @param preserveMax Scalar maximum copied verbatim, without sorting/finite validation.
+ * @return Owned ramp; inversion maps stop positions to1-minus-position then sorts them,
+ * without changing caller scheme or copying its custom range over these endpoints.
+ */
 RasterColorRamp rendererRampFromScheme(const ClassificationScheme &s, double preserveMin,
                                        double preserveMax)
 {

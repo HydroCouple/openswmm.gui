@@ -47,6 +47,13 @@
 namespace
 {
 
+/**
+ * @param[in] c Copied into painter brush, darker(140) outline; validity not checked.
+ * @param[in] sizePx Pixmap square side in device-independent/default-DPR logical pixels, normally
+ *   14; expected enough room for two-pixel inset, no validation.
+ * @return Owned icon of antialiased circular color swatch on transparent pixmap. GUI-thread pixmap
+ *   painting, no model mutation or source lookup.
+ */
 QIcon colorChip(const QColor &c, int sizePx = 14)
 {
     QPixmap p(sizePx, sizePx);

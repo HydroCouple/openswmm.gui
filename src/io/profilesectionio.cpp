@@ -140,7 +140,7 @@ bool alias(const QString &a, const QString &b)
     return !e && aa == bb;
 }
 }
-/**
+/*
  * @brief Serialize a saved section using version-one scene-coordinate metadata.
  * @param[in] d Definition with scene XY polyline and source/series display metadata.
  * @param[in] base Directory against which nonempty source paths are serialized relatively.
@@ -199,7 +199,7 @@ QJsonObject definitionToJson(const Definition &d, const QString &base)
     o["series"] = series;
     return o;
 }
-/**
+/*
  * @brief Decode and validate a strict saved-section schema without partially replacing the caller definition.
  * @param[in] o Version-one JSON object using scene_xy_y_negated coordinates.
  * @param[in] base Directory used to resolve nonempty relative source paths; no source existence check occurs here.
@@ -309,7 +309,7 @@ bool definitionFromJson(const QJsonObject &o, const QString &base, Definition &o
     out = std::move(d);
     return true;
 }
-/**
+/*
  * @brief Atomically export visible sampled and built-in section series with scientific provenance.
  * @param[in] section Sampled section with declared units and availability for all visible series.
  * @param[in] d Validated definition that must match sampled source/variable identities.

@@ -39,8 +39,23 @@ class DialogLayoutWatcher : public QObject
     Q_OBJECT
 
 public:
+    /**
+     * @param[in] parent Optional QObject owner, independent of QApplication lifetime.
+     * @brief Construct filter object only, not automatically installed; host installs on live
+     *   QApplication and preserves through GUI events. No layout read/write until events.
+     */
     explicit DialogLayoutWatcher(QObject *parent = nullptr);
 
+    /**
+     * @param[in] watched Borrowed optional event target checked as eligible named top-level
+     *   QDialog.
+     * @param[in] event Required borrowed Qt event, no null guard/ownership retention.
+     * @return QObject base filter result, does not intentionally consume Show/Hide/Close.
+     * @note First eligible Show marks layoutRestoredOnce BEFORE synchronous restore (even no
+     *   settings), later show no restore. Every Hide/Close saves including spontaneous hide; modal
+     *   dialogs eligible, root noLayoutPersistence opts out. Destruction cast may fail and skip
+     *   save. No content/engine write or automatic filter installation.
+     */
     bool eventFilter(QObject *watched, QEvent *event) override;
 };
 

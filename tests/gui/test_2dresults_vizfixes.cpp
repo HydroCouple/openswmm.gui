@@ -24,7 +24,9 @@
  *
  * Registered in tests/gui/CMakeLists.txt with the full-app link pattern
  * (swmmvis_link_full_app_deps) — it drives the real SWMM2DResultsLayer, whose
- * link closure is most of the app. Pure assertions — writes no temp files.
+ * link closure is most of the app. Synthetic cases use in-memory fixtures;
+ * optional environment-selected datasets and artifact directories enable saved/live
+ * comparisons, timing CSVs and CPU/GPU image capture as documented on each slot.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -66,10 +68,23 @@ namespace
 // expanded or shared through exact GPU attribute indices.
 struct ColoredVertexView {
     const QSGGeometry *geometry;
+    /**
+     * @brief Count primitive elements in a borrowed colored-point geometry.
+     * @return Index count when indexed, otherwise vertex count; geometry must be non-null and
+     * remain alive.
+     */
     int size() const
     {
         return geometry->indexCount() ? geometry->indexCount() : geometry->vertexCount();
     }
+    /**
+     * @brief Resolve one primitive element to its borrowed colored vertex.
+     * @param[in] i Element index in [0, size()); an indexed geometry must use unsigned-int or
+     * unsigned-short indices.
+     * @return Reference into the non-null geometry's colored-point vertex storage, valid while
+     * that storage is alive and unchanged. The fixture performs no bounds or attribute-layout
+     * validation.
+     */
     const QSGGeometry::ColoredPoint2D &operator[](int i) const
     {
         if (geometry->indexCount())
@@ -93,16 +108,48 @@ struct ColoredVertexView {
 class FakeSource : public IMesh2DSource
 {
 public:
+    /**
+     * @brief Own uniform cell-depth frames for a flat two-triangle unit square.
+     * @param[in] live Whether isLive() reports a streaming source; the fixture does not append
+     * frames itself.
+     * @param[in] perFrameDepth Owned vector of per-frame depths in metres, moved into the
+     * source; each value supplies both cells. The constructor accepts empty or non-monotonic
+     * data without validation.
+     */
     explicit FakeSource(bool live, std::vector<float> perFrameDepth)
         : m_live(live), m_frameDepth(std::move(perFrameDepth))
     {
     }
 
+    /**
+     * @brief Report the fixed flat-square vertex count.
+     * @return Four vertices.
+     */
     int vertexCount() const override { return 4; }
+    /**
+     * @brief Report the fixed flat-square triangle and cell count.
+     * @return Two triangular cells.
+     */
     int triangleCount() const override { return 2; }
+    /**
+     * @brief Count owned depth frames.
+     * @return Number of entries in the constructor-supplied frame vector.
+     */
     int timeCount() const override { return int(m_frameDepth.size()); }
+    /**
+     * @brief Expose the constructor-selected streaming flag.
+     * @return True for a fixture declared live; false for a saved-source fixture.
+     */
     bool isLive() const override { return m_live; }
 
+    /**
+     * @brief Replace output arrays with the flat unit square and its 0-to-2 diagonal.
+     * @param[out] vx Four x coordinates in stored metres, ordered (0,1,1,0).
+     * @param[out] vy Four y coordinates in stored metres, ordered (0,0,1,1).
+     * @param[out] vz Four zero bed elevations in metres.
+     * @param[out] tris Two zero-based triples {0,1,2} and {0,2,3}.
+     * @return Always true; existing output contents are replaced.
+     */
     bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                           std::vector<std::array<int, 3>> &tris) override
     {
@@ -113,6 +160,13 @@ public:
         return true;
     }
 
+    /**
+     * @brief Copy a frame's uniform depth to both triangular cells.
+     * @param[in] t Zero-based frame index; must be less than timeCount() and nonnegative.
+     * @param[out] depths Replaced by two equal cell-mean depths in metres on success; unchanged
+     * for an invalid index.
+     * @return True for a valid frame, false otherwise.
+     */
     bool readDepthsAt(int t, std::vector<float> &depths) override
     {
         if (t < 0 || t >= timeCount())
@@ -121,6 +175,12 @@ public:
         return true;
     }
 
+    /**
+     * @brief Derive a one-minute fixture timestamp without checking frame bounds.
+     * @param[in] t Integer minute offset from midnight on 1 January 2026; any integer is
+     * accepted.
+     * @return Base QDateTime plus 60*t seconds, using the base's default Qt time specification.
+     */
     QDateTime simTimeAt(int t) const override
     {
         return m_t0.addSecs(qint64(t) * 60); // 1-minute frames
@@ -128,6 +188,14 @@ public:
 
     // Issue #155 — lets a case declare the metres-per-model-unit factor the
     // engine's /crs variable would carry. Default: undeclared (pre-6.0 file).
+    /**
+     * @brief Mark the fixture's stored metre coordinates as belonging to a model CRS.
+     * @param[in] crs CRS identifier copied into the declaration; not validated here.
+     * @param[in] metresPerModelUnit Metres per model coordinate unit copied without validation,
+     * for example 0.3048 for international feet.
+     * @details Sets storedUnits to "m" and declared to true; later layer loading applies the
+     * model-unit conversion.
+     */
     void declareCoordinateReference(const QString &crs, double metresPerModelUnit)
     {
         m_ref.crs = crs;
@@ -136,6 +204,10 @@ public:
         m_ref.declared = true;
     }
 
+    /**
+     * @brief Copy the current fixture coordinate declaration.
+     * @return Value copy, initially undeclared until declareCoordinateReference() is called.
+     */
     openswmmvis::io::CoordinateReference coordinateReference() const override { return m_ref; }
 
 private:
@@ -158,14 +230,42 @@ private:
 class FakeMixedSource : public IMesh2DSource
 {
 public:
+    /**
+     * @brief Store one frame for a quad sharing an edge with a triangle.
+     * @param[in] quadDepth Cell-mean depth in metres for quad cell zero, copied without
+     * validation.
+     * @param[in] triDepth Cell-mean depth in metres for triangle cell one, copied without
+     * validation.
+     */
     FakeMixedSource(float quadDepth, float triDepth) : m_quadDepth(quadDepth), m_triDepth(triDepth)
     {
     }
 
+    /**
+     * @brief Report the mixed-cell fixture's geometry size.
+     * @return Five vertices.
+     */
     int vertexCount() const override { return 5; }
+    /**
+     * @brief Report source cells before display triangulation.
+     * @return Two cells, one quad and one triangle; the layer generates three display triangles.
+     */
     int triangleCount() const override { return 2; } // CELLS
+    /**
+     * @brief Report the mixed fixture's fixed frame count.
+     * @return One frame.
+     */
     int timeCount() const override { return 1; }
 
+    /**
+     * @brief Replace outputs with the flat quad-and-triangle source mesh.
+     * @param[out] vx Five stored x coordinates in metres spanning zero to two.
+     * @param[out] vy Five stored y coordinates in metres spanning zero to one.
+     * @param[out] vz Five zero bed elevations in metres.
+     * @param[out] cells Zero-based cells {0,1,2,3} and {1,4,2,-1}, where -1 marks the triangle's
+     * unused fourth vertex.
+     * @return Always true; replaces all output contents.
+     */
     bool readCells(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                    std::vector<std::array<int, 4>> &cells) override
     {
@@ -178,6 +278,15 @@ public:
 
     // Display fan (not consulted by the layer, which calls readCells and
     // splits with mesh::cellGeom itself).
+    /**
+     * @brief Supply a legacy display fan for callers requesting triangles directly.
+     * @param[out] vx Five x coordinates in metres from readCells().
+     * @param[out] vy Five y coordinates in metres from readCells().
+     * @param[out] vz Five zero bed elevations in metres.
+     * @param[out] tris Three zero-based triples splitting the quad and retaining the triangle.
+     * @return Always true; replaces outputs. The results layer instead calls readCells() and
+     * performs its own triangulation.
+     */
     bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                           std::vector<std::array<int, 3>> &tris) override
     {
@@ -187,6 +296,13 @@ public:
         return true;
     }
 
+    /**
+     * @brief Copy the sole frame's quad and triangle depths.
+     * @param[in] t Frame index, which must equal zero.
+     * @param[out] depths Two cell-mean depths in metres in quad/triangle order; unchanged if t
+     * is not zero.
+     * @return True for frame zero, false otherwise.
+     */
     bool readDepthsAt(int t, std::vector<float> &depths) override
     {
         if (t != 0)
@@ -195,6 +311,11 @@ public:
         return true;
     }
 
+    /**
+     * @brief Derive a one-minute timestamp independently of the one-frame limit.
+     * @param[in] t Unchecked integer minute offset from midnight on 1 January 2026.
+     * @return Base QDateTime plus 60*t seconds, with the base's default Qt time specification.
+     */
     QDateTime simTimeAt(int t) const override
     {
         return QDateTime(QDate(2026, 1, 1), QTime(0, 0)).addSecs(qint64(t) * 60);
@@ -209,9 +330,32 @@ class VfrSource : public IMesh2DSource
 public:
     std::vector<double> x{0, 1, 0, 1}, y{0, 0, 1, 1}, z{0, 0, 4, 4};
     std::vector<std::vector<float>> frames{{0.4921875f, 0.0f}};
+    /**
+     * @brief Count the fixture's current x-coordinate array.
+     * @return x.size() converted to int; companion array consistency is the test's
+     * responsibility.
+     */
     int vertexCount() const override { return int(x.size()); }
+    /**
+     * @brief Report the fixed sloping-square topology size.
+     * @return Two triangular cells.
+     */
     int triangleCount() const override { return 2; }
+    /**
+     * @brief Count stored cell-depth frames.
+     * @return frames.size() converted to int.
+     */
     int timeCount() const override { return int(frames.size()); }
+    /**
+     * @brief Copy editable sloping-square coordinates and the fixed two-cell topology.
+     * @param[out] ox Copy of x coordinates in stored metres.
+     * @param[out] oy Copy of y coordinates in stored metres.
+     * @param[out] oz Copy of bed elevations z in metres, initially zero on the low edge and four
+     * on the high edge.
+     * @param[out] tris Replaced by zero-based triples {0,1,2} and {1,3,2}.
+     * @return Always true; performs no size or index validation of the editable coordinate
+     * arrays.
+     */
     bool readMeshGeometry(std::vector<double> &ox, std::vector<double> &oy, std::vector<double> &oz,
                           std::vector<std::array<int, 3>> &tris) override
     {
@@ -221,6 +365,14 @@ public:
         tris = {{0, 1, 2}, {1, 3, 2}};
         return true;
     }
+    /**
+     * @brief Copy an editable cell-depth frame for reconstruction tests.
+     * @param[in] t Zero-based nonnegative index below timeCount().
+     * @param[out] d Copy of the selected frame in metres; unchanged when the index is invalid.
+     * Test setup controls frame length and values.
+     * @return True for an existing frame, false otherwise; NaNs and negative depths are
+     * preserved.
+     */
     bool readDepthsAt(int t, std::vector<float> &d) override
     {
         if (t < 0 || t >= timeCount())
@@ -228,11 +380,23 @@ public:
         d = frames[size_t(t)];
         return true;
     }
+    /**
+     * @brief Supply an intentionally incompatible legacy node-depth field.
+     * @param[out] d Replaced by x.size() entries of 100 metres to prove cell reconstruction
+     * ignores this legacy field.
+     * @return Always true. The unnamed time argument is deliberately ignored; no frame bounds
+     * are checked.
+     */
     bool readVertexDepthsAt(int, std::vector<float> &d) override
     {
         d.assign(x.size(), 100.0f);
         return true; // deliberately incompatible legacy smoothing
     }
+    /**
+     * @brief Derive fixture timestamps one second apart without frame validation.
+     * @param[in] t Integer second offset from midnight on 1 January 2026; not bounds-checked.
+     * @return Base QDateTime plus t seconds, using its default Qt time specification.
+     */
     QDateTime simTimeAt(int t) const override
     {
         return QDateTime(QDate(2026, 1, 1), QTime(0, 0)).addSecs(t);
@@ -245,6 +409,15 @@ class FlowVfrSource : public VfrSource
 {
 public:
     float speed = 1.0f;
+    /**
+     * @brief Replace edge arrays with outward normals for two stride-four triangle records.
+     * @param[out] lengths Eight edge lengths in stored metres, including zero padding at slots
+     * three and seven.
+     * @param[out] nx Eight dimensionless outward x-normal components; padding is zero.
+     * @param[out] ny Eight dimensionless outward y-normal components; padding is zero.
+     * @return Always true; actual triangle edges occupy the first three slots of each four-entry
+     * record.
+     */
     bool readEdgeGeometry(std::vector<float> &lengths, std::vector<float> &nx,
                           std::vector<float> &ny) override
     {
@@ -254,6 +427,13 @@ public:
         ny = {-1, n, 0, 0, 0, 1, -n, 0};
         return true;
     }
+    /**
+     * @brief Replace stride-four edge fluxes with a spatially uniform x-directed RT0 field.
+     * @param[out] flux Eight values length*nx*speed in cubic metres per second; padding is zero
+     * and reversing speed reverses flow.
+     * @return Always true. The unnamed time argument is ignored, so this spatial field is
+     * identical at every requested time.
+     */
     bool readEdgeFluxAt(int, std::vector<float> &flux) override
     {
         std::vector<float> length, nx, ny;
@@ -272,9 +452,30 @@ class FlowingSlopeSource : public IMesh2DSource
 public:
     bool fluxEnabled = true;
     std::vector<float> frames{0.04f, 0.08f, 0.12f};
+    /**
+     * @brief Report vertices on the six two-point cross sections.
+     * @return Twelve vertices.
+     */
     int vertexCount() const override { return 12; }
+    /**
+     * @brief Report cells on the five split strips.
+     * @return Ten triangular cells.
+     */
     int triangleCount() const override { return 10; }
+    /**
+     * @brief Count editable uniform-depth frames for the flowing sheet.
+     * @return frames.size() converted to int.
+     */
     int timeCount() const override { return int(frames.size()); }
+    /**
+     * @brief Replace geometry with ten triangles on a gently descending 50-by-10 metre strip.
+     * @param[out] x Twelve x coordinates in metres, increasing by ten per cross section.
+     * @param[out] y Twelve y coordinates alternating zero and ten metres.
+     * @param[out] z Twelve bed elevations in metres, decreasing from 27 by 0.7 per cross
+     * section.
+     * @param[out] tris Ten zero-based triangles, two per strip in deterministic order.
+     * @return Always true; clears all outputs before appending the fixture geometry.
+     */
     bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z,
                           std::vector<std::array<int, 3>> &tris) override
     {
@@ -294,6 +495,13 @@ public:
         }
         return true;
     }
+    /**
+     * @brief Expand one flowing-sheet depth to all ten cells.
+     * @param[in] t Zero-based nonnegative frame index below timeCount().
+     * @param[out] d Ten copies of frames[t] in metres on success, unchanged for an invalid
+     * index.
+     * @return True for an existing frame, false otherwise.
+     */
     bool readDepthsAt(int t, std::vector<float> &d) override
     {
         if (t < 0 || t >= timeCount())
@@ -301,6 +509,15 @@ public:
         d.assign(10, frames[size_t(t)]);
         return true;
     }
+    /**
+     * @brief Supply a fixed through-flow stencil when flux is enabled.
+     * @param[in] t Zero-based nonnegative index below timeCount(); validates availability but
+     * does not vary the stencil.
+     * @param[out] q Forty stride-four edge-flux entries in cubic metres per second for ten triangles; selected real edges
+     * contain +/-1 and other entries, including padding, are zero. Unchanged on failure.
+     * @return False when fluxEnabled is false or t is out of range; true after replacing q
+     * otherwise.
+     */
     bool readEdgeFluxAt(int t, std::vector<float> &q) override
     {
         if (!fluxEnabled || t < 0 || t >= timeCount())
@@ -314,6 +531,11 @@ public:
         }
         return true;
     }
+    /**
+     * @brief Derive one-second flowing-sheet timestamps without frame validation.
+     * @param[in] t Unchecked second offset from midnight on 1 January 2026.
+     * @return Base QDateTime plus t seconds, using its default Qt time specification.
+     */
     QDateTime simTimeAt(int t) const override
     {
         return QDateTime(QDate(2026, 1, 1), QTime(0, 0)).addSecs(t);
@@ -326,45 +548,399 @@ class Test2DResultsVizFixes : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     * @brief Verify cell-volume reconstruction yields the exact sloping-cell signed corners,
+     * clips dry uphill queries, and leaves a dry neighboring cell without surface.
+     *
+     * @details The
+     * deliberately incompatible 100-metre node field must not determine maximum depth.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void cellVfrKeepsDryNeighborsDry();
+    /**
+     * @brief Verify mixed-cell profile stations equal the layer's reconstructed signed field and
+     * one-frame maximum, vary continuously within cells, and agree across the shared wet edge.
+     *
+     * @details Optionally writes profile-continuous-surface.png into the existing
+     * VFR_TEST_ARTIFACTS
+     * directory.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void smoothProfilesAndContoursShareOneSurface();
+    /**
+     * @brief Verify the reconstructed historical maximum dominates every finite sampled frame at
+     * triangle centroids, then replace a stored frame with a lower peak and require the affected
+     * maximum to decrease without reducing the other cell's peak.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void smoothMaximumContainsEveryFrame();
+    /**
+     * @brief Check smooth/flat contour bands and smooth/cell fills have the analytical clipped
+     * wet area and uphill shoreline.
+     *
+     * @details Replacing depth at the same timestamp must shrink coverage;
+     * an enabled asynchronous contour worker must retain the complete previous shoreline until
+     * the replacement is ready.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void mapFillsStopAtExactShoreline();
+    /**
+     * @brief Cycle partial-wet, all-dry and both-wet frames and verify the displayed revision
+     * follows the layer, retained water triangles track visible cells, and direct fills retain
+     * no duplicate water-attribute snapshot.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void waterSnapshotTracksWetArea();
+    /**
+     * @brief Verify repeated synchronization, selecting the already-current frame and panning
+     * the map preserve the initialized scene-node ordering without increasing its mutation
+     * counter.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void unchangedSyncKeepsSceneOrder();
+    /**
+     * @brief Build 60,000 synthetic display triangles and verify indexed direct-fill chunks
+     * preserve every primitive's position, alternating color and total area with at most 65,532
+     * stored vertices per geometry.
+     *
+     * @details Panning to a small extent must cull geometry and returning
+     * must recover the complete result.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void largeDirectFillKeepsPrimitiveChunks();
+    /**
+     * @brief Exercise worker handoff across fast frame replacement, panning, dry/re-wet
+     * transitions, style changes and a layer switch.
+     *
+     * @details Fills and lines must publish complete
+     * matching revisions, keep the prior frame while pending, reject obsolete work and settle
+     * capture without extra completions. Skips unless OPENSWMM_QSG_ASYNC_CONTOURS equals one.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void contourAnimationPublishesCompleteFrames();
+    /**
+     * @brief Cycle direct-only, contour-only and companion-fill modes through dry and wet
+     * frames, drain pending capture and compare reused vertex/index bytes with an independently
+     * initialized renderer.
+     *
+     * @details Verify water-attribute snapshots exist only when companion geometry
+     * needs them.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void contourSnapshotsSurviveStyleAndFrameChanges();
+    /**
+     * @brief Verify large-mesh contour synchronization defers publication to the background
+     * worker, eventually shows replacements, rejects superseded viewport coverage, recomputes
+     * newly exposed regions, handles style edits and clears all-dry geometry.
+     *
+     * @details Uses at least
+     * 60,000 synthetic triangles, configurable by OPENSWMM_RENDER_TEST_TRIANGLES, and skips when
+     * async contours are explicitly disabled. Optional OPENSWMM_RENDER_TEST_OVERVIEW=1 measures
+     * whole-domain publication; timing is logged without a performance threshold.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void largeContoursNeverMarchDuringSync();
+    /**
+     * @brief Verify global automatic quantile samples, class edges and maximum remain stable
+     * across playback and bound every finite corner.
+     *
+     * @details Per-frame auto-stretch must change samples,
+     * while a user-specified maximum of seven remains fixed.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void depthClassificationRemainsStableDuringPlayback();
+    /**
+     * @brief Render smooth and flat CPU contour bands into transparent images and require wet
+     * pixels only below the analytical shoreline and outside the dry neighbor.
+     *
+     * @details Optionally writes
+     * map-smooth-bands.png and map-flat-bands.png into VFR_TEST_ARTIFACTS, then depopulates the
+     * scene.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void cpuContoursStopAtExactShoreline();
+    /**
+     * @brief Compare coarse and very fine profile spacing against exact cell intersections,
+     * requiring identical stations and the analytical shoreline.
+     *
+     * @details Check off-mesh endpoints retain
+     * chainage with NaN ground, shared-edge paths choose the same cell in both directions, and
+     * reversed paths retain bed elevations.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void exactProfileIgnoresStationSpacing();
+    /**
+     * @brief Sample the shared diagonal in both directions, retain both incident triangle
+     * references, and query unchanged stations as either side wets or both dry.
+     *
+     * @details Wet samples must
+     * preserve the 1.5-metre lake stage and remain within their historical maximum; all-dry
+     * queries return NaN.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void boundaryProfileKeepsWetSideAcrossFrames();
+    /**
+     * @brief Compare flat and smooth CPU/QSG contour clipping for manual class breaks and custom
+     * ranges.
+     *
+     * @details Values below the range minimum are hidden, high values saturate to their class
+     * color and physical dry terrain remains hidden; QSG area must match the analytical scalar
+     * clip. Optionally saves two saturated contour images in SWMMVIS_SHORELINE_ARTIFACT_DIR.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void contourRangesSaturateCpuAndQsg();
+    /**
+     * @brief Verify smooth and cell-valued direct QSG fills clip at custom minimum depth while
+     * values above the maximum saturate to premultiplied red.
+     *
+     * @details Compare total and fully saturated
+     * triangle area with analytical shoreline integrals for three minimum depths.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void directFillRangesClipAndSaturateQsg();
+    /**
+     * @brief Lower an existing stored frame and verify per-cell maxima decrease, refresh
+     * advances the frame revision, and appending a new frame updates only cells whose peaks
+     * grow.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void latestFrameReplacementCanReduceEnvelope();
+    /**
+     * @brief Verify the two-triangle square stores five unique undirected wireframe edges,
+     * including one shared diagonal, instead of six per-cell edges.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void edgesAreDeduplicated();
+    /**
+     * @brief Verify seeking a live source to an earlier timestamp clears follow-live and
+     * subsequent time-range refresh preserves the user-selected frame.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void liveScrubHoldsFrame();
+    /**
+     * @brief Verify seeking to an older live frame disables follow-live, then seeking to the
+     * latest available frame re-enables it and selects that frame.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void liveSeekToLastReArmsFollow();
+    /**
+     * @brief Verify the interpolated animated depth at a wet interior point in the all-cells
+     * peak frame matches the reconstructed per-vertex historical envelope within 1e-4 metres.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void maxDepthMatchesAnimatedAtPeak();
+    /**
+     * @brief Verify a source lacking edge flux yields false velocity queries both inside and
+     * outside the mesh, and resets the interior query's prefilled output components to zero.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void velocityFalseWithoutFlux();
+    /**
+     * @brief Verify declared stored-metre coordinates with a 0.3048 metres-per-model-unit factor
+     * produce an extent of 1/0.3048 model units on each axis.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void declaredMetreFactorScalesToModelUnits();
+    /**
+     * @brief Verify a declared metric CRS with factor one preserves both unit-square extent
+     * dimensions exactly.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void metricModelIsUnscaled();
+    /**
+     * @brief Verify an undeclared stored-metre source uses the caller's 0.3048 coordinate
+     * fallback and expands the unit-square width to model feet.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void undeclaredSourceUsesCallerFallback();
+    /**
+     * @brief Verify an undeclared source without a caller fallback preserves both stored
+     * coordinate dimensions exactly rather than guessing a CRS conversion.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void undeclaredSourceDefaultsToNoScaling();
+    /**
+     * @brief Verify mixed-cell triangulation maps two quad display triangles back to one cell,
+     * preserves raw cell depths for picking, deduplicates true boundary edges without a quad
+     * diagonal, uses the expected shared-edge reconstruction weight and returns each
+     * rectangle-selected cell once.
+     * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void mixedMeshQuadRendersAsFanOfItsCell();
+    /**
+     * @brief Verify thin-film visibility and reconstructed maxima respond to dry/film thresholds
+     * without changing stored cell depths.
+     *
+     * @details Showing films restores their surfaces, while shallow
+     * cell means on a slope retain genuine partial pools and unit-correct profiles. Non-finite
+     * depths classify invalid and negative/zero finite depths classify dry.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void thinFilmPolicyPreservesRawWaterAndPartialPools();
+    /**
+     * @brief Exercise the style panel's model/user film threshold controls, policy JSON
+     * round-trip and rejection of malformed policy input.
+     *
+     * @details Verify dialog cancellation restores
+     * the previous policy without undo entries, while acceptance creates one undoable/redoable
+     * change.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void thinFilmSettingsRoundTrip();
+    /**
+     * @brief Verify changing the film threshold hides/reveals thin water consistently in CPU
+     * contour pixels, QSG contour/direct-fill geometry and profile samples.
+     *
+     * @details If async contours
+     * are enabled, an older pending result must not restore hidden geometry under the new
+     * policy.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void thinFilmVisibilityCpuQsgAndPendingFrames();
+    /**
+     * @brief Compare all saved and streamed cell states at road-culvert frame 70 under a
+     * 0.005-metre film policy, requiring hidden films, retained partial pools and unchanged
+     * source depths.
+     *
+     * @details Skips without VFR_TEST_ROAD_CULVERT; optional VFR_TEST_ARTIFACTS writes a
+     * state report and shown/hidden profile/map PNGs into the existing directory.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void thinFilmSavedAndLiveParity();
+    /**
+     * @brief Verify flux-aware reconstruction makes a flowing sheet continuous across profile
+     * stations, contour corners and stored/live replay in metre and foot coordinate systems.
+     *
+     * @details Flux removal at the same time must invalidate the moving fit, restored flux
+     * restores it,
+     * lower historical depth reduces the envelope and thin-film policy controls visibility.
+     * Optional VFR_TEST_ARTIFACTS writes before/after profile images.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void flowingSlopeProfilesContoursAndHistory();
+    /**
+     * @brief Compare preserved Bellinge HDF5 output with a live source seeded from the last
+     * depth/flux frame, including exact corner parity, shared wet-edge continuity, repeat seeks
+     * and raw-depth preservation.
+     *
+     * @details Skips without VFR_TEST_BELLINGE. Optional VFR_TEST_ARTIFACTS
+     * writes CPU map/profile images; VFR_TEST_GPU=1 additionally opens a QQuickWindow and saves
+     * GPU grabs, including whole-mesh coverage.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void bellingeNeighborhoodSavedLiveAndRendering();
+    /**
+     * @brief Record cold/warm envelope, profile construction/station refresh, contour marching,
+     * source reads and frame-change timings for preserved Bellinge output without imposing speed
+     * thresholds.
+     *
+     * @details Skips unless VFR_TEST_BELLINGE and VFR_PERF_OUT are set; opens layer-perf.csv
+     * in the existing output directory with truncating write semantics.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void bellingePerfBaseline();
+    /**
+     * @brief Compare asynchronous and synchronous fitted corners, cell display states and
+     * interpolated depths through forward/backward seeks with both a 64-MiB cache and caching
+     * disabled.
+     *
+     * @details Await publication before comparing; revisiting a cached frame must publish
+     * immediately without another fit.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void surfaceWorkerMatchesSynchronousFit();
+    /**
+     * @brief Verify rapid surface requests keep the previous display until publication, coalesce
+     * the waiting middle frame, publish increasing requested indices and perform only the
+     * first/latest fits.
+     *
+     * @details Returning to the displayed frame must withdraw an in-flight replacement
+     * without another time-change signal.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void surfaceWorkerPublishesInRequestOrder();
+    /**
+     * @brief Verify station-only profile construction neither fits history nor supplies maxima,
+     * then explicitly request an asynchronous envelope and compare corner fields/profile maxima
+     * with the synchronous path.
+     *
+     * @details Repeating a completed request is immediate and fits nothing; a
+     * film-policy change invalidates and rebuilds history consistently.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void surfaceWorkerEnvelopeAndStations();
+    /**
+     * @brief Disable frame caching and verify playback retains no auxiliary history, uses less
+     * visibility memory than synchronous fitting and reuses stable scratch storage without stale
+     * velocity data.
+     *
+     * @details Explicitly requested history must survive later frame publication; policy
+     * changes during a pending fit must classify the displayed water using the new threshold and
+     * eventually match synchronous results.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void surfaceWorkerRetainsOnlyRequestedHistory();
+    /**
+     * @brief Push five closely spaced live depth/flux frames under a 400-ms minimum fit interval
+     * and await the latest publication.
+     *
+     * @details Require at most three additional fits and final corner
+     * depths of 0.09 metres, proving live fitting coalesces ticks without losing the newest
+     * frame.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void surfaceWorkerLimitsLiveFits();
+    /**
+     * @brief Replay all preserved Bellinge frames through synchronous and asynchronous layers,
+     * compare exact fitted corners, verify cached seeks require no extra fit and compare
+     * explicitly requested envelope/profile maxima.
+     *
+     * @details Skips without VFR_TEST_BELLINGE; optional
+     * VFR_PERF_OUT truncates worker-latency.csv to record request, publication, cache and
+     * envelope timings without speed thresholds. Worker waits permit up to 120 seconds per frame
+     * and 240 seconds for the envelope.
+     * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
+     * reported through the test framework.
+     */
     void bellingeWorkerEqualityAndLatency();
 };
 
@@ -657,10 +1233,24 @@ void Test2DResultsVizFixes::bellingePerfBaseline()
 // ---------------------------------------------------------------------------
 namespace
 {
+/**
+ * @brief Compare scalar fixture attributes exactly while treating two NaNs as equal.
+ * @param[in] a First float value.
+ * @param[in] b Second float value.
+ * @return True when both values are NaN or a == b, including equal signed infinities; no
+ * tolerance is applied.
+ */
 bool sameFloat(float a, float b)
 {
     return (std::isnan(a) && std::isnan(b)) || a == b;
 }
+/**
+ * @brief Compare current layer depth attributes without comparing scene geometry or velocities.
+ * @param[in] a First borrowed layer, read without mutation.
+ * @param[in] b Second borrowed layer, read without mutation.
+ * @return True for equal triangle counts and pairwise sameFloat() matches of dv0, dv1, dv2 and
+ * depth.
+ */
 bool sameSceneCorners(const SWMM2DResultsLayer &a, const SWMM2DResultsLayer &b)
 {
     if (a.m_sceneTris.size() != b.m_sceneTris.size())
@@ -673,6 +1263,13 @@ bool sameSceneCorners(const SWMM2DResultsLayer &a, const SWMM2DResultsLayer &b)
     }
     return true;
 }
+/**
+ * @brief Compare four depth corners per cell with exact, NaN-aware equality.
+ * @param[in] a First borrowed corner-depth vector.
+ * @param[in] b Second borrowed corner-depth vector.
+ * @return True when vector lengths match and every corresponding corner is equal or a pair of
+ * NaNs; no tolerance is applied.
+ */
 bool sameField(const std::vector<CellWaterGeometry::CornerDepths> &a,
                const std::vector<CellWaterGeometry::CornerDepths> &b)
 {
@@ -684,6 +1281,13 @@ bool sameField(const std::vector<CellWaterGeometry::CornerDepths> &a,
                 return false;
     return true;
 }
+/**
+ * @brief Compare selected maximum-envelope and station identity fields of two profiles.
+ * @param[in] a First borrowed profile.
+ * @param[in] b Second borrowed profile.
+ * @return True for matching sample counts, exact maxDepth, chainage and display/boundary
+ * indices, and exact or paired-NaN signedMaxDepth. Other profile fields are not compared.
+ */
 bool sameMaximum(const MeshProfileSampler::MeshProfile &a, const MeshProfileSampler::MeshProfile &b)
 {
     if (a.samples.size() != b.samples.size())
@@ -698,6 +1302,14 @@ bool sameMaximum(const MeshProfileSampler::MeshProfile &a, const MeshProfileSamp
     }
     return true;
 }
+/**
+ * @brief Allocate a results layer owning a five-frame flowing-slope source.
+ * @param[in] async Whether surface fitting uses the background worker rather than synchronous
+ * fitting.
+ * @return Unique ownership of the layer with depths {0.04,0.08,0.12,0.06,0.10} metres and dry
+ * cutoff 0.001 metres. An asynchronous initial fit may still be pending; callers keep the GUI
+ * event loop and layer alive until their awaited publication completes.
+ */
 std::unique_ptr<SWMM2DResultsLayer> flowingLayer(bool async)
 {
     auto layer = std::make_unique<SWMM2DResultsLayer>();
@@ -1247,6 +1859,12 @@ void Test2DResultsVizFixes::thinFilmVisibilityCpuQsgAndPendingFrames()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -1499,6 +2117,12 @@ void Test2DResultsVizFixes::unchangedSyncKeepsSceneOrder()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -1531,6 +2155,12 @@ void Test2DResultsVizFixes::largeDirectFillKeepsPrimitiveChunks()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -1626,6 +2256,12 @@ void Test2DResultsVizFixes::waterSnapshotTracksWetArea()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     auto source = std::make_unique<VfrSource>();
@@ -1657,6 +2293,12 @@ void Test2DResultsVizFixes::mapFillsStopAtExactShoreline()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -1732,6 +2374,12 @@ void Test2DResultsVizFixes::contourAnimationPublishesCompleteFrames()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -1848,6 +2496,12 @@ void Test2DResultsVizFixes::contourSnapshotsSurviveStyleAndFrameChanges()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -1922,6 +2576,12 @@ void Test2DResultsVizFixes::largeContoursNeverMarchDuringSync()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -2182,6 +2842,10 @@ void Test2DResultsVizFixes::directFillRangesClipAndSaturateQsg()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Build a fresh scene-graph root through the protected fixture hook.
+         * @return Root owned by the caller; no previous tree is supplied. The test
+         * calls this on the GUI thread without a concurrent rendering thread.
+         */
         QSGNode *sync() { return updatePaintNode(nullptr, nullptr); }
     };
     SWMM2DResultsLayer layer;
@@ -2254,6 +2918,12 @@ void Test2DResultsVizFixes::contourRangesSaturateCpuAndQsg()
     class Renderer : public SWMM2DResultsQSGRenderer
     {
     public:
+        /* @brief Expose the protected scene-graph synchronization hook for this fixture.
+         * @param[in,out] old Previous owned root, or null for first synchronization; pass
+         * ownership out of the fixture's unique_ptr before calling, since sync may reuse it.
+         * @return Updated root transferred back to the caller, which owns and destroys it.
+         * Run on this test's GUI thread; no concurrent rendering thread is started here.
+         */
         QSGNode *sync(QSGNode *old = nullptr) { return updatePaintNode(old, nullptr); }
     };
     SWMM2DResultsLayer layer;

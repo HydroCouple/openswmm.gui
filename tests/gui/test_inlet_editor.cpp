@@ -58,6 +58,9 @@ namespace
 {
 
 /*! A design with a distinct value in every slot so a dropped field shows up. */
+/** @brief Build a design with distinctive values in every parameter group.
+ * @param[in] t Requested inlet type, assigned without validating group applicability.
+ * @return Independent provider design with lengths/velocities in the provider display convention and CAP1 diversion-curve reference. */
 InletDesignData sampleDesign(InletType t)
 {
     InletDesignData d;
@@ -77,11 +80,17 @@ InletDesignData sampleDesign(InletType t)
     return d;
 }
 
+/** @brief Determine whether a fixture type uses grate parameters.
+ * @param[in] t Inlet type to inspect.
+ * @return True only for Grate, DropGrate or Combo. */
 bool usesGrateGroup(InletType t)
 {
     return t == InletType::Grate || t == InletType::DropGrate || t == InletType::Combo;
 }
 
+/** @brief Determine whether a fixture type uses curb parameters.
+ * @param[in] t Inlet type to inspect.
+ * @return True only for Curb, DropCurb or Combo. */
 bool usesCurbGroup(InletType t)
 {
     return t == InletType::Curb || t == InletType::DropCurb || t == InletType::Combo;
@@ -94,6 +103,9 @@ bool usesCurbGroup(InletType t)
  *  those inapplicable groups rather than copying the zeros back (see
  *  fromEngineDesign) — otherwise a GRATE loaded from a file could never be
  *  switched to CURB. */
+/** @brief Build expected provider data after type-filtered engine persistence.
+ * @param[in] t Inlet type whose applicable fields are copied from sampleDesign.
+ * @return Design retaining sample values only in applicable groups and provider defaults elsewhere; Custom preserves the unresolved CAP1 curve kind. */
 InletDesignData expectedAfterRoundTrip(InletType t)
 {
     const InletDesignData s = sampleDesign(t);
@@ -125,6 +137,9 @@ InletDesignData expectedAfterRoundTrip(InletType t)
     return e;
 }
 
+/** @brief Count scene items carrying the dimension-callout metadata role.
+ * @param[in] scene Required borrowed graphics scene.
+ * @return Number of items with a valid CalloutRole value; item types/text are not otherwise filtered. */
 int calloutCount(QGraphicsScene *scene)
 {
     int n = 0;
@@ -135,6 +150,10 @@ int calloutCount(QGraphicsScene *scene)
     return n;
 }
 
+/** @brief Build a standalone inlet drawing from a short-lived provider.
+ * @param[in] t Inlet type used by sampleDesign.
+ * @param[in] g Grate subtype overriding the sample design.
+ * @return Newly allocated scene owned by the caller; a null units facade selects the scene builder default convention and the current palette supplies its theme. */
 QGraphicsScene *sceneFor(InletType t, GrateType g = GrateType::PBar50)
 {
     InletProvider p(QStringLiteral("D"));
@@ -154,6 +173,7 @@ private slots:
 
     // ── 1. Provider ↔ registry ↔ engine round-trip ──────────────────────────
 
+    /** @brief Verify all seven inlet types persist applicable fields/comments to an engine and reload with provider defaults for unused groups. */
     void registryRoundTrip_EveryType()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -225,6 +245,7 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /** @brief Verify registry removal deletes the engine inlet and later flush cannot resurrect it while retaining the other inlet. */
     void registryRemove_DeletesTheEngineCopy()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -251,6 +272,7 @@ private slots:
 
     // ── 2. Undo / redo ──────────────────────────────────────────────────────
 
+    /** @brief Verify a whole-design parameter command applies changes and restores exact before/after designs through undo/redo. */
     void undoRedo_ParamsChange()
     {
         InletRegistry reg;
@@ -276,6 +298,7 @@ private slots:
         QVERIFY(p->design() == after);
     }
 
+    /** @brief Verify inlet add is reversible and undoing deletion restores the complete slotted design and comments. */
     void undoRedo_AddAndDelete()
     {
         InletRegistry reg;
@@ -304,6 +327,7 @@ private slots:
 
     // ── 3. Drawing: dimension-callout count per type ─────────────────────────
 
+    /** @brief Verify each inlet type creates its expected number of dimension callouts, deleting every standalone scene afterward. */
     void sceneBuilder_CalloutCountPerType()
     {
         // The table documented in inletdrawingview.h.
@@ -329,6 +353,7 @@ private slots:
         }
     }
 
+    /** @brief Verify a generic grate contributes two additional callouts compared with the standard grate. */
     void sceneBuilder_GenericGrateAddsTwoCallouts()
     {
         QGraphicsScene *plain = sceneFor(InletType::Grate, GrateType::PBar50);
@@ -338,6 +363,7 @@ private slots:
         delete generic;
     }
 
+    /** @brief Verify a two-unit grate length is rendered as the expected L = 2.00 ft dimension text with the default units facade. */
     void sceneBuilder_CalloutTextCarriesTheProviderValue()
     {
         InletProvider p(QStringLiteral("D"));
@@ -360,6 +386,7 @@ private slots:
 
     // ── Property-bag group visibility ────────────────────────────────────────
 
+    /** @brief Verify property-group flags match every inlet type, including the combined grate/curb group. */
     void propertyBag_GroupVisibilityMatchesTheLegacyTable()
     {
         using G = InletPropertyBag;
@@ -372,6 +399,7 @@ private slots:
         QCOMPARE(int(G::groupsFor(InletType::Custom)), int(G::CustomGroup));
     }
 
+    /** @brief Verify generic-only grate fields and curb-only throat angle visibility track live provider type changes. */
     void propertyBag_GenericOnlyAndDropCurbExceptions()
     {
         InletProvider p(QStringLiteral("D"));
@@ -399,6 +427,7 @@ private slots:
         QVERIFY(!bag.isPropertyVisible(QStringLiteral("throatAngle")));
     }
 
+    /** @brief Verify direct property edits preserve untouched design fields and an installed host commit callback receives before/after snapshots without writing the provider. */
     void propertyBag_EditPushesTheWholeDesign()
     {
         InletProvider p(QStringLiteral("D"));

@@ -1,14 +1,72 @@
 {
   "repository": "openswmm.gui",
-  "scope": {
-    "comments_and_format_only": 1659,
-    "comments_format_and_ledgered_parameter_names": 68,
-    "mixed_source_changes": 9,
-    "untracked_source": 1
+  "project_function_documentation_complete": true,
+  "completion_scope": "Current maintained source/header/test working tree; optional variants checked both globally and in focused module runs.",
+  "maintained_files": 1737,
+  "production_source_header_files": 1327,
+  "test_manual_tool_files": 410,
+  "metadata_missing": [],
+  "maintained_without_review_ledger": [],
+  "licenses_and_upstream_notices_preserved": true,
+  "maintained_manifest_sha256": "ac5d4bc12a9a8b8152d900d28b158474f2efdbb9a6bcf1565eb209b5d073eaee",
+  "production_doxygen": {
+    "resume-production": {
+      "raw_records": 14961,
+      "actual_functions": 14911,
+      "strict_gaps": 0,
+      "exact_parser_resolutions": 50
+    },
+    "final-production-base": {
+      "raw_records": 14938,
+      "actual_functions": 14888,
+      "strict_gaps": 0,
+      "exact_parser_resolutions": 50
+    },
+    "final-production-optional": {
+      "raw_records": 14964,
+      "actual_functions": 14914,
+      "strict_gaps": 0,
+      "exact_parser_resolutions": 50
+    }
   },
-  "reviewed_source_files": 1737,
-  "project_function_documentation_complete": false,
+  "production_global_warning_records": 0,
+  "unit_tests": {
+    "raw_records": 1157,
+    "handwritten_helpers": 352,
+    "framework_cases": 805,
+    "gaps": 0
+  },
+  "integration_tests": {
+    "raw_records": 4873,
+    "actual_handwritten": 4868,
+    "gaps": 0
+  },
+  "validation": "Exact noncomment token/directive checks and clang-format idempotence; focused configured native syntax, fresh Qt MOC and platform/feature Doxygen variants. No full runtime suite claimed for comment-only edits.",
+  "known_preexisting_compile_limitation": {
+    "file": "tests/gui/test_hydrograph_models.cpp",
+    "reason": "Disabled legacy test applyRdiiDecaySet definition does not match current header; immediate before/current compile diagnostics match."
+  },
+  "integration_combined_warning_context": "132 warning-log lines in broad isolated-stub extraction concern unavailable/conflicting production-class context; focused owner checks and actual handwritten strict coverage pass.",
   "documentation_commit_excludes_unrelated_implementation": true,
+  "additional_source_paths_selected": 354,
+  "approved_parameter_identifier_files": [
+    "include/mesh/meshcdt.h",
+    "include/swmmvis.h",
+    "include/ui/dialogs/editors/classificationbindings.h",
+    "include/ui/dialogs/heatrasterassigndialog.h",
+    "include/ui/dialogs/meshprofileplotdialog.h",
+    "include/ui/dialogs/rulesymbologytab.h",
+    "include/ui/dialogs/snowpackeditordialog.h",
+    "include/ui/dialogs/surfaceownershipdialog.h",
+    "src/ui/dialogs/editors/categorizedrendererpanel.cpp",
+    "src/ui/dialogs/editors/rulebasedrendererpanel.cpp",
+    "tests/gui/test_control_rule_models.cpp",
+    "tests/gui/test_plotvariablepickerdialog.cpp",
+    "tests/gui/test_propertyeditorregistry.cpp",
+    "tests/gui/test_rules_editor_dialog.cpp",
+    "tests/gui/test_tilepyramidfallback.cpp",
+    "tests/gui/test_typeconversionflow.cpp"
+  ],
   "deferred_comment_files": [
     "include/ui/dialogs/simoptions/enginecapabilities.h",
     "include/ui/dialogs/simoptions/hydraulicspage.h",
@@ -21,14 +79,5 @@
     "tests/gui/test_simulationoptions_gates.cpp",
     "tests/gui/test_simulationoptions_roundtrip.cpp"
   ],
-  "coordinator_library_check": {
-    "extracted_functions": 2222,
-    "strict_gaps": 0,
-    "doxygen_documentation_warnings": 0
-  },
-  "simulation_settings_syntax": {
-    "owners": 18,
-    "failed": []
-  },
-  "new_simulation_settings_contracts": 265
+  "source_hashes_are_point_in_time": true
 }

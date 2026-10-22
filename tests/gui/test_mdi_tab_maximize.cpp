@@ -63,6 +63,8 @@ struct Workspace {
     QMdiArea *area = nullptr;
     QWidget *welcome = nullptr;
 
+    /** @brief Build an owned main-window/MDI welcome fixture in the same hidden construction order as the generated form.
+     * The main window owns its area, subwindow, welcome widget and label; starts at 1200 by 800 pixels. */
     Workspace()
     {
         area = new QMdiArea(&win);
@@ -81,12 +83,15 @@ struct Workspace {
         win.resize(1200, 800);
     }
 
+    /** @brief Show the owned main window and process pending application events synchronously. */
     void show()
     {
         win.show();
         QApplication::processEvents();
     }
 
+    /** @brief Find the MDI wrapper containing the fixture welcome widget.
+     * @return Borrowed area-owned subwindow or nullptr when absent. */
     QMdiSubWindow *welcomeSub() const
     {
         for (QMdiSubWindow *s : area->subWindowList())
@@ -103,6 +108,9 @@ struct Workspace {
      * follow once the async .inp load finishes (swmmvis.cpp:4729-4730) —
      * hence the event pump in between.
      */
+    /** @brief Create an area-owned opaque project placeholder and maximize/activate it across event delivery.
+     * @param[in] title Copied document title.
+     * @return Borrowed subwindow owned by the MDI area, containing a 200-by-150 minimum-size canvas placeholder. No actual engine/project model is loaded. */
     QMdiSubWindow *addProject(const QString &title)
     {
         auto *sub = new QMdiSubWindow;
@@ -127,6 +135,9 @@ struct Workspace {
 //! children() list paints on top. That is what decides whether a restored
 //! sub-window is actually seen or is harmlessly buried behind the
 //! maximized active one.
+/** @brief Read sibling paint-order position from the parent child list.
+ * @param[in] s Required borrowed subwindow.
+ * @return Child-list index, or -1 if the subwindow has no parent widget. */
 int zIndex(QMdiSubWindow *s)
 {
     return s->parentWidget() ? s->parentWidget()->children().indexOf(s) : -1;
@@ -146,6 +157,9 @@ int zIndex(QMdiSubWindow *s)
  * one is harmless if and only if the active one actually paints — which
  * for the welcome tab is not free, see coversOpaquely() below.
  */
+/** @brief Count restored visible sibling windows above the active document.
+ * @param[in] area Required borrowed MDI area.
+ * @return Number of nonactive, visible, nonmaximized subwindows with greater sibling z-index, or zero without an active subwindow. This measures ordering rather than opacity. */
 int visibleStrays(QMdiArea *area)
 {
     QMdiSubWindow *active = area->activeSubWindow();
@@ -167,6 +181,10 @@ int visibleStrays(QMdiArea *area)
  * than letting whatever is beneath it through. A bare QWidget — which is
  * what uic emits for welcomeWidget — fails the third.
  */
+/** @brief Check fixture conditions for opaque geometric coverage of another subwindow.
+ * @param[in] active Nullable candidate covering subwindow.
+ * @param[in] other Nullable covered subwindow, expected to share the same parent for meaningful z-order comparison.
+ * @return True only if both exist, active is above other, its geometry contains other and its content advertises an opaque paint event or autofilled background; does not inspect actual pixels. */
 bool coversOpaquely(QMdiSubWindow *active, QMdiSubWindow *other)
 {
     if (!active || !other)
@@ -199,12 +217,14 @@ private slots:
 
 //! Every test starts from Light so backdrop expectations are stable and
 //! the themeChanged edge in backdropFollowsThemeSwitch() is a real flip.
+/** @brief Reset/apply the process-wide theme to Light before every independent workspace test. */
 void TestMdiTabMaximize::init()
 {
     ThemeManager::instance()->setMode(ThemeManager::Mode::Light);
     ThemeManager::instance()->apply();
 }
 
+/** @brief Verify installed workspace chrome uses an opaque current light window-surface background. */
 void TestMdiTabMaximize::backdropMatchesWindowSurface()
 {
     Workspace w;
@@ -218,6 +238,7 @@ void TestMdiTabMaximize::backdropMatchesWindowSurface()
     QVERIFY(w.area->background().isOpaque());
 }
 
+/** @brief Verify the MDI backdrop follows dark and light theme changes after the window is shown. */
 void TestMdiTabMaximize::backdropFollowsThemeSwitch()
 {
     Workspace w;
@@ -231,6 +252,7 @@ void TestMdiTabMaximize::backdropFollowsThemeSwitch()
     QCOMPARE(w.area->background().color(), lightColors().surfaceWindow);
 }
 
+/** @brief Verify first show maximizes the welcome subwindow and leaves no restored window above it. */
 void TestMdiTabMaximize::welcomeIsMaximizedOnFirstShow()
 {
     Workspace w;
@@ -247,6 +269,7 @@ void TestMdiTabMaximize::welcomeIsMaximizedOnFirstShow()
 //! token the backdrop uses — so covering the viewport does not change how
 //! the welcome screen looks, and it keeps tracking the Appearance switch
 //! because autoFillBackground re-reads the palette at every paint.
+/** @brief Verify welcome chrome enables autofill and follows the same window-surface palette through a dark theme change. */
 void TestMdiTabMaximize::welcomePaintsItsOwnBackground()
 {
     Workspace w;
@@ -273,6 +296,7 @@ void TestMdiTabMaximize::welcomePaintsItsOwnBackground()
  * reports 0 here either way — the model is correctly z-ordered underneath
  * — so what has to be asserted is that the welcome actually paints.
  */
+/** @brief Verify selecting Welcome leaves the restored project underneath and Welcome advertises full opaque coverage. */
 void TestMdiTabMaximize::restoredModelCannotShowThroughTheWelcome()
 {
     Workspace w;
@@ -295,6 +319,7 @@ void TestMdiTabMaximize::restoredModelCannotShowThroughTheWelcome()
     QVERIFY(coversOpaquely(welcome, model));
 }
 
+/** @brief Verify direct active-subwindow switches preserve maximization and leave no restored sibling above the active document. */
 void TestMdiTabMaximize::switchingTabsLeavesNoStray()
 {
     Workspace w;
@@ -319,6 +344,7 @@ void TestMdiTabMaximize::switchingTabsLeavesNoStray()
 
 //! Hiding Welcome in place leaves no visible maximized predecessor, so the
 //! project-open boundary must establish the incoming model's maximized state.
+/** @brief Verify opening a project establishes its maximized state even after a maximized Welcome was hidden. */
 void TestMdiTabMaximize::hiddenWelcomeDoesNotStrandTheNextTab()
 {
     Workspace w;
@@ -339,6 +365,7 @@ void TestMdiTabMaximize::hiddenWelcomeDoesNotStrandTheNextTab()
 //! Same journey driven through the MDI's own QTabBar, which is what a
 //! real tab click does (QMdiAreaPrivate::_q_currentTabChanged) rather
 //! than setActiveSubWindow().
+/** @brief Verify three real MDI tab-index switches leave no restored sibling above the active document. */
 void TestMdiTabMaximize::tabBarSwitchingLeavesNoStray()
 {
     Workspace w;
@@ -366,6 +393,7 @@ void TestMdiTabMaximize::tabBarSwitchingLeavesNoStray()
  * The workspace chrome deliberately has no activation hook: calling
  * showMaximized() from one would resurrect a welcome tab the user closed.
  */
+/** @brief Verify a hidden restored Welcome remains hidden and nonmaximized after hiding/showing the main window. */
 void TestMdiTabMaximize::hiddenSubWindowIsNotResurrected()
 {
     Workspace w;

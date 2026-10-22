@@ -31,10 +31,19 @@ using openswmmvis::ui::TimeseriesEditChartView;
 
 namespace
 {
+/** @brief Build a UTC chart-fixture timestamp.
+ * @param[in] year Calendar year passed to QDate.
+ * @param[in] month Calendar month, normally 1 through 12.
+ * @param[in] day Calendar day valid for the selected month.
+ * @param[in] hour Hour, normally 0 through 23.
+ * @param[in] minute Minute, normally 0 through 59; defaults to zero.
+ * @return UTC QDateTime, possibly invalid for invalid calendar/time inputs; no validation is added. */
 QDateTime t(int year, int month, int day, int hour, int minute = 0)
 {
     return QDateTime(QDate(year, month, day), QTime(hour, minute), Qt::UTC);
 }
+/** @brief Build three synthetic points six hours apart on January 1, 2026.
+ * @return Independent UTC points with numeric values 1, 2 and 3; no physical unit is assigned. */
 QVector<TimeseriesPoint> fixture()
 {
     return {
@@ -44,6 +53,9 @@ QVector<TimeseriesPoint> fixture()
     };
 }
 
+/** @brief Copy points from the first attached line series.
+ * @param[in] v Borrowed chart view expected to have a non-null chart.
+ * @return Independent line-point list, or empty if the chart has no QLineSeries. */
 QList<QPointF> linePoints(const TimeseriesEditChartView &v)
 {
     // The first attached QLineSeries is our data line.
@@ -62,6 +74,7 @@ class TestTimeseriesEditChartView : public QObject
 
 private slots:
 
+    /** @brief Verify chart construction mirrors all three provider points and endpoint values. */
     void initialPointsMirrorProvider()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -74,6 +87,7 @@ private slots:
         QCOMPARE(pts.last().y(), 3.0);
     }
 
+    /** @brief Verify editing a provider sample updates the corresponding chart point. */
     void providerValueChange_RefreshesChart()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -86,6 +100,7 @@ private slots:
         QCOMPARE(pts.at(1).y(), 42.0);
     }
 
+    /** @brief Verify inserting an intermediate provider timestamp adds a fourth chart point. */
     void providerInsert_RefreshesChart()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -96,6 +111,7 @@ private slots:
         QCOMPARE(linePoints(v).size(), 4);
     }
 
+    /** @brief Verify removing the selected last point refreshes the chart, drops that index and retains the selected first point. */
     void providerRemove_DropsStaleSelectionAndRefreshes()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -111,6 +127,7 @@ private slots:
         QCOMPARE(v.selectedIndices(), QVector<int>{0});
     }
 
+    /** @brief Verify selection sorts/deduplicates indices, emits once, and clearing emits again. */
     void selectionRoundTrip()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -127,6 +144,7 @@ private slots:
         QCOMPARE(spy.count(), 2);
     }
 
+    /** @brief Verify changing edit mode emits once and repeating the same mode is silent. */
     void editModeChangeEmitsSignal()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -138,6 +156,8 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
+    /** @brief Verify a direct provider insert refreshes a chart with an attached undo stack.
+     * The implemented body does not open a context menu, push commands, delete points or exercise undo despite its historical name. */
     void undoStackRoundTrip_OnContextMenuInsertDelete()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -153,6 +173,7 @@ private slots:
         QCOMPARE(linePoints(v).size(), 4);
     }
 
+    /** @brief Verify a point far outside a shown chart returns the no-hit sentinel after a fifty-millisecond layout wait. */
     void hitTestReturnsNegativeForFarPixel()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -166,6 +187,8 @@ private slots:
         QCOMPARE(v.hitTestPoint(QPoint(-1000, -1000)), -1);
     }
 
+    /** @brief Verify a representative press/release in edit mode leaves the external-file provider values unchanged.
+     * This probes the read-only guard without guaranteeing the click hits a plotted sample. */
     void externalSourceModeBlocksEditing()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));

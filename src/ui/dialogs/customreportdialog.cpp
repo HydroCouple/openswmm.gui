@@ -1,6 +1,6 @@
 /**
  * @file      customreportdialog.cpp
- * @brief     A small DSL surfaced as a tree-of-clauses lets the user assemble custom reports
+ * @brief     A table of clauses lets the user assemble custom reports
  *            against the .out file.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
@@ -41,6 +41,18 @@ namespace
 
 enum class Aggregate { Max, Min, Mean, Sum, PeakTime, TimeAboveThreshold };
 
+/**
+ * @param[in] agg Requested aggregate enum; unknown returns zero.
+ * @param[in] s Read-only complete float samples, including nonfinite values, no missing-data
+ *   filtering.
+ * @param[in] reportStepSec Raw report interval in seconds, assumed valid; used only for
+ *   peak/duration conversion to hours, no positive validation.
+ * @param[in] threshold Strict greater-than cutoff in same raw units as series; ignored for other
+ *   aggregates.
+ * @return Zero for empty series/unknown selector; otherwise max/min/mean/simple sum, first-maximum
+ *   relative hours, or count-above times step hours. No interpolation, time weighting of sum/mean
+ *   or absolute clock offset. Pure calculation with standard floating-point/NaN behavior.
+ */
 double aggregateOver(Aggregate agg, const std::vector<float> &s, int reportStepSec,
                      double threshold)
 {
@@ -70,6 +82,11 @@ double aggregateOver(Aggregate agg, const std::vector<float> &s, int reportStepS
     return 0.0;
 }
 
+/**
+ * @param[in] a Aggregate enum, no validation/state lookup.
+ * @return Borrowed static ASCII display label, including hour suffix for peak/duration, or question
+ *   mark for unknown. Never free; no mutation/translation.
+ */
 const char *aggregateName(Aggregate a)
 {
     switch (a) {

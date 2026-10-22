@@ -77,6 +77,11 @@ const RendererClassChoice kRendererChoices[] = {
 constexpr int kRendererChoicesCount =
     static_cast<int>(sizeof(kRendererChoices) / sizeof(kRendererChoices[0]));
 
+/**
+ * @brief Find the exact built-in renderer identifier in the static picker roster.
+ * @param[in] id Case-sensitive renderer ID.
+ * @return Zero-based roster index or -1; does not consult plugin registry entries.
+ */
 int findChoiceById(const QString &id)
 {
     for (int i = 0; i < kRendererChoicesCount; ++i)

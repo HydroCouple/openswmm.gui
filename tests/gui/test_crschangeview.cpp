@@ -24,6 +24,8 @@
 namespace
 {
 
+/** @brief Locate the CRS-view regression model.
+ * @return gage_assign_rdii.inp under SWMMVIS_GUI_TEST_DATA, defaulting to ".". */
 QString fixturePath()
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
@@ -31,12 +33,19 @@ QString fixturePath()
 }
 
 /*! True when \p view contains \p data entirely. */
+/** @brief Test complete axis-aligned extent containment.
+ * @param[in] view Candidate view extent.
+ * @param[in] data Data extent in the same coordinate system.
+ * @return True only when both extents are valid and all four view bounds enclose data. */
 bool frames(const MapExtent &view, const MapExtent &data)
 {
     return view.isValid() && data.isValid() && view.xMin() <= data.xMin() &&
            view.xMax() >= data.xMax() && view.yMin() <= data.yMin() && view.yMax() >= data.yMax();
 }
 
+/** @brief Compute the arithmetic extent midpoint.
+ * @param[in] e Extent whose numeric endpoints are averaged without validity checks.
+ * @return Midpoint in the extent coordinate system. */
 QPointF centre(const MapExtent &e)
 {
     return {0.5 * (e.xMin() + e.xMax()), 0.5 * (e.yMin() + e.yMax())};
@@ -52,6 +61,7 @@ private slots:
     void basemapOnlyKeepsLookingAtTheSamePlace();
 };
 
+/** @brief Verify changing only canvas CRS refits projected data within the same undo transaction and restores framing through undo/redo. */
 void TestCrsChangeView::renderOnlyChangeFramesDataInNewCrs()
 {
     MapCanvas canvas;
@@ -85,6 +95,7 @@ void TestCrsChangeView::renderOnlyChangeFramesDataInNewCrs()
     QVERIFY(frames(canvas.extent(), canvas.layerExtentInCanvasCRS(layer)));
 }
 
+/** @brief Verify a no-data canvas CRS change preserves the Washington DC view at city scale rather than zooming to the world. */
 void TestCrsChangeView::basemapOnlyKeepsLookingAtTheSamePlace()
 {
     MapCanvas canvas;

@@ -22,11 +22,19 @@
 
 #include "projectsaveoutputstestaccess.h"
 
+/** @brief Overwrite one controlled fixture file with exact requested bytes.
+ * @param[in] p Destination filename whose parent already exists.
+ * @param[in] bytes Content borrowed for synchronous write.
+ * @return True on open and exact write count; flush/close errors are unchecked.
+ * Failures can leave truncated/partial output; no parent directory is created. */
 static bool put(const QString &p, const QByteArray &bytes)
 {
     QFile f(p);
     return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size();
 }
+/** @brief Read current fixture bytes into owned storage.
+ * @param[in] p Filename borrowed for synchronous read.
+ * @return Bytes or empty on open refusal/empty file, with no separate partial-read status. */
 static QByteArray read(const QString &p)
 {
     QFile f(p);
@@ -34,6 +42,11 @@ static QByteArray read(const QString &p)
         return {};
     return f.readAll();
 }
+/** @brief Create/name a unique retained save-recovery case directory.
+ * @param[in] name Controlled case prefix.
+ * @return Owned configured-root/name-UUID directory path.
+ * Root comes from SWMMVIS_SAVE_RECOVERY_OUTPUT or SAVE_RECOVERY_DATA_DIR; mkpath
+ * is unchecked, the UUID does not atomically reserve a directory, and cwd is unchanged. */
 static QString fixture(const QString &name)
 {
     const QString root = qEnvironmentVariable("SWMMVIS_SAVE_RECOVERY_OUTPUT",
@@ -43,10 +56,23 @@ static QString fixture(const QString &name)
     QDir().mkpath(dir);
     return dir;
 }
+/** @brief Build the ordered four-file recovery fixture destination list.
+ * @param[in] dir Existing controlled case root.
+ * @return Owned model.inp, mesh.2dm, config.rxn and new/settings.oswp paths in
+ * that order. Does not create files or assign publication roles. */
 static QStringList paths(const QString &dir)
 {
     return {dir + "/model.inp", dir + "/mesh.2dm", dir + "/config.rxn", dir + "/new/settings.oswp"};
 }
+/** @brief Stage a four-output old/new sentinel save transaction.
+ * @param[in,out] outputs Fresh staging transaction owning prepared private files.
+ * @param[in] dir Existing controlled case root.
+ * @param[in] newModel True leaves model destination initially absent; other old
+ * mesh/config destinations are still written.
+ * @return True when all sentinel writes/stages succeed, false after partial work.
+ * Uses Model/Mesh/Component/Component roles; the nested settings-named artifact
+ * is deliberately a component, since Settings must be adjacent to the model.
+ * Does not publish or roll back before return; caller/transaction own cleanup. */
 static bool prepare(ProjectSaveOutputs &outputs, const QString &dir, bool newModel = false)
 {
     auto list = paths(dir);
@@ -64,6 +90,13 @@ static bool prepare(ProjectSaveOutputs &outputs, const QString &dir, bool newMod
     }
     return true;
 }
+/** @brief Run a child test process that interrupts a controlled publication checkpoint.
+ * @param[in] dir Existing expendable fixture directory passed to child preparation.
+ * @param[in] step Checkpoint index intended to trigger immediate exit 86.
+ * @param[in] newModel Select the initially absent model save-as mode.
+ * @return True only when the child finishes within 15 s with exitCode 86.
+ * Does not separately check exitStatus, validate the step, recover files or assert;
+ * QProcess owns child cleanup and interrupted recovery artifacts remain. */
 static bool crash(const QString &dir, int step, bool newModel = false)
 {
     QProcess child;
@@ -72,10 +105,19 @@ static bool crash(const QString &dir, int step, bool newModel = false)
         {newModel ? "--interrupt-new-save" : "--interrupt-save", dir, QString::number(step)});
     return child.waitForFinished(15000) && child.exitCode() == 86;
 }
+/** @brief Build the ordered model/terrain/new-report auxiliary fixture paths.
+ * @param[in] dir Controlled case root.
+ * @return Owned model.inp, burn.tif and new/burn_report.csv paths; no I/O. */
 static QStringList auxiliaryPaths(const QString &dir)
 {
     return {dir + "/model.inp", dir + "/burn.tif", dir + "/new/burn_report.csv"};
 }
+/** @brief Stage one model and two generated auxiliary sentinel outputs.
+ * @param[in,out] outputs Fresh transaction owning private stages.
+ * @param[in] dir Existing controlled root.
+ * @return True on every write/stage success, false after partial work.
+ * Writes old model/terrain sentinels, leaves the nested report initially absent
+ * and stages new bytes under Model/Auxiliary roles without publishing. */
 static bool prepareAuxiliary(ProjectSaveOutputs &outputs, const QString &dir)
 {
     const auto list = auxiliaryPaths(dir);
@@ -94,6 +136,10 @@ class TestProjectSaveOutputs : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Require a pending child generation to skip its parent's already published mesh/terrain and publish only its new report plus model.
+     * After parent publication, externally edits terrain and creates its old guarded
+     * companion; child must preserve both and retain the shared published mesh path.
+     * Uses existing QTemporaryDir ownership for cleanup. */
     void inheritedOutputsSkipAnAlreadyPublishedParent()
     {
         QTemporaryDir directory;
@@ -140,6 +186,9 @@ private slots:
         QCOMPARE(read(report), QByteArray("child report"));
         QCOMPARE(parent->publishedMeshPath(), mesh);
     }
+    /** @brief Require publishing an inherited pending child to publish its parent mesh and its own report together.
+     * Checks three prepared outputs, both generation publication states and exact
+     * mesh/report bytes; no model engine or simulation is involved. */
     void inheritedPublicationDoesNotConsumeUnpublishedAuxiliaries()
     {
         QTemporaryDir directory;
@@ -170,6 +219,7 @@ private slots:
         QCOMPARE(read(mesh), QByteArray("mesh"));
         QCOMPARE(read(report), QByteArray("report"));
     }
+    /** @brief Register nested/equal/symlink/late-registration/retargeted protected-directory refusals and a permitted sibling-prefix case. */
     void protectedDirectory_data()
     {
         QTest::addColumn<QString>("scenario");
@@ -180,6 +230,10 @@ private slots:
         QTest::newRow("symlink-changed-after-preparation") << QString("retarget");
         QTest::newRow("sibling-prefix-allowed") << QString("sibling");
     }
+    /** @brief Require staging/publication to honor protected directory identity before and after preparation.
+     * Checks alias retargeting and late protection before any publication, preserving
+     * old model bytes and absent protected outputs; only the sibling case publishes.
+     * Creates real directory symlinks or skips when unsupported. */
     void protectedDirectory()
     {
         QFETCH(QString, scenario);
@@ -241,6 +295,7 @@ private slots:
             QCOMPARE(read(model), QByteArray("old model"));
         }
     }
+    /** @brief Register existing/missing unchanged baselines, external edits/removal/creation, same-byte alias retargeting and stale reuse. */
     void generationBaseline_data()
     {
         QTest::addColumn<QString>("change");
@@ -252,6 +307,10 @@ private slots:
         QTest::newRow("alias-retargeted-same-bytes") << QString("alias");
         QTest::newRow("reuse-edited") << QString("reuse");
     }
+    /** @brief Require generated auxiliary staging to match the captured destination identity/fingerprint.
+     * Only unchanged existing/missing destinations may stage; conflicts preserve
+     * external bytes and alias targets while reporting changed-since-generation.
+     * Filesystem symlink unavailability skips its alias data case. */
     void generationBaseline()
     {
         QFETCH(QString, change);
@@ -308,6 +367,8 @@ private slots:
             QVERIFY(QFileInfo(output).isSymLink());
         }
     }
+    /** @brief Require destination-state capture and staging of an absent nested auxiliary to avoid creating its final parent tree.
+     * Also checks directory/empty-path capture refusal and cleared resolved state. */
     void destinationCaptureDoesNotCreateDirectories()
     {
         const QString dir = fixture("capture-missing");
@@ -327,6 +388,9 @@ private slots:
     // The engine writer publishes by renaming its own temporary over the staged
     // path. A staging handle left open (QTemporaryFile::close() keeps it) made
     // that rename fail on Windows with "Access is denied".
+    /** @brief Require the staged model path to accept an engine-style replacement rename and publish new bytes.
+     * On Unix scans open descriptors to ensure none holds the stage inode; checks
+     * final bytes and stage removal after publication. Uses real filesystem rename. */
     void stagedPathIsReplaceableByRename()
     {
         const QString dir = fixture("staged-rename");
@@ -353,6 +417,9 @@ private slots:
         QCOMPARE(read(dir + "/model.inp"), QByteArray("new"));
         QVERIFY(!QFileInfo::exists(staged));
     }
+    /** @brief Require both auxiliary outputs to publish before the main model commit point.
+     * Uses a test checkpoint callback at step two to inspect intermediate bytes,
+     * then checks all three final new sentinels. */
     void auxiliaryPublication()
     {
         const QString dir = fixture("auxiliary-publish");
@@ -372,6 +439,7 @@ private slots:
         for (int i = 0; i < 3; ++i)
             QCOMPARE(read(auxiliaryPaths(dir)[i]), QByteArray("new-") + QByteArray::number(i));
     }
+    /** @brief Require an injected step-two auxiliary publication refusal to restore old model/terrain and remove the newly created report. */
     void auxiliaryRollback()
     {
         const QString dir = fixture("auxiliary-rollback");
@@ -384,12 +452,15 @@ private slots:
         QCOMPARE(read(auxiliaryPaths(dir)[1]), QByteArray("old-1"));
         QVERIFY(!QFileInfo::exists(auxiliaryPaths(dir)[2]));
     }
+    /** @brief Register auxiliary interruption checkpoints zero through four. */
     void auxiliaryRecovery_data()
     {
         QTest::addColumn<int>("step");
         for (int i = 0; i <= 4; ++i)
             QTest::newRow(qPrintable(QString::number(i))) << i;
     }
+    /** @brief Require restart recovery after real child exit 86 to restore old outputs before commit or retain all new outputs after commit.
+     * Checks all three auxiliary fixture destinations for the selected checkpoint. */
     void auxiliaryRecovery()
     {
         QFETCH(int, step);
@@ -409,12 +480,15 @@ private slots:
                          QByteArray(step == 4 ? "new-" : "old-") + QByteArray::number(i));
         }
     }
+    /** @brief Register controlled four-output publication failure checkpoints zero through four. */
     void lateFailureRollsBack_data()
     {
         QTest::addColumn<int>("step");
         for (int i = 0; i <= 4; ++i)
             QTest::newRow(qPrintable(QString::number(i))) << i;
     }
+    /** @brief Require each injected publication failure to restore three old files, remove the new nested artifact and clear the recovery journal.
+     * Checks restored diagnostic and no retained recovery requirement. */
     void lateFailureRollsBack()
     {
         QFETCH(int, step);
@@ -430,12 +504,16 @@ private slots:
         QVERIFY(!QFileInfo::exists(paths(dir)[3]));
         QVERIFY(!QFileInfo::exists(paths(dir)[0] + ".openswmm-save.json"));
     }
+    /** @brief Register real four-output child interruption checkpoints zero through five. */
     void interruptedSaveRecovers_data()
     {
         QTest::addColumn<int>("step");
         for (int i = 0; i <= 5; ++i)
             QTest::newRow(qPrintable(QString::number(i))) << i;
     }
+    /** @brief Require restart recovery to restore precommit state or retain committed new state after exit 86.
+     * Checks notice, all four destinations, idempotent second recovery and removal of
+     * journal/staging artifacts; retained fixture directory remains for review. */
     void interruptedSaveRecovers()
     {
         QFETCH(int, step);
@@ -457,7 +535,9 @@ private slots:
                                QDir::Files | QDir::Dirs | QDir::Hidden)
                     .isEmpty());
     }
+    /** @brief Reuse the zero-through-five interruption dataset for an initially absent model save-as. */
     void interruptedNewSaveAsRecovers_data() { interruptedSaveRecovers_data(); }
+    /** @brief Require interrupted first-save recovery to leave model/new artifact absent before commit and present after commit, preserving expected mesh/config bytes. */
     void interruptedNewSaveAsRecovers()
     {
         QFETCH(int, step);
@@ -471,6 +551,9 @@ private slots:
             QCOMPARE(read(paths(dir)[i]),
                      QByteArray(step == 5 ? "new-" : "old-") + QByteArray::number(i));
     }
+    /** @brief Require rollback to retain recovery evidence rather than overwrite an external destination edit.
+     * After proving external bytes survive destructor cleanup, restores the expected
+     * new sentinel and checks explicit recovery can then complete. */
     void rollbackConflictRetainsRecoveryFiles()
     {
         const QString dir = fixture("rollback-conflict");
@@ -492,6 +575,9 @@ private slots:
         QString error;
         QVERIFY2(ProjectSaveOutputs::recover(paths(dir)[0], &error), qPrintable(error));
     }
+    /** @brief Require recovery preflight to refuse an externally changed destination without partially repairing other outputs.
+     * Checks journal/new nested file retention, then restores the expected new bytes
+     * and retries recovery successfully. */
     void changedDestinationIsPreserved()
     {
         const QString dir = fixture("conflict");
@@ -507,6 +593,7 @@ private slots:
         QVERIFY(put(paths(dir)[2], "new-2"));
         QVERIFY2(ProjectSaveOutputs::recover(paths(dir)[0], &error), qPrintable(error));
     }
+    /** @brief Require a damaged old-backup payload to stop recovery and retain journal/current new destination bytes. */
     void damagedBackupIsPreserved()
     {
         const QString dir = fixture("damaged");
@@ -521,6 +608,7 @@ private slots:
         QVERIFY(QFileInfo::exists(journal));
         QCOMPARE(read(paths(dir)[2]), QByteArray("new-2"));
     }
+    /** @brief Require malformed journal JSON to preserve original model bytes and block a new save with a reopen diagnostic. */
     void malformedJournalIsPreserved()
     {
         const QString dir = fixture("invalid");
@@ -535,6 +623,7 @@ private slots:
         QVERIFY(outputs.stage(model, ProjectSaveOutputs::Model).isEmpty());
         QVERIFY(outputs.error().contains("Reopen"));
     }
+    /** @brief Require publication to refuse a model changed after staging before publication starts, preserving external and other old bytes. */
     void stagingDetectsExternalEdit()
     {
         const QString dir = fixture("stale");
@@ -547,6 +636,7 @@ private slots:
         QCOMPARE(read(paths(dir)[0]), QByteArray("external edit"));
         QCOMPARE(read(paths(dir)[2]), QByteArray("old-2"));
     }
+    /** @brief Require a second transaction to refuse staging the same model while the first transaction owns its save lock. */
     void competingSaveIsRefused()
     {
         const QString dir = fixture("locked");
@@ -555,6 +645,7 @@ private slots:
         QVERIFY(second.stage(paths(dir)[0], ProjectSaveOutputs::Model).isEmpty());
         QVERIFY(second.error().contains("Another operation"));
     }
+    /** @brief Require corruption of a journal-owned new payload to be detected and rolled back before damaged bytes reach a final destination. */
     void damagedPreparedCopyNeverReachesDestination()
     {
         const QString dir = fixture("damaged-new");
@@ -575,6 +666,8 @@ private slots:
             QCOMPARE(read(paths(dir)[i]), QByteArray("old-") + QByteArray::number(i));
         QVERIFY(!QFileInfo::exists(paths(dir)[3]));
     }
+    /** @brief Require an actual final-parent file blocker to trigger rollback, preserving old destinations and blocker bytes.
+     * Removes the blocker and retries a complete publication successfully afterward. */
     void realPublicationFailureRollsBack()
     {
         const QString dir = fixture("io-failure");
@@ -599,6 +692,9 @@ private slots:
         for (int i = 0; i < 4; ++i)
             QCOMPARE(read(paths(dir)[i]), QByteArray("new-") + QByteArray::number(i));
     }
+    /** @brief Require no-journal recovery/open to succeed in an owner-read/execute-only directory.
+     * Restores owner-write permission before asserting the result; does not create a
+     * journal or run an engine. */
     void ordinaryReadOnlyOpenNeedsNoLock()
     {
         const QString dir = fixture("readonly");
@@ -609,6 +705,7 @@ private slots:
         QFile::setPermissions(dir, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
         QVERIFY2(ok, qPrintable(error));
     }
+    /** @brief Require a journal data-directory traversal edit to fail validation without changing the already published component bytes. */
     void journalCannotRedirectBackupDirectory()
     {
         const QString dir = fixture("journal-path");
@@ -622,6 +719,8 @@ private slots:
         QVERIFY(error.contains("Invalid"));
         QCOMPARE(read(paths(dir)[2]), QByteArray("new-2"));
     }
+    /** @brief Require saving through a model symlink to update its target while retaining the link object.
+     * Uses actual filesystem symlink creation or skips when unavailable. */
     void symlinkSavePreservesLink()
     {
         const QString dir = fixture("symlink");
@@ -640,6 +739,17 @@ private slots:
         QCOMPARE(read(actual), QByteArray("new"));
     }
 };
+/** @brief Dispatch save-recovery child fixture modes or execute the QtTest suite.
+ * @param[in] argc Argument count supplied to QCoreApplication.
+ * @param[in] argv Process-lifetime argument vector consumed by Qt and mode parsing.
+ * @return QtTest status for normal mode; child modes return 70/71 for preparation/
+ * publication failure, 72..75 for manual-fixture failure, zero for publication
+ * success, or terminate immediately with code 86 at the selected checkpoint.
+ * Interrupt modes deliberately bypass destructors through _Exit to retain real
+ * restart evidence. Manual mode mutates the explicitly named existing model and
+ * optional adjacent sidecar, stages an appended fixture comment and interrupts
+ * after step one; missing/malformed numeric step text defaults through toInt.
+ * All mode files are caller-selected expendable review artifacts. */
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);

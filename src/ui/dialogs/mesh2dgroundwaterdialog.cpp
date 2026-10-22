@@ -65,11 +65,25 @@ namespace
 class ComboDelegate : public QStyledItemDelegate
 {
 public:
+    /**
+     * @brief Own an ordered combo-label catalog for integer-valued model fields.
+     * @param[in] items Owned labels moved into the delegate; their zero-based order is stored as
+     * item data.
+     * @param[in] parent Optional Qt owner of the delegate.
+     * @param[in] inherited True prepends a model-default item with data -1 without shifting the
+     * ordinary stored ordinals.
+     */
     ComboDelegate(QStringList items, QObject *parent, bool inherited = false)
         : QStyledItemDelegate(parent), m_items(std::move(items)), m_inherited(inherited)
     {
     }
 
+    /**
+     * @brief Create a combo containing optional inheritance and copied ordinal labels.
+     * @param[in] parent Optional Qt parent owning the new editor.
+     * @return Newly allocated QComboBox; caller/parent owns it. Unnamed style-option/index
+     * inputs are ignored and no engine state is queried.
+     */
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
                           const QModelIndex &) const override
     {
@@ -80,11 +94,24 @@ public:
             cb->addItem(m_items[i], i);
         return cb;
     }
+    /**
+     * @brief Select the combo item whose user data matches the cell's edit integer.
+     * @param[in,out] editor Borrowed editor; non-QComboBox values are ignored via qobject_cast.
+     * @param[in] index Borrowed model cell; its EditRole value is converted with toInt().
+     * @details No matching data selects index -1; does not write model state.
+     */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override
     {
         if (auto *cb = qobject_cast<QComboBox *>(editor))
             cb->setCurrentIndex(cb->findData(index.data(Qt::EditRole).toInt()));
     }
+    /**
+     * @brief Write the combo's current stored ordinal into a model cell.
+     * @param[in] editor Borrowed editor; non-QComboBox values are ignored.
+     * @param[in,out] model Non-null borrowed target model when a combo is supplied.
+     * @param[in] index Borrowed destination cell passed unchanged to setData(Qt::EditRole).
+     * @details Does not inspect setter success or retain arguments.
+     */
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &index) const override
     {
@@ -104,6 +131,16 @@ class NodeConnectionUndo final : public QUndoCommand
     std::function<bool()> current_;
     std::function<void()> edited_;
     bool first_ = true;
+    /**
+     * @brief Replay the captured node-bed/bottom draft only while the external context guard
+     * passes.
+     * @param[in] forward True calls draft commit(engine,false), false calls
+     * restoreLoaded(engine).
+     * @details Missing/false guard or model/helper error makes the command obsolete and warns;
+     * success invokes the optional edited callback. Delegated model concurrency/restoration
+     * contracts remain applicable and this wrapper adds no independent transaction or exception
+     * handling.
+     */
     void install(bool forward)
     {
         QString error;
@@ -122,6 +159,19 @@ class NodeConnectionUndo final : public QUndoCommand
     }
 
 public:
+    /**
+     * @brief Own an already-applied node-bed/bottom transaction draft for guarded undo/redo.
+     * @param[in] draft Non-null shared model containing retained before/after snapshots, moved
+     * into the command; independent of editor lifetime.
+     * @param[in] engine Borrowed engine pointer used only while current() authorizes replay;
+     * never owned.
+     * @param[in] current Owned GUI-thread callback required to confirm engine/model identity is
+     * still safe before every replay; missing/false refuses.
+     * @param[in] edited Optional owned GUI-thread nonthrowing callback after successful replay;
+     * must not require a live dialog.
+     * @details First redo intentionally skips the already-installed Apply. Command owns
+     * callbacks/model, not the engine or external context.
+     */
     NodeConnectionUndo(std::shared_ptr<Mesh2DAquiferNodeModel> draft, SWMM_Engine engine,
                        std::function<bool()> current, std::function<void()> edited)
         : draft_(std::move(draft)), engine_(engine), current_(std::move(current)),
@@ -129,7 +179,17 @@ public:
     {
         setText(QObject::tr("Edit node bottom connections"));
     }
+    /**
+     * @brief Restore the captured loaded state through guarded install(false).
+     * @details Expected-state/context failures mark obsolete and warn rather than merging newer
+     * unrelated edits.
+     */
     void undo() override { install(false); }
+    /**
+     * @brief Skip the initial push, then replay through guarded install(true).
+     * @details Later successful publication retains the original draft baseline for subsequent
+     * undo; initial redo writes/notifies nothing.
+     */
     void redo() override
     {
         if (first_) {
@@ -147,6 +207,15 @@ class BoundaryUndo final : public QUndoCommand
     std::function<bool()> current_;
     std::function<void()> edited_;
     bool first_ = true;
+    /**
+     * @brief Replay the captured boundary draft only while the external context guard passes.
+     * @param[in] forward True calls draft commit(engine,false), false calls
+     * restoreLoaded(engine).
+     * @details Missing/false guard or model/helper error makes the command obsolete and warns;
+     * success invokes the optional edited callback. Delegated model concurrency/restoration
+     * contracts remain applicable and this wrapper adds no independent transaction or exception
+     * handling.
+     */
     void install(bool forward)
     {
         QString error;
@@ -165,6 +234,19 @@ class BoundaryUndo final : public QUndoCommand
     }
 
 public:
+    /**
+     * @brief Own an already-applied boundary transaction draft for guarded undo/redo.
+     * @param[in] draft Non-null shared model containing retained before/after snapshots, moved
+     * into the command; independent of editor lifetime.
+     * @param[in] engine Borrowed engine pointer used only while current() authorizes replay;
+     * never owned.
+     * @param[in] current Owned GUI-thread callback required to confirm engine/model identity is
+     * still safe before every replay; missing/false refuses.
+     * @param[in] edited Optional owned GUI-thread nonthrowing callback after successful replay;
+     * must not require a live dialog.
+     * @details First redo intentionally skips the already-installed Apply. Command owns
+     * callbacks/model, not the engine or external context.
+     */
     BoundaryUndo(std::shared_ptr<Mesh2DAquiferBoundaryModel> draft, SWMM_Engine engine,
                  std::function<bool()> current, std::function<void()> edited)
         : draft_(std::move(draft)), engine_(engine), current_(std::move(current)),
@@ -172,7 +254,17 @@ public:
     {
         setText(QObject::tr("Edit groundwater boundaries"));
     }
+    /**
+     * @brief Restore the captured loaded state through guarded install(false).
+     * @details Expected-state/context failures mark obsolete and warn rather than merging newer
+     * unrelated edits.
+     */
     void undo() override { install(false); }
+    /**
+     * @brief Skip the initial push, then replay through guarded install(true).
+     * @details Later successful publication retains the original draft baseline for subsequent
+     * undo; initial redo writes/notifies nothing.
+     */
     void redo() override
     {
         if (first_) {
@@ -183,6 +275,14 @@ public:
     }
 };
 
+/**
+ * @brief Read a groundwater or prefixed transport option into an owned string.
+ * @param[in] e Borrowed engine queried synchronously.
+ * @param[in] key Borrowed non-null UTF-8 NUL-terminated key; GW_TRANSPORT: dispatches its suffix
+ * to transport getters, other keys to gw2d getters.
+ * @return UTF-8 QString from a zero-initialized 128-byte buffer on SWMM_OK, otherwise empty.
+ * Does not independently detect successful API truncation or modify authoring state.
+ */
 QString optionText(SWMM_Engine e, const char *key)
 {
     char buf[128] = {0};
@@ -196,6 +296,17 @@ QString optionText(SWMM_Engine e, const char *key)
     return QString::fromUtf8(buf);
 }
 
+/**
+ * @brief Dispatch one native authoring option setter by its optional transport prefix.
+ * @param[in,out] e Borrowed engine accepting authoring changes; lifecycle/validation is enforced
+ * by the called API.
+ * @param[in] key Borrowed non-null UTF-8 NUL-terminated key; GW_TRANSPORT: is removed before
+ * transport dispatch.
+ * @param[in] value Borrowed native-unit/token value copied to temporary UTF-8 storage for the
+ * call.
+ * @return True for SWMM_OK, false otherwise; setters can mark options authored and no rollback
+ * occurs here.
+ */
 bool setOption(SWMM_Engine e, const char *key, const QString &value)
 {
     const QString name = QString::fromUtf8(key);
@@ -205,6 +316,12 @@ bool setOption(SWMM_Engine e, const char *key, const QString &value)
                 : swmm_gw2d_option_set(e, key, value.toUtf8().constData())) == SWMM_OK;
 }
 
+/**
+ * @brief Probe lifecycle state without invoking setters or marking options authored.
+ * @param[in] engine Borrowed engine, read synchronously; invalid/null handles fail the API
+ * query.
+ * @return True only for successful BUILDING/OPENED state; false otherwise.
+ */
 bool canEdit(SWMM_Engine engine)
 {
     int state = SWMM_STATE_CREATED;
@@ -212,6 +329,12 @@ bool canEdit(SWMM_Engine engine)
            (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
 }
 
+/**
+ * @brief Probe whether the engine exposes a recognized porous-heat option value.
+ * @param[in] engine Borrowed optional engine; null returns false.
+ * @return porousSoilHeatOptionIsSupported() for THERMAL_MODEL getter success and trimmed text
+ * from a 64-byte buffer; no authoring setter is called.
+ */
 bool supportsPorousThermalOptions(SWMM_Engine engine)
 {
     if (!engine)

@@ -97,6 +97,12 @@ namespace
 // setKindRenderer, not through adapters). Apply order: renderers first (a
 // SingleSymbol install back-writes the legacy structs), then the subject
 // snapshots so struct-level detail wins.
+/**
+ * @brief Create a stable subject-snapshot key without ownership transfer.
+ * @param[in] subject Borrowed style subject read synchronously.
+ * @return id: plus nonempty routingId, otherwise title: plus title for legacy singleton subjects;
+ * duplicate keys overwrite in capture.
+ */
 QString subjectSnapshotKey(const ILayerStyleSubject &subject)
 {
     // Current sublayers expose stable routing IDs. Retain a title fallback for
@@ -105,6 +111,13 @@ QString subjectSnapshotKey(const ILayerStyleSubject &subject)
                                          : QStringLiteral("id:") + subject.routingId();
 }
 
+/**
+ * @brief Capture fresh style-subject snapshots and the special 2D water display policy.
+ * @param[in] layer Nullable borrowed layer, queried synchronously; temporary wrappers are owned
+ * locally and underlying adapters remain layer-owned.
+ * @return Owned JSON keyed by stable routing ID/title, or empty for null. Null subjects are
+ * skipped; later duplicate keys replace earlier values.
+ */
 QJsonObject captureSubjectSnapshots(OpenSWMMVisLayer *layer)
 {
     QJsonObject snapshots;
@@ -120,6 +133,14 @@ QJsonObject captureSubjectSnapshots(OpenSWMMVisLayer *layer)
     return snapshots;
 }
 
+/**
+ * @brief Restore snapshots onto newly acquired subjects after possible structural recreation.
+ * @param[in,out] layer Nullable borrowed target; null is a no-op. Normal restore notifications are
+ * retained.
+ * @param[in] snapshots Owned-by-caller JSON map; only matching subject keys restore. For 2D
+ * results, waterDisplayPolicy is restored from its object or an empty object when absent.
+ * Temporary wrappers are local; persistent adapter ownership remains with the layer.
+ */
 void restoreSubjectSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &snapshots)
 {
     if (!layer)
@@ -139,6 +160,16 @@ void restoreSubjectSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &snapsho
             snapshots.value(QStringLiteral("waterDisplayPolicy")).toObject());
 }
 
+/**
+ * @brief Replay a session snapshot in renderer, subject, then general-field order.
+ * @param[in,out] layer Nullable borrowed target; null is a no-op.
+ * @param[in] styleJson Full-style JSON, skipped when empty; applyStyleJson result is not inspected.
+ * @param[in] snapshots Subject/water-policy map restored after structural styles so detail wins.
+ * @param[in] general Optional name, visible and opacity fields applied only when present; opacity
+ * is a fraction.
+ * Reacquires subject wrappers and follows normal setter notifications; no atomic failure rollback
+ * is added.
+ */
 void applyStyleSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &styleJson,
                          const QJsonObject &snapshots, const QJsonObject &general)
 {
@@ -158,6 +189,19 @@ void applyStyleSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &styleJson,
 class EditLayerStyleCommand : public QUndoCommand
 {
 public:
+    /**
+     * @brief Own before/after JSON values for a single layer-style undo session.
+     * @param[in,out] layer Nullable borrowed target, QPointer-guarded so later undo/redo is
+     * harmless after destruction.
+     * @param[in] styleBefore Full-style baseline JSON, moved into this command.
+     * @param[in] styleAfter Accepted full-style JSON, moved into this command.
+     * @param[in] before Baseline subject map, moved into this command.
+     * @param[in] after Accepted subject map, moved into this command.
+     * @param[in] generalBefore First overwritten general values, moved into this command.
+     * @param[in] generalAfter Latest accepted general values, moved into this command.
+     * Caller transfers command ownership to QUndoStack; the first redo skips replay because
+     * previews are already installed.
+     */
     EditLayerStyleCommand(OpenSWMMVisLayer *layer, QJsonObject styleBefore, QJsonObject styleAfter,
                           QJsonObject before, QJsonObject after, QJsonObject generalBefore,
                           QJsonObject generalAfter)
@@ -169,10 +213,19 @@ public:
         setText(QCoreApplication::translate("LayerStyleDialog", "Edit layer style") +
                 (layer ? QStringLiteral(" — %1").arg(layer->name()) : QString()));
     }
+    /**
+     * @brief Restore before-style, subjects and recorded general fields on a surviving target;
+     * no-op after target destruction.
+     */
     void undo() override
     {
         applyStyleSnapshots(m_layer.data(), m_styleBefore, m_before, m_generalBefore);
     }
+    /**
+     * @brief Skip the initial stack-push replay, then restore accepted style/subjects/general
+     * fields on later redo calls.
+     * No-op against a destroyed layer through the shared nullable replay helper.
+     */
     void redo() override
     {
         // Preview/Apply already installed this state. Avoid a redundant first
@@ -201,6 +254,11 @@ class GroupFilterProxy : public QSortFilterProxyModel
 {
 public:
     using QSortFilterProxyModel::QSortFilterProxyModel;
+    /**
+     * @brief Replace the accepted display-name set and invalidate this proxy filter.
+     * @param[in] names Property names copied into a set; duplicates collapse. Does not take
+     * source-model ownership.
+     */
     void setAllowedProperties(QStringList names)
     {
         m_allowed = QSet<QString>(names.cbegin(), names.cend());
@@ -208,6 +266,12 @@ public:
     }
 
 protected:
+    /**
+     * @brief Keep root rows and filter child rows by exact displayed property name.
+     * @param[in] row Source row in parent; sourceModel must be configured for child lookup.
+     * @param[in] parent Borrowed source-model parent index, invalid for root rows.
+     * @return True for root rows or child display names in the allowed set; false otherwise.
+     */
     bool filterAcceptsRow(int row, const QModelIndex &parent) const override
     {
         if (!parent.isValid())
@@ -220,6 +284,12 @@ private:
     QSet<QString> m_allowed;
 };
 
+/**
+ * @brief Group the concrete QObject class own properties by inherited group: class-info labels.
+ * @param[in] obj Nullable borrowed property object; its metaobject is read only.
+ * @return Owned group-to-property-name lists in declaration order; unassigned properties enter
+ * General, null yields empty. Uses propertyOffset, excluding inherited properties.
+ */
 QHash<QString, QStringList> groupPropertiesByClassInfo(const QObject *obj)
 {
     QHash<QString, QStringList> out;
@@ -244,6 +314,15 @@ QHash<QString, QStringList> groupPropertiesByClassInfo(const QObject *obj)
     return out;
 }
 
+/**
+ * @brief Create an editable property tree filtered to a selected name list.
+ * @param[in,out] pm Required borrowed property model installed on the owned proxy; must outlive the
+ * view.
+ * @param[in] propNames Exact display names accepted below root.
+ * @param[in] parent Optional Qt owner for the tree.
+ * @return New parent-owned tree, owning its recursive GroupFilterProxy; edits forward through the
+ * shared model to its property object.
+ */
 QWidget *makeGroupView(QPropertyModel *pm, const QStringList &propNames, QWidget *parent)
 {
     auto *view = new QTreeView(parent);
@@ -267,6 +346,15 @@ QWidget *makeGroupView(QPropertyModel *pm, const QStringList &propNames, QWidget
 /*! Build the inner editor for a single subject — registry first, then a
  *  grouped QPropertyModel tree fallback (with Q_CLASSINFO sub-tabs when
  *  the bag carries them). Slice X.2 will pull this through SymbologyTab. */
+/**
+ * @brief Create a registered custom property editor or editable meta-property fallback.
+ * @param[in,out] propertyObject Borrowed adapter/property object, expected valid for a useful
+ * editor and required to outlive active editor/model callbacks; never reparented here.
+ * Registry/model define null handling.
+ * @param[in] parent Optional Qt owner of constructed controls/property model.
+ * @return Newly allocated parent-owned scrolling custom editor, simple property tree, or grouped
+ * tabs (General last). All edit live; no snapshot is owned by this helper.
+ */
 QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
 {
     if (auto *custom = StyleEditorRegistry::instance().createEditorFor(propertyObject, parent)) {
@@ -307,6 +395,14 @@ QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
  *  carry each subject's routingId() so focusInitialSubject() can navigate to
  *  the right tab. Used for layers (e.g. SWMM2DMeshLayer) whose styling lives
  *  on styleSubjects()/StyleEditorRegistry rather than a single renderer. */
+/**
+ * @brief Build nested Qt-owned tabs for style subjects with stable tooltip routing IDs.
+ * @param[in] subjects Borrowed vector of owned wrappers, read synchronously; null subjects/property
+ * objects are skipped. Underlying adapter objects must outlive returned active editors.
+ * @param[in] parent Optional Qt owner of outer tabs.
+ * @return New tab widget; nonempty sections share an inner tab group, sectionless subjects become
+ * outer tabs. Does not take wrapper/adapter ownership.
+ */
 QWidget *buildSubjectsPanel(
     const std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> &subjects,
     QWidget *parent)
@@ -341,6 +437,11 @@ QWidget *buildSubjectsPanel(
     return tabs;
 }
 
+/**
+ * @brief Map a layer type enum to a static English display label.
+ * @param[in] t Layer-type integer; unknown/default values use Unknown.
+ * @return Non-null static string literal, never freed by caller.
+ */
 const char *layerTypeLabel(int t)
 {
     using L = OpenSWMMVisLayer;
@@ -777,6 +878,11 @@ void LayerStyleDialog::buildRenderingTab()
     // Helpers read/write the layer's BasemapRenderParams via dynamic_cast;
     // the layer's setter triggers paint via repaintRequested.
     using OpenSWMM::Render::BasemapRenderParams;
+    /**
+     * @brief Read the supported basemap parameter value. Takes no arguments. Returns: copied
+     * XYZ/WMTS/WMS/WCS parameters or empty optional for other/null layers; no ownership or
+     * mutation.
+     */
     auto readBmParams = [this]() -> std::optional<BasemapRenderParams> {
         if (auto *l = qobject_cast<XYZTileLayer *>(m_layer))
             return l->basemapRenderParams();
@@ -788,6 +894,11 @@ void LayerStyleDialog::buildRenderingTab()
             return l->basemapRenderParams();
         return std::nullopt;
     };
+    /**
+     * @brief Apply parameters to the supported surviving basemap subtype. Argument `p`: borrowed
+     * parameter value copied by the layer setter. Returns: no value; normal repaint/parameter
+     * notifications occur; null/unrecognized layer is ignored.
+     */
     auto writeBmParams = [this](const BasemapRenderParams &p) {
         if (auto *l = qobject_cast<XYZTileLayer *>(m_layer)) {
             l->setBasemapRenderParams(p);
@@ -814,6 +925,11 @@ void LayerStyleDialog::buildRenderingTab()
         // Sliders: brightness/saturation in [-100, +100] ↔ [-1, +1].
         // Contrast slider in [-100, +100] ↔ contrast = 1 + v/100  (so 0
         // is identity, +100 doubles, -100 collapses to grey).
+        /**
+         * @brief Create a horizontal adjustment slider. Argument `parent`: optional Qt widget
+         * owner. Returns: new parent-owned slider spanning [-100,100] with unit steps and 50-unit
+         * tick interval; no layer mutation.
+         */
         auto makeBipolarSlider = [&](QWidget *parent) {
             auto *s = new QSlider(Qt::Horizontal, parent);
             s->setRange(-100, 100);
@@ -862,6 +978,11 @@ void LayerStyleDialog::buildRenderingTab()
 
         // Push slider edits back through writeBmParams; the layer's
         // setter handles repaintRequested + signal fan-out.
+        /**
+         * @brief Write all basemap adjustments from current controls. Takes no arguments and
+         * returns no value; converts percentages to brightness/saturation fractions and
+         * contrast=1+offset/100, forwarding selected resampling through the subtype setter.
+         */
         auto push = [this, writeBmParams]() {
             BasemapRenderParams p;
             p.brightness = m_brightnessSlider->value() / 100.0;
@@ -1171,6 +1292,10 @@ void LayerStyleDialog::focusInitialSubject()
     // provided. Compare with the mnemonic ampersand stripped — the tab is
     // added as tr("S&ymbology"), so a literal compare against tr("Symbology")
     // never matches.
+    /**
+     * @brief Strip mnemonic ampersands for translated tab comparison. Argument `t`: caption copied
+     * by value. Returns: new caption with every ampersand removed; does not modify tabs.
+     */
     const auto plainTabText = [](QString t) {
         t.remove(QLatin1Char('&'));
         return t;

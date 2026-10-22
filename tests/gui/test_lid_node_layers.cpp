@@ -18,6 +18,7 @@ class TestLidNodeLayers : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Verify more than sixty layer rows can be edited/reordered/removed and negative boundary depth is refused. */
     void arbitraryRowsAndReordering()
     {
         LidNodeLayerModel model;
@@ -33,6 +34,7 @@ private slots:
         QCOMPARE(model.rowCount(), 61);
         QVERIFY(!model.setData(model.index(0, 1), -1));
     }
+    /** @brief Verify media-count changes preserve boundary rows and treatment identity follows its physical layer through moves/removal. */
     void countPreservesBoundariesAndTreatmentFollowsLayer()
     {
         LidNodeLayerModel model;
@@ -54,6 +56,7 @@ private slots:
         model.remove(2);
         QVERIFY(model.treatmentRows().isEmpty());
     }
+    /** @brief Verify valid retention values move with media layers while boundary/negative invalid edits are refused. */
     void retentionParametersFollowPhysicalRows()
     {
         LidNodeLayerModel model;
@@ -68,6 +71,7 @@ private slots:
         QCOMPARE(model.retention.size(), model.layers.size());
         QCOMPARE(model.data(model.index(1, 11)).toDouble(), 2.5);
     }
+    /** @brief Verify SI and US layer-thickness defaults differ by 25.4 while the compared dimensionless parameter matches. */
     void defaultsRespectUnits()
     {
         LidNodeLayerModel si, us;
@@ -76,6 +80,7 @@ private slots:
         QVERIFY(qAbs(si.layers[0].params[0] - us.layers[0].params[0] * 25.4) < 1.e-10);
         QCOMPARE(si.layers[0].params[1], us.layers[0].params[1]);
     }
+    /** @brief Verify the LID node diagram preserves forty repeated soil/media polygons. */
     void diagramRetainsRepeatedMedia()
     {
         LidDiagramInput in;

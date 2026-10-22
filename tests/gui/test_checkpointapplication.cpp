@@ -33,6 +33,9 @@ class TestCheckpointApplication : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Redirect this process's default Qt settings to retained checkpoint-test artifacts.
+     * Sets organization/application names, INI format and user-scope path; does not
+     * restore previous global settings after the suite. */
     void initTestCase()
     {
         QCoreApplication::setOrganizationName("OpenSWMMCheckpointTest");
@@ -40,6 +43,14 @@ private slots:
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root());
     }
+    /** @brief Require checkpoint inspection, initial execution and status UI to share one application checkpoint model.
+     * With 2D enabled, writes/steps a real reviewed CMS surface/ownership fixture, saves
+     * a checkpoint, opens a production project window, imports/inspects through the
+     * checkpoint dialog and runs/saves a fresh initial session. Checks compatibility,
+     * model identity/token/digest, singleton dialog/model, absence of an ordinary runner,
+     * success status dates, accepted seconds and finite 2D error. Waits up to 30 s for
+     * inspection/run signals and retains artifacts; fatal assertions can leave partial
+     * raw engine/UI ownership. Without 2D this case explicitly skips. */
     void reviewedProjectInspectionInitialRunAndStatusUseOneModel()
     {
 #ifndef OPENSWMM_HAS_2D
@@ -209,6 +220,10 @@ A SUBCATCH UNIFORM
     }
 
 private:
+    /** @brief Create/name the retained checkpoint-application evidence directory.
+     * @return Owned path output_checkpointapplication beneath SWMMVIS_GUI_TEST_DATA
+     * or cwd fallback. mkpath status is unchecked, existing contents remain, and no
+     * individual file is reserved; the test uses NewOnly for its reviewed input. */
     QString root() const
     {
         const auto path = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))

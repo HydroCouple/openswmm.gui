@@ -14,7 +14,7 @@
  *             the serialized text on entry (D-GC1).
  *          3. Reverse sync: text edited on the File tab lands in the
  *             engine when leaving the tab.
- *          4. Bad text GATES the tab switch and Close; Discard restores
+ *          4. Bad text gates the tab switch; Discard restores
  *             the canonical text and unblocks.
  *          5. Per-element initial rows commit; species removal refusal
  *             (still referenced) reports rather than corrupting.
@@ -46,6 +46,15 @@ using OpenSWMMVis::ReactionSystemEditorDialog;
 namespace
 {
 
+/**
+ *
+ * @brief Allocate a BUILDING engine and attempt to add two junctions, a conduit and TSS
+ * pollutant.
+ * @return Caller-owned native engine, released with swmm_engine_destroy(). Debug-asserts
+ * allocation; individual add statuses are unchecked, and release builds have no explicit
+ * null guard. No link endpoints, initialization or simulation are configured.
+ *
+ */
 SWMM_Engine makeEngine()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -57,6 +66,16 @@ SWMM_Engine makeEngine()
     return e;
 }
 
+/**
+ *
+ * @brief Find a named descendant reaction-editor control using Qt's recursive typed lookup.
+ * @tparam T QObject-derived control type.
+ * @param dlg Borrowed live editor containing the controls.
+ * @param name Borrowed Latin-1 object name, consumed during lookup.
+ * @return Borrowed first child or null; no assertion here. Test callers assume required
+ * controls exist. Lifetime follows the dialog; no ownership transfer or click.
+ *
+ */
 template <typename T> T *child(ReactionSystemEditorDialog &dlg, const char *name)
 {
     return dlg.findChild<T *>(QLatin1String(name));
@@ -84,12 +103,27 @@ private slots:
     void changingOverrideIdentityReplacesOriginal();
 };
 
+/**
+ *
+ * @brief Require null-engine construction to leave wroteAnyChanges false.
+ * Does not invoke editing controls, show the dialog or test late engine attachment.
+ *
+ */
 void TestReactionSystemEditor::constructsWithNullEngine()
 {
     ReactionSystemEditorDialog dlg(nullptr, nullptr);
     QCOMPARE(dlg.wroteAnyChanges(), false);
 }
 
+/**
+ *
+ * @brief Require widget-driven species/coefficient/term creation and expression edits to reach
+ * native state.
+ * Checks duplicate species refusal/status, pipe RATE expression text/form, referenced
+ * species removal refusal and wroteAnyChanges. No reaction evaluation or hydraulic run;
+ * raw engine is destroyed on the success path while the dialog still exists.
+ *
+ */
 void TestReactionSystemEditor::structuredCrudReachesEngine()
 {
     SWMM_Engine e = makeEngine();
@@ -136,6 +170,13 @@ void TestReactionSystemEditor::structuredCrudReachesEngine()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require entering File after adding ZED to display the name and REACTION_SPECIES section.
+ * Checks serialized text contains both, without comparing full text, writing a file or
+ * leaving File with a new text draft.
+ *
+ */
 void TestReactionSystemEditor::fileTabShowsStructuredEdits()
 {
     SWMM_Engine e = makeEngine();
@@ -153,6 +194,14 @@ void TestReactionSystemEditor::fileTabShowsStructuredEdits()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require leaving File to apply an appended kx coefficient with value0.5 and permit the
+ * tab switch.
+ * Checks native coefficient count/name/value; does not check is-parameter flag, file I/O
+ * or numerical reaction evaluation.
+ *
+ */
 void TestReactionSystemEditor::fileTabEditsReachEngine()
 {
     SWMM_Engine e = makeEngine();
@@ -179,6 +228,13 @@ void TestReactionSystemEditor::fileTabEditsReachEngine()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require an invalid one-argument MIN expression to keep File selected until Discard.
+ * Checks MIN diagnostic, then successful switch after discarding text; does not click
+ * Close or separately compare the restored canonical document.
+ *
+ */
 void TestReactionSystemEditor::badTextGatesTheTabSwitch()
 {
     SWMM_Engine e = makeEngine();
@@ -203,6 +259,14 @@ void TestReactionSystemEditor::badTextGatesTheTabSwitch()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require editing a newly added initial override to commit value1.25 and removal to delete
+ * its native row.
+ * Checks one table/native row then zero native rows; scope/element/species outputs are
+ * read but not compared. No file round trip or simulation.
+ *
+ */
 void TestReactionSystemEditor::initOverridesCommit()
 {
     SWMM_Engine e = makeEngine();
@@ -228,6 +292,12 @@ void TestReactionSystemEditor::initOverridesCommit()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require the enabled Sources tab's edit-configuration button to navigate to File.
+ * Checks tab indices only, without opening a modal dialog or editing source values.
+ *
+ */
 void TestReactionSystemEditor::sourcesTabOpensConfiguration()
 {
     SWMM_Engine e = makeEngine();
@@ -240,6 +310,16 @@ void TestReactionSystemEditor::sourcesTabOpensConfiguration()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require source/pattern drafts to commit together while retaining subcatchment reaction
+ * text.
+ * Accepts SETPOINT/pulse edits, captures canonical serialization, then makes source
+ * value negative and pattern values different. Leaving Sources must be blocked and
+ * native serialization remain exactly accepted text. Correcting source value permits
+ * leaving; no separate final pattern-value assertion or reaction run.
+ *
+ */
 void TestReactionSystemEditor::sourceTablesApplyAtomicallyAndRetainUnownedReactorSections()
 {
     auto e = makeEngine();
@@ -287,6 +367,15 @@ void TestReactionSystemEditor::sourceTablesApplyAtomicallyAndRetainUnownedReacto
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require File and subsequent coefficient edits to retain extended
+ * source/pattern/parameter/report/subcatchment sections.
+ * Changes serialized source amount28.317 to56.634, applies text and sets coefficient3.
+ * Checks section names, source token and native coefficient value; does not prove full
+ * byte identity of each section or serialize to disk.
+ *
+ */
 void TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
 {
     SWMM_Engine e = makeEngine();
@@ -324,6 +413,14 @@ void TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require deleting the first saved override to leave the second row mapped to its original
+ * native element.
+ * Edits the surviving row to7.5 and checks one native row for element1; no engine reorder,
+ * file persistence or undo operation.
+ *
+ */
 void TestReactionSystemEditor::survivingOverrideRemainsEditable()
 {
     SWMM_Engine e = makeEngine();
@@ -346,6 +443,14 @@ void TestReactionSystemEditor::survivingOverrideRemainsEditable()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require deleting an uncommitted draft row to preserve the other committed initial
+ * override.
+ * Creates two drafts, commits the second to element1/value7.5, deletes the first and
+ * checks one table/native row with that identity/value; no undo or serialization.
+ *
+ */
 void TestReactionSystemEditor::removingUncommittedRowPreservesOtherOverride()
 {
     SWMM_Engine e = makeEngine();
@@ -369,6 +474,13 @@ void TestReactionSystemEditor::removingUncommittedRowPreservesOtherOverride()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require changing a saved row's element selection to replace its original identity
+ * without adding a second row.
+ * Checks one native override at element1/value7.5; no duplicate-identity conflict here.
+ *
+ */
 void TestReactionSystemEditor::changingOverrideIdentityReplacesOriginal()
 {
     SWMM_Engine e = makeEngine();
@@ -387,6 +499,15 @@ void TestReactionSystemEditor::changingOverrideIdentityReplacesOriginal()
     swmm_engine_destroy(e);
 }
 
+/**
+ *
+ * @brief Require engine invalidation before destruction to disable dialog/expression editors and
+ * stop delayed mutations.
+ * Queues invalid expression/text, invokes invalidation, destroys engine, then exercises
+ * validation/vocabulary/late-add calls and waits350ms. Requires unchanged-write flag and
+ * Rejected result; does not rely on access to destroyed native storage.
+ *
+ */
 void TestReactionSystemEditor::invalidationStopsExpressionEditorsAndLateWrites()
 {
     SWMM_Engine e = makeEngine();
@@ -407,6 +528,15 @@ void TestReactionSystemEditor::invalidationStopsExpressionEditorsAndLateWrites()
     QCOMPARE(dlg.result(), int(QDialog::Rejected));
 }
 
+/**
+ *
+ * @brief Require a duplicate-identity draft to preserve both full-precision native values until
+ * identity is corrected.
+ * Attempts to retarget the second row to element0 and value7.5; checks original values,
+ * unchanged-write flag and diagnostic. Restoring element1 commits7.5 and marks changes;
+ * no file persistence or undo history is tested.
+ *
+ */
 void TestReactionSystemEditor::duplicateIdentityDoesNotOverwriteSavedRows()
 {
     SWMM_Engine e = makeEngine();

@@ -140,6 +140,13 @@ ModelSnapshot FeatureLayerImporter::captureModelSnapshot() const
 namespace
 {
 
+/**
+ * @param[in] feat Required borrowed live OGRFeature, not retained/owned.
+ * @param[in] fieldIdx Required valid field index with definition, no bounds/null guard.
+ * @return Invalid for unset/null; Boolean subtype bool, Int int, Int64 qlonglong, Real double, all
+ *   other OGR types UTF-8 field string. No geometry/units conversion, source mutation or ownership
+ *   transfer.
+ */
 QVariant ogrFieldToVariant(OGRFeature *feat, int fieldIdx)
 {
     if (!feat->IsFieldSetAndNotNull(fieldIdx))
@@ -304,7 +311,13 @@ QVector<SourceFeature> FeatureLayerImporter::readSourceFeatures(const SourceSpec
 namespace
 {
 
-/*! Translate targetKey → adapter-property map for one item. */
+/*! Translate targetKey → adapter-property map for one item.
+ * @param[in] kind Target metadata context, no live engine required.
+ * @param[in] byTargetKey Borrowed coerced target-key/value map, not modified.
+ * @return New map keyed by nonempty adapterProperty, excluding heat.* and unknown/ctor keys.
+ *   QVariantMap iteration gives key order, later duplicate adapter property overwrites earlier. No
+ *   setter invoked, source/engine write or unit conversion.
+ */
 QVariantMap adapterValues(TargetKind kind, const QVariantMap &byTargetKey)
 {
     QVariantMap byProperty;
@@ -318,7 +331,16 @@ QVariantMap adapterValues(TargetKind kind, const QVariantMap &byTargetKey)
 
 /*! Read the current values of \p keys through a fresh adapter (used to
  *  capture undo state — engine defaults after a create, prior values
- *  before an update). */
+ *  before an update).
+ * @param[in] layer Borrowed current SWMM source used by command factory.
+ * @param[in] kind Layer kind BIT mask Node/Link/Gage, not TargetKind enum.
+ * @param[in] name Exact existing object name, passed to adapter factory.
+ * @param[in] keys Property-name map, VALUES ignored; keys determine QObject property reads.
+ * @return Property snapshot map, invalid values for missing properties; empty if adapter factory
+ *   fails (or keys empty). Fresh unparented adapter deleted before return; no source ownership or
+ *   explicit engine mutation, getters may query current engine. Caller handles lifecycle/state
+ *   failures.
+ */
 QVariantMap readAdapterValues(SWMMModelLayer *layer, quint8 kind, const QString &name,
                               const QVariantMap &keys)
 {

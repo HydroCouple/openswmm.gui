@@ -53,6 +53,11 @@ struct Row {
     double concentration = 0.0;
 };
 
+/**
+ * @param[in] engine Optional borrowed handle; must be live if nonnull.
+ * @return True only for successful state query reporting BUILDING or OPENED; false for null/query
+ *   failure/all other states. No lifecycle transition or edit.
+ */
 bool editable(SWMM_Engine engine)
 {
     int state = SWMM_STATE_NONE;
@@ -60,6 +65,13 @@ bool editable(SWMM_Engine engine)
            (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
 }
 
+/**
+ * @param[in] engine Optional borrowed live handle.
+ * @param[in] key Required NUL-terminated option key, forwarded without null validation for nonnull
+ *   engine.
+ * @return True only when 32-byte options_get succeeds with exact uppercase YES. No boolean
+ *   normalization, settings write or error reporting.
+ */
 bool optionOn(SWMM_Engine engine, const char *key)
 {
     char value[32]{};
@@ -67,6 +79,12 @@ bool optionOn(SWMM_Engine engine, const char *key)
            std::strcmp(value, "YES") == 0;
 }
 
+/**
+ * @param[in] row Read-only row containing raw scope/target and species.
+ * @return Delimiter-joined scope|target|case-folded-species; global forces target empty, TAG target
+ *   remains case-sensitive/untrimmed and separators are unescaped. Used for duplicate/diff
+ *   matching, not engine identity validation.
+ */
 QString keyFor(const Row &row)
 {
     return QStringLiteral("%1|%2|%3")
@@ -75,6 +93,14 @@ QString keyFor(const Row &row)
              row.species.toCaseFolded());
 }
 
+/**
+ * @param[in] table Required borrowed table, no null guard.
+ * @param[in] row Requested zero-based row.
+ * @param[in] column Requested column expected to contain a QComboBox.
+ * @return Current item data converted to string if QVariant valid, otherwise editable currentText;
+ *   empty when no combo. Valid prior item data can take precedence over newly typed text. No trim,
+ *   index validation or model writes.
+ */
 QString comboText(QTableWidget *table, int row, int column)
 {
     auto *combo = qobject_cast<QComboBox *>(table->cellWidget(row, column));
@@ -83,12 +109,25 @@ QString comboText(QTableWidget *table, int row, int column)
                  : QString();
 }
 
+/**
+ * @param[in] table Required borrowed table, no null guard.
+ * @param[in] row Requested zero-based row.
+ * @return Scope combo currentData converted to int, or -1 without combo. Invalid data converts to
+ *   zero; does not validate enum/lifecycle.
+ */
 int comboScope(QTableWidget *table, int row)
 {
     auto *combo = qobject_cast<QComboBox *>(table->cellWidget(row, ScopeColumn));
     return combo ? combo->currentData().toInt() : -1;
 }
 
+/**
+ * @param[in] table Required borrowed table with standard column/editor layout.
+ * @param[in] row Requested zero-based staged row.
+ * @return Row assembled from scope and data-first target/species combos, plus value spin or zero
+ *   when absent. Raw native species units (water age hours); no lifecycle, concentration, target or
+ *   duplicate validation here.
+ */
 Row readRow(QTableWidget *table, int row)
 {
     Row result;

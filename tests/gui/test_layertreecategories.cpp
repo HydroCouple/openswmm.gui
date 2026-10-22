@@ -58,11 +58,13 @@ private slots:
 
 // ── §1 + §2 + §3 ────────────────────────────────────────────────────────────
 
+/** @brief Verify model layers belong to the SWMM category. */
 void TestLayerTreeCategories::swmmModelGoesToSwmmGroup()
 {
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMModelLayer), openswmmvis::ui::CatSwmm);
 }
 
+/** @brief Verify one-dimensional results use the dedicated 1D Outputs category. */
 void TestLayerTreeCategories::swmm1DResultsGoesTo1DOutputsGroup()
 {
     // Renamed from CatSwmmOutputs in Slice LTR-2026-05-30.
@@ -70,6 +72,7 @@ void TestLayerTreeCategories::swmm1DResultsGoesTo1DOutputsGroup()
              openswmmvis::ui::CatSwmm1DOutputs);
 }
 
+/** @brief Verify two-dimensional results use the dedicated 2D Outputs category. */
 void TestLayerTreeCategories::swmm2DResultsGoesTo2DOutputsGroup()
 {
     // Pre-LTR this hit the default-warn branch and went to CatFeatureLayers.
@@ -77,12 +80,14 @@ void TestLayerTreeCategories::swmm2DResultsGoesTo2DOutputsGroup()
              openswmmvis::ui::CatSwmm2DOutputs);
 }
 
+/** @brief Verify mesh layers belong to Meshes rather than generic feature layers. */
 void TestLayerTreeCategories::swmm2DMeshGoesToMeshesGroup()
 {
     // Pre-LTR this hit the default-warn branch and went to CatFeatureLayers.
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMM2DMeshLayer), openswmmvis::ui::CatMeshes);
 }
 
+/** @brief Verify vector, GIS and subproject layers share the Feature Layers category. */
 void TestLayerTreeCategories::vectorGisSubprojectGoToFeatureLayers()
 {
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMVectorLayer),
@@ -93,6 +98,7 @@ void TestLayerTreeCategories::vectorGisSubprojectGoToFeatureLayers()
              openswmmvis::ui::CatFeatureLayers);
 }
 
+/** @brief Verify annotations explicitly map to Feature Layers. */
 void TestLayerTreeCategories::annotationGoesToFeatureLayers()
 {
     // Slice LTR-2026-05-30 — explicit case (was default-warn pre-LTR).
@@ -100,12 +106,14 @@ void TestLayerTreeCategories::annotationGoesToFeatureLayers()
              openswmmvis::ui::CatFeatureLayers);
 }
 
+/** @brief Verify raster layers belong to Raster Layers. */
 void TestLayerTreeCategories::rasterGoesToRasterLayers()
 {
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMRasterLayer),
              openswmmvis::ui::CatRasterLayers);
 }
 
+/** @brief Verify imagery, WMS and WMTS layers belong to Basemaps. */
 void TestLayerTreeCategories::imageryWmsWmtsGoToBasemaps()
 {
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMImageryLayer),
@@ -114,6 +122,7 @@ void TestLayerTreeCategories::imageryWmsWmtsGoToBasemaps()
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMWMTSLayer), openswmmvis::ui::CatBasemaps);
 }
 
+/** @brief Verify ordinary and time-series tabular layers belong to Tables. */
 void TestLayerTreeCategories::tabularGoesToTables()
 {
     QCOMPARE(categoryForLayerType(LayerTypeOrdinal::SWMMTabularDataLayer),
@@ -124,6 +133,7 @@ void TestLayerTreeCategories::tabularGoesToTables()
 
 // ── §5 — fall-back ──────────────────────────────────────────────────────────
 
+/** @brief Verify unknown ordinal 999 and the default layer ordinal fall back to Feature Layers. */
 void TestLayerTreeCategories::unknownOrdinalFallsBackToFeatureLayers()
 {
     // 999 is not a valid layer-type ordinal; must not throw.
@@ -135,6 +145,7 @@ void TestLayerTreeCategories::unknownOrdinalFallsBackToFeatureLayers()
 
 // ── §4 — labels + icons ─────────────────────────────────────────────────────
 
+/** @brief Verify all eight category display labels match their expected UI strings. */
 void TestLayerTreeCategories::categoryInfoLabelsMatchPlan()
 {
     QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatSwmm).name), QStringLiteral("SWMM"));
@@ -151,6 +162,7 @@ void TestLayerTreeCategories::categoryInfoLabelsMatchPlan()
     QCOMPARE(QString(categoryInfo(openswmmvis::ui::CatTables).name), QStringLiteral("Tables"));
 }
 
+/** @brief Verify mesh/2D output categories use CreateMesh while 1D outputs retain Chart. */
 void TestLayerTreeCategories::categoryInfoMeshAnd2DReuseCreateMeshIcon()
 {
     // Core LTR requirement: Meshes and 2D outputs both reuse the

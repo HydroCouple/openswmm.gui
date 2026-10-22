@@ -46,11 +46,16 @@
 namespace
 {
 
+/** @brief Resolve split-cache fixtures.
+ * @return SWMMVIS_GUI_TEST_DATA or "." when unset. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Load an independent owned split-cache fixture.
+ * @param[in] fixture Path joined under the data directory.
+ * @return Unique loaded layer or nullptr on failure, discarding local diagnostics. */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &fixture)
 {
     auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(fixture), nullptr);
@@ -60,6 +65,10 @@ std::unique_ptr<SWMMModelLayer> openLayer(const QString &fixture)
     return layer;
 }
 
+/** @brief Compare fixture coordinates componentwise with strict absolute tolerance.
+ * @param[in] a First point in model coordinates.
+ * @param[in] b Second point in the same coordinate system.
+ * @return True when both coordinate differences are below 1e-6; no nonfinite special handling. */
 bool samePoint(const QPointF &a, const QPointF &b)
 {
     return std::abs(a.x() - b.x()) < 1e-6 && std::abs(a.y() - b.y()) < 1e-6;
@@ -67,6 +76,14 @@ bool samePoint(const QPointF &a, const QPointF &b)
 
 /*! Every invariant the handoff lists, as one call so it can be repeated
  *  after redo / undo / redo. Returns an empty string on success. */
+/** @brief Validate the split engine/cache/render identity and polyline invariants without mutation.
+ * @param[in] layer Required loaded layer.
+ * @param[in] origLink Retained upstream link name.
+ * @param[in] newLink Added downstream link name.
+ * @param[in] newNode Inserted junction/storage/divider identity.
+ * @param[in] toNode Original downstream node identity.
+ * @param[in] expectedTotalPoints Required sum of both cached polyline sizes, including the shared split point twice.
+ * @return Empty on success or the first diagnostic. Checks counts/indices, endpoint joins, total points and new-link hidden membership. */
 QString checkSplitInvariants(SWMMModelLayer *layer, const QString &origLink, const QString &newLink,
                              const QString &newNode, const QString &toNode, int expectedTotalPoints)
 {
@@ -146,6 +163,14 @@ QString checkSplitInvariants(SWMMModelLayer *layer, const QString &origLink, con
 
 /*! The pre-split state: one link fewer, the original back on its old
  *  downstream node, and the SoA still in step with m_links. */
+/** @brief Validate cache state after undo fuses a split.
+ * @param[in] layer Required loaded layer.
+ * @param[in] origLink Original link expected to terminate at toNode.
+ * @param[in] newLink Split link expected to be absent.
+ * @param[in] newNode Inserted node expected to be absent.
+ * @param[in] toNode Restored downstream endpoint.
+ * @param[in] linkCount Expected original link count.
+ * @return Empty on success or the first mismatch diagnostic; does not mutate state. */
 QString checkFusedInvariants(SWMMModelLayer *layer, const QString &origLink, const QString &newLink,
                              const QString &newNode, const QString &toNode, int linkCount)
 {
@@ -177,6 +202,7 @@ class TestConduitSplitCaches : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Register straight and interior-vertex splits with expected downstream identities, split fractions and combined point counts. */
     void splitKeepsRenderCachesInStep_data()
     {
         QTest::addColumn<QString>("fixture");
@@ -197,6 +223,8 @@ private slots:
             << QStringLiteral("X1") << 0.25 << 5;
     }
 
+    /** @brief Verify split/selection/undo/redo preserve render and model caches, endpoint joins and visibility.
+     * Adds a second split to confirm all three resulting polylines remain renderable. */
     void splitKeepsRenderCachesInStep()
     {
         QFETCH(QString, fixture);
@@ -257,6 +285,7 @@ private slots:
      *  name on the next split. The new link then inherited the dead one's
      *  hidden flag as soon as the tool's selection call rebuilt the flag
      *  arrays — drawn only by the selection pass, gone on deselect. */
+    /** @brief Verify regenerated split names discard stale hidden/selected state while unrelated selection survives, including after undo/redo. */
     void splitDropsStaleNameState()
     {
         auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -314,6 +343,7 @@ private slots:
      *  or flow divider ON a conduit = split, then convert the inserted
      *  junction, then apply the type's creation defaults — one undoable
      *  step whose undo converts back and re-fuses. */
+    /** @brief Register storage and divider node insertion on two fixture conduits. */
     void insertNodeSplit_storageAndDivider_data()
     {
         QTest::addColumn<QString>("link");
@@ -326,6 +356,7 @@ private slots:
                                  << QStringLiteral("DV1") << 3;
     }
 
+    /** @brief Verify one compound split/retype command applies requested node type/defaults, updates browser category and restores cache/network state through undo/redo. */
     void insertNodeSplit_storageAndDivider()
     {
         QFETCH(QString, link);

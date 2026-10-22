@@ -64,6 +64,12 @@ namespace
 const DiagramUnits kUnits{QStringLiteral("ft"), false};
 
 //! First leader whose text starts with \p prefix, or an empty string.
+/**
+ * @brief Copy the first diagram leader label beginning with a case-sensitive prefix.
+ * @param[in] m Borrowed immutable diagram, unchanged.
+ * @param[in] prefix Borrowed prefix, unchanged; empty can match first leader.
+ * @return Owned text or empty if absent, no model mutation, pointer retention or IO.
+ */
 QString leaderStarting(const SectionDiagramModel &m, const QString &prefix)
 {
     for (const DiagramLeader &l : m.leaders)
@@ -72,6 +78,12 @@ QString leaderStarting(const SectionDiagramModel &m, const QString &prefix)
     return {};
 }
 
+/**
+ * @brief Count leader labels containing a case-sensitive substring.
+ * @param[in] m Borrowed immutable diagram, unchanged.
+ * @param[in] needle Borrowed text, unchanged; empty matches every leader.
+ * @return Nonnegative count, no allocation, source mutation or retained reference.
+ */
 int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
 {
     int n = 0;
@@ -81,9 +93,17 @@ int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
     return n;
 }
 
-/*!
- * Two junctions joined by a 1.0-diameter circular conduit, 1000 long.
- * \param invUp / \p invDn  node invert elevations.
+/**
+ * @brief Allocate two junctions and one1-unit circular conduit for elevation annotations.
+ * @param[in] invUp Upstream J1 invert in fixture model length units, labelled feet.
+ * @param[in] invDn Downstream J2 invert in same units.
+ * @return Owning BUILDING engine handle with10-unit node depths and1000-unit link, nullptr if
+ * allocation
+ * fails. Caller destroys handle; subsequent engine edit statuses are not checked, so nonnull
+ * does not
+ * certify complete valid fixture. No hydraulic initialization or filesystem writes.
+ *
+ * @details Two junctions joined by a 1.0-diameter circular conduit, 1000 long.
  */
 SWMM_Engine buildConduitFixture(double invUp, double invDn)
 {
@@ -109,6 +129,14 @@ SWMM_Engine buildConduitFixture(double invUp, double invDn)
 }
 
 //! Widest half-width of the polys carrying \p role, 0 when none are present.
+/**
+ * @brief Measure maximum absolute x among polygon vertices with a selected diagram role.
+ * @param[in] m Borrowed immutable diagram, unchanged; finite model coordinates expected.
+ * @param[in] role Polygon role filter, exact enum match.
+ * @return Nonnegative extent relative to x0 in diagram units, zero absent; not half bounding-box
+ * width
+ * when drawing is offset. No allocation, mutation, ownership transfer or IO.
+ */
 double widestHalfWidth(const SectionDiagramModel &m, DiagramRole role)
 {
     double w = 0.0;
@@ -121,6 +149,12 @@ double widestHalfWidth(const SectionDiagramModel &m, DiagramRole role)
     return w;
 }
 
+/**
+ * @brief Count diagram polygons carrying an exact role.
+ * @param[in] m Borrowed immutable model, unchanged.
+ * @param[in] role Role enumeration to count.
+ * @return Nonnegative count, no geometry/style validation, allocation or retained input.
+ */
 int countPolys(const SectionDiagramModel &m, DiagramRole role)
 {
     int n = 0;
@@ -130,6 +164,12 @@ int countPolys(const SectionDiagramModel &m, DiagramRole role)
     return n;
 }
 
+/**
+ * @brief Test whether a diagram contains a symbol of a requested kind.
+ * @param[in] m Borrowed immutable diagram, unchanged.
+ * @param[in] kind Symbol-kind enumeration, exact comparison.
+ * @return True on first match, false absent, no allocation/mutation/input retention.
+ */
 bool hasSymbol(const SectionDiagramModel &m, DiagramSymbolKind kind)
 {
     for (const DiagramSymbol &s : m.symbols)
@@ -138,8 +178,22 @@ bool hasSymbol(const SectionDiagramModel &m, DiagramSymbolKind kind)
     return false;
 }
 
-/*! A single node of \p type with one inbound conduit, so every node case has a
- *  pipe to attach and a shell to draw. Returns the node's index. */
+/**
+ * @brief Add one requested node with a feeding junction and2-unit circular inbound conduit.
+ * @param[in,out] e Borrowed live mutable BUILDING engine, required usable, not retained/owned by
+ * helper.
+ * @param[in] id Required borrowed NUL-terminated unique node name, engine copies it.
+ * @param[in] type Engine node-kind code, intended valid junction/storage/outfall.
+ * @param[in] invert Target node invert in common fixture length units, labels feet.
+ * @param[in] maxDepth Target node depth in same units.
+ * @return Target zero-based node index, potentially-1 if unchecked edit failed. Adds FEED at
+ * invert+4,
+ * depth8 and CF length300; duplicate names/edit errors are not checked/rolled back. No
+ * IO/simulation.
+ *
+ * @details A single node of \p type with one inbound conduit, so every node case has a
+ *  pipe to attach and a shell to draw. Returns the node's index.
+ */
 int buildNodeFixture(SWMM_Engine e, const char *id, int type, double invert, double maxDepth)
 {
     swmm_node_add(e, id, type);
@@ -167,20 +221,129 @@ class TestSectionModelBuilders : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Verify sloped conduit section labels both invert100/98 and crown101/99 rather than
+     * upstream only.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void linkSectionReportsBothEndsWhenSloping();
+    /**
+     * @brief Verify equal endpoint inverts/crowns use one label value without slash-separated
+     * duplicates.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void linkSectionCollapsesToOneValueWhenFlat();
+    /**
+     * @brief Verify asymmetric transect station scaling, thalweg anchoring, open-top seam/bank
+     * markers and review rendering.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void irregularSectionDrawsTheTransectAsSurveyed();
+    /**
+     * @brief Verify link profile crowns equal actual endpoint invert+full depth101/99 rather
+     * than interpolated stations.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void linkProfileCrownsAreTrueBarrelEnds();
+    /**
+     * @brief Verify a conduit connection has a real crown label while a pump drawing stub never
+     * invents one.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void nodeProfileCrownsOnlyForRealSections();
+    /**
+     * @brief Verify storage uses distinct shell role/width and omits manhole cover while
+     * junction retains it.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void storageShellIsWiderAndBrownerThanAJunction();
+    /**
+     * @brief Verify conical storage widens materially at rim and cylindrical storage has equal
+     * invert/rim half-widths.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void storageSilhouetteFollowsItsShape();
+    /**
+     * @brief Verify fixed stage95 draws labeled wavy receiving water and free discharge draws no
+     * water polygon.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void outfallDrawsReceivingWaterOnlyWhenItHasAStage();
+    /**
+     * @brief Verify tidal outfall uses dashed stage-varies annotation without fabricated numeric
+     * elevation.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void varyingOutfallStageIsNeverLabelledWithANumber();
+    /**
+     * @brief Verify pump connection adds a pump glyph/pressure line rather than another ordinary
+     * conduit barrel.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void pumpConnectionIsASymbolNotABarrel();
+    /**
+     * @brief Verify side-orifice opening83..84.5 remains void with hatched wall above/below and
+     * a jet arrow.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void orificeConnectionIsAWallWithFillAboveTheOpening();
+    /**
+     * @brief Verify selected C1 profile labels B1/B2 endpoint branches and does not duplicate C1
+     * as its own stub.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void linkProfileStubsTheOtherPipesAtBothEnds();
+    /**
+     * @brief Verify inlet/outlet inset ordering, margins, connected branch names and C1
+     * inbound/outbound bearings differ180degrees.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void linkProfileGivesEachEndItsOwnPlanInset();
+    /**
+     * @brief Verify branch stub display width normalized by reach length does not exceed
+     * unbranched profile ratio.
+     * @note In-memory engine editing fixture and owned diagram assertions, default labels in
+     * feet. No hydraulic run or input file needed unless the case explicitly documents
+     * Richards/output artifacts. GUI image painting requires QApplication.
+     */
     void linkProfileStubsDoNotWidenTheDrawing();
+    /**
+     * @brief Verify simulated Richards1D node profile exposes eight moisture/head cell
+     * annotations in feet.
+     * @note Reads lid_treatment_editor.inp beneath SWMMVIS_GUI_TEST_DATA, writes profile report
+     * and PNG
+     * in richards_profile_out, configures local Richards materials,
+     * initializes/starts/steps50times and
+     * ends/closes/destroys engine on normal path. Checks title, theta/head text and image save.
+     * Runtime
+     * simulation is documented, not executed during this documentation-only task.
+     */
     void richardsProfileShowsCellMoistureAndPressure();
 };
 
@@ -589,9 +752,19 @@ QTEST_MAIN(TestSectionModelBuilders)
 namespace
 {
 
-/*! J0 -> B1 -> J1 -> C1 -> J2 -> B2 -> J3, laid out west-to-east so every
+/**
+ * @brief Allocate a four-node/three-conduit spatial chain with one branch at each selected reach
+ * end.
+ * @return Owning BUILDING engine for J0-B1-J1-C1-J2-B2-J3, unit circular sections and100-unit
+ * lengths;
+ * nullptr allocation failure, later edit statuses unchecked. Caller destroys engine. XY/inverts
+ * use
+ * common feet-labelled fixture units; no file/solver lifecycle or retained source pointers.
+ *
+ * @details J0 -> B1 -> J1 -> C1 -> J2 -> B2 -> J3, laid out west-to-east so every
  *  heading resolves. Selecting C1 must show B1 at its upstream node and B2 at
- *  its downstream node, and nothing of J0 / J3 (they are a reach away). */
+ *  its downstream node, and nothing of J0 / J3 (they are a reach away).
+ */
 SWMM_Engine buildBranchedFixture()
 {
     SWMM_Engine e = swmm_engine_new();
@@ -634,6 +807,14 @@ SWMM_Engine buildBranchedFixture()
 
 //! Every leader whose text names \p link — either alone (a branch stub, which
 //! carries only the name) or as the first word of a longer label.
+/**
+ * @brief Count leader labels naming a link exactly or as the first space-separated word.
+ * @param[in] m Borrowed immutable diagram, unchanged.
+ * @param[in] link Borrowed case-sensitive link name, unchanged.
+ * @return Nonnegative count; unlike arbitrary substring search avoids embedded/other-name
+ * matches.
+ * No model mutation, pointer retention, engine access or IO.
+ */
 int leadersNaming(const SectionDiagramModel &m, const QString &link)
 {
     int n = 0;

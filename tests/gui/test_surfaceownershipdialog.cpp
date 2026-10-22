@@ -36,6 +36,8 @@ using namespace openswmmvis::ui;
 using namespace openswmmvis::assignment;
 namespace
 {
+/** @brief Build a single quadrilateral receiver fixture with four zero-bed vertices.
+ * @return Independent mesh covering (0,0) to (20,50) in fixture coordinates; the success flag is not explicitly set. */
 mesh::MeshResult geometry()
 {
     mesh::MeshResult m;
@@ -53,6 +55,10 @@ struct Fixture {
         qEnvironmentVariable("SWMMVIS_R4_OUT",
                              QDir::currentPath() + "/tests/verification/surface_r4_2026-10-05/qt") +
         "/" + QString::fromLatin1(QTest::currentTestFunction());
+    /** @brief Stage and load an owned surface-ownership model and bind its mesh infiltration source.
+     * @param[in] lid Select the LID-containing input fixture when true.
+     * @param[in] type Optional LID type token replacing the IT row and appending layer records; empty leaves the fixture unchanged.
+     * @return False on fixture copy, file-open or model-load failure, otherwise true. Retains evidence under SWMMVIS_R4_OUT or the working-directory verification folder; directory creation, token replacement and stream writes are unchecked. */
     bool open(bool lid = false, const QString &type = {})
     {
         QDir().mkpath(output);
@@ -85,6 +91,8 @@ struct Fixture {
         return true;
     }
 };
+/** @brief Enable the explicit uniform assumption and click the production Preview button.
+ * @param[in,out] d Borrowed dialog expected to contain its named checkbox/button; no child-pointer checks are performed. */
 void preview(SurfaceOwnershipDialog &d)
 {
     d.findChild<QCheckBox *>("surfaceOwnerUniform")->setChecked(true);
@@ -95,6 +103,7 @@ class TestSurfaceOwnershipDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    /** @brief Verify review requires an explicit assumption and rejecting an eligible preview creates no ownership record or undo command. */
     void explicitAssumptionAndCancelAreNoEdit()
     {
         Fixture f;
@@ -112,6 +121,8 @@ private slots:
         QVERIFY(records.isEmpty());
         QCOMPARE(f.canvas.undoStack()->count(), 0);
     }
+    /** @brief Verify applying ownership is one notified undo transaction shared by engine records, mesh fields and property adapters.
+     * Retains review screenshots and a serialized ownership section, and checks undo clears resolved fields while redo restores them. */
     void applyUndoRedoAndSharedFields()
     {
         Fixture f;
@@ -163,6 +174,8 @@ private slots:
         QVERIFY(save.open(QIODevice::ReadOnly));
         QVERIFY(save.readAll().contains("[2D_SURFACE_OWNERSHIP]"));
     }
+    /** @brief Verify LID footprint/receiving area review and sealing storage removes native-bottom eligibility.
+     * Retains object/receiver screenshots and checks the preview recomputes without committing ownership. */
     void lidFootprintAndSealedBottom()
     {
         Fixture f;
@@ -187,6 +200,7 @@ private slots:
         QCOMPARE(receivers->item(0, 4)->text(), QString("100"));
         QCOMPARE(receivers->item(0, 5)->text(), QString("0"));
     }
+    /** @brief Verify a mesh elevation edit invalidates derived ownership fields and the property adapter shows Unavailable. */
     void geometryChangesClearResolvedFields()
     {
         Fixture f;
@@ -200,6 +214,8 @@ private slots:
         MeshTrianglePropertyAdapter properties(&f.mesh, 0);
         QCOMPARE(properties.remainingMeshWeather(), QString("Unavailable"));
     }
+    /** @brief Verify eight LID types report the expected native-bottom eligibility before/after sealing storage.
+     * Vegetated swale remains eligible after the storage edit; selected type screenshots are retained. */
     void nativeBottomEligibilityFollowsType()
     {
         for (const QString type : {"BC", "RG", "GR", "IT", "PP", "RB", "VS", "RD"}) {
@@ -223,6 +239,7 @@ private slots:
             QCOMPARE(receivers->item(0, 5)->text(), type == "VS" ? QString("100") : QString("0"));
         }
     }
+    /** @brief Verify a subcatchment edit after preview causes stale-review refusal with no ownership record or undo transaction. */
     void staleEngineEditCannotApply()
     {
         Fixture f;
@@ -239,6 +256,7 @@ private slots:
         QVERIFY(records.isEmpty());
         QCOMPARE(f.canvas.undoStack()->count(), 0);
     }
+    /** @brief Verify selected-object scope requires a selection, receiver selection adds the exact cell without dropping the source object, and an unmatched tag prevents applying. */
     void selectedScopeTagAndExactReceiverSelection()
     {
         Fixture f;
@@ -260,6 +278,7 @@ private slots:
         preview(d);
         QVERIFY(!d.findChild<QPushButton *>("surfaceOwnerApply")->isEnabled());
     }
+    /** @brief Verify differing engine/preview mesh geometry disables Apply and explains the mismatch. */
     void unsynchronizedMeshBlocksReview()
     {
         Fixture f;
@@ -272,6 +291,7 @@ private slots:
         QVERIFY(!d.findChild<QPushButton *>("surfaceOwnerApply")->isEnabled());
         QVERIFY(d.findChild<QLabel *>("surfaceOwnerStatus")->text().contains("differ"));
     }
+    /** @brief Verify switching representation removes ownership in a second undo transaction and undo restores the original record. */
     void removingRecordsRestoresAbsenceInOneTransaction()
     {
         Fixture f;

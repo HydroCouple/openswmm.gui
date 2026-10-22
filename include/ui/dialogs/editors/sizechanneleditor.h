@@ -39,17 +39,55 @@ class SizeChannelEditor : public QWidget
 {
     Q_OBJECT
 public:
-    /*! \p style must be a Point or Line FeatureSublayerStyle; \p fields are
-     *  the kind's attributes (only numeric, per-frame ones are offered). */
+    /**
+     * @brief Build a live point-size or line-width channel editor and subscribe to style changes.
+     * @param style Optional borrowed style tracked with QPointer; Point/Line styles expose
+     * writable channels. Other types display a default channel but receive no channel write;
+     * null/destroyed styles make refresh/push no-ops without disabling all existing controls.
+     * @param fields Borrowed metadata consumed synchronously; offers dynamic fields except
+     * QString-typed fields, not a general numeric-type validator. Copies names/display text
+     * into controls and retains no references to the vector.
+     * @param parent Optional Qt owner; caller owns a parentless widget.
+     * Controls use value bounds plus/minus1e9 at4decimals and0..256pixels at2decimals.
+     * Local widget factories return box-owned spins; change callbacks invoke immediate push
+     * on GUI thread. No rendering/data sample, undo command or Cancel snapshot here.
+     */
     SizeChannelEditor(OpenSWMM::Render::FeatureSublayerStyle *style,
                       const QVector<OpenSWMM::Render::AttributeField> &fields,
                       QWidget *parent = nullptr);
 
+    /**
+     * @brief Seed controls from the current channel without writing it or reentering refresh.
+     * No-op for missing style or suppression. An unused channel seeds its attribute from
+     * current color attribute or first offered field and min/max from positive static
+     * size/three-times-size. Preserves an unknown nonempty channel attribute by appending
+     * it. Blocks all child signals, applies display rounding/clamping, then updates enabled
+     * state. Does not remove previously appended fields or validate range/transform enums.
+     */
     void refreshFromModel();
 
 private:
+    /**
+     * @brief Read the current point-size or line-width channel by value.
+     * @return Owned channel from a live Point/Line style, default SizeChannel otherwise;
+     * no engine read, style mutation or retained borrowed reference.
+     */
     [[nodiscard]] OpenSWMM::Render::SizeChannel channel() const;
+    /**
+     * @brief Write a complete channel from current controls to a live Point/Line style.
+     * No-op during suppression or after style destruction. Sorts min/max value and pixel
+     * pairs before storage; original control order is not immediately reseeded. Copies
+     * attribute/transform/range/zero-based state and uses zero-valued QVariant conversions
+     * for invalid combo selections without separate validation. Suppresses only this editor's
+     * refresh while setters notify other observers. No undo, atomic transaction or error result.
+     */
     void push();
+    /**
+     * @brief Enable channel controls when Size by value is checked and custom bounds only in
+     * FixedUser mode.
+     * Does not inspect style lifetime, field availability, numeric validity or mutate a channel;
+     * the enabled checkbox itself remains usable even without a live target.
+     */
     void updateEnabled();
 
     QPointer<OpenSWMM::Render::FeatureSublayerStyle> m_style;

@@ -60,9 +60,12 @@ private:
     SWMMModelLayer *m_layer = nullptr;
 
     /*! Subcatchment count, so each gate reads its own effect. */
+    /** @brief Read the shared model cached subcatchment count.
+     * @return Current count; requires initTestCase to have established the borrowed layer. */
     int catchmentCount() const { return m_layer->cachedSubcatchCount(); }
 };
 
+/** @brief Create/show a blank CFS untitled project with a one-hour window and borrow its ready canvas/model. */
 void TestDrawToolDoubleClick::initTestCase()
 {
     m_workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -96,6 +99,7 @@ void TestDrawToolDoubleClick::initTestCase()
         qPrintable(QStringLiteral("canvas %1x%2").arg(m_canvas->width()).arg(m_canvas->height())));
 }
 
+/** @brief Destroy the owned project before its workspace after all drawing cases. */
 void TestDrawToolDoubleClick::cleanupTestCase()
 {
     delete m_window;
@@ -106,6 +110,7 @@ void TestDrawToolDoubleClick::cleanupTestCase()
 // The reported bug: the point under the double-click must become a vertex.
 // Four gestures (3 clicks + a double-click) must yield a FOUR-corner polygon.
 // ---------------------------------------------------------------------------
+/** @brief Verify three clicks followed by a distinct double-click create a four-corner subcatchment whose final vertex matches the transformed closing click. */
 void TestDrawToolDoubleClick::doubleClickKeepsTheClickedVertex()
 {
     const int before = catchmentCount();
@@ -152,6 +157,7 @@ void TestDrawToolDoubleClick::doubleClickKeepsTheClickedVertex()
 // The silent-failure case. Three gestures is the minimum polygon a user can
 // draw; before the fix it committed nothing, with no message anywhere.
 // ---------------------------------------------------------------------------
+/** @brief Verify two clicks plus a double-click meet the three-vertex commit floor and create a triangle. */
 void TestDrawToolDoubleClick::triangleFromThreeGesturesIsCreated()
 {
     const int before = catchmentCount();
@@ -175,6 +181,7 @@ void TestDrawToolDoubleClick::triangleFromThreeGesturesIsCreated()
 // The one genuine duplicate: a single click, then a double-click in the same
 // spot. Both presses snap to the same point, so the trailing copy is stripped.
 // ---------------------------------------------------------------------------
+/** @brief Verify double-clicking the just-clicked corner finishes a three-distinct-vertex polygon without retaining a duplicate. */
 void TestDrawToolDoubleClick::doubleClickInPlaceDoesNotDuplicateAVertex()
 {
     const int before = catchmentCount();

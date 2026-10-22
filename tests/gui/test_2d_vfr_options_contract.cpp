@@ -36,6 +36,8 @@
 namespace
 {
 
+/** @brief Resolve the configured tracked 2D input fixture directory.
+ * @return UTF-8 SWMMVIS_GUI_TEST_DATA, empty when unset; callers append /mini_2d.inp directly. */
 QString dataDir()
 {
     // Provided by the CTest ENVIRONMENT in tests/gui/CMakeLists.txt.
@@ -53,6 +55,10 @@ QString dataDir()
 }
 
 // The exact call the dialog's write2DToEngine() makes for one 2D key.
+/** @brief Read a generic extended engine option through the dialog-consumed ABI.
+ * @param[in] e Required live engine handle.
+ * @param[in] key Required null-terminated option name.
+ * @return Trimmed UTF-8 value from a 256-byte buffer, or empty on getter failure. */
 QString getExt(SWMM_Engine e, const char *key)
 {
     char buf[256] = {};
@@ -78,6 +84,8 @@ private slots:
 // explicit keys must report the FLAT/MEAN legacy defaults (VFR is opt-in: it is
 // ~3–8× slower, so the default stays FLAT and VFR is selected only when the
 // shoreline-artifact fix is wanted).
+/** @brief Verify an opened 2D model reports FLAT/MEAN closure/reconstruction and a 0.01 wet-fraction floor.
+ * Exercises the engine ABI directly and writes its report under QDir::tempPath. */
 void Test2DVfrOptionsContract::defaultsReadFlatMean()
 {
     const QString inp = dataDir() + "/mini_2d.inp";
@@ -102,6 +110,8 @@ void Test2DVfrOptionsContract::defaultsReadFlatMean()
 // The full dialog Save path: mutate via set_ext (write2DToEngine), serialize
 // with the built-in writer (swmm_model_write, == write_with_plugin(NULL)),
 // reopen, and confirm the VFR selection survived a round-trip to disk.
+/** @brief Verify VFR/VFR_FACE and a 0.03 floor survive generic option setters, model serialization and fresh engine reopen.
+ * Exercises the ABI consumed by the dialog without constructing its UI; the existing fixture outputs use QDir::tempPath. */
 void Test2DVfrOptionsContract::setExtThenSaveReopenRoundTrips()
 {
     const QString inp = dataDir() + "/mini_2d.inp";
@@ -117,7 +127,7 @@ void Test2DVfrOptionsContract::setExtThenSaveReopenRoundTrips()
     QCOMPARE(swmm_options_set_ext(e, "FACE_RECONSTRUCTION", "VFR_FACE"), 0);
     QCOMPARE(swmm_options_set_ext(e, "VFR_MIN_WET_FRAC", "0.03"), 0);
 
-    // Written to the reviewable build/test-tmp path, not a hidden temp file.
+    // The existing fixture writes this round-trip deck under QDir::tempPath().
     const QString outInp = QDir::tempPath() + "/vfr_contract_saved.inp";
     QCOMPARE(swmm_model_write(e, outInp.toUtf8().constData()), 0);
     swmm_engine_close(e);
@@ -142,6 +152,7 @@ void Test2DVfrOptionsContract::setExtThenSaveReopenRoundTrips()
 // The dialog exposes the two combos independently; the engine must accept the
 // face gate with the legacy flat cell closure (and vice-versa) so the A/B
 // matrix the tooltips promise is real.
+/** @brief Verify VFR_FACE can be selected while retaining FLAT cell closure through independent extended keys. */
 void Test2DVfrOptionsContract::faceReconIndependentOfCellClosure()
 {
     const QString inp = dataDir() + "/mini_2d.inp";
@@ -162,6 +173,7 @@ void Test2DVfrOptionsContract::faceReconIndependentOfCellClosure()
 
 // The spinbox clamps to (0, 0.5]; the engine must reject anything outside it
 // rather than silently clobbering the field, so a bad hand-edit is caught.
+/** @brief Verify zero and a value above 0.5 are refused without replacing the prior valid 0.02 floor. */
 void Test2DVfrOptionsContract::vfrMinWetFracRejectsOutOfRange()
 {
     const QString inp = dataDir() + "/mini_2d.inp";
@@ -190,6 +202,8 @@ QTEST_MAIN(Test2DVfrOptionsContract)
 // (AUTO), a set_ext survives Save → reopen, and an accelerator the engine does
 // not know is refused (so a typo fails the write instead of silently running
 // on AUTO).
+/** @brief Verify unknown METAL backend is refused without changing AUTO and CPU survives save/reopen through the generic ABI.
+ * The existing report/model paths use QDir::tempPath. */
 void Test2DVfrOptionsContract::backendRoundTripsAndRejectsUnknown()
 {
     const QString inp = dataDir() + "/mini_2d.inp";

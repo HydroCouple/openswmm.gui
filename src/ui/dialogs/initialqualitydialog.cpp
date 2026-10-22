@@ -44,6 +44,11 @@ namespace OpenSWMMVis
 namespace
 {
 
+/**
+ * @param[in] engine Optional borrowed handle, live when nonnull.
+ * @return True only for successful engine-state query in BUILDING/OPENED; false on
+ *   null/failure/later lifecycle. No mutation.
+ */
 bool canEdit(SWMM_Engine engine)
 {
     int state = SWMM_STATE_NONE;
@@ -59,7 +64,12 @@ constexpr int kColValue = 3;
 const char kWaterAgeName[] = "__WATER_AGE__";
 const char kTemperatureName[] = "__TEMPERATURE__";
 
-/*! YES/NO [OPTIONS] probe — gates the reserved constituent entries. */
+/*! YES/NO [OPTIONS] probe — gates the reserved constituent entries.
+ * @param[in] engine Optional borrowed live handle.
+ * @param[in] key Required NUL-terminated options name, passed through for nonnull engine.
+ * @return True only for successful 16-byte read of exact YES. No case/whitespace normalization,
+ *   diagnostics or mutation.
+ */
 bool optionOn(SWMM_Engine engine, const char *key)
 {
     char buf[16] = {0};
@@ -70,7 +80,12 @@ bool optionOn(SWMM_Engine engine, const char *key)
 
 /*! Wide-range value spin. Constituent-dependent limits/suffix are applied
  *  by the constituent-combo handler: pollutants floor at 0; the reserved
- *  species are signed (age extraction, D-NS1; degC temperatures). */
+ *  species are signed (age extraction, D-NS1; degC temperatures).
+ * @param[in] parent Optional widget owner, caller manages parentless result.
+ * @return New four-decimal editor in [-1e6, 1e6] with no suffix/binding. Constituent handler raises
+ *   nonreserved minimum to zero later; exact hydration installed separately. GUI-thread
+ *   construction, no model write.
+ */
 QDoubleSpinBox *makeValueSpin(QWidget *parent)
 {
     auto *s = new QDoubleSpinBox(parent);
@@ -527,6 +542,7 @@ QString InitialQualityDialog::writeToEngine(QWidget *&failedWidget)
         int is_link;
         int elem;
         QString cons;
+        // Compare only raw scope, element index and canonical constituent; no engine lookup.
         bool operator==(const Key &o) const
         {
             return is_link == o.is_link && elem == o.elem && cons == o.cons;

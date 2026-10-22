@@ -51,7 +51,11 @@ const SourceRow kSources[] = {
 constexpr int kSourceCount = int(sizeof(kSources) / sizeof(kSources[0]));
 
 /*! Only these two pathways accept per-node overrides — the engine parser's
- *  A1a scope rule, which `swmm_water_age_set_override` refuses to break. */
+ *  A1a scope rule, which `swmm_water_age_set_override` refuses to break.
+ * @param[in] code Raw source enum inspected without engine access.
+ * @return True exactly for DWF or EXTERNAL_INFLOW; false for every other/unknown code. No
+ *   validation of node identity or model lifecycle.
+ */
 bool nodeScoped(int code)
 {
     return code == SWMM_AGE_SRC_DWF || code == SWMM_AGE_SRC_EXTERNAL_INFLOW;
@@ -59,7 +63,12 @@ bool nodeScoped(int code)
 
 /*! Hours spin: wide range, and NEGATIVE values are legal (D-NS1 —
  *  extraction). Three decimals so a seconds-scale age survives a
- *  round-trip through hours. */
+ *  round-trip through hours.
+ * @param[in] parent Optional QWidget owner; caller manages parentless result.
+ * @return New hour editor with range [-1e6, 1e6], three decimals and h suffix; no source binding or
+ *   unit conversion. Negative values allowed for age-volume extraction. Hydration precision is
+ *   installed separately by setHydratedValue.
+ */
 QDoubleSpinBox *makeHoursSpin(QWidget *parent)
 {
     auto *s = new QDoubleSpinBox(parent);

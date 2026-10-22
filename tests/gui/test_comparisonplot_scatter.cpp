@@ -45,17 +45,37 @@ using namespace openswmmvis::plot;
 class RampRunLayer : public IRunLayer
 {
 public:
+    /** @brief Store a synthetic arithmetic time/value ramp.
+     * @param[in] name Scenario label moved into the fixture.
+     * @param[in] t0 Starting timestamp in Julian days.
+     * @param[in] step Report spacing in days.
+     * @param[in] n Number of samples generated; nonpositive values yield no samples.
+     * @param[in] base Initial numeric value, increasing by one per sample regardless of requested attribute.
+     * No range or finiteness checks are performed. */
     RampRunLayer(QString name, double t0, double step, int n, double base)
         : m_name(std::move(name)), m_t0(t0), m_step(step), m_n(n), m_base(base)
     {
     }
 
+    /** @brief Expose the stored scenario label.
+     * @return An independent string value of the configured name. */
     QString scenarioName() const override { return m_name; }
+    /** @brief Identify the synthetic ramp units.
+     * @return SI for every requested attribute. */
     UnitSystem unitSystem() const override { return UnitSystem::SI; }
+    /** @brief Expose the ramp start timestamp.
+     * @return Configured t0 in Julian days. */
     double startDateJulian() const override { return m_t0; }
+    /** @brief Expose the configured ramp sample count.
+     * @return Stored n without clamping. */
     int periodCount() const override { return m_n; }
+    /** @brief Convert configured report spacing to integral seconds.
+     * @return step multiplied by 86400 and truncated to int; the fixture requires a value representable by int. */
     int reportStepSeconds() const override { return static_cast<int>(m_step * 86400.0); }
 
+    /** @brief Replace time/value vectors with the configured ramp and mark the request successful.
+     * The unnamed object and attribute arguments are ignored.
+     * @param[out] out Required series object; vectors become t0+k*step and base+k for 0<=k<n. Other metadata/error fields are not reset. */
     void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
     {
         out.timesJulian.clear();
@@ -87,6 +107,7 @@ private slots:
     void everyAttributeRowProducesPairs();
 };
 
+/** @brief Verify equal time grids pair all four samples with expected baseline/comparison values. */
 void TestComparisonPlotScatter::identicalStepsPairAllSamples()
 {
     const std::vector<double> t = {0.0, 0.25, 0.5, 0.75};
@@ -99,6 +120,7 @@ void TestComparisonPlotScatter::identicalStepsPairAllSamples()
     QCOMPARE(ps.y[2], 3.5);
 }
 
+/** @brief Verify one-sample streams pair on an identical timestamp despite lacking a report-step estimate. */
 void TestComparisonPlotScatter::singleSampleStreamsPairOnExactTimestamp()
 {
     // Regression: with <2 baseline samples the legacy walk used
@@ -110,6 +132,7 @@ void TestComparisonPlotScatter::singleSampleStreamsPairOnExactTimestamp()
     QCOMPARE(ps.y[0], 20.0);
 }
 
+/** @brief Verify hourly and quarter-hour grids pair only the four shared hourly timestamps. */
 void TestComparisonPlotScatter::differingStepsPairCommonTimestampsOnly()
 {
     // Baseline hourly (step 1/24), comparison every 15 min (step 1/96):
@@ -133,6 +156,7 @@ void TestComparisonPlotScatter::differingStepsPairCommonTimestampsOnly()
     }
 }
 
+/** @brief Verify a NaN baseline value is omitted while later finite paired samples survive. */
 void TestComparisonPlotScatter::nonFiniteValuesAreDropped()
 {
     const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -143,12 +167,15 @@ void TestComparisonPlotScatter::nonFiniteValuesAreDropped()
     QCOMPARE(ps.y[1], 6.0);
 }
 
+/** @brief Verify disjoint baseline/comparison time intervals produce no pairs. */
 void TestComparisonPlotScatter::disjointRangesYieldEmptyPairing()
 {
     const PairedSamples ps = pairSamplesNearest({0.0, 0.25}, {1.0, 2.0}, {10.0, 10.25}, {3.0, 4.0});
     QVERIFY(ps.x.empty());
 }
 
+/** @brief Verify the model-based per-attribute pairing recipe produces eight pairs for each of two rows.
+ * Builds synthetic baseline/comparison runs and reproduces the dialog recipe directly without constructing its widget. */
 void TestComparisonPlotScatter::everyAttributeRowProducesPairs()
 {
     // Second-row regression: 2 runs × 2 attribute rows, same object and

@@ -61,6 +61,8 @@ namespace
 
 /*! Artifacts land under tests/gui/data/ so a failure is inspectable
  *  (CLAUDE.md §4.1 — never a system temp dir). */
+/** @brief Resolve retained preferences-test settings/artifact storage.
+ * @return prefs_roundtrip_artifacts under SWMMVIS_GUI_TEST_DATA or "."; no directory creation here. */
 QString settingsDir()
 {
     const QString base = qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
@@ -68,6 +70,8 @@ QString settingsDir()
 }
 
 /*! Every key/value the store holds, flattened. */
+/** @brief Copy every key/value from the current test QSettings namespace.
+ * @return Flattened independent settings map, without explicitly synchronizing storage first. */
 QMap<QString, QVariant> snapshotSettings()
 {
     QMap<QString, QVariant> out;
@@ -78,6 +82,10 @@ QMap<QString, QVariant> snapshotSettings()
 }
 
 /*! Report the first few differing keys rather than just "maps differ". */
+/** @brief Describe up to eight differing settings values.
+ * @param[in] a Before snapshot.
+ * @param[in] b After snapshot.
+ * @return Semicolon-separated key/value transitions and an ellipsis after the eighth difference, or empty when compared values match. Missing keys compare as default invalid QVariant values. */
 QString describeDiff(const QMap<QString, QVariant> &a, const QMap<QString, QVariant> &b)
 {
     QStringList lines;
@@ -112,6 +120,7 @@ private slots:
     void meshDefaultsShareIndependentControls();
 };
 
+/** @brief Redirect INI settings to retained artifacts before preference singleton creation and clear/synchronize the test store. */
 void TestPreferencesDialogRoundtrip::initTestCase()
 {
     // Must run before ANYTHING calls PreferencesManager::instance(): the
@@ -136,6 +145,7 @@ void TestPreferencesDialogRoundtrip::initTestCase()
 }
 
 /*! Test 9 — an Apply with no edits must not change a single stored key. */
+/** @brief Verify a second untouched Apply preserves every stored key after the first Apply materializes defaults. */
 void TestPreferencesDialogRoundtrip::applyWithNoEditsWritesNothing()
 {
     // Normalisation pass: the first Apply against a store with absent keys
@@ -168,6 +178,7 @@ void TestPreferencesDialogRoundtrip::applyWithNoEditsWritesNothing()
 }
 
 /*! Test 10 — the thirteen rows and the two inner tab sets, in PLAN §3 order. */
+/** @brief Verify all thirteen sidebar labels and the exact rendering/simulation-default tab labels/order. */
 void TestPreferencesDialogRoundtrip::structure()
 {
     PreferencesDialog dlg(nullptr);
@@ -230,6 +241,8 @@ void TestPreferencesDialogRoundtrip::structure()
 }
 
 /*! Test 10 — the point of the fold: nothing scrolls at 1280x800. */
+/** @brief Verify non-table-dominated preference pages and their first inner tab set require no vertical page scrolling at 1280 by 800 pixels.
+ * Keyboard/Object Defaults are intentionally excluded; the body does not assert every nested table has no scrolling. */
 void TestPreferencesDialogRoundtrip::noScrollAt1280x800()
 {
     PreferencesDialog dlg(nullptr);
@@ -276,6 +289,8 @@ void TestPreferencesDialogRoundtrip::noScrollAt1280x800()
                                                  .arg(overflows.join(QStringLiteral(", ")))));
 }
 
+/** @brief Verify coarsening, optional maximum size and terrain tolerance persist independently across Apply/reopen.
+ * Checks every mesh settings page fits without either scrollbar, retains screenshots and resets 2D preferences to defaults. */
 void TestPreferencesDialogRoundtrip::meshDefaultsShareIndependentControls()
 {
     PreferencesDialog dialog(nullptr);

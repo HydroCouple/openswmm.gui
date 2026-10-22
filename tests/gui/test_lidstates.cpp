@@ -18,15 +18,38 @@ using namespace openswmmvis::io;
 class TestLidStates : public QObject
 {
     Q_OBJECT
+    /**
+     *
+     * @brief Resolve the persistent LID evidence root without creating it.
+     * @return SWMMVIS_LID_TEST_OUTPUT verbatim or current-directory
+     * tests/gui/data/output_lidstates.
+     * Existing files at generated case names may be overwritten by tests.
+     *
+     */
     QString dir() const
     {
         return qEnvironmentVariable("SWMMVIS_LID_TEST_OUTPUT",
                                     QDir::currentPath() + "/tests/gui/data/output_lidstates");
     }
+    /**
+     *
+     * @brief Build a UTC fixture time offset from2004-01-01 midnight.
+     * @param seconds Signed elapsed seconds; negative values intentionally test prehistory.
+     * @return Owned date/time after addSecs; no native Julian conversion or clock read.
+     *
+     */
     static QDateTime time(int seconds)
     {
         return QDateTime(QDate(2004, 1, 1), QTime(0, 0), Qt::UTC).addSecs(seconds);
     }
+    /**
+     *
+     * @brief Build an owned synthetic three-cell Richards node frame.
+     * @param second Elapsed seconds forwarded to time(), default zero.
+     * @return Frame containing node S and fixed layer/elevation/moisture/pressure/head values
+     * used to distinguish perched saturation boundaries. No engine read or file write.
+     *
+     */
     LidStateFrame sample(int second = 0) const
     {
         LidStateFrame f;
@@ -40,7 +63,22 @@ class TestLidStates : public QObject
         return f;
     }
 private slots:
+    /**
+     *
+     * @brief Require creation of the persistent evidence directory before any case.
+     * Does not clean existing files or isolate simultaneous runs using the same root.
+     *
+     */
     void initTestCase() { QVERIFY(QDir().mkpath(dir())); }
+    /**
+     *
+     * @brief Require the synthetic pressure profile to yield water-table/perched boundaries and
+     * handle saturated/dry/classical variants.
+     * Checks elevations2/1 initially, no boundaries for uniformly positive/negative pressure,
+     * a zero-pressure transition at1.5, and no Richards boundaries for classical mode.
+     * No numerical Richards solve or sidecar I/O.
+     *
+     */
     void perchedBoundaries()
     {
         auto f = sample();
@@ -61,6 +99,16 @@ private slots:
         f.nodes[0].richards = false;
         QVERIFY(lidSaturationBoundaries(f.nodes[0]).isEmpty());
     }
+    /**
+     *
+     * @brief Require sidecar playback to floor timestamps, distinguish live/final state and
+     * enforce output identity/name scope.
+     * Writes synthetic.out and two frames at0/30seconds, checks moisture within1e-6, finalizes
+     * and checks saved equality/backward reads/prehistory/name mismatch. Replaces the output
+     * with same-size foreign bytes and requires a fresh reader to reject it and missing paths.
+     * Files persist; initial placeholder write counts are not asserted.
+     *
+     */
     void boundedPlaybackAndIdentity()
     {
         const QString path = dir() + "/synthetic.out";
@@ -97,6 +145,14 @@ private slots:
         QVERIFY(fresh.frameAt(path, false, time(30), {"S"}).nodes.isEmpty());
         QVERIFY(fresh.frameAt(dir() + "/missing.out", false, time(30), {"S"}).nodes.isEmpty());
     }
+    /**
+     *
+     * @brief Require a nonfinal sidecar with an incomplete appended record to expose its last
+     * full live frame but no finalized frame.
+     * Writes tail.out, destroys a writer without finish and appends ten zero bytes to its
+     * sidecar. Checks time0 for live query30; no repair/truncation is attempted.
+     *
+     */
     void incompleteLiveTail()
     {
         const QString path = dir() + "/tail.out";
@@ -119,6 +175,12 @@ private slots:
         QCOMPARE(reader.frameAt(path, true, time(30), {"S"}).time, time(0));
         QVERIFY(reader.frameAt(path, false, time(30), {"S"}).nodes.isEmpty());
     }
+    /**
+     *
+     * @brief Register Richards US/SI, partial-US and classical-US recorder configurations.
+     * Supplies si/richards/partial booleans; does not enumerate every pairwise combination.
+     *
+     */
     void engineRecording_data()
     {
         QTest::addColumn<bool>("si");
@@ -129,6 +191,20 @@ private slots:
         QTest::newRow("partial-US") << false << true << true;
         QTest::newRow("classical-US") << false << false << false;
     }
+    /**
+     *
+     * @brief Require native LID recording to preserve geometry/units, partial final time and
+     * live-to-final sampled state.
+     * Writes per-row input/report/output/sidecar evidence; runs Richards or classical engine
+     * and checks initial cell count, SI flag and bottom elevation within1e-6. Partial mode
+     * stops after at least45seconds; full mode requires final120second frame. Richards head
+     * must match the live native getter within1e-4; classical head/pressure stay NaN.
+     * Ends/reports/closes engine, finalizes recorder and compares saved/live plus bounded
+     * backward query. Local Engine wrapper owns the handle, closes/destroys on every scope
+     * exit (including Qt assertion returns); explicit earlier close means cleanup may close
+     * again. No mass-balance or convergence threshold beyond native success is asserted.
+     *
+     */
     void engineRecording()
     {
         QFETCH(bool, si);

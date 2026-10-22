@@ -41,12 +41,17 @@ using openswmmvis::ui::AquiferEditorDialog;
 namespace
 {
 
+/** @brief Resolve retained aquifer fixture storage.
+ * @return SWMMVIS_GUI_TEST_DATA plus /aquifer_editor; unset data root yields an absolute /aquifer_editor path. */
 QString fixtureDir()
 {
     const QString base = QString::fromUtf8(qgetenv("SWMMVIS_GUI_TEST_DATA"));
     return base + QStringLiteral("/aquifer_editor");
 }
 
+/** @brief Write a retained CFS model with two aquifers, monthly/hourly patterns and S1 groundwater.
+ * @param[in] tag Filename stem appended without sanitization.
+ * @return Model path after streaming, or empty on open failure; directory creation and stream/flush errors are unchecked. */
 QString writeFixture(const QString &tag)
 {
     QDir().mkpath(fixtureDir());
@@ -103,6 +108,9 @@ QString writeFixture(const QString &tag)
 struct EngineFixture {
     SWMM_Engine engine = nullptr;
 
+    /** @brief Write and open a scope-owned aquifer fixture engine.
+     * @param[in] tag Stem for retained INP/report/output files.
+     * Leaves engine null on checked write/open failure and destroys failed handles; allocation is not independently checked before engine open. */
     explicit EngineFixture(const QString &tag)
     {
         const QString inp = writeFixture(tag);
@@ -117,6 +125,7 @@ struct EngineFixture {
             engine = nullptr;
         }
     }
+    /** @brief Destroy a non-null owned aquifer engine while retaining filesystem evidence. */
     ~EngineFixture()
     {
         if (engine)
@@ -124,6 +133,10 @@ struct EngineFixture {
     }
 };
 
+/** @brief Read an aquifer evaporation-pattern reference by name.
+ * @param[in] e Required live engine.
+ * @param[in] aquifer Required null-terminated aquifer name.
+ * @return UTF-8 pattern name (possibly empty), or the literal &lt;missing&gt;/&lt;error&gt; sentinel when lookup/getter fails. */
 QString engineEvapPattern(SWMM_Engine e, const char *aquifer)
 {
     const int idx = swmm_aquifer_index(e, aquifer);
@@ -135,6 +148,10 @@ QString engineEvapPattern(SWMM_Engine e, const char *aquifer)
     return QString::fromUtf8(buf);
 }
 
+/** @brief Count diagram callouts containing a case-sensitive substring.
+ * @param[in] m Borrowed diagram model.
+ * @param[in] needle Text searched within each leader label.
+ * @return Number of matching leaders. */
 int countLeadersContaining(const openswmmvis::sectionview::SectionDiagramModel &m,
                            const QString &needle)
 {
@@ -161,6 +178,7 @@ private slots:
     void diagramTracksForm();
 };
 
+/** @brief Verify the first aquifer populates every spin, legal range, US unit suffix and evaporation pattern without warnings. */
 void TestAquiferEditorDialog::bindsFirstAquiferIntoForm()
 {
     EngineFixture fx(QStringLiteral("bind"));
@@ -204,6 +222,8 @@ void TestAquiferEditorDialog::bindsFirstAquiferIntoForm()
     QVERIFY(!dlg.warningLabel()->isVisibleTo(&dlg));
 }
 
+/** @brief Verify dialog creation stays staged until flush, then name-field editing renames both provider/engine without duplicates.
+ * Checks suggested names and duplicate-name refusal. */
 void TestAquiferEditorDialog::addAndRenameThroughDialog()
 {
     EngineFixture fx(QStringLiteral("addrename"));
@@ -237,6 +257,8 @@ void TestAquiferEditorDialog::addAndRenameThroughDialog()
     QCOMPARE(dlg.currentProvider()->name(), QStringLiteral("AQ_NEW"));
 }
 
+/** @brief Verify aquifer impact reports its subcatchment reference and registry deletion clears engine ownership and the subcatchment aquifer index.
+ * Opens a dialog on the survivor; the deletion confirmation modal itself is not driven. */
 void TestAquiferEditorDialog::deleteReportsImpactAndReachesEngine()
 {
     EngineFixture fx(QStringLiteral("delete"));
@@ -271,6 +293,7 @@ void TestAquiferEditorDialog::deleteReportsImpactAndReachesEngine()
     QCOMPARE(dlg.currentProvider()->name(), QStringLiteral("AQ2"));
 }
 
+/** @brief Verify spin changes update provider values, clamp illegal fractions, flush conductivity and rehydrate when selecting another aquifer. */
 void TestAquiferEditorDialog::spinEditsReachProvider()
 {
     EngineFixture fx(QStringLiteral("spinsync"));
@@ -312,6 +335,7 @@ void TestAquiferEditorDialog::spinEditsReachProvider()
     QCOMPARE(aq1->param(AquiferProvider::Porosity), 0.45);
 }
 
+/** @brief Verify the pattern picker offers only monthly patterns, supports clearing/restoring references and updates its diagram callout. */
 void TestAquiferEditorDialog::evapPatternRoundTripsToEngine()
 {
     EngineFixture fx(QStringLiteral("evappat"));
@@ -347,6 +371,7 @@ void TestAquiferEditorDialog::evapPatternRoundTripsToEngine()
     QVERIFY(countLeadersContaining(dlg.diagram()->model(), QStringLiteral("EVAP1")) == 1);
 }
 
+/** @brief Verify cross-field aquifer inconsistencies produce the expected warning count in both label and diagram and clear after correction. */
 void TestAquiferEditorDialog::softValidationWarnings()
 {
     EngineFixture fx(QStringLiteral("warnings"));
@@ -394,6 +419,7 @@ void TestAquiferEditorDialog::softValidationWarnings()
     QVERIFY(!dlg.warningLabel()->isVisibleTo(&dlg));
 }
 
+/** @brief Verify live water-table/name edits update the diagram, a nonpositive saturated thickness uses unknown hatching and an empty registry yields a disabled empty form. */
 void TestAquiferEditorDialog::diagramTracksForm()
 {
     EngineFixture fx(QStringLiteral("diagram"));

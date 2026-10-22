@@ -6,7 +6,7 @@
  * @license   GPL-3.0-or-later
  *
  * Slice BI-MK.1 Phase 8.13.40 — unit tests for MultiKindRenderer.
- * Self-contained: pulls in only the render/*.cpp sources via CMakeLists.
+ * Self-contained: pulls in only the render implementation sources via CMakeLists.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -36,6 +36,13 @@ namespace
 // whose colour key carries the supplied hex string. Tests use this to
 // produce visually-distinct per-kind renderers they can later identify
 // by colour.
+/**
+ * @brief Create a uniquely owned single-marker renderer with a diagnostic color property.
+ * @param[in] hexColor Borrowed string copied into marker color property without validation.
+ * @param[in] label Borrowed optional legend label copied to renderer, unchanged.
+ * @return Unique renderer owner; style/string storage allocated, no external pointers retained
+ * or painting.
+ */
 std::unique_ptr<SingleSymbolRenderer> makeColored(const QString &hexColor,
                                                   const QString &label = {})
 {
@@ -47,6 +54,12 @@ std::unique_ptr<SingleSymbolRenderer> makeColored(const QString &hexColor,
     return std::make_unique<SingleSymbolRenderer>(std::move(style), label);
 }
 
+/**
+ * @brief Read the first present color property from an immutable symbol style.
+ * @param[in] style Borrowed layer sequence, unchanged.
+ * @return Owned string conversion of first color value, empty for no such key; no validation or
+ * mutation.
+ */
 QString firstColor(const SymbolStyle &style)
 {
     for (const SymbolLayer &sl : style.layers) {
@@ -57,6 +70,13 @@ QString firstColor(const SymbolStyle &style)
     return {};
 }
 
+/**
+ * @brief Construct a synthetic feature identity for renderer dispatch.
+ * @param[in] kind Borrowed category hint copied verbatim, unchanged.
+ * @param[in] index Synthetic feature index copied without validation, default zero.
+ * @return Owned feature with test-layer ID and supplied kind/index, no backing model/query or
+ * retained pointers.
+ */
 FeatureRef featureWithKind(const QString &kind, int index = 0)
 {
     FeatureRef f;
@@ -75,6 +95,12 @@ private slots:
 
     // ---- Construction + defaults -----------------------------------------
 
+    /**
+     * @brief Verify multikind defaults to zero kinds, a single-symbol fallback and multikind
+     * class ID.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void defaultCtor_hasFallback_noKinds()
     {
         MultiKindRenderer r;
@@ -86,6 +112,12 @@ private slots:
 
     // ---- Per-kind set / get / clear --------------------------------------
 
+    /**
+     * @brief Verify installing a Junctions renderer adds one retrievable kind without inventing
+     * Conduits.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void setRendererFor_addsKind()
     {
         MultiKindRenderer r;
@@ -95,6 +127,11 @@ private slots:
         QVERIFY(r.rendererFor(QStringLiteral("Conduits")) == nullptr);
     }
 
+    /**
+     * @brief Verify transferring a null renderer removes that kind and clears its lookup.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void setRendererFor_nullRemoves()
     {
         MultiKindRenderer r;
@@ -104,6 +141,11 @@ private slots:
         QVERIFY(r.rendererFor(QStringLiteral("Junctions")) == nullptr);
     }
 
+    /**
+     * @brief Verify clearing Junctions preserves the independent Conduits renderer.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void clearRendererFor_removes()
     {
         MultiKindRenderer r;
@@ -116,6 +158,12 @@ private slots:
 
     // ---- Dispatch --------------------------------------------------------
 
+    /**
+     * @brief Verify Junctions/Conduits category hints dispatch distinct configured marker
+     * colors.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void symbolFor_dispatchesByCategoryHint()
     {
         MultiKindRenderer r;
@@ -129,6 +177,11 @@ private slots:
         QCOMPARE(firstColor(c), QStringLiteral("#ddeeff"));
     }
 
+    /**
+     * @brief Verify an unknown feature kind receives the separately configured fallback color.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void symbolFor_unknownKind_fallsBackToFallback()
     {
         MultiKindRenderer r;
@@ -140,6 +193,11 @@ private slots:
         QCOMPARE(firstColor(out), QStringLiteral("#112233"));
     }
 
+    /**
+     * @brief Verify an empty category hint takes fallback despite another registered kind.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void symbolFor_emptyCategoryHint_usesFallback()
     {
         MultiKindRenderer r;
@@ -151,6 +209,11 @@ private slots:
         QCOMPARE(firstColor(out), QStringLiteral("#445566"));
     }
 
+    /**
+     * @brief Verify a null fallback assignment preserves the owned current renderer and color.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void setFallback_nullKeepsCurrent()
     {
         MultiKindRenderer r;
@@ -163,6 +226,11 @@ private slots:
 
     // ---- Kinds ordering --------------------------------------------------
 
+    /**
+     * @brief Verify kind enumeration is lexically sorted Conduits, Junctions, Subcatchments.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void kinds_returnsSortedKeys()
     {
         MultiKindRenderer r;
@@ -179,6 +247,12 @@ private slots:
 
     // ---- Legend aggregation ----------------------------------------------
 
+    /**
+     * @brief Verify sorted legends use kind name alone for empty inner label and
+     * kind/inner-label otherwise.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void legendSymbolItems_aggregatesAcrossKinds_withKindPrefix()
     {
         MultiKindRenderer r;
@@ -196,6 +270,11 @@ private slots:
 
     // ---- JSON round-trip -------------------------------------------------
 
+    /**
+     * @brief Verify JSON retains multikind ID, both per-kind colors and fallback color/dispatch.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void toJson_fromJson_roundTripsPerKindRenderers()
     {
         MultiKindRenderer a;
@@ -219,6 +298,11 @@ private slots:
                  QStringLiteral("#112233"));
     }
 
+    /**
+     * @brief Verify empty JSON yields zero kind overrides and nonnull single-symbol fallback.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void fromJson_emptyOrMalformed_silentDefaults()
     {
         MultiKindRenderer r;
@@ -228,6 +312,11 @@ private slots:
         QCOMPARE(r.fallback()->rendererId(), QStringLiteral("single"));
     }
 
+    /**
+     * @brief Verify a kind with unregistered nested renderer ID is skipped during JSON restore.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void fromJson_unknownInnerIdSkipped()
     {
         MultiKindRenderer r;
@@ -244,6 +333,12 @@ private slots:
 
     // ---- Clone independence ----------------------------------------------
 
+    /**
+     * @brief Verify cloning produces a MultiKindRenderer whose kind replacement leaves original
+     * color unchanged.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void clone_deepCopiesPerKindAndFallback()
     {
         MultiKindRenderer a;

@@ -43,8 +43,25 @@ class PointSymbolStyleEditor : public IStyleEditorWidget
 {
     Q_OBJECT
 public:
+    /**
+     * @brief Build a live rule-point symbol editor with marker, fill/outline and opacity
+     * controls.
+     * @param adapter Optional borrowed raw adapter; null bindings leave writes/refresh inert.
+     * A nonnull adapter must outlive the widget since destruction does not null the pointer.
+     * @param parent Optional Qt owner; caller owns a parentless editor.
+     * Seeds controls under blockers and refreshes on changed(). Individual edits write only
+     * their field immediately; opacity percent maps to0..1. Display bounds are size0.5..60
+     * pixels/one decimal, outline0..20/two decimals and integer0..100percent. Color alpha is
+     * available. No undo, snapshot or Cancel rollback is supplied here; GUI thread only.
+     */
     explicit PointSymbolStyleEditor(OpenSWMM::Render::PointSymbolStyleAdapter *adapter,
                                     QWidget *parent = nullptr);
+    /**
+     * @brief Read the live point adapter into controls without emitting their edit notifications.
+     * No-op for null target; a nonnull raw adapter must remain alive. Applies widget display
+     * rounding/clamping and opacity-times100 conversion without writing target values.
+     * Does not replace the adapter or own its renderer/rule.
+     */
     void refreshFromModel() override;
 
 private:
@@ -64,8 +81,22 @@ class LineSymbolStyleEditor : public IStyleEditorWidget
 {
     Q_OBJECT
 public:
+    /**
+     * @brief Build a live rule-line editor for alpha-enabled color, width, dash and opacity.
+     * @param adapter Optional borrowed raw adapter; null makes writes/refresh inert. Nonnull
+     * adapter must outlive this widget and callbacks.
+     * @param parent Optional Qt owner; caller owns parentless widget.
+     * Width uses0.25..30pixels/two decimals; integer0..100percent opacity maps to0..1. Edits
+     * write one property immediately and changed() refreshes controls under blockers; no
+     * undo, snapshot or Cancel rollback here. GUI thread only.
+     */
     explicit LineSymbolStyleEditor(OpenSWMM::Render::LineSymbolStyleAdapter *adapter,
                                    QWidget *parent = nullptr);
+    /**
+     * @brief Read line color/width/dash and opacity into controls under signal blockers.
+     * No-op for null adapter; requires a nonnull raw target to remain alive. Does not apply
+     * display rounding/clamping to stored state or mutate renderer ownership.
+     */
     void refreshFromModel() override;
 
 private:
@@ -83,8 +114,22 @@ class PolygonSymbolStyleEditor : public IStyleEditorWidget
 {
     Q_OBJECT
 public:
+    /**
+     * @brief Build a live rule-polygon editor for fill, outline width/color and overall opacity.
+     * @param adapter Optional borrowed raw adapter; null makes edits/refresh inert. Nonnull
+     * adapter must outlive this widget and callbacks.
+     * @param parent Optional Qt owner; caller owns parentless widget.
+     * Alpha-enabled color buttons and0..20pixel/two-decimal outline plus integer0..100percent
+     * opacity write individual properties immediately. Refreshes on changed(), blocking only
+     * control signals; no undo, snapshot or Cancel policy. GUI thread only.
+     */
     explicit PolygonSymbolStyleEditor(OpenSWMM::Render::PolygonSymbolStyleAdapter *adapter,
                                       QWidget *parent = nullptr);
+    /**
+     * @brief Seed polygon fill/outline/width and percentage opacity without writing the adapter.
+     * No-op for null, otherwise requires raw target lifetime. Display range/rounding can
+     * differ from stored precision; no snapshot or renderer ownership transfer.
+     */
     void refreshFromModel() override;
 
 private:

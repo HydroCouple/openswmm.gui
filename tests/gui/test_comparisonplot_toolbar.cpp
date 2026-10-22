@@ -50,11 +50,14 @@ private:
     QChart *makeDateChart(QDateTime &start, QDateTime &end);
 };
 
+/** @brief Register the interactive-chart mode metatype so signal payloads can be inspected. */
 void TestComparisonPlotToolbar::initTestCase()
 {
     qRegisterMetaType<Mode>("openswmmvis::ui::InteractiveChartView::Mode");
 }
 
+/** @brief Allocate a three-point numeric chart with X 0..2 and Y 0..30.
+ * @return New chart owning its axes/series; passed into a view that takes ownership. */
 QChart *TestComparisonPlotToolbar::makeChart()
 {
     auto *chart = new QChart;
@@ -74,6 +77,10 @@ QChart *TestComparisonPlotToolbar::makeChart()
     return chart;
 }
 
+/** @brief Allocate a six-hour UTC-axis chart with timestamp-valued X samples.
+ * @param[out] start Assigned the fixed epoch-millisecond start with QDateTime default time specification.
+ * @param[out] end Assigned six hours after start.
+ * @return New chart owning its UTC time axis, numeric Y axis and series; the caller/view takes ownership. */
 QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &end)
 {
     start = QDateTime::fromMSecsSinceEpoch(1'767'225'600'000LL);
@@ -97,6 +104,7 @@ QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &en
     return chart;
 }
 
+/** @brief Verify Select/Pan/ZoomIn/ZoomOut mode transitions and emitted typed mode payloads. */
 void TestComparisonPlotToolbar::modeRoundTripsAndSignalsOnChange()
 {
     InteractiveChartView view(makeChart());
@@ -119,6 +127,7 @@ void TestComparisonPlotToolbar::modeRoundTripsAndSignalsOnChange()
     QCOMPARE(view.mode(), Mode::Select);
 }
 
+/** @brief Verify repeatedly selecting Pan produces only its first change notification. */
 void TestComparisonPlotToolbar::modeChangeIsIdempotent()
 {
     InteractiveChartView view(makeChart());
@@ -129,6 +138,7 @@ void TestComparisonPlotToolbar::modeChangeIsIdempotent()
     QCOMPARE(spy.count(), 1);
 }
 
+/** @brief Verify a synthetic right press on the viewport emits one non-null global context-menu position. */
 void TestComparisonPlotToolbar::rightClickEmitsContextMenuRequest()
 {
     InteractiveChartView view(makeChart());
@@ -147,6 +157,7 @@ void TestComparisonPlotToolbar::rightClickEmitsContextMenuRequest()
     QVERIFY(!emittedGlobal.isNull());
 }
 
+/** @brief Verify zoom reset restores the manually narrowed range that preceded zoomIn, rather than the original construction range. */
 void TestComparisonPlotToolbar::resetZoomRestoresInitialRanges()
 {
     QChart *chart = makeChart();
@@ -178,6 +189,7 @@ void TestComparisonPlotToolbar::resetZoomRestoresInitialRanges()
     QCOMPARE(xAxis->max(), 1.5);
 }
 
+/** @brief Verify a shown chart uses hand, crosshair and arrow cursors for Pan, zoom and Select modes. */
 void TestComparisonPlotToolbar::cursorReflectsMode()
 {
     InteractiveChartView view(makeChart());
@@ -197,6 +209,7 @@ void TestComparisonPlotToolbar::cursorReflectsMode()
     QCOMPARE(view.viewport()->cursor().shape(), Qt::ArrowCursor);
 }
 
+/** @brief Verify all four numeric axis-edge hit zones and valid endpoint edits, refusing range inversion/equality. */
 void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
 {
     auto *chart = makeChart();
@@ -207,6 +220,9 @@ void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
 
     const QRectF plot = chart->plotArea();
     QVERIFY(!plot.isEmpty());
+    /** @brief Map a chart-local point to the captured chart viewport.
+     * Argument `chartPoint`: position in chart-local scene units.
+     * Returns: integer viewport pixel point through chart mapToScene and view mapFromScene; both captured objects must remain live. */
     auto toViewport = [&view, chart](const QPointF &chartPoint) {
         return view.mapFromScene(chart->mapToScene(chartPoint));
     };
@@ -238,6 +254,7 @@ void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
     QVERIFY(!view.setAxisEdgeValue(InteractiveChartView::AxisEdge::YMaximum, -2.0));
 }
 
+/** @brief Verify UTC-axis endpoints accept QDateTime values and refuse an inverted maximum. */
 void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
 {
     QDateTime start;

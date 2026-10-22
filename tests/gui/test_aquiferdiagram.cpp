@@ -24,6 +24,11 @@ namespace
 {
 
 //! A fully-entered aquifer in feet / in/hr (the SWMM manual's example).
+/**
+ * @brief Create the fully entered AQ1 aquifer example for diagram assertions.
+ * @return Owned input with length feet, conductivity in/hr, bottom0, water table10, ET depth2,
+ * porosity0.5 and supplied moisture/flux parameters. No engine/widget/file resources.
+ */
 AquiferDiagramInput sampleInput()
 {
     AquiferDiagramInput in;
@@ -43,6 +48,12 @@ AquiferDiagramInput sampleInput()
     return in;
 }
 
+/**
+ * @brief Count leader texts containing a case-sensitive substring.
+ * @param[in] m Borrowed immutable diagram model, unchanged.
+ * @param[in] needle Borrowed QString search text, unchanged; empty matches every text.
+ * @return Nonnegative leader count, no ownership transfer, allocation or model mutation.
+ */
 int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
 {
     int n = 0;
@@ -52,6 +63,12 @@ int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
     return n;
 }
 
+/**
+ * @brief Count diagram dimension labels containing a case-sensitive substring.
+ * @param[in] m Borrowed immutable diagram model, unchanged.
+ * @param[in] needle Borrowed search text, unchanged.
+ * @return Nonnegative matching dimension count, no model mutation or retained inputs.
+ */
 int countDimsContaining(const SectionDiagramModel &m, const QString &needle)
 {
     int n = 0;
@@ -61,6 +78,13 @@ int countDimsContaining(const SectionDiagramModel &m, const QString &needle)
     return n;
 }
 
+/**
+ * @brief Find the first wavy diagram polyline used as the water-table marker.
+ * @param[in] m Borrowed immutable diagram owning returned element, unchanged.
+ * @return Nonowning pointer or nullptr absent; valid only while m lives and its polyline storage
+ * is
+ * unchanged, never free it or use after temporary model destruction. No mutation/allocation.
+ */
 const DiagramPolyline *waterTableLine(const SectionDiagramModel &m)
 {
     for (const DiagramPolyline &pl : m.polylines)
@@ -76,12 +100,54 @@ class TestAquiferDiagram : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Verify twelve aquifer parameters have one callout each, optional pattern appears
+     * once and defaults show no active/warning prefix.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void everyParameterHasOneCallout();
+    /**
+     * @brief Verify infiltration/ET/percolation/lateral arrows and schematic
+     * ground/vegetation/manhole geometry; zero ETs removes arrow while retaining its dimension.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void fluxArrowsAndSchematicNodePresent();
+    /**
+     * @brief Verify water table10ft above bottom, surface13.5ft, known saturated slab and
+     * datum-shift invariance.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void waterTablePlacedAtEgwAboveEbot();
+    /**
+     * @brief Verify Egw0/-3 creates unknown saturated hatch and explanatory text rather than
+     * below-bottom water geometry.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void unknownHatchWhenWaterTableNotAboveBottom();
+    /**
+     * @brief Verify active aquifer parameter emphasizes exactly one leader or ETs/Egw dimension
+     * according to parameter index.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void activeParamEmphasisesItsCallout();
+    /**
+     * @brief Verify two supplied warnings create distinct prefixed leaders at different pixel
+     * offsets.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void warningsBecomeCallouts();
+    /**
+     * @brief Verify caller m/mm/hr labels replace default ft text without converting synthetic
+     * numeric values.
+     * @note Local owned value fixtures and QtTest assertions only; no file writes or live model
+     * mutation.
+     */
     void unitLabelsFlowThrough();
 };
 

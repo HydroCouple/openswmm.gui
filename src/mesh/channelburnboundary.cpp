@@ -33,6 +33,16 @@ namespace mesh
 namespace
 {
 
+/**
+ * @brief Test proximity to every implicit closed ring segment with relative squared-distance
+ * tolerance.
+ * @param[in] ring Borrowed finite points in one Cartesian frame, unchanged; empty/zero-length
+ * segments skip.
+ * @param[in] p Borrowed finite query in that frame, unchanged.
+ * @return True when squared distance <=1e-18*max(1,segmentLengthSquared), false otherwise. Does
+ * not require >=3 vertices or certify polygon validity; no allocation, mutation or retained
+ * references.
+ */
 bool pointOnRing(const QPolygonF &ring, const QPointF &p)
 {
     for (int i = 0; i < ring.size(); ++i) {
@@ -48,7 +58,16 @@ bool pointOnRing(const QPolygonF &ring, const QPointF &p)
     return false;
 }
 
-/*! Cumulative length along \p path. */
+/**
+ * @brief Build cumulative planar Euclidean chainage parallel to ordered path points.
+ * @param[in] path Borrowed finite Cartesian points, unchanged; repeated points retain repeated
+ * chainage.
+ * @return Owned same-count array starting zero, empty for empty path. No
+ * geodesic/finite/strict-order validation or source mutation; caller keeps compatible units and
+ * avoids overflow.
+ *
+ * @details Cumulative length along \p path.
+ */
 QVector<double> chainageOf(const QVector<QPointF> &path)
 {
     QVector<double> c(path.size(), 0.0);
@@ -57,7 +76,19 @@ QVector<double> chainageOf(const QVector<QPointF> &path)
     return c;
 }
 
-/*! Point and containing segment at chainage \p t. */
+/**
+ * @brief Interpolate a path position and containing segment with endpoint clamping.
+ * @param[in] path Borrowed finite ordered points, unchanged; empty returns default QPointF.
+ * @param[in] chain Borrowed matching nonempty cumulative chainage for nonempty path, unchanged;
+ * intended ascending, count/consistency unchecked.
+ * @param[in] t Finite query distance in chain units, required for safe bracket lookup.
+ * @param[out] segment Optional borrowed segment index, assigned for nonempty path, untouched
+ * empty; one-point path queried at/after final endpoint can yield -1. No pointer retained.
+ * @return Interpolated/clamped point in path frame. Does not allocate, transform, validate
+ * geometry or mutate input; repeated nonpositive interval uses its lower point.
+ *
+ * @details Point and containing segment at chainage \p t.
+ */
 QPointF pointAt(const QVector<QPointF> &path, const QVector<double> &chain, double t,
                 int *segment = nullptr)
 {
@@ -84,7 +115,20 @@ QPointF pointAt(const QVector<QPointF> &path, const QVector<double> &chain, doub
     return path[lo] + (path[hi] - path[lo]) * f;
 }
 
-/*! Chainages at which segment \p i of \p path meets the closed ring \p ring. */
+/**
+ * @brief Append finite-segment/closed-ring intersection chainages as transition candidates.
+ * @param[in] path Borrowed path, unchanged; valid indices i and i+1 required.
+ * @param[in] chain Borrowed matching cumulative distances, unchanged.
+ * @param[in] i Nonnegative segment index with i+1 within both arrays, unchecked.
+ * @param[in] ring Borrowed finite ring, implicit last-to-first closure, unchanged; <3 points
+ * ignored.
+ * @param[in,out] out Required nonnull borrowed vector, candidate distances appended, not
+ * cleared. Parallel/degenerate determinant absolute value <1e-15 skips, collinear overlaps
+ * ignored; endpoints included. May append duplicate/tangent hits, caller sorts/probes. No robust
+ * predicate, unit conversion, source mutation or retained pointers; append may allocate.
+ *
+ * @details Chainages at which segment \p i of \p path meets the closed ring \p ring.
+ */
 void segmentRingHits(const QVector<QPointF> &path, const QVector<double> &chain, int i,
                      const QPolygonF &ring, QVector<double> *out)
 {
@@ -114,9 +158,20 @@ void segmentRingHits(const QVector<QPointF> &path, const QVector<double> &chain,
     }
 }
 
-/*! Every chainage at which \p path meets any ring of \p domain, sorted and
- *  deduplicated. These are CANDIDATES: meeting a ring is not the same as
- *  crossing it. */
+/**
+ * @brief Collect, sort and tolerance-deduplicate all potential ring contact distances.
+ * @param[in] path Borrowed finite polyline with >=2 points, unchanged.
+ * @param[in] chain Borrowed matching nonempty finite cumulative chainage, unchanged; positive
+ * segments tested.
+ * @param[in] domain Borrowed immutable rings/holes with fresh optional hole index, unchanged.
+ * @return Owned sorted contact distances, not necessarily actual crossings; outer rings always
+ * tested, holes filtered by segment bounds. Coalesces within max(1e-12,total*1e-12), inherits
+ * parallel/collinear limits from segmentRingHits(). Allocates arrays, no source mutation or
+ * file/engine access.
+ *
+ * @details Every chainage at which \p path meets any ring of \p domain, sorted and deduplicated.
+ * These are CANDIDATES: meeting a ring is not the same as crossing it.
+ */
 QVector<double> candidateChainages(const QVector<QPointF> &path, const QVector<double> &chain,
                                    const BurnDomain &domain)
 {
@@ -381,6 +436,15 @@ bool truncationCrossing(const QVector<QPointF> &path, const BurnDomain &domain,
 }
 
 // The open section's full depth at chainage c: bank height above the thalweg.
+/**
+ * @brief Estimate local section relief above bed from sampled lateral offsets.
+ * @param[in] p Borrowed fully consistent finite profile, unchanged; section query prerequisites
+ * apply.
+ * @param[in] c Finite chainage in profile horizontal units.
+ * @return Maximum sampled sectionZ-bed, floored at zero, in profile vertical units. NaN
+ * comparisons are ignored by std::max ordering; not a continuous-section maximum or hydraulic
+ * full-depth query. No allocation, source mutation or retained reference.
+ */
 static double bankHeightAt(const BurnProfile &p, double c)
 {
     const double bed = bedZAt(p, c);
@@ -390,6 +454,19 @@ static double bankHeightAt(const BurnProfile &p, double c)
     return top;
 }
 
+/**
+ * @brief Choose fixed or wave-speed-based connector length with a two-cell automatic floor.
+ * @param[in] p Borrowed fully consistent profile, unchanged; used only for automatic depth
+ * estimate.
+ * @param[in] c Finite endpoint chainage in profile horizontal units.
+ * @param[in] rule Borrowed scales/settings, unchanged; positive fixedLength returns directly
+ * without cell floor. Automatic positive routing step/horizontal scale uses
+ * sqrt(9.81*depthMetres), divided by metres per horizontal unit, then max with 2*cellSize.
+ * Caller provides finite positive unit factors.
+ * @return Connector length in profile XY units, potentially zero for disabled automatic
+ * settings. Does not inspect rule.enabled, validate finite/range values, allocate or mutate
+ * caller state.
+ */
 static double connectorLengthFor(const BurnProfile &p, double c, const BurnConnectorRule &rule)
 {
     if (rule.fixedLength > 0)
@@ -406,6 +483,23 @@ static double connectorLengthFor(const BurnProfile &p, double c, const BurnConne
 // One partition of every profile into burned and retained intervals. With an
 // empty connectorNodes set this is the original boundary partition; otherwise
 // the burned end meeting each listed node keeps a connector stretch in 1D.
+/**
+ * @brief Construct one boundary/connector partition and copied network surgery plan.
+ * @param[in] profiles Borrowed unique-ID, fully consistent finite profiles, unchanged; strict
+ * ascending offsets/minimal validity/positive length checked, other stronger query invariants
+ * remain caller duties.
+ * @param[in] network Borrowed source topology, unchanged; copied and split locally.
+ * @param[in] domain Borrowed immutable XY-compatible domain/index, unchanged.
+ * @param[in] rule Borrowed connector units/settings, unchanged.
+ * @param[in] connectorNodes Borrowed exact node IDs that require retained endpoint connector
+ * stretches; empty performs boundary-only partition. Unknown IDs have no effect.
+ * @return Owned complete plan or partial plan with nonempty error on invalid
+ * profile/replacementError. Uses midpoint ownership between true crossings, creates names
+ * avoiding case-insensitive node/link collisions, slices bed/relative grids and classifies
+ * resulting node roles. Missing source link can still produce burn slices/splits without network
+ * updates. No original topology mutation, engine/undo operations, callbacks, cancellation or IO;
+ * allocates copied network, arrays/maps/plans.
+ */
 static BurnReplacementPlan partition(const QVector<BurnProfile> &profiles,
                                      const BurnNetwork &network, const BurnDomain &domain,
                                      const BurnConnectorRule &rule,

@@ -30,6 +30,8 @@
 namespace
 {
 
+/** @brief Import an owned subcatchment quality engine with allocated loading storage.
+ * @return Opened engine for the caller to destroy, or nullptr on any checked file/allocation/open failure. Stages a retained model/report/output under the source-relative model_editors artifact directory and logs engine-open failure. Uses INP import because the programmatic add path lacks initial-loading allocation. */
 SWMM_Engine buildQualityFixture()
 {
     // The current engine's programmatic add path fails to size initial-loading
@@ -69,6 +71,10 @@ SWMM_Engine buildQualityFixture()
     return e;
 }
 
+/** @brief Build a borrowed compound-editor context for S1.
+ * @param[in] e Live engine that must outlive the dialog or be invalidated before destruction.
+ * @param[in] kind Compound page kind to open.
+ * @return Independent context containing the engine pointer, S1 name and requested page kind. */
 SubcatchCompoundEditRef makeRef(SWMM_Engine e, SubcatchCompoundEditRef::Kind kind)
 {
     SubcatchCompoundEditRef r;
@@ -79,6 +85,10 @@ SubcatchCompoundEditRef makeRef(SWMM_Engine e, SubcatchCompoundEditRef::Kind kin
 }
 
 /// The dialog hosts one QTableWidget per page — pick by first-column header.
+/** @brief Find a compound-page table by exact first-column header text.
+ * @param[in] dlg Borrowed dialog searched recursively.
+ * @param[in] firstColumn Header label to match.
+ * @return Borrowed first matching table, or nullptr. */
 QTableWidget *tableByHeader(QDialog &dlg, const QString &firstColumn)
 {
     const auto tables = dlg.findChildren<QTableWidget *>();
@@ -96,6 +106,7 @@ class TestSubcatchCoverageLoadings : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Verify invalidating a compound editor before engine destruction disables it and prevents a later stale cell edit from changing its summary. */
     void invalidatedCompoundCannotUseDestroyedEngine()
     {
         SWMM_Engine e = buildQualityFixture();
@@ -113,6 +124,7 @@ private slots:
         table->item(0, 1)->setText(QStringLiteral("12"));
         QCOMPARE(dlg.updatedSummary(), summary);
     }
+    /** @brief Verify coverage and initial-loading cell text round-trips the exact stored doubles. */
     void editableValuesPreserveFullPrecision()
     {
         SWMM_Engine e = buildQualityFixture();
@@ -135,6 +147,7 @@ private slots:
         QCOMPARE(shownLoading, loading);
     }
 
+    /** @brief Register NaN coverage and NaN/infinite initial loading edits. */
     void nonfiniteEditsNeverReachEngine_data()
     {
         QTest::addColumn<bool>("loading");
@@ -144,6 +157,7 @@ private slots:
         QTest::newRow("loading-infinity") << true << QStringLiteral("inf");
     }
 
+    /** @brief Verify nonfinite text edits preserve the original finite engine value after the warning is dismissed. */
     void nonfiniteEditsNeverReachEngine()
     {
         QFETCH(bool, loading);
@@ -171,6 +185,8 @@ private slots:
         QCOMPARE(value, loading ? 2.5 : 60.0);
     }
 
+    /** @brief Verify all compound tables have nonempty accessible names and the dialog has a description.
+     * The assertion does not compare names for uniqueness. */
     void editableTablesHaveAccessiblePurpose()
     {
         SWMM_Engine e = buildQualityFixture();
@@ -185,6 +201,7 @@ private slots:
         QVERIFY(!dlg.accessibleDescription().isEmpty());
     }
 
+    /** @brief Verify coverage lists defined zero-percent land uses and keeps names read-only while allowing percentage edits. */
     void coverageMatrixListsAllLandUses()
     {
         SWMM_Engine e = buildQualityFixture();
@@ -206,6 +223,7 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /** @brief Verify editing a coverage writes through and reveals a newly added land use, and setting coverage to zero removes its value. */
     void editingCellWritesEngineAndRelists()
     {
         SWMM_Engine e = buildQualityFixture();
@@ -233,6 +251,7 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /** @brief Verify a 130-percent combined coverage produces a visible warning label. */
     void sumWarningWhenOver100()
     {
         SWMM_Engine e = buildQualityFixture();
@@ -247,6 +266,7 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /** @brief Verify loading rows hydrate both pollutants and a Lead cell edit reaches the engine. */
     void loadingsPageRoundTrips()
     {
         SWMM_Engine e = buildQualityFixture();

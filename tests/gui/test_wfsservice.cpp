@@ -36,6 +36,9 @@
 namespace
 {
 
+/** @brief Read a saved OGC response fixture.
+ * @param[in] name File appended under SWMMVIS_GUI_TEST_DATA/ogc without sanitization.
+ * @return Entire file bytes or empty on open failure; unset data root yields an absolute /ogc path. */
 QByteArray fixture(const QString &name)
 {
     const QByteArray dir = qgetenv("SWMMVIS_GUI_TEST_DATA");
@@ -53,21 +56,33 @@ QByteArray fixture(const QString &name)
 class LocalWfs : public QTcpServer
 {
 public:
+    /** @brief Attempt to listen on a dynamically assigned IPv4 loopback port.
+     * Listen failure is not checked here; serverPort is zero when no listener was established. */
     LocalWfs() { listen(QHostAddress::LocalHost, 0); }
 
+    /** @brief Build this local fixture service URL.
+     * @return http://127.0.0.1 followed by the bound port and /wfs; no external host is contacted. */
     [[nodiscard]] QString endpoint() const
     {
         return QStringLiteral("http://127.0.0.1:%1/wfs").arg(serverPort());
     }
 
+    /** @brief Replace the canned GetFeature response.
+     * @param[in] body Response bytes copied into server-owned storage and later advertised as application/json. */
     void answerFeaturesWith(const QByteArray &body) { m_features = body; }
 
     //! Answer the capabilities request with something that is not a WFS.
+    /** @brief Switch subsequent non-GetFeature responses to a WFS-not-supported exception document. */
     void refuseCapabilities() { m_isWfs = false; }
 
+    /** @brief Read the latest complete HTTP request target.
+     * @return Independent request-target string, empty before any complete header arrives. */
     [[nodiscard]] QString lastRequest() const { return m_lastRequest; }
 
 protected:
+    /** @brief Adopt an incoming socket and connect its read/disconnect handlers.
+     * @param[in] handle Native connected socket descriptor handed to a newly server-parented QTcpSocket; adoption errors are unchecked.
+     * The server owns the socket, with deferred deletion also scheduled on disconnect. */
     void incomingConnection(qintptr handle) override
     {
         auto *socket = new QTcpSocket(this);
@@ -80,6 +95,9 @@ protected:
     }
 
 private:
+    /** @brief Accumulate a request header and send one canned HTTP 200 response when complete.
+     * @param[in,out] socket Required connected socket owned by this server.
+     * Consumes buffered bytes through the first header terminator, records its target, selects JSON GetFeature or rewritten local capabilities/exception XML, writes/flushes unchecked and disconnects. This fixture does not implement request-body parsing or persistent connections. */
     void onReadyRead(QTcpSocket *socket)
     {
         m_buffers[socket].append(socket->readAll());
@@ -136,6 +154,8 @@ private:
 };
 
 //! A GeoJSON answer of the shape a WFS returns.
+/** @brief Build a two-polygon GeoJSON feature collection.
+ * @return Independent EPSG:4326 response with Upper/Lower names for local WFS tests. */
 QByteArray catchments()
 {
     return R"({"type":"FeatureCollection",
@@ -150,6 +170,10 @@ QByteArray catchments()
                               "coordinates":[[[5,52],[6,52],[6,53],[5,53],[5,52]]]}}]})";
 }
 
+/** @brief Pump events until a predicate succeeds or the elapsed timeout is reached.
+ * @param[in] done Required callable, evaluated repeatedly and once more for the return value.
+ * @param[in] milliseconds Timeout in milliseconds, default four seconds; nonpositive values skip pumping.
+ * @return Final predicate value. Event processing uses twenty-millisecond slices and may execute unrelated pending GUI/network callbacks. */
 bool waitFor(const std::function<bool()> &done, int milliseconds = 4000)
 {
     QElapsedTimer timer;
@@ -175,6 +199,7 @@ private slots:
     void aLayerKeepsItsFeaturesReadableForItsWholeLife();
 };
 
+/** @brief Verify connecting to local capabilities discovers five collections, shows the service title and enables Add without a separate manual selection. */
 void TestWfsService::anAddressIsEnoughToListWhatTheServiceHolds()
 {
     LocalWfs server;
@@ -202,6 +227,8 @@ void TestWfsService::anAddressIsEnoughToListWhatTheServiceHolds()
     QVERIFY(dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled());
 }
 
+/** @brief Verify Add waits for actual features and requests bounded GeoJSON using authority-axis-order EPSG:4326 BBOX.
+ * Checks the created owned WFS layer has two features, the correct type name and a user-readable provenance without vsimem paths. */
 void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
 {
     LocalWfs server;
@@ -256,6 +283,7 @@ void TestWfsService::choosingACollectionFetchesItOverTheGroundInView()
     QVERIFY(layer->sourceDescription().contains(QStringLiteral("bag:pand")));
 }
 
+/** @brief Verify an empty collection reports no features, remains unaccepted and permits another Add attempt without creating a layer. */
 void TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen()
 {
     LocalWfs server;
@@ -285,6 +313,7 @@ void TestWfsService::aCollectionHoldingNothingThereSaysSoAndStaysOpen()
     QVERIFY(dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled());
 }
 
+/** @brief Verify server exception text reaches the status and malformed URL text is refused before fetching. */
 void TestWfsService::anAddressThatIsNotAFeatureServiceSaysWhatItSaid()
 {
     LocalWfs server;
@@ -313,6 +342,8 @@ void TestWfsService::anAddressThatIsNotAFeatureServiceSaysWhatItSaid()
     QVERIFY(nowhere.wfsStatus().contains(QStringLiteral("not a web address")));
 }
 
+/** @brief Verify two adopted in-memory responses retain independent readable datasets and invalid replacement responses preserve the existing features.
+ * Checks a service exception preserves its precise type-name diagnostic. */
 void TestWfsService::aLayerKeepsItsFeaturesReadableForItsWholeLife()
 {
     // Unlike a layer that reads everything into memory once, this one keeps

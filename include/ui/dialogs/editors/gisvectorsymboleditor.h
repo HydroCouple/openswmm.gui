@@ -5,7 +5,7 @@
  * @license   GPL-3.0-or-later
  * @brief     GIS-style editor for GisVectorSymbolAdapter (Slice U-V4).
  *
- *         Surfaces every Q_PROPERTY of the GISVectorSymbol struct
+ *         Surfaces live GISVectorSymbol controls
  *         (markers, lines, polygons, labels) in a single tabbed
  *         widget. Geometry-specific sub-tabs let the user style
  *         points/lines/polygons independently; labels are always
@@ -37,11 +37,36 @@ class GisVectorSymbolEditor : public IStyleEditorWidget
 {
     Q_OBJECT
 public:
+    /**
+     * @brief Build live marker/line/polygon/label controls bound directly to a GIS symbol
+     * adapter.
+     * @param adapter Borrowed raw adapter required for interactive use; it must outlive this
+     * widget and every control callback. A null adapter leaves refresh inert but callbacks
+     * still dereference it, so null is not a safe editable binding.
+     * @param parent Optional Qt owner; caller owns parentless widget.
+     * Copies values into controls under signal blockers, then listens to symbolChanged for
+     * external edits/Cancel restoration. Individual callbacks submit only their property;
+     * label field commits on editingFinished, other controls on change. No explicit undo,
+     * snapshot or rollback policy. Marker fill/polygon fill expose alpha. GUI thread only.
+     */
     explicit GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QWidget *parent = nullptr);
 
+    /**
+     * @brief Read adapter values into every control under blockers and refresh three preview
+     * swatches.
+     * No-op for null adapter; requires a nonnull raw target to remain alive. Spin boxes round/
+     * clamp display values without writing them, label text refresh replaces any uncommitted
+     * draft, and target signals remain unblocked. No ownership transfer or snapshot.
+     */
     void refreshFromModel() override;
 
 private:
+    /**
+     * @brief Render point/line/polygon swatch properties from the adapter's actual values.
+     * Requires a live nonnull adapter; guards each preview pointer only. Sets point shape/
+     * fill/outline/size, line color/dash/width and polygon fill/outline/alpha. No style mutation,
+     * label preview, canvas repaint or write of displayed rounded values.
+     */
     void updatePreview();
 
     GisVectorSymbolAdapter *m_adapter = nullptr;

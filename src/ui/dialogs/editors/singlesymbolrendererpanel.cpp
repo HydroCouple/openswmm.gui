@@ -45,6 +45,17 @@ namespace
 class SingleSymbolPanel : public IRendererPanel
 {
 public:
+    /**
+     * @brief Mount a dedicated symbol editor for the rule or host/category style in a copied
+     * context.
+     * @param ctx Borrowed context copied into panel storage; raw rule/host and any borrowed
+     * persistent style must outlive panel/edit callbacks. Rule takes priority and receives
+     * an owned archetype-specific SymbolStyleAdapter wrapper, not ownership of the rule.
+     * @param parent Optional Qt owner; caller owns parentless panel.
+     * Registry-created editor is parent-owned; missing style/editor shows a diagnostic label,
+     * with no generic property-grid fallback. Does not install a renderer, capture a snapshot,
+     * create undo commands or apply edits itself. Child editors define live behavior.
+     */
     explicit SingleSymbolPanel(const RendererPanelContext &ctx, QWidget *parent)
         : IRendererPanel(parent), m_ctx(ctx)
     {
@@ -53,20 +64,9 @@ public:
 
         QObject *style = nullptr;
 
-        // Slice B.6c — Rule path takes priority. Build a SymbolStyleAdapter
-        // around the Rule's SingleSymbolRenderer and surface its
-        // Q_PROPERTYs through the StyleEditorRegistry (falls through to
-        // the QPropertyModel generic tree when no specific editor is
-        // registered for SymbolStyleAdapter yet — that's the user-visible
-        // form for now; a dedicated FeatureStyleEditor variant is the
-        // named follow-up).
-        //
-        // Slice SS.1 — pick an archetype-aware adapter (Point / Line /
-        // Polygon) via the factory so the QPropertyModel-driven editor
-        // only surfaces properties that apply to the underlying
-        // geometry. Falls back to the generic SymbolStyleAdapter when
-        // the first SymbolLayer's kind doesn't map to one of the three
-        // archetypes (raster / hillshade / contour passes).
+        // Rule path owns an archetype-specific adapter wrapper around the rule's
+        // renderer. The registry supplies a dedicated editor; absent registration
+        // shows the diagnostic below. There is no generic property-grid fallback.
         if (m_ctx.rule) {
             m_styleAdapter.reset(OpenSWMM::Render::SymbolStyleAdapter::createFor(m_ctx.rule));
             style = m_styleAdapter.get();
@@ -96,11 +96,20 @@ public:
         lay->addStretch();
     }
 
+    /**
+     * @brief Perform no explicit refresh in this wrapper.
+     * Relies on mounted editors' own notification subscriptions; does not find/invoke their
+     * refresh methods, replace adapters or update a diagnostic-only page.
+     */
     void refreshFromModel() override
     {
         // Children refresh themselves through their own NOTIFY hookups.
     }
 
+    /**
+     * @brief Return this panel's translated display label.
+     * @return Owned Single Symbol string, independent of live renderer state.
+     */
     QString displayName() const override { return tr("Single Symbol"); }
 
 private:
@@ -114,8 +123,8 @@ private:
 
 } // namespace
 
-// Register the factory at static-init time.  RendererPanelRegistry walks
-// in insertion order, so this entry appears first in the dropdown.
+// Static registration factory borrows ctx targets and passes widget ownership
+// through parent. Registry insertion order across translation units is unspecified.
 REGISTER_RENDERER_PANEL("single", "Single Symbol",
                         [](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
                             return new SingleSymbolPanel(ctx, parent);

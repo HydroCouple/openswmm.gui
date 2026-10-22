@@ -2,7 +2,7 @@
  * @file      meshgenerator.cpp
  * @brief     2D mesh generator (workplans/MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md): a constrained
  *            Delaunay triangulation of every constraint, refined to the caller's size function and
- *            a guaranteed minimum angle (mesh/meshcdt.h), with aligned quad strips only where
+ *            a requested minimum angle (mesh/meshcdt.h), with aligned quad strips only where
  *            features ask for them — four-sided quad regions, corridors, streets between facing
  *            break lines, conduits.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
@@ -64,6 +64,12 @@ namespace mesh
 namespace
 {
 
+/**
+ * @brief Copy an implicit closed ring into a winding-fill painter path.
+ * @param[in] ring Borrowed finite XY polygon, unchanged; empty returns empty path.
+ * @return Owned path with explicit closure. No simple-polygon validation, coordinate transform,
+ * source retention or file/engine effects; may allocate path storage.
+ */
 QPainterPath patchRingPath(const QPolygonF &ring)
 {
     QPainterPath path;
@@ -75,6 +81,13 @@ QPainterPath patchRingPath(const QPolygonF &ring)
     return path;
 }
 
+/**
+ * @brief Sum absolute local-origin shoelace areas of a path's fill polygons.
+ * @param[in] path Borrowed finite painter geometry, unchanged.
+ * @return Nonnegative area in squared path units, zero for no >=3-point fill polygon. Uses Qt's
+ * fill polygon decomposition, not adaptive exact area arithmetic; may allocate decomposition
+ * arrays. No source mutation, coordinate conversion or IO.
+ */
 double patchPathArea(const QPainterPath &path)
 {
     double area = 0;
@@ -93,6 +106,13 @@ double patchPathArea(const QPainterPath &path)
     return area;
 }
 
+/**
+ * @brief Copy ring vertices after subtracting a common arithmetic origin.
+ * @param[in] ring Borrowed finite polygon, unchanged.
+ * @param[in] origin Borrowed finite reference in same XY units, unchanged.
+ * @return Owned translated polygon, preserving count/order/closure. No CRS transform, topology
+ * check or source-pointer retention; allocates output.
+ */
 QPolygonF patchRelativeRing(const QPolygonF &ring, const QPointF &origin)
 {
     QPolygonF relative;
@@ -102,11 +122,27 @@ QPolygonF patchRelativeRing(const QPolygonF &ring, const QPointF &origin)
     return relative;
 }
 
+/**
+ * @brief Compute the planar determinant of two vectors.
+ * @param[in] a Borrowed finite vector, unchanged.
+ * @param[in] b Borrowed compatible vector, unchanged.
+ * @return Signed squared-unit cross product, no overflow/finite audit, allocation or mutation.
+ */
 double patchCross(const QPointF &a, const QPointF &b)
 {
     return a.x() * b.y() - a.y() * b.x();
 }
 
+/**
+ * @brief Test tolerant perpendicular distance and endpoint projection bounds.
+ * @param[in] point Borrowed finite query in common XY frame, unchanged.
+ * @param[in] a Borrowed finite segment start, unchanged.
+ * @param[in] b Borrowed finite segment end, unchanged.
+ * @param[in] tolerance Intended nonnegative finite XY distance, unchecked; bounds inclusive.
+ * @return True within line-distance tolerance and projected endpoint extension by tolerance;
+ * degenerate segment uses radial endpoint distance. No robust finite audit, allocation or
+ * mutation.
+ */
 bool patchPointOnSegment(const QPointF &point, const QPointF &a, const QPointF &b, double tolerance)
 {
     const QPointF delta = b - a;
@@ -118,6 +154,14 @@ bool patchPointOnSegment(const QPointF &point, const QPointF &a, const QPointF &
            std::abs(patchCross(delta, point - a)) <= tolerance * length;
 }
 
+/**
+ * @brief Test proximity to any implicit-closure polygon boundary segment.
+ * @param[in] point Borrowed finite XY query, unchanged.
+ * @param[in] ring Borrowed finite polygon in same frame, unchanged; empty misses.
+ * @param[in] tolerance Nonnegative finite XY distance, unchecked, inclusive boundary test.
+ * @return True for any tolerant segment hit; not an interior/simplicity test. No
+ * allocation/mutation.
+ */
 bool patchPointOnRing(const QPointF &point, const QPolygonF &ring, double tolerance)
 {
     for (int i = 0; i < ring.size(); ++i)
@@ -128,6 +172,18 @@ bool patchPointOnRing(const QPointF &point, const QPolygonF &ring, double tolera
 
 // Endpoints alone miss a segment traversing a concave patch or crossing from
 // boundary to boundary: split at every intersection and test each interval.
+/**
+ * @brief Split a segment at ring contacts and test non-boundary interior portions.
+ * @param[in] a Borrowed finite segment start, unchanged.
+ * @param[in] b Borrowed finite end in same XY frame, unchanged.
+ * @param[in] ring Borrowed compatible implicit-closure boundary, unchanged.
+ * @param[in] path Borrowed winding-fill geometry for exactly that ring/frame, unchanged.
+ * @param[in] tolerance Nonnegative finite XY distance treating near-ring samples as boundary.
+ * @return True when an interval midpoint is strictly path-inside and not tolerance-close to
+ * boundary; degenerate segment tests its point. Ordinary double intersection cuts and collinear
+ * projections, not adaptive robust geometry. Allocates cuts; no source mutation/retained
+ * references or IO.
+ */
 bool patchSegmentEntersInterior(const QPointF &a, const QPointF &b, const QPolygonF &ring,
                                 const QPainterPath &path, double tolerance)
 {
@@ -162,8 +218,27 @@ bool patchSegmentEntersInterior(const QPointF &a, const QPointF &b, const QPolyg
     return false;
 }
 
-/*! Empty on success. \p exclusionBoundaries receives the hole rings (relative
- *  to \p origin) so the stitch check can exempt patch edges lying on them. */
+/**
+ * @brief Validate explicit patch containment/overlap and required-constraint compatibility.
+ * @param[in] patches Borrowed valid local-index quad patches, unchanged; each fully validated
+ * before use.
+ * @param[in] domains Borrowed finite outer rings, unchanged; united into one winding-fill
+ * domain.
+ * @param[in] holes Borrowed finite exclusion seeds, unchanged; innermost enclosing closed
+ * constraint ring identifies hole, ambiguous intersecting rings around seed reject.
+ * @param[in] segments Borrowed required finite polylines, unchanged; closed exact-coordinate
+ * loops participate in hole ownership; any segment entering patch interior rejects.
+ * @param[in] origin Borrowed common finite XY origin subtracted for stable clipping, unchanged.
+ * @param[in,out] exclusionBoundaries Required nonnull borrowed vector, appends relative hole
+ * rings before patch checks, not cleared; may be partial on failure. Not retained.
+ * @return Empty on compatible placement, otherwise first owned diagnostic. Qt path area
+ * tolerance max(1e-24,patchArea*64*epsilon) permits tiny rounding slivers, not a robust exact
+ * topology proof. Allocates grids/path clipping/prior patch arrays, no original geometry
+ * mutation, callback or IO.
+ *
+ * @details Empty on success. \p exclusionBoundaries receives the hole rings (relative to \p
+ * origin) so the stitch check can exempt patch edges lying on them.
+ */
 QString validatePatchPlacement(const QVector<PatchMesh> &patches, const QVector<QPolygonF> &domains,
                                const QVector<QPointF> &holes,
                                const QVector<ConstraintSegment> &segments, const QPointF &origin,
@@ -318,8 +393,19 @@ QString validatePatchPlacement(const QVector<PatchMesh> &patches, const QVector<
     return {};
 }
 
-/*! True when the edge a–b lies entirely on one of \p outlines, checking
- *  every sub-interval so a gap between collinear segments is not bridged. */
+/**
+ * @brief Test whether every subinterval of a segment lies on one outline boundary.
+ * @param[in] a Borrowed finite segment start in common relative XY frame, unchanged.
+ * @param[in] b Borrowed compatible end, unchanged; zero length returns false.
+ * @param[in] outlines Borrowed implicit-closure rings, unchanged; each tested independently.
+ * @param[in] tolerance Nonnegative finite XY proximity distance, unchecked.
+ * @return True when one ring covers every interval after splitting at nearby ring vertices; does
+ * not combine separate rings to bridge gaps. Allocates cuts, no source mutation or ownership
+ * retention.
+ *
+ * @details True when the edge a–b lies entirely on one of \p outlines, checking every
+ * sub-interval so a gap between collinear segments is not bridged.
+ */
 bool patchEdgeOnOutline(const QPointF &a, const QPointF &b, const QVector<QPolygonF> &outlines,
                         double tolerance)
 {
@@ -444,7 +530,14 @@ constexpr double kStripMaxTurnDeg = 45.0;
 
 using EdgeKey = QPair<int, int>; // mesh::edgeKey (meshedgekey.h) builds them
 
-/*! Exact-coordinate key (bit pattern, -0 folded). */
+/**
+ * @brief Encode exact coordinate bits into a two-word identity with signed zero folded.
+ * @param[in] p Borrowed XY point, unchanged; finite values expected by generator.
+ * @return Pair of 64-bit double bit patterns, not a tolerance/spatial hash. No
+ * allocation/mutation.
+ *
+ * @details Exact-coordinate key (bit pattern, -0 folded).
+ */
 inline QPair<qint64, qint64> coordKey(const QPointF &p)
 {
     double x = p.x(), y = p.y();
@@ -458,7 +551,15 @@ inline QPair<qint64, qint64> coordKey(const QPointF &p)
     return {kx, ky};
 }
 
-/*! Ring without its closing duplicate and without consecutive duplicates. */
+/**
+ * @brief Copy a point sequence without consecutive/closing QPointF-equal duplicates.
+ * @param[in] ring Borrowed coordinates, unchanged; equality follows QPointF semantics.
+ * @return Owned open sequence, possibly empty/short. Does not ensure finite/simple/CCW polygon
+ * or remove nonconsecutive duplicates. Allocates output, no unit conversion or retained
+ * references.
+ *
+ * @details Ring without its closing duplicate and without consecutive duplicates.
+ */
 QVector<QPointF> openRing(const QVector<QPointF> &ring)
 {
     QVector<QPointF> out;
@@ -471,6 +572,14 @@ QVector<QPointF> openRing(const QVector<QPointF> &ring)
     return out;
 }
 
+/**
+ * @brief Apply planar odd-even ray parity to an implicitly closed coordinate sequence.
+ * @param[in] ring Borrowed finite Cartesian points, unchanged; empty/short inputs allowed but
+ * not certified.
+ * @param[in] p Borrowed finite same-frame query, unchanged.
+ * @return Ray-parity membership; exact boundary behavior unspecified, caller handles boundaries
+ * when needed. No orientation, simplicity, robust-predicate audit, allocation or state mutation.
+ */
 bool pointInRing(const QVector<QPointF> &ring, const QPointF &p)
 {
     bool inside = false;
@@ -494,6 +603,14 @@ bool pointInRing(const QVector<QPointF> &ring, const QPointF &p)
 class RingIndex
 {
 public:
+    /**
+     * @brief Build conservative grid metadata over borrowed immutable ring arrays.
+     * @param[in] rings Borrowed vector of nullable ring pointers, copied as pointers only. Every
+     * nonnull ring must outlive index and remain unchanged; >=3-point finite rings participate.
+     * No ownership transfer. Owns padded boxes, <=1024-per-axis cells and large-box list; boxes
+     * spanning >64 cells use fallback list. Finite grid arithmetic/int counts caller
+     * prerequisite; no geometry validation/mutation or IO.
+     */
     explicit RingIndex(const QVector<const QVector<QPointF> *> &rings)
         : m_rings(rings), m_boxes(rings.size())
     {
@@ -534,8 +651,19 @@ public:
                     m_cells[r * m_n + c].append(i);
         }
     }
-    /*! Calls \p fn(index) for each ring containing \p p, in ascending index
-     *  order, until \p fn returns false. */
+    /**
+     * @brief Visit containing rings in ascending source index, stopping when callback returns
+     * false.
+     * @param[in] p Borrowed finite query in ring XY units, unchanged; cell conversions fit int.
+     * @param[in] fn Synchronous borrowed callable receiving ring index and returning continue
+     * bool. Not retained, must not mutate indexed rings/index or throw; transient geometry not
+     * exposed. Conservative box filtering then odd-even ring test. Null/short rings omitted. No
+     * ownership transfer, source mutation or IO; caller ensures immutable borrowed ring
+     * lifetime.
+     *
+     * @details Calls \p fn(index) for each ring containing \p p, in ascending index order, until
+     * \p fn returns false.
+     */
     template <class Fn> void visitContaining(const QPointF &p, Fn &&fn) const
     {
         if (m_cells.isEmpty())
@@ -554,6 +682,13 @@ public:
                 return;
         }
     }
+    /**
+     * @brief Test whether any indexed ring contains a finite point.
+     * @param[in] p Borrowed common-frame XY query, unchanged.
+     * @return True on first odd-even ring hit, false otherwise, boundary semantics inherited.
+     * Uses no source mutation/retention; requires live immutable ring pointers/index and
+     * int-safe grid arithmetic.
+     */
     [[nodiscard]] bool anyContains(const QPointF &p) const
     {
         bool found = false;
@@ -565,7 +700,19 @@ public:
     }
 
 private:
+    /**
+     * @brief Map an x coordinate to a clamped ring-grid column.
+     * @param[in] x Finite same-frame coordinate with (x-origin)/cellWidth representable as int,
+     * unchecked.
+     * @return Clamped [0,m_n-1] column; requires nonempty initialized grid. No
+     * allocation/mutation.
+     */
     int cx(double x) const { return std::clamp(int((x - m_origin.x()) / m_cw), 0, m_n - 1); }
+    /**
+     * @brief Map a y coordinate to a clamped ring-grid row.
+     * @param[in] y Finite same-frame coordinate with quotient representable as int, unchecked.
+     * @return Clamped [0,m_n-1] row; requires initialized nonempty grid. No allocation/mutation.
+     */
     int cy(double y) const { return std::clamp(int((y - m_origin.y()) / m_ch), 0, m_n - 1); }
     QVector<const QVector<QPointF> *> m_rings;
     QVector<QRectF> m_boxes;
@@ -576,6 +723,13 @@ private:
     int m_n = 0;
 };
 
+/**
+ * @brief Collect nonowning pointers to current ring vector elements.
+ * @param[in] rings Borrowed ring container, unchanged; must remain alive/unreallocated and
+ * immutable while returned pointers are used. Returned pointer array owns no ring geometry.
+ * @return Owned pointer vector in input order; allocation only, no source mutation or lifetime
+ * extension.
+ */
 QVector<const QVector<QPointF> *> ringPointers(const QVector<QVector<QPointF>> &rings)
 {
     QVector<const QVector<QPointF> *> out;
@@ -589,6 +743,17 @@ QVector<const QVector<QPointF> *> ringPointers(const QVector<QVector<QPointF>> &
 class SegmentGrid
 {
 public:
+    /**
+     * @brief Replace segment-grid contents with owned segment copies indexed by bounding cells.
+     * @param[in] segs Borrowed finite compatible-frame endpoint pairs, unchanged; copied into
+     * owned arrays.
+     * @param[in] cell Positive finite intended grid pitch in XY units; <=0/NaN falls back to 1,
+     * infinity is not independently rejected. Coordinate/pitch quotients and grid loops must fit
+     * qint64. Resets every owner to -1 and grid, fills full segment bounding rectangles; long
+     * diagonal segments can cost many buckets. Use addSplit for bounded stamping. No source
+     * retention, unit conversion, geometry validation, cancellation or IO; exclude queries
+     * during mutation.
+     */
     void build(const QVector<QPair<QPointF, QPointF>> &segs, double cell)
     {
         m_segs = segs;
@@ -604,9 +769,20 @@ public:
                     m_index[qMakePair(x, y)].append(i);
         }
     }
-    /*! Add a segment, split into pieces no longer than the cell so each
-     *  piece touches at most a 2×2 block of cells (long domain edges would
-     *  otherwise index their whole bounding box). */
+    /**
+     * @brief Append one owned segment as cell-length pieces with an owner ID for filtered
+     * queries.
+     * @param[in] a Borrowed finite start in grid XY units, unchanged.
+     * @param[in] b Borrowed compatible end, unchanged; zero-length segment allowed.
+     * @param[in] owner Caller identity copied to all pieces; -1 default, not validated. Requires
+     * initialized finite positive cell and representable ceil(length/cell), counts/grid loops.
+     * Appends piece arrays/buckets, may allocate; no total budget, source retention, geometry
+     * repair or IO.
+     *
+     * @details Add a segment, split into pieces no longer than the cell so each piece touches at
+     * most a 2×2 block of cells (long domain edges would otherwise index their whole bounding
+     * box).
+     */
     void addSplit(const QPointF &a, const QPointF &b, int owner = -1)
     {
         const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
@@ -627,9 +803,21 @@ public:
             prev = next;
         }
     }
-    /*! True when segment ab comes within r of any indexed segment
-     *  (crossing or touching counts as distance 0), ignoring the segments
-     *  added with owner \p ignore. */
+    /**
+     * @brief Test strict clearance from a query segment to any eligible indexed segment.
+     * @param[in] a Borrowed finite query start, unchanged.
+     * @param[in] b Borrowed compatible query end, unchanged.
+     * @param[in] r Positive finite XY clearance radius, grid extents representable; zero yields
+     * false even for exact contact because comparison is strict squared-distance <r*r.
+     * @param[in] ignore Owner ID to skip, default minimum int; matching IDs omitted without
+     * validation.
+     * @return True for a tested segment within strict radius, false otherwise. Duplicate bucket
+     * visits allowed; no allocation, source mutation or retained references, const queries
+     * require immutable grid.
+     *
+     * @details True when segment ab comes within r of any indexed segment (crossing or touching
+     * counts as distance 0), ignoring the segments added with owner \p ignore.
+     */
     [[nodiscard]] bool segmentNear(const QPointF &a, const QPointF &b, double r,
                                    int ignore = std::numeric_limits<int>::min()) const
     {
@@ -650,7 +838,19 @@ public:
             }
         return false;
     }
-    /*! Squared distance between segments ab and cd (0 when they cross). */
+    /**
+     * @brief Compute squared planar segment distance, with proper crossings returning zero.
+     * @param[in] a Borrowed first segment start, unchanged.
+     * @param[in] b Borrowed first end, unchanged.
+     * @param[in] c Borrowed second start in common finite frame, unchanged.
+     * @param[in] d Borrowed second end, unchanged.
+     * @return Squared XY distance via strict cross signs or minimum endpoint-to-segment
+     * distance, so touches/collinear overlaps also have zero distance under ordinary arithmetic.
+     * Not an adaptive robust predicate, no finite audit, allocation, state mutation or input
+     * retention.
+     *
+     * @details Squared distance between segments ab and cd (0 when they cross).
+     */
     static double segSegDist2(const QPointF &a, const QPointF &b, const QPointF &c,
                               const QPointF &d)
     {
@@ -668,6 +868,18 @@ public:
     /*! True when some segment lies closer to \p p than the clearance its
      *  owner asks for (\p clearance(owner), at most \p rMax). */
     template <class F>
+    /**
+     * @brief Test point clearance against each candidate owner's individual threshold.
+     * @param[in] p Borrowed finite grid-frame query, unchanged.
+     * @param[in] rMax Finite nonnegative search radius in XY units, at least every clearance
+     * callback result.
+     * @param[in] clearance Synchronous callable taking owner ID, returning intended nonnegative
+     * finite XY clearance <=rMax. May be called repeatedly for same segment/owner, not retained,
+     * must not mutate grid/throw.
+     * @return True for strict squared-distance hit, false otherwise. Larger callback radii can
+     * be missed outside searched buckets; negative values are squared rather than validated. No
+     * source mutation or IO.
+     */
     [[nodiscard]] bool withinOwnClearance(const QPointF &p, double rMax, F &&clearance) const
     {
         const qint64 x0 = cellOf(p.x() - rMax), x1 = cellOf(p.x() + rMax);
@@ -685,8 +897,19 @@ public:
             }
         return false;
     }
-    /*! Call \p f(segment endpoints a, b, owner) for every segment indexed in
-     *  a cell that meets \p box (a segment may come twice). */
+    /**
+     * @brief Invoke a callback for every segment entry in cells overlapping a rectangle.
+     * @param[in] box Borrowed normalized finite grid-frame rectangle, unchanged; int64-safe cell
+     * bounds required.
+     * @param[in] f Synchronous callable receiving const endpoint references and owner ID; can
+     * repeat the same segment through multiple buckets, not retained. References expire on grid
+     * mutation/destruction; must not mutate grid or throw. No precise segment/box filtering
+     * performed. Const grid access, no geometry copy/ownership transfer or IO; callback owns any
+     * output allocations.
+     *
+     * @details Call \p f(segment endpoints a, b, owner) for every segment indexed in a cell that
+     * meets \p box (a segment may come twice).
+     */
     template <class F> void visitBox(const QRectF &box, F &&f) const
     {
         for (qint64 y = cellOf(box.top()); y <= cellOf(box.bottom()); ++y)
@@ -698,8 +921,20 @@ public:
                     f(m_segs[i].first, m_segs[i].second, m_owner[i]);
             }
     }
-    /*! Squared distance to the nearest segment not owned by \p ignoreA or
-     *  \p ignoreB, or +inf when none within r. */
+    /**
+     * @brief Return nearest eligible segment distance among buckets intersecting a search
+     * square.
+     * @param[in] p Borrowed finite grid-frame query, unchanged.
+     * @param[in] r Finite nonnegative XY search half-width with representable cell extents.
+     * @param[in] ignoreA First owner ID excluded.
+     * @param[in] ignoreB Second owner ID excluded, may equal first.
+     * @return Minimum squared XY distance of visited segments, infinity if none. Does NOT clamp
+     * result to r or prove no nearer segment outside search square; far segments sharing a
+     * bucket can return distance >r. No source mutation, allocation, IO or retained pointers.
+     *
+     * @details Squared distance to the nearest segment not owned by \p ignoreA or
+     * \p ignoreB, or +inf when none within r.
+     */
     [[nodiscard]] double nearest2Ignoring(const QPointF &p, double r, int ignoreA,
                                           int ignoreB) const
     {
@@ -718,7 +953,16 @@ public:
             }
         return best;
     }
-    /*! Squared distance to the nearest segment, or +inf when none within r. */
+    /**
+     * @brief Return minimum segment distance among buckets intersecting a query-centered square.
+     * @param[in] p Borrowed finite grid-frame query, unchanged.
+     * @param[in] r Finite nonnegative XY search half-width, cell extents must fit int64.
+     * @return Minimum visited squared XY distance or infinity without candidates, not explicitly
+     * limited to r. No exact global nearest guarantee beyond searched cells; no
+     * allocation/mutation/IO.
+     *
+     * @details Squared distance to the nearest segment, or +inf when none within r.
+     */
     [[nodiscard]] double nearest2(const QPointF &p, double r) const
     {
         double best = std::numeric_limits<double>::infinity();
@@ -737,6 +981,12 @@ public:
     }
 
 private:
+    /**
+     * @brief Convert one coordinate to its signed segment-grid cell index.
+     * @param[in] v Finite grid-frame ordinate whose floor(v/cell) fits qint64, unchecked.
+     * @return Floor quotient; requires positive finite initialized cell. No allocation or
+     * mutation.
+     */
     [[nodiscard]] qint64 cellOf(double v) const { return qint64(std::floor(v / m_cell)); }
     QVector<QPair<QPointF, QPointF>> m_segs;
     QVector<int> m_owner;
@@ -768,8 +1018,20 @@ struct ClearEdge {
     double clear = 0.0;
 };
 
-/*! True when two non-adjacent segments of \p pts come within \p r of each
- *  other (a closed ring's last and first segments are adjacent). */
+/**
+ * @brief Test strict distance between nonadjacent polyline segments with bounding-box rejection.
+ * @param[in] pts Borrowed finite path vertices, unchanged; open-ring representation expected if
+ * closed.
+ * @param[in] closed Include implicit final edge and exempt first/last adjacency when true.
+ * @param[in] r Positive finite XY clearance, unchecked; zero comparison does not flag exact
+ * contact.
+ * @return True for any nonadjacent pair with squared distance <r*r, false for <3 edges or no
+ * hit. Quadratic pairs after bounds reject, allocates segment list, no source mutation or
+ * retained references.
+ *
+ * @details True when two non-adjacent segments of \p pts come within \p r of each other (a
+ * closed ring's last and first segments are adjacent).
+ */
 bool polylineSelfNear(const QVector<QPointF> &pts, bool closed, double r)
 {
     const int n = pts.size();
@@ -797,20 +1059,40 @@ bool polylineSelfNear(const QVector<QPointF> &pts, bool closed, double r)
     return false;
 }
 
-/*! Terrain break lines → constraint polylines that cannot cross or crowd
- *  anything else (MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE_2026-09-30.md §2.1).
+/**
+ * @brief Trim/simplify dense terrain polylines into noncoupling constraints clear of other
+ * inputs.
+ * @param[in] lines Borrowed same-frame dense lines, unchanged; nonfinite/repeated points
+ * filtered, longest lines processed first with stable ties. Closed input repeats first point.
+ * @param[in] polys Borrowed existing compatible prepared constraints, unchanged; indexed as
+ * obstacles.
+ * @param[in] domainRings Borrowed outer rings, unchanged, immutable for local nonowning indexes.
+ * @param[in] excludedRings Borrowed holes/patch interiors to avoid, unchanged.
+ * @param[in] steiners Borrowed fixed points, unchanged; treated as zero-length obstacles.
+ * @param[in] hMin Positive finite XY mesh floor, <=0/NaN returns empty. All grid/count ratios
+ * representable.
+ * @param[in] stripEdges Borrowed segment-specific clearance obstacles, unchanged; nonnegative
+ * finite widths.
+ * @param[in] minimumLength Positive XY accepted-run minimum; otherwise 4*hMin.
+ * @return Owned prepared Poly values, empty for no inputs/no survivors. Per-line max sample
+ * spacing sets cutback and simplification tolerance; then folds split, short/self-crowding runs
+ * rejected and accepted paths become obstacles. Closed rings do not become holes/barriers. No
+ * complete robust topology proof, total allocation budget, cancellation callbacks, source
+ * mutation, engine/IO or retained pointers.
  *
- *  Each dense input chain (spacing ≤ s, measured per line) is cut back to
- *  where every point lies at least D = hMin + 2s + 2·dev from the other
- *  constraints, Steiner points and already accepted lines (longest line
- *  first), inside the domain and outside holes and patches. Each surviving
- *  run is simplified (RDP, then a minimum segment length of hMin) within
- *  dev = max(hMin/4, 0.75 s) — the staircase of a pixel chain is at most
- *  ~0.7 px off its line — split wherever it folds back on itself (a hairpin
- *  of a two-pixel-wide response collapses to A→B→A′), and kept when it is at
- *  least 4·hMin long and stays ≥ hMin/4 from every other constraint segment
- *  and from itself. The separation bound makes the last check a formality;
- *  it is kept so a crossing constraint can never reach the CDT. */
+ * @details Terrain break lines → constraint polylines that cannot cross or crowd anything else
+ * (MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE_2026-09-30.md §2.1).
+ *
+ * Each dense input chain (spacing ≤ s, measured per line) is cut back to where every point lies
+ * at least D = hMin + 2s + 2·dev from the other constraints, Steiner points and already accepted
+ * lines (longest line first), inside the domain and outside holes and patches. Each surviving
+ * run is simplified (RDP, then a minimum segment length of hMin) within dev = max(hMin/4, 0.75
+ * s) — the staircase of a pixel chain is at most ~0.7 px off its line — split wherever it folds
+ * back on itself (a hairpin of a two-pixel-wide response collapses to A→B→A′), and kept when it
+ * is at least 4·hMin long and stays ≥ hMin/4 from every other constraint segment and from
+ * itself. The separation bound makes the last check a formality; it is kept so a crossing
+ * constraint can never reach the CDT.
+ */
 QVector<Poly> prepareTerrainLines(const QVector<QVector<QPointF>> &lines,
                                   const QVector<Poly> &polys,
                                   const QVector<QVector<QPointF>> &domainRings,
@@ -996,9 +1278,19 @@ QVector<Poly> prepareTerrainLines(const QVector<QVector<QPointF>> &lines,
     return out;
 }
 
-/*! Portion of \p pts between arc lengths s0 < s1, endpoints interpolated
- *  (the same arithmetic for the same arguments, so pieces cut at one arc
- *  length share their end point bit for bit). */
+/**
+ * @brief Copy an arc-length interval of a finite polyline with interpolated cut endpoints.
+ * @param[in] pts Borrowed finite Cartesian path, unchanged; zero-length segments skipped.
+ * @param[in] s0 Finite start distance in path XY units, intended 0<=s0<s1.
+ * @param[in] s1 Finite end distance within total path length, intended bounds not validated.
+ * @return Owned interval points, possibly empty; exact original cut vertices retained and
+ * duplicate output neighbors suppressed. No geodesic transform, source mutation/retention or IO;
+ * allocates output.
+ *
+ * @details Portion of \p pts between arc lengths s0 < s1, endpoints interpolated (the same
+ * arithmetic for the same arguments, so pieces cut at one arc length share their end point bit
+ * for bit).
+ */
 QVector<QPointF> subPolyline(const QVector<QPointF> &pts, double s0, double s1)
 {
     QVector<QPointF> out;
@@ -1029,8 +1321,22 @@ QVector<QPointF> subPolyline(const QVector<QPointF> &pts, double s0, double s1)
     return out;
 }
 
-/*! A conduit's plain end beside its strip: outside the outline and at least
- *  half of \p clear from it, except where it meets the strip at a cap centre. */
+/**
+ * @brief Check a conduit end path remains outside and clear of its neighboring strip outline.
+ * @param[in] piece Borrowed finite end polyline in common XY frame, unchanged.
+ * @param[in] outline Borrowed simple strip polygon, unchanged.
+ * @param[in] capA Borrowed first prescribed cap-center point, equality permits endpoint
+ * shortening.
+ * @param[in] capB Borrowed second cap center, unchanged.
+ * @param[in] clear Positive finite XY clearance; touched cap portions shorten by
+ * min(clear/length,0.5).
+ * @return False for tested interior midpoint or boundary distance below half-clearance, true
+ * otherwise, including no nonzero segments. Ordinary point/segment arithmetic, not full robust
+ * path containment. Allocates ring copy, no source mutation/retained arguments or IO.
+ *
+ * @details A conduit's plain end beside its strip: outside the outline and at least half of \p
+ * clear from it, except where it meets the strip at a cap centre.
+ */
 bool endClearOf(const QVector<QPointF> &piece, const QPolygonF &outline, const QPointF &capA,
                 const QPointF &capB, double clear)
 {
@@ -1066,6 +1372,18 @@ bool endClearOf(const QVector<QPointF> &piece, const QPolygonF &outline, const Q
 class StripChecker
 {
 public:
+    /**
+     * @brief Index borrowed immutable domain/hole rings and node points for generated-strip
+     * placement.
+     * @param[in] domainRings Borrowed outer ring arrays, must outlive checker and remain
+     * immutable.
+     * @param[in] holeRings Borrowed excluded ring arrays, same lifetime/frame prerequisites.
+     * @param[in] steiners Borrowed node array stored by reference, must outlive checker/queries.
+     * @param[in] clear Positive finite intended XY clearance; grid pitch max(4*clear,1e-9). Owns
+     * local ring-index metadata/grid, no source geometry ownership transfer or validation. Later
+     * addPoly/addRing populate obstacles; no engine/file access, excludes concurrent
+     * mutation/query.
+     */
     StripChecker(const QVector<QVector<QPointF>> &domainRings,
                  const QVector<QVector<QPointF>> &holeRings, const QVector<SteinerPoint> &steiners,
                  double clear)
@@ -1074,6 +1392,14 @@ public:
     {
         m_grid.build({}, std::max(4.0 * clear, 1e-9));
     }
+    /**
+     * @brief Append a prepared polyline's segment copies to strip-clearance obstacles.
+     * @param[in] p Borrowed finite Poly, unchanged; closed wraps, open uses consecutive
+     * segments.
+     * @param[in] owner Caller identity for later ignore filtering, copied without validation.
+     * Requires representable cell-length subdivision; may allocate, no source retention/IO or
+     * ring registration.
+     */
     void addPoly(const Poly &p, int owner)
     {
         const int n = p.pts.size();
@@ -1081,12 +1407,32 @@ public:
         for (int k = 0; k < edges; ++k)
             m_grid.addSplit(p.pts[k], p.pts[(k + 1) % n], owner);
     }
+    /**
+     * @brief Register an accepted strip perimeter for boundary clearance and interior overlap
+     * checks.
+     * @param[in] ring Borrowed nonempty finite simple polygon, copied; implicit closure used.
+     * Owns ring copy and indexed pieces with reserved owner -3. No full geometry validation,
+     * source retention, coordinate conversion, IO or concurrent mutation/query support.
+     */
     void addRing(const QPolygonF &ring)
     {
         for (int k = 0; k < ring.size(); ++k)
             m_grid.addSplit(ring[k], ring[(k + 1) % ring.size()], -3);
         m_rings.append(ring);
     }
+    /**
+     * @brief Diagnose generated-strip incompatibility with domain, holes, constraints, nodes or
+     * earlier strips.
+     * @param[in] ring Borrowed nonempty simple finite candidate polygon, unchanged; caller
+     * validates shape first.
+     * @param[in] ignore Obstacle owner ID of replaced feature to omit from clearance/interior
+     * checks.
+     * @return Empty when tested placement fits, first owned human-readable reason otherwise.
+     * Tests vertices in domain/outside holes, every edge clearance, enclosed nodes/constraint
+     * endpoints and earlier strip overlap. Inherits ordinary boundary/clearance tolerances; not
+     * a complete robust geometry proof. Allocates temporary ring/candidate work through helpers,
+     * no indexed-state mutation or retained inputs.
+     */
     [[nodiscard]] QString misfit(const QPolygonF &ring, int ignore) const
     {
         for (const QPointF &q : ring) {
@@ -1132,8 +1478,19 @@ private:
     QVector<QPolygonF> m_rings;
 };
 
-/*! A patch's boundary segments as fixed polylines (one per segment: the
- *  stations stay exactly where the patch put them). */
+/**
+ * @brief Append each valid patch boundary pair as an unresampled fixed Poly constraint.
+ * @param[in] pm Borrowed patch, unchanged; invalid endpoint indices skip, zero-length geometry
+ * not audited.
+ * @param[in] barrier Set whether appended edges appear as boundary/tag flood barriers; geometry
+ * is always constrained/fixed regardless of this reporting flag.
+ * @param[in,out] polys Required nonnull borrowed output vector, appended without clearing or
+ * retention. No patch tag/marker propagation here, source mutation or IO; append copies
+ * endpoints and may allocate.
+ *
+ * @details A patch's boundary segments as fixed polylines (one per segment: the stations stay
+ * exactly where the patch put them).
+ */
 void appendPatchBoundary(const PatchMesh &pm, bool barrier, QVector<Poly> *polys)
 {
     for (const auto &seg : pm.boundarySegments) {
@@ -1154,20 +1511,35 @@ struct JoinReport {
     int merged = 0, snapped = 0, crossings = 0;
 };
 
-/*! Join constraint lines that meet or nearly meet, so the triangulation sees
- *  shared vertices instead of crossings it cannot recover or features closer
- *  than the refinement floor (which leave cells no refinement can fix):
- *   1. a vertex within \p tol of another moves onto it (anchors — pinned
- *      points — and domain vertices never move; line ends settle before
- *      interior vertices);
- *   2. a vertex within \p tol of a segment is inserted into it;
- *   3. segments that cross get the crossing point (crossings within \p tol
- *      of each other are one point).
- *  Geometry moves by less than \p tol. Fixed patch edges and terrain lines
- *  are left alone (patch placement and the line preparation keep those
- *  clear). A line with a strip width is cut into runs at the points put into
- *  it, so its strip stops short of the other line as at a junction instead of
- *  being dropped for containing it. */
+/**
+ * @brief Merge near ordinary vertices and insert shared near-segment/crossing points into
+ * prepared lines.
+ * @param[in,out] polys Borrowed mutable constraints, changed/appended in place; excludes
+ * fixed/terrain/ dropped/<2-point paths. Domain vertices are pinned during merge but domain
+ * segments can gain cuts. Open strip-request paths split into runs at inserted cuts; attributes
+ * copied to appended pieces.
+ * @param[in] anchors Borrowed finite fixed point coordinates, unchanged, initial merge
+ * representatives.
+ * @param[in] tol Positive finite XY join radius with int64-safe cell quotients; <=0/NaN no-op
+ * report.
+ * @return Counts of merges/snap cuts/proper crossings, not unique final geometry edits. Moves
+ * ordinary vertices less than tol, inserts nearby point coordinates as kinks, exact orientation
+ * rejects false proper crossings, near crossing locations coalesce. Collinear overlaps handled
+ * only via prior point cuts, not full overlay. No transactional rollback/cancellation/memory
+ * cap, engine/file access or retained references; allocates indexes/cut arrays and can increase
+ * input size.
+ *
+ * @details Join constraint lines that meet or nearly meet, so the triangulation sees shared
+ * vertices instead of crossings it cannot recover or features closer than the refinement floor
+ * (which leave cells no refinement can fix): 1. a vertex within \p tol of another moves onto it
+ * (anchors — pinned points — and domain vertices never move; line ends settle before interior
+ * vertices); 2. a vertex within \p tol of a segment is inserted into it; 3. segments that cross
+ * get the crossing point (crossings within \p tol of each other are one point). Geometry moves
+ * by less than \p tol. Fixed patch edges and terrain lines are left alone (patch placement and
+ * the line preparation keep those clear). A line with a strip width is cut into runs at the
+ * points put into it, so its strip stops short of the other line as at a junction instead of
+ * being dropped for containing it.
+ */
 JoinReport joinConstraints(QVector<Poly> &polys, const QVector<QPointF> &anchors, double tol)
 {
     JoinReport rep;
@@ -1442,6 +1814,13 @@ JoinReport joinConstraints(QVector<Poly> &polys, const QVector<QPointF> &anchors
     return rep;
 }
 
+/**
+ * @brief Compute ordinary signed shoelace area of an implicit-closure ring.
+ * @param[in] r Borrowed finite points in common XY frame, unchanged.
+ * @return Signed squared-unit area, positive CCW, zero empty. Absolute-coordinate products can
+ * lose small-area precision at large CRS offsets; no robust/local-origin correction, allocation
+ * or mutation.
+ */
 double ringArea(const QVector<QPointF> &r)
 {
     double a = 0.0;
@@ -1450,11 +1829,35 @@ double ringArea(const QVector<QPointF> &r)
     return 0.5 * a;
 }
 
-/*! The constraint polylines generation starts from: domain rings, constraint
- *  segments, quad region rings and patch boundaries. A hole seed makes the
- *  innermost closed ring around it a hole (an enclosing region or
- *  subcatchment ring stays a region). False when no domain ring has three
- *  or more vertices. */
+/**
+ * @brief Accumulate normalized domain, feature, region and fixed-patch constraints plus hole
+ * ownership.
+ * @param[in] domains Borrowed outer rings, unchanged; normalized rings with >=3 points appended.
+ * @param[in] segments Borrowed polylines, unchanged; closed loops recognized with repeated first
+ * point.
+ * @param[in] regionRings Borrowed open normalized rings, same count/order as regions, unchanged.
+ * @param[in] regions Borrowed quad-region metadata, unchanged; background rings do not add
+ * constraints.
+ * @param[in] patches Borrowed valid patches, unchanged; boundary pairs become fixed barrier
+ * lines.
+ * @param[in] holes Borrowed finite seeds, unchanged; innermost containing closed nondomain Poly
+ * becomes hole.
+ * @param[in,out] polys Required nonnull borrowed output, appended and hole flags modified, not
+ * cleared.
+ * @param[in,out] domainRings Required distinct nonnull output, appended normalized domain rings.
+ * @param[in,out] holeRings Required distinct nonnull output, appends identified hole rings; all
+ * outputs must not alias source geometry or invalidate it during accumulation, no pointers
+ * retained.
+ * @return False when domainRings remains empty, true otherwise. Failure can leave partial
+ * output; existing output contents participate. No finite/simplicity/overlap/identity audit,
+ * source mutation beyond explicit outputs, cancellation or IO; allocates copies/nonowning local
+ * indexes.
+ *
+ * @details The constraint polylines generation starts from: domain rings, constraint segments,
+ * quad region rings and patch boundaries. A hole seed makes the innermost closed ring around it
+ * a hole (an enclosing region or subcatchment ring stays a region). False when no domain ring
+ * has three or more vertices.
+ */
 bool buildConstraintPolys(const QVector<QPolygonF> &domains,
                           const QVector<ConstraintSegment> &segments,
                           const QVector<QVector<QPointF>> &regionRings,

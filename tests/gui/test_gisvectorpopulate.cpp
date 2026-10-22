@@ -37,16 +37,22 @@
 namespace
 {
 
+/** @brief Attempt to create retained GIS population evidence storage.
+ * @return Relative test_gisvectorpopulate_output directory; creation errors are unchecked. */
 QString outDir()
 {
     QDir().mkpath(QStringLiteral("test_gisvectorpopulate_output"));
     return QStringLiteral("test_gisvectorpopulate_output");
 }
 
+/** @brief Locate the retained CRS-less three-square fixture.
+ * @return outDir()/three_polys.gpkg, attempting parent directory creation. */
 QString gpkgPath()
 {
     return outDir() + QStringLiteral("/three_polys.gpkg");
 }
+/** @brief Locate the retained projected-square fixture.
+ * @return outDir()/crs_utm33n.gpkg, attempting parent directory creation. */
 QString crsGpkgPath()
 {
     return outDir() + QStringLiteral("/crs_utm33n.gpkg");
@@ -56,6 +62,8 @@ QString crsGpkgPath()
  *  unmistakably not the CRS-less fixture above and not WGS84. Used to prove
  *  the layer adopts the file's CRS rather than inheriting the canvas/project
  *  one. Idempotent. */
+/** @brief Replace a retained GeoPackage with one EPSG:32633 square spanning 500000..501000 E and 4600000..4601000 N metres.
+ * @return True when the checked driver/dataset/CRS/layer/feature creation succeeds, false otherwise. Closes created dataset/feature handles; prior-file deletion and geometry-copy status are unchecked. */
 bool buildCrsFixture()
 {
     GDALAllRegister();
@@ -98,6 +106,8 @@ bool buildCrsFixture()
 
 /*! Three disjoint unit squares at x = [0,1], [10,11], [20,21] (y = [0,1]).
  *  Idempotent — deletes any prior fixture. */
+/** @brief Replace a retained CRS-less GeoPackage with three disjoint unit squares.
+ * @return True after creating all features, false on checked driver/dataset/layer/feature-write failure; closes local dataset/feature handles. Deletion and geometry assignment errors are unchecked. */
 bool buildFixture()
 {
     GDALAllRegister();
@@ -139,6 +149,9 @@ bool buildFixture()
     return true;
 }
 
+/** @brief Collect the scene polygon-path item subtype used by GIS layers.
+ * @param[in] scene Borrowed scene searched in its item iteration order.
+ * @return Independent list of borrowed scene-owned pointers, invalid after item removal/rebuild. */
 QList<VectorPolygonPathItem *> polygonItems(const QGraphicsScene &scene)
 {
     QList<VectorPolygonPathItem *> out;
@@ -155,6 +168,7 @@ class TestGisVectorPopulate : public QObject
     Q_OBJECT
 private slots:
 
+    /** @brief Require successful creation of retained CRS-less and projected GeoPackage fixtures. */
     void initTestCase()
     {
         QVERIFY(buildFixture());
@@ -162,6 +176,7 @@ private slots:
     }
 
     /*! A layer must adopt the CRS its file declares. */
+    /** @brief Verify opening the projected fixture adopts its EPSG:32633 projected SRS. */
     void vectorLayerAdoptsFileCRS()
     {
         GISVectorLayer layer(crsGpkgPath(), QStringLiteral("utm_polys"));
@@ -179,6 +194,7 @@ private slots:
      *  coordinates as though they were already in the canvas CRS. A UTM-33N
      *  square then rendered at x≈500000 on a WGS84 canvas instead of lon≈15.
      */
+    /** @brief Verify UTM geometry populates in the longitude/latitude canvas frame, accounting for inverted scene Y. */
     void vectorLayerReprojectsToCanvasCRS()
     {
         GISVectorLayer layer(crsGpkgPath(), QStringLiteral("utm_polys"));
@@ -203,6 +219,7 @@ private slots:
     /*! A file with NO CRS keeps a null SRS and is assumed to be in the canvas
      *  CRS — the long-standing behaviour local-coordinate data relies on.
      *  Its coordinates must therefore pass through untouched. */
+    /** @brief Verify a CRS-less source keeps null SRS and populates all three features on a geographic canvas. */
     void vectorLayerWithoutFileCRSPassesThrough()
     {
         GISVectorLayer layer(gpkgPath(), QStringLiteral("polys"));
@@ -216,6 +233,7 @@ private slots:
 
     /*! The core fix: an extent covering only polygon 1 must still populate
      *  all three features — the viewport is a CULL, not a feature gate. */
+    /** @brief Verify a small viewport still populates all three GIS polygons for later scene culling. */
     void partialViewport_populatesEveryFeature()
     {
         GISVectorLayer layer(gpkgPath(), QStringLiteral("polys"));
@@ -226,6 +244,7 @@ private slots:
 
     /*! refreshScene at a different extent neither drops nor rebuilds the
      *  items (no churn — the set is viewport-independent). */
+    /** @brief Verify plain pan refresh retains all three tagged scene items without rebuilding them. */
     void panAfterPopulate_keepsAllFeatures()
     {
         GISVectorLayer layer(gpkgPath(), QStringLiteral("polys"));
@@ -254,6 +273,7 @@ private slots:
     /*! Selection arms a rebuild; the rebuild at an extent that EXCLUDES the
      *  selected feature must keep every feature and carry the highlight —
      *  pre-fix this was "select a polygon, pan, and it vanishes". */
+    /** @brief Verify a selection-triggered refresh outside the selected polygon still retains every feature and its highlight. */
     void selectionRefresh_survivesViewportChange()
     {
         GISVectorLayer layer(gpkgPath(), QStringLiteral("polys"));
@@ -295,6 +315,7 @@ private slots:
     /*! The scene helper must remove the polygon items GIS layers actually
      *  create (VectorPolygonPathItem — the VectorPolygonItem branch never
      *  matched them). */
+    /** @brief Verify the scene removal helper deletes all GIS polygon-path items owned by the layer. */
     void removeItemsForLayer_removesPolygonPathItems()
     {
         GISVectorLayer layer(gpkgPath(), QStringLiteral("polys"));

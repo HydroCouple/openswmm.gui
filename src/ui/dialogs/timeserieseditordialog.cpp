@@ -854,19 +854,12 @@ using openswmmvis::timeseries::DeletePointsCommand;
 using openswmmvis::timeseries::InsertPointCommand;
 using openswmmvis::timeseries::TimeseriesPoint;
 
-/*! \brief Pick a sensible default timestamp for a fresh row:
- *   - empty provider                → the simulation start (fallback: now UTC)
- *   - one point                     → last + 1 hour
- *   - two or more points            → last + median interval
- *  This keeps the strict-monotone-time invariant trivially satisfied without
- *  asking the user to type a date for the common "append next point" case.
- *  Seeding an empty series at the simulation start (not wall-clock "now")
- *  matches how SWMM applies the data — a series' first point is almost
- *  always meant to land inside the simulation window, and a Relative-mode
- *  series starts at elapsed 0:00 by definition. */
 /*! Wall-clock fallback seed, on a whole minute. The editor shows HH:mm, so
  *  seconds and milliseconds from the clock were invisible but were still
- *  written to the .inp (tutorial bug report, 2026-10-17). */
+ *  written to the .inp (tutorial bug report, 2026-10-17).
+ * @return Current UTC clock time with seconds/milliseconds set to zero; no provider or
+ *   simulation-start lookup.
+ */
 QDateTime wholeMinuteNowUtc()
 {
     QDateTime now = QDateTime::currentDateTimeUtc();
@@ -875,6 +868,23 @@ QDateTime wholeMinuteNowUtc()
     return now;
 }
 
+/*! \brief Pick a sensible default timestamp for a fresh row:
+ *   - empty provider                → the simulation start (fallback: now UTC)
+ *   - one point                     → last + 1 hour
+ *   - two or more points            → last + median interval
+ *  This keeps the strict-monotone-time invariant likely satisfied for ordered valid inputs without
+ *  asking the user to type a date for the common "append next point" case.
+ *  Seeding an empty series at the simulation start (not wall-clock "now")
+ *  matches how SWMM applies the data — a series' first point is almost
+ *  always meant to land inside the simulation window, and a Relative-mode
+ *  series starts at elapsed 0:00 by definition.
+ * @param[in] p Optional borrowed provider, assumed ordered valid times when nonempty.
+ * @param[in] emptySeed Preferred seed for missing/empty provider; invalid falls back to
+ *   whole-minute current UTC.
+ * @return Empty seed/fallback, or last plus one hour for one point, otherwise last plus upper
+ *   median consecutive seconds interval clamped to at least one second. No snap/report-step lookup
+ *   or point mutation. Date overflow is not checked.
+ */
 QDateTime defaultNextTime(const TimeseriesProvider *p, const QDateTime &emptySeed)
 {
     if (!p || p->pointCount() == 0)
@@ -895,7 +905,11 @@ QDateTime defaultNextTime(const TimeseriesProvider *p, const QDateTime &emptySee
     return last.addSecs(median);
 }
 
-/*! \brief Unique sorted row indices from a QItemSelectionModel's selectedIndexes. */
+/*! \brief Unique sorted row indices from a QItemSelectionModel's selectedIndexes.
+ * @param[in] table Optional borrowed grid; null/missing selection model yields empty.
+ * @return Unique ascending zero-based rows of valid selected CELL indexes, not current row or
+ *   provider-validated bounds.
+ */
 QVector<int> selectedRowIndices(const QTableView *table)
 {
     QVector<int> rows;
@@ -2094,7 +2108,13 @@ using openswmmvis::timeseries::BulkTransformCommand;
 using openswmmvis::timeseries::TimeseriesPoint;
 using openswmmvis::timeseries::TimeseriesProvider;
 
-/*! \brief Snapshot the selected points; empty selection ⇒ all points. */
+/*! \brief Snapshot the selected points; empty selection ⇒ all points.
+ * @param[in] chartSelection Borrowed indices returned verbatim when nonempty, including
+ *   duplicates/out-of-range.
+ * @param[in] pointCount Nonnegative provider count used to synthesize all rows for empty selection.
+ * @return Owning copied selection or contiguous 0..pointCount-1. Does not snapshot points or
+ *   validate explicit rows.
+ */
 QVector<int> resolveSelectionIndices(const QVector<int> &chartSelection, int pointCount)
 {
     if (!chartSelection.isEmpty())
@@ -2106,7 +2126,13 @@ QVector<int> resolveSelectionIndices(const QVector<int> &chartSelection, int poi
     return all;
 }
 
-/*! \brief Compute the centroid of the selected (time-ms, value) pairs. */
+/*! \brief Compute the centroid of the selected (time-ms, value) pairs.
+ * @param[in] p Required borrowed provider when selection nonempty; no null guard.
+ * @param[in] sel Borrowed index list; invalid indices skipped in sums but STILL included in
+ *   denominator.
+ * @return Arithmetic time-ms-since-epoch/value means divided by full selection length, or (0,0) for
+ *   empty; duplicates count repeatedly. No unit normalization, finite filtering or provider edits.
+ */
 QPair<double, double> centroidOf(const TimeseriesProvider *p, const QVector<int> &sel)
 {
     if (sel.isEmpty())

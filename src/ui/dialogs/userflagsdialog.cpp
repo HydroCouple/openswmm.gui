@@ -28,6 +28,12 @@ namespace
 
 enum Column { ColName = 0, ColType = 1, ColDescription = 2, ColCount = 3 };
 
+/**
+ * @param[in] current Requested initial flag type; unrecognized enum leaves no selected item.
+ * @return New parentless Boolean/Integer/Real/String combo with enum integer item data;
+ *   caller/table assumes ownership. No model writes or signal connections, GUI-thread widget
+ *   construction.
+ */
 QComboBox *makeTypeCombo(FlagType current)
 {
     auto *combo = new QComboBox;

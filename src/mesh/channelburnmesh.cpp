@@ -25,11 +25,31 @@ namespace mesh
 {
 namespace
 {
+/**
+ * @brief Test QLineF bounded segment intersection in a shared Cartesian frame.
+ * @param[in] a Borrowed first segment start, unchanged.
+ * @param[in] b Borrowed first segment end, unchanged.
+ * @param[in] c Borrowed second segment start, unchanged.
+ * @param[in] d Borrowed second segment end, unchanged.
+ * @param[out] p Optional borrowed intersection point, forwarded to QLineF; may receive the
+ * infinite-line intersection even when bounded test is false. Not retained.
+ * @return True only for BoundedIntersection; parallel/collinear overlaps do not count. No robust
+ * geometry/finite validation, allocation or source mutation.
+ */
 bool crosses(const QPointF &a, const QPointF &b, const QPointF &c, const QPointF &d,
              QPointF *p = nullptr)
 {
     return QLineF(a, b).intersects(QLineF(c, d), p) == QLineF::BoundedIntersection;
 }
+/**
+ * @brief Detect ordinary polygon overlap through containment or bounded edge intersections.
+ * @param[in] a Borrowed finite implicit-closure polygon in common XY units, unchanged.
+ * @param[in] b Borrowed compatible polygon, unchanged.
+ * @return True for tested containment/intersection after bounding-box overlap; false otherwise.
+ * Qt odd-even containment and QLineF parallel/collinear limitations apply; degenerate edge-only
+ * contacts may fail rectangle test. Not a robust validity certificate. Quadratic edge work, no
+ * source mutation.
+ */
 bool overlaps(const QPolygonF &a, const QPolygonF &b)
 {
     if (!a.boundingRect().intersects(b.boundingRect()))
@@ -46,6 +66,15 @@ bool overlaps(const QPolygonF &a, const QPolygonF &b)
                 return true;
     return false;
 }
+/**
+ * @brief Test either polygon's vertices against every opposite boundary segment.
+ * @param[in] a Borrowed finite polygon, unchanged, implicit closure.
+ * @param[in] b Borrowed finite polygon in same horizontal frame, unchanged.
+ * @param[in] distance Strict positive separation threshold in that frame, unchecked.
+ * @return True when a tested vertex-to-segment distance is strictly smaller, false otherwise.
+ * Crossings are not separately tested; caller combines with overlaps(). No range/geometry audit,
+ * source mutation or IO.
+ */
 bool closerThan(const QPolygonF &a, const QPolygonF &b, double distance)
 {
     for (const auto &p : a)
@@ -58,6 +87,14 @@ bool closerThan(const QPolygonF &a, const QPolygonF &b, double distance)
                 return true;
     return false;
 }
+/**
+ * @brief Copy a mesh cell's ordered coordinates into an implicit-closure polygon.
+ * @param[in] m Borrowed mesh, unchanged; every cell vertex index must address its vertices.
+ * @param[in] c Borrowed triangle/quad record, unchanged; connectivity/count already validated by
+ * caller.
+ * @return Owned coordinate polygon in mesh frame. No orientation, geometry or bounds validation,
+ * coordinate transform, retained references or source mutation; allocates at most four points.
+ */
 QPolygonF cellRing(const MeshResult &m, const MeshCell &c)
 {
     QPolygonF ring;
@@ -65,6 +102,17 @@ QPolygonF cellRing(const MeshResult &m, const MeshCell &c)
         ring.append(m.vertices[c.vertex(k)].xy);
     return ring;
 }
+/**
+ * @brief Accumulate cell count, minimum edge/angle and low-angle counts into a quality summary.
+ * @param[in,out] q Borrowed accumulator, incremented/updated without resetting; caller
+ * initializes it.
+ * @param[in] m Borrowed mesh, unchanged; finite valid connectivity and nonzero edges required.
+ * @param[in] c Borrowed triangle/quad, unchanged; convex ordinary geometry intended. Angles use
+ * acos of clamped dot product in degrees, edge lengths mesh XY units; below25/below10 count
+ * cells by worst corner, not individual corners. Degenerate/nonfinite edges are not explicitly
+ * handled. No allocation, topology repair, source mutation beyond summary, IO or retained
+ * pointers.
+ */
 void measure(ChannelMeshQuality &q, const MeshResult &m, const MeshCell &c)
 {
     ++q.cells;

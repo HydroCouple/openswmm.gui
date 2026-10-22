@@ -61,6 +61,9 @@ using openswmmvis::ui::FeatureLayerPanel;
 namespace
 {
 
+/** @brief Prepare a retained GeoPackage path by removing the previous file and SQLite WAL/shared-memory companions.
+ * @param[in] stem Required Latin-1 filename stem under FEATURE_EDITORS_OUT_DIR.
+ * @return Absolute .gpkg path; directory creation and removals are attempted without checking results. */
 QString freshGpkg(const char *stem)
 {
     QDir().mkpath(QStringLiteral(FEATURE_EDITORS_OUT_DIR));
@@ -71,6 +74,9 @@ QString freshGpkg(const char *stem)
     return p;
 }
 
+/** @brief Build a horizontal two-point feature line.
+ * @param[in] y Shared ordinate in fixture coordinates.
+ * @return Independent LineString from (0,y) to (100,y). */
 FeatureGeometry line(double y)
 {
     Ring r;
@@ -82,6 +88,10 @@ FeatureGeometry line(double y)
     return g;
 }
 
+/** @brief Build a four-corner polygon fixture.
+ * @param[in] x Left coordinate.
+ * @param[in] w Width and height, expected positive by callers but not validated.
+ * @return Independent Polygon spanning (x,0) to (x+w,w), without explicitly repeating its first vertex. */
 FeatureGeometry square(double x, double w)
 {
     Ring r;
@@ -93,6 +103,9 @@ FeatureGeometry square(double x, double w)
     return g;
 }
 
+/** @brief Build a diagonal point fixture.
+ * @param[in] x Coordinate used for both axes.
+ * @return Independent Point at (x,x). */
 FeatureGeometry point(double x)
 {
     Ring r;
@@ -104,6 +117,12 @@ FeatureGeometry point(double x)
     return g;
 }
 
+/** @brief Create a parentless retained feature layer, replacing previous owned fixture files.
+ * @param[in] stem Required Latin-1 layer and file stem.
+ * @param[in] type Geometry type passed to FeatureLayer::create.
+ * @param[in] schema Initial field definitions.
+ * @param[in] role Feature role metadata.
+ * @return Newly allocated layer for the caller/canvas to own, or nullptr after logging the creation error. Uses default ZPolicy and an empty CRS string. */
 FeatureLayer *makeLayer(const char *stem, GeometryType type, const Schema &schema,
                         FeatureLayerRole role)
 {
@@ -115,6 +134,10 @@ FeatureLayer *makeLayer(const char *stem, GeometryType type, const Schema &schem
     return fl;
 }
 
+/** @brief Find an exact horizontal display header.
+ * @param[in] m Required borrowed model.
+ * @param[in] header Display text to match.
+ * @return First zero-based column, or -1. */
 int columnOf(const QAbstractItemModel *m, const QString &header)
 {
     for (int c = 0; c < m->columnCount(); ++c)
@@ -124,6 +147,13 @@ int columnOf(const QAbstractItemModel *m, const QString &header)
 }
 
 /*! Pick \p token in the delegate's combo editor and commit it to \p model. */
+/** @brief Create a combo delegate editor, select a canonical token and commit it synchronously.
+ * @param[in] del Required borrowed delegate.
+ * @param[in] viewport Borrowed parent widget used for the short-lived editor.
+ * @param[in,out] model Required target model receiving setModelData.
+ * @param[in] idx Target cell belonging to model.
+ * @param[in] token Exact item-data string that must exist in the combo.
+ * QtTest assertions record missing combo/token failure and return from this helper; the editor is uniquely owned and destroyed on exit. */
 void editThrough(FeatureFieldDelegate *del, QWidget *viewport, QAbstractItemModel *model,
                  const QModelIndex &idx, const QString &token)
 {
@@ -143,6 +173,8 @@ class TestFeatureLayerEditors : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Initialize isolated feature-editor preferences and a shared loaded project/workspace.
+     * Binds the project UnitSystem globally and waits fifty milliseconds for widget setup. */
     void initTestCase()
     {
         QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
@@ -159,6 +191,7 @@ private slots:
         QTest::qWait(50);
     }
 
+    /** @brief Clear the global unit facade and destroy the shared project before its workspace. */
     void cleanupTestCase()
     {
         UnitSystem::setActiveProject(nullptr);
@@ -166,6 +199,7 @@ private slots:
         delete m_workspace;
     }
 
+    /** @brief Verify the real attribute-table feature delegate stores a canonical boundary token in one canvas undo step and undo restores WALL. */
     void attributeTableEditsThroughTheDelegate()
     {
         MapCanvas canvas;
@@ -207,6 +241,7 @@ private slots:
                  QStringLiteral("WALL"));
     }
 
+    /** @brief Verify the real Features dock installs the field delegate and commits NORMAL_FLOW in exactly one canvas undo step. */
     void featuresDockEditsThroughTheDelegate()
     {
         MapCanvas canvas;
@@ -242,6 +277,8 @@ private slots:
                  QStringLiteral("NORMAL_FLOW"));
     }
 
+    /** @brief Verify updating an old region schema drops retired fields, renames quad_spacing to h preserving values, and adds cells in one reversible command.
+     * Skips when the installed GDAL cannot drop a GeoPackage column; retains the edited package. */
     void updateFieldsToRoleOnAnOldRegionLayer()
     {
         Schema old;
@@ -312,6 +349,8 @@ private slots:
                  QStringLiteral("Mapped"));
     }
 
+    /** @brief Verify mesh input pickers filter point/line/polygon geometry and rank/label the matching Region role first.
+     * Adds four owned fixture layers to the shared canvas and explicitly removes/deletes them after inspection. */
     void meshPickersFilterByGeometryAndShowTheRole()
     {
         MapCanvas *canvas = m_window->canvas();
@@ -344,6 +383,9 @@ private slots:
         auto *pointList = dlg.findChild<QListWidget *>(QStringLiteral("meshPointLayersList"));
         QVERIFY(regionCombo && domainCombo && lineList && pointList);
 
+        /** @brief Copy combo item labels for geometry/role ordering assertions.
+         * Argument `c`: required borrowed combo.
+         * Returns: independent item-text list in display order. */
         const auto texts = [](QComboBox *c) {
             QStringList t;
             for (int i = 0; i < c->count(); ++i)
@@ -362,6 +404,9 @@ private slots:
             QVERIFY2(!t.contains(QStringLiteral("picker_points")), qPrintable(t));
         }
 
+        /** @brief Collect mesh input list checkbox labels.
+         * Argument `list`: required borrowed list widget searched recursively for QCheckBox children.
+         * Returns: checkbox text joined by vertical bars, in Qt child-search order. */
         const auto listTexts = [](QListWidget *list) {
             QStringList t;
             for (QCheckBox *b : list->findChildren<QCheckBox *>())
@@ -378,6 +423,8 @@ private slots:
             delete canvas->takeLayer(canvas->layers().indexOf(l), /*pushUndo=*/false);
     }
 
+    /** @brief Verify attribute-table selection switches among model categories and mesh edge/cell tables.
+     * Rebinds the panel to the model before removing/deleting its temporary mesh layer. */
     void panelSwitchesToTheObjectTypeAndTheMeshTable()
     {
         SWMMModelLayer *model = m_window->modelLayer();

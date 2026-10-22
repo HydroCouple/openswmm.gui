@@ -22,10 +22,28 @@ namespace mesh
 
 namespace
 {
+/**
+ * @brief Compute a planar two-vector determinant.
+ * @param[in] a Borrowed finite vector, unchanged, common horizontal units.
+ * @param[in] b Borrowed finite vector, unchanged.
+ * @return a.x*b.y-a.y*b.x in squared units; no overflow/finite audit, allocation or state
+ * mutation.
+ */
 double cross(const QPointF &a, const QPointF &b)
 {
     return a.x() * b.y() - a.y() * b.x();
 }
+/**
+ * @brief Compute triangle weights and test inclusion with a small tolerance.
+ * @param[in] p Required readable three-point finite triangle array, unchanged, common XY units.
+ * @param[in] q Borrowed query in that frame, unchanged.
+ * @param[out] u Required nonnull writable second-vertex weight, assigned unless degenerate.
+ * @param[out] v Required distinct nonnull writable third-vertex weight, assigned unless
+ * degenerate.
+ * @return False with outputs unchanged for abs(determinant)<1e-18; otherwise weights are
+ * assigned even on miss and inclusion accepts u,v>=-1e-9, u+v<=1+1e-9. First weight is 1-u-v. No
+ * finite audit, pointer retention, allocation or state mutation beyond outputs.
+ */
 bool barycentric(const QPointF *p, const QPointF &q, double *u, double *v)
 {
     const double d = cross(p[1] - p[0], p[2] - p[0]);
@@ -35,6 +53,12 @@ bool barycentric(const QPointF *p, const QPointF &q, double *u, double *v)
     *v = cross(p[1] - p[0], q - p[0]) / d;
     return *u >= -1e-9 && *v >= -1e-9 && *u + *v <= 1 + 1e-9;
 }
+/**
+ * @brief Compute the axis-aligned extent of three finite points.
+ * @param[in] p Required readable three-point array in common XY frame, unchanged, not retained.
+ * @return Owned rectangle, possibly zero-width/height; no triangle/finite validation or
+ * allocation.
+ */
 QRectF triangleBounds(const QPointF *p)
 {
     return QRectF(
@@ -302,7 +326,18 @@ BurnSurface::errorImpl(const QPointF *xy, const double *z,
 namespace
 {
 
-/*! Point at chainage \p t along a polyline with cumulative \p chain. */
+/**
+ * @brief Interpolate a path position with endpoint clamping.
+ * @param[in] path Borrowed finite points, unchanged; empty returns default point, singleton
+ * returns it.
+ * @param[in] chain Borrowed matching sorted cumulative distances for multi-point path,
+ * unchanged.
+ * @param[in] t Finite query chainage, required for safe upper_bound indexing.
+ * @return Path-frame interpolation or endpoint; nonpositive located interval uses its first
+ * point. No count/finite audit, allocation, coordinate transform or source mutation.
+ *
+ * @details Point at chainage \p t along a polyline with cumulative \p chain.
+ */
 QPointF pointAtChainage(const QVector<QPointF> &path, const QVector<double> &chain, double t)
 {
     const int n = path.size();
@@ -321,12 +356,23 @@ QPointF pointAtChainage(const QVector<QPointF> &path, const QVector<double> &cha
     return path[lo] + (path[hi] - path[lo]) * f;
 }
 
-/*! Unit normal pointing RIGHT of the downstream direction at chainage \p t.
+/**
+ * @brief Estimate downstream-right unit normal from a chainage neighborhood chord.
+ * @param[in] path Borrowed nonempty finite polyline, unchanged; whole-path endpoints used as
+ * fallback.
+ * @param[in] chain Borrowed matching sorted chainage, unchanged.
+ * @param[in] t Finite station in chain units.
+ * @param[in] h Intended positive finite half-neighborhood in chain units; queries clamp to
+ * endpoints.
+ * @return Right unit normal (dy,-dx)/length, or (0,-1) if local and whole-path chord degenerate.
+ * No normal continuity/fold proof, allocation, validation, source mutation or retained pointers.
  *
- *  Taken from a central difference half a step either side rather than from the
- *  containing segment: at a bend vertex the segment normal jumps, and offset
- *  rows built on it fold. The averaged direction is the same thing a mitre
- *  joint approximates. */
+ * @details Unit normal pointing RIGHT of the downstream direction at chainage \p t.
+ *
+ * Taken from a central difference half a step either side rather than from the containing
+ * segment: at a bend vertex the segment normal jumps, and offset rows built on it fold. The
+ * averaged direction is the same thing a mitre joint approximates.
+ */
 QPointF rightNormalAt(const QVector<QPointF> &path, const QVector<double> &chain, double t,
                       double h)
 {
@@ -347,7 +393,18 @@ QPointF rightNormalAt(const QVector<QPointF> &path, const QVector<double> &chain
     return QPointF(dy / len, -dx / len); // right of (dx, dy)
 }
 
-/*! Manning's n and the sub-region suffix for a cell centred at offset \p m. */
+/**
+ * @brief Choose section roughness and tag suffix for a lateral cell midpoint.
+ * @param[in] s Borrowed bank/roughness metadata, unchanged.
+ * @param[in] m Finite signed lateral midpoint in bank station units.
+ * @param[out] n Required nonnull roughness output, assigned raw left/right/channel value
+ * (possibly NaN).
+ * @param[out] suffix Required nonnull string, assigned :left/:right/:chan; pointers not
+ * retained. Strict outside-bank tests choose overbanks, bank equality chooses channel; no
+ * range/physical validation.
+ *
+ * @details Manning's n and the sub-region suffix for a cell centred at offset \p m.
+ */
 void roughnessFor(const NormalizedSection &s, double m, double *n, QString *suffix)
 {
     if (std::isfinite(s.leftBank) && m < s.leftBank) {
@@ -369,6 +426,20 @@ void roughnessFor(const NormalizedSection &s, double m, double *n, QString *suff
 // Douglas-Peucker over the section offsets, measured at every station at
 // once: offset k between kept a and b may go only if the straight line from
 // a to b stays within tol of relZ[i][k] at every station i.
+/**
+ * @brief Reduce lateral stations by worst-row vertical interpolation error while retaining
+ * center/endpoints.
+ * @param[in] p Borrowed fully consistent profile with >=2 ascending offsets and complete
+ * relative rows, unchanged; source numeric geometry intended finite.
+ * @param[in] tol Nonnegative vertical tolerance; retain worst offending point when error exceeds
+ * it.
+ * @param[in] maxGap Positive horizontal cap attempts to retain available original intermediate
+ * stations; nonpositive disables. Cannot enforce cap across an original gap already larger than
+ * maxGap.
+ * @return Owned subset preserving endpoints and nearest-to-zero offset. Iterative
+ * Douglas-Peucker examines every row per interval; no fixed memory/work budget, cancellation,
+ * source mutation or IO.
+ */
 static QVector<double> thinOffsets(const BurnProfile &p, double tol, double maxGap)
 {
     const int n = int(p.offsets.size());
@@ -435,9 +506,23 @@ static QVector<double> thinOffsets(const BurnProfile &p, double tol, double maxG
  *  stations merge. */
 constexpr double kMergeFraction = 0.05;
 
-/*! Drop values of the ascending \p v closer than \p gap to the previous kept
- *  one. The first and last always stay; with \p keepNearestZero so does the
- *  value nearest zero (the thalweg), and a dropped neighbour yields to it. */
+/**
+ * @brief Remove crowded unpinned ladder entries while retaining endpoints and optional near-zero
+ * value.
+ * @param[in] v Borrowed finite ascending scalar ladder, unchanged; <3 entries returns value
+ * copy.
+ * @param[in] gap Positive intended finite minimum separation; nonpositive/NaN returns value
+ * copy.
+ * @param[in] keepNearestZero Pin the first value of minimum absolute magnitude as well as
+ * endpoints.
+ * @return Owned subset in source order. Pinned entries can remain closer than gap and displace
+ * earlier unpinned neighbors; no guaranteed strict spacing between pinned values. Allocates
+ * result/index arrays, no sorting, source mutation, pointer retention or IO.
+ *
+ * @details Drop values of the ascending \p v closer than \p gap to the previous kept one. The
+ * first and last always stay; with \p keepNearestZero so does the value nearest zero (the
+ * thalweg), and a dropped neighbour yields to it.
+ */
 static QVector<double> mergeCloseValues(const QVector<double> &v, double gap, bool keepNearestZero)
 {
     const int n = int(v.size());
@@ -668,6 +753,17 @@ BurnLattice buildCorridorLattice(const BurnProfile &p, double alongStep, double 
 namespace
 {
 
+/**
+ * @brief Build a locally CCW quad patch and perimeter then validate patch topology/convexity.
+ * @param[in] lat Borrowed consistent finite lattice, unchanged; minimum shape checked before
+ * indexing.
+ * @param[out] err Optional borrowed diagnostic on invalid lattice/validate failure, not cleared
+ * on success.
+ * @return Owned XY-only patch with channel:id tag and boundary segments, empty on failure. Quad
+ * winding uses local-origin area to reduce cancellation; z seeds and roughness are caller tasks.
+ * No source mutation, coordinate conversion, IO or retained references; allocates copied
+ * coordinates/cells/edges.
+ */
 PatchMesh corridorPatchGeometry(const BurnLattice &lat, QString *err)
 {
     PatchMesh pm;

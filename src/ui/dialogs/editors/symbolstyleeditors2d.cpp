@@ -33,6 +33,12 @@ using namespace OpenSWMM::Render;
 namespace
 {
 
+/**
+ * @brief Allocate a percent-opacity control.
+ * @param[in] p Optional Qt parent owning the returned widget.
+ * @return New spin box spanning 0..100 percent, zero decimals and five-percent steps; parentless
+ * ownership belongs to the caller.
+ */
 QDoubleSpinBox *opacitySpin(QWidget *p)
 {
     auto *s = new QDoubleSpinBox(p);
@@ -42,6 +48,16 @@ QDoubleSpinBox *opacitySpin(QWidget *p)
     s->setSuffix(QStringLiteral(" %"));
     return s;
 }
+/**
+ * @brief Allocate/configure a numeric style control without model binding.
+ * @param[in] p Optional Qt widget parent.
+ * @param[in] lo Minimum forwarded to QDoubleSpinBox.
+ * @param[in] hi Maximum forwarded with lo to setRange.
+ * @param[in] dec Decimal precision forwarded to Qt.
+ * @param[in] step Single-step increment.
+ * @param[in] suffix Optional display suffix, set only when nonempty; performs no unit conversion.
+ * @return New parent-owned spin box, or caller-owned when p is null.
+ */
 QDoubleSpinBox *dspin(QWidget *p, double lo, double hi, int dec, double step,
                       const QString &suffix = QString())
 {
@@ -53,12 +69,25 @@ QDoubleSpinBox *dspin(QWidget *p, double lo, double hi, int dec, double step,
         s->setSuffix(suffix);
     return s;
 }
+/**
+ * @brief Allocate an alpha-enabled color control.
+ * @param[in] p Optional Qt owner.
+ * @return New parent-owned ColorButton, caller-owned if parentless.
+ */
 ColorButton *colorBtn(QWidget *p)
 {
     auto *c = new ColorButton(p);
     c->setShowAlpha(true);
     return c;
 }
+/**
+ * @brief Allocate a titled group and its owned form layout.
+ * @param[in] parent Optional Qt owner of the new group.
+ * @param[in] title Copied group caption.
+ * @param[out] form Assigned the newly allocated group-owned layout, replacing the caller pointer
+ * without disposing any prior target.
+ * @return New group owning form and its subsequently added controls.
+ */
 QGroupBox *group(QWidget *parent, const QString &title, QFormLayout *&form)
 {
     auto *box = new QGroupBox(title, parent);
@@ -66,6 +95,17 @@ QGroupBox *group(QWidget *parent, const QString &title, QFormLayout *&form)
     return box;
 }
 
+/**
+ * @brief Connect a double-valued spin signal with a QObject lifetime context.
+ * @tparam SpinT Must be connect-compatible with QDoubleSpinBox.
+ * @tparam Fn Callable accepting a double or compatible signal arguments.
+ * @param[in] s Required live signal sender.
+ * @param[in] ctx QObject connection context controlling automatic disconnection and delivery
+ * thread.
+ * @param[in] fn Callable copied/moved by Qt connection storage; any captured resources must survive
+ * invocation.
+ * Uses Qt default connection type and intentionally discards the connection handle.
+ */
 template <class SpinT, class Fn> void onValue(SpinT *s, QObject *ctx, Fn fn)
 {
     QObject::connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged), ctx, fn);
@@ -653,6 +693,15 @@ void VelocityVectorSymbolStyleEditor::refreshFromModel()
 // Registry hookup. Unqualified tails; createEditorFor (SE.1) matches them
 // against the namespaced metaObject className.
 // ===========================================================================
+/**
+ * @brief Register a type-checked style editor factory.
+ * @param ADAPTER Unqualified OpenSWMM::Render QObject adapter type used for the registry key and
+ * qobject_cast.
+ * @param EDITOR Concrete editor type constructed with the borrowed adapter and optional Qt parent.
+ * The stored factory accepts nullable borrowed obj/parent, returns a new parent-owned
+ * IStyleEditorWidget on a matching adapter, and nullptr otherwise. Adapter lifetime must cover the
+ * returned editor; registration does not own an adapter.
+ */
 #define REG2D(ADAPTER, EDITOR)                                                                     \
     REGISTER_STYLE_EDITOR(ADAPTER, [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {     \
         if (auto *a = qobject_cast<OpenSWMM::Render::ADAPTER *>(obj))                              \

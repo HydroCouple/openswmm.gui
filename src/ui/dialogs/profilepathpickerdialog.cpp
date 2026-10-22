@@ -31,6 +31,13 @@ namespace
 {
 
 // Tiny color-chip swatch for the leftmost table column.
+/**
+ * @param[in] c Brush color and darker(140) outline, raw validity/alpha retained.
+ * @param[in] sizePx Square logical-pixel/default-DPR pixmap dimension, default 14, expected >=2
+ *   without local validation.
+ * @return Owned transparent pixmap with inset antialiased circle; no model lookup or mutation.
+ *   GUI-thread QPixmap painting.
+ */
 QPixmap chip(const QColor &c, int sizePx = 14)
 {
     QPixmap p(sizePx, sizePx);

@@ -50,6 +50,14 @@ using namespace openswmmvis::ui;
 using namespace openswmmvis::assignment;
 namespace
 {
+/**
+ *
+ * @brief Locate and attempt to create this case's persistent hydrothermal evidence directory.
+ * @return Owned directory beside mini_2d.inp under hydrothermal_gis_2026-10-17/current
+ * Qt case name. Directory-creation failure is not checked here; callers check writes.
+ * Does not clean old evidence or isolate simultaneous runs of the same test case.
+ *
+ */
 QDir output()
 {
     QDir dir(QFileInfo(QFINDTESTDATA("data/mini_2d.inp")).absolutePath() +
@@ -57,6 +65,19 @@ QDir output()
     QDir().mkpath(dir.path());
     return dir;
 }
+/**
+ *
+ * @brief Create or overwrite a one-row Float64 EPSG:3857 GeoTIFF in the current case's evidence
+ * directory.
+ * @param values Borrowed first-band cells, also defining raster width; expected nonempty.
+ * The helper copies values and leaves caller storage unchanged. Cell size is one metre,
+ * origin0/1, y step minus1; -9999 is no-data.
+ * @param multiband If true, write a second same-width band filled with0.9.
+ * @return Persistent values.tif path if requested pixel writes succeed, empty on dataset
+ * creation or pixel-write failure. Closes created dataset; geotransform/projection/
+ * no-data setter statuses are unchecked and a partial file may remain on failure.
+ *
+ */
 QString raster(const QVector<double> &values, bool multiband = false)
 {
     GDALAllRegister();
@@ -89,6 +110,14 @@ QString raster(const QVector<double> &values, bool multiband = false)
     GDALClose(ds);
     return rc == CE_None ? path : QString();
 }
+/**
+ *
+ * @brief Create or overwrite a10-by10 Float64 projected raster with left/right halves0.2/0.8.
+ * @return Persistent mesh-values.tif path on successful pixel write or empty on create/
+ * write refusal. Uses EPSG:3857, one-metre cells, origin0/10 and negative y step; closes
+ * dataset. Metadata-setter statuses are unchecked and no no-data value is assigned.
+ *
+ */
 QString meshRaster()
 {
     GDALAllRegister();
@@ -114,6 +143,19 @@ QString meshRaster()
     GDALClose(ds);
     return rc == CE_None ? path : QString();
 }
+/**
+ *
+ * @brief Load a copied mini2D project with explicit fixture node coordinates and assigned
+ * projected/geographic CRS.
+ * @param model Borrowed mutable layer, retained by the caller with its engine.
+ * @param geographic If true, transform the two authored EPSG:3857 positions into
+ * EPSG:4326 using traditional x/y order and apply native node moves; otherwise keep metres.
+ * @return True on load and requested transform/moves success, false otherwise. Truncates
+ * model.inp in output(), updates model path/SRS and may leave partial model edits on
+ * failure; file byte-write length and CRS import statuses are not checked. New SRS is
+ * transferred to the model; temporary OGR transformation is destroyed on handled paths.
+ *
+ */
 bool load(SWMMModelLayer &model, bool geographic = false)
 {
     QFile source(QFINDTESTDATA("data/mini_2d.inp"));
@@ -155,6 +197,16 @@ bool load(SWMMModelLayer &model, bool geographic = false)
     }
     return true;
 }
+/**
+ *
+ * @brief Build a strict-CRS three-cell sampling job with quadrilateral footprints and one snow
+ * target.
+ * @param path Borrowed raster path copied into the owned result; not opened here.
+ * @return Owned raster job selecting indices0/1/2, one-metre-square footprints/centroids,
+ * EPSG:3857, band1, snow key and inclusive zero/one target range. Callers may override
+ * source, sampling, CRS and mode before executing; no sampling occurs in this helper.
+ *
+ */
 MeshAssignmentSampling::Job snowJob(const QString &path)
 {
     MeshAssignmentSampling::Job job;
@@ -178,6 +230,14 @@ class TestHydrothermalGis : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require band selection to distinguish0.9/0.2 and an out-of-footprint sample to
+     * return NaN with false status.
+     * Writes a two-band fixture and uses same-CRS coordinates; no reprojection or no-data
+     * cell is sampled in this case.
+     *
+     */
     void rasterUsesChosenBandAndRejectsOutside()
     {
         GISRasterLayer source(raster({.2, .6}, true));
@@ -190,6 +250,15 @@ private slots:
         QVERIFY(std::isnan(source.valueAt(-.1, .5, &crs, 1, &ok)));
         QVERIFY(!ok);
     }
+    /**
+     *
+     * @brief Require vector-majority category sampling to reproject geographic mesh footprints
+     * into a projected polygon source.
+     * Recreates classes.gpkg with forest/open polygons, transforms job centroids/footprints
+     * to geographic x/y, and checks keys forest/open plus one no-data skip. Source file
+     * persists; no snow-model assignment or hydraulic run occurs.
+     *
+     */
     void snowVectorCategoryReprojects()
     {
         GDALAllRegister();
@@ -250,6 +319,15 @@ private slots:
         QCOMPARE(result.keys, QStringList({"forest", "open"}));
         QCOMPARE(result.skippedNoData, 1);
     }
+    /**
+     *
+     * @brief Require heat-raster dialog preview to enable Apply and commit one undoable link
+     * assignment.
+     * Writes heat-raster-preview.png, checks one undo entry and authored property presence,
+     * then requires exact prior heat signature after undo. Local model/source/canvas outlive
+     * the dialog; no redo or numerical assigned-value assertion here.
+     *
+     */
     void rasterDialogPreviewApplyAndUndo()
     {
         SWMMModelLayer model(QString{});
@@ -272,6 +350,16 @@ private slots:
         canvas.undoStack()->undo();
         QCOMPARE(HeatConfigDialog::configurationSignature(model.engine()), before);
     }
+    /**
+     *
+     * @brief Require nested GIS preview to stage snow-pack assignments without engine changes
+     * until main Apply.
+     * Creates two packs and two mesh quads, drives the modal lookup Forest/Open from a
+     * queued callback and writes snow-gis-preview.png. Checks unchanged engine sections
+     * before Apply, one undo entry, second cell Open and exact section restoration on undo.
+     * Callback borrows live locals through modal execution; its scope guard rejects failures.
+     *
+     */
     void snowDialogStagesGisAsOneUndo()
     {
         SWMMModelLayer model(QString{});
@@ -327,6 +415,14 @@ private slots:
         QVERIFY(MeshSnowModel::readSections(model.engine(), after).isEmpty());
         QCOMPARE(after, before);
     }
+    /**
+     *
+     * @brief Require link raster sampling to average to0.4 and apply/undo/redo through shared
+     * heat edits.
+     * Checks one preview edit within1e-14, exact authored preview value and prior signature
+     * restoration; redo checks authored presence only. No file save/reopen.
+     *
+     */
     void heatRasterValuesAndExactUndo()
     {
         SWMMModelLayer model(QString{});
@@ -348,6 +444,14 @@ private slots:
         undo.redo();
         QVERIFY(authoredHeatProperty(model.engine(), 0, SWMM_HEAT_SCOPE_LINK, "C1").isValid());
     }
+    /**
+     *
+     * @brief Require geographic node positions to sample the projected raster and skip its
+     * no-data cell separately.
+     * Checks one J1 edit0.2, total/no-data skips one and range skips zero; no assignments
+     * are committed or serialized.
+     *
+     */
     void heatRasterReprojectsAndSkipsNoData()
     {
         SWMMModelLayer model(QString{});
@@ -362,6 +466,14 @@ private slots:
         QCOMPARE(preview.skippedNoData, 1);
         QCOMPARE(preview.skippedRange, 0);
     }
+    /**
+     *
+     * @brief Require a sampled1.2 outside the property domain to count as a range skip rather
+     * than no-data.
+     * Checks one accepted edit, one total/range skip and zero no-data skips; no exact accepted
+     * value/name assertion or engine mutation.
+     *
+     */
     void heatRasterReportsRefusedRangeSeparately()
     {
         SWMMModelLayer model(QString{});
@@ -374,6 +486,16 @@ private slots:
         QCOMPARE(preview.skippedRange, 1);
         QCOMPARE(preview.skippedNoData, 0);
     }
+    /**
+     *
+     * @brief Require two mesh-cell porosity samples to use area-weighted footprints and retain
+     * tag-filtered identity.
+     * Checks low/high4/11 and7/11 within1e-12, one-based names, property tag, apply and exact
+     * undo restoration. South filtering returns only cell2 below0.5; invalid owner/property
+     * and cancellation must fail, cancellation without edits. Dialog porosity selection must
+     * choose2D scope. No simulation or input-file persistence occurs in this case.
+     *
+     */
     void heatMeshRasterSamplesAreaWeightedFootprintsFiltersTagsAndCancels()
     {
         SWMMModelLayer model(QString{});
@@ -432,6 +554,20 @@ private slots:
         QCOMPARE(scope->currentData().toInt(), SWMM_HEAT_SCOPE_CELL2D);
         QVERIFY(scope->currentText().contains("2D"));
     }
+    /**
+     *
+     * @brief Require raster-assigned mesh porosity to survive input serialization, initialization
+     * and a bounded thermal run.
+     * Enables coupled heat/local bed storage, sets bed thickness0.2 and initial temperature
+     * -3, writes mesh-heat-workflow.inp/rpt/out under output(), and reopens a separate engine.
+     * Checks requested/initialized/active bed, per-cell source identity, preview-matching
+     * porosity within1e-12, finite positive capacity and negative energy. Steps at most100
+     * iterations and checks finite thermal residual magnitudes below1e-4; does not assert
+     * elapsed reached zero. Closes/destroys reopened engine on successful path, then undoes
+     * original edits and checks exact signature/no cell1 override. Early assertions lack
+     * scope cleanup for the raw reopened engine; generated evidence remains.
+     *
+     */
     void heatMeshRasterSurvivesSaveReopenRunAndUndo()
     {
         SWMMModelLayer model(QString{});
@@ -529,6 +665,13 @@ private slots:
                                       QStringLiteral("1"))
                      .isValid());
     }
+    /**
+     *
+     * @brief Require Apply to refuse a stale preview after direct sediment-porosity mutation.
+     * Checks Apply becomes disabled, undo stack stays empty, no cell1 override and a Preview
+     * again label. Does not roll back the deliberately external configuration change.
+     *
+     */
     void heatRasterPreviewRefusesExternalConfigurationChange()
     {
         SWMMModelLayer model(QString{});
@@ -558,6 +701,16 @@ private slots:
             staleMessage |= label->text().contains(QStringLiteral("Preview again"));
         QVERIFY(staleMessage);
     }
+    /**
+     *
+     * @brief Require numeric area-weighted and categorical-majority snow sampling to preserve
+     * no-data and inherited fields.
+     * Checks cell indices0/1, sampled0.2/0.6 and one no-data skip; staged rows leave other
+     * raw overrides NaN while effective values inherit the precise global override. Maps
+     * classes1/2 to Forest/Open case-insensitively and requires final model validation;
+     * no engine sections or file are written by staging.
+     *
+     */
     void snowFootprintsCategoriesAndInheritance()
     {
         auto job = snowJob(raster({.2, .6, -9999}));
@@ -594,6 +747,14 @@ private slots:
         QCOMPARE(staged.effective(1, "a").pack, QString("Open"));
         QVERIFY(staged.validate({"a", "a", "b"}).isEmpty());
     }
+    /**
+     *
+     * @brief Require heat attribute-table edits, clears and external edits to share native
+     * storage and notifications.
+     * Checks full-precision albedo, exact prior signature after undo, redo/clear/undo value
+     * retention and dataChanged after a separate shade edit. No solver run or file round trip.
+     *
+     */
     void attributeTableUsesSharedRowsAndUndo()
     {
         SWMMModelLayer model(QString{});
@@ -622,6 +783,15 @@ private slots:
                                        "External edit", &error));
         QVERIFY(!refreshed.isEmpty());
     }
+    /**
+     *
+     * @brief Require import planning to refuse out-of-range shade and apply a valid
+     * existing-junction update as one undo.
+     * Builds source/schema mapping and model snapshot, checks one error for1.2 then one
+     * update for0.3, executes against the live model and checks authored value/undo count.
+     * Undo must restore exact heat signature; no vector-file import or save/reopen.
+     *
+     */
     void featureFieldMappingRejectsRangesAndIsUndoable()
     {
         using namespace openswmmvis::import;

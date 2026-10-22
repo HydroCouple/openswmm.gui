@@ -33,22 +33,66 @@
 class XYZTileLayerAccessor
 {
 public:
+    /**
+     *
+     * @brief Expose the private pure tile URL builder for tests without issuing a request.
+     * @param layer Borrowed live tile layer supplying template/subdomain/axis configuration.
+     * @param z Zoom level forwarded unchanged.
+     * @param x Tile column forwarded unchanged.
+     * @param y Tile row forwarded unchanged.
+     * @return Owned substituted URL; validation/axis conventions belong to the called helper,
+     * not this transparent accessor. Does not retain layer references.
+     *
+     */
     static QString buildUrl(const XYZTileLayer &layer, int z, int x, int y)
     {
         return layer.buildUrl(z, x, y);
     }
 
+    /**
+     *
+     * @brief Expose private zoom selection using the supplied geographic extent and viewport
+     * width.
+     * @param layer Borrowed live tile layer providing tile size and zoom limits.
+     * @param wgs84Extent Borrowed longitude/latitude QRectF in degrees.
+     * @param vpWidth Viewport width in pixels, forwarded without wrapper validation.
+     * @return Selected zoom from the layer; no cache lookup or tile fetch.
+     *
+     */
     static int bestZoom(const XYZTileLayer &layer, const QRectF &wgs84Extent, int vpWidth)
     {
         return layer.bestZoom(wgs84Extent, vpWidth);
     }
 
+    /**
+     *
+     * @brief Expose private geographic-to-tile index conversion through caller-owned outputs.
+     * @param layer Borrowed live tile layer.
+     * @param lat Latitude in degrees.
+     * @param lon Longitude in degrees.
+     * @param z Zoom level forwarded without wrapper validation.
+     * @param tx Borrowed writable output receiving tile column.
+     * @param ty Borrowed writable output receiving tile row.
+     * Uses underlying clamp/math policy; no network, ownership transfer or retained refs.
+     *
+     */
     static void latLonToTileXY(const XYZTileLayer &layer, double lat, double lon, int z, int &tx,
                                int &ty)
     {
         layer.latLonToTileXY(lat, lon, z, tx, ty);
     }
 
+    /**
+     *
+     * @brief Expose private tile-to-geographic extent conversion.
+     * @param layer Borrowed live tile layer.
+     * @param z Zoom level forwarded unchanged.
+     * @param x Tile column forwarded unchanged.
+     * @param y Tile row forwarded unchanged.
+     * @return Owned QRectF longitude-min/latitude-min/span in degrees. Qt top/bottom therefore
+     * mean southern/northern latitude, unlike usual screen y orientation. No tile fetch.
+     *
+     */
     static QRectF tileBoundsWGS84(const XYZTileLayer &layer, int z, int x, int y)
     {
         return layer.tileBoundsWGS84(z, x, y);
@@ -96,6 +140,15 @@ private slots:
 private:
     // Creates a layer with the given template and axis order for testing.
     // Caller owns the returned pointer.
+    /**
+     *
+     * @brief Allocate a parentless256-pixel-tile layer and set the requested axis order.
+     * @param urlTemplate Borrowed template copied into the new layer.
+     * @param axisOrder Placeholder axis convention, default ZXY.
+     * @return Caller-owned heap layer, deleted explicitly by each case; constructor creates
+     * network infrastructure but these tests only call pure helpers, never populate/fetch.
+     *
+     */
     static XYZTileLayer *makeLayer(const QString &urlTemplate,
                                    TileAxisOrder axisOrder = TileAxisOrder::ZXY)
     {
@@ -109,6 +162,13 @@ private:
 // initTestCase
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Provide an empty suite hook; QTEST_MAIN already creates the application needed by layer
+ * constructors.
+ * Does not initialize GDAL, create output files or issue a network request.
+ *
+ */
 void TestArcGISRestRendering::initTestCase()
 {
     // QCoreApplication is needed for QNetworkAccessManager (created in the
@@ -198,6 +258,13 @@ void TestArcGISRestRendering::zyxUrlOrder_esriWorldImageryBuiltinTemplate()
 // URL building — subdomains
 // ---------------------------------------------------------------------------
 
+/**
+ *
+ * @brief Require a subdomain template to replace its placeholder and preserve domain/tile suffix.
+ * Does not assert which subdomain is chosen or perform an HTTP request; deletes the
+ * fixture layer on the successful path.
+ *
+ */
 void TestArcGISRestRendering::subdomainSubstitution()
 {
     auto *layer = makeLayer(QStringLiteral("https://{s}.tiles.example.com/{z}/{x}/{y}.png"),
@@ -212,6 +279,13 @@ void TestArcGISRestRendering::subdomainSubstitution()
     delete layer;
 }
 
+/**
+ *
+ * @brief Require an ArcGIS-style template without subdomain to substitute every tile placeholder
+ * safely.
+ * Checks no unresolved s/z/x/y tokens; does not assert full URL or contact the server.
+ *
+ */
 void TestArcGISRestRendering::noSubdomainInTemplate()
 {
     // ArcGIS REST endpoints have no {s} placeholder — must not crash.
@@ -438,6 +512,12 @@ void TestArcGISRestRendering::esriWorldImageryBuiltinUsesZXY()
     QFAIL("ESRI World Imagery builtin not found");
 }
 
+/**
+ *
+ * @brief Require the named OpenStreetMap builtin to exist and declare ZXY axis order.
+ * Fails explicitly if absent; does not assert URL contents or contact the service.
+ *
+ */
 void TestArcGISRestRendering::builtinOpenStreetMapUsesZXY()
 {
     for (const XYZConnection &b : XYZConnection::builtins()) {

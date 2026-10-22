@@ -44,19 +44,78 @@ class TestRendererPanelContext : public QObject
     Q_OBJECT
 private slots:
     // RendererPanelContext field defaults
+    /**
+     * @brief Verify a default renderer-panel context borrows no active Rule.
+     * @note Pure value fixture, QCOMPARE nullptr, no widgets/renderer ownership transferred.
+     */
     void context_ruleFieldDefaultsToNull();
+    /**
+     * @brief Verify a default renderer-panel context borrows no host layer.
+     * @note Pure value fixture, QCOMPARE nullptr, no layer created or mutated.
+     */
     void context_hostLayerFieldDefaultsToNull();
+    /**
+     * @brief Verify a default panel context has no optional category selection.
+     * @note Checks has_value false on local context; no rendering or model lookup.
+     */
     void context_categoryFieldDefaultsToEmpty();
 
     // Rule::setRendererById
+    /**
+     * @brief Verify changing a default single renderer to graduated reports a successful swap.
+     * @note Asserts initial rendererId and true return on local Rule, no persistent layer edits.
+     */
     void setById_returnsTrueOnSwap();
+    /**
+     * @brief Verify a categorized class swap replaces the renderer object and class identifier.
+     * @note Old pointer retained only for comparison, never dereferenced after replacement; Rule
+     * owns new renderer.
+     */
     void setById_changesRendererIdentity();
+    /**
+     * @brief Verify selecting the current single class is a no-op preserving renderer identity.
+     * @note Checks false return and identical borrowed pointer on local Rule, no file or GUI
+     * effects.
+     */
     void setById_sameClassReturnsFalseAndKeepsRenderer();
+    /**
+     * @brief Verify an unregistered class ID refuses without replacing the current renderer.
+     * @note Checks false return and pointer preservation, no factory side effects asserted
+     * beyond local Rule.
+     */
     void setById_unknownIdReturnsFalse();
+    /**
+     * @brief Verify an empty renderer class ID refuses on a fresh Rule.
+     * @note Checks false return; local ownership only, no settings/model files.
+     */
     void setById_emptyIdReturnsFalse();
+    /**
+     * @brief Verify sequential swaps resolve graduated, categorized, rule, unclassed and single
+     * IDs.
+     * @note Every differing class must return true and expose requested rendererId; local Rule
+     * owns replacements.
+     */
     void setById_supportsAllFiveBuiltinIds();
+    /**
+     * @brief Verify one successful graduated swap emits exactly one replacement and one
+     * rule-change signal.
+     * @note QSignalSpy observes local Rule synchronously, no queued UI integration or external
+     * mutation.
+     */
     void setById_emitsRendererReplacedAndRuleChanged();
+    /**
+     * @brief Verify same/unknown class selections do not emit replacement notifications.
+     * @note Same-class keeps both signal counts zero; later unknown class keeps replacement
+     * count zero.
+     * Uses local Rule/QSignalSpy only, does not claim broader UI behavior.
+     */
     void setById_noOpDoesNotEmitSignals();
+    /**
+     * @brief Verify a Rule swapped to unclassed retains that renderer class through JSON
+     * serialization.
+     * @note Owned reconstructed Rule must exist and report unclassed; no settings file write or
+     * source mutation.
+     */
     void setById_roundTripsThroughJson();
 };
 

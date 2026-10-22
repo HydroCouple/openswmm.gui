@@ -36,7 +36,17 @@ private slots:
 private:
     static constexpr int kSide = 400;
 
-    /*! Renders the overlay with `scale` scene-units-per-pixel. */
+    /**
+     *
+     * @brief Render the overlay into an owned transparent400-pixel-square image using an affine
+     * scene transform.
+     * @param ov Borrowed mutable overlay passed to paint; no ownership transfer.
+     * @param scale Pixels per scene unit, multiplying coordinates; positive fixtures place
+     * scene origin at image center and invert y. It is not scene units per pixel.
+     * @return Owned premultiplied ARGB image after ending the local painter. The transform
+     * callback captures only scale by value and runs synchronously; no screen/file I/O.
+     *
+     */
     static QImage render(SelectionBeaconOverlay &ov, double scale)
     {
         QImage img(QSize(kSide, kSide), QImage::Format_ARGB32_Premultiplied);
@@ -52,6 +62,13 @@ private:
         return img;
     }
 
+    /**
+     *
+     * @brief Count pixels whose alpha is nonzero, including antialiased boundary pixels.
+     * @param img Borrowed image expected in a pixel()-compatible format.
+     * @return Integer ink count; does not weight opacity, inspect colors or modify data.
+     *
+     */
     static int ink(const QImage &img)
     {
         int n = 0;
@@ -63,6 +80,12 @@ private:
     }
 };
 
+/**
+ *
+ * @brief Require a default empty overlay to paint zero nontransparent pixels.
+ * Checks isEmpty and a unit-scale synthetic render; no actual canvas is constructed.
+ *
+ */
 void TestSelectionBeacon::emptySelectionDrawsNothing()
 {
     SelectionBeaconOverlay ov;
@@ -70,6 +93,12 @@ void TestSelectionBeacon::emptySelectionDrawsNothing()
     QCOMPARE(ink(render(ov, 1.0)), 0);
 }
 
+/**
+ *
+ * @brief Require a far-offscreen nonempty anchor to contribute no ink in the synthetic viewport.
+ * Uses anchor100000/100000 at unit scale; does not test edge arrows or zoom-to-selection.
+ *
+ */
 void TestSelectionBeacon::offScreenSelectionDrawsNothing()
 {
     // Off-screen is served by "Zoom to Selection", not by the beacon.
@@ -79,6 +108,13 @@ void TestSelectionBeacon::offScreenSelectionDrawsNothing()
     QCOMPARE(ink(render(ov, 1.0)), 0);
 }
 
+/**
+ *
+ * @brief Require a centered single beacon's ink to remain nearly constant at scales10/0.1/0.001.
+ * Checks positive ink and adjacent differences at most12pixels for antialiasing jitter;
+ * does not compare exact geometry, color or on-screen widget rendering.
+ *
+ */
 void TestSelectionBeacon::beaconSizeIsIndependentOfZoom()
 {
     SelectionBeaconOverlay ov;
@@ -98,6 +134,13 @@ void TestSelectionBeacon::beaconSizeIsIndependentOfZoom()
             QStringLiteral("beacon ink drifted with zoom: %1 / %2 / %3").arg(a).arg(b).arg(c)));
 }
 
+/**
+ *
+ * @brief Require anchors200screen pixels apart to paint more than1.5 times one beacon's ink.
+ * The local lambda builds an independent single-anchor reference and returns its ink;
+ * no exact two-to-one pixel ratio or connected-line rendering is asserted.
+ *
+ */
 void TestSelectionBeacon::separatedFeaturesEachGetABeacon()
 {
     SelectionBeaconOverlay ov;
@@ -116,6 +159,13 @@ void TestSelectionBeacon::separatedFeaturesEachGetABeacon()
         qPrintable(QStringLiteral("expected two beacons, ink %1 vs one at %2").arg(two).arg(one)));
 }
 
+/**
+ *
+ * @brief Require zooming a two-anchor selection from200-pixel to2-pixel separation to retain ink
+ * but reduce it below75percent.
+ * Pins aggregation by an image-space proxy; does not count exact rings or inspect shape.
+ *
+ */
 void TestSelectionBeacon::collapsedSelectionAggregatesToOne()
 {
     SelectionBeaconOverlay ov;

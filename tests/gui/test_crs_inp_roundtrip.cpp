@@ -15,7 +15,7 @@
  * engine's spatial frame only, so the saved .inp declared the OLD CRS over
  * the NEW coordinates; and the sidecar restore overwrote the .inp's CRS.
  *
- * All output goes to <repo>/tests/output/crs_inp_roundtrip/, never a temp dir.
+ * All output goes to &lt;repo&gt;/tests/output/crs_inp_roundtrip/, never a temp dir.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -41,12 +41,16 @@ namespace
 constexpr const char *kInpCrs = "EPSG:26985";
 constexpr int kAssignedCode = 32618; // EPSG:32618
 
+/** @brief Resolve CRS persistence fixtures.
+ * @return SWMMVIS_GUI_TEST_DATA or ".". */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
-//! Reviewable output root: <repo>/tests/output/crs_inp_roundtrip.
+//! Reviewable output root: &lt;repo&gt;/tests/output/crs_inp_roundtrip.
+/** @brief Create the retained CRS evidence directory relative to test data.
+ * @return output/crs_inp_roundtrip after moving two parents above the data directory; directory navigation/creation errors are unchecked. */
 QString outDir()
 {
     QDir d(dataDir()); // tests/gui/data
@@ -58,6 +62,10 @@ QString outDir()
 }
 
 //! Minimal valid deck; \p crs empty → no CRS line at all.
+/** @brief Stream a small CFS deck with an optional OPTIONS CRS line.
+ * @param[in] path Destination truncated as text; parent must already exist.
+ * @param[in] crs CRS text written verbatim, or empty to omit the line.
+ * @return False on file-open failure, otherwise true after streaming; write/flush failures are unchecked. */
 bool writeDeck(const QString &path, const QString &crs)
 {
     QFile f(path);
@@ -82,6 +90,9 @@ bool writeDeck(const QString &path, const QString &crs)
 }
 
 //! The CRS line inside [OPTIONS] only — [TITLE] text may itself start with "CRS".
+/** @brief Find a CRS declaration only inside an exactly spelled OPTIONS section.
+ * @param[in] inp Text input path read line by line.
+ * @return First uppercase CRS line followed by whitespace, simplified, or empty when missing/open fails. Matching is case-sensitive and does not accept indented section/keyword lines. */
 QString crsLineInOptions(const QString &inp)
 {
     QFile f(inp);
@@ -103,6 +114,10 @@ QString crsLineInOptions(const QString &inp)
 }
 
 //! Window on \p deckPath, model loaded; nullptr + \p why on failure.
+/** @brief Allocate a workspace/window and synchronously open its model.
+ * @param[in] deckPath Model path to load.
+ * @param[out] why Required writable diagnostic assigned on workspace/load failure, unchanged on success.
+ * @return Newly allocated parentless window or nullptr. Caller deletes successful windows; workspace allocation is not explicitly reclaimed by this helper and a failed window is not deleted here. */
 SWMMVisProjectWindow *openWindow(const QString &deckPath, QString *why)
 {
     auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -119,12 +134,19 @@ SWMMVisProjectWindow *openWindow(const QString &deckPath, QString *why)
     return window;
 }
 
+/** @brief Read the current model layer SRS authority.
+ * @param[in] w Required live project window.
+ * @return Authority string or empty if model/SRS is absent. */
 QString layerAuthority(SWMMVisProjectWindow *w)
 {
     const auto *srs = w->modelLayer() ? w->modelLayer()->srs() : nullptr;
     return srs ? srs->toAuthority() : QString();
 }
 
+/** @brief Assign an owned EPSG SRS directly to the model layer.
+ * @param[in,out] w Required window with a live model layer.
+ * @param[in] code EPSG code passed to fromAuthCode; creation failure is not checked.
+ * The layer owns the resulting SRS; this helper does not drive the CRS picker or coordinate reprojection. */
 void assignEpsg(SWMMVisProjectWindow *w, int code)
 {
     auto *layer = w->modelLayer();
@@ -141,6 +163,7 @@ private slots:
     /*! Rule 1 — .inp CRS beats the sidecar's. A sidecar written while the
      *  layer sat on EPSG:32618 must NOT re-label a model whose .inp says
      *  EPSG:26985. */
+    /** @brief Verify applying a sidecar with a different assignment preserves the CRS declared by the input deck. */
     void sidecarDoesNotOverrideInpCrs()
     {
         const QString deck = outDir() + QStringLiteral("/with_crs.inp");
@@ -167,6 +190,7 @@ private slots:
 
     /*! Rule 1, other half — with NO CRS in the .inp the sidecar's copy is
      *  the only source and must still apply. */
+    /** @brief Verify sidecar CRS becomes an explicit assignment only when the input deck declares none. */
     void sidecarAppliesWhenInpHasNoCrs()
     {
         const QString deck = outDir() + QStringLiteral("/no_crs.inp");
@@ -192,6 +216,7 @@ private slots:
 
     /*! Rule 2 — an assigned CRS on a model that had none is written. This is
      *  the CRS-picker-on-open / sidecar case. */
+    /** @brief Verify direct layer assignment writes an OPTIONS CRS line during Save As of a previously unassigned deck. */
     void assignedCrsIsWrittenWhenInpHadNone()
     {
         const QString deck = outDir() + QStringLiteral("/no_crs_src.inp");
@@ -210,6 +235,8 @@ private slots:
     /*! Rule 2 — the canvas "Reproject" outcome: the layer's SRS changes on a
      *  model whose .inp declared another CRS. The saved file must declare the
      *  NEW one, and reopening it must read the new one back. */
+    /** @brief Verify replacing the layer SRS updates the saved OPTIONS line and fresh project reload reads the new authority.
+     * Exercises the final assignment state directly rather than performing a canvas reprojection. */
     void reassignedCrsReplacesTheInpLine()
     {
         const QString deck = outDir() + QStringLiteral("/with_crs_src.inp");
@@ -232,6 +259,7 @@ private slots:
     }
 
     /*! Must-not-change — an unedited save keeps the .inp's own CRS line. */
+    /** @brief Verify an unedited assigned CRS keeps the same simplified OPTIONS declaration after Save As. */
     void unchangedCrsIsPreservedOnSave()
     {
         const QString deck = outDir() + QStringLiteral("/with_crs_unedited.inp");
@@ -251,6 +279,7 @@ private slots:
      *  never be written back: the saved file gains no CRS line. This is the
      *  case an isLocal() guard alone would miss — the preferences default
      *  is a real EPSG code, not a local CRS. */
+    /** @brief Verify an automatically defaulted, unauthored SRS does not create an OPTIONS CRS line during Save As. */
     void defaultedCrsIsNeverWritten()
     {
         const QString deck = outDir() + QStringLiteral("/no_crs_default.inp");

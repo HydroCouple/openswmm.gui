@@ -276,6 +276,11 @@ QWidget *RasterSymbologyPanel::buildMultiBandPage()
     form->setContentsMargins(0, 0, 0, 0);
 
     const int n = std::max(1, m_layer ? m_layer->bandCount() : 1);
+    /**
+     * @brief Create a page-owned band selector. Argument `name`: required Latin-1 object name.
+     * Argument `lo`: lower band bound (one for RGB, zero for optional alpha). Returns: new spin
+     * with upper bound max(1,bandCount); no model mutation.
+     */
     auto makeSpin = [&](const char *name, int lo) {
         auto *s = new QSpinBox(page);
         s->setObjectName(QString::fromLatin1(name));

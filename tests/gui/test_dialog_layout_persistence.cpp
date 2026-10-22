@@ -54,6 +54,16 @@ struct Fixture {
     QStackedWidget *pages = nullptr; // named "pages"
     QAction *toggle = nullptr;       // named "showDetail", checkable
 
+    /**
+     *
+     * @brief Construct a local dialog containing each persistable child-state kind and an unnamed
+     * splitter.
+     * @param dialogName Borrowed name copied to the dialog; empty exercises opt-out.
+     * All child pointers are nonowning aliases into dialog-owned QObject storage; the value
+     * member dialog destroys them with the fixture. Builds three table columns/tabs, two
+     * stacked pages and one named checkable action; does not show or save automatically.
+     *
+     */
     explicit Fixture(const QString &dialogName)
     {
         dialog.setObjectName(dialogName);
@@ -125,6 +135,14 @@ private:
     QTemporaryDir mSettingsDir; // member: path must outlive every test
 };
 
+/**
+ *
+ * @brief Redirect this test process's QSettings identity and INI user-scope path to a
+ * fixture-owned temporary directory.
+ * Requires a valid directory retained for all cases; modifies global organization/app
+ * names, format and path without restoring prior values. No developer preference read.
+ *
+ */
 void TestDialogLayoutPersistence::initTestCase()
 {
     QVERIFY(mSettingsDir.isValid());
@@ -134,12 +152,26 @@ void TestDialogLayoutPersistence::initTestCase()
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, mSettingsDir.path());
 }
 
+/**
+ *
+ * @brief Clear the isolated settings store before every case.
+ * Does not restore process-global defaults or explicitly sync to disk; the configured
+ * INI directory remains owned by the test object.
+ *
+ */
 void TestDialogLayoutPersistence::init()
 {
     QSettings settings;
     settings.clear();
 }
 
+/**
+ *
+ * @brief Require exact stored geometry restoration for two same-named dialog instances.
+ * Uses a 420-by-330 client rectangle chosen for the offscreen test screen; no actual
+ * window exposure, window-manager frame offsets or multi-monitor migration is tested.
+ *
+ */
 void TestDialogLayoutPersistence::geometryRoundTrips()
 {
     // Rect chosen inside the offscreen screen's available geometry so the
@@ -156,6 +188,14 @@ void TestDialogLayoutPersistence::geometryRoundTrips()
     QCOMPARE(fresh.dialog.geometry(), rect);
 }
 
+/**
+ *
+ * @brief Require only the named splitter to create a settings key and restore its unequal size
+ * ordering.
+ * Checks exactly one splitter key and first size less than last, rather than exact
+ * 100/300 pixel values. The unnamed splitter's authored sizes must not persist.
+ *
+ */
 void TestDialogLayoutPersistence::namedSplitterOptInOnly()
 {
     {
@@ -183,6 +223,13 @@ void TestDialogLayoutPersistence::namedSplitterOptInOnly()
                             .arg(sizes.last())));
 }
 
+/**
+ *
+ * @brief Require named table-header restoration to retain logical column widths137 and61.
+ * Saves one fixture and restores a fresh same-named dialog; does not test stale header
+ * blobs, reordered sections or different column counts.
+ *
+ */
 void TestDialogLayoutPersistence::headerStateRoundTrips()
 {
     {
@@ -197,6 +244,14 @@ void TestDialogLayoutPersistence::headerStateRoundTrips()
     QCOMPARE(fresh.table->columnWidth(1), 61);
 }
 
+/**
+ *
+ * @brief Require saved Fixed/stretch-last header modes to restore as Interactive without
+ * stretch-last.
+ * Checks every section can accept a distinct width after restoration; no user mouse
+ * resize or vertical-header state is tested.
+ *
+ */
 void TestDialogLayoutPersistence::legacySizingModesBecomeResizable()
 {
     Fixture saved(QStringLiteral("LegacyHeader"));
@@ -214,6 +269,14 @@ void TestDialogLayoutPersistence::legacySizingModesBecomeResizable()
     QVERIFY(!fresh.table->horizontalHeader()->stretchLastSection());
 }
 
+/**
+ *
+ * @brief Require valid tab/page indices to restore and an out-of-range stored tab index to leave
+ * the default.
+ * Checks tab2/page1 first, then corrupts only tab index to7; does not separately corrupt
+ * page indices or exercise negative values.
+ *
+ */
 void TestDialogLayoutPersistence::tabAndPageIndicesBoundsChecked()
 {
     {
@@ -240,6 +303,14 @@ void TestDialogLayoutPersistence::tabAndPageIndicesBoundsChecked()
     }
 }
 
+/**
+ *
+ * @brief Require restoring a saved checked action to set it checked and emit toggled exactly
+ * once.
+ * Allows dependent views to observe restoration; does not inspect signal payload or
+ * unchecked/no-op restoration.
+ *
+ */
 void TestDialogLayoutPersistence::toggleRestoreFiresToggled()
 {
     {
@@ -254,6 +325,13 @@ void TestDialogLayoutPersistence::toggleRestoreFiresToggled()
     QCOMPARE(spy.count(), 1); // dependent views get their update
 }
 
+/**
+ *
+ * @brief Require unnamed dialogs to write no settings and return false from restore.
+ * Assigns a geometry but does not test other opt-out properties or named descendants
+ * outside the fixture.
+ *
+ */
 void TestDialogLayoutPersistence::emptyObjectNameIsNoOp()
 {
     Fixture f{QString()};
@@ -264,6 +342,13 @@ void TestDialogLayoutPersistence::emptyObjectNameIsNoOp()
     QVERIFY(settings.allKeys().isEmpty());
 }
 
+/**
+ *
+ * @brief Require restoring a far-away saved rectangle to place its center on an available screen.
+ * Uses existing connected-screen geometry and does not alone prove complete body/title
+ * visibility or which monitor is selected.
+ *
+ */
 void TestDialogLayoutPersistence::offscreenRectGetsClamped()
 {
     QSettings settings;
@@ -290,6 +375,14 @@ void TestDialogLayoutPersistence::offscreenRectGetsClamped()
 // each rule down against the current screen layout rather than hard-coded
 // numbers, so they hold on any test machine.
 
+/**
+ *
+ * @brief Require a comfortably inset primary-screen rectangle to remain byte-for-byte equal after
+ * clamping.
+ * Derives dimensions from available screen area with a28-pixel title allowance; requires
+ * a primary screen and does not change actual display configuration.
+ *
+ */
 void TestDialogLayoutPersistence::clampKeepsUsableRectUntouched()
 {
     const QScreen *primary = QGuiApplication::primaryScreen();
@@ -302,6 +395,14 @@ void TestDialogLayoutPersistence::clampKeepsUsableRectUntouched()
     QCOMPARE(clampToVisibleScreen(fine, 28), fine);
 }
 
+/**
+ *
+ * @brief Require a double-screen-size rectangle to fit available bounds including a28-pixel title
+ * strip.
+ * Centers the input on primary and checks resulting width/height and expanded-title
+ * containment; no real window is resized or persisted.
+ *
+ */
 void TestDialogLayoutPersistence::clampShrinksRectTooBigForItsScreen()
 {
     const QScreen *primary = QGuiApplication::primaryScreen();
@@ -320,6 +421,14 @@ void TestDialogLayoutPersistence::clampShrinksRectTooBigForItsScreen()
              "clamped rect (incl. title bar) is not fully on screen");
 }
 
+/**
+ *
+ * @brief Require a body beginning four pixels below screen top to move enough for its28-pixel
+ * title bar.
+ * Checks top-minus-title is inside primary available area; does not compare an exact
+ * new rectangle or test window-manager decorations.
+ *
+ */
 void TestDialogLayoutPersistence::clampKeepsTitleBarReachable()
 {
     const QScreen *primary = QGuiApplication::primaryScreen();
@@ -340,6 +449,13 @@ void TestDialogLayoutPersistence::clampKeepsTitleBarReachable()
                             .arg(avail.top())));
 }
 
+/**
+ *
+ * @brief Require a mostly offscreen rectangle to regain minimum reachable body width/height.
+ * Uses ten-pixel initial edge overlap and checks at least min(width,160) by
+ * min(height,60) visible on primary; no actual interactive drag or full containment.
+ *
+ */
 void TestDialogLayoutPersistence::clampRescuesBarelyOverlappingRect()
 {
     const QScreen *primary = QGuiApplication::primaryScreen();
@@ -359,6 +475,15 @@ void TestDialogLayoutPersistence::clampRescuesBarelyOverlappingRect()
              "too little of the window is vertically reachable");
 }
 
+/**
+ *
+ * @brief Require a straddling rectangle to retain a usable body/title on at least one connected
+ * screen.
+ * Checks160-by60 minimum body visibility capped by rectangle size and28-pixel title
+ * reachability. A single-screen run does not establish largest-overlap monitor selection;
+ * that behavior requires the referenced manual multi-monitor verification.
+ *
+ */
 void TestDialogLayoutPersistence::clampLeavesRectUsableOnSomeScreen()
 {
     // General postcondition: whatever screen the clamp settles on, the result
@@ -393,6 +518,14 @@ void TestDialogLayoutPersistence::clampLeavesRectUsableOnSomeScreen()
     QVERIFY2(usable, "clamped rect is not usable on any connected screen");
 }
 
+/**
+ *
+ * @brief Require an installed application event filter to save on Hide and restore geometry/tab
+ * on a fresh first Show.
+ * Shows/exposes both fixtures and removes the filter afterward; settings are isolated.
+ * Does not test Close directly, nested modals or restoration before every later Show.
+ *
+ */
 void TestDialogLayoutPersistence::watcherPersistsAcrossInstances()
 {
     DialogLayoutWatcher watcher;
@@ -417,6 +550,13 @@ void TestDialogLayoutPersistence::watcherPersistsAcrossInstances()
     qApp->removeEventFilter(&watcher);
 }
 
+/**
+ *
+ * @brief Require a shown/hidden dialog with noLayoutPersistence to create no geometry key.
+ * Installs/removes a local watcher, checks window exposure and key absence; other child
+ * keys and a preexisting stored geometry are not inspected.
+ *
+ */
 void TestDialogLayoutPersistence::watcherRespectsOptOutProperty()
 {
     DialogLayoutWatcher watcher;
@@ -433,6 +573,14 @@ void TestDialogLayoutPersistence::watcherRespectsOptOutProperty()
     qApp->removeEventFilter(&watcher);
 }
 
+/**
+ *
+ * @brief Require showing the same live dialog again to preserve its geometry despite a changed
+ * stored rectangle.
+ * Installs a local event filter, hides once, alters settings and reshow/exposes; removes
+ * the filter after the final Hide. Does not assert geometry for a separate new instance.
+ *
+ */
 void TestDialogLayoutPersistence::watcherRestoresOncePerInstance()
 {
     DialogLayoutWatcher watcher;

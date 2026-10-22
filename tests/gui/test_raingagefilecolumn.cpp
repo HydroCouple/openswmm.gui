@@ -45,16 +45,36 @@ using openswmmvis::ColumnSpec;
 namespace
 {
 
+/**
+ *
+ * @brief Return the test fixture directory without creating or checking it.
+ * @return SWMMVIS_GUI_TEST_DATA verbatim, or dot when unset; relative paths stay relative.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Resolve a fixture name beneath dataDir() without reading it.
+ * @param name Borrowed path forwarded to QDir::filePath.
+ * @return Owned joined filename; no normalization or existence guarantee.
+ *
+ */
 QString fixture(const QString &name)
 {
     return QDir(dataDir()).filePath(name);
 }
 
+/**
+ *
+ * @brief Load the typed-selection input into a test-owned editing layer.
+ * @return Owning layer unique_ptr on success or null on refusal; warning/error lists
+ * remain local. Layer owns engine lifetime and no input file is saved.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
@@ -65,7 +85,14 @@ std::unique_ptr<SWMMModelLayer> openLayer()
     return layer;
 }
 
-//! Column index for a spec's setter tag, or -1.
+/**
+ *
+ * @brief Find the first exact setter-tag match in an ordered schema.
+ * @param specs Borrowed column metadata list.
+ * @param tag Borrowed case-sensitive setter tag, without label/key alias lookup.
+ * @return Zero-based column or minus one; does not mutate/rebuild the schema.
+ *
+ */
 int colForSetter(const QList<ColumnSpec> &specs, const QString &tag)
 {
     for (int i = 0; i < specs.size(); ++i)
@@ -95,10 +122,25 @@ private:
     std::unique_ptr<SWMMAttributeTableModel> m_model;
     int m_row = -1, m_pathCol = -1, m_colCol = -1, m_fmtCol = -1, m_stationCol = -1;
 
-    //! The gage's engine index (fixture has exactly one gage).
+    /**
+     *
+     * @brief Resolve fixture gage S1 in the currently owned editing engine.
+     * @return Native gage index or minus one; requires initialized m_layer and its live
+     * engine. It is not the displayed table row and no engine pointer is retained.
+     *
+     */
     [[nodiscard]] int gageIdx() const { return swmm_gage_index(m_layer->engine(), "S1"); }
 };
 
+/**
+ *
+ * @brief Load a fresh layer, switch S1 to FILE source and bind a rain-gage model/undo stack
+ * before each case.
+ * Requires path/column/format columns and exactly one row; station column may be absent.
+ * Member unique_ptrs own layer, stack and model, with destruction ordering retaining
+ * the engine through model teardown. No rain simulation or file write.
+ *
+ */
 void TestRainGageFileColumn::init()
 {
     m_layer = openLayer();
@@ -126,6 +168,13 @@ void TestRainGageFileColumn::init()
     QCOMPARE(m_model->rowCount(), 1);
 }
 
+/**
+ *
+ * @brief Require a multi-column path edit to choose rain_a/MultiColumn within one undo entry.
+ * Undo must restore empty column and AutoDetect grammar; does not separately compare
+ * restored file path or perform a second redo/file-save check.
+ *
+ */
 void TestRainGageFileColumn::pathEditBindsFirstColumnAndUndoesAsOneStep()
 {
     const QString csv = fixture(QStringLiteral("extcol_switch_multi.csv"));
@@ -154,6 +203,14 @@ void TestRainGageFileColumn::pathEditBindsFirstColumnAndUndoesAsOneStep()
              int(SWMMRainGagePropertyAdapter::AutoDetect));
 }
 
+/**
+ *
+ * @brief Require reassigning the same file to retain explicit rain_b selection and add no undo
+ * entry.
+ * The setter returns true for this no-op; no different file with the same header is
+ * tested despite the general case name.
+ *
+ */
 void TestRainGageFileColumn::pathEditKeepsAColumnTheNewFileStillHas()
 {
     const QString csv = fixture(QStringLiteral("extcol_switch_multi.csv"));
@@ -171,6 +228,13 @@ void TestRainGageFileColumn::pathEditKeepsAColumnTheNewFileStillHas()
     QCOMPARE(m_undo->count(), stepsBefore);
 }
 
+/**
+ *
+ * @brief Require switching to a TSF without rain_b to select RG1 and undo to restore rain_b.
+ * Checks reconciled column rather than literal emptying; does not independently compare
+ * path/format after undo or run rainfall loading.
+ *
+ */
 void TestRainGageFileColumn::pathEditClearsAColumnTheNewFileCannotResolve()
 {
     QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol),
@@ -190,6 +254,14 @@ void TestRainGageFileColumn::pathEditClearsAColumnTheNewFileCannotResolve()
              QStringLiteral("rain_b"));
 }
 
+/**
+ *
+ * @brief Require selecting standard-rain grammar to clear the column and permit station editing,
+ * then MultiColumn to clear station.
+ * Station assertions run only if the schema exposes that column; no save/reopen or undo
+ * assertion is included for this format-switch case.
+ *
+ */
 void TestRainGageFileColumn::formatColumnIsPresentAndLeavesUserCsv()
 {
     QVERIFY(m_model->setData(m_model->index(m_row, m_pathCol),
@@ -220,6 +292,14 @@ void TestRainGageFileColumn::formatColumnIsPresentAndLeavesUserCsv()
                  QString());
 }
 
+/**
+ *
+ * @brief Require property-adapter path edits to share table reconciliation and grammar switching
+ * behavior.
+ * Checks first-column rain_a, TSF fallback RG1 and StandardRainFile clearing. Uses the
+ * live layer-backed adapter; no displayed property widget, undo count or run is tested.
+ *
+ */
 void TestRainGageFileColumn::adapterReconcilesTheColumnToo()
 {
     // MVC: the Property Browser writes through the adapter, and it has to reach

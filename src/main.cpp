@@ -53,6 +53,18 @@ QtMessageHandler g_prevMessageHandler = nullptr;
 FILE *g_logFileHandle = nullptr;
 QBasicMutex g_logFileMutex;
 
+/**
+ * @param[in] type Qt message severity passed unchanged to previous handler; not written as a
+ *   separate severity label.
+ * @param[in] ctx Borrowed log context; optional category included in file line.
+ * @param[in] msg Borrowed message copied to UTF-8 with local hh:mm:ss.zzz timestamp and trailing
+ *   newline.
+ * @brief Append/flush one serialized line under global mutex when log handle exists, then chain
+ *   previous handler outside lock.
+ * @note Called from worker threads too; no Qt UI access. IO failures ignored. Does not own
+ *   context/message, close file, restore handler or supply fallback stderr output when previous
+ *   handler null.
+ */
 void fileTeeMessageHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
 {
     {
@@ -70,6 +82,15 @@ void fileTeeMessageHandler(QtMsgType type, const QMessageLogContext &ctx, const 
         g_prevMessageHandler(type, ctx, msg);
 }
 
+/**
+ * @brief Once at process startup, opt in through nonempty SWMM_LOG_FILE and append-open log before
+ *   installing handler.
+ * @note Value 1 or case-insensitive auto chooses AppDataLocation/logs/timestamp log and creates
+ *   that directory; explicit paths use native encoding and do not create parents. Called before
+ *   application identity is configured, so default path uses Qt identity available then. Open
+ *   failure prints stderr and leaves old handler. Successful handle intentionally stays
+ *   process-global until exit; repeated calls unsupported (could chain handler to itself).
+ */
 void installFileTeeIfRequested()
 {
     const QByteArray req = qgetenv("SWMM_LOG_FILE");
@@ -106,6 +127,17 @@ void installFileTeeIfRequested()
  * \param argc The number of arguments passed to the application.
  * \param argv The arguments passed to the application.
  * \return The exit code of the application.
+ * @note Configure optional file log and terminating-exception abort handler, preserve pre-set
+ *   QSG/backend/reserved-thread environment, and register renderer QML types before application
+ *   construction.
+ * @note Parse -c/--cli to select QCoreApplication; otherwise construct full GUI. Parser
+ *   failure/help/version are not explicitly handled by this code, and CLI mode does not itself run
+ *   a model or queue quit. Application stored in scoped owner through exec; argument storage
+ *   remains valid.
+ * @note Default six-sample surface format is set AFTER application/main-window construction here,
+ *   so does not retroactively configure already created surfaces. First successfully loaded
+ *   system-locale Qt translator is installed after construction. Returns event-loop exit code, no
+ *   local catch for constructor failures (terminate handler logs and aborts).
  */
 int main(int argc, char *argv[])
 {

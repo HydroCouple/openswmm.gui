@@ -52,6 +52,11 @@ namespace
 constexpr int kCategoryRole = Qt::UserRole + 1;
 constexpr int kRoutingRole = Qt::UserRole + 2;
 
+/**
+ * @brief Map exact built-in renderer IDs to one-letter tree badges.
+ * @param[in] id Case-sensitive single, graduated, categorized or rulebased identifier.
+ * @return S, G, C or R respectively; empty for any other ID.
+ */
 QString badgeForRendererId(const QString &id)
 {
     if (id == QLatin1String("single"))
@@ -74,6 +79,16 @@ QString badgeForRendererId(const QString &id)
 // LAYER_STYLING_LABELING_PLAN_2026-08-16 — now hosts the full-fidelity
 // LabelConfigEditor (font / halo / placement / scale window / background /
 // priority) instead of the old 3-field subset.
+/**
+ * @brief Create a live label-configuration group with optional host attribute hints.
+ * @param[in,out] style Required borrowed style, dereferenced immediately and captured by callbacks;
+ * must outlive the group.
+ * @param[in] host Nullable borrowed attribute provider, queried only during construction.
+ * @param[in] cat Category for available-field hints.
+ * @param[in] parent Optional Qt owner for the new group.
+ * @return Newly allocated parent-owned group; edits call setLabelConfig directly and follow normal
+ * style notifications.
+ */
 QWidget *makeSublayerLabelBox(OpenSWMM::Render::FeatureSublayerStyle *style, OpenSWMMVisLayer *host,
                               OpenSWMMVis::SwmmCategory cat, QWidget *parent)
 {
@@ -213,12 +228,23 @@ void KindTreeSymbologyPanel::buildTree()
     m_suppressEdits = true;
     m_model->setRowCount(0);
 
+    /**
+     * @brief Read the initial kind checkbox. Argument `cat`: model category. Returns: model check
+     * state is not Unchecked, or true for non-model/null layers (results are initially shown
+     * checked).
+     */
     auto kindVisible = [this](OpenSWMMVis::SwmmCategory cat) -> bool {
         if (auto *m = qobject_cast<SWMMModelLayer *>(m_layer.data()))
             return m->categoryCheckState(cat) != Qt::Unchecked;
         return true; // result-layer kinds default visible
     };
 
+    /**
+     * @brief Append a kind and renderer badge to the tree. Argument `parent`: required model-owned
+     * item receiving new row ownership. Argument `cat`: supported category stored with its routing
+     * ID. Argument `label`: noneditable display caption. Returns: no value; writes only model rows
+     * under surrounding suppression.
+     */
     auto addKindRow = [&](QStandardItem *parent, OpenSWMMVis::SwmmCategory cat,
                           const QString &label) {
         auto *nameItem = new QStandardItem(label);
@@ -235,6 +261,12 @@ void KindTreeSymbologyPanel::buildTree()
         parent->appendRow({nameItem, badgeItem});
     };
 
+    /**
+     * @brief Append an unselectable bold group with kind children. Argument `label`: group caption.
+     * Argument `cats`: supported categories in display order. Argument `labels`: corresponding
+     * captions, with at least as many entries as cats (iterators are unchecked). Returns: no value;
+     * the model owns all allocated items.
+     */
     auto addGroup = [&](const QString &label,
                         const std::initializer_list<OpenSWMMVis::SwmmCategory> &cats,
                         const std::initializer_list<QString> &labels) {
@@ -444,6 +476,11 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
         tabs->setDocumentMode(true);
         tabs->addTab(tab, tr("Color")); // SymbologyTab scrolls its own panel
 
+        /**
+         * @brief Wrap a required content widget in a top-aligned page and scroll area. Argument
+         * `content`: widget reparented into the page, transferring Qt ownership. Returns: new
+         * tabs-owned scroll area; captured tabs must be alive.
+         */
         auto topAligned = [tabs](QWidget *content) {
             auto *page = new QWidget(tabs);
             auto *lay = new QVBoxLayout(page);
@@ -493,6 +530,12 @@ void KindTreeSymbologyPanel::focusKind(const QString &routingId)
     if (routingId.isEmpty() || !m_model)
         return;
     // Walk every row at every depth looking for a matching routing id.
+    /**
+     * @brief Find the first exact routing ID by depth-first row traversal. Argument `parent`:
+     * required borrowed model item, starting with invisible root. Returns: true after selecting a
+     * match, false after exhausting descendants. Selection triggers normal editor mounting; null
+     * children are skipped.
+     */
     std::function<bool(QStandardItem *)> walk = [&](QStandardItem *parent) -> bool {
         for (int r = 0; r < parent->rowCount(); ++r) {
             auto *child = parent->child(r, 0);

@@ -54,6 +54,11 @@ enum FieldColumn { ColField = 0, ColType = 1, ColDefault = 2, ColDescription = 3
 constexpr int kCustomRole = Qt::UserRole;        ///< bool: a custom field row
 constexpr int kFieldJsonRole = Qt::UserRole + 1; ///< QJsonObject: custom FieldDef
 
+/**
+ * @param[in] f Borrowed field schema, read only.
+ * @return Translated Choice whenever Fixed source, otherwise fieldTypeLabel(type), including empty
+ *   list. No source read/write.
+ */
 QString typeText(const FieldDef &f)
 {
     if (f.choiceSource == ChoiceSource::Fixed)
@@ -61,13 +66,25 @@ QString typeText(const FieldDef &f)
     return fieldTypeLabel(f.type);
 }
 
+/**
+ * @return Current global UnitSystem length label or EMPTY absent singleton, no ft fallback or value
+ *   conversion. No source query/write.
+ */
 QString lengthUnit()
 {
     return UnitSystem::instance() ? UnitSystem::instance()->lengthLabel() : QString();
 }
 
 /*! The default editor for a role field: a combo for Choice / Yes-No, a spin
- *  with the unit for numbers, a line edit for text. */
+ *  with the unit for numbers, a line edit for text.
+ * @param[in] f Copied initial default/type/choices/required/unit context; no future schema binding.
+ * @param[in] parent Optional QWidget owner for returned editor, table/caller manages lifetime.
+ * @return New owned editor: Boolean none/Yes/No, Fixed choices plus none only optional, Real
+ *   +/-1e12/four decimals with length suffix, Integer -2147483647..2147483647, otherwise text.
+ *   Missing numeric defaults initialize 0, so this editor does not preserve null numeric defaults.
+ *   Unknown choice default selects first. No unit conversion, type/min/max/finite validation or
+ *   schema/source write.
+ */
 QWidget *defaultEditorFor(const FieldDef &f, QWidget *parent)
 {
     QWidget *w = nullptr;
@@ -111,7 +128,14 @@ QWidget *defaultEditorFor(const FieldDef &f, QWidget *parent)
     return w;
 }
 
-/*! Read a default back from \p w for a field of \p f's kind. */
+/*! Read a default back from \p w for a field of \p f's kind.
+ * @param[in] w Optional borrowed supported editor; wrong/null widget returns original
+ *   f.defaultValue.
+ * @param[in] f Field metadata, Boolean interprets combo data as bool, other combo as stored string.
+ * @return Combo none invalid, string empty invalid, numeric typed spin value even zero/unchanged,
+ *   text trimmed or invalid blank. Fallback original default for unsupported widget. No
+ *   field/source mutation or explicit numeric interpretText.
+ */
 QVariant defaultFrom(const QWidget *w, const FieldDef &f)
 {
     if (auto *c = qobject_cast<const QComboBox *>(w)) {

@@ -50,18 +50,22 @@ private:
     Ui::SWMMVis mUi;
 };
 
+/** @brief Allocate a bare main window and instantiate the generated Designer form for static UI inspection. */
 void TestUiFormAudit::initTestCase()
 {
     mWindow = new QMainWindow;
     mUi.setupUi(mWindow);
 }
 
+/** @brief Destroy the owned form window and all child controls/actions, then clear its pointer. */
 void TestUiFormAudit::cleanupTestCase()
 {
     delete mWindow;
     mWindow = nullptr;
 }
 
+/** @brief Collect named nonseparator actions authored under the initialized form window.
+ * @return Independent list of borrowed actions owned by mWindow; excludes unnamed Qt helpers and is invalid after cleanupTestCase. */
 QList<QAction *> TestUiFormAudit::formActions() const
 {
     // Every action authored in the .ui carries an objectName; unnamed
@@ -76,6 +80,7 @@ QList<QAction *> TestUiFormAudit::formActions() const
     return out;
 }
 
+/** @brief Verify the authored action catalog contains at least seventy-six actions and every one has text. */
 void TestUiFormAudit::actionsHaveText()
 {
     const auto actions = formActions();
@@ -86,6 +91,7 @@ void TestUiFormAudit::actionsHaveText()
     }
 }
 
+/** @brief Verify authored shortcuts contain none of the enumerated hardware/media keys produced by bare-word parsing errors. */
 void TestUiFormAudit::noMediaKeyShortcuts()
 {
     // The exact keys the historical bug produced, plus the rest of the
@@ -108,6 +114,7 @@ void TestUiFormAudit::noMediaKeyShortcuts()
     }
 }
 
+/** @brief Verify nonempty portable shortcut sequences are unique across authored actions. */
 void TestUiFormAudit::noDuplicateShortcuts()
 {
     QHash<QString, QString> seen; // portable sequence -> objectName
@@ -122,6 +129,7 @@ void TestUiFormAudit::noDuplicateShortcuts()
     }
 }
 
+/** @brief Verify repaired and established keyboard shortcuts match expected cross-platform QKeySequence values, with Select unbound. */
 void TestUiFormAudit::repairedShortcutsAnchor()
 {
     // Regression anchors for the six shortcuts repaired in P0. Qt maps
@@ -144,6 +152,7 @@ void TestUiFormAudit::repairedShortcutsAnchor()
     QCOMPARE(mUi.actionExit->shortcut(), QKeySequence(QStringLiteral("Ctrl+Q")));
 }
 
+/** @brief Verify at least eight top-level menu actions exist and all nonseparators contain a mnemonic marker. */
 void TestUiFormAudit::menuBarTitlesHaveMnemonics()
 {
     // P5 — every top-level menu is Alt-key reachable.
@@ -157,6 +166,7 @@ void TestUiFormAudit::menuBarTitlesHaveMnemonics()
     }
 }
 
+/** @brief Verify six previously incomplete menus meet their minimum action counts. */
 void TestUiFormAudit::menusAreComplete()
 {
     // P5 — the historically-empty menus now carry the full IA.
@@ -168,6 +178,7 @@ void TestUiFormAudit::menusAreComplete()
     QVERIFY(mUi.menuImport->actions().size() >= 6);
 }
 
+/** @brief Verify every named nonseparator form action is associated with at least one menu. */
 void TestUiFormAudit::everyActionIsMenuReachable()
 {
     // P5 — no capability is toolbar-only: every .ui-authored action sits
@@ -188,6 +199,7 @@ void TestUiFormAudit::everyActionIsMenuReachable()
     }
 }
 
+/** @brief Verify every authored action exposes a nonempty tooltip, including Qt-derived defaults. */
 void TestUiFormAudit::actionsHaveTooltips()
 {
     // P9 — tooltips are the broadest assistive text channel; every

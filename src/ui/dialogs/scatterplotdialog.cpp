@@ -41,6 +41,14 @@ namespace openswmmvis::ui
 namespace
 {
 
+/**
+ * @param[in] kind Zero node, one link, anything else subcatchment.
+ * @param[in] combo Required mutable combo; no null guard or signal blocker.
+ * @brief Clear and populate fixed six node/five link/eight subcatch variables with engine-code item
+ *   data and English labels.
+ * @note No reaction/pollutant species, availability query or unit suffix; current choice resets and
+ *   signals can reenter connected dialog. No source mutation.
+ */
 void varsForKind(int kind, QComboBox *combo)
 {
     combo->clear();
@@ -73,6 +81,19 @@ void varsForKind(int kind, QComboBox *combo)
     }
 }
 
+/**
+ * @param[in] handle Borrowed readable output handle; caller ensures valid lifetime/synchronized
+ *   reads.
+ * @param[in] kind Zero node, one link, other subcatchment getter.
+ * @param[in] objIdx Zero-based object index; negative returns false after output initialization.
+ * @param[in] var Raw corresponding engine variable code, validation delegated to output API.
+ * @param[in] periods Nonnegative sample count fitting allocation, expected positive for [0,
+ *   periods-1] read.
+ * @param[out] out Reassigned to periods zeros before any validation, then receives fetched floats;
+ *   on API failure may retain zero/partial data.
+ * @return True exactly when chosen getter returns zero, false otherwise. No masking/scaling/finite
+ *   filtering, engine write or time-axis alignment.
+ */
 bool fetchSeries(SWMM_Output handle, int kind, int objIdx, int var, int periods,
                  std::vector<float> &out)
 {

@@ -57,6 +57,7 @@ private slots:
     void selectedRowsDescendingItemFallback();
 };
 
+/** @brief Require YES/TRUE/1 and NO/FALSE/0 spellings, including lower-case examples, to map to checked/unchecked states. */
 void TestSimulationOptionsDialog::parseEngineBoolKnownValues()
 {
     QCOMPARE(SimulationOptionsDialog::parseEngineBool("YES"), int(Qt::Checked));
@@ -70,6 +71,7 @@ void TestSimulationOptionsDialog::parseEngineBoolKnownValues()
     QCOMPARE(SimulationOptionsDialog::parseEngineBool("0"), int(Qt::Unchecked));
 }
 
+/** @brief Require empty, unrecognized and nonboolean numeric tokens to retain a partially checked unknown state. */
 void TestSimulationOptionsDialog::parseEngineBoolUnknownIsPartial()
 {
     // Anything else → Qt::PartiallyChecked so the UI surfaces the oddity
@@ -79,6 +81,7 @@ void TestSimulationOptionsDialog::parseEngineBoolUnknownIsPartial()
     QCOMPARE(SimulationOptionsDialog::parseEngineBool("12"), int(Qt::PartiallyChecked));
 }
 
+/** @brief Require boolean serialization to canonical YES/NO and round-trip through the check-state parser. */
 void TestSimulationOptionsDialog::engineBoolStringRoundTrip()
 {
     // Setter side: must emit the canonical strings the engine parses.
@@ -94,6 +97,9 @@ void TestSimulationOptionsDialog::engineBoolStringRoundTrip()
         int(Qt::Unchecked));
 }
 
+/** @brief Require fast-preset threads to use reported performance cores, then logical CPUs, then eight, with a one-second minimum step.
+ * Checks the hardware query succeeds and the chosen step fits the dialog range;
+ * does not run a model or benchmark performance/mass balance. */
 void TestSimulationOptionsDialog::fastPresetHasBalancedRecipe()
 {
     // Locks the benchmarked "conservative fast" recipe (FAST_RUN_RECIPE.md) so a
@@ -116,6 +122,7 @@ void TestSimulationOptionsDialog::fastPresetHasBalancedRecipe()
     QVERIFY(minStep >= 0.01 && minStep <= 60.0);
 }
 
+/** @brief Require a fixed date/time to serialize as MM/DD/YYYY and 24-hour HH:MM:SS. */
 void TestSimulationOptionsDialog::formatEngineDateTimeMatchesInpFormat()
 {
     QDateTime dt(QDate(2026, 4, 22), QTime(13, 45, 7));
@@ -125,6 +132,7 @@ void TestSimulationOptionsDialog::formatEngineDateTimeMatchesInpFormat()
     QCOMPARE(t, QStringLiteral("13:45:07"));   // 24-hour HH:MM:SS
 }
 
+/** @brief Require year-start and year-end second-resolution Qt dates to survive dialog date/time string conversion. */
 void TestSimulationOptionsDialog::parseEngineDateTimeRoundTrips()
 {
     QDateTime original(QDate(2026, 1, 1), QTime(0, 0, 0));
@@ -139,6 +147,7 @@ void TestSimulationOptionsDialog::parseEngineDateTimeRoundTrips()
     QCOMPARE(parsed, later);
 }
 
+/** @brief Require malformed date/time and missing date/time tokens to produce invalid Qt dates. */
 void TestSimulationOptionsDialog::parseEngineDateTimeRejectsMalformed()
 {
     // Bad date.
@@ -154,6 +163,7 @@ void TestSimulationOptionsDialog::parseEngineDateTimeRejectsMalformed()
 // Slice CW — [EVENTS] OADate helpers (2026-05-21)
 // ---------------------------------------------------------------------------
 
+/** @brief Require the dialog OADate epoch 1899-12-30 midnight to round-trip as zero days. */
 void TestSimulationOptionsDialog::oaDateEpochIsZero()
 {
     // Anchor: 1899-12-30 00:00 must round-trip to 0.0.
@@ -162,6 +172,7 @@ void TestSimulationOptionsDialog::oaDateEpochIsZero()
     QCOMPARE(SimulationOptionsDialog::qDateTimeFromOaDate(0.0), epoch);
 }
 
+/** @brief Require day-one, day-2.5 noon and a modern date to follow the engine OADate convention. */
 void TestSimulationOptionsDialog::oaDateMatchesKnownSwmmAnchor()
 {
     // Engine convention (engine src/engine/core/DateTime.hpp): integer 1
@@ -179,6 +190,7 @@ void TestSimulationOptionsDialog::oaDateMatchesKnownSwmmAnchor()
     QCOMPARE(SimulationOptionsDialog::qDateTimeFromOaDate(oa), c);
 }
 
+/** @brief Require four whole-minute leap-day/historical/modern/future Qt dates to round-trip through OADate days exactly. */
 void TestSimulationOptionsDialog::oaDateRoundTripsArbitraryDates()
 {
     // HH:MM precision per legacy SWMM 5 dialog: keep test inputs on
@@ -196,6 +208,7 @@ void TestSimulationOptionsDialog::oaDateRoundTripsArbitraryDates()
     }
 }
 
+/** @brief Require an invalid Qt date/time to serialize to OADate zero; upstream interval validation is outside this case. */
 void TestSimulationOptionsDialog::oaDateInvalidInputReturnsZero()
 {
     // An invalid QDateTime maps to 0.0 — the engine treats 0.0 as the
@@ -209,6 +222,7 @@ void TestSimulationOptionsDialog::oaDateInvalidInputReturnsZero()
 // Step values
 // ---------------------------------------------------------------------------
 
+/** @brief Require whole/decimal seconds and duration forms, including 48-hour and whitespace forms, to parse to the expected integer seconds. */
 void TestSimulationOptionsDialog::parseStepSecondsAcceptsEngineForms()
 {
     constexpr qint64 kFallback = 60;
@@ -238,6 +252,7 @@ void TestSimulationOptionsDialog::parseStepSecondsAcceptsEngineForms()
     QCOMPARE(parse(QStringLiteral("  900.000000  "), kFallback), qint64(900));
 }
 
+/** @brief Require empty, malformed, over-segmented and negative duration strings to return the supplied 60-second fallback. */
 void TestSimulationOptionsDialog::parseStepSecondsFallsBackOnGarbage()
 {
     constexpr qint64 kFallback = 60;
@@ -255,6 +270,8 @@ void TestSimulationOptionsDialog::parseStepSecondsFallsBackOnGarbage()
 // optionValueEquals
 // ---------------------------------------------------------------------------
 
+/** @brief Require numerically equivalent formatting to compare equal while changed numeric values compare unequal.
+ * Guards spurious writeIfChanged edits using direct helper calls, not a model save. */
 void TestSimulationOptionsDialog::optionValueEqualsNumericForms()
 {
     const auto eq = &SimulationOptionsDialog::optionValueEquals;
@@ -272,6 +289,7 @@ void TestSimulationOptionsDialog::optionValueEqualsNumericForms()
     QVERIFY(!eq(QStringLiteral("5"), QStringLiteral("0.05")));
 }
 
+/** @brief Require equal enum tokens to match, changed tokens to differ and empty/AUTO text to differ from numeric zero. */
 void TestSimulationOptionsDialog::optionValueEqualsNonNumeric()
 {
     const auto eq = &SimulationOptionsDialog::optionValueEquals;
@@ -286,6 +304,8 @@ void TestSimulationOptionsDialog::optionValueEqualsNonNumeric()
     QVERIFY(!eq(QStringLiteral("AUTO"), QStringLiteral("0")));
 }
 
+/** @brief Require widget-only event tables to return distinct descending selected rows, including multirow selection and null-table handling.
+ * Verifies the empty selectedItems premise without opening the options dialog. */
 void TestSimulationOptionsDialog::selectedRowsDescendingWidgetOnlyTable()
 {
     // Mirror the [EVENTS] table exactly: row selection, cell WIDGETS only,
@@ -318,6 +338,7 @@ void TestSimulationOptionsDialog::selectedRowsDescendingWidgetOnlyTable()
     QVERIFY(SimulationOptionsDialog::selectedRowsDescending(nullptr).isEmpty());
 }
 
+/** @brief Require plain item-cell selection to fall back to distinct descending row indices when no full rows are selected. */
 void TestSimulationOptionsDialog::selectedRowsDescendingItemFallback()
 {
     // A table with real items and plain cell selection (no full-row spans):

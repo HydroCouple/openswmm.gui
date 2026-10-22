@@ -10,7 +10,7 @@
  * workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.1, §4.8, §16.4).
  *
  * WHAT THIS IS.  The one place that reads the MODEL: it walks the conduits,
- * decides which ones participate, and turns each one into a \ref ChannelInput
+ * decides which ones participate, and turns each one into a \ref mesh::ChannelInput
  * the rest of the burn can work from without an engine handle. Everything
  * downstream — profile, corridor, raster, lattice — is pure.
  *
@@ -23,7 +23,7 @@
  * step 1 does not typecheck. The gate is `XsectSampler::fullProps().open`,
  * which the sampler fills from that very call.
  *
- * STREET is the exception and is gated on \ref BurnOptions::burnStreets alone.
+ * STREET is the exception and is gated on \ref mesh::BurnOptions::burnStreets alone.
  * The engine's isOpen() whitelist has classified a street both ways, and
  * tests/gui/test_xsectsampler.cpp pins that answer precisely because it moves;
  * deriving D-F ("streets opt-in, default off") from it would let a whitelist
@@ -61,32 +61,64 @@ struct BurnCandidate {
     ChannelInput input; ///< Ready for \ref buildBurnProfile. Only when accepted.
 };
 
-/*!
- * \brief Resolve the burn set against the model.
+/**
+ * @brief Snapshot selected readable conduit geometry into owned burn candidates on the
+ * model-owning thread.
+ * @param[in] eng Borrowed live BUILDING/OPENED engine, read only; null returns empty. Caller
+ * excludes concurrent engine mutation/close and calls on the GUI/model-owning thread, not the
+ * mesh worker.
+ * @param[in] sel Borrowed all-open/explicit-ID/query selector, unchanged; exact IDs/query table
+ * keys used.
+ * @param[in] opt Borrowed options, unchanged; section gate honors burnStreets, other profile
+ * options apply later.
+ * @param[in] polylines Borrowed conduit-ID to mesh-CRS centerlines, unchanged; missing/<2 points
+ * rejects. Coordinates must already be in the intended model/mesh horizontal frame; no
+ * transform/finite audit here.
+ * @param[in] si Metric-model flag used for sampler reconstruction; must match engine unit
+ * convention. Node invert plus stored link-depth offset forms endpoint elevations in model
+ * length units.
+ * @param[in] rows Borrowed attribute maps used only for ByQuery, unchanged; missing row becomes
+ * empty map.
+ * @param[in,out] warnings Optional borrowed list, appended for empty query, not cleared or
+ * retained.
+ * @return Owned accepted/rejected records in engine link order for conduits with readable
+ * type/nonempty ID. Unreadable/nonconduit/nameless entries are skipped, not reported. Accepted
+ * means section validated, centerline has >=2 points and endpoint references resolve;
+ * invert/offset getter statuses are not checked and zero defaults can survive failure. Does not
+ * build a profile, mutate engine, retain handles in returned records or perform file writes;
+ * allocates geometry copies/query/result storage.
  *
- * \param eng        An engine in BUILDING or OPENED state.
- * \param polylines  Conduit id → centreline in the MESH CRS, from the GUI's own
- *                   cache (`SWMMModelLayer::cachedLinkPolyline`). A conduit with
- *                   no entry is rejected rather than guessed at.
- * \param si         True when the model is metric — the sampler needs it.
- * \param rows       Conduit id → attribute row, for `Mode::ByQuery`. Ignored in
- *                   the other modes. Keys must match the attribute table's
- *                   column keys, which is what makes the filter syntax the one
- *                   the user already knows.
+ * @details Resolve the burn set against the model.
  *
- * Every conduit is returned, accepted or not, so the burn report can say why
- * something was skipped rather than leaving the user to guess.
+ *
+ * Every conduit is returned, accepted or not, so the burn report can say why something was
+ * skipped rather than leaving the user to guess.
  */
 [[nodiscard]] QVector<BurnCandidate>
 resolveBurnSet(SWMM_Engine eng, const BurnSelector &sel, const BurnOptions &opt,
                const QHash<QString, QVector<QPointF>> &polylines, bool si,
                const QHash<QString, QVariantMap> &rows = {}, QStringList *warnings = nullptr);
 
-/*!
- * \brief The section of one conduit, by the rule in §16.4.
+/**
+ * @brief Reconstruct an eligible open conduit section from engine transect data or sampled
+ * widths.
+ * @param[in] eng Borrowed live stable engine, read only; null fails. Model-owning thread and
+ * exclusive engine lifecycle access required; returned value retains no engine handle.
+ * @param[in] linkIdx Zero-based link index with readable resolved cross-section; invalid index
+ * fails.
+ * @param[in] si Model metric flag used by sampler, must match engine convention.
+ * @param[in] opt Borrowed options, unchanged; STREET requires burnStreets independently of open
+ * whitelist.
+ * @param[out] reason Optional borrowed diagnostic, set on recognized failure, not cleared on
+ * success.
+ * @return Owned section in model length units or empty/unusable geometry on failure. Rejects
+ * closed, unresolved/nonpositive-depth sections. IRREGULAR copies asymmetric raw transect
+ * stations plus modifiers; analytic sections use a 128-point cosine depth ladder and engine
+ * widths. Caller validates final geometry with validateSection(); helper itself does not enforce
+ * all station/finite constraints. No source/model mutation, coordinate transform, filesystem
+ * access or retained input references.
  *
- * \returns An empty geometry when the link has no burnable section; \p reason
- *          then says why.
+ * @details The section of one conduit, by the rule in §16.4.
  */
 [[nodiscard]] SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si,
                                              const BurnOptions &opt, QString *reason);

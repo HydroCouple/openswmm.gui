@@ -27,6 +27,12 @@ namespace
 
 enum Column { ColFlag = 0, ColType = 1, ColValue = 2, ColCount = 3 };
 
+/**
+ * @param[in] found False initializes unset regardless of isYes; true initializes a concrete value.
+ * @param[in] isYes Used only when found: true selects YES, false selects NO.
+ * @return New parentless combo with unset=-1, YES=1 and NO=0 item data. Table/caller owns widget;
+ *   no model write or signals connected.
+ */
 QComboBox *makeBoolCombo(bool found, bool isYes)
 {
     auto *combo = new QComboBox;

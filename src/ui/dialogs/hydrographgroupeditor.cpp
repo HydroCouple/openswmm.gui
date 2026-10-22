@@ -69,6 +69,13 @@ const std::array<QColor, 3> kTrianglePens = {
     QColor(0x2c, 0xa0, 0x2c), // long — green
 };
 
+/**
+ * @brief Copy a color with a replacement alpha channel.
+ * @param[in] c Color copied by value; the caller's instance is unchanged.
+ * @param[in] a Alpha in QColor's 0..255 range; QColor enforces its own behavior for out-of-range
+ * inputs.
+ * @return Owned QColor copy with the requested transparency, retaining its other channels.
+ */
 QColor withAlpha(QColor c, int a)
 {
     c.setAlpha(a);
@@ -902,7 +909,7 @@ void HydrographGroupEditor::refreshPreview()
     // First pass: capture both ALL and the selected month into separate
     // arrays. Second pass: pick the per-month value when present,
     // otherwise the ALL value. Triangle vertices are (0, 0) → (T, peak)
-    // → (K·T, 0) with peak = 2R / (K·T).
+    // → (T*(1+K), 0) with peak = 2R / (T*(1+K)).
     std::array<double, 3> R = {0, 0, 0}, T = {0, 0, 0}, K = {0, 0, 0};
     std::array<bool, 3> present = {false, false, false};
     // Render every row that has a usable time-to-peak. R and K can be 0 —

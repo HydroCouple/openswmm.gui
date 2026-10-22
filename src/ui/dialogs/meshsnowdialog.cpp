@@ -63,9 +63,21 @@ class PackDelegate final : public QStyledItemDelegate
     MeshSnowModel *model_;
 
 public:
+    /**
+     * @brief Bind a pack-choice delegate to the dialog's snow row model.
+     * @param[in] model Non-null borrowed MeshSnowModel whose pack catalog must outlive the
+     * delegate.
+     * @param[in] parent Optional Qt owner; normally the assignment table.
+     */
     PackDelegate(MeshSnowModel *model, QObject *parent) : QStyledItemDelegate(parent), model_(model)
     {
     }
+    /**
+     * @brief Create a pack combo from the current borrowed model catalog.
+     * @param[in] p Optional Qt parent taking ownership of the new editor.
+     * @return Newly allocated QComboBox containing copied pack labels. The unnamed style option
+     * and index arguments are ignored; model_ must remain non-null.
+     */
     QWidget *createEditor(QWidget *p, const QStyleOptionViewItem &,
                           const QModelIndex &) const override
     {
@@ -73,10 +85,26 @@ public:
         c->addItems(model_->packs);
         return c;
     }
+    /**
+     * @brief Hydrate the pack combo from one row's edit-role text.
+     * @param[in,out] w Non-null editor created by createEditor(); must be a QComboBox, enforced
+     * only by static_cast.
+     * @param[in] i Borrowed model index whose Qt::EditRole text becomes the combo's current
+     * text.
+     * @details Does not write model data and does not block editor signals.
+     */
     void setEditorData(QWidget *w, const QModelIndex &i) const override
     {
         static_cast<QComboBox *>(w)->setCurrentText(i.data(Qt::EditRole).toString());
     }
+    /**
+     * @brief Write a pack combo's selected text to its target model cell.
+     * @param[in] w Non-null QComboBox editor created by this delegate.
+     * @param[in,out] m Non-null borrowed target model receiving setData() with its default edit
+     * role.
+     * @param[in] i Target index passed through without extra validity checks.
+     * @details Does not retain arguments or inspect the model's boolean success result.
+     */
     void setModelData(QWidget *w, QAbstractItemModel *m, const QModelIndex &i) const override
     {
         m->setData(i, static_cast<QComboBox *>(w)->currentText());
@@ -90,6 +118,15 @@ class SnowUndo final : public QUndoCommand
     quint64 geometry_;
     std::array<QString, 3> before_, after_;
     bool first_ = true;
+    /**
+     * @brief Restore one owned snow snapshot only if the expected opposite state still exists.
+     * @param[in] after True installs after_, requiring before_ currently; false installs
+     * before_, requiring after_ currently.
+     * @details Rechecks guarded model/mesh, captured engine identity and geometry revision, then
+     * compares all current section text before applying. Failure makes the command obsolete and
+     * shows a warning; success marks the model dirty and emits optionsChanged. Does not merge
+     * externally changed assignments or refresh the captured baseline.
+     */
     void install(bool after)
     {
         std::array<QString, 3> current;
@@ -113,6 +150,17 @@ class SnowUndo final : public QUndoCommand
     }
 
 public:
+    /**
+     * @brief Own before/after snow configuration text and guard the originating context.
+     * @param[in] m Non-null borrowed model; its current engine identity is captured and guarded
+     * by QPointer.
+     * @param[in] mesh Non-null borrowed mesh; its geometry revision is captured and guarded.
+     * @param[in] before Owned three-section snapshot before the already-applied edit, moved into
+     * the command.
+     * @param[in] after Owned three-section snapshot after the edit, moved into the command.
+     * @details Allocated for an undo stack after successful installation; first redo
+     * intentionally does nothing. Section order follows MeshSnowModel::readSections().
+     */
     SnowUndo(SWMMModelLayer *m, SWMM2DMeshLayer *mesh, std::array<QString, 3> before,
              std::array<QString, 3> after)
         : model_(m), mesh_(mesh), engine_(m->engine()), geometry_(mesh->geomRevision()),
@@ -120,7 +168,18 @@ public:
     {
         setText(QObject::tr("Assign mesh snow"));
     }
+    /**
+     * @brief Restore the owned before snapshot through guarded install(false).
+     * @details Context or concurrency failure marks the command obsolete instead of overwriting
+     * unrelated changes.
+     */
     void undo() override { install(false); }
+    /**
+     * @brief Skip the stack's initial redo, then restore the owned after snapshot on later
+     * redos.
+     * @details The initial edit was installed before push(); subsequent calls use the same
+     * guarded install(true) checks as undo.
+     */
     void redo() override
     {
         if (first_) {

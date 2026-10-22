@@ -51,11 +51,23 @@ constexpr const char *kStyleSuffix = "swmm-rule.json";
 // .swmm-rule.json. The content-sniff fallback isn't needed here because
 // the StyleManagerDialog only exposes these two formats — users who
 // hand a foreign file get a parse error from the matching loader.
+/**
+ * @brief Select the QGIS serializer from a case-insensitive filename suffix.
+ * @param[in] path Candidate file path, not opened here.
+ * @return True only for a .qml suffix; contents are not sniffed.
+ */
 [[nodiscard]] bool isQmlPath(const QString &path)
 {
     return path.endsWith(QStringLiteral(".qml"), Qt::CaseInsensitive);
 }
 
+/**
+ * @brief Save a borrowed rule list using the path-selected serializer.
+ * @param[in] rl Borrowed list read synchronously; underlying serializers define null-list handling.
+ * @param[in] path Destination, selecting QGIS QML only by .qml suffix and native JSON otherwise.
+ * @return Underlying result including error/warnings; does not modify or take ownership of the
+ * list.
+ */
 [[nodiscard]] OpenSWMM::Render::RuleListIoResult saveByPath(const OpenSWMM::Render::RuleList *rl,
                                                             const QString &path)
 {
@@ -64,6 +76,14 @@ constexpr const char *kStyleSuffix = "swmm-rule.json";
     return OpenSWMM::Render::RuleListIO::save(rl, path);
 }
 
+/**
+ * @brief Load a style through the suffix-selected native/QGIS reader.
+ * @param[in] path Source path; .qml selects QGIS, all other suffixes native JSON.
+ * @param[in,out] rl Required borrowed destination list replaced through its normal notifications
+ * after successful loading; ownership stays with the caller.
+ * @return Underlying loader result with accepted/skipped counts and warnings. Loader file/parse
+ * failures preserve existing contents; no exception rollback guarantee is added by this wrapper.
+ */
 [[nodiscard]] OpenSWMM::Render::RuleListIoResult loadByPath(const QString &path,
                                                             OpenSWMM::Render::RuleList *rl)
 {
@@ -76,6 +96,14 @@ constexpr const char *kStyleSuffix = "swmm-rule.json";
  *  We don't pretty-print the JSON itself because the file is on disk —
  *  the user can open it in an editor if they want raw schema. The
  *  preview is a summary: one line per Rule plus its renderer id. */
+/**
+ * @brief Build human-readable rule names, renderer IDs, visibility and loader warnings.
+ * @param[in] rl Borrowed successfully loaded list, queried without mutation.
+ * @param[in] warnings Loader warning strings appended in order.
+ * @param[in] rulesLoaded Reported loaded count printed verbatim.
+ * @param[in] rulesSkipped Reported skipped count printed only when positive.
+ * @return New multiline summary, skipping null rule entries and using ? for a missing renderer.
+ */
 [[nodiscard]] QString summarisePreview(const OpenSWMM::Render::RuleList &rl,
                                        const QStringList &warnings, int rulesLoaded,
                                        int rulesSkipped)

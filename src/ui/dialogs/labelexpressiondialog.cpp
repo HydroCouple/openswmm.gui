@@ -39,7 +39,11 @@ constexpr int kTokenRole = Qt::UserRole + 1;
 
 /*! Groups the field list the way the picker presents it: values that change
  *  per animation frame are worth separating from static model properties,
- *  because a label bound to a dynamic value re-resolves every tick. */
+ *  because a label bound to a dynamic value re-resolves every tick.
+ * @param[in] f Read-only schema field; only isDynamic inspected.
+ * @return Translated result-per-time-step versus static-model group label. Does not query current
+ *   frame or resolve attribute values.
+ */
 QString sectionFor(const AttributeField &f)
 {
     return f.isDynamic ? QObject::tr("Result values (per time step)")
@@ -47,7 +51,11 @@ QString sectionFor(const AttributeField &f)
 }
 
 /*! A stand-in value so the preview shows a realistic shape even when the
- *  caller supplied no sample feature. */
+ *  caller supplied no sample feature.
+ * @param[in] f Read-only schema field; only QMetaType type inspected.
+ * @return Translated text for QString, literal 42 for Int/LongLong, otherwise 1.23 including
+ *   bool/unknown/other numerics. No units/range conversion or source lookup.
+ */
 QString placeholderFor(const AttributeField &f)
 {
     switch (f.type) {

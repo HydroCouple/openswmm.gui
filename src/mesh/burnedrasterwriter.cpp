@@ -6,7 +6,7 @@
  * @license   GPL-3.0-or-later
  *
  * Writing the burned DEM (CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.5, phase P1).
- * The only file in the burn that touches GDAL.
+ * Owns local GDAL datasets for raster-stage preparation; export orchestration owns its transforms.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -40,6 +40,18 @@ namespace
  *  working set bounded and cancellation responsive. */
 constexpr int kStripRows = 256;
 
+/**
+ * @brief Invert a six-coefficient GDAL affine pixel-to-world transform.
+ * @param[in] gt Required readable six-double array in GDAL order, not modified; inputs intended
+ * finite.
+ * @param[out] inv Required writable six-double array, nonoverlapping with gt, assigned on true
+ * and unchanged when determinant absolute value is below 1e-15. No array extent/alias check or
+ * retention.
+ * @return False for near-singular determinant, true after inversion otherwise. NaN/infinite
+ * coefficients are not explicitly rejected and can produce nonfinite outputs with true; caller
+ * validates usable transform. Units invert world-coordinate increments to pixel coordinates. No
+ * allocation or IO.
+ */
 bool invertGT(const double gt[6], double inv[6])
 {
     const double det = gt[1] * gt[5] - gt[2] * gt[4];

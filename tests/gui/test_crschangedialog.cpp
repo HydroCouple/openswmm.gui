@@ -39,12 +39,27 @@ namespace
 {
 
 // Find the OK ("Apply") button on the dialog's button box.
+/**
+ *
+ * @brief Find the first button box's Ok action used as Apply.
+ * @param dlg Borrowed non-null live dialog.
+ * @return Borrowed Ok button, or null when box/action is absent. No click or ownership
+ * transfer; caller retains dialog lifetime and must check before dereferencing.
+ *
+ */
 QPushButton *applyButton(QDialog *dlg)
 {
     auto *bb = dlg->findChild<QDialogButtonBox *>();
     return bb ? bb->button(QDialogButtonBox::Ok) : nullptr;
 }
 
+/**
+ *
+ * @brief Find the first button box's Cancel action.
+ * @param dlg Borrowed non-null live dialog.
+ * @return Borrowed Cancel button or null for absent box/action; no click or retained ref.
+ *
+ */
 QPushButton *cancelButton(QDialog *dlg)
 {
     auto *bb = dlg->findChild<QDialogButtonBox *>();
@@ -53,12 +68,26 @@ QPushButton *cancelButton(QDialog *dlg)
 
 } // namespace
 
+/**
+ *
+ * @brief Require choice to remain Cancel immediately after construction even with reproject radio
+ * defaulted.
+ * Does not show/accept the dialog or transform any coordinates.
+ *
+ */
 void TestCRSChangeDialog::defaultIsCancelBeforeShown()
 {
     CRSChangeDialog dlg(QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"));
     QCOMPARE(dlg.choice(), CRSChangeDialog::Cancel);
 }
 
+/**
+ *
+ * @brief Require clicking Apply with the default nonlocal selection to return Reproject and
+ * Accepted.
+ * Uses EPSG4326/3857 labels only; no actual CRS transformation or model edit.
+ *
+ */
 void TestCRSChangeDialog::clickingApplyWithReprojectChosen()
 {
     CRSChangeDialog dlg(QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"));
@@ -70,6 +99,12 @@ void TestCRSChangeDialog::clickingApplyWithReprojectChosen()
     QCOMPARE(dlg.result(), int(QDialog::Accepted));
 }
 
+/**
+ *
+ * @brief Require selecting the third radio and clicking Apply to return RenderOnly.
+ * Checks radio count three but not dialog result explicitly; no map rendering occurs.
+ *
+ */
 void TestCRSChangeDialog::clickingApplyWithRenderOnlyChosen()
 {
     CRSChangeDialog dlg(QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"));
@@ -81,6 +116,12 @@ void TestCRSChangeDialog::clickingApplyWithRenderOnlyChosen()
     QCOMPARE(dlg.choice(), CRSChangeDialog::RenderOnly);
 }
 
+/**
+ *
+ * @brief Require Cancel to retain Cancel choice and return Rejected.
+ * No modal execution, engine mutation or settings persistence is involved.
+ *
+ */
 void TestCRSChangeDialog::clickingCancelKeepsCancel()
 {
     CRSChangeDialog dlg(QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"));
@@ -89,6 +130,12 @@ void TestCRSChangeDialog::clickingCancelKeepsCancel()
     QCOMPARE(dlg.result(), int(QDialog::Rejected));
 }
 
+/**
+ *
+ * @brief Require Local source mode to enable/select only assignment and return Assign on Apply.
+ * Checks reprojection/render-only radios disabled; no coordinate or CRS object changes.
+ *
+ */
 void TestCRSChangeDialog::localSourceAllowsOnlyAssignment()
 {
     CRSChangeDialog dlg(QStringLiteral("Local"), QStringLiteral("EPSG:3857"),
@@ -103,6 +150,12 @@ void TestCRSChangeDialog::localSourceAllowsOnlyAssignment()
     QCOMPARE(dlg.choice(), CRSChangeDialog::Assign);
 }
 
+/**
+ *
+ * @brief Require selecting the first radio and clicking Apply to return Assign.
+ * Uses EPSG6595/4326 labels without creating or validating those CRS definitions.
+ *
+ */
 void TestCRSChangeDialog::clickingApplyWithAssignChosen()
 {
     CRSChangeDialog dlg(QStringLiteral("EPSG:6595"), QStringLiteral("EPSG:4326"));
@@ -113,6 +166,13 @@ void TestCRSChangeDialog::clickingApplyWithAssignChosen()
     QCOMPARE(dlg.choice(), CRSChangeDialog::Assign);
 }
 
+/**
+ *
+ * @brief Require at least one descendant label to contain both supplied source/target CRS
+ * strings.
+ * Checks text presence, not actual widget exposure, visibility or pixel layout.
+ *
+ */
 void TestCRSChangeDialog::summaryStringsAppearInLabel()
 {
     // Sanity: the From/To strings are placed in a visible QLabel so the
@@ -129,6 +189,12 @@ void TestCRSChangeDialog::summaryStringsAppearInLabel()
     QVERIFY(found);
 }
 
+/**
+ *
+ * @brief Run shared accessibility assertions on a constructed nonlocal CRS-change dialog.
+ * No choice is committed or transformed.
+ *
+ */
 void TestCRSChangeDialog::a11yInvariantsHold()
 {
     CRSChangeDialog dlg(QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"));

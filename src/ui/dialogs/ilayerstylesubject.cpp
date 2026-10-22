@@ -27,6 +27,12 @@ namespace
 // Convert a QVariant into something JSON-serialisable. Colours go through
 // .name(HexArgb), Qt::PenStyle/enum values go to int, everything else
 // uses QVariant::toString / toDouble / toBool / toInt.
+/**
+ * @param[in] v Borrowed property QVariant, actual metatype guides conversion.
+ * @return Exact QColor→HexArgb, QFont→toString, primitive bool/int/double/float/string, UInt
+ *   narrowed int, LongLong→double; other convertible-to-int enum then string fallback. No universal
+ *   lossless integer/container/custom-type encoding, finite validation or source mutation.
+ */
 QJsonValue variantToJson(const QVariant &v)
 {
     if (v.canConvert<QColor>() && v.userType() == qMetaTypeId<QColor>()) {
@@ -65,6 +71,14 @@ QJsonValue variantToJson(const QVariant &v)
     }
 }
 
+/**
+ * @param[in] val Borrowed JSON value, wrong primitive JSON type uses Qt default conversions.
+ * @param[in] targetType Expected property Qt metatype ID, no QObject schema lookup.
+ * @return Valid QColor/QFont parsed string or INVALID on parse failure; bool/int/uint/double/string
+ *   conversions, Float also double, default numeric→int, string→QString, other Qt toVariant.
+ *   LongLong not special-cased, can narrow numeric restore; UInt negative int wraps. No
+ *   validation/write/ownership transfer.
+ */
 QVariant jsonToVariant(const QJsonValue &val, int targetType)
 {
     if (targetType == qMetaTypeId<QColor>()) {

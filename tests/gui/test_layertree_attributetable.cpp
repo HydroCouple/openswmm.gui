@@ -31,11 +31,16 @@ namespace
 {
 
 /*! A distinctive non-null tag; never dereferenced. */
+/** @brief Create a distinctive non-null identity tag for pure row predicates.
+ * @return Pointer value 0x1000; it does not identify an allocated object and must never be dereferenced or deleted. */
 OpenSWMMVisLayer *tag()
 {
     return reinterpret_cast<OpenSWMMVisLayer *>(quintptr(0x1000));
 }
 
+/** @brief Build a synthetic layer row carrying the shared pointer tag.
+ * @param[in] t Layer-type ordinal used by the target predicates.
+ * @return Independent Layer-kind row; no layer is allocated or accessed. */
 LayerTreeRow layerRow(LayerTypeOrdinal t)
 {
     LayerTreeRow r;
@@ -45,6 +50,10 @@ LayerTreeRow layerRow(LayerTypeOrdinal t)
     return r;
 }
 
+/** @brief Build a synthetic object-type row.
+ * @param[in] parent Parent layer-type ordinal.
+ * @param[in] category Model-category integer, including invalid values for rejection probes.
+ * @return Tagged ObjectType row retaining the supplied category. */
 LayerTreeRow kindRow(LayerTypeOrdinal parent, int category)
 {
     LayerTreeRow r = layerRow(parent);
@@ -53,6 +62,10 @@ LayerTreeRow kindRow(LayerTypeOrdinal parent, int category)
     return r;
 }
 
+/** @brief Build a synthetic sublayer row.
+ * @param[in] parent Parent layer-type ordinal.
+ * @param[in] id Required null-terminated Latin-1 sublayer identifier, copied into the returned row.
+ * @return Tagged Sublayer row; never dereferences the fake layer pointer. */
 LayerTreeRow sublayerRow(LayerTypeOrdinal parent, const char *id)
 {
     LayerTreeRow r = layerRow(parent);
@@ -72,6 +85,7 @@ class TestLayerTreeAttributeTable : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Register supported and unsupported layer ordinals with expected attribute-table target kinds. */
     void layerRowsOpenTheirTable_data()
     {
         QTest::addColumn<int>("type");
@@ -103,6 +117,7 @@ private slots:
         QTest::newRow("annotations")
             << int(LayerTypeOrdinal::SWMMAnnotationLayer) << int(AttributeTableTarget::Kind::None);
     }
+    /** @brief Verify each row resolves the expected target kind, validity and unchanged identity tag. */
     void layerRowsOpenTheirTable()
     {
         QFETCH(int, type);
@@ -114,6 +129,7 @@ private slots:
         QCOMPARE(t.layer, t.isValid() ? tag() : nullptr);
     }
 
+    /** @brief Verify a whole-mesh row defaults to the cells table. */
     void aMeshOpensItsCells()
     {
         const AttributeTableTarget t =
@@ -121,6 +137,7 @@ private slots:
         QCOMPARE(t.meshTable, MeshTable::Cells); // plan Q7
     }
 
+    /** @brief Verify model/results category rows retain category and identity, while unsupported parents and invalid categories yield no table. */
     void objectTypeRowsOpenThatType()
     {
         // Kind rows exist under the model today; the results-layer case is
@@ -142,6 +159,7 @@ private slots:
                  .isValid());
     }
 
+    /** @brief Register mesh vertex/edge/boundary/fill table targets and display-only sublayers without tables. */
     void meshSublayersOpenTheirTable_data()
     {
         QTest::addColumn<QString>("id");
@@ -155,6 +173,7 @@ private slots:
         QTest::newRow("isolines") << "mesh.isolines" << false << -1;
         QTest::newRow("coupled nodes") << "mesh.coupledNodes" << false << -1;
     }
+    /** @brief Verify mesh sublayer identifiers select the intended table and the same IDs under nonmesh parents are invalid. */
     void meshSublayersOpenTheirTable()
     {
         QFETCH(QString, id);
@@ -173,6 +192,8 @@ private slots:
                      .isValid());
     }
 
+    /** @brief Verify categorized 1D results sublayers resolve object tables and exports with results.
+     * Checks missing categories reject those targets and a category does not override a mesh sublayer table. */
     void aRunsObjectTypeSublayersOpenThatType()
     {
         // A 1D results layer shows its object types as "results.<kind>"
@@ -203,9 +224,14 @@ private slots:
 
     // ----- Part C: the Export entries (§8.2) ------------------------------
 
+    /** @brief Verify model, results, vector, mesh and raster rows produce the intended export kinds and result/category flags.
+     * Checks display-only mesh sublayers offer all mesh tables and unsupported rows yield no export target. */
     void exportTargetsFollowTheRow()
     {
         using K = LayerExportTarget::Kind;
+        /** @brief Resolve one synthetic row through the production export-target predicate.
+         * Argument `r`: borrowed row carrying a fake layer identity that must not be dereferenced.
+         * Returns: value export target with ownership unchanged. */
         const auto ex = [](const LayerTreeRow &r) { return openswmmvis::ui::layerExportTarget(r); };
 
         LayerExportTarget t = ex(layerRow(LayerTypeOrdinal::SWMMModelLayer));

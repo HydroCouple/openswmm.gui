@@ -52,13 +52,23 @@ class TestLayerTreeReorder : public QObject
     Q_OBJECT
 
     // Bottom→top pointer list of the canvas stack, for readable QCOMPAREs.
+    /** @brief Copy the canvas paint stack in bottom-to-top order.
+     * @param[in] c Borrowed canvas whose layers are inspected.
+     * @return Independent list of borrowed layer pointers, with ownership unchanged. */
     static QList<OpenSWMMVisLayer *> stack(const MapCanvas &c) { return c.layers(); }
 
     // QCOMPARE needs identical pointer types: widen a concrete layer.
+    /** @brief Widen a concrete layer reference for pointer comparisons.
+     * @param[in] l Borrowed live layer.
+     * @return Address of l; never transfers ownership. */
     static OpenSWMMVisLayer *L(OpenSWMMVisLayer &l) { return &l; }
 
     // A category row's DisplayRole is "<name> (<layer count>)"; the count is
     // asserted through the stack comparisons, so compare on the name alone.
+    /** @brief Read a top-level category label without its trailing layer-count suffix.
+     * @param[in] m Borrowed layer-tree model.
+     * @param[in] row Top-level row requested; invalid rows generally produce empty display text.
+     * @return Display label truncated before its last space/open-parenthesis suffix when present after position zero. */
     static QString categoryName(const LayerTreeModel &m, int row)
     {
         const QString label = m.data(m.index(row, 0), Qt::DisplayRole).toString();
@@ -67,6 +77,12 @@ class TestLayerTreeReorder : public QObject
     }
 
     // Drag `src` and drop it at (row, parent) exactly as QTreeView would.
+    /** @brief Drive the tree model MIME move contract without synthesizing mouse events.
+     * @param[in,out] m Model supplying MIME data and accepting the move.
+     * @param[in] src Source index to package.
+     * @param[in] row Drop row, including Qt -1 onto/append semantics.
+     * @param[in] parent Drop parent index.
+     * @return True only when MIME creation, canDropMimeData and dropMimeData succeed; deletes the temporary MIME object on all non-null paths. */
     static bool dragDrop(LayerTreeModel &m, const QModelIndex &src, int row,
                          const QModelIndex &parent)
     {
@@ -83,6 +99,7 @@ private slots:
 
     // Default group order puts 2D outputs above feature layers above tables,
     // regardless of the order the layers were added in.
+    /** @brief Verify added layers remain grouped in canvas paint order and the tree reverses order within each category. */
     void addLayerKeepsStackGroupedByCategory()
     {
         OpenSWMMVisAnnotationLayer feat1(QStringLiteral("feat1"));
@@ -116,6 +133,8 @@ private slots:
 
     // The bug: 5 of the 8 categories are empty here. Moving "Tables" up
     // must move the TABLES group, both in the tree and in the stack.
+    /** @brief Verify moving a visible category uses visible positions despite empty categories, records full group order and supports undo/redo.
+     * Checks repeated/out-of-range moves refuse without changes. */
     void categoryMoveWithEmptyCategoriesPresent()
     {
         SWMM2DResultsLayer res(QStringLiteral("res"));
@@ -158,6 +177,7 @@ private slots:
         QVERIFY(!m->reorderCategory(CatSwmm2DOutputs, -1));
     }
 
+    /** @brief Verify category MIME moves between rows, onto category rows and to the bottom, while rejecting a layer-row target. */
     void categoryDragDropBetweenAndOntoRows()
     {
         SWMM2DResultsLayer res(QStringLiteral("res"));
@@ -196,6 +216,7 @@ private slots:
         delete mime;
     }
 
+    /** @brief Verify layer MIME reordering stays within its category, rejects cross-category drops and undoes both accepted moves. */
     void layerDragDropStaysInsideItsCategory()
     {
         OpenSWMMVisAnnotationLayer a(QStringLiteral("a"));
@@ -237,6 +258,7 @@ private slots:
         QCOMPARE(stack(canvas), (QList<OpenSWMMVisLayer *>{&tab, &a, &b, &c}));
     }
 
+    /** @brief Verify sublayer MIME moves track reversed display/paint order, support three undos and reject other hosts. */
     void sublayerDropBetweenRowsAndOntoRows()
     {
         SWMM2DResultsLayer res(QStringLiteral("res"));
@@ -294,6 +316,7 @@ private slots:
         delete mime;
     }
 
+    /** @brief Verify canvas sublayer movement emits once per move/undo and rejects no-op, out-of-range and absent-host cases. */
     void canvasMoveSublayerEmitsAndUndoes()
     {
         SWMM2DResultsLayer res(QStringLiteral("res"));
@@ -318,6 +341,7 @@ private slots:
 
     // .oswp round-trip contract: the saved keys are applied as layers
     // arrive, in any order, and re-sort the layers already present.
+    /** @brief Verify pending saved layer keys reorder existing and late-arriving layers while unknown layers retain grouped insertion. */
     void pendingLayerOrderRestoresSavedStack()
     {
         OpenSWMMVisAnnotationLayer feat(QStringLiteral("feat"));
@@ -365,6 +389,8 @@ private slots:
     //
     // Skips without the variable, so it stays inert in CI — same idiom as
     // profileExternalModel() in test_asyncload.
+    /** @brief Optionally compare grouped-below-model insertion with direct-top insertion for the same borrowed layers.
+     * Requires SWMM_PROFILE_INP and positive SWMM_PROFILE_GIS_N (default eight), prints millisecond timings without a speed threshold and empties the canvas before layer destruction. */
     void layerAddRepopulateCost()
     {
         const QString inp = qEnvironmentVariable("SWMM_PROFILE_INP");
@@ -433,6 +459,7 @@ private slots:
                                  .arg((groupedMs - topMs) / n, 0, 'f', 3);
     }
 
+    /** @brief Verify wrong-size/duplicate group permutations are ignored and a valid reversed order is accepted. */
     void groupOrderValidation()
     {
         MapCanvas canvas;

@@ -31,17 +31,31 @@ namespace openswmmvis::ui
 
 struct RendererPanelContext;
 
-/*! The per-kind style object the base-symbol editor binds to: the model
- *  layer's persistent SwmmElementSymbolAdapter, or the results layer's
- *  FeatureSublayerStyle. Null when \p host has no such channel. */
+/**
+ * @brief Resolve the persistent per-kind base-symbol editing object for supported SWMM
+ * model/results hosts.
+ * @param host Optional borrowed host; must remain live throughout lookup/use.
+ * @param category SWMM category; model mapping recognizes eleven spatial kinds.
+ * @return Borrowed results sublayer style or model-owned persistent element-symbol
+ * adapter, null for unsupported/missing channel. Model accessor may lazily create its
+ * adapter. Caller retains host/style lifetime; no ownership transfer or snapshot.
+ */
 [[nodiscard]] QObject *baseSymbolStyleFor(OpenSWMMVisLayer *host,
                                           OpenSWMMVis::SwmmCategory category);
 
-/*! A collapsible "Base symbol & labels" group (collapsed by default) that
- *  holds the kind's base-symbol editor. Its size / line-width spin boxes
- *  carry the object name "baseSymbolSize" so a Graduated panel can grey
- *  them while "Size by value" is on. Returns nullptr when the context has
- *  no kind or the host has no base-symbol channel. */
+/**
+ * @brief Create an initially collapsed base-symbol editor group for the context's kind/style.
+ * @param ctx Borrowed context consumed synchronously; requires a host and category,
+ * then resolves baseSymbolStyleFor(). Does not retain the context struct itself.
+ * @param parent Optional Qt owner of a successful group; caller owns a parentless result.
+ * @return Parent-owned widget or null for absent context/channel/registered editor;
+ * cleans partially created widgets if editor creation fails. Group owns its controls
+ * and registry-created editor, with the actual style borrowed according to that editor's
+ * binding contract. Hides descendant KindRendererPanel copies to avoid nested
+ * classification; toggle callback borrows group-owned controls until their destruction.
+ * Edits use the persistent style; the surrounding dialog supplies snapshot/Cancel policy,
+ * not this factory. No undo or eager style mutation is performed here.
+ */
 [[nodiscard]] QWidget *createBaseSymbolGroup(const RendererPanelContext &ctx, QWidget *parent);
 
 } // namespace openswmmvis::ui

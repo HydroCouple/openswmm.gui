@@ -19,6 +19,10 @@ namespace
 
 // Shorthand builders --------------------------------------------------------
 
+/**
+ * @return Required QString name descriptor consumed by constructor, empty adapterProperty/enum
+ *   list. Metadata only, no identity validation/source read.
+ */
 TargetAttribute nameAttr()
 {
     return {QStringLiteral("name"),
@@ -29,6 +33,12 @@ TargetAttribute nameAttr()
             {}};
 }
 
+/**
+ * @param[in] key Required Latin-1 endpoint key, copied.
+ * @param[in] label Display label copied.
+ * @return Optional QString endpoint descriptor, empty adapter property; planner strategy resolves
+ *   required-ness and defaults are not endpoint column lookup. No source access.
+ */
 TargetAttribute endpointAttr(const char *key, const QString &label)
 {
     // Consumed by applyLinkAdd, not by an adapter property. Marked
@@ -38,21 +48,51 @@ TargetAttribute endpointAttr(const char *key, const QString &label)
             /*required*/ false, QString(), {}};
 }
 
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @param[in] required Copied required-mapping flag, default false.
+ * @return New Double descriptor; defaults optional except explicit dbl flag. No min/max/unit
+ *   conversion, provider access or source mutation.
+ */
 TargetAttribute dbl(const char *key, const QString &label, const char *prop, bool required = false)
 {
     return {QLatin1String(key), label, QMetaType::Double, required, QLatin1String(prop), {}};
 }
 
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @return New Int descriptor; defaults optional except explicit dbl flag. No min/max/unit
+ *   conversion, provider access or source mutation.
+ */
 TargetAttribute intAttr(const char *key, const QString &label, const char *prop)
 {
     return {QLatin1String(key), label, QMetaType::Int, false, QLatin1String(prop), {}};
 }
 
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @return New QString descriptor; defaults optional except explicit dbl flag. No min/max/unit
+ *   conversion, provider access or source mutation.
+ */
 TargetAttribute str(const char *key, const QString &label, const char *prop)
 {
     return {QLatin1String(key), label, QMetaType::QString, false, QLatin1String(prop), {}};
 }
 
+/**
+ * @param[in] key Required Latin-1 stable target key, copied.
+ * @param[in] label Translated/display label copied.
+ * @param[in] prop Required Latin-1 adapter property name copied, empty means ctor-consumed.
+ * @param[in] choices Moved ordered enum labels/codes, no validation/deduplication.
+ * @return New optional Int with enum choices descriptor; defaults optional except explicit dbl
+ *   flag. No min/max/unit conversion, provider access or source mutation.
+ */
 TargetAttribute enm(const char *key, const QString &label, const char *prop,
                     QVector<EnumChoice> choices)
 {
@@ -64,11 +104,21 @@ TargetAttribute enm(const char *key, const QString &label, const char *prop,
 // (SWMMNodePropertyAdapter / SWMMLinkPropertyAdapter /
 // SWMMRainGagePropertyAdapter), which mirror the engine.
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: NO=0/YES=1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> flapGateChoices()
 {
     return {{QStringLiteral("NO"), 0}, {QStringLiteral("YES"), 1}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata:
+ *   FREE0,NORMAL1,FIXED2,TIDAL3,TIMESERIES4. Labels matched case-insensitively by coercer,
+ *   static/not translated here. No source lookup/write or enum membership enforcement at creation.
+ */
 QVector<EnumChoice> outfallTypeChoices()
 {
     return {{QStringLiteral("FREE"), 0},
@@ -78,6 +128,11 @@ QVector<EnumChoice> outfallTypeChoices()
             {QStringLiteral("TIMESERIES"), 4}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: CUTOFF0,OVERFLOW1,TABULAR2,WEIR3.
+ *   Labels matched case-insensitively by coercer, static/not translated here. No source
+ *   lookup/write or enum membership enforcement at creation.
+ */
 QVector<EnumChoice> dividerTypeChoices()
 {
     return {{QStringLiteral("CUTOFF"), 0},
@@ -86,6 +141,11 @@ QVector<EnumChoice> dividerTypeChoices()
             {QStringLiteral("WEIR"), 3}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: INTENSITY0,VOLUME1,CUMULATIVE2. Labels
+ *   matched case-insensitively by coercer, static/not translated here. No source lookup/write or
+ *   enum membership enforcement at creation.
+ */
 QVector<EnumChoice> rainTypeChoices()
 {
     return {{QStringLiteral("INTENSITY"), 0},
@@ -93,26 +153,52 @@ QVector<EnumChoice> rainTypeChoices()
             {QStringLiteral("CUMULATIVE"), 2}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: TIMESERIES0/FILE1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> rainSourceChoices()
 {
     return {{QStringLiteral("TIMESERIES"), 0}, {QStringLiteral("FILE"), 1}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: IN0/MM1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> rainUnitChoices()
 {
     return {{QStringLiteral("IN"), 0}, {QStringLiteral("MM"), 1}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: OFF0/ON1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> pumpStateChoices()
 {
     return {{QStringLiteral("OFF"), 0}, {QStringLiteral("ON"), 1}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata: SIDE0/BOTTOM1. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> orificeTypeChoices()
 {
     return {{QStringLiteral("SIDE"), 0}, {QStringLiteral("BOTTOM"), 1}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata:
+ *   TRANSVERSE0,SIDEFLOW1,V-NOTCH2,TRAPEZOIDAL3,ROADWAY4. Labels matched case-insensitively by
+ *   coercer, static/not translated here. No source lookup/write or enum membership enforcement at
+ *   creation.
+ */
 QVector<EnumChoice> weirTypeChoices()
 {
     return {{QStringLiteral("TRANSVERSE"), 0},
@@ -122,6 +208,12 @@ QVector<EnumChoice> weirTypeChoices()
             {QStringLiteral("ROADWAY"), 4}};
 }
 
+/**
+ * @return New ordered canonical-label/engine-code metadata:
+ *   FUNCTIONAL/HEAD0,FUNCTIONAL/DEPTH1,TABULAR/HEAD2,TABULAR/DEPTH3. Labels matched
+ *   case-insensitively by coercer, static/not translated here. No source lookup/write or enum
+ *   membership enforcement at creation.
+ */
 QVector<EnumChoice> outletRatingChoices()
 {
     return {{QStringLiteral("FUNCTIONAL/HEAD"), 0},

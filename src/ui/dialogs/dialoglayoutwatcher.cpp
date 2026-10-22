@@ -23,6 +23,12 @@ namespace openswmmvis::ui
 namespace
 {
 
+/**
+ * @param[in] watched Optional borrowed QObject, no ownership transfer.
+ * @return Named top-level QDialog with noLayoutPersistence property false, else null. Does not
+ *   exclude modal/popup types or require current visibility, no Qt-internal root-name check or
+ *   mutation.
+ */
 QDialog *persistableDialog_(QObject *watched)
 {
     auto *dlg = qobject_cast<QDialog *>(watched);

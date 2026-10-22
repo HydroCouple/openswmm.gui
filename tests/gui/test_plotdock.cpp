@@ -29,6 +29,14 @@ class TestPlotDock : public QObject
     Q_OBJECT
     QTemporaryDir settings;
 private slots:
+    /**
+     *
+     * @brief Redirect process-global settings identity/INI user path to a member-owned temporary
+     * directory.
+     * Does not explicitly assert directory validity or restore previous globals; directory
+     * lifetime covers all local windows and cases.
+     *
+     */
     void initTestCase()
     {
         QCoreApplication::setOrganizationName("OpenSWMMPlotDockTests");
@@ -36,7 +44,23 @@ private slots:
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings.path());
     }
+    /**
+     *
+     * @brief Clear isolated plot-dock settings before every case without an explicit sync.
+     * Does not remove any windows or restore process-wide defaults.
+     *
+     */
     void init() { QSettings().clear(); }
+    /**
+     *
+     * @brief Require tab reveal/reorder, hide/float/minimize/restore and close to preserve
+     * independent view state and correct active lifetime.
+     * Tracks views with QPointer, checks retained zoom properties, hide without destruction,
+     * Escape retaining tabs, closeView destroying first and direct close destroying second.
+     * Uses actual window exposure and an extra500ms minimization wait; no plotted data or
+     * all platform animation timings are asserted.
+     *
+     */
     void independentTabsHideFloatAndClose()
     {
         QMainWindow window;
@@ -89,6 +113,14 @@ private slots:
         QCOMPARE(dock->tabs()->count(), 0);
         QTRY_VERIFY(second.isNull());
     }
+    /**
+     *
+     * @brief Require project context and tabified dock visibility to activate only the
+     * appropriate plot views.
+     * Uses two local project QObject identities, switches contexts/reveals and checks active
+     * flags; views are dock-owned and contexts outlive use. No engine or project file exists.
+     *
+     */
     void projectContextAndTabbedDockVisibility()
     {
         QMainWindow window;
@@ -115,6 +147,16 @@ private slots:
         one->setActiveContext(&projectB);
         QVERIFY(!a->isPlotActive());
     }
+    /**
+     *
+     * @brief Require embedded plot layouts to restore splitter state without applying stored
+     * dialog geometry or opted-out toggles.
+     * A local factory returns a heap view owning its splitter/children; addView transfers
+     * host ownership. Seeds stale geometry/mapTool settings, checks host unchanged and
+     * second splitter ratio, then reveals first without resetting its independently edited
+     * ratio. Does not manipulate real map tools or verify floating-window geometry.
+     *
+     */
     void embeddedLayoutNeverMovesHostAndDoesNotRestoreMapTools()
     {
         QMainWindow window;
@@ -159,6 +201,13 @@ private slots:
         dock->reveal(first);
         QVERIFY(splitter->sizes()[0] > splitter->sizes()[1]);
     }
+    /**
+     *
+     * @brief Require main-window state version2 to restore an empty plot dock from bottom to
+     * right.
+     * Checks dock area and zero tabs; no plot views, disk serialization or version mismatch.
+     *
+     */
     void layoutRestoresDockPositionsWithEmptyTabs()
     {
         QMainWindow first;

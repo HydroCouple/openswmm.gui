@@ -44,10 +44,12 @@ namespace
 // link kind that exists in this fixture (just the conduit) gets a tag,
 // then the adapter is asked to read it back.
 /**
+ *
  * @brief Allocate the editing-only two-junction/one-conduit fixture.
  * @return Owned engine to destroy, or nullptr on allocation failure; object-add/
  * node-assignment statuses are unchecked. C1 connects J1 to J2 with engine defaults,
  * without explicit diameter, topology initialization, IO or simulation.
+ *
  */
 SWMM_Engine buildConduitFixture()
 {
@@ -69,11 +71,13 @@ SWMM_Engine buildConduitFixture()
 // / outlets reuse the same shape so the per-kind adapter classes can be
 // constructed against the same handle.
 /**
+ *
  * @brief Allocate an editing-only two-junction fixture with L1 of the requested type.
  * @param linkType Engine link enum, normally zero..four for conduit/pump/orifice/weir/outlet.
  * @return Owned engine to destroy, or nullptr on allocation failure; add/type/
  * endpoint statuses are unchecked, so a handle alone does not prove valid setup.
  * No geometry beyond defaults, input file or simulation is created.
+ *
  */
 SWMM_Engine buildLinkFixture(int linkType)
 {
@@ -103,8 +107,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require conduit tag set/overwrite/clear to round-trip and the first real change to
      * emit once.
+     *
      */
     void conduitTagRoundTrip()
     {
@@ -131,7 +137,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require a pump adapter tag to round-trip through its real engine link.
+     *
      */
     void pumpTagRoundTrip()
     {
@@ -146,7 +154,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require an orifice adapter tag to round-trip through its real engine link.
+     *
      */
     void orificeTagRoundTrip()
     {
@@ -161,7 +171,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require a weir adapter tag to round-trip through its real engine link.
+     *
      */
     void weirTagRoundTrip()
     {
@@ -176,7 +188,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require an outlet adapter tag to round-trip through its real engine link.
+     *
      */
     void outletTagRoundTrip()
     {
@@ -195,10 +209,12 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require all five subclass metaobjects to expose writable tag properties.
      * The local checker borrows an adapter QObject and diagnostic C-string label and
      * records QtTest failures locally. All adapters use C1 for metadata inspection,
      * without constructing each corresponding engine link kind in this case.
+     *
      */
     void tagAdvertisedOnAllLinkKinds()
     {
@@ -245,7 +261,9 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require the conduit tag display label to be nonempty.
+     *
      */
     void tagDisplayLabelResolves()
     {
@@ -264,8 +282,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require conduit initial flow to default zero and round-trip 2.5 in the engine
      * authored flow units.
+     *
      */
     void initialFlowRoundTrips()
     {
@@ -279,8 +299,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit maximum flow to default zero and round-trip 150 in authored flow
      * units.
+     *
      */
     void maxFlowRoundTrips()
     {
@@ -294,7 +316,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit seepage rate 0.05 to round-trip without GUI unit conversion.
+     *
      */
     void seepRateRoundTrips()
     {
@@ -307,8 +331,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require barrel count to default one, accept three and refuse zero/negative values
      * without changing it.
+     *
      */
     void barrelsRoundTrips()
     {
@@ -328,8 +354,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require each dimensionless loss coefficient edit to preserve the other two fields of
      * the engine triple.
+     *
      */
     void lossCoefficientsTriplePropagate()
     {
@@ -366,8 +394,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit flow/loss/seepage/barrel meta-properties to exist and advertise
      * writable setters.
+     *
      */
     void scalarPropertiesAdvertisedAsWritable()
     {
@@ -390,7 +420,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require each tested conduit scalar key to have a nonempty display label.
+     *
      */
     void scalarDisplayLabelsResolve()
     {
@@ -413,8 +445,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require XSection/culvert/inlet refs to carry correct borrowed identities, editor
      * kinds and nonempty default summaries.
+     *
      */
     void xsectionRefCarriesEngineAndLinkName()
     {
@@ -447,8 +481,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require direct circular/closed-rectangle engine writes to appear in live XSection
      * summary text with their authored dimensions.
+     *
      */
     void xsectionSummaryReflectsEngineWrite()
     {
@@ -482,10 +518,12 @@ private slots:
     // apply-as-you-go path the combo did: engine xsect shape is rewritten
     // synchronously, geom1..4 + barrels stay at their last values.
     /**
+     *
      * @brief Require selecting the trapezoidal thumbnail to synchronously update the engine shape
      * through the null-layer direct path.
      * Also checks the horizontal shape splitter is noncollapsible; the case does not
      * compare retained dimension or barrel values after the shape change.
+     *
      */
     void xsectionThumbnailSelectionRoundTrip()
     {
@@ -538,8 +576,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit XSection, culvert and inlet compound meta-properties to be writable
      * and notify changes.
+     *
      */
     void compoundCellsAdvertisedAsWritable()
     {
@@ -574,8 +614,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require orifice metadata/ref to expose XSection while excluding conduit-only culvert
      * and inlet rows.
+     *
      */
     void orificeAdvertisesXsectionOnly()
     {
@@ -598,8 +640,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require weir metadata/ref to expose only XSection among conduit compound rows and
      * reflect an engine RECT_OPEN shape write.
+     *
      */
     void weirAdvertisesXsectionOnly()
     {
@@ -627,7 +671,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require real pump/outlet adapter metaobjects to omit the XSection property.
+     *
      */
     void pumpAndOutletStillHaveNoXsectionCell()
     {
@@ -657,8 +703,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require orificeType to be a writable notifying enum with SIDE/BOTTOM keys in UI
      * order.
+     *
      */
     void orificeTypeAdvertisedAsWritableEnum()
     {
@@ -681,8 +729,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require the default BOTTOM orifice type to switch SIDE/BOTTOM through the engine
      * with one first-change signal.
+     *
      */
     void orificeTypeRoundTripsThroughEngine()
     {
@@ -707,8 +757,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit and weir metaobjects to omit orificeType; other kinds are not
      * instantiated by this case.
+     *
      */
     void nonOrificeAdaptersDoNotExposeOrificeType()
     {
@@ -734,7 +786,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require orificeType to resolve a nonempty display label.
+     *
      */
     void orificeTypeDisplayLabelResolves()
     {
@@ -750,8 +804,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require weirType to be a writable notifying enum with the five expected UI keys in
      * order.
+     *
      */
     void weirTypeAdvertisedAsWritableEnum()
     {
@@ -779,7 +835,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require default TRANSVERSE and every five-value weir-type setter to round-trip.
+     *
      */
     void weirTypeAllFiveValuesRoundTrip()
     {
@@ -802,7 +860,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit and orifice metaobjects to omit weirType.
+     *
      */
     void weirTypeNotExposedOnOtherLinkKinds()
     {
@@ -824,7 +884,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require weirType to resolve a nonempty display label.
+     *
      */
     void weirTypeDisplayLabelResolves()
     {
@@ -840,8 +902,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require the outlet rating enum keys, writable coefficient/exponent and curve-picker
      * property to be advertised.
+     *
      */
     void outletRatingPropertiesAdvertised()
     {
@@ -879,8 +943,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require default FUNCTIONAL_HEAD and every functional/tabular head/depth
      * outlet-rating choice to round-trip.
+     *
      */
     void outletRatingTypeAllFourValuesRoundTrip()
     {
@@ -901,7 +967,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require outlet exponent to default zero and round-trip 0.5 then 1.75.
+     *
      */
     void outletExponRoundTrips()
     {
@@ -917,8 +985,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit metadata to omit rating/exponent/curve and weir metadata to omit
      * rating/exponent.
+     *
      */
     void outletRatingNotExposedOnOtherLinkKinds()
     {
@@ -943,7 +1013,9 @@ private slots:
     }
 
     /**
+     *
      * @brief Require rating/coefficient/exponent/curve keys to resolve nonempty outlet labels.
+     *
      */
     void outletRatingDisplayLabelsResolve()
     {
@@ -968,8 +1040,10 @@ private slots:
     // ====================================================================
 
     /**
+     *
      * @brief Require startup/shutoff depths to default zero, round-trip independently and expose
      * writable labeled pump properties.
+     *
      */
     void pumpStartupShutoffRoundTrip()
     {
@@ -997,8 +1071,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require orifice opening/closing rate to default zero, round-trip 0.05 and expose a
      * writable labeled property.
+     *
      */
     void orificeOpenCloseRateRoundTrip()
     {
@@ -1021,8 +1097,10 @@ private slots:
     }
 
     /**
+     *
      * @brief Require conduit metadata to omit pump startup/shutoff and orifice opening/closing
      * rows.
+     *
      */
     void pumpDepthsNotExposedOnOtherKinds()
     {
@@ -1049,6 +1127,7 @@ private slots:
 #include "layers/swmmmodellayer.h"
 
 /**
+ *
  * @brief Satisfy the unused model-layer XSection link dependency.
  * @param index Ignored link index.
  * @param shape Ignored engine cross-section enum.
@@ -1058,6 +1137,7 @@ private slots:
  * @param g4 Ignored fourth shape-dependent authored dimension.
  * @return Always true without validation, engine writes or undo history. The
  * smoke dialog uses a null layer and never executes this production-incompatible stub.
+ *
  */
 bool SWMMModelLayer::applyLinkXsect(int index, int shape, double g1, double g2, double g3,
                                     double g4)
@@ -1065,20 +1145,24 @@ bool SWMMModelLayer::applyLinkXsect(int index, int shape, double g1, double g2, 
     return true;
 }
 /**
+ *
  * @brief Satisfy the unused model-layer barrel-edit link dependency.
  * @param index Ignored link index.
  * @param barrels Ignored barrel count, not validated.
  * @return Always true with no model mutation or undo; not exercised by the null-layer dialog.
+ *
  */
 bool SWMMModelLayer::applyLinkBarrels(int index, int barrels)
 {
     return true;
 }
 /**
+ *
  * @brief Satisfy the unused model-layer culvert-edit link dependency.
  * @param index Ignored link index.
  * @param code Ignored culvert code, not validated.
  * @return Always true with no model mutation or undo; not exercised by the null-layer dialog.
+ *
  */
 bool SWMMModelLayer::applyLinkCulvertCode(int index, int code)
 {

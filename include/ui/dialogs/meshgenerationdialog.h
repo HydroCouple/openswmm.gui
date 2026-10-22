@@ -17,7 +17,7 @@
  *                         major stage via QPromise::isCanceled().
  *
  * Hole support: every interior ring of a boundary polygon is turned into
- * a set of constraint segments + a centroid seed point that tells Triangle
+ * a set of constraint segments + an interior seed point that tells Triangle
  * to leave that region unmeshed (OGR interior rings → g.addHole()).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -87,8 +87,8 @@ public:
         // Domain (outer boundaries — setDomains feeds these to Triangle)
         QVector<QPolygonF> domains;
 
-        // Holes: interior rings of domain polygons.  Each entry is one
-        // closed ring of vertices; a centroid seed point is derived from it
+        // Holes: interior rings of domain polygons. Each entry is one
+        // closed ring of vertices; a validated interior seed is derived from it
         // inside runMeshPipeline and passed to MeshGenerator::addHole().
         QVector<QVector<QPointF>> holeRings;
 
@@ -336,49 +336,215 @@ public:
         QVector<mesh::CorridorSourceStamp> corridorSourceStamps;
     };
 
+    /**
+     * @brief Build GUI-thread mesh-generation controls seeded from preferences and project drafts.
+     * @param[in,out] pw Nullable borrowed project, QPointer-guarded; provides
+     * model/canvas/terrain/layer identities and owns adopted meshes. Generation requires a live
+     * saved model with engine, extent and usable planar CRS.
+     * @param[in] parent Optional Qt dialog owner.
+     * Owns widgets/watcher but not project layers. Restores project generation settings, samples
+     * layer catalogs synchronously and starts no mesh worker until Generate. UI distances use
+     * selected project/global units; shared resolution settings are SI-canonical.
+     */
     explicit MeshGenerationDialog(SWMMVisProjectWindow *pw, QWidget *parent = nullptr);
+    /**
+     * @brief Request cancellation of an active future and disconnect owner guards before widget
+     * teardown.
+     * Does not explicitly wait for QtConcurrent completion; the worker owns copied inputs and uses
+     * no widgets/model QObjects. Cancellation does not remove already written stage/terrain cache
+     * files.
+     */
     ~MeshGenerationDialog() override;
 
 public slots:
+    /**
+     * @brief Save current project option drafts, invalidate this generation and request worker
+     * cancellation before rejecting.
+     * Does not apply a generated mesh or undo previously accepted project changes; options saving
+     * may mark the project dirty.
+     */
     void reject() override;
 
 protected:
+    /**
+     * @brief Save options and invalidate/cancel generation, then delegate Qt close handling.
+     * @param[in,out] event Required borrowed Qt close event, forwarded without ownership transfer.
+     * Does not block for worker completion or publish final mesh/model files.
+     */
     void closeEvent(QCloseEvent *event) override;
 
 private slots:
+    /**
+     * @brief Prompt for an intended external .2dm path and update its draft on selection.
+     * Cancellation leaves the path; no file is written by browsing.
+     */
     void onBrowseMeshPath();
+    /**
+     * @brief Save drafts, validate/collect inputs and launch one asynchronous mesh pipeline after
+     * owner checks/confirmations.
+     * Ignores Generate while a watcher exists. Confirms replacement of unreadable recipe or
+     * existing working mesh path; final file publication remains deferred to project Save. Installs
+     * input/owner revision guards, shows progress, disables Generate and wires a new Qt-owned
+     * future watcher.
+     */
     void onAccept();
+    /**
+     * @brief Consume completed worker state on the GUI thread and adopt only a valid current-owner
+     * result.
+     * Requires the active watcher; always restores UI first, ignores canceled jobs and reports
+     * failed/exception/stale results. Rechecks source-file stamps before preparing a detached mesh
+     * and ChannelMeshAdoptionCommand. Successful undo-stack adoption owns the layer, starts
+     * deferred heavy scene geometry, stores corridor/metrics/options, marks project dirty and
+     * accepts. Preparation failures preserve the previous working mesh. Opens a modeless report
+     * with optional exception-cell highlighting. Final .inp/.2dm writes are deferred to project
+     * Save.
+     */
     void onMeshFinished();
     /*! Handles both "Cancel" (no job running → close dialog) and
      *  "Cancel Generation" (job running → stop worker). */
+    /**
+     * @brief Request active worker cancellation and disable repeat cancellation, or reject when
+     * idle.
+     * Running cancellation leaves the dialog open until onMeshFinished restores controls;
+     * noninterruptible library calls finish before a checkpoint observes Stop.
+     */
     void onCancelOrReject();
 
 private:
     friend class TestMeshTerrainPipeline;
     friend class TestMeshOverhaulBellinge;
+    /**
+     * @brief Run the widget-free mesh pipeline and translate computation exceptions into failed
+     * results.
+     * @param[in,out] promise QtConcurrent-managed result/progress/cancellation channel, required
+     * valid for the call. Wrapper appends success/failure through addResult; framework owns
+     * start/finish, not this function.
+     * @param[in] in Owned copy of file identities, CRS/unit scales, geometry and hydraulic options.
+     * Parallel XY/Z/marker arrays must be consistent; legacy direct callers supply valid finite
+     * meshing settings, while optional ResolutionSettings are validated and converted.
+     * Worker opens fresh GDAL/OGR handles, builds/caches boundaries/terrain,
+     * generates/refines/reorders cells, fills elevations, maps coupling and returns pending
+     * in-memory topology/metrics. Checks cancellation at stage/loop boundaries; GEOS/other library
+     * calls can be uninterruptible. Stage/terrain caches may be written even on later
+     * cancellation/failure; final model/mesh destinations are not published here. Catch paths
+     * classify bad_alloc, standard and unknown exceptions; promise allocation itself is not a
+     * no-throw guarantee.
+     */
     static void runMeshPipeline(QPromise<PipelineResult> &promise, PipelineInputs in);
+    /**
+     * @brief Create owned sources/quality/hydraulics pages, intended output controls and embedded
+     * progress/actions once.
+     * Binds gating and normal live project node-coupling selector; most controls remain generation
+     * drafts. Resolution controls share an SI settings widget; shape angles [20,33] degrees, cell
+     * budget [1000,100000000], terrain cache [0,65536] MiB (zero automatic), Manning [.001,1] and
+     * initial depth [0,1000] display units.
+     */
     void buildUi();
+    /**
+     * @brief Initialize generation drafts from application 2D defaults and current project/canvas.
+     * Converts SI preference lengths to display units, chooses active terrain, populates catalogs,
+     * sets default .2dm path and region rows. Enables link/subcatch influence and postmapping
+     * initially; no generation or final file write.
+     */
     void seedDefaults();
+    /**
+     * @brief Serialize named mesh controls, SI distance values, stable layer IDs, aux selections,
+     * region rows and encodable corridor draft to the project options.
+     * No-op without project or while closing. Migrates prior version-one metadata, preserves
+     * unrelated keys and marks project dirty only when JSON changes. Does not save the project file
+     * or author the accepted corridor recipe.
+     */
     void saveOptions();
+    /**
+     * @brief Hydrate generation drafts from supported project options versions one/two.
+     * Restores layer/unit combos before exact scalar overrides, converts stored SI distances,
+     * migrates legacy resolution using extent, restores aux/corridor/region drafts and last-run
+     * report. Missing/unsupported project state is ignored; widget bounds may clamp displayed
+     * numbers.
+     */
     void restoreOptions();
+    /**
+     * @brief Replace source catalogs from current canvas layers, grouped by declared geometry and
+     * preferred feature role.
+     * Requires a project canvas; null/unknown geometry remains offered in relevant pickers. Stores
+     * borrowed raw layer pointers in item data/rows, so selected layers must survive input
+     * collection. Probes 3D status with a reset feature cursor, creates owned include/use-Z
+     * controls and notifies DTM-dependent UI.
+     */
     void populateLayerCombos();
+    /**
+     * @brief Refresh distance suffixes and shared resolution unit conversion from global
+     * UnitSystem.
+     * Requires its singleton; updates controls only, without rewriting model coordinates or
+     * regenerating cached topology.
+     */
     void updateUnitDisplay();
+    /**
+     * @brief Recompute the editable DTM-Z multiplier from detected raster and requested mesh
+     * vertical units under a signal blocker.
+     * Feet use .3048 metres/unit, auto follows project flow units; no DTM/unknown raster unit
+     * assumes metres. A source/unit change replaces any previous manual multiplier.
+     */
     void updateZFactor(); // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
 
     /*! Region tags the generated mesh will carry, in the order collectInputs()
      *  creates their markers. Empty when no region source is selected, which
      *  is what degenerates the region-defaults table to its single '*' row. */
+    /**
+     * @brief Enumerate final subcatchment marker tags in model row order.
+     * @return Owned subcatch_<ID> list for named subcatchments with valid extents when inclusion is
+     * checked; empty without model/selection. Matches worker region tagging, without testing
+     * whether seeds lie in the final domain.
+     */
     [[nodiscard]] QStringList regionTags() const;
     /*! Pushes regionTags() into the region-defaults table. */
+    /**
+     * @brief Pass current region tags to the owned region-defaults table when present;
+     * inherited/star values remain table-managed.
+     */
     void refreshRegionRows();
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
      *  no extent, etc.).  Does NOT start the worker. */
+    /**
+     * @brief Collect GUI/model/auxiliary geometry into an owned worker input value without
+     * launching work.
+     * @param[in,out] out Required non-null destination, normally fresh/default-initialized; appends
+     * candidates/regions and may remain partially populated on failure. Contains only copied
+     * values/file identities, not GUI/GDAL handles.
+     * @param[out] errOut Optional diagnostic destination written on failure; not explicitly cleared
+     * on success.
+     * @return True when saved active model, extent, planar CRS, resolution, region/corridor and
+     * elevation-source checks pass; false with diagnostic otherwise.
+     * GUI-thread only. Reads engine rim/coupling data, temporarily alters OGR spatial filters/read
+     * cursors (clearing filters afterward), converts aux XY when possible and logs dropped failed
+     * transforms. Feature Z remains in mesh vertical units; DTM Z uses its separate multiplier.
+     * Boundary/region file identities defer expensive dissolve/ring reads to the worker. Shared
+     * resolution is converted from SI into mesh XY/elevation units; other display distances are
+     * scaled once. Does not persist final mesh files or mutate engine topology.
+     */
     bool collectInputs(PipelineInputs *out, QString *errOut) const;
 
+    /**
+     * @brief Capture current project model/engine/path/edit revision and observe input mutations.
+     * Clears previous subscriptions and resets invalidation; model/layer/feature changes mark the
+     * pending result stale, while project close also cancels the watcher. Missing project/model
+     * leaves an unarmed guard.
+     */
     void beginGenerationGuard();
+    /**
+     * @brief Disconnect generation-input subscriptions and clear captured model/engine/path
+     * identities.
+     * Does not cancel a worker or reset the invalidation flag/revision by itself.
+     */
     void clearGenerationGuard();
+    /**
+     * @brief Check whether pending result ownership still matches the generation snapshot.
+     * @return True only for a nonclosing surviving project/model, same nonnull engine/path/edit
+     * revision and no observed invalidation; false otherwise. Does not inspect corridor file stamps
+     * (checked separately).
+     */
     bool generationOwnerIsCurrent() const;
 
     QPointer<SWMMVisProjectWindow> m_pw;
@@ -423,6 +589,12 @@ private:
     // not NONE; "Set coupleable…" opens the node coupling selector.
     QCheckBox *m_mapOnlyCoupleable = nullptr;
     QLabel *m_coupleableReadout = nullptr;
+    /**
+     * @brief Count readable nonvirtual-category node coupling states and display the non-None
+     * total.
+     * No-op without label; absent model/engine clears it. Reads node state only and does not change
+     * coupling eligibility.
+     */
     void updateCoupleableReadout();
     QCheckBox *m_nodesUseRim = nullptr;          // rim elevation instead of terrain
     QDoubleSpinBox *m_nodeFlattenSpin = nullptr; // flatten terrain within radius of nodes

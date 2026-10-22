@@ -54,6 +54,11 @@ using openswmmvis::plot::RainGageStats;
 namespace
 {
 
+/**
+ * @brief Format an elapsed duration for the stats table.
+ * @param[in] secs Whole seconds; nonpositive values display an em dash.
+ * @return H:MM:SS for positive hours or M:SS otherwise; hours are not truncated to a day.
+ */
 QString fmtDuration(qint64 secs)
 {
     if (secs <= 0)
@@ -67,6 +72,12 @@ QString fmtDuration(qint64 secs)
     return QStringLiteral("%1:%2").arg(m).arg(s, 2, 10, QLatin1Char('0'));
 }
 
+/**
+ * @brief Describe the engine rainfall data source without reading files.
+ * @param[in] g Borrowed gage metadata.
+ * @return Translated timeseries name, standard rain-file station, CSV/TSF column or generic FILE
+ * text.
+ */
 QString sourceLabel(const RainGageRainfall &g)
 {
     if (g.dataSource == 0)
@@ -175,6 +186,11 @@ void RainfallVisualizationDialog::buildUi_()
     // Same vector icons as the main map toolbar's navigation actions
     // (swmmvis.ui: Pan uses Move, Fit uses Extent), so the modes read the
     // same everywhere. QToolBar shows the icon; the text stays as tooltip.
+    /**
+     * @brief Create a toolbar-owned exclusive navigation action. Argument `iconRes`: icon resource
+     * path. Argument `text`: action text/tooltip. Argument `checked`: initial selection. Returns:
+     * borrowed new action; checked toggles propagate modes to all views.
+     */
     auto addMode = [&](const QString &iconRes, const QString &text, bool checked) {
         QAction *a = m_toolbar->addAction(QIcon(iconRes), text);
         a->setCheckable(true);
@@ -466,6 +482,11 @@ void RainfallVisualizationDialog::rebuildCharts_()
 
     // Shared time axis: mirror any panel's X range onto every other panel
     // (and the overlay), guarded against re-entry.
+    /**
+     * @brief Connect a panel time axis to other panel axes. Argument `src`: required borrowed UTC
+     * axis owned by a current panel chart. Returns: no value; emitted UTC ranges mirror other panel
+     * axes with a reentry guard. Does not mirror overlay despite the older surrounding comment.
+     */
     auto wireX = [this](openswmmvis::plot::UtcTimeAxis *src) {
         connect(src, &openswmmvis::plot::UtcTimeAxis::rangeChangedUtc, this,
                 [this, src](const QDateTime &lo, const QDateTime &hi) {
@@ -500,6 +521,11 @@ void RainfallVisualizationDialog::rebuildStatsTable_()
     for (const auto &g : gages) {
         const RainGageStats st = RainfallSeriesModel::computeStats(g);
 
+        /**
+         * @brief Install a numeric-sort-aware stats cell in the current row. Argument `col`: valid
+         * table column. Argument `text`: display value. Returns: newly allocated table-owned item;
+         * replaces any prior cell.
+         */
         auto put = [&](int col, const QString &text) {
             auto *item = new openswmmvis::ui::NumericTableWidgetItem(text);
             m_statsTable->setItem(row, col, item);

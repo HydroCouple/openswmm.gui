@@ -25,7 +25,19 @@ namespace mesh
 namespace
 {
 
-/*! Nearest point on segment a→b to p, as the parameter t in [0, 1]. */
+/**
+ * @brief Compute a clamped nearest-segment parameter and optional Euclidean length.
+ * @param[in] a Borrowed start point in a common Cartesian horizontal frame, unchanged.
+ * @param[in] b Borrowed end point in that frame, unchanged.
+ * @param[in] p Borrowed query in the same frame, unchanged.
+ * @param[out] len Optional borrowed length output, assigned sqrt(squared length) even for
+ * degenerate or nonfinite input; not retained.
+ * @return Dot-projection parameter clamped to [0,1], or zero when squared length is not
+ * positive. Inputs intended finite with nonoverflowing differences; no finite validation,
+ * allocation or state mutation.
+ *
+ * @details Nearest point on segment a→b to p, as the parameter t in [0, 1].
+ */
 double projectOnSegment(const QPointF &a, const QPointF &b, const QPointF &p, double *len)
 {
     const double dx = b.x() - a.x(), dy = b.y() - a.y();
@@ -38,10 +50,22 @@ double projectOnSegment(const QPointF &a, const QPointF &b, const QPointF &p, do
     return std::clamp(t, 0.0, 1.0);
 }
 
-/*! Signed lateral distance of p from the INFINITE line a→b, positive to the
- *  RIGHT of a→b.  [TRANSECTS] stations ascend from the left bank to the right
- *  looking downstream, so "right is positive" is what makes the section's own
- *  station axis and the corridor's offset axis the same axis. */
+/**
+ * @brief Compute downstream-right signed distance from an infinite oriented line.
+ * @param[in] a Borrowed line start, unchanged, common Cartesian horizontal units.
+ * @param[in] b Borrowed line end, unchanged.
+ * @param[in] p Borrowed query in the same frame, unchanged.
+ * @param[in] len Intended Euclidean a-to-b length in that frame, positive finite, unchecked for
+ * consistency.
+ * @return Negative cross product divided by len, positive on right, or zero when len is not
+ * positive. Does not clamp to segment endpoints, validate finite inputs, allocate or mutate
+ * state.
+ *
+ * @details Signed lateral distance of p from the INFINITE line a→b, positive to the RIGHT of
+ * a→b.  [TRANSECTS] stations ascend from the left bank to the right looking downstream, so
+ * "right is positive" is what makes the section's own station axis and the corridor's offset
+ * axis the same axis.
+ */
 double signedSide(const QPointF &a, const QPointF &b, const QPointF &p, double len)
 {
     if (!(len > 0.0))
@@ -50,6 +74,12 @@ double signedSide(const QPointF &a, const QPointF &b, const QPointF &p, double l
     return -cross / len; // cross > 0 is LEFT, so negate
 }
 
+/**
+ * @brief Obtain a conservative symmetric corridor half-extent from a profile section.
+ * @param[in] p Borrowed profile, unchanged; only section validity and sMin/sMax inspected.
+ * @return max(abs(sMin),abs(sMax)) in profile horizontal units, or zero for invalid section.
+ * Does not validate entire profile/finite geometry, allocate or retain source references.
+ */
 double profileExtent(const BurnProfile &p)
 {
     if (!p.section.isValid())

@@ -22,28 +22,58 @@ namespace mesh
 namespace
 {
 
-/*! Stations closer than this (relative to the section width) are the same
- *  station.  Sections are authored in survey units, so an absolute floor of a
- *  micrometre-scale value would be meaningless; the tolerance scales. */
+/**
+ * @brief Scale duplicate-station tolerance to section width with a small absolute floor.
+ * @param[in] width Horizontal span in section units, intended finite; absolute magnitude used.
+ * @return max(1e-9,abs(width)*1e-9) in those units. No finite audit, allocation or state
+ * mutation.
+ *
+ * @details Stations closer than this (relative to the section width) are the same station.
+ * Sections are authored in survey units, so an absolute floor of a micrometre-scale value would
+ * be meaningless; the tolerance scales.
+ */
 double stationEps(double width) noexcept
 {
     return std::max(1e-9, std::abs(width) * 1e-9);
 }
 
+/**
+ * @brief Test both Cartesian point coordinates for finite numeric values.
+ * @param[in] p Borrowed point, unchanged; no CRS or physical location check.
+ * @return True iff x and y finite; no allocation, mutation or retained source reference.
+ */
 bool finitePt(const QPointF &p) noexcept
 {
     return std::isfinite(p.x()) && std::isfinite(p.y());
 }
 
+/**
+ * @brief Append one soft diagnostic when an output collector is available.
+ * @param[in,out] out Optional borrowed list, appended without clearing, null ignored, not
+ * retained.
+ * @param[in] msg Borrowed diagnostic copied into output, unchanged; empty values also appended.
+ * May allocate list/string storage; no logging, engine/file mutation or retained references.
+ */
 void warn(QStringList *out, const QString &msg)
 {
     if (out)
         out->append(msg);
 }
 
-/*! Linear interpolation of \p y over strictly-ascending \p x at \p at.
- *  Outside the range returns NaN — every caller wants an explicit extent test,
- *  not a silent clamp. */
+/**
+ * @brief Interpolate paired values on an intended strictly ascending x ladder without
+ * extrapolation.
+ * @param[in] x Borrowed sorted finite abscissae, unchanged; >=2 required.
+ * @param[in] y Borrowed equal-count ordinates, unchanged; caller ensures desired finite numeric
+ * values.
+ * @param[in] at Finite inclusive query in x units.
+ * @return Linear y-unit value, endpoint values at bounds, NaN for count/query/bounds failure. A
+ * found nonpositive interval returns its lower y, but unordered input violates upper_bound
+ * prerequisites. No allocation, unit inference, source mutation or retained references.
+ *
+ * @details Linear interpolation of \p y over strictly-ascending \p x at \p at. Outside the range
+ * returns NaN — every caller wants an explicit extent test, not a silent clamp.
+ */
 double interpAt(const QVector<double> &x, const QVector<double> &y, double at)
 {
     const int n = x.size();
@@ -66,8 +96,17 @@ double interpAt(const QVector<double> &x, const QVector<double> &y, double at)
     return y[lo] + t * (y[hi] - y[lo]);
 }
 
-/*! Same, but clamped at both ends — for the bed, which is defined everywhere
- *  along the conduit. */
+/**
+ * @brief Interpolate paired values with constant endpoint extension.
+ * @param[in] x Borrowed intended sorted abscissae, unchanged.
+ * @param[in] y Borrowed equal-count ordinates, unchanged.
+ * @param[in] at Query in x units; nonfinite selects first y.
+ * @return NaN for empty/count mismatch, first/last y outside range, linear value inside. Single
+ * entry returns its y. No finite geometry audit, allocation or state mutation.
+ *
+ * @details Same, but clamped at both ends — for the bed, which is defined everywhere along the
+ * conduit.
+ */
 double interpClamped(const QVector<double> &x, const QVector<double> &y, double at)
 {
     const int n = x.size();
@@ -82,7 +121,17 @@ double interpClamped(const QVector<double> &x, const QVector<double> &y, double 
     return interpAt(x, y, at);
 }
 
-/*! Insert \p s into the ascending, deduplicated ladder \p out. */
+/**
+ * @brief Append a finite lateral station when no existing value lies within tolerance.
+ * @param[in,out] out Borrowed ladder, appended at end, NOT sorted by this helper; requires
+ * exclusive access.
+ * @param[in] s Candidate offset in the same units; nonfinite ignored.
+ * @param[in] eps Intended nonnegative finite duplicate distance, unchecked; comparison
+ * inclusive. Linear scan may allocate on append. Does not reorder previous stations, retain
+ * references or perform IO.
+ *
+ * @details Insert \p s into the ascending, deduplicated ladder \p out.
+ */
 void pushOffset(QVector<double> &out, double s, double eps)
 {
     if (!std::isfinite(s))

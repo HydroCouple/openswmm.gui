@@ -6,7 +6,7 @@
  *
  *   1. The conduit cross-section block (XSection compound cell, inline
  *      Geom 1-4, Barrels) is present, carries the right delegates, and
- *      stays EDITABLE for every shape. It used to blank + grey each geom
+ *      stays EDITABLE for the tested circular/irregular shape cases. It used to blank + grey each geom
  *      the live shape didn't consume, so a CIRCULAR conduit showed three
  *      permanently empty uneditable columns — which reads as broken
  *      editors, and threw away a width typed before a shape switch.
@@ -76,11 +76,26 @@ using openswmmvis::EditorKind;
 namespace
 {
 
+/**
+ *
+ * @brief Locate the test fixture/evidence base without creating it.
+ * @return SWMMVIS_GUI_TEST_DATA verbatim when set, otherwise the relative dot path;
+ * caller resolves filenames and creates any required evidence directories.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Load typed_selection_fixture.inp into a test-owned editing model layer.
+ * @return Owning unique_ptr on successful load, null on refusal; local warnings/errors
+ * are collected but not surfaced. Layer destruction releases its engine; does not copy
+ * or write the fixture. Callers retain it while borrowed model/adapter refs are used.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
@@ -91,7 +106,14 @@ std::unique_ptr<SWMMModelLayer> openLayer()
     return layer;
 }
 
-//! Column index for a spec key, or -1.
+/**
+ *
+ * @brief Find the first exact schema-key match.
+ * @param specs Borrowed ordered column specifications.
+ * @param key Borrowed exact case-sensitive key, without trimming or label/header aliasing.
+ * @return Zero-based column or minus one; does not mutate/rebuild the schema.
+ *
+ */
 int colFor(const QList<ColumnSpec> &specs, const QString &key)
 {
     for (int i = 0; i < specs.size(); ++i)
@@ -100,7 +122,16 @@ int colFor(const QList<ColumnSpec> &specs, const QString &key)
     return -1;
 }
 
-//! Engine-side id for a category's entity at engine index `idx`.
+/**
+ *
+ * @brief Read the native entity id for a category family and engine index.
+ * @param eng Borrowed valid editing engine for supported categories.
+ * @param cat SWMM spatial category, mapped to node/link/subcatchment/gage id getter.
+ * @param idx Native engine index, not a displayed/category row; getter handles bounds.
+ * @return Borrowed engine-owned C string or null for unsupported/missing entity.
+ * Caller retains engine lifetime and copies before invalidating/rebuilding its storage.
+ *
+ */
 const char *engineIdFor(SWMM_Engine eng, SWMMModelLayer::Category cat, int idx)
 {
     switch (cat) {
@@ -124,7 +155,13 @@ const char *engineIdFor(SWMM_Engine eng, SWMMModelLayer::Category cat, int idx)
     }
 }
 
-//! Every SWMM category the attribute table can bind to.
+/**
+ *
+ * @brief Enumerate the eleven spatial categories exercised by the schema invariants.
+ * @return Owned list of four node, five link, subcatchment and rain-gage categories;
+ * nonspatial data categories are outside this helper's coverage.
+ *
+ */
 QList<SWMMModelLayer::Category> allCategories()
 {
     return {
@@ -135,9 +172,14 @@ QList<SWMMModelLayer::Category> allCategories()
     };
 }
 
-//! Dynamics columns are the ones whose engine tag names a statistics
-//! accessor. Keeping the test keyed on the tag (not on a hardcoded list of
-//! labels) means a newly added statistic is covered automatically.
+/**
+ *
+ * @brief Classify a schema entry using its native statistic tag convention.
+ * @param s Borrowed column spec; tests its setter string for case-sensitive _stat_.
+ * @return True for that substring, false otherwise; does not inspect editor kind,
+ * label, runtime availability or actual engine getter implementation.
+ *
+ */
 bool isDynamics(const ColumnSpec &s)
 {
     return s.setter.contains(QStringLiteral("_stat_"));
@@ -150,6 +192,13 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require station-id keys to remain ungrouped while statistic/coupling aliases share
+     * their intended groups.
+     * Pins naming classification without loading an engine or constructing a table.
+     *
+     */
     void groupingDoesNotMistakeStationForStatistics()
     {
         QVERIFY(openswmmvis::attributeGroup("stationId").isEmpty());
@@ -161,6 +210,18 @@ private slots:
     }
 
 #ifdef HAVE_QPROPERTYMODEL
+    /**
+     *
+     * @brief Exercise grouped property-model mapping/edit/reset invariants with the optional
+     * property library.
+     * Loads a junction adapter, requires coupling/output subgroup structure, three flooding
+     * rows and a read-only first flooding value. Edits/restores invert elevation, edits
+     * coupling diameter text, refreshes/clears/rebinds and switches to an outfall schema.
+     * A model tester checks Qt invariants. Local finder borrows exact display label and
+     * optional parent index, returning first direct child or invalid; it is not recursive.
+     * Only compiled with HAVE_QPROPERTYMODEL; no hydraulic run or project save.
+     *
+     */
     void propertyGroupsPreserveEditingAndReset()
     {
         auto layer = openLayer();
@@ -228,6 +289,14 @@ private slots:
     // 1 — conduit cross-section block
     // =====================================================================
 
+    /**
+     *
+     * @brief Require XSection, Barrels and all four geom columns plus their intended editor
+     * kinds.
+     * Checks Compound/Integer/Numeric schema metadata on a loaded conduit category, without
+     * editing shape, asserting numeric delegate bounds or running hydraulics.
+     *
+     */
     void conduitCrossSectionBlockIsPresent()
     {
         auto layer = openLayer();
@@ -247,9 +316,14 @@ private slots:
         QCOMPARE(specs[colFor(specs, QStringLiteral("Geom 1"))].editor, EditorKind::Numeric);
     }
 
-    //! The regression this file exists for: on a CIRCULAR conduit, Geom 2-4
-    //! are unused by the shape but must still show their stored value and
-    //! accept an edit.
+    /**
+     *
+     * @brief Require all four stored geom cells to remain visible-valued and editable on the
+     * circular fixture conduit.
+     * Also pins that circular geom two is not shape-consumed. Does not commit a value or
+     * claim every shape/row combination is tested by this case.
+     *
+     */
     void geomCellsStayEditableOnCircular()
     {
         auto layer = openLayer();
@@ -274,8 +348,14 @@ private slots:
         }
     }
 
-    //! A geom the shape doesn't use is still a real stored number: writing it
-    //! must reach the engine and survive a re-read.
+    /**
+     *
+     * @brief Commit an otherwise unused circular geom-two value and require raw engine/readback
+     * retention.
+     * Writes 2.75 in authored project units, resolves the conduit id/index and checks raw g2
+     * and unchanged circular shape. Does not initialize topology or save/reopen an input file.
+     *
+     */
     void geomEditRoundTripsThroughEngine()
     {
         auto layer = openLayer();
@@ -300,9 +380,15 @@ private slots:
         QCOMPARE(shape, SWMM_XSECT_CIRCULAR);
     }
 
-    //! IRREGULAR geom1 is a transect-list index, not a dimension — an inline
-    //! numeric editor there would silently re-point the section, so it stays
-    //! locked while the other three geoms remain editable.
+    /**
+     *
+     * @brief Require an irregular section's transect-index geom one to stay locked while geoms
+     * two through four remain editable.
+     * Creates/configures a three-station transect only when the fixture has none, assigns
+     * index zero, reloads and checks flags. Does not exercise CUSTOM/STREET picker indices
+     * or validate hydraulic results of that temporary editing configuration.
+     *
+     */
     void pickerIndexGeomStaysLocked()
     {
         auto layer = openLayer();
@@ -344,6 +430,14 @@ private slots:
     // 2 — dynamics columns are a contiguous suffix
     // =====================================================================
 
+    /**
+     *
+     * @brief Require top-level attribute group names never to reappear after another group within
+     * each spatial schema.
+     * Uses the prefix before group-path slash and treats empty as Model Attributes;
+     * checks schema ordering across allCategories(), without numerical result assertions.
+     *
+     */
     void attributeGroupsAreContiguous()
     {
         auto layer = openLayer();
@@ -373,6 +467,14 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Require statistic-tagged columns to form a read-only suffix in every spatial schema.
+     * After the first _stat_ tag rejects later inputs, checks ReadOnly editor/group path,
+     * keeps Output Summary out of exported header text and checks noneditable row-zero
+     * flags when rows exist. Does not require initialized statistics or nonempty categories.
+     *
+     */
     void dynamicsColumnsAreAppendedLast()
     {
         auto layer = openLayer();
@@ -413,6 +515,13 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Require at least one statistic-tagged column in each non-gage spatial schema and
+     * none for rain gages.
+     * Pins column presence only, without running a simulation or checking statistic values.
+     *
+     */
     void everyRoutedCategoryHasADynamicsBlock()
     {
         auto layer = openLayer();
@@ -438,6 +547,13 @@ private slots:
             QVERIFY(!isDynamics(s));
     }
 
+    /**
+     *
+     * @brief Require pump schema to expose shared maximum flow and pump cycle/time/volume
+     * statistic keys.
+     * Checks metadata presence even if the fixture has no pump rows; does not run a pump.
+     *
+     */
     void pumpsCarryTheirUtilisationStatistics()
     {
         auto layer = openLayer();
@@ -456,6 +572,14 @@ private slots:
     // 3 — attribute coverage the engine API offers
     // =====================================================================
 
+    /**
+     *
+     * @brief Require the conduit Slope column to be read-only and produce a positive numeric
+     * row-zero value.
+     * Uses the fixture's native authored slope convention; does not assert an exact numeric
+     * value, recompute geometry or test a post-run statistic.
+     *
+     */
     void conduitExposesComputedSlope()
     {
         auto layer = openLayer();
@@ -476,6 +600,17 @@ private slots:
         QVERIFY(slope > 0.0); // fixture drops 5 ft over 1000 ft
     }
 
+    /**
+     *
+     * @brief Assign/clear a subcatchment snow-pack ref across table, property adapter and modal
+     * picker.
+     * Adds Snow1, requires a Snowpack DataObjectRef, selects Use Snow Pack through a queued
+     * modal callback and verifies clearing via the adapter refreshes the table ref.
+     * Writes a reviewed screenshot to surface_r1_out/snowpack-assignment.png under dataDir(),
+     * checking directory creation/image save. Callback borrows local state only while modal
+     * exec runs. No snow simulation or input-file persistence is tested.
+     *
+     */
     void snowPackPickerSharesAssignmentWithProperties()
     {
         auto layer = openLayer();
@@ -539,6 +674,12 @@ private slots:
         QVERIFY(model.data(idx, Qt::EditRole).value<DataObjectRef>().currentName.isEmpty());
     }
 
+    /**
+     *
+     * @brief Require editable subcatchment Tag schema and round-trip basin-7 through the model.
+     * Checks row-zero display after setData, without save/reopen or undo coverage.
+     *
+     */
     void subcatchmentExposesTag()
     {
         auto layer = openLayer();
@@ -556,6 +697,12 @@ private slots:
         QCOMPARE(model.data(idx, Qt::DisplayRole).toString(), QStringLiteral("basin-7"));
     }
 
+    /**
+     *
+     * @brief Require storage schema keys for exfiltration suction, conductivity and deficit.
+     * Metadata presence is the assertion; no storage row values, editability or seepage run.
+     *
+     */
     void storageExposesExfiltrationParameters()
     {
         auto layer = openLayer();
@@ -570,6 +717,12 @@ private slots:
                     QStringLiteral("storage %1 column missing").arg(QString::fromLatin1(key))));
     }
 
+    /**
+     *
+     * @brief Require the outfall Route to column and its Compound editor kind.
+     * Does not commit a destination or verify routing/run behavior.
+     *
+     */
     void outfallExposesRouteTo()
     {
         auto layer = openLayer();
@@ -586,6 +739,16 @@ private slots:
     // Panel-level: the delegates actually reach the view
     // =====================================================================
 
+    /**
+     *
+     * @brief Require real grouped-header label clicks to sort names and numeric elevations in
+     * both directions.
+     * Sets J1/X1 elevations to 2/10 so lexicographic numeric order would fail, clicks Name
+     * and Invert columns twice over two source-switch passes, and checks row identities/
+     * sort indicators. Also saves a nonclickable header state to exercise restoration repair.
+     * Can persist column layouts through panel destruction; no project data-file save.
+     *
+     */
     void columnHeaderClicksSortRows()
     {
         auto layer = openLayer();
@@ -635,6 +798,15 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Exercise wide/narrow category switches repeatedly, requiring live editors and a
+     * renderable panel.
+     * Across three passes and six category visits, flushes deferred deletes, requires each
+     * cell to resolve a delegate, bounds direct-child delegate count by current width and
+     * grabs a non-null widget image. Does not save that image or prove general leak freedom.
+     *
+     */
     void categorySwitchesRetainLiveDelegates()
     {
         auto layer = openLayer();
@@ -673,6 +845,15 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Require a real conduit table to show its compound cross-section and all geom
+     * delegates.
+     * Checks visible columns, a compound Edit affordance and non-null per-geom delegates.
+     * Local header finder borrows an exact display label and returns first logical column
+     * or minus one. Does not open the compound editor or commit geometry values.
+     *
+     */
     void panelInstallsCrossSectionDelegates()
     {
         auto layer = openLayer();
@@ -732,6 +913,16 @@ private slots:
     // its ColumnSpec key, by its label, or by the unit-suffixed header the
     // view displays.
 
+    /**
+     *
+     * @brief Require schema key, label and unit-suffixed header aliases to select identical row
+     * sets.
+     * Applies plain-decimal predicates true for all junctions, then inverted predicates false
+     * for all, proving the field is actually evaluated. Local match counter borrows field
+     * and operator strings, sends Return and returns visible row count. Does not benchmark
+     * column-read counts or prove behavior for arbitrary unsupported field names.
+     *
+     */
     void queryAcceptsKeyLabelAndHeaderSpellings()
     {
         auto layer = openLayer();
@@ -771,8 +962,8 @@ private slots:
                 header = m->headerData(c, Qt::Horizontal).toString();
         QVERIFY(!header.isEmpty());
 
-        // Plain decimals only — the tokenizer has no scientific notation,
-        // and a parse error makes Apply return early WITHOUT touching the
+        // Use bounded plain decimals for both alias predicates. A parse error
+        // would make Apply return early WITHOUT touching the
         // filter, which would leave every assertion below reading the
         // previous query's result instead of this one's.
         auto matchCount = [&](const QString &field, const char *op) {
@@ -795,7 +986,14 @@ private slots:
         QCOMPARE(matchCount(header, "<"), 0);
     }
 
-    //! Unknown and compound fields report an error, retaining the valid filter.
+    /**
+     *
+     * @brief Require unknown and every nonqueryable schema field to report errors without
+     * replacing a valid one-row filter.
+     * Escapes the chosen object's quote in its valid query, checks error styling and row
+     * count after each refused draft. Does not inspect the selection bus or persist queries.
+     *
+     */
     void queryOnUnresolvableFieldPreservesPreviousFilter()
     {
         auto layer = openLayer();
@@ -843,6 +1041,15 @@ private slots:
     // comes from. So adding an inflow through the table's own compound
     // dialog left the cell reading "(none)" until a category switch.
 
+    /**
+     *
+     * @brief Require a previously cached inflow compound summary to change after a direct engine
+     * edit and refreshObject().
+     * Builds the cache first, adds a FLOW external inflow with baseline 2.5 through the API,
+     * refreshes the named junction and compares summary strings. Does not invoke the modal
+     * compound editor, check a particular summary spelling or run hydraulics.
+     *
+     */
     void compoundSummaryRefreshesAfterEngineEdit()
     {
         auto layer = openLayer();
@@ -895,6 +1102,14 @@ private slots:
     // and a violation would be silent: the cell would show a NEIGHBOURING
     // object's value rather than going blank.
 
+    /**
+     *
+     * @brief Require every loaded category row's displayed name to match its SoA/native engine
+     * index identity.
+     * Iterates allCategories() and all extant rows; empty categories contribute no row checks.
+     * Does not mutate order or initialize/run a model.
+     *
+     */
     void soaIndexMatchesEngineIndex()
     {
         auto layer = openLayer();
@@ -915,12 +1130,14 @@ private slots:
         }
     }
 
-    //! The same invariant with a user-defined row ordering installed.
-    //! This is the case the 2026-08-13 attempt at an index-based fetch got
-    //! wrong: objectNameAt honours m_objectOrderOverrides and the helper it
-    //! was paired with did not, so the two disagreed under a sorted
-    //! category. soaIndexAt is written as objectNameAt's structural twin
-    //! precisely so this passes.
+    /**
+     *
+     * @brief Require native index identity mapping to follow a real reversed junction display
+     * permutation.
+     * Builds an explicit order if needed, reverses it and first proves the visible first name
+     * changed, then checks every row's name against engineIdFor(). Does not save the override.
+     *
+     */
     void soaIndexHonoursOrderingOverride()
     {
         auto layer = openLayer();
@@ -963,6 +1180,15 @@ private slots:
     // 5 — [INITIAL_QUALITY] override columns (initial-quality UI round)
     // =====================================================================
 
+    /**
+     *
+     * @brief Require initial-quality columns on node/link schemas and age gating after a schema
+     * rebuild.
+     * Adds TSS, checks editable-text/schema setter metadata for nodes/conduits, absence on
+     * subcatchment/gage schemas and no reserved age key until WATER_AGE YES. Does not run
+     * transport or commit constituent values in this case.
+     *
+     */
     void initialQualityColumnsFollowConstituentsAndScope()
     {
         auto layer = openLayer();
@@ -1001,6 +1227,14 @@ private slots:
         QVERIFY(colFor(model.columnSpecs(), ageKey) >= 0);
     }
 
+    /**
+     *
+     * @brief Require a junction TSS override to upsert/read/clear through the engine and table.
+     * Checks blank unset display, exact row identity/TSS/value12.5, EditRole text and count
+     * retention after garbage/negative refusals. Clearing removes the override and a second
+     * clear returns false. Does not compare post-refusal value separately or save/reopen.
+     *
+     */
     void initialQualityCellRoundTripsThroughEngine()
     {
         auto layer = openLayer();

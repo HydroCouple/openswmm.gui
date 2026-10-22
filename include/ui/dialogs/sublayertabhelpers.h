@@ -34,6 +34,17 @@ namespace openswmmvis::ui
 inline constexpr int kSpinMinWidthPx = 110;
 inline constexpr int kComboMinWidthPx = 140;
 
+/**
+ * @param[in] parent Optional QWidget owner, caller owns parentless result.
+ * @param[in] lo Requested raw minimum, passed to Qt range handling.
+ * @param[in] hi Requested raw maximum, Qt normalizes inconsistent range.
+ * @param[in] step Requested increment, passed without finite/positive validation.
+ * @param[in] decimals Requested decimal precision, Qt clamps supported range.
+ * @param[in] value Initial raw value, rounded/clamped by Qt editor configuration.
+ * @param[in] suffix Optional copied display suffix, no value conversion.
+ * @return New double spin minimum 110 logical pixels wide, default Qt keyboard tracking/signals. No
+ *   source binding, model write or implicit units conversion. GUI-thread factory.
+ */
 inline QDoubleSpinBox *makeDSpin(QWidget *parent, double lo, double hi, double step, int decimals,
                                  double value, const QString &suffix = QString())
 {
@@ -48,6 +59,14 @@ inline QDoubleSpinBox *makeDSpin(QWidget *parent, double lo, double hi, double s
     return s;
 }
 
+/**
+ * @param[in] parent Optional owner, caller manages parentless result.
+ * @param[in] lo Requested integer lower range.
+ * @param[in] hi Requested integer upper range, Qt normalizes.
+ * @param[in] value Initial value, Qt clamps to resulting range.
+ * @return New integer spin minimum 110 logical pixels wide, no source/model binding, undo or
+ *   notifications beyond widget initialization.
+ */
 inline QSpinBox *makeSpin(QWidget *parent, int lo, int hi, int value)
 {
     auto *s = new QSpinBox(parent);
@@ -58,7 +77,18 @@ inline QSpinBox *makeSpin(QWidget *parent, int lo, int hi, int value)
 }
 
 /*! "Show <name>" checkbox + opacity spin bound to the sublayer's
- *  visibility / opacity — the shared header row of every tab. */
+ *  visibility / opacity — the shared header row of every tab.
+ * @param[in] parent Optional QWidget owner of returned row and child controls.
+ * @param[in] sub Optional borrowed live sublayer, receiver-context connections auto-disconnect on
+ *   destruction.
+ * @param[in] showLabel Copied raw checkbox caption.
+ * @return New checkbox  + 0..1 opacity spin (step 0.05/two decimals) initialized from sub, or
+ *   unchecked/opacity 1 without sub.
+ * @note One-way user control changes call direct sub visibility/opacity setters, no undo. No source
+ *   invalidated→control refresh subscription; later external edits leave controls stale. Null
+ *   source controls remain enabled but unbound. Does not own sublayer or change model during
+ *   initial hydration because connections installed afterward.
+ */
 inline QWidget *makeSublayerHeader(QWidget *parent, OpenSWMM::Render::ISublayer *sub,
                                    const QString &showLabel)
 {
