@@ -2022,6 +2022,7 @@ set(_SWMMVIS_EXAMPLE_INPS
 set(_SWMMVIS_EXAMPLE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/examples/bellinge_2d"
     "${CMAKE_CURRENT_SOURCE_DIR}/examples/channel_burn_boundary"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/rubinato2017"
 )
 # Curated SWASHES analytical-verification cases (example.json groups them
 # under their own Welcome-page category). Decks are regenerated from the QA

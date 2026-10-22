@@ -74,6 +74,7 @@ catchment data and dependent files. Runtime depends on the model and hardware.
 - \subpage tutorial_bellinge — a real-world catchment: external mesh, DEM, long rain records and basemaps
 - \subpage tutorial_lid_storage — layered storage-node LIDs and pollutant treatment
 - \subpage tutorial_lid_active_chain — distributed LIDs; active control; receiving-water backwater and pollutant balance
+- \subpage tutorial_rubinato_exchange — laboratory sewer/surface comparison; synthetic surcharge and drainback; validation limits
 
 ## Appendices
 

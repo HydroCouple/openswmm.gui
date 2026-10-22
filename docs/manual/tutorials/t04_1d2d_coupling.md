@@ -65,6 +65,29 @@ Under **Processes**, **Rainfall mode** is **System (uniform gage mean)**.
 Under **Performance & Output**, enable 2D output and keep
 `coupled_plaza.2d.h5` as the result file.
 
+### Node coupling settings and INP storage
+
+In the node property view, **2D Coupling** groups **Setup**, **Geometry**,
+**Exchange**, and (for outfalls) **Outfall** settings. **2D Coupleable** is a
+convenient switch: disabling it selects `NONE`; enabling it restores the node
+class's default structure. These settings are engine configuration, separate
+from custom **User Flags**.
+
+The engine stores explicit node settings in a dedicated INP section:
+
+```
+[2D_NODE_COUPLING]
+J1 MANHOLE LAW=WEIR_ORIFICE D=1.2 CREST=NODE_RIM
+OUT1 OUTFALL SPREAD=2 TAILWATER_RELAX=5
+```
+
+Each row contains a node name, a structure
+(`NONE`, `MANHOLE`, `GRATE`, `CURB`, `OPEN`, or `OUTFALL`), and optional
+`KEY=VALUE` overrides. Lengths and areas use the project's units. Global exchange
+defaults live in `[2D_OPTIONS]`. A node setting alone does not establish exchange:
+`[2D_VERTEX_NODE_MAP]` or `[2D_TRIANGLE_NODE_MAP]` supplies the spatial connection.
+Custom `[USER_FLAGS]` / `[USER_FLAG_VALUES]` attributes do not replace these sections.
+
 ## 2. Inspect the exchange map
 
 Select a mesh vertex with the **Vertices** tool on **Mesh 2D**. Its coupling
@@ -190,6 +213,8 @@ Change one item in a copy, rerun and compare both domain ledgers:
   variant under a distinct name so its output remains associated with its input.
 
 ## Related
+
+- \ref tutorial_rubinato_exchange — measured steady comparisons and a synthetic surcharge example
 
 - \ref manual_2d_mesh — vertices, cell data, coupling and boundary tools
 - \ref manual_simulation_options — routing and surface solver controls

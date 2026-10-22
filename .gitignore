@@ -88,6 +88,13 @@ docs/test_output/
 # payloads are committed (examples/* + negation, since git cannot negate
 # inside a fully-ignored directory).
 examples/*
+!examples/rubinato2017/
+examples/rubinato2017/*
+!examples/rubinato2017/README.md
+!examples/rubinato2017/example.json
+!examples/rubinato2017/*.inp
+!examples/rubinato2017/*.csv
+!examples/rubinato2017/*.yaml
 !examples/bellinge_2d
 # Curated SWASHES analytical-verification payloads. Directory-wise negation is
 # safe here: nothing is ever run inside the baseline (the Welcome page copies
