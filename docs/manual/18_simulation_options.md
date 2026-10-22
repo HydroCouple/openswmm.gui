@@ -478,11 +478,21 @@ this engine, so there is no solver selector and these settings are always live.
 | Control | Meaning | Writes |
 | --- | --- | --- |
 | **Momentum θ** | θ-weighting of the face discharge in the momentum update; 1.0 is the classic Bates scheme, below 1 damps thin-film checkerboarding | `THETA` |
+| **Smoothing reference interval** | **Per-step smoothing** (zero) keeps the existing weight on every face step. A positive number of seconds makes θ the retention over that fixed interval, so shortening the routing step does not apply more smoothing per second. θ = 1 disables blending. This control is available when the selected engine supports it. | `THETA_REFERENCE_STEP` |
 | **CFL number** | Courant safety factor α on each cell's stable step | `CFL_NUMBER` |
 | **LTS tiers** | Local-timestepping tiers; cells march at power-of-two multiples of the finest step. 1 = a global timestep | `LTS_TIERS` |
 | **Movement threshold** | Cells shallower than this exchange no flow with their neighbours; rain, infiltration and evaporation still act on them, so thin films cost nothing until water must move. A cell starts moving water a little above the threshold and stops a little below it | `H_MOVE` |
 | **Max Froude number** | Froude cap on face discharge — the supercritical guard | `FROUDE_MAX` |
 | **Convective momentum flux (ADVECTION)** | Local inertial only: optionally include convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind). Full shallow-water includes it automatically; diffusive wave omits it. The checkbox is replaced by an explanatory message for those equations. | `ADVECTION` |
+
+For a laboratory timestep study, a reference interval of 1 s with Momentum θ
+0.8 retains 80% of the momentum difference over one second. The engine scales
+that retention to each actual face step, including shorter steps at a coupling
+window boundary. Keep the interval fixed while reducing the routing step;
+changing both would change the numerical model during the comparison. Check
+exchange rates, water levels and water balance as well as a quiet final window.
+The reference interval is a numerical control and does not change the manhole's
+discharge coefficients. The hydraulic reference explains the scaling in §9.5.1.
 
 #### Wetting & Drying
 

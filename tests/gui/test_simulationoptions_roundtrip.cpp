@@ -418,6 +418,46 @@ private slots:
         roundTrip(fixture(QStringLiteral("mini_2d.inp")), QStringLiteral("simopts_roundtrip_2d"));
     }
 
+    /** @brief Preserve theta precision and save/reload the physical-time smoothing interval. */
+    void momentumSmoothingReferencePersists()
+    {
+        auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+        QVERIFY(layer);
+        QCOMPARE(swmm_options_set_ext(layer->engine(), "THETA", "0.999999"), 0);
+        SimulationOptionsDialog dlg(layer->engine(), layer.get(), QStringLiteral("6.0.0"),
+                                    nullptr, nullptr);
+        auto *spin = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("thetaReferenceStepSpin"));
+        QVERIFY(spin);
+        auto *theta = dlg.findChild<QDoubleSpinBox *>(QStringLiteral("momentumThetaSpin"));
+        QVERIFY(theta);
+        QCOMPARE(theta->value(), 0.999999);
+        QVERIFY(spin->property("engineSupported").toBool());
+        QCOMPARE(spin->value(), 0.0);
+        spin->setValue(0.125);
+        QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+        QVERIFY(dlg.wroteAnyChanges());
+        char value[64] = {};
+        QCOMPARE(swmm_options_get_ext(layer->engine(), "THETA_REFERENCE_STEP", value,
+                                      sizeof(value)), 0);
+        QCOMPARE(QString::fromLatin1(value), QStringLiteral("0.125"));
+        const QString path = fixture(QStringLiteral("momentum_smoothing_saved.inp"));
+        QCOMPARE(swmm_model_write(layer->engine(), path.toUtf8().constData()), 0);
+        auto restored = openLayer(path);
+        QVERIFY(restored);
+        QCOMPARE(swmm_options_get_ext(restored->engine(), "THETA_REFERENCE_STEP", value,
+                                      sizeof(value)), 0);
+        QCOMPARE(QString::fromLatin1(value), QStringLiteral("0.125"));
+        roundTrip(path, QStringLiteral("momentum_smoothing_saved"));
+        QCOMPARE(swmm_options_set_ext(restored->engine(), "THETA", "0.99999999"), 0);
+        // A no-edit Apply must also preserve values beyond the spin box's
+        // displayed precision/range, rather than silently disabling smoothing.
+        for (const char *reference : {"1e-8", "7200", "0.123456789"}) {
+            QCOMPARE(swmm_options_set_ext(restored->engine(), "THETA_REFERENCE_STEP", reference), 0);
+            QCOMPARE(swmm_model_write(restored->engine(), path.toUtf8().constData()), 0);
+            roundTrip(path, QStringLiteral("momentum_smoothing_precise"));
+        }
+    }
+
     void finiteVolume()
     {
         const QString variant = fixture(QStringLiteral("simopts_roundtrip_fv_variant.inp"));

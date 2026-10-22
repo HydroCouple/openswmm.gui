@@ -281,6 +281,7 @@ private:
     QDoubleSpinBox *m_maxTimestepSpin = nullptr;
     QGroupBox *m_marcherGroup = nullptr;
     QDoubleSpinBox *m_thetaSpin = nullptr;
+    QDoubleSpinBox *m_thetaReferenceStepSpin = nullptr;
     QDoubleSpinBox *m_cflNumberSpin = nullptr;
     QSpinBox *m_ltsTiersSpin = nullptr;
     QDoubleSpinBox *m_hMoveSpin = nullptr;

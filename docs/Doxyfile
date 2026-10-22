@@ -1497,6 +1497,9 @@ HTML_EXTRA_FILES       = custom/js/doxygen-awesome-darkmode-toggle.js \
                          manual/tutorials/models/rubinato2017_results.html \
                          manual/tutorials/models/rubinato2017_visual_supplement.pdf \
                          manual/tutorials/models/rubinato2017_visuals.zip \
+                         manual/tutorials/models/rubinato2017_momentum.zip \
+                         manual/tutorials/models/rubinato2017_momentum_comparison.csv \
+                         manual/tutorials/models/rubinato2017_momentum_data.json \
                          manual/tutorials/models/vfr_slope.inp \
                          manual/tutorials/models/lid_active_chain/01_passive_free.inp \
                          manual/tutorials/models/lid_active_chain/02_passive_backwater.inp \

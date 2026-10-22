@@ -144,14 +144,29 @@ void TwoDPage::buildUi()
     auto *marchForm = new QFormLayout(m_marcherGroup);
 
     m_thetaSpin = new QDoubleSpinBox(m_marcherGroup);
+    m_thetaSpin->setObjectName(QStringLiteral("momentumThetaSpin"));
     m_thetaSpin->setRange(0.05, 1.0);
-    m_thetaSpin->setDecimals(2);
+    m_thetaSpin->setDecimals(6);
     m_thetaSpin->setSingleStep(0.05);
     m_thetaSpin->setToolTip(tr("θ-weighting of the face discharge in the momentum update. 1.0 is "
                                "the classic Bates (2010) scheme; values below 1 blend in the "
                                "neighbour discharges, damping thin-film checkerboarding on steep "
                                "faces (default 0.8)."));
     marchForm->addRow(tr("Momentum &θ:"), m_thetaSpin);
+
+    m_thetaReferenceStepSpin = new QDoubleSpinBox(m_marcherGroup);
+    m_thetaReferenceStepSpin->setObjectName(QStringLiteral("thetaReferenceStepSpin"));
+    m_thetaReferenceStepSpin->setRange(0.0, 3600.0);
+    m_thetaReferenceStepSpin->setDecimals(6);
+    m_thetaReferenceStepSpin->setSingleStep(0.1);
+    m_thetaReferenceStepSpin->setSuffix(QStringLiteral(" s"));
+    m_thetaReferenceStepSpin->setSpecialValueText(tr("Per-step smoothing"));
+    m_thetaReferenceStepSpin->setToolTip(tr(
+        "A positive interval makes θ the momentum retained over that many seconds. "
+        "Each face step uses θ raised to (step / reference interval), so shortening "
+        "the routing step does not apply more smoothing per second. Zero retains "
+        "the existing per-step behavior. θ = 1 disables smoothing in either mode."));
+    marchForm->addRow(tr("Smoothing reference interval:"), m_thetaReferenceStepSpin);
 
     m_cflNumberSpin = new QDoubleSpinBox(m_marcherGroup);
     m_cflNumberSpin->setRange(0.05, 1.0);
@@ -997,6 +1012,7 @@ void TwoDPage::tagWidgets()
     tagOption(m_rainfall2DModeCombo, "RAINFALL_MODE");
     tagOption(m_report2DBox, "REPORT_2D");
     tagOption(m_thetaSpin, "THETA");
+    tagOption(m_thetaReferenceStepSpin, "THETA_REFERENCE_STEP");
     tagOption(m_cflNumberSpin, "CFL_NUMBER");
     tagOption(m_ltsTiersSpin, "LTS_TIERS");
     tagOption(m_hMoveSpin, "H_MOVE");
@@ -1320,6 +1336,17 @@ void TwoDPage::read()
     // Explicit-marcher configuration (the only 2D integrator; no INTEGRATOR
     // read/write — the engine default is EXPLICIT).
     m_thetaSpin->setValue(extDouble("THETA", t.theta));
+    m_thetaSpin->setProperty("originalText", getExt("THETA", QString::number(t.theta, 'g', 12)));
+    m_thetaSpin->setProperty("originalDisplay", m_thetaSpin->value());
+    const QString thetaReference = getExt("THETA_REFERENCE_STEP", QString());
+    const bool hasThetaReference = !thetaReference.isEmpty();
+    m_thetaReferenceStepSpin->setProperty("engineSupported", hasThetaReference);
+    m_thetaReferenceStepSpin->setEnabled(hasThetaReference);
+    m_thetaReferenceStepSpin->setValue(extDouble("THETA_REFERENCE_STEP", 0.0));
+    // Preserve valid engine values outside the editor's displayed precision/range
+    // when Apply is used without changing this control.
+    m_thetaReferenceStepSpin->setProperty("originalText", thetaReference);
+    m_thetaReferenceStepSpin->setProperty("originalDisplay", m_thetaReferenceStepSpin->value());
     m_cflNumberSpin->setValue(extDouble("CFL_NUMBER", t.cflNumber));
     m_ltsTiersSpin->setValue(extInt("LTS_TIERS", t.ltsTiers));
     m_hMoveSpin->setValue(extDouble("H_MOVE", t.hMove));
@@ -1499,7 +1526,16 @@ int TwoDPage::write()
     writeIfChanged("REPORT_2D", SOD::engineBoolString(m_report2DBox->isChecked()));
 
     // Explicit-marcher configuration (the only 2D integrator).
-    writeIfChanged("THETA", QString::number(m_thetaSpin->value(), 'g', 6));
+    writeIfChanged("THETA",
+                   m_thetaSpin->value() == m_thetaSpin->property("originalDisplay").toDouble()
+                       ? m_thetaSpin->property("originalText").toString()
+                       : QString::number(m_thetaSpin->value(), 'g', 6));
+    if (m_thetaReferenceStepSpin->property("engineSupported").toBool())
+        writeIfChanged("THETA_REFERENCE_STEP",
+                       m_thetaReferenceStepSpin->value() ==
+                               m_thetaReferenceStepSpin->property("originalDisplay").toDouble()
+                           ? m_thetaReferenceStepSpin->property("originalText").toString()
+                           : QString::number(m_thetaReferenceStepSpin->value(), 'g', 12));
     writeIfChanged("CFL_NUMBER", QString::number(m_cflNumberSpin->value(), 'g', 6));
     writeIfChanged("LTS_TIERS", QString::number(m_ltsTiersSpin->value()));
     writeIfChanged("H_MOVE", QString::number(m_hMoveSpin->value(), 'g', 6));

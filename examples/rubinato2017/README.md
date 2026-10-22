@@ -49,6 +49,30 @@ engine's reference files. `steady_comparison.csv` contains all 36 observed
 rows and both reconstruction variants at the report's 0.5 s diagnostic step.
 The apparent fit of an unconverged run must not be used for calibration.
 
+## Physical-time smoothing follow-up (22 October 2026)
+
+The supplied inputs preserve the dated review settings. To test the new
+momentum option in a copy, open Simulation Options → 2D Surface Routing →
+Hydraulics. In Explicit marcher, set Momentum θ to 0.8 and Smoothing
+reference interval to 1 s. Zero means the original per-step smoothing.
+An older engine disables the new control. A positive interval requires an
+engine supporting `THETA_REFERENCE_STEP`; surface GPU plugins require ABI 9.
+
+Keep that 1 s reference fixed while setting routing intervals to 0.0125,
+0.00625 and 0.003125 s in three copies. The full 36-case study uses 80 1D
+maximum trials, head tolerance 0.00001 m, variable step 0 and lengthening
+step 0. These are numerical controls, not changes to the physical shaft or
+exchange coefficients. Compare exchange means over 240–300 s and the
+preceding minute, heads and separate 1D/2D continuity. The reference interval
+is a declared numerical timescale; it was not fitted to the measurements.
+
+T11 and the hydraulic reference comparison include the new all-row plots,
+small data download and follow-up report. Blue filled circles in those new
+plots are the fine-step physical-time results; gray open circles are the
+older 0.5 s per-step results. Improved timestep consistency does not establish
+experimental agreement or spatial convergence. The synthetic T9 outputs
+quoted above remain the original demonstration, not a rerun in the new mode.
+
 The hydraulic reference manual includes the comparison page and exchange
 formulation. The dated report remains in the engine repository under
 `docs/validation/rubinato2017/`. The SWMMVis walkthrough is
