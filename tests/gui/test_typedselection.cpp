@@ -1,9 +1,9 @@
-/*!
- * \file   test_typedselection.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Coverage for commit a35798e (fix(selection): typed per-kind
+/**
+ * @file      test_typedselection.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Coverage for commit a35798e (fix(selection): typed per-kind
  *         selection and visibility) against
  *         tests/gui/data/typed_selection_fixture.inp — a model with two
  *         deliberate name collisions (rain gage + subcatchment both named
@@ -12,7 +12,9 @@
  *
  *         Each test slot loads its own fresh SWMMModelLayer so slots are
  *         independent of execution order.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 
 #include <QDir>
@@ -26,13 +28,27 @@
 using SelectedElement = SWMMModelLayer::SelectedElement;
 using Category = SWMMModelLayer::Category;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select the typed-selection fixture directory.
+ * @return Owned SWMMVIS_GUI_TEST_DATA value or current-directory dot, without
+ * checking existence or creating files.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Resolve typed_selection_fixture.inp under dataDir().
+ * @return Owned input path, not validated or opened here.
+ *
+ */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp"));
@@ -40,6 +56,14 @@ QString fixturePath()
 
 // Fresh layer + loaded model, per test slot so slots don't leak state into
 // each other via execution order.
+/**
+ *
+ * @brief Allocate and load an independent typed-selection fixture layer.
+ * @return Unique owned loaded layer, or nullptr after failed load and automatic
+ * layer cleanup. Collects but does not expose warnings/errors; model loading may
+ * write engine report outputs. Does not save input edits.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openFixtureLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(fixturePath(), nullptr);
@@ -53,6 +77,16 @@ std::unique_ptr<SWMMModelLayer> openFixtureLayer()
 // objectNameAt()/categoryCount() are per-category, so this cannot confuse
 // same-named objects of a DIFFERENT category — exactly the property this
 // commit relies on.
+/**
+ *
+ * @brief Find the first exact name within one model category.
+ * @param layer Borrowed loaded layer queried without mutation.
+ * @param c Category limiting both row count and names, preventing cross-kind collisions.
+ * @param name Exact case-sensitive object name.
+ * @return Zero-based category row or -1 when absent; no engine index equivalence
+ * is assumed and no pointer ownership changes.
+ *
+ */
 int rowForName(const SWMMModelLayer &layer, Category c, const QString &name)
 {
     const int n = layer.categoryCount(c);
@@ -70,6 +104,12 @@ class TestTypedSelection : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require the typed-selection fixture path to exist before running per-case
+     * fresh-layer checks.
+     *
+     */
     void initTestCase()
     {
         QVERIFY2(QFile::exists(fixturePath()),
@@ -78,13 +118,19 @@ private slots:
 
     // 1. Typed select doesn't bleed: selecting the CATCHMENT "S1" must not
     //    also mark the same-named GAGE "S1" as selected.
+    /**
+     *
+     * @brief Require selecting catchment S1 to retain only its catchment kind and a deduplicated
+     * name mirror.
+     *
+     */
     void typedSelectDoesNotBleed()
     {
         auto layer = openFixtureLayer();
         QVERIFY(layer != nullptr);
 
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("S1"),
-                                                       SWMMModelLayer::kKindCatch } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("S1"), SWMMModelLayer::kKindCatch}});
 
         const auto &sel = layer->selectedElements();
         QCOMPARE(sel.size(), 1);
@@ -92,17 +138,22 @@ private slots:
         QCOMPARE(sel[0].kinds, SWMMModelLayer::kKindCatch);
         QVERIFY(!(sel[0].kinds & SWMMModelLayer::kKindGage));
 
-        QCOMPARE(layer->selectedElementNames(), QStringList{ QStringLiteral("S1") });
+        QCOMPARE(layer->selectedElementNames(), QStringList{QStringLiteral("S1")});
     }
 
     // 2. Legacy name-only selection carries no kind info, so it must select
     //    every kind bearing the name (kKindAll).
+    /**
+     *
+     * @brief Require legacy name-only S1 selection to map to the all-kinds mask.
+     *
+     */
     void legacySelectMapsToAllKinds()
     {
         auto layer = openFixtureLayer();
         QVERIFY(layer != nullptr);
 
-        layer->setSelectedElementNames({ QStringLiteral("S1") });
+        layer->setSelectedElementNames({QStringLiteral("S1")});
 
         const auto &sel = layer->selectedElements();
         QCOMPARE(sel.size(), 1);
@@ -113,18 +164,24 @@ private slots:
     // 3. Two typed entries for the same name (catchment + gage) must
     //    dedup to one entry in the name mirror but keep both typed entries,
     //    in order, in the canonical vector.
+    /**
+     *
+     * @brief Require same-name catchment/gage entries to remain ordered typed selections but
+     * collapse to one name mirror.
+     *
+     */
     void mirrorDedup()
     {
         auto layer = openFixtureLayer();
         QVERIFY(layer != nullptr);
 
         const QVector<SelectedElement> both = {
-            SelectedElement{ QStringLiteral("S1"), SWMMModelLayer::kKindCatch },
-            SelectedElement{ QStringLiteral("S1"), SWMMModelLayer::kKindGage },
+            SelectedElement{QStringLiteral("S1"), SWMMModelLayer::kKindCatch},
+            SelectedElement{QStringLiteral("S1"), SWMMModelLayer::kKindGage},
         };
         layer->setSelectedElements(both);
 
-        QCOMPARE(layer->selectedElementNames(), QStringList{ QStringLiteral("S1") });
+        QCOMPARE(layer->selectedElementNames(), QStringList{QStringLiteral("S1")});
 
         const auto &sel = layer->selectedElements();
         QCOMPARE(sel.size(), 2);
@@ -134,6 +191,12 @@ private slots:
 
     // 4. selectionChanged fires on a real change, and does NOT fire when
     //    the new selection is identical to the current one.
+    /**
+     *
+     * @brief Require a real typed selection change to emit once, identical replacement to stay
+     * silent and another change to emit again.
+     *
+     */
     void selectionChangedSignal()
     {
         auto layer = openFixtureLayer();
@@ -142,30 +205,34 @@ private slots:
         QSignalSpy spy(layer.get(), &SWMMModelLayer::selectionChanged);
         QVERIFY(spy.isValid());
 
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("J1"),
-                                                       SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("J1"), SWMMModelLayer::kKindNode}});
         QCOMPARE(spy.count(), 1);
 
         // Identical selection (same name, same kind) — no-op, no signal.
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("J1"),
-                                                       SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("J1"), SWMMModelLayer::kKindNode}});
         QCOMPARE(spy.count(), 1);
 
         // Genuinely different selection fires again.
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("O1"),
-                                                       SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("O1"), SWMMModelLayer::kKindNode}});
         QCOMPARE(spy.count(), 2);
     }
 
     // 5. Typed hide only clears the visibility bit for that ONE kind —
     //    hiding the gage "S1" must leave the subcatchment "S1" visible.
+    /**
+     *
+     * @brief Require hiding gage S1 to leave the same-named catchment visible.
+     *
+     */
     void typedHideIsPerKind()
     {
         auto layer = openFixtureLayer();
         QVERIFY(layer != nullptr);
 
-        const int gageRow = rowForName(*layer, SWMMModelLayer::CatRainGages,
-                                       QStringLiteral("S1"));
+        const int gageRow = rowForName(*layer, SWMMModelLayer::CatRainGages, QStringLiteral("S1"));
         QVERIFY(gageRow >= 0);
 
         layer->setObjectVisibleAt(SWMMModelLayer::CatRainGages, gageRow, false);
@@ -177,6 +244,12 @@ private slots:
     // 6. Legacy (name-only) hide affects every kind bearing the name; a
     //    subsequent typed UNhide of one kind only restores that kind's bit
     //    (mask bit clearing), leaving the other kind still hidden.
+    /**
+     *
+     * @brief Require legacy hiding to affect every S1 kind, then typed gage unhide to leave the
+     * catchment hidden.
+     *
+     */
     void legacyHideIsAllKind()
     {
         auto layer = openFixtureLayer();
@@ -186,8 +259,7 @@ private slots:
         QVERIFY(!layer->isObjectVisible(QStringLiteral("S1"), SWMMModelLayer::CatRainGages));
         QVERIFY(!layer->isObjectVisible(QStringLiteral("S1"), SWMMModelLayer::CatSubcatchments));
 
-        const int gageRow = rowForName(*layer, SWMMModelLayer::CatRainGages,
-                                       QStringLiteral("S1"));
+        const int gageRow = rowForName(*layer, SWMMModelLayer::CatRainGages, QStringLiteral("S1"));
         QVERIFY(gageRow >= 0);
         layer->setObjectVisibleAt(SWMMModelLayer::CatRainGages, gageRow, true);
 
@@ -198,6 +270,12 @@ private slots:
     // 7. Hit-testing (identifyAt) must skip only the kind that is hidden:
     //    hiding the subcatchment must not stop a click on the gage's own
     //    coordinate from finding the gage, and vice versa.
+    /**
+     *
+     * @brief Require typed visibility to preserve identification of the same-named visible
+     * gage/catchment at their fixture coordinates.
+     *
+     */
     void hitTestingSkipsOnlyHiddenKind()
     {
         auto layer = openFixtureLayer();
@@ -210,10 +288,9 @@ private slots:
         const double catchX = -2000.0, catchY = 2000.0;
         const double tol = 1.0;
 
-        const int catchRow = rowForName(*layer, SWMMModelLayer::CatSubcatchments,
-                                        QStringLiteral("S1"));
-        const int gageRow  = rowForName(*layer, SWMMModelLayer::CatRainGages,
-                                        QStringLiteral("S1"));
+        const int catchRow =
+            rowForName(*layer, SWMMModelLayer::CatSubcatchments, QStringLiteral("S1"));
+        const int gageRow = rowForName(*layer, SWMMModelLayer::CatRainGages, QStringLiteral("S1"));
         QVERIFY(catchRow >= 0);
         QVERIFY(gageRow >= 0);
 
@@ -221,8 +298,7 @@ private slots:
         // resolve to the gage.
         layer->setObjectVisibleAt(SWMMModelLayer::CatSubcatchments, catchRow, false);
         QVariantMap hit = layer->identifyAt(gageX, gageY, tol);
-        QCOMPARE(hit.value(QStringLiteral("elementType")).toString(),
-                 QStringLiteral("RainGage"));
+        QCOMPARE(hit.value(QStringLiteral("elementType")).toString(), QStringLiteral("RainGage"));
 
         // Unhide the subcatchment, hide the gage instead — a click inside
         // the polygon must still resolve to the subcatchment.
@@ -248,17 +324,24 @@ private slots:
     //    THAT kind — an entry for a different, same-named kind that was
     //    NOT renamed keeps pointing at the old name (it's still correct:
     //    that object still has the old name).
+    /**
+     *
+     * @brief Require kind-hinted catchment rename and unhinted node-priority rename to migrate
+     * only the affected kind state.
+     * Checks actual identified names, retained same-name gage/link identities and
+     * untouched conduit hidden state; edits only the loaded in-memory model.
+     *
+     */
     void renameMigratesSelectionAndHiddenState()
     {
         auto layer = openFixtureLayer();
         QVERIFY(layer != nullptr);
 
         // Select the CATCHMENT "S1" (not the gage).
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("S1"),
-                                                       SWMMModelLayer::kKindCatch } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("S1"), SWMMModelLayer::kKindCatch}});
         // Hide the CONDUIT "X1" (not the junction).
-        const int linkRow = rowForName(*layer, SWMMModelLayer::CatConduits,
-                                       QStringLiteral("X1"));
+        const int linkRow = rowForName(*layer, SWMMModelLayer::CatConduits, QStringLiteral("X1"));
         QVERIFY(linkRow >= 0);
         layer->setObjectVisibleAt(SWMMModelLayer::CatConduits, linkRow, false);
         QVERIFY(!layer->isObjectVisible(QStringLiteral("X1"), SWMMModelLayer::CatConduits));
@@ -277,33 +360,27 @@ private slots:
         QVariantMap catchHit = layer->identifyAt(-2000.0, 2000.0, 1.0);
         QCOMPARE(catchHit.value(QStringLiteral("elementType")).toString(),
                  QStringLiteral("Subcatchment"));
-        QCOMPARE(catchHit.value(QStringLiteral("elementName")).toString(),
-                 QStringLiteral("S1x"));
+        QCOMPARE(catchHit.value(QStringLiteral("elementName")).toString(), QStringLiteral("S1x"));
         // Gage did NOT rename (the hint kept it out of scope) — a click
         // on its coordinate still resolves to the OLD name "S1".
         QVariantMap gageHit = layer->identifyAt(-2000.0, -2000.0, 1.0);
         QCOMPARE(gageHit.value(QStringLiteral("elementType")).toString(),
                  QStringLiteral("RainGage"));
-        QCOMPARE(gageHit.value(QStringLiteral("elementName")).toString(),
-                 QStringLiteral("S1"));
+        QCOMPARE(gageHit.value(QStringLiteral("elementName")).toString(), QStringLiteral("S1"));
 
         // Junction moved to (1000,0) (tier-1 point priority wins over the
         // conduit sharing that endpoint): a click there resolves to the
         // RENAMED node "X1x".
         QVariantMap nodeHit = layer->identifyAt(1000.0, 0.0, 1.0);
-        QCOMPARE(nodeHit.value(QStringLiteral("elementType")).toString(),
-                 QStringLiteral("Node"));
-        QCOMPARE(nodeHit.value(QStringLiteral("elementName")).toString(),
-                 QStringLiteral("X1x"));
+        QCOMPARE(nodeHit.value(QStringLiteral("elementType")).toString(), QStringLiteral("Node"));
+        QCOMPARE(nodeHit.value(QStringLiteral("elementName")).toString(), QStringLiteral("X1x"));
         // Conduit did NOT rename (ambiguous scan picked the node): still
         // findable by its old name, not by the new one. A name-based
         // lookup rather than identifyAt() — the conduit is deliberately
         // still HIDDEN at this point (see below), so a click on it would
         // correctly find nothing.
-        QVERIFY(rowForName(*layer, SWMMModelLayer::CatConduits,
-                           QStringLiteral("X1")) >= 0);
-        QVERIFY(rowForName(*layer, SWMMModelLayer::CatConduits,
-                           QStringLiteral("X1x")) < 0);
+        QVERIFY(rowForName(*layer, SWMMModelLayer::CatConduits, QStringLiteral("X1")) >= 0);
+        QVERIFY(rowForName(*layer, SWMMModelLayer::CatConduits, QStringLiteral("X1x")) < 0);
 
         // ---- Selection migrated for exactly the renamed kind -------------
         // {"S1", kKindCatch} moves to {"S1x", kKindCatch} because the
@@ -328,13 +405,18 @@ private slots:
 
     // 9. Node/link name collision: selecting the NODE "X1" must not select
     //    the LINK "X1", and vice versa.
+    /**
+     *
+     * @brief Require same-name node/link selections to retain their separate explicit kind masks.
+     *
+     */
     void nodeLinkNameCollision()
     {
         auto layer = openFixtureLayer();
         QVERIFY(layer != nullptr);
 
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("X1"),
-                                                       SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("X1"), SWMMModelLayer::kKindNode}});
         {
             const auto &sel = layer->selectedElements();
             QCOMPARE(sel.size(), 1);
@@ -342,8 +424,8 @@ private slots:
             QVERIFY(!(sel[0].kinds & SWMMModelLayer::kKindLink));
         }
 
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("X1"),
-                                                       SWMMModelLayer::kKindLink } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("X1"), SWMMModelLayer::kKindLink}});
         {
             const auto &sel = layer->selectedElements();
             QCOMPARE(sel.size(), 1);
@@ -356,17 +438,22 @@ private slots:
     //     HIDDEN state and typed SELECTION state — a similarly-named
     //     object in a different project has no business inheriting either
     //     from the model that used to be open.
+    /**
+     *
+     * @brief Require closing/reloading the fixture to clear typed selection/name mirrors and
+     * per-object hidden state.
+     *
+     */
     void reloadClearsState()
     {
         auto layer = openFixtureLayer();
         QVERIFY(layer != nullptr);
 
-        const int gageRow = rowForName(*layer, SWMMModelLayer::CatRainGages,
-                                       QStringLiteral("S1"));
+        const int gageRow = rowForName(*layer, SWMMModelLayer::CatRainGages, QStringLiteral("S1"));
         QVERIFY(gageRow >= 0);
         layer->setObjectVisibleAt(SWMMModelLayer::CatRainGages, gageRow, false);
-        layer->setSelectedElements({ SelectedElement{ QStringLiteral("J1"),
-                                                       SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements(
+            {SelectedElement{QStringLiteral("J1"), SWMMModelLayer::kKindNode}});
 
         QVERIFY(!layer->isObjectVisible(QStringLiteral("S1"), SWMMModelLayer::CatRainGages));
         QVERIFY(!layer->selectedElements().isEmpty());

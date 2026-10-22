@@ -1,8 +1,10 @@
-/*!
- * \file   maprenderjob.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \brief  Background render job implementation.
+/**
+ * @file      maprenderjob.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @brief     Background render job implementation.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/maprenderjob.h"
@@ -19,20 +21,11 @@
 // Construction
 // ---------------------------------------------------------------------------
 
-MapRenderJob::MapRenderJob(const QList<OpenSWMMVisLayer *> &layers,
-                           const MapExtent &extent,
-                           const QSize &imageSize,
-                           qreal devicePixelRatio,
-                           SpatialReferenceSystem *srs,
-                           const QColor &bgColor,
-                           QObject *parent)
-    : QObject(parent),
-      m_layers(layers),
-      m_extent(extent),
-      m_imageSize(imageSize),
-      m_dpr(devicePixelRatio > 0.0 ? devicePixelRatio : 1.0),
-      m_srs(srs),
-      m_bgColor(bgColor)
+MapRenderJob::MapRenderJob(const QList<OpenSWMMVisLayer *> &layers, const MapExtent &extent,
+                           const QSize &imageSize, qreal devicePixelRatio,
+                           SpatialReferenceSystem *srs, const QColor &bgColor, QObject *parent)
+    : QObject(parent), m_layers(layers), m_extent(extent), m_imageSize(imageSize),
+      m_dpr(devicePixelRatio > 0.0 ? devicePixelRatio : 1.0), m_srs(srs), m_bgColor(bgColor)
 {
 }
 
@@ -52,25 +45,23 @@ void MapRenderJob::start()
     // running with its own copies and the shared cancel flag, then post the
     // result back via QPointer-guarded invokeMethod (which silently no-ops if
     // the canvas was destroyed).
-    auto layers      = m_layers;
-    auto extent      = m_extent;
-    auto imageSize   = m_imageSize;
-    auto dpr         = m_dpr;
-    auto srs         = m_srs;
-    auto bgColor     = m_bgColor;
-    auto cancelFlag  = m_cancelled;
+    auto layers = m_layers;
+    auto extent = m_extent;
+    auto imageSize = m_imageSize;
+    auto dpr = m_dpr;
+    auto srs = m_srs;
+    auto bgColor = m_bgColor;
+    auto cancelFlag = m_cancelled;
     QPointer<MapRenderJob> self(this);
 
-    QtConcurrent::run([layers, extent, imageSize, dpr, srs, bgColor,
-                       cancelFlag, self]() {
+    QtConcurrent::run([layers, extent, imageSize, dpr, srs, bgColor, cancelFlag, self]() {
         // Allocate the device-pixel-sized backing image but tell Qt its
         // logical size is imageSize (via setDevicePixelRatio). Layer
         // render() then operates in logical coordinates exactly as before,
         // while float tile rects are rasterised at full device precision —
         // closes the sub-pixel seams visible at the boundaries of raster
         // basemap tiles on Retina displays.
-        const QSize devSize(qRound(imageSize.width()  * dpr),
-                            qRound(imageSize.height() * dpr));
+        const QSize devSize(qRound(imageSize.width() * dpr), qRound(imageSize.height() * dpr));
         QImage img(devSize, QImage::Format_ARGB32_Premultiplied);
         img.setDevicePixelRatio(dpr);
         img.fill(bgColor);
@@ -85,13 +76,10 @@ void MapRenderJob::start()
 
         {
             QPainter p(&img);
-            p.setRenderHints(QPainter::Antialiasing
-                             | QPainter::TextAntialiasing
-                             | QPainter::SmoothPixmapTransform
-                             | QPainter::LosslessImageRendering);
+            p.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing |
+                             QPainter::SmoothPixmapTransform | QPainter::LosslessImageRendering);
 
-            for (OpenSWMMVisLayer *layer : std::as_const(layers))
-            {
+            for (OpenSWMMVisLayer *layer : std::as_const(layers)) {
                 if (cancelFlag->load())
                     break;
                 if (!layer || !layer->isVisible() || !layer->isRasterLayer())
@@ -109,8 +97,7 @@ void MapRenderJob::start()
                     qCDebug(lcRenderPerf).noquote()
                         << QStringLiteral("[job.layer] %1 (%2) %3 ms")
                                .arg(layer->name(),
-                                    QString::fromLatin1(
-                                        layer->metaObject()->className()))
+                                    QString::fromLatin1(layer->metaObject()->className()))
                                .arg(layerTimer.elapsed());
             }
         } // QPainter destroyed — img is finalised
@@ -121,7 +108,8 @@ void MapRenderJob::start()
                                   "cancelled=%5")
                        .arg(jobTimer.elapsed())
                        .arg(layersRendered)
-                       .arg(devSize.width()).arg(devSize.height())
+                       .arg(devSize.width())
+                       .arg(devSize.height())
                        .arg(cancelFlag->load() ? 1 : 0);
 
         // Cancellation check before posting back: if the canvas already
@@ -133,9 +121,13 @@ void MapRenderJob::start()
         // Post back to the job IF it still exists. QPointer goes null when
         // the job is destroyed; the lambda then no-ops safely.
         QImage result = std::move(img);
-        QMetaObject::invokeMethod(qApp, [self, result]() {
-            if (self) emit self->finished(result);
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            qApp,
+            [self, result]() {
+                if (self)
+                    emit self->finished(result);
+            },
+            Qt::QueuedConnection);
     });
 }
 

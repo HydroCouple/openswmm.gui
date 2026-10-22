@@ -1,14 +1,17 @@
-/*!
- * \file   swmm2dresultslayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      swmm2dresultslayer.cpp
+ * @brief     renders 2D surface-routing depth as a colour-mapped overlay on the canvas.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice CF.MVP — 2D inundation results layer implementation. The graphics
  * item closely mirrors `SWMM2DMeshGraphicsItem` from
  * [src/layers/swmm2dmeshlayer.cpp]; only the per-triangle colour function
  * differs (depth → inundation ramp instead of elevation → terrain ramp).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmm2dresultslayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
 #include "render/classificationcolorsampler.h"
@@ -65,32 +68,45 @@
 // paint path and the legend swatches.
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
-struct Stop { double t; int r, g, b, a; };
+struct Stop {
+    double t;
+    int r, g, b, a;
+};
 constexpr Stop kInundationStops[] = {
-    {0.00, 0xf7, 0xfb, 0xff, 100},  // near-white blue, translucent
-    {0.25, 0xc6, 0xdb, 0xef, 160},  // pale blue
-    {0.50, 0x6b, 0xae, 0xd6, 210},  // mid blue
-    {0.75, 0x21, 0x71, 0xb5, 240},  // strong blue
-    {1.00, 0x08, 0x30, 0x6b, 255},  // deep navy, fully opaque
+    {0.00, 0xf7, 0xfb, 0xff, 100}, // near-white blue, translucent
+    {0.25, 0xc6, 0xdb, 0xef, 160}, // pale blue
+    {0.50, 0x6b, 0xae, 0xd6, 210}, // mid blue
+    {0.75, 0x21, 0x71, 0xb5, 240}, // strong blue
+    {1.00, 0x08, 0x30, 0x6b, 255}, // deep navy, fully opaque
 };
 
-void inundationColorRgba(double depth, double dry_depth, double max_depth,
-                          int& r, int& g, int& b, int& a)
+/**
+ * @brief Below-cutoff/nonpositive-range returns transparent black; otherwise clamps normalized
+ *   depth and linearly interpolates the water-depth stop RGBA.
+ * @param[in] depth Physical depth metres.
+ * @param[in] dry_depth Transparent cutoff metres.
+ * @param[in] max_depth Upper ramp endpoint metres.
+ * @param[out] r,g,b Replaced8-bit RGB components.
+ * @param[out] a Replaced8-bit opacity.
+ */
+void inundationColorRgba(double depth, double dry_depth, double max_depth, int &r, int &g, int &b,
+                         int &a)
 {
     if (depth < dry_depth || max_depth <= dry_depth) {
         r = g = b = 0;
         a = 0;
         return;
     }
-    const double t = std::clamp((depth - dry_depth) / (max_depth - dry_depth),
-                                 0.0, 1.0);
+    const double t = std::clamp((depth - dry_depth) / (max_depth - dry_depth), 0.0, 1.0);
     constexpr int N = int(sizeof(kInundationStops) / sizeof(*kInundationStops));
     int i = 0;
-    while (i < N - 2 && kInundationStops[i + 1].t <= t) ++i;
-    const Stop& lo = kInundationStops[i];
-    const Stop& hi = kInundationStops[i + 1];
+    while (i < N - 2 && kInundationStops[i + 1].t <= t)
+        ++i;
+    const Stop &lo = kInundationStops[i];
+    const Stop &hi = kInundationStops[i + 1];
     const double f = (hi.t > lo.t) ? (t - lo.t) / (hi.t - lo.t) : 0.0;
     r = int(std::lround(lo.r + f * (hi.r - lo.r)));
     g = int(std::lround(lo.g + f * (hi.g - lo.g)));
@@ -102,42 +118,58 @@ void inundationColorRgba(double depth, double dry_depth, double max_depth,
 // CF.2 — sequential velocity-magnitude ramp (Viridis-inspired). Distinct
 // hues from the depth ramp so arrows read clearly against the wet fill.
 constexpr Stop kVelocityStops[] = {
-    {0.00, 0x44, 0x01, 0x54},  // dark purple
-    {0.30, 0x35, 0x60, 0x8d},  // teal-blue
-    {0.60, 0x21, 0x90, 0x8c},  // teal
-    {0.85, 0x5e, 0xc9, 0x62},  // lime
-    {1.00, 0xfd, 0xe7, 0x25},  // yellow
+    {0.00, 0x44, 0x01, 0x54}, // dark purple
+    {0.30, 0x35, 0x60, 0x8d}, // teal-blue
+    {0.60, 0x21, 0x90, 0x8c}, // teal
+    {0.85, 0x5e, 0xc9, 0x62}, // lime
+    {1.00, 0xfd, 0xe7, 0x25}, // yellow
 };
 
-void velocityColorRgb(double vmag, double max_v, int& r, int& g, int& b)
+/**
+ * @brief Clamps normalized speed and interpolates sequential velocity ramp; no alpha component.
+ * @param[in] vmag Nonnegative physical speed m/s.
+ * @param[in] max_v Speed upper endpoint m/s; tiny/nonpositive uses first stop.
+ * @param[out] r,g,b Replaced8-bit RGB components.
+ */
+void velocityColorRgb(double vmag, double max_v, int &r, int &g, int &b)
 {
-    const double tv = (max_v > 1e-9)
-                        ? std::clamp(vmag / max_v, 0.0, 1.0)
-                        : 0.0;
+    const double tv = (max_v > 1e-9) ? std::clamp(vmag / max_v, 0.0, 1.0) : 0.0;
     constexpr int N = int(sizeof(kVelocityStops) / sizeof(*kVelocityStops));
     int i = 0;
-    while (i < N - 2 && kVelocityStops[i + 1].t <= tv) ++i;
-    const Stop& lo = kVelocityStops[i];
-    const Stop& hi = kVelocityStops[i + 1];
+    while (i < N - 2 && kVelocityStops[i + 1].t <= tv)
+        ++i;
+    const Stop &lo = kVelocityStops[i];
+    const Stop &hi = kVelocityStops[i + 1];
     const double f = (hi.t > lo.t) ? (tv - lo.t) / (hi.t - lo.t) : 0.0;
     r = int(std::lround(lo.r + f * (hi.r - lo.r)));
     g = int(std::lround(lo.g + f * (hi.g - lo.g)));
     b = int(std::lround(lo.b + f * (hi.b - lo.b)));
 }
 
-int cellVertexCount(const std::array<int, 4>& cell)
+/**
+ * @param[in] cell Four-slot cyclic connectivity; fourth nonnegative denotes quad.
+ * @return Three or four based solely on fourth-slot sign, without validating IDs.
+ */
+int cellVertexCount(const std::array<int, 4> &cell)
 {
     return cell[3] >= 0 ? 4 : 3;
 }
 
-int normalizeOneBasedConnectivity(std::vector<std::array<int, 4>>& cells,
-                                  int nVerts)
+/**
+ * @param[in] cells Mutable original-cell connectivity.
+ * @param[in] nVerts Available vertex slot count.
+ * @return One after decrementing active IDs only when global minimum 1 and maximum nVerts prove the
+ *   heuristic; otherwise zero unchanged. Padding preserved, does not validate
+ *   duplicate/intermediate IDs.
+ */
+int normalizeOneBasedConnectivity(std::vector<std::array<int, 4>> &cells, int nVerts)
 {
-    if (cells.empty() || nVerts <= 0) return 0;
+    if (cells.empty() || nVerts <= 0)
+        return 0;
 
     int minIdx = std::numeric_limits<int>::max();
     int maxIdx = std::numeric_limits<int>::lowest();
-    for (const auto& cell : cells) {
+    for (const auto &cell : cells) {
         const int nv = cellVertexCount(cell);
         for (int k = 0; k < nv; ++k) {
             minIdx = std::min(minIdx, cell[k]);
@@ -148,7 +180,7 @@ int normalizeOneBasedConnectivity(std::vector<std::array<int, 4>>& cells,
     if (minIdx != 1 || maxIdx != nVerts)
         return 0;
 
-    for (auto& cell : cells) {
+    for (auto &cell : cells) {
         const int nv = cellVertexCount(cell);
         for (int k = 0; k < nv; ++k)
             --cell[k];
@@ -156,21 +188,32 @@ int normalizeOneBasedConnectivity(std::vector<std::array<int, 4>>& cells,
     return 1;
 }
 
-bool triIndicesInRange(const std::array<int, 3>& tri, int nVerts)
+/**
+ * @param[in] tri Three zero-based candidate vertex IDs.
+ * @param[in] nVerts Available vertex count.
+ * @return True only for pairwise distinct IDs in[0,nVerts); no geometric nondegeneracy test.
+ */
+bool triIndicesInRange(const std::array<int, 3> &tri, int nVerts)
 {
-    return tri[0] >= 0 && tri[0] < nVerts
-        && tri[1] >= 0 && tri[1] < nVerts
-        && tri[2] >= 0 && tri[2] < nVerts
-        && tri[0] != tri[1] && tri[1] != tri[2] && tri[2] != tri[0];
+    return tri[0] >= 0 && tri[0] < nVerts && tri[1] >= 0 && tri[1] < nVerts && tri[2] >= 0 &&
+           tri[2] < nVerts && tri[0] != tri[1] && tri[1] != tri[2] && tri[2] != tri[0];
 }
 
-bool cellIndicesInRange(const std::array<int, 4>& cell, int nVerts)
+/**
+ * @param[in] cell Three/four-slot connectivity with optional minus-one fourth padding.
+ * @param[in] nVerts Available vertex count.
+ * @return True only for distinct active IDs in[0,nVerts); does not validate cyclic ordering or
+ *   shape.
+ */
+bool cellIndicesInRange(const std::array<int, 4> &cell, int nVerts)
 {
     const int nv = cellVertexCount(cell);
     for (int k = 0; k < nv; ++k) {
-        if (cell[k] < 0 || cell[k] >= nVerts) return false;
+        if (cell[k] < 0 || cell[k] >= nVerts)
+            return false;
         for (int j = 0; j < k; ++j)
-            if (cell[j] == cell[k]) return false;
+            if (cell[j] == cell[k])
+                return false;
     }
     return true;
 }
@@ -180,15 +223,23 @@ bool cellIndicesInRange(const std::array<int, 4>& cell, int nVerts)
  *  so map, mesh layer and solver agree) plus the fan→cell map and the CSR
  *  cell→fan ranges. A cell with out-of-range/duplicate vertex ids yields
  *  {-1,-1,-1} entries (its slot count is preserved so ranges stay valid).
- *  \p vz is consulted for the quad diagonal (elevation ordering). */
-void buildDisplayFan(const std::vector<double>& vx,
-                     const std::vector<double>& vy,
-                     const std::vector<double>& vz,
-                     const std::vector<std::array<int, 4>>& cells,
-                     std::vector<std::array<int, 3>>& fan,
-                     std::vector<int>& triCell,
-                     std::vector<int>& cellTri0,
-                     std::vector<VertexDepthReconstruct::CellSplit>* split)
+ *  \p vz is consulted for the quad diagonal (elevation ordering).
+ * @brief Builds VFR fan in original cell order, chooses quad diagonal from geometry/elevation and
+ *   stores subareas m². No source/state ownership escapes.
+ * @param[in] vx Source X metres; vy must have same length.
+ * @param[in] vy Source Y metres.
+ * @param[in] vz Source bed elevations metres; missing slots fall back0.
+ * @param[in] cells Original triangle/quad cyclic connectivity.
+ * @param[out] fan Replaced display triplets, preserving invalid-cell fan slots as all minus one.
+ * @param[out] triCell Replaced display-to-original-cell map.
+ * @param[out] cellTri0 Replaced CSR offsets, cellCount+1 entries.
+ * @param[in] split Optional per-cell VFR split/area destination, replaced when nonnull.
+ */
+void buildDisplayFan(const std::vector<double> &vx, const std::vector<double> &vy,
+                     const std::vector<double> &vz, const std::vector<std::array<int, 4>> &cells,
+                     std::vector<std::array<int, 3>> &fan, std::vector<int> &triCell,
+                     std::vector<int> &cellTri0,
+                     std::vector<VertexDepthReconstruct::CellSplit> *split)
 {
     const int nVerts = static_cast<int>(vx.size());
     // mesh::cellGeom reads MeshVertex::xy / z only; the marker/tag fields
@@ -196,16 +247,17 @@ void buildDisplayFan(const std::vector<double>& vx,
     QVector<mesh::MeshVertex> mv(nVerts);
     for (int i = 0; i < nVerts; ++i) {
         mv[i].xy = QPointF(vx[size_t(i)], vy[size_t(i)]);
-        mv[i].z  = (size_t(i) < vz.size()) ? vz[size_t(i)] : 0.0;
+        mv[i].z = (size_t(i) < vz.size()) ? vz[size_t(i)] : 0.0;
     }
     fan.clear();
     triCell.clear();
     cellTri0.assign(cells.size() + 1, 0);
-    if (split) split->assign(cells.size(), {});
+    if (split)
+        split->assign(cells.size(), {});
     fan.reserve(cells.size() + cells.size() / 4);
     triCell.reserve(fan.capacity());
     for (size_t c = 0; c < cells.size(); ++c) {
-        const auto& cell = cells[c];
+        const auto &cell = cells[c];
         cellTri0[c] = static_cast<int>(fan.size());
         const int nv = cellVertexCount(cell);
         VertexDepthReconstruct::CellSplit cs;
@@ -219,28 +271,36 @@ void buildDisplayFan(const std::vector<double>& vx,
             }
         } else {
             mesh::MeshTriangle mt;
-            mt.v0 = cell[0]; mt.v1 = cell[1]; mt.v2 = cell[2]; mt.v3 = cell[3];
+            mt.v0 = cell[0];
+            mt.v1 = cell[1];
+            mt.v2 = cell[2];
+            mt.v3 = cell[3];
             const mesh::CellGeom g = mesh::cellGeom(mv, mt);
             cs.nSub = g.nSub;
             for (int s = 0; s < g.nSub; ++s) {
                 cs.sub[s] = g.sub[s];
                 const QPointF &A = mv[g.sub[s][0]].xy, &B = mv[g.sub[s][1]].xy,
                               &C = mv[g.sub[s][2]].xy;
-                cs.area[s] = 0.5 * std::abs((B.x() - A.x()) * (C.y() - A.y())
-                                          - (C.x() - A.x()) * (B.y() - A.y()));
+                cs.area[s] = 0.5 * std::abs((B.x() - A.x()) * (C.y() - A.y()) -
+                                            (C.x() - A.x()) * (B.y() - A.y()));
                 fan.push_back(g.sub[s]);
                 triCell.push_back(static_cast<int>(c));
             }
         }
-        if (split) (*split)[c] = cs;
+        if (split)
+            (*split)[c] = cs;
     }
     cellTri0[cells.size()] = static_cast<int>(fan.size());
 }
 
-double twiceSignedArea(const QPointF& a, const QPointF& b, const QPointF& c)
+/**
+ * @param[in] a,b,c Planar points in a shared coordinate system.
+ * @return Oriented triangle double-area in squared coordinate units; sign indicates winding, zero
+ *   degeneracy.
+ */
+double twiceSignedArea(const QPointF &a, const QPointF &b, const QPointF &c)
 {
-    return (b.x() - a.x()) * (c.y() - a.y())
-         - (b.y() - a.y()) * (c.x() - a.x());
+    return (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
 }
 
 } // namespace
@@ -252,34 +312,62 @@ double twiceSignedArea(const QPointF& a, const QPointF& b, const QPointF& c)
 class SWMM2DResultsGraphicsItem : public QGraphicsItem
 {
 public:
-    explicit SWMM2DResultsGraphicsItem(SWMM2DResultsLayer* layer,
-                                        QGraphicsItem* parent = nullptr)
+    /**
+     * @param[in] layer Required nonnull borrowed layer, must outlive item.
+     * @param[in] parent Optional QGraphicsItem owner.
+     * @note Disables item caching, enables extended expose options, sets layer zand stores borrowed
+     *   layer identity for tools. GUI thread only.
+     */
+    explicit SWMM2DResultsGraphicsItem(SWMM2DResultsLayer *layer, QGraphicsItem *parent = nullptr)
         : QGraphicsItem(parent), layer_(layer)
     {
         setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, true);
         setCacheMode(QGraphicsItem::NoCache);
         setZValue(layer->layerZValue());
-        setData(0,QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
+        setData(0, QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
     }
 
-    void geometryChanged() { prepareGeometryChange(); update(); }
+    /**
+     * @brief Notify scene of changed layer-derived bounding geometry and schedule item update; does
+     *   not recompute hydraulic fields or emit canvas repaint.
+     */
+    void geometryChanged()
+    {
+        prepareGeometryChange();
+        update();
+    }
 
+    /**
+     * @return Borrowed layer cached scene bbox by value; includes full geometry even when water
+     *   display uses a region.
+     */
     QRectF boundingRect() const override { return layer_->m_sceneBBox; }
 
-    void paint(QPainter* p,
-               const QStyleOptionGraphicsItem* option,
-               QWidget*) override
+    /**
+     * @param[in] p Required active painter, borrowed only for call.
+     * @param[in] option Required exposed-region/style option.
+     * @note GUI fallback paint; QWidget override argument unused. Hidden layer/QSG ownership/empty
+     *   data short-circuit. Paints ordered visible scalar/depth/isoline/mesh/particle passes,
+     *   hard-coded mean-depth labels and highlight fan IDs with mask clipping; updates hydraulic
+     *   view for regional fitting. Saves/restores painter.
+     */
+    void paint(QPainter *p, const QStyleOptionGraphicsItem *option, QWidget *) override
     {
-        if (!layer_->isVisible()) return;
+        if (!layer_->isVisible())
+            return;
         // VS.8 — when the QSG renderer owns this layer's pixels the CPU
         // passes stand down (SWMMLayerItem §QSG-1 bypass pattern).
-        if (layer_->qsgOwnsRendering()) return;
-        const auto& tris = layer_->m_sceneTris;
-        if (tris.isEmpty()) return;
+        if (layer_->qsgOwnsRendering())
+            return;
+        const auto &tris = layer_->m_sceneTris;
+        if (tris.isEmpty())
+            return;
 
         QRectF exposed = option->exposedRect;
-        if(p->hasClipping()) exposed=exposed.intersected(p->clipBoundingRect());
-        layer_->setHydraulicView(exposed,std::hypot(p->worldTransform().m11(),p->worldTransform().m12()));
+        if (p->hasClipping())
+            exposed = exposed.intersected(p->clipBoundingRect());
+        layer_->setHydraulicView(exposed,
+                                 std::hypot(p->worldTransform().m11(), p->worldTransform().m12()));
         // Cell visibility is resolved before smoothing. Visible partial cells
         // reach their true zero-depth shoreline, independently of palette limits.
         const double dryDepth = 0.0;
@@ -296,33 +384,30 @@ public:
         // (they default to true, except filledContours/isolines/velocity
         // which default to false — the same defaults the new sublayer
         // mix carries).
-        auto *bandSub    = layer_->contourBandSublayer();
+        auto *bandSub = layer_->contourBandSublayer();
         auto *isolineSub = layer_->isolineSublayer();
 
-        const bool paintBands   = ( bandSub    && bandSub->isVisible());
-        const bool paintIsolines= ( isolineSub && isolineSub->isVisible());
+        const bool paintBands = (bandSub && bandSub->isVisible());
+        const bool paintIsolines = (isolineSub && isolineSub->isVisible());
 
         p->save();
         p->setPen(Qt::NoPen);
-        p->setOpacity(p->opacity()*layer_->opacity());
+        p->setOpacity(p->opacity() * layer_->opacity());
 
         // Slice Z.14-paint — install clip from the layer's MaskSpec.
         // resolveMaskClip returns ok=false on disabled/unresolvable, in
         // which case we paint unclipped. Wrapping save()/restore() bracket
         // ensures the clip vanishes on exit.
         {
-            const auto clip = OpenSWMM::Render::resolveMaskClip(
-                layer_, layer_->maskSpec());
+            const auto clip = OpenSWMM::Render::resolveMaskClip(layer_, layer_->maskSpec());
             if (clip.ok && !clip.path.isEmpty()) {
                 if (clip.mode == OpenSWMM::Render::MaskMode::ClipInside) {
                     p->setClipPath(clip.path, Qt::IntersectClip);
                 } else {
                     QPainterPath all;
-                    all.addRect(exposed.isNull()
-                                    ? layer_->m_sceneBBox.adjusted(-1, -1, 1, 1)
-                                    : exposed);
-                    p->setClipPath(all.subtracted(clip.path),
-                                    Qt::IntersectClip);
+                    all.addRect(exposed.isNull() ? layer_->m_sceneBBox.adjusted(-1, -1, 1, 1)
+                                                 : exposed);
+                    p->setClipPath(all.subtracted(clip.path), Qt::IntersectClip);
                 }
             }
         }
@@ -333,352 +418,355 @@ public:
         // SWMM2DMeshLayer terrain shows through.
 
         auto paintBandPass = [&] {
-        // --- Pass 2 (optional): filled isobands. Phase 9 — sublayer gate +
-        // sublayer-style-driven band count. VS.8 — the ContourBandStyle bag
-        // also drives the colour source (named ramp / two-colour gradient,
-        // optionally inverted), the classification range (auto [dry, max]
-        // or a fixed user range) and the smooth-vs-flat rendering mode.
-        if (paintBands && maxDepth > dryDepth) {
-            using namespace OpenSWMM::Contour;
-            const OpenSWMM::Render::ContourBandStyle *bs =
-                (bandSub && bandSub->bandStyle()) ? bandSub->bandStyle()
-                                                  : nullptr;
-            const int bandCount = std::max(2,
-                bs ? bs->bandCount() : layer_->filledContoursLevels());
+            // --- Pass 2 (optional): filled isobands. Phase 9 — sublayer gate +
+            // sublayer-style-driven band count. VS.8 — the ContourBandStyle bag
+            // also drives the colour source (named ramp / two-colour gradient,
+            // optionally inverted), the classification range (auto [dry, max]
+            // or a fixed user range) and the smooth-vs-flat rendering mode.
+            if (paintBands && maxDepth > dryDepth) {
+                using namespace OpenSWMM::Contour;
+                const OpenSWMM::Render::ContourBandStyle *bs =
+                    (bandSub && bandSub->bandStyle()) ? bandSub->bandStyle() : nullptr;
+                const int bandCount =
+                    std::max(2, bs ? bs->bandCount() : layer_->filledContoursLevels());
 
-            double bandLo = dryDepth, bandHi = maxDepth;
-            if (bs && bs->useCustomRange() && bs->rangeMax() > bs->rangeMin()) {
-                bandLo = bs->rangeMin();
-                bandHi = bs->rangeMax();
+                double bandLo = dryDepth, bandHi = maxDepth;
+                if (bs && bs->useCustomRange() && bs->rangeMax() > bs->rangeMin()) {
+                    bandLo = bs->rangeMin();
+                    bandHi = bs->rangeMax();
+                }
+
+                const auto edges =
+                    bs ? bs->scheme().levelEdges(dryDepth, maxDepth,
+                                                 layer_->depthClassificationSamples(bs->scheme()))
+                       : QVector<double>();
+                const auto levels = bs ? std::vector<double>(edges.cbegin(), edges.cend())
+                                       : evenlySpacedLevelsInclusive(bandLo, bandHi, bandCount + 1);
+                if (levels.size() >= 2) {
+                    const double alphaScalar = layer_->filledContoursOpacity();
+                    const int nBands = int(levels.size()) - 1;
+                    auto bandColor = [&](int idx) -> QColor {
+                        QColor c = bs ? bs->colorForBand(idx, nBands)
+                                      : viridisAt((double(idx) + 0.5) / double(nBands));
+                        c.setAlphaF(c.alphaF() * alphaScalar);
+                        return c;
+                    };
+                    p->setPen(Qt::NoPen);
+
+                    if (!bs || bs->smoothBands()) {
+                        // Smooth — marching-triangles isobands over the
+                        // vertex-interpolated field (class boundaries cut
+                        // through cells).
+                        auto extract = [](const SWMM2DResultsLayer::SceneTri &t, QPointF &p0,
+                                          QPointF &p1, QPointF &p2, double &v0, double &v1,
+                                          double &v2) {
+                            p0 = t.a;
+                            p1 = t.b;
+                            p2 = t.c;
+                            v0 = double(t.dv0);
+                            v1 = double(t.dv1);
+                            v2 = double(t.dv2);
+                        };
+                        const auto bands =
+                            marchingTrianglesIsobands(tris, levels, extract, dryDepth);
+                        for (const auto &bp : bands) {
+                            if (bp.verts.size() < 3)
+                                continue;
+                            p->setBrush(bandColor(bp.bandIndex));
+                            // Fan-triangulate the convex polygon by drawing it
+                            // directly — QPainter handles convex polys efficiently.
+                            p->drawConvexPolygon(bp.verts.data(), int(bp.verts.size()));
+                        }
+                    } else {
+                        // Flat — classify each cell by its centre depth and fill
+                        // the whole triangle with the band colour (the per-cell
+                        // "stepped" look raster GIS users expect).
+                        for (const auto &t : tris) {
+                            if (!std::isfinite(t.depth) || t.depth < levels.front())
+                                continue;
+                            const auto wet = CellWaterGeometry::clipTriangle(
+                                t.a, t.b, t.c, t.dv0, t.dv1, t.dv2, dryDepth);
+                            if (wet.size < 3)
+                                continue;
+                            const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+                            const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+                            const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+                            const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+                            if (!exposed.isNull() &&
+                                (maxX < exposed.left() || minX > exposed.right() ||
+                                 maxY < exposed.top() || minY > exposed.bottom()))
+                                continue;
+                            const int idx =
+                                int(std::upper_bound(levels.begin() + 1, levels.end() - 1,
+                                                     double(t.depth)) -
+                                    (levels.begin() + 1));
+                            p->setBrush(bandColor(idx));
+                            QPointF pts[4];
+                            for (int k = 0; k < wet.size; ++k)
+                                pts[k] = wet.vertices[k].point;
+                            p->drawConvexPolygon(pts, wet.size);
+                        }
+                    }
+                }
             }
-
-            const auto edges = bs ? bs->scheme().levelEdges(dryDepth, maxDepth,
-                layer_->depthClassificationSamples(bs->scheme())) : QVector<double>();
-            const auto levels = bs ? std::vector<double>(edges.cbegin(), edges.cend())
-                : evenlySpacedLevelsInclusive(bandLo, bandHi, bandCount + 1);
-            if (levels.size() >= 2) {
-                const double alphaScalar = layer_->filledContoursOpacity();
-                const int    nBands      = int(levels.size()) - 1;
-                auto bandColor = [&](int idx) -> QColor {
-                    QColor c = bs ? bs->colorForBand(idx, nBands)
-                                  : viridisAt((double(idx) + 0.5) / double(nBands));
-                    c.setAlphaF(c.alphaF() * alphaScalar);
-                    return c;
-                };
-                p->setPen(Qt::NoPen);
-
-                if (!bs || bs->smoothBands()) {
-                    // Smooth — marching-triangles isobands over the
-                    // vertex-interpolated field (class boundaries cut
-                    // through cells).
-                    auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
-                                      QPointF &p0, QPointF &p1, QPointF &p2,
-                                      double  &v0, double  &v1, double  &v2) {
-                        p0 = t.a; p1 = t.b; p2 = t.c;
+        };
+        auto paintIsolinePass = [&] {
+            // --- Pass 3 (optional): iso-line contour strokes. Phase 9 — sublayer
+            // gate + sublayer-style-driven iso count + colour + line width.
+            // VS.8 — levels by count OR fixed interval + base, index contours
+            // every Nth level, and along-line labels (decimals / font / halo).
+            if (paintIsolines && maxDepth > dryDepth) {
+                using namespace OpenSWMM::Contour;
+                const auto *isoStyle = (isolineSub && isolineSub->isolineStyle())
+                                           ? isolineSub->isolineStyle()
+                                           : nullptr;
+                std::vector<double> levels =
+                    isoStyle ? isoStyle->levelsForRange(dryDepth, maxDepth)
+                             : evenlySpacedLevels(dryDepth, maxDepth, layer_->isolinesLevels());
+                levels.erase(std::remove_if(levels.begin(), levels.end(),
+                                            [dryDepth](double level) {
+                                                return !std::isfinite(level) || level < dryDepth;
+                                            }),
+                             levels.end());
+                if (!levels.empty()) {
+                    auto extract = [](const SWMM2DResultsLayer::SceneTri &t, QPointF &p0,
+                                      QPointF &p1, QPointF &p2, double &v0, double &v1,
+                                      double &v2) {
+                        p0 = t.a;
+                        p1 = t.b;
+                        p2 = t.c;
                         v0 = double(t.dv0);
                         v1 = double(t.dv1);
                         v2 = double(t.dv2);
                     };
-                    const auto bands = marchingTrianglesIsobands(
-                        tris, levels, extract,
-                        dryDepth);
-                    for (const auto &bp : bands) {
-                        if (bp.verts.size() < 3) continue;
-                        p->setBrush(bandColor(bp.bandIndex));
-                        // Fan-triangulate the convex polygon by drawing it
-                        // directly — QPainter handles convex polys efficiently.
-                        p->drawConvexPolygon(bp.verts.data(),
-                                             int(bp.verts.size()));
-                    }
-                } else {
-                    // Flat — classify each cell by its centre depth and fill
-                    // the whole triangle with the band colour (the per-cell
-                    // "stepped" look raster GIS users expect).
-                    for (const auto &t : tris) {
-                        if (!std::isfinite(t.depth) || t.depth < levels.front()) continue;
-                        const auto wet = CellWaterGeometry::clipTriangle(
-                            t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
-                        if (wet.size < 3) continue;
-                        const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
-                        const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-                        const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
-                        const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-                        if (!exposed.isNull() &&
-                            (maxX < exposed.left()  || minX > exposed.right() ||
-                             maxY < exposed.top()   || minY > exposed.bottom())) continue;
-                        const int idx = int(std::upper_bound(levels.begin()+1,
-                            levels.end()-1, double(t.depth)) - (levels.begin()+1));
-                        p->setBrush(bandColor(idx));
-                        QPointF pts[4];
-                        for (int k = 0; k < wet.size; ++k) pts[k] = wet.vertices[k].point;
-                        p->drawConvexPolygon(pts,wet.size);
-                    }
-                }
-            }
-        }
+                    const auto segs = marchingTriangles(tris, levels, extract);
+                    if (!segs.empty()) {
+                        const QColor isoColor =
+                            isoStyle ? isoStyle->color() : layer_->isolinesColor();
+                        const double isoWidthPx = isoStyle ? std::max(0.5, isoStyle->lineWidthPx())
+                                                           : layer_->isolinesWidth();
 
-        };
-        auto paintIsolinePass = [&] {
-        // --- Pass 3 (optional): iso-line contour strokes. Phase 9 — sublayer
-        // gate + sublayer-style-driven iso count + colour + line width.
-        // VS.8 — levels by count OR fixed interval + base, index contours
-        // every Nth level, and along-line labels (decimals / font / halo).
-        if (paintIsolines && maxDepth > dryDepth) {
-            using namespace OpenSWMM::Contour;
-            const auto *isoStyle =
-                (isolineSub && isolineSub->isolineStyle())
-                ? isolineSub->isolineStyle() : nullptr;
-            std::vector<double> levels = isoStyle
-                ? isoStyle->levelsForRange(dryDepth, maxDepth)
-                : evenlySpacedLevels(dryDepth, maxDepth,
-                                     layer_->isolinesLevels());
-            levels.erase(std::remove_if(levels.begin(),levels.end(),
-                [dryDepth](double level) { return !std::isfinite(level) || level < dryDepth; }),levels.end());
-            if (!levels.empty()) {
-                auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
-                                  QPointF &p0, QPointF &p1, QPointF &p2,
-                                  double  &v0, double  &v1, double  &v2) {
-                    p0 = t.a; p1 = t.b; p2 = t.c;
-                    v0 = double(t.dv0);
-                    v1 = double(t.dv1);
-                    v2 = double(t.dv2);
-                };
-                const auto segs = marchingTriangles(tris, levels, extract);
-                if (!segs.empty()) {
-                    const QColor isoColor = isoStyle
-                        ? isoStyle->color() : layer_->isolinesColor();
-                    const double isoWidthPx = isoStyle
-                        ? std::max(0.5, isoStyle->lineWidthPx())
-                        : layer_->isolinesWidth();
+                        // Index-contour predicate. FixedInterval mode follows
+                        // the topographic-map convention (levels at multiples
+                        // of indexEvery × interval from the base contour);
+                        // Count mode emphasises every Nth ordinal level.
+                        const int idxEvery = isoStyle ? isoStyle->indexEvery() : 0;
+                        QHash<double, int> ordinalOf;
+                        for (int i = 0; i < int(levels.size()); ++i)
+                            ordinalOf.insert(levels[i], i);
+                        auto isIndexLevel = [&](double level) -> bool {
+                            if (!isoStyle || idxEvery < 2)
+                                return false;
+                            if (isoStyle->levelMode() ==
+                                OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval) {
+                                const long k =
+                                    std::lround((level - isoStyle->baseLevel()) /
+                                                std::max(isoStyle->levelInterval(), 1e-12));
+                                return (k % idxEvery) == 0;
+                            }
+                            return ((ordinalOf.value(level, 0) + 1) % idxEvery) == 0;
+                        };
 
-                    // Index-contour predicate. FixedInterval mode follows
-                    // the topographic-map convention (levels at multiples
-                    // of indexEvery × interval from the base contour);
-                    // Count mode emphasises every Nth ordinal level.
-                    const int idxEvery = isoStyle ? isoStyle->indexEvery() : 0;
-                    QHash<double, int> ordinalOf;
-                    for (int i = 0; i < int(levels.size()); ++i)
-                        ordinalOf.insert(levels[i], i);
-                    auto isIndexLevel = [&](double level) -> bool {
-                        if (!isoStyle || idxEvery < 2) return false;
-                        if (isoStyle->levelMode() ==
-                            OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval) {
-                            const long k = std::lround(
-                                (level - isoStyle->baseLevel())
-                                / std::max(isoStyle->levelInterval(), 1e-12));
-                            return (k % idxEvery) == 0;
+                        QPen linePen(isoColor);
+                        linePen.setCosmetic(true); // constant pixel width across zoom
+                        linePen.setWidthF(isoWidthPx);
+                        if (isoStyle)
+                            linePen.setStyle(isoStyle->dashPattern());
+                        QPen indexPen = linePen;
+                        if (isoStyle)
+                            indexPen.setWidthF(std::max(isoWidthPx, isoStyle->indexWidthPx()));
+                        p->setPen(linePen);
+                        p->setBrush(Qt::NoBrush);
+                        for (const auto &s : segs)
+                            if (!isIndexLevel(s.level))
+                                p->drawLine(s.a, s.b);
+                        if (idxEvery >= 2) {
+                            p->setPen(indexPen);
+                            for (const auto &s : segs)
+                                if (isIndexLevel(s.level))
+                                    p->drawLine(s.a, s.b);
                         }
-                        return ((ordinalOf.value(level, 0) + 1) % idxEvery) == 0;
-                    };
 
-                    QPen linePen(isoColor);
-                    linePen.setCosmetic(true);   // constant pixel width across zoom
-                    linePen.setWidthF(isoWidthPx);
-                    if (isoStyle) linePen.setStyle(isoStyle->dashPattern());
-                    QPen indexPen = linePen;
-                    if (isoStyle)
-                        indexPen.setWidthF(std::max(isoWidthPx,
-                                                    isoStyle->indexWidthPx()));
-                    p->setPen(linePen);
-                    p->setBrush(Qt::NoBrush);
-                    for (const auto &s : segs)
-                        if (!isIndexLevel(s.level)) p->drawLine(s.a, s.b);
-                    if (idxEvery >= 2) {
-                        p->setPen(indexPen);
-                        for (const auto &s : segs)
-                            if (isIndexLevel(s.level)) p->drawLine(s.a, s.b);
-                    }
+                        // Optional labels (IsolineStyle::labels). VS.8 — GIS-style
+                        // along-line placement: segments of each level are chained
+                        // into polylines, then a label is dropped every ~250 screen
+                        // px along each chain, rotated to the local line direction
+                        // (flipped when it would read upside-down). Decimals, font
+                        // size and halo come from the style bag. Density self-adapts
+                        // to zoom because spacing is measured in screen pixels.
+                        if (isoStyle && isoStyle->labels()) {
+                            QHash<double, QVector<QLineF>> byLevel;
+                            for (const auto &s : segs)
+                                byLevel[s.level].append(QLineF(s.a, s.b));
 
-                    // Optional labels (IsolineStyle::labels). VS.8 — GIS-style
-                    // along-line placement: segments of each level are chained
-                    // into polylines, then a label is dropped every ~250 screen
-                    // px along each chain, rotated to the local line direction
-                    // (flipped when it would read upside-down). Decimals, font
-                    // size and halo come from the style bag. Density self-adapts
-                    // to zoom because spacing is measured in screen pixels.
-                    if (isoStyle && isoStyle->labels()) {
-                        QHash<double, QVector<QLineF>> byLevel;
-                        for (const auto &s : segs)
-                            byLevel[s.level].append(QLineF(s.a, s.b));
+                            QFont f;
+                            f.setPointSizeF(isoStyle->labelFontPt());
+                            f.setBold(true);
+                            const QFontMetricsF fm(f);
+                            const int decimals = isoStyle->labelDecimals();
+                            const bool halo = isoStyle->labelHalo();
+                            constexpr double kLabelSpacingPx = 250.0;
 
-                        QFont f;
-                        f.setPointSizeF(isoStyle->labelFontPt());
-                        f.setBold(true);
-                        const QFontMetricsF fm(f);
-                        const int  decimals = isoStyle->labelDecimals();
-                        const bool halo     = isoStyle->labelHalo();
-                        constexpr double kLabelSpacingPx = 250.0;
+                            const QTransform wt = p->worldTransform();
+                            const double quantum =
+                                1e-9 * std::max({layer_->m_sceneBBox.width(),
+                                                 layer_->m_sceneBBox.height(), 1.0});
 
-                        const QTransform wt = p->worldTransform();
-                        const double quantum = 1e-9 * std::max(
-                            {layer_->m_sceneBBox.width(),
-                             layer_->m_sceneBBox.height(), 1.0});
+                            p->save();
+                            p->setRenderHint(QPainter::Antialiasing, true);
+                            p->setRenderHint(QPainter::TextAntialiasing, true);
+                            // Labels are laid out in screen space so the font
+                            // size stays pixel-constant across zoom.
+                            p->setWorldMatrixEnabled(false);
 
-                        p->save();
-                        p->setRenderHint(QPainter::Antialiasing, true);
-                        p->setRenderHint(QPainter::TextAntialiasing, true);
-                        // Labels are laid out in screen space so the font
-                        // size stays pixel-constant across zoom.
-                        p->setWorldMatrixEnabled(false);
+                            for (auto it = byLevel.constBegin(); it != byLevel.constEnd(); ++it) {
+                                const QString text = QString::number(it.key(), 'f', decimals);
+                                const QRectF br = fm.boundingRect(text);
 
-                        for (auto it = byLevel.constBegin();
-                             it != byLevel.constEnd(); ++it) {
-                            const QString text =
-                                QString::number(it.key(), 'f', decimals);
-                            const QRectF  br = fm.boundingRect(text);
+                                const auto chains =
+                                    OpenSWMM::Contour::chainIsoSegments(it.value(), quantum);
+                                for (const QPolygonF &chain : chains) {
+                                    if (chain.size() < 2)
+                                        continue;
+                                    QPolygonF sp;
+                                    sp.reserve(chain.size());
+                                    for (const QPointF &pt : chain)
+                                        sp.append(wt.map(pt));
+                                    double total = 0.0;
+                                    for (int i = 1; i < sp.size(); ++i)
+                                        total += QLineF(sp[i - 1], sp[i]).length();
+                                    // Chains shorter than ~1.5 label widths get
+                                    // no label — avoids clutter on fragments.
+                                    if (total < br.width() * 1.5)
+                                        continue;
 
-                            const auto chains =
-                                OpenSWMM::Contour::chainIsoSegments(
-                                    it.value(), quantum);
-                            for (const QPolygonF &chain : chains) {
-                                if (chain.size() < 2) continue;
-                                QPolygonF sp;
-                                sp.reserve(chain.size());
-                                for (const QPointF &pt : chain)
-                                    sp.append(wt.map(pt));
-                                double total = 0.0;
-                                for (int i = 1; i < sp.size(); ++i)
-                                    total += QLineF(sp[i - 1], sp[i]).length();
-                                // Chains shorter than ~1.5 label widths get
-                                // no label — avoids clutter on fragments.
-                                if (total < br.width() * 1.5) continue;
+                                    double acc = 0.0;
+                                    double nextAt = std::max(kLabelSpacingPx * 0.5, br.width());
+                                    for (int i = 1; i < sp.size(); ++i) {
+                                        const QPointF a = sp[i - 1];
+                                        const QPointF b = sp[i];
+                                        const double segLen = QLineF(a, b).length();
+                                        if (segLen <= 0.0)
+                                            continue;
+                                        while (acc + segLen >= nextAt) {
+                                            const double tf = (nextAt - acc) / segLen;
+                                            const QPointF pos = a + tf * (b - a);
+                                            double angle = qRadiansToDegrees(
+                                                std::atan2(b.y() - a.y(), b.x() - a.x()));
+                                            if (angle > 90.0)
+                                                angle -= 180.0;
+                                            if (angle < -90.0)
+                                                angle += 180.0;
 
-                                double acc    = 0.0;
-                                double nextAt = std::max(kLabelSpacingPx * 0.5,
-                                                         br.width());
-                                for (int i = 1; i < sp.size(); ++i) {
-                                    const QPointF a = sp[i - 1];
-                                    const QPointF b = sp[i];
-                                    const double segLen = QLineF(a, b).length();
-                                    if (segLen <= 0.0) continue;
-                                    while (acc + segLen >= nextAt) {
-                                        const double tf = (nextAt - acc) / segLen;
-                                        const QPointF pos = a + tf * (b - a);
-                                        double angle = qRadiansToDegrees(
-                                            std::atan2(b.y() - a.y(),
-                                                       b.x() - a.x()));
-                                        if (angle >  90.0) angle -= 180.0;
-                                        if (angle < -90.0) angle += 180.0;
+                                            QPainterPath path;
+                                            path.addText(
+                                                QPointF(-br.width() * 0.5, br.height() * 0.25), f,
+                                                text);
+                                            QTransform tr;
+                                            tr.translate(pos.x(), pos.y());
+                                            tr.rotate(angle);
+                                            const QPainterPath placed = tr.map(path);
 
-                                        QPainterPath path;
-                                        path.addText(
-                                            QPointF(-br.width() * 0.5,
-                                                     br.height() * 0.25),
-                                            f, text);
-                                        QTransform tr;
-                                        tr.translate(pos.x(), pos.y());
-                                        tr.rotate(angle);
-                                        const QPainterPath placed = tr.map(path);
-
-                                        if (halo) {
-                                            p->setPen(QPen(
-                                                QColor(255, 255, 255, 230), 3.0,
-                                                Qt::SolidLine, Qt::RoundCap,
-                                                Qt::RoundJoin));
-                                            p->setBrush(Qt::NoBrush);
+                                            if (halo) {
+                                                p->setPen(QPen(QColor(255, 255, 255, 230), 3.0,
+                                                               Qt::SolidLine, Qt::RoundCap,
+                                                               Qt::RoundJoin));
+                                                p->setBrush(Qt::NoBrush);
+                                                p->drawPath(placed);
+                                            }
+                                            p->setPen(Qt::NoPen);
+                                            p->setBrush(isoColor);
                                             p->drawPath(placed);
+                                            nextAt += kLabelSpacingPx;
                                         }
-                                        p->setPen(Qt::NoPen);
-                                        p->setBrush(isoColor);
-                                        p->drawPath(placed);
-                                        nextAt += kLabelSpacingPx;
+                                        acc += segLen;
                                     }
-                                    acc += segLen;
                                 }
                             }
+                            p->setWorldMatrixEnabled(true);
+                            p->restore();
                         }
-                        p->setWorldMatrixEnabled(true);
-                        p->restore();
                     }
                 }
             }
-        }
-
         };
         auto paintEdgePass = [&] {
-        // --- Pass 4 (optional): mesh wireframe overlay from MeshEdgeSublayer.
-        // Issue 3 — iterate the DEDUPLICATED edge set (m_sceneEdges) so each
-        // undirected edge is stroked exactly once. Previously every triangle
-        // drew all three of its edges, stroking each shared edge twice; with a
-        // translucent edge colour the two strokes composited into a dark wash.
-        if (auto *edgeSub = layer_->meshEdgeSublayer();
-            edgeSub && edgeSub->isVisible())
-        {
-            const auto *es = edgeSub->edgeStyle();
-            const QColor col = es ? es->color() : QColor(0, 0, 0, 130);
-            const double w   = es ? std::max(0.1, es->lineWidthPx()) : 0.5;
-            const qreal subOp = std::clamp<qreal>(edgeSub->opacity(), 0.0, 1.0);
+            // --- Pass 4 (optional): mesh wireframe overlay from MeshEdgeSublayer.
+            // Issue 3 — iterate the DEDUPLICATED edge set (m_sceneEdges) so each
+            // undirected edge is stroked exactly once. Previously every triangle
+            // drew all three of its edges, stroking each shared edge twice; with a
+            // translucent edge colour the two strokes composited into a dark wash.
+            if (auto *edgeSub = layer_->meshEdgeSublayer(); edgeSub && edgeSub->isVisible()) {
+                const auto *es = edgeSub->edgeStyle();
+                const QColor col = es ? es->color() : QColor(0, 0, 0, 130);
+                const double w = es ? std::max(0.1, es->lineWidthPx()) : 0.5;
+                const qreal subOp = std::clamp<qreal>(edgeSub->opacity(), 0.0, 1.0);
 
-            QPen pen(col);
-            pen.setCosmetic(true);
-            pen.setWidthF(w);
-            if (es) pen.setStyle(es->dashPattern());
-            p->save();
-            p->setOpacity(p->opacity()*subOp);
-            p->setPen(pen);
-            p->setBrush(Qt::NoBrush);
-            for (const auto &e : layer_->m_sceneEdges) {
-                const double minX = std::min(e.a.x(), e.b.x());
-                const double maxX = std::max(e.a.x(), e.b.x());
-                const double minY = std::min(e.a.y(), e.b.y());
-                const double maxY = std::max(e.a.y(), e.b.y());
-                if (!exposed.isNull() &&
-                    (maxX < exposed.left()  || minX > exposed.right() ||
-                     maxY < exposed.top()   || minY > exposed.bottom())) continue;
-                p->drawLine(e.a, e.b);
+                QPen pen(col);
+                pen.setCosmetic(true);
+                pen.setWidthF(w);
+                if (es)
+                    pen.setStyle(es->dashPattern());
+                p->save();
+                p->setOpacity(p->opacity() * subOp);
+                p->setPen(pen);
+                p->setBrush(Qt::NoBrush);
+                for (const auto &e : layer_->m_sceneEdges) {
+                    const double minX = std::min(e.a.x(), e.b.x());
+                    const double maxX = std::max(e.a.x(), e.b.x());
+                    const double minY = std::min(e.a.y(), e.b.y());
+                    const double maxY = std::max(e.a.y(), e.b.y());
+                    if (!exposed.isNull() && (maxX < exposed.left() || minX > exposed.right() ||
+                                              maxY < exposed.top() || minY > exposed.bottom()))
+                        continue;
+                    p->drawLine(e.a, e.b);
+                }
+                p->restore();
             }
-            p->restore();
-        }
-
         };
         auto paintNodePass = [&] {
-        // --- Pass 5 (optional): mesh-vertex markers from MeshNodeSublayer.
-        // Vertices appear duplicated across SceneTris; we just draw at each
-        // corner. The QPainter cost is negligible at marker sizes <= 8 px.
-        // The taggedColor/Size knobs are not consulted in the results layer
-        // (we don't carry tagged-vertex info here — that's mesh-layer-only).
-        if (auto *nodeSub = layer_->meshNodeSublayer();
-            nodeSub && nodeSub->isVisible())
-        {
-            const auto *ns = nodeSub->nodeStyle();
-            const QColor col   = ns ? ns->color() : QColor(40, 40, 40, 220);
-            const double szPx  = ns ? std::max(0.5, ns->markerSizePx()) : 3.0;
-            const QColor outC  = ns ? ns->outlineColor() : QColor(255,255,255,220);
-            const double outPx = ns ? std::max(0.0, ns->outlineWidthPx()) : 0.5;
-            const qreal  subOp = std::clamp<qreal>(nodeSub->opacity(), 0.0, 1.0);
-            const QTransform wt = p->worldTransform();
-            const double scale  = std::max(std::abs(wt.m11()), 1e-9);
-            const double rScene = (szPx * 0.5) / scale;
+            // --- Pass 5 (optional): mesh-vertex markers from MeshNodeSublayer.
+            // Vertices appear duplicated across SceneTris; we just draw at each
+            // corner. The QPainter cost is negligible at marker sizes <= 8 px.
+            // The taggedColor/Size knobs are not consulted in the results layer
+            // (we don't carry tagged-vertex info here — that's mesh-layer-only).
+            if (auto *nodeSub = layer_->meshNodeSublayer(); nodeSub && nodeSub->isVisible()) {
+                const auto *ns = nodeSub->nodeStyle();
+                const QColor col = ns ? ns->color() : QColor(40, 40, 40, 220);
+                const double szPx = ns ? std::max(0.5, ns->markerSizePx()) : 3.0;
+                const QColor outC = ns ? ns->outlineColor() : QColor(255, 255, 255, 220);
+                const double outPx = ns ? std::max(0.0, ns->outlineWidthPx()) : 0.5;
+                const qreal subOp = std::clamp<qreal>(nodeSub->opacity(), 0.0, 1.0);
+                const QTransform wt = p->worldTransform();
+                const double scale = std::max(std::abs(wt.m11()), 1e-9);
+                const double rScene = (szPx * 0.5) / scale;
 
-            p->save();
-            p->setOpacity(p->opacity()*subOp);
-            if (outPx > 0.0) {
-                QPen pen(outC);
-                pen.setCosmetic(true);
-                pen.setWidthF(outPx);
-                p->setPen(pen);
-            } else {
-                p->setPen(Qt::NoPen);
+                p->save();
+                p->setOpacity(p->opacity() * subOp);
+                if (outPx > 0.0) {
+                    QPen pen(outC);
+                    pen.setCosmetic(true);
+                    pen.setWidthF(outPx);
+                    p->setPen(pen);
+                } else {
+                    p->setPen(Qt::NoPen);
+                }
+                p->setBrush(col);
+                auto drawMarker = [&](const QPointF &pt) { p->drawEllipse(pt, rScene, rScene); };
+                for (const auto &t : tris) {
+                    const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+                    const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+                    const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+                    const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+                    if (!exposed.isNull() && (maxX < exposed.left() || minX > exposed.right() ||
+                                              maxY < exposed.top() || minY > exposed.bottom()))
+                        continue;
+                    drawMarker(t.a);
+                    drawMarker(t.b);
+                    drawMarker(t.c);
+                }
+                p->restore();
             }
-            p->setBrush(col);
-            auto drawMarker = [&](const QPointF &pt) {
-                p->drawEllipse(pt, rScene, rScene);
-            };
-            for (const auto &t : tris) {
-                const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
-                const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-                const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
-                const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-                if (!exposed.isNull() &&
-                    (maxX < exposed.left()  || minX > exposed.right() ||
-                     maxY < exposed.top()   || minY > exposed.bottom())) continue;
-                drawMarker(t.a);
-                drawMarker(t.b);
-                drawMarker(t.c);
-            }
-            p->restore();
-        }
-
         };
         // Flat cell-depth fills must survive native/CPU ownership handoffs
         // (masks and ordered stacks). Use the same classification and wet
@@ -687,146 +775,236 @@ public:
             const auto *style = sub->fillStyle();
             double lo = dryDepth, hi = maxDepth;
             if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
-                lo = style->rangeMin(); hi = style->rangeMax();
+                lo = style->rangeMin();
+                hi = style->rangeMax();
             }
-            if (hi <= lo) return;
+            if (hi <= lo)
+                return;
             QVector<double> levels;
             if (style->classified()) {
-                const auto samples = style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::PerFrameAutoStretch
-                    ? layer_->currentDepthSamples(true) : layer_->depthClassificationSamples(style->scheme());
+                const auto samples =
+                    style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::PerFrameAutoStretch
+                        ? layer_->currentDepthSamples(true)
+                        : layer_->depthClassificationSamples(style->scheme());
                 levels = style->scheme().levelEdges(lo, hi, samples);
             }
-            const int bands = std::max(1, int(levels.size())-1);
-            const OpenSWMM::Render::ClassificationColorSampler colors(style->scheme(),lo,hi,
-                                                                       style->classified() ? bands : 0);
-            p->save(); p->setPen(Qt::NoPen); p->setOpacity(p->opacity()*sub->opacity());
+            const int bands = std::max(1, int(levels.size()) - 1);
+            const OpenSWMM::Render::ClassificationColorSampler colors(
+                style->scheme(), lo, hi, style->classified() ? bands : 0);
+            p->save();
+            p->setPen(Qt::NoPen);
+            p->setOpacity(p->opacity() * sub->opacity());
             for (const auto &t : tris) {
-                if (!std::isfinite(t.depth) || t.depth < lo) continue;
-                const auto wet = CellWaterGeometry::clipTriangle(t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
-                if (wet.size < 3) continue;
+                if (!std::isfinite(t.depth) || t.depth < lo)
+                    continue;
+                const auto wet =
+                    CellWaterGeometry::clipTriangle(t.a, t.b, t.c, t.dv0, t.dv1, t.dv2, dryDepth);
+                if (wet.size < 3)
+                    continue;
                 QPolygonF polygon;
-                for (int i=0; i<wet.size; ++i) polygon.append(wet.vertices[i].point);
-                if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed)) continue;
-                const int index = levels.size() >= 2 ? std::clamp(int(std::upper_bound(levels.cbegin()+1,
-                    levels.cend()-1,t.depth)-(levels.cbegin()+1)),0,bands-1) : 0;
-                p->setBrush(style->classified() ? colors.classColor(index) : colors.valueColor(t.depth));
+                for (int i = 0; i < wet.size; ++i)
+                    polygon.append(wet.vertices[i].point);
+                if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed))
+                    continue;
+                const int index =
+                    levels.size() >= 2
+                        ? std::clamp(int(std::upper_bound(levels.cbegin() + 1, levels.cend() - 1,
+                                                          t.depth) -
+                                         (levels.cbegin() + 1)),
+                                     0, bands - 1)
+                        : 0;
+                p->setBrush(style->classified() ? colors.classColor(index)
+                                                : colors.valueColor(t.depth));
                 p->drawConvexPolygon(polygon);
             }
             p->restore();
         };
         const auto paintSmoothFill = [&](OpenSWMM::Render::SmoothDepthFillSublayer *sub) {
-            const auto *style=sub->fillStyle();
-            double lo=dryDepth,hi=maxDepth;
-            if (style->useCustomRange() && style->rangeMax()>style->rangeMin()) {
-                lo=style->rangeMin();hi=style->rangeMax();
+            const auto *style = sub->fillStyle();
+            double lo = dryDepth, hi = maxDepth;
+            if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
+                lo = style->rangeMin();
+                hi = style->rangeMax();
             }
-            if (hi<=lo || sub->opacity()<=0) return;
-            const auto transform=p->deviceTransform();
-            const QRect bounds=transform.mapRect(exposed.isNull()?layer_->m_sceneBBox:exposed)
-                .toAlignedRect().intersected(QRect(0,0,p->device()->width(),p->device()->height()));
-            if (bounds.isEmpty()) return;
+            if (hi <= lo || sub->opacity() <= 0)
+                return;
+            const auto transform = p->deviceTransform();
+            const QRect bounds =
+                transform.mapRect(exposed.isNull() ? layer_->m_sceneBBox : exposed)
+                    .toAlignedRect()
+                    .intersected(QRect(0, 0, p->device()->width(), p->device()->height()));
+            if (bounds.isEmpty())
+                return;
             // Allocate only the exposed device rectangle, never a mesh-sized image.
-            QImage image(bounds.size(),QImage::Format_ARGB32_Premultiplied);
-            if (image.isNull()) return;
+            QImage image(bounds.size(), QImage::Format_ARGB32_Premultiplied);
+            if (image.isNull())
+                return;
             image.fill(Qt::transparent);
             QVector<double> levels;
             if (style->classified()) {
-                const auto samples=style->scheme().rangeMode()==OpenSWMM::Render::RangeMode::PerFrameAutoStretch
-                    ? layer_->currentDepthSamples(true):layer_->depthClassificationSamples(style->scheme());
-                levels=style->scheme().levelEdges(lo,hi,samples);
+                const auto samples =
+                    style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::PerFrameAutoStretch
+                        ? layer_->currentDepthSamples(true)
+                        : layer_->depthClassificationSamples(style->scheme());
+                levels = style->scheme().levelEdges(lo, hi, samples);
             }
-            const int bands=std::max(1,int(levels.size())-1);
-            const OpenSWMM::Render::ClassificationColorSampler colors(style->scheme(),lo,hi,style->classified()?bands:0);
-            const auto colorAt=[&](double value) {
-                const int index=levels.size()>=2?std::clamp(int(std::upper_bound(levels.cbegin()+1,
-                    levels.cend()-1,value)-(levels.cbegin()+1)),0,bands-1):0;
-                QColor color=style->classified()?colors.classColor(index):colors.valueColor(value);
-                color.setAlphaF(color.alphaF()*sub->opacity());
+            const int bands = std::max(1, int(levels.size()) - 1);
+            const OpenSWMM::Render::ClassificationColorSampler colors(
+                style->scheme(), lo, hi, style->classified() ? bands : 0);
+            const auto colorAt = [&](double value) {
+                const int index = levels.size() >= 2
+                                      ? std::clamp(int(std::upper_bound(levels.cbegin() + 1,
+                                                                        levels.cend() - 1, value) -
+                                                       (levels.cbegin() + 1)),
+                                                   0, bands - 1)
+                                      : 0;
+                QColor color =
+                    style->classified() ? colors.classColor(index) : colors.valueColor(value);
+                color.setAlphaF(color.alphaF() * sub->opacity());
                 return qPremultiply(color.rgba());
             };
-            std::vector<QPointF> points,clipped,part;
-            std::vector<double> values,clippedValues,partValues;
-            for (auto *buffer:{&points,&clipped,&part}) buffer->reserve(6);
-            for (auto *buffer:{&values,&clippedValues,&partValues}) buffer->reserve(6);
-            const auto emitPolygon=[&](const auto &pts,const auto &vals) {
-                for (size_t k=1;k+1<pts.size();++k) {
-                    std::array<OpenSWMM::Render::SmoothFillRaster::Vertex,3> vertices;
-                    int n=0;
-                    for (size_t j:{size_t(0),k,k+1}) vertices[n++]={transform.map(pts[j])-bounds.topLeft(),colorAt(std::max(vals[j],lo))};
-                    OpenSWMM::Render::SmoothFillRaster::triangle(image,vertices);
+            std::vector<QPointF> points, clipped, part;
+            std::vector<double> values, clippedValues, partValues;
+            for (auto *buffer : {&points, &clipped, &part})
+                buffer->reserve(6);
+            for (auto *buffer : {&values, &clippedValues, &partValues})
+                buffer->reserve(6);
+            const auto emitPolygon = [&](const auto &pts, const auto &vals) {
+                for (size_t k = 1; k + 1 < pts.size(); ++k) {
+                    std::array<OpenSWMM::Render::SmoothFillRaster::Vertex, 3> vertices;
+                    int n = 0;
+                    for (size_t j : {size_t(0), k, k + 1})
+                        vertices[n++] = {transform.map(pts[j]) - bounds.topLeft(),
+                                         colorAt(std::max(vals[j], lo))};
+                    OpenSWMM::Render::SmoothFillRaster::triangle(image, vertices);
                 }
             };
-            const auto visible=layer_->m_triGrid.query(exposed.isNull()?layer_->m_sceneBBox:exposed);
-            for (int id:visible) {
-                const auto &t=tris[id];
-                const auto wet=CellWaterGeometry::clipTriangle(t.a,t.b,t.c,t.dv0,t.dv1,t.dv2,dryDepth);
-                points.clear();values.clear();
-                for (int j=0;j<wet.size;++j) {points.push_back(wet.vertices[j].point);values.push_back(wet.vertices[j].depth);}
-                OpenSWMM::Contour::detail::clipHalfplane(points,values,lo,true,clipped,clippedValues);
-                if (clipped.empty()) continue;
-                const auto range=std::minmax_element(clippedValues.begin(),clippedValues.end());
-                if (*range.first<hi && *range.second>hi) {
-                    OpenSWMM::Contour::detail::clipHalfplane(clipped,clippedValues,hi,false,part,partValues);emitPolygon(part,partValues);
-                    OpenSWMM::Contour::detail::clipHalfplane(clipped,clippedValues,hi,true,part,partValues);emitPolygon(part,partValues);
-                } else emitPolygon(clipped,clippedValues);
+            const auto visible =
+                layer_->m_triGrid.query(exposed.isNull() ? layer_->m_sceneBBox : exposed);
+            for (int id : visible) {
+                const auto &t = tris[id];
+                const auto wet =
+                    CellWaterGeometry::clipTriangle(t.a, t.b, t.c, t.dv0, t.dv1, t.dv2, dryDepth);
+                points.clear();
+                values.clear();
+                for (int j = 0; j < wet.size; ++j) {
+                    points.push_back(wet.vertices[j].point);
+                    values.push_back(wet.vertices[j].depth);
+                }
+                OpenSWMM::Contour::detail::clipHalfplane(points, values, lo, true, clipped,
+                                                         clippedValues);
+                if (clipped.empty())
+                    continue;
+                const auto range = std::minmax_element(clippedValues.begin(), clippedValues.end());
+                if (*range.first < hi && *range.second > hi) {
+                    OpenSWMM::Contour::detail::clipHalfplane(clipped, clippedValues, hi, false,
+                                                             part, partValues);
+                    emitPolygon(part, partValues);
+                    OpenSWMM::Contour::detail::clipHalfplane(clipped, clippedValues, hi, true, part,
+                                                             partValues);
+                    emitPolygon(part, partValues);
+                } else
+                    emitPolygon(clipped, clippedValues);
             }
-            p->save();p->resetTransform();
-            const double dpr=p->device()->devicePixelRatioF();image.setDevicePixelRatio(dpr);
-            p->drawImage(QPointF(bounds.topLeft())/dpr,image);p->restore();
+            p->save();
+            p->resetTransform();
+            const double dpr = p->device()->devicePixelRatioF();
+            image.setDevicePixelRatio(dpr);
+            p->drawImage(QPointF(bounds.topLeft()) / dpr, image);
+            p->restore();
         };
         for (auto *sub : layer_->sublayers()) {
-            if (!sub || !sub->isVisible()) continue;
+            if (!sub || !sub->isVisible())
+                continue;
             if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
                 const auto *style = scalar->fillStyle();
-                const auto frame = layer_->resultFrame(style->attribute(), layer_->currentTimeIndex(),
-                    !style->rangeScheme().useCustomRange()
-                    && style->rangeScheme().rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun);
+                const auto frame =
+                    layer_->resultFrame(style->attribute(), layer_->currentTimeIndex(),
+                                        !style->rangeScheme().useCustomRange() &&
+                                            style->rangeScheme().rangeMode() ==
+                                                OpenSWMM::Render::RangeMode::FixedOverRun);
                 using Presentation = OpenSWMM::Render::ResultScalarStyle::Presentation;
                 if (style->presentation() != Presentation::Fill) {
-                    const auto *lineStyle=style->contourStyle();
-                    const bool contours=style->presentation()==Presentation::Contours;
-                    const auto levels=contours?style->contourLevels(frame->minimum,frame->maximum,frame->samples):std::vector<double>();
-                    const auto geometry=layer_->resultScalarGeometry(frame,levels,!contours);
-                    p->save();p->setOpacity(p->opacity()*scalar->opacity());p->setBrush(Qt::NoBrush);
-                    QPen pen(lineStyle->color());pen.setCosmetic(true);pen.setStyle(lineStyle->dashPattern());
-                    for(const auto &line:geometry->contours) {
-                        const auto index=std::lower_bound(levels.begin(),levels.end(),line.level)-levels.begin();
-                        pen.setWidthF(lineStyle->indexEvery()>0 && (index+1)%lineStyle->indexEvery()==0?lineStyle->indexWidthPx():lineStyle->lineWidthPx());
-                        p->setPen(pen);p->drawLine(line.a,line.b);
+                    const auto *lineStyle = style->contourStyle();
+                    const bool contours = style->presentation() == Presentation::Contours;
+                    const auto levels =
+                        contours
+                            ? style->contourLevels(frame->minimum, frame->maximum, frame->samples)
+                            : std::vector<double>();
+                    const auto geometry = layer_->resultScalarGeometry(frame, levels, !contours);
+                    p->save();
+                    p->setOpacity(p->opacity() * scalar->opacity());
+                    p->setBrush(Qt::NoBrush);
+                    QPen pen(lineStyle->color());
+                    pen.setCosmetic(true);
+                    pen.setStyle(lineStyle->dashPattern());
+                    for (const auto &line : geometry->contours) {
+                        const auto index =
+                            std::lower_bound(levels.begin(), levels.end(), line.level) -
+                            levels.begin();
+                        pen.setWidthF(lineStyle->indexEvery() > 0 &&
+                                              (index + 1) % lineStyle->indexEvery() == 0
+                                          ? lineStyle->indexWidthPx()
+                                          : lineStyle->lineWidthPx());
+                        p->setPen(pen);
+                        p->drawLine(line.a, line.b);
                     }
-                    if(!contours || lineStyle->labels()) {
-                        QFont font;font.setPointSizeF(lineStyle->labelFontPt());font.setBold(true);
-                        const auto transform=p->worldTransform();
-                        const auto viewport=transform.mapRect(exposed.isNull()?layer_->m_sceneBBox:exposed);
-                        const auto placed=OpenSWMM::Render::placeResultScalarLabels(*geometry,transform,viewport,font,lineStyle->labelDecimals(),
-                            frame->descriptor.unitsKnown?frame->descriptor.units:QString(),contours);
-                        OpenSWMM::Render::LabelConfig config;config.font=font;config.fontSizePt=lineStyle->labelFontPt();config.color=lineStyle->color();
-                        config.haloEnabled=lineStyle->labelHalo();config.haloColor=QColor(255,255,255,230);
+                    if (!contours || lineStyle->labels()) {
+                        QFont font;
+                        font.setPointSizeF(lineStyle->labelFontPt());
+                        font.setBold(true);
+                        const auto transform = p->worldTransform();
+                        const auto viewport =
+                            transform.mapRect(exposed.isNull() ? layer_->m_sceneBBox : exposed);
+                        const auto placed = OpenSWMM::Render::placeResultScalarLabels(
+                            *geometry, transform, viewport, font, lineStyle->labelDecimals(),
+                            frame->descriptor.unitsKnown ? frame->descriptor.units : QString(),
+                            contours);
+                        OpenSWMM::Render::LabelConfig config;
+                        config.font = font;
+                        config.fontSizePt = lineStyle->labelFontPt();
+                        config.color = lineStyle->color();
+                        config.haloEnabled = lineStyle->labelHalo();
+                        config.haloColor = QColor(255, 255, 255, 230);
                         p->setWorldMatrixEnabled(false);
-                        for(const auto &label:placed)OpenSWMM::Render::LabelPainter::drawLabel(*p,label.rect.topLeft(),label.text,config);
+                        for (const auto &label : placed)
+                            OpenSWMM::Render::LabelPainter::drawLabel(*p, label.rect.topLeft(),
+                                                                      label.text, config);
                     }
-                    p->restore();continue;
+                    p->restore();
+                    continue;
                 }
                 const auto colors = scalar->cellColors(*frame);
                 const auto &map = layer_->triCellMap();
-                p->save(); p->setPen(Qt::NoPen);
+                p->save();
+                p->setPen(Qt::NoPen);
                 for (int i = 0; i < tris.size(); ++i) {
                     const int cell = i < int(map.size()) ? map[size_t(i)] : i;
-                    if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0) continue;
+                    if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0)
+                        continue;
                     const auto &t = tris[i];
-                    const QPointF pts[] = {t.a,t.b,t.c};
-                    const QPolygonF polygon(QVector<QPointF>{t.a,t.b,t.c});
-                    if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed)) continue;
-                    p->setBrush(colors[cell]); p->drawConvexPolygon(pts,3);
+                    const QPointF pts[] = {t.a, t.b, t.c};
+                    const QPolygonF polygon(QVector<QPointF>{t.a, t.b, t.c});
+                    if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed))
+                        continue;
+                    p->setBrush(colors[cell]);
+                    p->drawConvexPolygon(pts, 3);
                 }
                 p->restore();
-            } else if (sub == layer_->cellDepthFillSublayer()) paintCellFill(layer_->cellDepthFillSublayer());
-            else if (sub == layer_->smoothDepthFillSublayer()) paintSmoothFill(layer_->smoothDepthFillSublayer());
-            else if (sub == layer_->flowStreakSublayer()) layer_->paintFlowStreaks(p, exposed);
-            else if (sub == bandSub) paintBandPass();
-            else if (sub == isolineSub) paintIsolinePass();
-            else if (sub == layer_->meshEdgeSublayer()) paintEdgePass();
-            else if (sub == layer_->meshNodeSublayer()) paintNodePass();
+            } else if (sub == layer_->cellDepthFillSublayer())
+                paintCellFill(layer_->cellDepthFillSublayer());
+            else if (sub == layer_->smoothDepthFillSublayer())
+                paintSmoothFill(layer_->smoothDepthFillSublayer());
+            else if (sub == layer_->flowStreakSublayer())
+                layer_->paintFlowStreaks(p, exposed);
+            else if (sub == bandSub)
+                paintBandPass();
+            else if (sub == isolineSub)
+                paintIsolinePass();
+            else if (sub == layer_->meshEdgeSublayer())
+                paintEdgePass();
+            else if (sub == layer_->meshNodeSublayer())
+                paintNodePass();
         }
 
         // --- VS.10: optional per-cell value labels. Driven by the base
@@ -844,18 +1022,18 @@ public:
                 const double scale = std::max(std::abs(wt.m11()), 1e-9);
                 const QFont f = lc.effectiveFont();
                 const double spacingPx = std::max(40.0, lc.fontSizePt * 6.0);
-                const double gridStep  = spacingPx / scale;
+                const double gridStep = spacingPx / scale;
                 const QRectF area = exposed.isNull() ? layer_->m_sceneBBox : exposed;
                 if (gridStep > 0.0 && area.isValid() && !tris.isEmpty()) {
-                    const int nCols = std::max(1, int(area.width()  / gridStep));
+                    const int nCols = std::max(1, int(area.width() / gridStep));
                     const int nRows = std::max(1, int(area.height() / gridStep));
-                    const double cellW = area.width()  / double(nCols);
+                    const double cellW = area.width() / double(nCols);
                     const double cellH = area.height() / double(nRows);
                     QHash<qint64, int> bucket;
                     for (int i = 0; i < tris.size(); ++i) {
                         const auto &t = tris[i];
-                        if (!std::isfinite(t.dv0) || !std::isfinite(t.dv1)
-                            || !std::isfinite(t.dv2)) continue;
+                        if (!std::isfinite(t.dv0) || !std::isfinite(t.dv1) || !std::isfinite(t.dv2))
+                            continue;
                         const double rx = t.centroid.x() - area.left();
                         const double ry = t.centroid.y() - area.top();
                         if (rx < 0 || ry < 0 || rx > area.width() || ry > area.height())
@@ -863,7 +1041,8 @@ public:
                         const int cx = std::min(nCols - 1, int(rx / cellW));
                         const int cy = std::min(nRows - 1, int(ry / cellH));
                         const qint64 key = qint64(cy) * nCols + cx;
-                        if (!bucket.contains(key)) bucket.insert(key, i);
+                        if (!bucket.contains(key))
+                            bucket.insert(key, i);
                     }
                     // Slice US.B3 — render through the shared LabelPainter so
                     // halo + the (new) optional background frame match every
@@ -872,7 +1051,7 @@ public:
                     // point before, so offset top-left up by the font ascent.
                     const double ascent = QFontMetricsF(f).ascent();
                     p->save();
-                    p->setWorldMatrixEnabled(false);   // screen space
+                    p->setWorldMatrixEnabled(false); // screen space
                     for (auto it = bucket.constBegin(); it != bucket.constEnd(); ++it) {
                         const auto &t = tris[it.value()];
                         const QString text = QString::number(t.depth, 'f', 2);
@@ -890,13 +1069,13 @@ public:
         // Drawn AFTER the depth fill so the outline sits visibly on top, even
         // over dry cells. Width compensated for current zoom so the outline
         // stays a constant ~2px regardless of zoom level.
-        const QSet<int>& hi = layer_->highlightedCells();
+        const QSet<int> &hi = layer_->highlightedCells();
         if (!hi.isEmpty()) {
             const QTransform wt = p->worldTransform();
             const double scale = wt.m11();
             const double penWidthScene = (scale > 0.0) ? (2.0 / scale) : 1.0;
 
-            QPen outlinePen(QColor(255, 215, 0, 235));   // gold outline
+            QPen outlinePen(QColor(255, 215, 0, 235)); // gold outline
             outlinePen.setWidthF(penWidthScene);
             outlinePen.setJoinStyle(Qt::RoundJoin);
             p->setPen(outlinePen);
@@ -906,17 +1085,18 @@ public:
 
             const int nTris = tris.size();
             for (int idx : hi) {
-                if (idx < 0 || idx >= nTris) continue;
-                const auto& t = tris[idx];
+                if (idx < 0 || idx >= nTris)
+                    continue;
+                const auto &t = tris[idx];
                 // Skip cells outside the exposed rect (cheap cull).
                 const double tx0 = std::min({t.a.x(), t.b.x(), t.c.x()});
                 const double tx1 = std::max({t.a.x(), t.b.x(), t.c.x()});
                 const double ty0 = std::min({t.a.y(), t.b.y(), t.c.y()});
                 const double ty1 = std::max({t.a.y(), t.b.y(), t.c.y()});
-                if (!exposed.isNull() &&
-                    (tx1 < exposed.left()  || tx0 > exposed.right() ||
-                     ty1 < exposed.top()   || ty0 > exposed.bottom())) continue;
-                const QPointF pts[3] = { t.a, t.b, t.c };
+                if (!exposed.isNull() && (tx1 < exposed.left() || tx0 > exposed.right() ||
+                                          ty1 < exposed.top() || ty0 > exposed.bottom()))
+                    continue;
+                const QPointF pts[3] = {t.a, t.b, t.c};
                 p->drawConvexPolygon(pts, 3);
             }
         }
@@ -925,7 +1105,7 @@ public:
     }
 
 private:
-    SWMM2DResultsLayer* layer_;
+    SWMM2DResultsLayer *layer_;
 };
 
 // ---------------------------------------------------------------------------
@@ -942,30 +1122,56 @@ private:
 class SWMM2DVelocityArrowsItem : public QGraphicsItem
 {
 public:
-    explicit SWMM2DVelocityArrowsItem(SWMM2DResultsLayer* layer,
-                                       QGraphicsItem* parent = nullptr)
+    /**
+     * @param[in] layer Required nonnull borrowed layer, must outlive item.
+     * @param[in] parent Optional QGraphicsItem owner.
+     * @note Disables item caching, enables extended expose options, sets layer zplus0.5 and stores
+     *   borrowed layer identity for tools. GUI thread only.
+     */
+    explicit SWMM2DVelocityArrowsItem(SWMM2DResultsLayer *layer, QGraphicsItem *parent = nullptr)
         : QGraphicsItem(parent), layer_(layer)
     {
         setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, true);
         setCacheMode(QGraphicsItem::NoCache);
         // Render above the depth fill (which uses layerZValue()).
         setZValue(layer->layerZValue() + 0.5);
-        setData(0,QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
+        setData(0, QVariant::fromValue(reinterpret_cast<quintptr>(layer)));
     }
 
-    void geometryChanged() { prepareGeometryChange(); update(); }
+    /**
+     * @brief Notify scene of changed layer-derived bounding geometry and schedule item update; does
+     *   not recompute hydraulic fields or emit canvas repaint.
+     */
+    void geometryChanged()
+    {
+        prepareGeometryChange();
+        update();
+    }
 
+    /**
+     * @return Borrowed layer cached scene bbox by value; includes full geometry even when water
+     *   display uses a region.
+     */
     QRectF boundingRect() const override { return layer_->m_sceneBBox; }
 
-    void paint(QPainter* p,
-               const QStyleOptionGraphicsItem* option,
-               QWidget*) override
+    /**
+     * @param[in] p Required active painter, borrowed only for call.
+     * @param[in] option Required exposed-region/style option.
+     * @note GUI fallback paint; QWidget override argument unused. Hidden layer/QSG ownership/empty
+     *   data short-circuit. Requires positive current velocity and delegates style-driven arrows;
+     *   physical vectors use scene Y sign. Saves/restores inside glyph pass.
+     */
+    void paint(QPainter *p, const QStyleOptionGraphicsItem *option, QWidget *) override
     {
-        if (!layer_->isVisible()) return;
+        if (!layer_->isVisible())
+            return;
         // VS.8 — QSG ownership bypass (see SWMM2DResultsGraphicsItem).
-        if (layer_->qsgOwnsRendering()) return;
-        if (!layer_->hasVelocityData()) return;
-        if (layer_->m_sceneTris.isEmpty()) return;
+        if (layer_->qsgOwnsRendering())
+            return;
+        if (!layer_->hasVelocityData())
+            return;
+        if (layer_->m_sceneTris.isEmpty())
+            return;
         // Velocity glyphs convey both magnitude and flow direction. The
         // separate direction-only flow-arrow pass was removed (2026-06-21,
         // redundant with velocity vectors).
@@ -973,40 +1179,44 @@ public:
     }
 
 private:
-    void paintVelocityGlyphs(QPainter* p,
-                             const QStyleOptionGraphicsItem* option)
+    /**
+     * @param[in] p Required active GUI painter.
+     * @param[in] option Unused exposed option; placement is anchored to whole mesh bounds to avoid
+     *   tile-dependent glyph popping.
+     * @note Gates velocity sublayer, clips by physical/style dry cutoff and small running-speed
+     *   fraction; grid retains strongest triangle per screen bucket. Uses style length/colour/heads
+     *   or legacy fallback, cosmetic width and layer/sublayer alpha; saves/restores painter.
+     */
+    void paintVelocityGlyphs(QPainter *p, const QStyleOptionGraphicsItem *option)
     {
         // Phase 9 (2026-05-25) — sublayer.isVisible() is the authoritative
         // gate (MVC). Falls back to the legacy velocityVectorsVisible()
         // when no sublayer is bound, preserving back-compat with UI code
         // that flips the boolean directly.
         auto *velSub = layer_->velocityVectorSublayer();
-        const bool wantArrows = velSub
-            ? velSub->isVisible()
-            : layer_->velocityVectorsVisible();
-        if (!wantArrows) return;
+        const bool wantArrows = velSub ? velSub->isVisible() : layer_->velocityVectorsVisible();
+        if (!wantArrows)
+            return;
 
-        Q_UNUSED(option);   // V0 (Issue 5) — no longer cull glyphs to the
-                            // repainted tile (option->exposedRect); the view
-                            // clips painting, so the placement domain is stable.
-        const auto& tris = layer_->m_sceneTris;
-        const qreal  alpha     = std::clamp<qreal>(layer_->velocityOpacity(), 0.0, 1.0);
+        Q_UNUSED(option); // V0 (Issue 5) — no longer cull glyphs to the
+                          // repainted tile (option->exposedRect); the view
+                          // clips painting, so the placement domain is stable.
+        const auto &tris = layer_->m_sceneTris;
+        const qreal alpha = std::clamp<qreal>(layer_->velocityOpacity(), 0.0, 1.0);
 
         // VS.8 — the VelocityVectorStyle bag is the single source of truth
         // for sizing / colour / placement. The legacy layer fields survive
         // only for the (never-hit) no-sublayer case.
-        const OpenSWMM::Render::VelocityVectorStyle *vs =
-            velSub ? velSub->vectorStyle() : nullptr;
+        const OpenSWMM::Render::VelocityVectorStyle *vs = velSub ? velSub->vectorStyle() : nullptr;
 
-        const double dryCut = vs
-            ? std::max(vs->dryDepthCutoff(), layer_->dryDepth())
-            : layer_->dryDepth();
+        const double dryCut =
+            vs ? std::max(vs->dryDepthCutoff(), layer_->dryDepth()) : layer_->dryDepth();
         const double maxVel = std::max(layer_->maxVelocity(), 1e-6);
 
         // Convert pixel-space arrow length to scene units so glyphs render
         // at a constant on-screen size regardless of zoom.
         const QTransform xf = p->worldTransform();
-        const double scale  = std::max(std::abs(xf.m11()), 1e-9);  // assume uniform scale
+        const double scale = std::max(std::abs(xf.m11()), 1e-9); // assume uniform scale
         const double pxToScene = 1.0 / scale;
 
         // Pen width also kept constant in pixels.
@@ -1016,12 +1226,11 @@ private:
         pen.setCapStyle(Qt::RoundCap);
 
         p->save();
-        p->setOpacity(p->opacity()*layer_->opacity()*alpha);
+        p->setOpacity(p->opacity() * layer_->opacity() * alpha);
 
         // Skip cells whose magnitude is below 0.01% of the running peak —
         // numerical noise without clipping real flow on slow shallow runs.
-        const double vmagSkip = std::max(static_cast<double>(maxVel) * 1e-4,
-                                          1e-9);
+        const double vmagSkip = std::max(static_cast<double>(maxVel) * 1e-4, 1e-9);
 
         auto drawGlyph = [&](const SWMM2DResultsLayer::SceneTri &t) {
             // Glyph length: style-driven scaling (linear / sqrt / log with
@@ -1032,11 +1241,11 @@ private:
                 lenPx = vs->glyphLengthPxForSpeed(t.vmag);
             } else {
                 const double mag_norm = std::clamp(t.vmag / maxVel, 0.0, 1.0);
-                lenPx = layer_->velocityArrowScale() * std::log1p(mag_norm) /
-                        std::log1p(1.0);
+                lenPx = layer_->velocityArrowScale() * std::log1p(mag_norm) / std::log1p(1.0);
             }
             const double len_scene = pxToScene * lenPx;
-            if (len_scene <= 0.0) return;
+            if (len_scene <= 0.0)
+                return;
 
             const double inv_vmag = 1.0 / t.vmag;
             const double dx = t.vx * inv_vmag * len_scene;
@@ -1056,16 +1265,15 @@ private:
             p->drawLine(tail, head);
 
             // Chevron arrowhead — two short legs at ±25° from the back-facing direction.
-            const double headLen = vs ? vs->headSizePx() * pxToScene
-                                      : len_scene * 0.32;
-            const double cosA = std::cos(0.43);   // ≈25°
+            const double headLen = vs ? vs->headSizePx() * pxToScene : len_scene * 0.32;
+            const double cosA = std::cos(0.43); // ≈25°
             const double sinA = std::sin(0.43);
-            const double ux = -dx / len_scene;    // unit vector head → tail
+            const double ux = -dx / len_scene; // unit vector head → tail
             const double uy = -dy / len_scene;
-            const QPointF left ( head.x() + headLen * (ux * cosA - uy * sinA),
-                                  head.y() + headLen * (ux * sinA + uy * cosA) );
-            const QPointF right( head.x() + headLen * (ux * cosA + uy * sinA),
-                                  head.y() + headLen * (-ux * sinA + uy * cosA) );
+            const QPointF left(head.x() + headLen * (ux * cosA - uy * sinA),
+                               head.y() + headLen * (ux * sinA + uy * cosA));
+            const QPointF right(head.x() + headLen * (ux * cosA + uy * sinA),
+                                head.y() + headLen * (-ux * sinA + uy * cosA));
             p->drawLine(head, left);
             p->drawLine(head, right);
         };
@@ -1085,15 +1293,17 @@ private:
             const QRectF area = layer_->m_sceneBBox;
             const double gridStep = spacingPx * pxToScene;
             if (gridStep > 0.0 && area.isValid()) {
-                const int nCols = std::max(1, int(area.width()  / gridStep));
+                const int nCols = std::max(1, int(area.width() / gridStep));
                 const int nRows = std::max(1, int(area.height() / gridStep));
-                const double cellW = area.width()  / double(nCols);
+                const double cellW = area.width() / double(nCols);
                 const double cellH = area.height() / double(nRows);
                 QHash<qint64, int> bucket;
                 for (int i = 0; i < tris.size(); ++i) {
                     const auto &t = tris[i];
-                    if (t.depth < dryCut)  continue;
-                    if (t.vmag < vmagSkip) continue;
+                    if (t.depth < dryCut)
+                        continue;
+                    if (t.vmag < vmagSkip)
+                        continue;
                     const double rx = t.centroid.x() - area.left();
                     const double ry = t.centroid.y() - area.top();
                     if (rx < 0 || ry < 0 || rx > area.width() || ry > area.height())
@@ -1112,9 +1322,11 @@ private:
             // V0 (Issue 5) — no per-centroid exposedRect cull; the view already
             // clips to the dirty region, and culling to the tile dropped arrows
             // outside whatever sub-rectangle was repainted.
-            for (const auto& t : tris) {
-                if (t.depth < dryCut)  continue;
-                if (t.vmag < vmagSkip) continue;          // sub-threshold cell
+            for (const auto &t : tris) {
+                if (t.depth < dryCut)
+                    continue;
+                if (t.vmag < vmagSkip)
+                    continue; // sub-threshold cell
                 drawGlyph(t);
             }
         }
@@ -1123,31 +1335,28 @@ private:
     }
 
 private:
-    SWMM2DResultsLayer* layer_;
+    SWMM2DResultsLayer *layer_;
 };
 
 // ===========================================================================
 // EngineMesh2DSource
 // ===========================================================================
 
-EngineMesh2DSource::EngineMesh2DSource(std::vector<double>            vx,
-                                         std::vector<double>            vy,
-                                         std::vector<double>            vz,
-                                         std::vector<std::array<int,3>> tris)
+EngineMesh2DSource::EngineMesh2DSource(std::vector<double> vx, std::vector<double> vy,
+                                       std::vector<double> vz, std::vector<std::array<int, 3>> tris)
     : vx_(std::move(vx)), vy_(std::move(vy)), vz_(std::move(vz))
 {
     cells_.resize(tris.size());
     for (size_t i = 0; i < tris.size(); ++i)
-        cells_[i] = { tris[i][0], tris[i][1], tris[i][2], -1 };
+        cells_[i] = {tris[i][0], tris[i][1], tris[i][2], -1};
 }
 
-EngineMesh2DSource::EngineMesh2DSource(std::vector<double>            vx,
-                                         std::vector<double>            vy,
-                                         std::vector<double>            vz,
-                                         std::vector<std::array<int,4>> cells)
-    : vx_(std::move(vx)), vy_(std::move(vy)), vz_(std::move(vz)),
-      cells_(std::move(cells))
-{}
+EngineMesh2DSource::EngineMesh2DSource(std::vector<double> vx, std::vector<double> vy,
+                                       std::vector<double> vz,
+                                       std::vector<std::array<int, 4>> cells)
+    : vx_(std::move(vx)), vy_(std::move(vy)), vz_(std::move(vz)), cells_(std::move(cells))
+{
+}
 
 std::vector<float> EngineMesh2DSource::toEdgeSlots_(std::vector<float> a) const
 {
@@ -1159,8 +1368,9 @@ std::vector<float> EngineMesh2DSource::toEdgeSlots_(std::vector<float> a) const
     const size_t nCells = cells_.size();
     if (mesh::kEdgeStride == 3 || a.size() != nCells * 3 || nCells == 0)
         return a;
-    for (const auto& c : cells_)
-        if (c[3] >= 0) return a;          // quads present: stride 3 cannot be right
+    for (const auto &c : cells_)
+        if (c[3] >= 0)
+            return a; // quads present: stride 3 cannot be right
     std::vector<float> out(mesh::edgeSlotCount(static_cast<int>(nCells)), 0.0f);
     for (size_t c = 0; c < nCells; ++c)
         for (int e = 0; e < 3; ++e)
@@ -1168,33 +1378,27 @@ std::vector<float> EngineMesh2DSource::toEdgeSlots_(std::vector<float> a) const
     return out;
 }
 
-void EngineMesh2DSource::pushDepths(std::vector<float> depths,
-                                     QDateTime simTime,
-                                     double elapsedSec)
+void EngineMesh2DSource::pushDepths(std::vector<float> depths, QDateTime simTime, double elapsedSec)
 {
     // If the runner already delivered flux for this same tick (flux arrived
     // first because of queue ordering or because depth bulk happens to be
     // slower), fold into the existing Tick rather than emitting a new frame.
-    if (!history_.empty() &&
-        history_.back().depths.empty() &&
-        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
-    {
-        history_.back().depths   = std::move(depths);
+    if (!history_.empty() && history_.back().depths.empty() &&
+        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6) {
+        history_.back().depths = std::move(depths);
         history_.back().sim_time = simTime;
         ++history_.back().revision;
         return;
     }
     Tick t;
-    t.depths      = std::move(depths);
-    t.sim_time    = simTime;
+    t.depths = std::move(depths);
+    t.sim_time = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
     enforceCap_();
 }
 
-void EngineMesh2DSource::pushFlux(std::vector<float> flux,
-                                   QDateTime simTime,
-                                   double elapsedSec)
+void EngineMesh2DSource::pushFlux(std::vector<float> flux, QDateTime simTime, double elapsedSec)
 {
     // Pair with the most recently pushed depths frame when the elapsed times
     // match; otherwise (depths came earlier and a new tick has begun, or
@@ -1204,24 +1408,21 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux,
         flux = toEdgeSlots_(std::move(flux));
         has_flux_ = true;
     }
-    if (!history_.empty() &&
-        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
-    {
+    if (!history_.empty() && std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6) {
         history_.back().flux = std::move(flux);
         ++history_.back().revision;
         return;
     }
     Tick t;
-    t.flux        = std::move(flux);
-    t.sim_time    = simTime;
+    t.flux = std::move(flux);
+    t.sim_time = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
     enforceCap_();
 }
 
-void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
-                                                 QDateTime simTime,
-                                                 double elapsedSec)
+void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths, QDateTime simTime,
+                                                double elapsedSec)
 {
     // SIGNED render depths (η_v − z_v) from the engine's wet-masked
     // reconstruction — the datum subtraction already happened engine-side in
@@ -1235,106 +1436,107 @@ void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
     // Pair with the tick whose elapsed time matches (same convention as
     // pushFlux); otherwise open a new tick with empty depths so a late
     // depths push folds in.
-    if (!history_.empty() &&
-        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
-    {
+    if (!history_.empty() && std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6) {
         history_.back().vertex_depths = std::move(vdepths);
         return;
     }
     Tick t;
     t.vertex_depths = std::move(vdepths);
-    t.sim_time      = simTime;
-    t.elapsed_sec   = elapsedSec;
+    t.sim_time = simTime;
+    t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
     enforceCap_();
 }
 
-void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall,
-                                       std::vector<float> rainCum,
-                                       QDateTime simTime,
-                                       double elapsedSec)
+void EngineMesh2DSource::pushRainfall(std::vector<float> rainfall, std::vector<float> rainCum,
+                                      QDateTime simTime, double elapsedSec)
 {
     // Same tick-pairing convention as pushFlux.
-    if (!history_.empty() &&
-        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
-    {
+    if (!history_.empty() && std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6) {
         history_.back().rainfall = std::move(rainfall);
         history_.back().rain_cum = std::move(rainCum);
         has_rainfall_ = true;
         return;
     }
     Tick t;
-    t.rainfall    = std::move(rainfall);
-    t.rain_cum    = std::move(rainCum);
-    t.sim_time    = simTime;
+    t.rainfall = std::move(rainfall);
+    t.rain_cum = std::move(rainCum);
+    t.sim_time = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
     has_rainfall_ = true;
     enforceCap_();
 }
 
-void EngineMesh2DSource::pushHeads(std::vector<float> heads,
-                                    QDateTime simTime,
-                                    double elapsedSec)
+void EngineMesh2DSource::pushHeads(std::vector<float> heads, QDateTime simTime, double elapsedSec)
 {
     // Same tick-pairing convention as pushFlux.
-    if (!history_.empty() &&
-        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
-    {
+    if (!history_.empty() && std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6) {
         history_.back().heads = std::move(heads);
         has_heads_ = true;
         return;
     }
     Tick t;
-    t.heads       = std::move(heads);
-    t.sim_time    = simTime;
+    t.heads = std::move(heads);
+    t.sim_time = simTime;
     t.elapsed_sec = elapsedSec;
     history_.emplace_back(std::move(t));
     has_heads_ = true;
     enforceCap_();
 }
 
-void EngineMesh2DSource::setEnvelopes(std::vector<float> maxDepth,
-                                       std::vector<float> maxVel)
+void EngineMesh2DSource::setEnvelopes(std::vector<float> maxDepth, std::vector<float> maxVel)
 {
     env_max_depth_ = std::move(maxDepth);
-    env_max_vel_   = std::move(maxVel);
+    env_max_vel_ = std::move(maxVel);
 }
 
 void EngineMesh2DSource::setHistoryPinned(bool pinned)
 {
     pinned_ = pinned;
-    if (!pinned_) enforceCap_();
+    if (!pinned_)
+        enforceCap_();
 }
 
 bool EngineMesh2DSource::pushFaceVariables(openswmmvis::io::Mesh2DLiveVariablesPtr frame,
-                                          QDateTime simTime, double elapsedSec)
+                                           QDateTime simTime, double elapsedSec)
 {
-    if (!frame || frame->cellCount != triangleCount() || !std::isfinite(elapsedSec)
-        || frame->variables.isEmpty()) return false;
+    if (!frame || frame->cellCount != triangleCount() || !std::isfinite(elapsedSec) ||
+        frame->variables.isEmpty())
+        return false;
     QSet<QString> keys;
     for (const auto &v : frame->variables) {
         const QString key = v.descriptor.key();
-        if (key.isEmpty() || keys.contains(key) || v.values.size() != cells_.size()
-            || v.status.size() != cells_.size()) return false;
+        if (key.isEmpty() || keys.contains(key) || v.values.size() != cells_.size() ||
+            v.status.size() != cells_.size())
+            return false;
         keys.insert(key);
         for (const auto &known : live_variables_)
-            if (known.key() == key && (known.units != v.descriptor.units
-                || known.unitsKnown != v.descriptor.unitsKnown || known.zone != v.descriptor.zone
-                || known.temporal != v.descriptor.temporal))
+            if (known.key() == key &&
+                (known.units != v.descriptor.units || known.unitsKnown != v.descriptor.unitsKnown ||
+                 known.zone != v.descriptor.zone || known.temporal != v.descriptor.temporal))
                 return false; // never relabel old numerical values with new units
     }
     for (const auto &v : frame->variables) {
         bool known = false;
-        for (const auto &d : live_variables_) if (d.key() == v.descriptor.key()) { known = true; break; }
-        if (!known) live_variables_.append(v.descriptor);
+        for (const auto &d : live_variables_)
+            if (d.key() == v.descriptor.key()) {
+                known = true;
+                break;
+            }
+        if (!known)
+            live_variables_.append(v.descriptor);
     }
     for (const auto &warning : frame->warnings)
-        if (!live_variable_warnings_.contains(warning)) live_variable_warnings_.append(warning);
+        if (!live_variable_warnings_.contains(warning))
+            live_variable_warnings_.append(warning);
     if (!history_.empty() && std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
         history_.back().variables = std::move(frame);
     else {
-        Tick tick; tick.variables = std::move(frame); tick.sim_time = simTime; tick.elapsed_sec = elapsedSec;
+        Tick tick;
+        tick.variables = std::move(frame);
+        tick.sim_time = simTime;
+        tick.elapsed_sec = elapsedSec;
         history_.push_back(std::move(tick));
     }
     // A queued chemical payload can complete an already-observed hydraulic
@@ -1344,34 +1546,49 @@ bool EngineMesh2DSource::pushFaceVariables(openswmmvis::io::Mesh2DLiveVariablesP
     return true;
 }
 
-QVector<openswmmvis::io::Mesh2DResultVariable> EngineMesh2DSource::faceVariables(QStringList *warnings) const
+QVector<openswmmvis::io::Mesh2DResultVariable>
+EngineMesh2DSource::faceVariables(QStringList *warnings) const
 {
-    if (warnings) *warnings = live_variable_warnings_;
+    if (warnings)
+        *warnings = live_variable_warnings_;
     auto variables = live_variables_;
-    for (auto &v : variables) v.frameCount = v.temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static ? 0 : timeCount();
+    for (auto &v : variables)
+        v.frameCount =
+            v.temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static ? 0 : timeCount();
     return variables;
 }
 
 bool EngineMesh2DSource::readFaceVariableAt(const openswmmvis::io::Mesh2DResultVariable &variable,
-    int timeIdx, std::vector<float> &values, std::vector<openswmmvis::io::Mesh2DValueStatus> &status)
+                                            int timeIdx, std::vector<float> &values,
+                                            std::vector<openswmmvis::io::Mesh2DValueStatus> &status)
 {
     using Status = openswmmvis::io::Mesh2DValueStatus;
-    values.clear(); status.clear();
+    values.clear();
+    status.clear();
     const openswmmvis::io::Mesh2DResultVariable *known = nullptr;
     for (const auto &v : live_variables_)
-        if (v.key() == variable.key() && v.zone == variable.zone) { known = &v; break; }
-    if (!known) return false;
-    const bool independent = known->temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static;
-    if (!independent && (timeIdx < 0 || timeIdx >= timeCount())) return false;
+        if (v.key() == variable.key() && v.zone == variable.zone) {
+            known = &v;
+            break;
+        }
+    if (!known)
+        return false;
+    const bool independent =
+        known->temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static;
+    if (!independent && (timeIdx < 0 || timeIdx >= timeCount()))
+        return false;
     // Static base elevation remains available even if frame zero predates the
     // first chemical/GW snapshot. It has no requested report index.
     const int begin = independent ? 0 : timeIdx, end = independent ? timeCount() : timeIdx + 1;
     for (int i = begin; i < end; ++i) {
         const auto &frame = history_[size_t(i)].variables;
-        if (frame) for (const auto &v : frame->variables)
-            if (v.descriptor.key() == variable.key() && v.descriptor.zone == variable.zone) {
-                values = v.values; status = v.status; return true;
-            }
+        if (frame)
+            for (const auto &v : frame->variables)
+                if (v.descriptor.key() == variable.key() && v.descriptor.zone == variable.zone) {
+                    values = v.values;
+                    status = v.status;
+                    return true;
+                }
     }
     // The species exists in this run but this retained tick did not carry it.
     // Preserve the gap instead of borrowing values from another time/row.
@@ -1383,21 +1600,24 @@ bool EngineMesh2DSource::readFaceVariableAt(const openswmmvis::io::Mesh2DResultV
 size_t EngineMesh2DSource::historyBytes() const
 {
     size_t n = 0;
-    for (const Tick& t : history_)
-        n += t.depths.size() + t.flux.size() + t.vertex_depths.size()
-           + t.rainfall.size() + t.rain_cum.size() + t.heads.size();
+    for (const Tick &t : history_)
+        n += t.depths.size() + t.flux.size() + t.vertex_depths.size() + t.rainfall.size() +
+             t.rain_cum.size() + t.heads.size();
     size_t bytes = n * sizeof(float);
-    for (const Tick &t : history_) if (t.variables) bytes += t.variables->payloadBytes();
+    for (const Tick &t : history_)
+        if (t.variables)
+            bytes += t.variables->payloadBytes();
     return bytes;
 }
 
 void EngineMesh2DSource::enforceCap_()
 {
-    if (pinned_) return;   // an export holds frame indices; thin on unpin
-    const bool overFrames = max_frames_ >= 8
-                            && static_cast<int>(history_.size()) > max_frames_;
-    const bool overBytes  = max_bytes_ > 0 && historyBytes() > max_bytes_;
-    if (!overFrames && !overBytes) return;
+    if (pinned_)
+        return; // an export holds frame indices; thin on unpin
+    const bool overFrames = max_frames_ >= 8 && static_cast<int>(history_.size()) > max_frames_;
+    const bool overBytes = max_bytes_ > 0 && historyBytes() > max_bytes_;
+    if (!overFrames && !overBytes)
+        return;
 
     // Thin the OLDER half 2:1 (keep every other frame), keep the newer half
     // whole: recent frames stay at full cadence, the far past coarsens
@@ -1409,45 +1629,50 @@ void EngineMesh2DSource::enforceCap_()
         const size_t n = history_.size(), half = n / 2;
         std::vector<Tick> kept;
         kept.reserve(n - half / 2);
-        for (size_t i = 0; i < half; i += 2) kept.emplace_back(std::move(history_[i]));
-        for (size_t i = half; i < n; ++i)   kept.emplace_back(std::move(history_[i]));
+        for (size_t i = 0; i < half; i += 2)
+            kept.emplace_back(std::move(history_[i]));
+        for (size_t i = half; i < n; ++i)
+            kept.emplace_back(std::move(history_[i]));
         history_ = std::move(kept);
 
-        const bool framesOk = max_frames_ < 8
-                              || static_cast<int>(history_.size()) <= max_frames_;
-        const bool bytesOk  = max_bytes_ == 0 || historyBytes() <= byteTarget;
-        if (framesOk && bytesOk) break;
+        const bool framesOk = max_frames_ < 8 || static_cast<int>(history_.size()) <= max_frames_;
+        const bool bytesOk = max_bytes_ == 0 || historyBytes() <= byteTarget;
+        if (framesOk && bytesOk)
+            break;
     }
     ++generation_;
 }
 
-bool EngineMesh2DSource::readDepthAt(int timeIdx, int cell, float& out)
+bool EngineMesh2DSource::readDepthAt(int timeIdx, int cell, float &out)
 {
-    if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) return false;
-    const auto& d = history_[static_cast<size_t>(timeIdx)].depths;
-    if (cell < 0 || cell >= static_cast<int>(d.size())) return false;
+    if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size()))
+        return false;
+    const auto &d = history_[static_cast<size_t>(timeIdx)].depths;
+    if (cell < 0 || cell >= static_cast<int>(d.size()))
+        return false;
     out = d[static_cast<size_t>(cell)];
     return true;
 }
 
-bool EngineMesh2DSource::hasFaceField(const char* dataset) const
+bool EngineMesh2DSource::hasFaceField(const char *dataset) const
 {
-    if (!dataset) return false;
-    if (std::strcmp(dataset, "Mesh2_face_rainfall") == 0
-        || std::strcmp(dataset, "Mesh2_face_rain_cum") == 0)
+    if (!dataset)
+        return false;
+    if (std::strcmp(dataset, "Mesh2_face_rainfall") == 0 ||
+        std::strcmp(dataset, "Mesh2_face_rain_cum") == 0)
         return has_rainfall_;
     if (std::strcmp(dataset, "Mesh2_face_head") == 0)
         return has_heads_;
-    if (std::strcmp(dataset, "Mesh2_face_vx") == 0
-        || std::strcmp(dataset, "Mesh2_face_vy") == 0)
+    if (std::strcmp(dataset, "Mesh2_face_vx") == 0 || std::strcmp(dataset, "Mesh2_face_vy") == 0)
         return has_flux_ && !edge_length_.empty();
     return false;
 }
 
-bool EngineMesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
-                                          std::vector<float>& values)
+bool EngineMesh2DSource::readFaceFieldAt(const char *dataset, int timeIdx,
+                                         std::vector<float> &values)
 {
-    if (!hasFaceField(dataset)) return false;
+    if (!hasFaceField(dataset))
+        return false;
     if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) {
         values.assign(cells_.size(), 0.0f);
         return false;
@@ -1463,10 +1688,10 @@ bool EngineMesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
         values = wantVx ? std::move(vx) : std::move(vy);
         return true;
     }
-    const Tick& t = history_[timeIdx];
-    const auto& src = (std::strcmp(dataset, "Mesh2_face_rainfall") == 0) ? t.rainfall
-                    : (std::strcmp(dataset, "Mesh2_face_rain_cum") == 0) ? t.rain_cum
-                                                                          : t.heads;
+    const Tick &t = history_[timeIdx];
+    const auto &src = (std::strcmp(dataset, "Mesh2_face_rainfall") == 0)   ? t.rainfall
+                      : (std::strcmp(dataset, "Mesh2_face_rain_cum") == 0) ? t.rain_cum
+                                                                           : t.heads;
     if (src.empty()) {
         // Tick pushed before this field's message landed — caller skips it.
         values.assign(cells_.size(), 0.0f);
@@ -1476,14 +1701,13 @@ bool EngineMesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
     return true;
 }
 
-bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float>& vx,
-                                              std::vector<float>& vy) const
+bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float> &vx,
+                                              std::vector<float> &vy) const
 {
-    const Tick& t = history_[static_cast<size_t>(timeIdx)];
-    const size_t nCell  = cells_.size();
+    const Tick &t = history_[static_cast<size_t>(timeIdx)];
+    const size_t nCell = cells_.size();
     const size_t nSlots = size_t(mesh::edgeSlotCount(static_cast<int>(nCell)));
-    if (t.flux.size() != nSlots || t.depths.size() != nCell ||
-        edge_length_.size() != nSlots)
+    if (t.flux.size() != nSlots || t.depths.size() != nCell || edge_length_.size() != nSlots)
         return false;
 
     // The engine's computeFaceVelocity: RT0 specific discharge from the
@@ -1494,11 +1718,12 @@ bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float>& v
     vy.assign(nCell, 0.0f);
     for (size_t c = 0; c < nCell; ++c) {
         const double depth = t.depths[c];
-        if (depth < dry_depth_) continue;
+        if (depth < dry_depth_)
+            continue;
         double qx = 0.0, qy = 0.0;
-        if (!mesh::cellVelocity(static_cast<int>(c), cellVertexCount(cells_[c]),
-                                    t.flux.data(), edge_length_.data(),
-                                    edge_nx_.data(), edge_ny_.data(), depth, dry_depth_, qx, qy))
+        if (!mesh::cellVelocity(static_cast<int>(c), cellVertexCount(cells_[c]), t.flux.data(),
+                                edge_length_.data(), edge_nx_.data(), edge_ny_.data(), depth,
+                                dry_depth_, qx, qy))
             continue;
         vx[c] = static_cast<float>(qx);
         vy[c] = static_cast<float>(qy);
@@ -1506,52 +1731,52 @@ bool EngineMesh2DSource::reconstructVelocity_(int timeIdx, std::vector<float>& v
     return true;
 }
 
-bool EngineMesh2DSource::readFaceEnvelope(const char* dataset, std::vector<float>& values)
+bool EngineMesh2DSource::readFaceEnvelope(const char *dataset, std::vector<float> &values)
 {
-    if (!dataset) return false;
-    const std::vector<float>* src = nullptr;
-    if (std::strcmp(dataset, "Mesh2_face_max_depth") == 0)         src = &env_max_depth_;
-    else if (std::strcmp(dataset, "Mesh2_face_max_velocity") == 0) src = &env_max_vel_;
-    if (!src || src->empty()) return false;
+    if (!dataset)
+        return false;
+    const std::vector<float> *src = nullptr;
+    if (std::strcmp(dataset, "Mesh2_face_max_depth") == 0)
+        src = &env_max_depth_;
+    else if (std::strcmp(dataset, "Mesh2_face_max_velocity") == 0)
+        src = &env_max_vel_;
+    if (!src || src->empty())
+        return false;
     values = *src;
     return true;
 }
 
-void EngineMesh2DSource::setEdgeGeometry(std::vector<float> length,
-                                          std::vector<float> nx,
-                                          std::vector<float> ny)
+void EngineMesh2DSource::setEdgeGeometry(std::vector<float> length, std::vector<float> nx,
+                                         std::vector<float> ny)
 {
     edge_length_ = toEdgeSlots_(std::move(length));
-    edge_nx_     = toEdgeSlots_(std::move(nx));
-    edge_ny_     = toEdgeSlots_(std::move(ny));
+    edge_nx_ = toEdgeSlots_(std::move(nx));
+    edge_ny_ = toEdgeSlots_(std::move(ny));
 }
 
-bool EngineMesh2DSource::readMeshGeometry(std::vector<double>& vx,
-                                           std::vector<double>& vy,
-                                           std::vector<double>& vz,
-                                           std::vector<std::array<int, 3>>& tris)
+bool EngineMesh2DSource::readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy,
+                                          std::vector<double> &vz,
+                                          std::vector<std::array<int, 3>> &tris)
 {
-    vx   = vx_;
-    vy   = vy_;
-    vz   = vz_;
+    vx = vx_;
+    vy = vy_;
+    vz = vz_;
     std::vector<int> triCell, cellTri0;
     buildDisplayFan(vx_, vy_, vz_, cells_, tris, triCell, cellTri0, nullptr);
     return true;
 }
 
-bool EngineMesh2DSource::readCells(std::vector<double>& vx,
-                                    std::vector<double>& vy,
-                                    std::vector<double>& vz,
-                                    std::vector<std::array<int, 4>>& cells)
+bool EngineMesh2DSource::readCells(std::vector<double> &vx, std::vector<double> &vy,
+                                   std::vector<double> &vz, std::vector<std::array<int, 4>> &cells)
 {
-    vx    = vx_;
-    vy    = vy_;
-    vz    = vz_;
+    vx = vx_;
+    vy = vy_;
+    vz = vz_;
     cells = cells_;
     return true;
 }
 
-bool EngineMesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
+bool EngineMesh2DSource::readDepthsAt(int timeIdx, std::vector<float> &depths)
 {
     if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) {
         depths.assign(cells_.size(), 0.0f);
@@ -1563,40 +1788,46 @@ bool EngineMesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
 
 QDateTime EngineMesh2DSource::simTimeAt(int i) const
 {
-    if (i < 0 || i >= static_cast<int>(history_.size())) return {};
+    if (i < 0 || i >= static_cast<int>(history_.size()))
+        return {};
     return history_[i].sim_time;
 }
 
-
 std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
-EngineMesh2DSource::readHydraulicCellsAt(int time, const std::vector<int>& ids)
+EngineMesh2DSource::readHydraulicCellsAt(int time, const std::vector<int> &ids)
 {
     using namespace openswmmvis::io;
-    if (time < 0 || time >= int(history_.size())
-        || !validHydraulicCells(ids, int(cells_.size()))) return {};
-    const auto& tick = history_[size_t(time)];
-    if (tick.depths.size() != cells_.size()) return {};
+    if (time < 0 || time >= int(history_.size()) || !validHydraulicCells(ids, int(cells_.size())))
+        return {};
+    const auto &tick = history_[size_t(time)];
+    if (tick.depths.size() != cells_.size())
+        return {};
     auto out = std::make_shared<Mesh2DHydraulicFrame>();
-    out->time = time; out->generation = generation_; out->revision = tick.revision;
-    out->cells = ids; out->depths.reserve(ids.size());
-    const bool flux = tick.flux.size() == cells_.size()*4;
-    if (flux) out->flux.reserve(ids.size()*4);
+    out->time = time;
+    out->generation = generation_;
+    out->revision = tick.revision;
+    out->cells = ids;
+    out->depths.reserve(ids.size());
+    const bool flux = tick.flux.size() == cells_.size() * 4;
+    if (flux)
+        out->flux.reserve(ids.size() * 4);
     for (int cell : ids) {
         out->depths.push_back(tick.depths[size_t(cell)]);
-        if (flux) out->flux.insert(out->flux.end(), tick.flux.begin()+4*size_t(cell),
-                                  tick.flux.begin()+4*size_t(cell)+4);
+        if (flux)
+            out->flux.insert(out->flux.end(), tick.flux.begin() + 4 * size_t(cell),
+                             tick.flux.begin() + 4 * size_t(cell) + 4);
     }
     return out;
 }
 
-bool EngineMesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
+bool EngineMesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float> &flux)
 {
     const size_t n3 = size_t(mesh::edgeSlotCount(static_cast<int>(cells_.size())));
     if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size())) {
         flux.assign(n3, 0.0f);
         return false;
     }
-    const auto& src = history_[timeIdx].flux;
+    const auto &src = history_[timeIdx].flux;
     if (src.empty()) {
         // Tick was pushed via pushDepths only — engine lacks the flux API.
         flux.assign(n3, 0.0f);
@@ -1606,23 +1837,22 @@ bool EngineMesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
     return true;
 }
 
-bool EngineMesh2DSource::readEdgeGeometry(std::vector<float>& length,
-                                           std::vector<float>& nx,
-                                           std::vector<float>& ny)
+bool EngineMesh2DSource::readEdgeGeometry(std::vector<float> &length, std::vector<float> &nx,
+                                          std::vector<float> &ny)
 {
-    if (edge_length_.empty()) return false;
+    if (edge_length_.empty())
+        return false;
     length = edge_length_;
-    nx     = edge_nx_;
-    ny     = edge_ny_;
+    nx = edge_nx_;
+    ny = edge_ny_;
     return true;
 }
 
-bool EngineMesh2DSource::readVertexDepthsAt(int timeIdx,
-                                             std::vector<float>& vdepths)
+bool EngineMesh2DSource::readVertexDepthsAt(int timeIdx, std::vector<float> &vdepths)
 {
     if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size()))
         return false;
-    const auto& src = history_[timeIdx].vertex_depths;
+    const auto &src = history_[timeIdx].vertex_depths;
     if (src.empty()) {
         // Tick was pushed without heads — engine lacks the vertex API (or
         // the heads message hasn't landed yet); caller falls back.
@@ -1636,13 +1866,13 @@ bool EngineMesh2DSource::readVertexDepthsAt(int timeIdx,
 // HDF5Mesh2DSource
 // ===========================================================================
 
-HDF5Mesh2DSource::HDF5Mesh2DSource()
-    : reader_(std::make_unique<openswmmvis::io::Mesh2DH5Reader>())
-{}
+HDF5Mesh2DSource::HDF5Mesh2DSource() : reader_(std::make_unique<openswmmvis::io::Mesh2DH5Reader>())
+{
+}
 
 HDF5Mesh2DSource::~HDF5Mesh2DSource() = default;
 
-bool HDF5Mesh2DSource::open(const QString& path)
+bool HDF5Mesh2DSource::open(const QString &path)
 {
     ++open_generation_;
     cached_times_.clear();
@@ -1650,96 +1880,102 @@ bool HDF5Mesh2DSource::open(const QString& path)
     return reader_->open(path);
 }
 
-int HDF5Mesh2DSource::vertexCount() const   { return reader_->vertexCount(); }
+int HDF5Mesh2DSource::vertexCount() const
+{
+    return reader_->vertexCount();
+}
 // Cells (faces), not display triangles — per-face datasets are [nTime, nFace].
-int HDF5Mesh2DSource::triangleCount() const { return reader_->cellCount(); }
-int HDF5Mesh2DSource::timeCount() const     { return reader_->timeCount(); }
+int HDF5Mesh2DSource::triangleCount() const
+{
+    return reader_->cellCount();
+}
+int HDF5Mesh2DSource::timeCount() const
+{
+    return reader_->timeCount();
+}
 
-bool HDF5Mesh2DSource::readMeshGeometry(std::vector<double>& vx,
-                                          std::vector<double>& vy,
-                                          std::vector<double>& vz,
-                                          std::vector<std::array<int, 3>>& tris)
+bool HDF5Mesh2DSource::readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy,
+                                        std::vector<double> &vz,
+                                        std::vector<std::array<int, 3>> &tris)
 {
     // The reader's readTriangles is the DISPLAY fan (G0/G1 contract).
-    if (!reader_->readMeshGeometry(vx, vy, vz)) return false;
+    if (!reader_->readMeshGeometry(vx, vy, vz))
+        return false;
     return reader_->readTriangles(tris);
 }
 
-bool HDF5Mesh2DSource::readCells(std::vector<double>& vx,
-                                  std::vector<double>& vy,
-                                  std::vector<double>& vz,
-                                  std::vector<std::array<int, 4>>& cells)
+bool HDF5Mesh2DSource::readCells(std::vector<double> &vx, std::vector<double> &vy,
+                                 std::vector<double> &vz, std::vector<std::array<int, 4>> &cells)
 {
-    if (!reader_->readMeshGeometry(vx, vy, vz)) return false;
+    if (!reader_->readMeshGeometry(vx, vy, vz))
+        return false;
     return reader_->readCells(cells);
 }
 
-openswmmvis::io::CoordinateReference
-HDF5Mesh2DSource::coordinateReference() const
+openswmmvis::io::CoordinateReference HDF5Mesh2DSource::coordinateReference() const
 {
     openswmmvis::io::CoordinateReference ref;
     if (reader_)
-        reader_->readCoordinateReference(ref);   // leaves ref undeclared on old files
+        reader_->readCoordinateReference(ref); // leaves ref undeclared on old files
     return ref;
 }
 
-bool HDF5Mesh2DSource::readDepthsAt(int timeIdx, std::vector<float>& depths)
+bool HDF5Mesh2DSource::readDepthsAt(int timeIdx, std::vector<float> &depths)
 {
     return reader_->readDepthsAt(timeIdx, depths);
 }
 
-
-bool HDF5Mesh2DSource::readDepthAt(int time, int cell, float& out)
+bool HDF5Mesh2DSource::readDepthAt(int time, int cell, float &out)
 {
     return reader_->readDepthAt(time, cell, out);
 }
 
 std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame>
-HDF5Mesh2DSource::readHydraulicCellsAt(int time, const std::vector<int>& ids)
+HDF5Mesh2DSource::readHydraulicCellsAt(int time, const std::vector<int> &ids)
 {
     auto out = std::make_shared<openswmmvis::io::Mesh2DHydraulicFrame>();
-    if (!reader_->readHydraulicCellsAt(time, ids, out->depths, out->flux)) return {};
-    out->time = time; out->generation = historyGeneration();
-    out->revision = frameContentRevision(time); out->cells = ids;
+    if (!reader_->readHydraulicCellsAt(time, ids, out->depths, out->flux))
+        return {};
+    out->time = time;
+    out->generation = historyGeneration();
+    out->revision = frameContentRevision(time);
+    out->cells = ids;
     return out;
 }
 
-bool HDF5Mesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
+bool HDF5Mesh2DSource::readEdgeFluxAt(int timeIdx, std::vector<float> &flux)
 {
     return reader_->readEdgeFluxAt(timeIdx, flux);
 }
 
-bool HDF5Mesh2DSource::hasFaceField(const char* dataset) const
+bool HDF5Mesh2DSource::hasFaceField(const char *dataset) const
 {
     return reader_ && reader_->hasFaceField(dataset);
 }
 
-bool HDF5Mesh2DSource::readFaceFieldAt(const char* dataset, int timeIdx,
-                                       std::vector<float>& values)
+bool HDF5Mesh2DSource::readFaceFieldAt(const char *dataset, int timeIdx, std::vector<float> &values)
 {
     return reader_->readFaceFieldAt(dataset, timeIdx, values);
 }
-bool HDF5Mesh2DSource::readFaceFieldCellsAt(const char* dataset,int time,const std::vector<int>& cells,
-                                         std::vector<float>& values)
+bool HDF5Mesh2DSource::readFaceFieldCellsAt(const char *dataset, int time,
+                                            const std::vector<int> &cells,
+                                            std::vector<float> &values)
 {
-    return reader_->readFaceFieldCellsAt(dataset,time,cells,values);
+    return reader_->readFaceFieldCellsAt(dataset, time, cells, values);
 }
 
-bool HDF5Mesh2DSource::readFaceEnvelope(const char* dataset,
-                                        std::vector<float>& values)
+bool HDF5Mesh2DSource::readFaceEnvelope(const char *dataset, std::vector<float> &values)
 {
     return reader_ && reader_->readFaceEnvelope(dataset, values);
 }
 
-bool HDF5Mesh2DSource::readEdgeGeometry(std::vector<float>& length,
-                                         std::vector<float>& nx,
-                                         std::vector<float>& ny)
+bool HDF5Mesh2DSource::readEdgeGeometry(std::vector<float> &length, std::vector<float> &nx,
+                                        std::vector<float> &ny)
 {
     return reader_->readEdgeGeometry(length, nx, ny);
 }
 
-bool HDF5Mesh2DSource::readVertexDepthsAt(int timeIdx,
-                                           std::vector<float>& vdepths)
+bool HDF5Mesh2DSource::readVertexDepthsAt(int timeIdx, std::vector<float> &vdepths)
 {
     // Only the SIGNED wet-masked render field (/Mesh2_node_depth) is consumed.
     // The legacy /Mesh2_node_head solver field is deliberately ignored: its
@@ -1755,7 +1991,8 @@ bool HDF5Mesh2DSource::readVertexDepthsAt(int timeIdx,
 
 QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
 {
-    if (!reader_) return {};
+    if (!reader_)
+        return {};
     // The /time dataset stores the SWMM **absolute** DateTime (days since
     // 1899-12-30), NOT days-since-start: the engine writes
     // SimulationSnapshot::sim_time (= ctx.current_date) verbatim
@@ -1770,11 +2007,16 @@ QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
     // Reading all T timestamps for each of T plot samples was O(T²).
     // Refill only when the file grows (or open() invalidates the cache).
     const int count = reader_->timeCount();
-    if (timeIdx < 0 || timeIdx >= count) return {};
+    if (timeIdx < 0 || timeIdx >= count)
+        return {};
     if (static_cast<int>(cached_times_.size()) != count) {
-        if (!reader_->readTimes(cached_times_)) { cached_times_.clear(); return {}; }
+        if (!reader_->readTimes(cached_times_)) {
+            cached_times_.clear();
+            return {};
+        }
     }
-    if (timeIdx >= static_cast<int>(cached_times_.size())) return {};
+    if (timeIdx >= static_cast<int>(cached_times_.size()))
+        return {};
     return openswmmvis::core::swmmDateTimeToQDateTime(cached_times_[timeIdx]);
 }
 
@@ -1782,8 +2024,7 @@ QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
 // SWMM2DResultsLayer
 // ===========================================================================
 
-SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
-                                         OpenSWMMVisWorkspace* parent)
+SWMM2DResultsLayer::SWMM2DResultsLayer(const QString &name, OpenSWMMVisWorkspace *parent)
     : OpenSWMMVisLayer(name, parent)
 {
     setLayerType(OpenSWMMVisLayer::SWMM2DResultsLayer);
@@ -1799,18 +2040,18 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     // layer's lifetime. Stable IDs namespaced under "results2d." so the
     // 1D layer's "results." IDs never collide. The existing CF.MVP
     // SceneTri pipeline keeps painting; sublayers are dormant.
-    m_meshFillSublayer = new OpenSWMM::Render::MeshFillSublayer(
-        QStringLiteral("results2d.mesh"), this);
-    m_meshEdgeSublayer = new OpenSWMM::Render::MeshEdgeSublayer(
-        QStringLiteral("results2d.meshEdges"), this);
-    m_meshNodeSublayer = new OpenSWMM::Render::MeshNodeSublayer(
-        QStringLiteral("results2d.meshVertices"), this);
-    m_contourBandSublayer = new OpenSWMM::Render::ContourBandSublayer(
-        QStringLiteral("results2d.bands"), this);
-    m_isolineSublayer = new OpenSWMM::Render::IsolineSublayer(
-        QStringLiteral("results2d.isolines"), this);
-    m_velocityVectorSublayer = new OpenSWMM::Render::VelocityVectorSublayer(
-        QStringLiteral("results2d.velocity"), this);
+    m_meshFillSublayer =
+        new OpenSWMM::Render::MeshFillSublayer(QStringLiteral("results2d.mesh"), this);
+    m_meshEdgeSublayer =
+        new OpenSWMM::Render::MeshEdgeSublayer(QStringLiteral("results2d.meshEdges"), this);
+    m_meshNodeSublayer =
+        new OpenSWMM::Render::MeshNodeSublayer(QStringLiteral("results2d.meshVertices"), this);
+    m_contourBandSublayer =
+        new OpenSWMM::Render::ContourBandSublayer(QStringLiteral("results2d.bands"), this);
+    m_isolineSublayer =
+        new OpenSWMM::Render::IsolineSublayer(QStringLiteral("results2d.isolines"), this);
+    m_velocityVectorSublayer =
+        new OpenSWMM::Render::VelocityVectorSublayer(QStringLiteral("results2d.velocity"), this);
     // Direct mesh-fill depth visualisations (alternatives to the
     // marching-squares contour bands): flat per-cell colour, and per-vertex
     // Gouraud (smooth seam-free gradient). Continuous color mapping by default.
@@ -1825,8 +2066,10 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     // gray-wash fix). Discrete depth classes read better over a basemap,
     // and both fills now default to 60 % opacity so inundated areas show
     // the basemap underneath. Users can still switch from the layer tree.
-    if (m_smoothDepthFillSublayer) m_smoothDepthFillSublayer->setVisible(false);
-    if (m_contourBandSublayer)     m_contourBandSublayer->setVisible(true);
+    if (m_smoothDepthFillSublayer)
+        m_smoothDepthFillSublayer->setVisible(false);
+    if (m_contourBandSublayer)
+        m_contourBandSublayer->setVisible(true);
 
     // 2026-09-01 — the depth contour bands default to the "Water Depth" ramp
     // (translucent near-white blue → opaque deep navy). Overridden HERE, not
@@ -1850,20 +2093,22 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     // Without the emit, toggling a sublayer or editing its style shows
     // nothing until some other event repaints the canvas (pan/zoom/tick).
     auto wireMeshRepaint = [this](OpenSWMM::Render::ISublayer *s) {
-        if (!s) return;
-        QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated,
-                         this, [this]() {
-                             if (graphics_item_) graphics_item_->geometryChanged();
-                             emit repaintRequested();
-                         });
+        if (!s)
+            return;
+        QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated, this, [this]() {
+            if (graphics_item_)
+                graphics_item_->geometryChanged();
+            emit repaintRequested();
+        });
     };
     auto wireArrowRepaint = [this](OpenSWMM::Render::ISublayer *s) {
-        if (!s) return;
-        QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated,
-                         this, [this]() {
-                             if (arrows_item_) arrows_item_->geometryChanged();
-                             emit repaintRequested();
-                         });
+        if (!s)
+            return;
+        QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated, this, [this]() {
+            if (arrows_item_)
+                arrows_item_->geometryChanged();
+            emit repaintRequested();
+        });
     };
     wireMeshRepaint(m_meshFillSublayer);
     wireMeshRepaint(m_meshEdgeSublayer);
@@ -1875,11 +2120,12 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireArrowRepaint(m_velocityVectorSublayer);
     m_flowStreakSublayer = new OpenSWMM::Render::FlowStreakSublayer(this);
     m_particleController = new OpenSWMM::Render::FlowParticleLayerController(this);
-    connect(m_flowStreakSublayer,&OpenSWMM::Render::ISublayer::invalidated,this,[this] {
+    connect(m_flowStreakSublayer, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
         // Keep the ordinary UI/CPU repaint signal, but let the separate
         // particle presentation preserve hydraulic geometry and scene caches.
-        const QScopedValueRollback<bool> flowOnly(m_flowOnlyRepaint,true);
-        if(!m_qsgOwnsRendering && graphics_item_)graphics_item_->geometryChanged();
+        const QScopedValueRollback<bool> flowOnly(m_flowOnlyRepaint, true);
+        if (!m_qsgOwnsRendering && graphics_item_)
+            graphics_item_->geometryChanged();
         emit repaintRequested();
     });
     surface_pool_.setMaxThreadCount(1);
@@ -1887,7 +2133,7 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
 
 SWMM2DResultsLayer::~SWMM2DResultsLayer()
 {
-    cancelSurfaceJobs_();   // the worker reads this layer's geometry
+    cancelSurfaceJobs_(); // the worker reads this layer's geometry
     OGRCoordinateTransformation::DestroyCT(m_transform);
     m_transform = nullptr;
 }
@@ -1909,27 +2155,23 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DResultsLayer::sublayers() const
     if (m_sublayerOrder.isEmpty()) {
         OpenSWMM::Render::ISublayer *defaults[] = {
             m_meshFillSublayer,
-            m_cellDepthFillSublayer,    // flat per-cell depth fill (base)
-            m_smoothDepthFillSublayer,  // Gouraud smooth depth fill (base)
-            m_contourBandSublayer,
-            m_meshEdgeSublayer,
-            m_isolineSublayer,
-            m_meshNodeSublayer,
-            m_velocityVectorSublayer,
-            m_flowStreakSublayer,
+            m_cellDepthFillSublayer,   // flat per-cell depth fill (base)
+            m_smoothDepthFillSublayer, // Gouraud smooth depth fill (base)
+            m_contourBandSublayer,     m_meshEdgeSublayer,       m_isolineSublayer,
+            m_meshNodeSublayer,        m_velocityVectorSublayer, m_flowStreakSublayer,
         };
         for (auto *s : defaults)
-            if (s) m_sublayerOrder.append(s);
+            if (s)
+                m_sublayerOrder.append(s);
     }
     return m_sublayerOrder;
 }
 
 bool SWMM2DResultsLayer::moveSublayer(int from, int to)
 {
-    (void) sublayers();      // force lazy seed
-    if (from < 0 || from >= m_sublayerOrder.size()
-        || to   < 0 || to   >= m_sublayerOrder.size()
-        || from == to)
+    (void)sublayers(); // force lazy seed
+    if (from < 0 || from >= m_sublayerOrder.size() || to < 0 || to >= m_sublayerOrder.size() ||
+        from == to)
         return false;
     m_sublayerOrder.move(from, to);
     emit repaintRequested();
@@ -1961,11 +2203,13 @@ bool SWMM2DResultsLayer::hasEdgeFluxData() const
     // have_velocity_ (recomputed per tick from the shown frame's reconstructed
     // velocity, hence false on dry frames), this answers "does the run carry a
     // per-edge flux feed at all" — the correct gate for whole-series plotting.
-    if (edge_flux_probe_ != 0) return edge_flux_probe_ > 0;
-    if (!source_) return false;
+    if (edge_flux_probe_ != 0)
+        return edge_flux_probe_ > 0;
+    if (!source_)
+        return false;
     const int nTri = source_->triangleCount();
     if (nTri <= 0 || source_->timeCount() <= 0)
-        return false;   // not yet knowable (e.g. live source with no frames); don't cache
+        return false; // not yet knowable (e.g. live source with no frames); don't cache
     std::vector<float> probe;
     const bool ok = source_->readEdgeFluxAt(0, probe) &&
                     probe.size() == static_cast<std::size_t>(mesh::edgeSlotCount(nTri));
@@ -1981,15 +2225,15 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     current_time_idx_ = -1;
     requested_time_idx_ = -1;
     envelope_wanted_ = false;
-    last_range_hi_    = -1;
+    last_range_hi_ = -1;
     live_range_dirty_ = live_frame_dirty_ = false;
-    cellMaxSource_    = nullptr;     // envelope cache belongs to the old source
+    cellMaxSource_ = nullptr; // envelope cache belongs to the old source
     current_depths_.clear();
     current_flux_.clear();
     have_velocity_ = false;
-    edge_flux_probe_ = 0;   // re-probe edge-flux availability for the new source
-    m_velocityFloorSI=0;
-    m_edgeFluxAvailable=false;
+    edge_flux_probe_ = 0; // re-probe edge-flux availability for the new source
+    m_velocityFloorSI = 0;
+    m_edgeFluxAvailable = false;
     rebuildSceneGeometry_();
 
     const int n = source_ ? source_->timeCount() : 0;
@@ -1998,13 +2242,18 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     // Prefer the run's velocity envelope. A whole-series scan is retained
     // only for small legacy outputs; large files grow the arrow range lazily.
     std::vector<float> velocityEnvelope;
-    const bool haveEnvelope=source_ && source_->readFaceEnvelope("Mesh2_face_max_velocity",velocityEnvelope)
-        && velocityEnvelope.size()==cells_.size();
-    if(haveEnvelope) {
-        double peak=0;
-        for(float v:velocityEnvelope)if(std::isfinite(v))peak=std::max(peak,double(v));
-        m_velocityFloorSI=OpenSWMM::Render::flowParticleStagnationFloor(std::move(velocityEnvelope));
-        if(peak>0 && !max_velocity_user_set_)max_velocity_=peak;
+    const bool haveEnvelope =
+        source_ && source_->readFaceEnvelope("Mesh2_face_max_velocity", velocityEnvelope) &&
+        velocityEnvelope.size() == cells_.size();
+    if (haveEnvelope) {
+        double peak = 0;
+        for (float v : velocityEnvelope)
+            if (std::isfinite(v))
+                peak = std::max(peak, double(v));
+        m_velocityFloorSI =
+            OpenSWMM::Render::flowParticleStagnationFloor(std::move(velocityEnvelope));
+        if (peak > 0 && !max_velocity_user_set_)
+            max_velocity_ = peak;
     }
     // Auto-seed max_velocity_ from a bounded RT0 scan so the colour
     // ramp + arrow-length log scaling are anchored to the run's peak speed.
@@ -2012,38 +2261,47 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     // without this seed it starts at the default (1 m/s) and shallow-flow
     // demos (snoopy peak ≈ 0.14 mm/s) end up with sub-pixel arrows.
     // Cheap: 480 frames × 128 cells × nv edges + 2×2 inverse per cell.
-    if (source_ && have_edge_geom_ && !cells_.empty() && n > 0 &&
-        !max_velocity_user_set_ && !haveEnvelope && quint64(n)*cells_.size()<=500000)
-    {
+    if (source_ && have_edge_geom_ && !cells_.empty() && n > 0 && !max_velocity_user_set_ &&
+        !haveEnvelope && quint64(n) * cells_.size() <= 500000) {
         constexpr float kQMax = 10.0f;
         const int nCell = static_cast<int>(cells_.size());
         float scanned_max = 0.0f;
         std::vector<float> fluxBuf;
         for (int t = 0; t < n; ++t) {
-            if (!source_->readEdgeFluxAt(t, fluxBuf)) continue;
-            if (static_cast<int>(fluxBuf.size()) != mesh::edgeSlotCount(nCell)) continue;
+            if (!source_->readEdgeFluxAt(t, fluxBuf))
+                continue;
+            if (static_cast<int>(fluxBuf.size()) != mesh::edgeSlotCount(nCell))
+                continue;
             for (int i = 0; i < nCell; ++i) {
                 double a00 = 0, a01 = 0, a11 = 0, b0 = 0, b1 = 0;
                 const int nv = cellVertexCount(cells_[size_t(i)]);
                 for (int e = 0; e < nv; ++e) {
                     const int idx = mesh::edgeSlot(i, e);
                     const double len = edge_length_[idx];
-                    if (len <= 1e-12) continue;
+                    if (len <= 1e-12)
+                        continue;
                     double q = fluxBuf[idx] / len;
-                    if (q >  kQMax) q =  kQMax;
-                    if (q < -kQMax) q = -kQMax;
+                    if (q > kQMax)
+                        q = kQMax;
+                    if (q < -kQMax)
+                        q = -kQMax;
                     const double nx = edge_nx_[idx];
                     const double ny = edge_ny_[idx];
-                    a00 += nx * nx; a01 += nx * ny; a11 += ny * ny;
-                    b0  += nx * q;  b1  += ny * q;
+                    a00 += nx * nx;
+                    a01 += nx * ny;
+                    a11 += ny * ny;
+                    b0 += nx * q;
+                    b1 += ny * q;
                 }
                 const double det = a00 * a11 - a01 * a01;
-                if (std::abs(det) < 1e-12) continue;
+                if (std::abs(det) < 1e-12)
+                    continue;
                 const double inv_det = 1.0 / det;
-                const double vx = ( a11 * b0 - a01 * b1) * inv_det;
+                const double vx = (a11 * b0 - a01 * b1) * inv_det;
                 const double vy = (-a01 * b0 + a00 * b1) * inv_det;
-                const float vmag = static_cast<float>(std::sqrt(vx*vx + vy*vy));
-                if (vmag > scanned_max) scanned_max = vmag;
+                const float vmag = static_cast<float>(std::sqrt(vx * vx + vy * vy));
+                if (vmag > scanned_max)
+                    scanned_max = vmag;
             }
         }
         if (scanned_max > 0.0f) {
@@ -2070,39 +2328,59 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     // Show a frame immediately if any are available. A live source shows its
     // first frame (playback stays user-driven); a completed source shows the
     // latest.
-    if (n > 0) setCurrentTimeIndex(source_->isLive() ? 0 : (n - 1));
+    if (n > 0)
+        setCurrentTimeIndex(source_->isLive() ? 0 : (n - 1));
     else {
-        if (graphics_item_) graphics_item_->geometryChanged();
-        if (arrows_item_)   arrows_item_->geometryChanged();
+        if (graphics_item_)
+            graphics_item_->geometryChanged();
+        if (arrows_item_)
+            arrows_item_->geometryChanged();
     }
 }
 
-namespace {
+namespace
+{
 // Per-corner temporal maximum. A missing corner never lowers a finite one.
-void foldSurfaceMaximum(const std::vector<CellWaterGeometry::CornerDepths>& field,
-                        std::vector<CellWaterGeometry::CornerDepths>& maximum)
+/**
+ * @brief Folds finite maxima over common cell prefix only; no resize,NaN never lowers finite
+ *   values.
+ * @param[in] field Per-cell4corner candidate signed depths metres.
+ * @param[in] maximum Mutable existing corner maxima, initialized NaN if unseen.
+ */
+void foldSurfaceMaximum(const std::vector<CellWaterGeometry::CornerDepths> &field,
+                        std::vector<CellWaterGeometry::CornerDepths> &maximum)
 {
     for (size_t c = 0; c < field.size() && c < maximum.size(); ++c)
         for (int k = 0; k < 4; ++k)
-            if (std::isfinite(field[c][k])
-                && (!std::isfinite(maximum[c][k]) || field[c][k] > maximum[c][k]))
+            if (std::isfinite(field[c][k]) &&
+                (!std::isfinite(maximum[c][k]) || field[c][k] > maximum[c][k]))
                 maximum[c][k] = field[c][k];
 }
-template<class Job> size_t surfaceJobBytes(const Job& job)
+/**
+ * @param[in] job Stable job whose vector capacities/shared regional geometry are safe to inspect.
+ * @return Conservative capacity-byte charge for hydraulic/fitted/reference buffers and
+ *   regional/check geometry, charged per shared owner. Excludes object/container overhead; GUI must
+ *   not inspect active worker-owned vectors.
+ */
+template <class Job> size_t surfaceJobBytes(const Job &job)
 {
-    size_t bytes=job.surfaces.capacity()*sizeof(CellWaterGeometry::Surface)
-         +(job.depths.capacity() + job.flux.capacity()) * sizeof(float)
-         + (job.flow.capacity() + job.smooth.capacity()) * sizeof(CellWaterGeometry::CornerDepths);
+    size_t bytes =
+        job.surfaces.capacity() * sizeof(CellWaterGeometry::Surface) +
+        (job.depths.capacity() + job.flux.capacity()) * sizeof(float) +
+        (job.flow.capacity() + job.smooth.capacity()) * sizeof(CellWaterGeometry::CornerDepths);
     // Charge shared region geometry per owner conservatively; the budget must
     // also hold when a pan leaves older coverage alive in the frame cache.
-    if(job.region) bytes+=(job.region->cells.size()+job.region->vertices.size())*sizeof(int)
-        + job.region->splits.size()*sizeof(VertexDepthReconstruct::CellSplit)
-        + job.region->topology.edges.size()*sizeof(CellWaterGeometry::SmoothTopology::Edge);
-    bytes+=job.reference.capacity()*sizeof(CellWaterGeometry::CornerDepths);
-    if(job.region && job.region->checkRegion) {
-        const auto& check=*job.region->checkRegion;
-        bytes+=check.cells.size()*sizeof(int)+check.splits.size()*sizeof(VertexDepthReconstruct::CellSplit)
-            +check.topology.edges.size()*sizeof(CellWaterGeometry::SmoothTopology::Edge);
+    if (job.region)
+        bytes +=
+            (job.region->cells.size() + job.region->vertices.size()) * sizeof(int) +
+            job.region->splits.size() * sizeof(VertexDepthReconstruct::CellSplit) +
+            job.region->topology.edges.size() * sizeof(CellWaterGeometry::SmoothTopology::Edge);
+    bytes += job.reference.capacity() * sizeof(CellWaterGeometry::CornerDepths);
+    if (job.region && job.region->checkRegion) {
+        const auto &check = *job.region->checkRegion;
+        bytes += check.cells.size() * sizeof(int) +
+                 check.splits.size() * sizeof(VertexDepthReconstruct::CellSplit) +
+                 check.topology.edges.size() * sizeof(CellWaterGeometry::SmoothTopology::Edge);
     }
     return bytes;
 }
@@ -2121,8 +2399,8 @@ SWMM2DResultsLayer::SurfaceKey SWMM2DResultsLayer::surfaceKey_(int frame) const
     return key;
 }
 
-void SWMM2DResultsLayer::readSurfaceInputs_(int t, std::vector<float>& depths,
-                                            std::vector<float>& flux)
+void SWMM2DResultsLayer::readSurfaceInputs_(int t, std::vector<float> &depths,
+                                            std::vector<float> &flux)
 {
     if (!source_->readDepthsAt(t, depths) || depths.size() != cells_.size())
         depths.assign(cells_.size(), std::numeric_limits<float>::quiet_NaN());
@@ -2133,30 +2411,24 @@ void SWMM2DResultsLayer::readSurfaceInputs_(int t, std::vector<float>& depths,
         int bad = 0;
         for (float &d : depths)
             if (!std::isfinite(d) || d < 0.0f) {
-                d = std::numeric_limits<float>::quiet_NaN(); ++bad;
+                d = std::numeric_limits<float>::quiet_NaN();
+                ++bad;
             }
-        static const bool kRenderDebug =
-            qEnvironmentVariableIsSet("OPENSWMM_2D_RENDER_DEBUG");
+        static const bool kRenderDebug = qEnvironmentVariableIsSet("OPENSWMM_2D_RENDER_DEBUG");
         if (kRenderDebug && bad > 0)
             qWarning("[2D-render] frame %d: masked %d invalid cell "
-                     "depth(s) from the source", t, bad);
+                     "depth(s) from the source",
+                     t, bad);
     }
     // Edge flux is optional — sources without it return false and leave
     // the flux empty. applyCurrentFlux_ checks the size and bails.
     const std::size_t nEdgeValues =
         std::size_t(mesh::edgeSlotCount(static_cast<int>(cells_.size())));
-    if (!have_edge_geom_
-        || edge_length_.size() != nEdgeValues
-        || edge_nx_.size()     != nEdgeValues
-        || edge_ny_.size()     != nEdgeValues)
-    {
-        have_edge_geom_ = source_->readEdgeGeometry(edge_length_,
-                                                    edge_nx_, edge_ny_);
-        if (!have_edge_geom_
-            || edge_length_.size() != nEdgeValues
-            || edge_nx_.size()     != nEdgeValues
-            || edge_ny_.size()     != nEdgeValues)
-        {
+    if (!have_edge_geom_ || edge_length_.size() != nEdgeValues || edge_nx_.size() != nEdgeValues ||
+        edge_ny_.size() != nEdgeValues) {
+        have_edge_geom_ = source_->readEdgeGeometry(edge_length_, edge_nx_, edge_ny_);
+        if (!have_edge_geom_ || edge_length_.size() != nEdgeValues ||
+            edge_nx_.size() != nEdgeValues || edge_ny_.size() != nEdgeValues) {
             edge_length_.clear();
             edge_nx_.clear();
             edge_ny_.clear();
@@ -2173,20 +2445,23 @@ void SWMM2DResultsLayer::readSurfaceInputs_(int t, std::vector<float>& depths,
 
 bool SWMM2DResultsLayer::loadFrame_(int t)
 {
-    if (!source_) return false;
+    if (!source_)
+        return false;
     const int n = source_->timeCount();
-    if (n == 0) return false;
+    if (n == 0)
+        return false;
     t = std::clamp(t, 0, n - 1);
     requested_time_idx_ = t;
     const quint64 seq = ++request_seq_;
 
-    if ((async_surface_ || surface_region_) && !cells_.empty() && cellSplit_.size() == cells_.size()) {
+    if ((async_surface_ || surface_region_) && !cells_.empty() &&
+        cellSplit_.size() == cells_.size()) {
         const SurfaceKey key = surfaceKey_(t);
         requested_key_ = key;
-        if (key == published_key_) {          // exactly this frame is on display
+        if (key == published_key_) { // exactly this frame is on display
             pending_surface_.reset();
             published_seq_ = seq;
-            emit repaintRequested();          // other sublayers may have new data
+            emit repaintRequested(); // other sublayers may have new data
             return true;
         }
         std::shared_ptr<SurfaceJob> ready = cachedSurface_(key);
@@ -2194,7 +2469,7 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
             // Each request keeps its own identity: a capture may consume a
             // completion before its queued callback is delivered. Only the
             // underlying uncached buffers are reused, never the job object.
-            auto job=std::make_shared<SurfaceJob>();
+            auto job = std::make_shared<SurfaceJob>();
             job->key = key;
             job->region = surface_region_;
             job->seq = seq;
@@ -2211,13 +2486,15 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
                 return true;
             }
             ++surface_fit_count_;
-            fitSurface_(*job,&surface_workspace_);
-            job->workspaceBytes=surface_workspace_.bytes();
-            surface_workspace_bytes_=job->workspaceBytes;
-            if(job->region) {
-                regional_error_=job->regionalError;
-                if(!job->acceptable) {
-                    ++regional_fallbacks_;surface_region_.reset();++surface_region_revision_;
+            fitSurface_(*job, &surface_workspace_);
+            job->workspaceBytes = surface_workspace_.bytes();
+            surface_workspace_bytes_ = job->workspaceBytes;
+            if (job->region) {
+                regional_error_ = job->regionalError;
+                if (!job->acceptable) {
+                    ++regional_fallbacks_;
+                    surface_region_.reset();
+                    ++surface_region_revision_;
                     return loadFrame_(t);
                 }
             }
@@ -2235,22 +2512,24 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
     analysis_surface_.reset();
     current_time_idx_ = t;
     readSurfaceInputs_(t, current_depths_, current_flux_);
-    m_edgeFluxAvailable=!current_flux_.empty();
+    m_edgeFluxAvailable = !current_flux_.empty();
 
     // Auto-track running max depth (unless the user explicitly pinned it).
     // The finite guard is belt-and-braces after the sanitize above: one Inf
     // peak would otherwise collapse the colour ramp for the rest of the run
     // (max_depth_ never shrinks).
     if (!max_depth_user_set_ && !current_depths_.empty()) {
-        const float peak = *std::max_element(current_depths_.begin(),
-                                              current_depths_.end());
-        if (std::isfinite(peak) && peak > max_depth_) max_depth_ = peak;
+        const float peak = *std::max_element(current_depths_.begin(), current_depths_.end());
+        if (std::isfinite(peak) && peak > max_depth_)
+            max_depth_ = peak;
     }
 
     applyCurrentDepths_();
     applyCurrentFlux_();
-    if (graphics_item_) graphics_item_->geometryChanged();
-    if (arrows_item_)   arrows_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     published_key_ = surfaceKey_(t);
     published_seq_ = seq;
     emit currentTimeChanged(t);
@@ -2264,48 +2543,56 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
 
 // Install a fitted frame: every per-frame member changes here, together, so
 // queries, profiles and both renderers always see one coherent frame.
-void SWMM2DResultsLayer::publishSurface_(SurfaceJob& job, quint64 seq)
+void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
 {
     const int t = job.key.frame;
     current_time_idx_ = t;
     ++frame_revision_;
     analysis_surface_.reset();
-    if(!job.flux.empty()) edge_flux_probe_=1;
-    m_edgeFluxAvailable=!job.flux.empty();
-    if (job.region) publishRegionalSurface_(job);
+    if (!job.flux.empty())
+        edge_flux_probe_ = 1;
+    m_edgeFluxAvailable = !job.flux.empty();
+    if (job.region)
+        publishRegionalSurface_(job);
     else {
         published_region_.reset();
         // Oversized jobs cannot enter the byte-bounded frame cache. Transfer
         // their buffers to the display rather than retaining a second full
         // frame. Requested newest-envelope jobs remain immutable owners.
-        const bool transfer=surfaceJobBytes(job)>max_surface_cache_bytes_
-            && envelope_newest_.get()!=&job;
-        auto install=[transfer](auto& target,auto& input) {
-            if(transfer) target.swap(input);else target=input;
+        const bool transfer =
+            surfaceJobBytes(job) > max_surface_cache_bytes_ && envelope_newest_.get() != &job;
+        auto install = [transfer](auto &target, auto &input) {
+            if (transfer)
+                target.swap(input);
+            else
+                target = input;
         };
-        job.buffersTransferred=transfer;
-        install(current_depths_,job.depths);
-        install(current_flux_,job.flux);
+        job.buffersTransferred = transfer;
+        install(current_depths_, job.depths);
+        install(current_flux_, job.flux);
         if (!max_depth_user_set_ && !current_depths_.empty()) {
-            const float peak = *std::max_element(current_depths_.begin(),
-                                                  current_depths_.end());
-            if (std::isfinite(peak) && peak > max_depth_) max_depth_ = peak;
+            const float peak = *std::max_element(current_depths_.begin(), current_depths_.end());
+            if (std::isfinite(peak) && peak > max_depth_)
+                max_depth_ = peak;
         }
-        install(cellSurfaces_,job.surfaces);
+        install(cellSurfaces_, job.surfaces);
         cellFlowMaxDepths_.resize(job.flow.size());
         cellFlowFlags_.resize(job.flow.size());
-        for (size_t c=0;c<job.flow.size();++c) {
-            const auto summary=CellWaterGeometry::summarizeDepths(job.flow[c],cellSplit_[c].vertexCount());
-            cellFlowMaxDepths_[c]=summary.deepest;
-            cellFlowFlags_[c]=summary.flags;
+        for (size_t c = 0; c < job.flow.size(); ++c) {
+            const auto summary =
+                CellWaterGeometry::summarizeDepths(job.flow[c], cellSplit_[c].vertexCount());
+            cellFlowMaxDepths_[c] = summary.deepest;
+            cellFlowFlags_[c] = summary.flags;
         }
         std::vector<CellWaterGeometry::CornerDepths>().swap(cellFlowDepths_);
-        install(surfaceDepths_,job.smooth);
+        install(surfaceDepths_, job.smooth);
         fillSceneCorners_();
         applyCurrentFlux_();
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
-    if (arrows_item_)   arrows_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     published_key_ = job.key;
     published_seq_ = std::max(published_seq_, seq);
     if (policy_signal_pending_) {
@@ -2317,64 +2604,96 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob& job, quint64 seq)
     emit repaintRequested();
 }
 
-void SWMM2DResultsLayer::fitSurface_(SurfaceJob& job, CellWaterGeometry::NeighborhoodFit::Workspace* workspace) const
+void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
+                                     CellWaterGeometry::NeighborhoodFit::Workspace *workspace) const
 {
-    if(!job.inputPath.isEmpty()) {
+    if (!job.inputPath.isEmpty()) {
         // Reused input storage must not expose an older frame after a failed
         // file open or read. clear() retains its allocation for the next job.
-        job.depths.clear();job.flux.clear();
+        job.depths.clear();
+        job.flux.clear();
         openswmmvis::io::Mesh2DH5Reader reader;
-        bool ok=reader.open(job.inputPath);
-        if(job.region) ok=ok && reader.readHydraulicCellsAt(job.key.frame,job.region->cells,job.depths,job.flux);
-        else if(ok) {ok=reader.readDepthsAt(job.key.frame,job.depths);if(!reader.readEdgeFluxAt(job.key.frame,job.flux)) job.flux.clear();}
-        const size_t count=job.region?job.region->cells.size():cells_.size();
-        if(!ok || job.depths.size()!=count) job.depths.assign(count,std::numeric_limits<float>::quiet_NaN());
-        for(float& d:job.depths) if(!std::isfinite(d) || d<0) d=std::numeric_limits<float>::quiet_NaN();
+        bool ok = reader.open(job.inputPath);
+        if (job.region)
+            ok = ok && reader.readHydraulicCellsAt(job.key.frame, job.region->cells, job.depths,
+                                                   job.flux);
+        else if (ok) {
+            ok = reader.readDepthsAt(job.key.frame, job.depths);
+            if (!reader.readEdgeFluxAt(job.key.frame, job.flux))
+                job.flux.clear();
+        }
+        const size_t count = job.region ? job.region->cells.size() : cells_.size();
+        if (!ok || job.depths.size() != count)
+            job.depths.assign(count, std::numeric_limits<float>::quiet_NaN());
+        for (float &d : job.depths)
+            if (!std::isfinite(d) || d < 0)
+                d = std::numeric_limits<float>::quiet_NaN();
     }
-    auto& surfaces=job.surfaces;
+    auto &surfaces = job.surfaces;
     if (!job.region) {
-        fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth, workspace);
+        fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth,
+                          workspace);
         return;
     }
-    const auto& region=*job.region;
+    const auto &region = *job.region;
     surfaces.resize(region.cells.size());
-    for(size_t i=0;i<surfaces.size();++i)
-        surfaces[i]=CellWaterGeometry::reconstruct(region.splits[i],job.depths[i],vz_);
-    job.flow=CellWaterGeometry::flowingCornerDepths(region.splits,surfaces,vx_,vy_,vz_,
-        region.topology,job.depths,job.flux,job.policy,nullptr,workspace,std::move(job.flow));
-    CellWaterGeometry::smoothCornerDepths(region.splits,surfaces,vz_,region.topology,
-        job.smooth,job.policy,job.flow);
-    if(!region.checkRegion) return;
-    SurfaceJob check;check.region=region.checkRegion;check.policy=job.policy;
-    for(int c:check.region->cells) {
-        const size_t i=size_t(std::lower_bound(region.cells.begin(),region.cells.end(),c)-region.cells.begin());
+    for (size_t i = 0; i < surfaces.size(); ++i)
+        surfaces[i] = CellWaterGeometry::reconstruct(region.splits[i], job.depths[i], vz_);
+    job.flow = CellWaterGeometry::flowingCornerDepths(
+        region.splits, surfaces, vx_, vy_, vz_, region.topology, job.depths, job.flux, job.policy,
+        nullptr, workspace, std::move(job.flow));
+    CellWaterGeometry::smoothCornerDepths(region.splits, surfaces, vz_, region.topology, job.smooth,
+                                          job.policy, job.flow);
+    if (!region.checkRegion)
+        return;
+    SurfaceJob check;
+    check.region = region.checkRegion;
+    check.policy = job.policy;
+    for (int c : check.region->cells) {
+        const size_t i = size_t(std::lower_bound(region.cells.begin(), region.cells.end(), c) -
+                                region.cells.begin());
         check.depths.push_back(job.depths[i]);
-        if(!job.flux.empty()) check.flux.insert(check.flux.end(),job.flux.begin()+4*i,job.flux.begin()+4*i+4);
+        if (!job.flux.empty())
+            check.flux.insert(check.flux.end(), job.flux.begin() + 4 * i,
+                              job.flux.begin() + 4 * i + 4);
     }
-    fitSurface_(check,workspace);
-    auto compare=[&](double a,double b) {
-        if(std::isfinite(a)!=std::isfinite(b)) {job.acceptable=false;return;}
-        if(!std::isfinite(a)) return;
-        job.regionalError=std::max(job.regionalError,std::abs(a-b));
-        if(std::abs(a-b)>.002 || ((a>0)!=(b>0) && std::max(std::abs(a),std::abs(b))>1e-6)) job.acceptable=false;
+    fitSurface_(check, workspace);
+    auto compare = [&](double a, double b) {
+        if (std::isfinite(a) != std::isfinite(b)) {
+            job.acceptable = false;
+            return;
+        }
+        if (!std::isfinite(a))
+            return;
+        job.regionalError = std::max(job.regionalError, std::abs(a - b));
+        if (std::abs(a - b) > .002 ||
+            ((a > 0) != (b > 0) && std::max(std::abs(a), std::abs(b)) > 1e-6))
+            job.acceptable = false;
     };
-    for(size_t core=0;core<region.coreCells.size();++core) {
-        const int c=region.coreCells[core];
-        const size_t a=size_t(std::lower_bound(region.cells.begin(),region.cells.end(),c)-region.cells.begin());
-        const size_t b=size_t(std::lower_bound(check.region->cells.begin(),check.region->cells.end(),c)-check.region->cells.begin());
-        for(int k=0;k<region.splits[a].vertexCount();++k) {
-            compare(job.smooth[a][k],check.smooth[b][k]);
-            if(!job.reference.empty()) compare(job.smooth[a][k],job.reference[core][k]);
+    for (size_t core = 0; core < region.coreCells.size(); ++core) {
+        const int c = region.coreCells[core];
+        const size_t a = size_t(std::lower_bound(region.cells.begin(), region.cells.end(), c) -
+                                region.cells.begin());
+        const size_t b =
+            size_t(std::lower_bound(check.region->cells.begin(), check.region->cells.end(), c) -
+                   check.region->cells.begin());
+        for (int k = 0; k < region.splits[a].vertexCount(); ++k) {
+            compare(job.smooth[a][k], check.smooth[b][k]);
+            if (!job.reference.empty())
+                compare(job.smooth[a][k], job.reference[core][k]);
         }
     }
 }
 
 void SWMM2DResultsLayer::scheduleFit_()
 {
-    if (surface_busy_ || !source_) return;
+    if (surface_busy_ || !source_)
+        return;
     std::shared_ptr<SurfaceJob> job = pending_surface_;
-    if (!job) job = nextEnvelopeJob_();
-    if (!job) return;
+    if (!job)
+        job = nextEnvelopeJob_();
+    if (!job)
+        return;
     // A live feed must not keep the worker fitting back to back: at most one
     // tick-driven fit per interval, so the running simulation keeps its cores.
     if (job->live && live_min_fit_interval_ms_ > 0 && live_fit_clock_.isValid()) {
@@ -2390,17 +2709,24 @@ void SWMM2DResultsLayer::scheduleFit_()
             return;
         }
     }
-    if (job->live) live_fit_clock_.start();
-    if (job == pending_surface_) pending_surface_.reset();
-    if(!job->region && spare_surface_ && spare_surface_!=job) {
+    if (job->live)
+        live_fit_clock_.start();
+    if (job == pending_surface_)
+        pending_surface_.reset();
+    if (!job->region && spare_surface_ && spare_surface_ != job) {
         // A request may have arrived while the previous frame was fitting.
         // Its inputs stay intact; take only reusable output buffers (and
         // saved-file input capacity that the worker is about to overwrite).
-        auto take=[](auto& target,auto& spare) {if(target.capacity()<spare.capacity())target.swap(spare);};
-        take(job->surfaces,spare_surface_->surfaces);take(job->flow,spare_surface_->flow);
-        take(job->smooth,spare_surface_->smooth);
-        if(!job->inputPath.isEmpty()) {
-            take(job->depths,spare_surface_->depths);take(job->flux,spare_surface_->flux);
+        auto take = [](auto &target, auto &spare) {
+            if (target.capacity() < spare.capacity())
+                target.swap(spare);
+        };
+        take(job->surfaces, spare_surface_->surfaces);
+        take(job->flow, spare_surface_->flow);
+        take(job->smooth, spare_surface_->smooth);
+        if (!job->inputPath.isEmpty()) {
+            take(job->depths, spare_surface_->depths);
+            take(job->flux, spare_surface_->flux);
         }
         spare_surface_.reset();
     }
@@ -2408,36 +2734,48 @@ void SWMM2DResultsLayer::scheduleFit_()
     active_surface_ = job;
     ++surface_fit_count_;
     surface_future_ = QtConcurrent::run(&surface_pool_, [this, job] {
-        fitSurface_(*job,&surface_workspace_);
-        job->workspaceBytes=surface_workspace_.bytes();
-        QMetaObject::invokeMethod(this, [this, job] { onSurfaceFinished_(job); },
-                                  Qt::QueuedConnection);
+        fitSurface_(*job, &surface_workspace_);
+        job->workspaceBytes = surface_workspace_.bytes();
+        QMetaObject::invokeMethod(
+            this, [this, job] { onSurfaceFinished_(job); }, Qt::QueuedConnection);
     });
 }
 
-void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& job)
+void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob> &job)
 {
-    if (job->epoch != surface_epoch_ || active_surface_ != job) return;
-    active_surface_.reset();   // capture may deliver completion before the queued callback
+    if (job->epoch != surface_epoch_ || active_surface_ != job)
+        return;
+    active_surface_.reset(); // capture may deliver completion before the queued callback
     surface_busy_ = false;
-    surface_workspace_bytes_=job->workspaceBytes;
-    auto expected=surfaceKey_(job->key.frame);
-    if(job->forEnvelope) expected.regionRev=0;
+    surface_workspace_bytes_ = job->workspaceBytes;
+    auto expected = surfaceKey_(job->key.frame);
+    if (job->forEnvelope)
+        expected.regionRev = 0;
     const bool valid = source_ && job->key.frame < source_->timeCount() && job->key == expected;
     if (valid) {
-        if(job->region) {
-            regional_error_=job->regionalError;
-            if(!job->acceptable) {
+        if (job->region) {
+            regional_error_ = job->regionalError;
+            if (!job->acceptable) {
                 ++regional_fallbacks_;
-                surface_region_.reset();++surface_region_revision_;pending_surface_.reset();
-                if(!published_region_ && published_key_==surfaceKey_(requested_time_idx_)) {
-                    published_seq_=request_seq_;scheduleFit_();return;
+                surface_region_.reset();
+                ++surface_region_revision_;
+                pending_surface_.reset();
+                if (!published_region_ && published_key_ == surfaceKey_(requested_time_idx_)) {
+                    published_seq_ = request_seq_;
+                    scheduleFit_();
+                    return;
                 }
                 // Keep a failed regional attempt on the worker path even for
                 // layers whose original small-mesh bootstrap was synchronous.
-                auto full=std::make_shared<SurfaceJob>();full->key=surfaceKey_(requested_time_idx_);
-                full->seq=++request_seq_;full->epoch=surface_epoch_;full->policy=waterVisibilityPolicy();
-                requested_key_=full->key;readSurfaceJob_(*full);pending_surface_=std::move(full);scheduleFit_();
+                auto full = std::make_shared<SurfaceJob>();
+                full->key = surfaceKey_(requested_time_idx_);
+                full->seq = ++request_seq_;
+                full->epoch = surface_epoch_;
+                full->policy = waterVisibilityPolicy();
+                requested_key_ = full->key;
+                readSurfaceJob_(*full);
+                pending_surface_ = std::move(full);
+                scheduleFit_();
                 return;
             }
         }
@@ -2449,7 +2787,8 @@ void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& j
                 foldSurfaceMaximum(job->smooth, surfaceMaxCache_);
                 ++surfaceMaxFramesDone_;
             }
-            if (job->key.frame == count - 1) envelope_newest_ = job;
+            if (job->key.frame == count - 1)
+                envelope_newest_ = job;
         }
         // Frames are shown in request order; one that finished after a newer
         // request was already displayed is kept in the cache only.
@@ -2458,23 +2797,26 @@ void SWMM2DResultsLayer::onSurfaceFinished_(const std::shared_ptr<SurfaceJob>& j
             retainSurfaceBuffers_(job);
         }
     } else if (!job->forEnvelope && !pending_surface_ && job->seq == request_seq_) {
-        loadFrame_(requested_time_idx_);   // its frame changed while it was being fitted
+        loadFrame_(requested_time_idx_); // its frame changed while it was being fitted
         return;
     }
     scheduleFit_();
 }
 
-void SWMM2DResultsLayer::retainSurfaceBuffers_(const std::shared_ptr<SurfaceJob>& job)
+void SWMM2DResultsLayer::retainSurfaceBuffers_(const std::shared_ptr<SurfaceJob> &job)
 {
-    if(!job->buffersTransferred)return;
+    if (!job->buffersTransferred)
+        return;
     // Coherent publication swapped the old displayed buffers into this
     // uncached job. Bootstrap has no old frame, so establish the normal
     // second buffer now; subsequent worker fits re-use it without growing.
-    job->depths.resize(current_depths_.size());job->flux.resize(current_flux_.size());
-    job->surfaces.resize(cellSurfaces_.size());job->flow.resize(cellSurfaces_.size());
+    job->depths.resize(current_depths_.size());
+    job->flux.resize(current_flux_.size());
+    job->surfaces.resize(cellSurfaces_.size());
+    job->flow.resize(cellSurfaces_.size());
     job->smooth.resize(surfaceDepths_.size());
-    spare_surface_=job;
-    surface_buffer_bytes_=surfaceJobBytes(*job);
+    spare_surface_ = job;
+    surface_buffer_bytes_ = surfaceJobBytes(*job);
 }
 
 void SWMM2DResultsLayer::cancelSurfaceJobs_()
@@ -2486,32 +2828,37 @@ void SWMM2DResultsLayer::cancelSurfaceJobs_()
         surface_busy_ = false;
     }
     active_surface_.reset();
-    spare_surface_.reset();surface_workspace_={};surface_workspace_bytes_=surface_buffer_bytes_=0;
-    ++surface_epoch_;   // a result already queued for delivery is ignored
+    spare_surface_.reset();
+    surface_workspace_ = {};
+    surface_workspace_bytes_ = surface_buffer_bytes_ = 0;
+    ++surface_epoch_; // a result already queued for delivery is ignored
     surface_cache_.clear();
     surface_cache_bytes_ = 0;
     published_key_ = SurfaceKey{};
-    published_seq_ = request_seq_;   // nothing is in flight any more
+    published_seq_ = request_seq_; // nothing is in flight any more
 }
 
 void SWMM2DResultsLayer::setAsyncSurface(bool on)
 {
-    if (on == async_surface_) return;
+    if (on == async_surface_)
+        return;
     cancelSurfaceJobs_();
     async_surface_ = on;
 }
 
 std::shared_ptr<SWMM2DResultsLayer::SurfaceJob>
-SWMM2DResultsLayer::cachedSurface_(const SurfaceKey& key) const
+SWMM2DResultsLayer::cachedSurface_(const SurfaceKey &key) const
 {
     for (auto it = surface_cache_.rbegin(); it != surface_cache_.rend(); ++it)
-        if ((*it)->key == key) return *it;
+        if ((*it)->key == key)
+            return *it;
     return {};
 }
 
-void SWMM2DResultsLayer::cacheSurface_(const std::shared_ptr<SurfaceJob>& job)
+void SWMM2DResultsLayer::cacheSurface_(const std::shared_ptr<SurfaceJob> &job)
 {
-    if (cachedSurface_(job->key)) return;
+    if (cachedSurface_(job->key))
+        return;
     surface_cache_.push_back(job);
     surface_cache_bytes_ += surfaceJobBytes(*job);
     setSurfaceCacheBytes(max_surface_cache_bytes_);
@@ -2519,23 +2866,25 @@ void SWMM2DResultsLayer::cacheSurface_(const std::shared_ptr<SurfaceJob>& job)
 
 size_t SWMM2DResultsLayer::surfaceAuxiliaryBytes() const
 {
-    size_t bytes=surface_cache_bytes_+surfaceMaxCache_.capacity()*sizeof(CellWaterGeometry::CornerDepths);
-    if(envelope_newest_ && !cachedSurface_(envelope_newest_->key))
-        bytes+=surfaceJobBytes(*envelope_newest_);
+    size_t bytes = surface_cache_bytes_ +
+                   surfaceMaxCache_.capacity() * sizeof(CellWaterGeometry::CornerDepths);
+    if (envelope_newest_ && !cachedSurface_(envelope_newest_->key))
+        bytes += surfaceJobBytes(*envelope_newest_);
     return bytes;
 }
 
 size_t SWMM2DResultsLayer::surfaceWorkingBytes() const
 {
-    size_t bytes=surface_workspace_bytes_+surface_buffer_bytes_;
-    for(const auto& values:velocity_scratch_)bytes+=values.capacity()*sizeof(float);
+    size_t bytes = surface_workspace_bytes_ + surface_buffer_bytes_;
+    for (const auto &values : velocity_scratch_)
+        bytes += values.capacity() * sizeof(float);
     return bytes;
 }
 
 size_t SWMM2DResultsLayer::waterVisibilityBytes() const
 {
-    return cellFlowDepths_.capacity()*sizeof(CellWaterGeometry::CornerDepths)
-        +cellFlowMaxDepths_.capacity()*sizeof(double)+cellFlowFlags_.capacity();
+    return cellFlowDepths_.capacity() * sizeof(CellWaterGeometry::CornerDepths) +
+           cellFlowMaxDepths_.capacity() * sizeof(double) + cellFlowFlags_.capacity();
 }
 
 void SWMM2DResultsLayer::setSurfaceCacheBytes(size_t bytes)
@@ -2549,15 +2898,18 @@ void SWMM2DResultsLayer::setSurfaceCacheBytes(size_t bytes)
 
 void SWMM2DResultsLayer::setCurrentTimeIndex(int t)
 {
-    if (!source_) return;
+    if (!source_)
+        return;
     const int n = source_->timeCount();
-    if (n == 0) return;
+    if (n == 0)
+        return;
     t = std::clamp(t, 0, n - 1);
     const bool inFlight = request_seq_ > published_seq_;
     // Asked for already and still being fitted with the same content.
-    if (inFlight && t == requested_time_idx_ && requested_key_ == surfaceKey_(t)) return;
+    if (inFlight && t == requested_time_idx_ && requested_key_ == surfaceKey_(t))
+        return;
     if (t == current_time_idx_ && !current_depths_.empty() && !surface_region_) {
-        if (inFlight) {   // back on the displayed frame: withdraw the newer request
+        if (inFlight) { // back on the displayed frame: withdraw the newer request
             pending_surface_.reset();
             requested_time_idx_ = t;
             published_seq_ = ++request_seq_;
@@ -2569,8 +2921,10 @@ void SWMM2DResultsLayer::setCurrentTimeIndex(int t)
 
 void SWMM2DResultsLayer::refreshCurrentFrame()
 {
-    if (!source_) return;
-    if (source_->isLive() && !live_render_enabled_) return;
+    if (!source_)
+        return;
+    if (source_->isLive() && !live_render_enabled_)
+        return;
     if (source_->isLive()) {
         // Coalesce with the other refresh requests of this tick.
         live_frame_dirty_ = true;
@@ -2578,9 +2932,9 @@ void SWMM2DResultsLayer::refreshCurrentFrame()
         return;
     }
     const int n = source_->timeCount();
-    if (n == 0) return;
-    const int t = std::clamp(current_time_idx_ < 0 ? 0 : current_time_idx_,
-                             0, n - 1);
+    if (n == 0)
+        return;
+    const int t = std::clamp(current_time_idx_ < 0 ? 0 : current_time_idx_, 0, n - 1);
     // The file may have rewritten this frame: cached fits no longer apply.
     surface_cache_.clear();
     surface_cache_bytes_ = 0;
@@ -2590,7 +2944,8 @@ void SWMM2DResultsLayer::refreshCurrentFrame()
 
 void SWMM2DResultsLayer::scheduleLiveSync_()
 {
-    if (live_sync_pending_) return;
+    if (live_sync_pending_)
+        return;
     live_sync_pending_ = true;
     // Zero-length timer: runs after the queued pushes already posted for this
     // tick have been delivered, so the four handlers cost one frame load.
@@ -2602,14 +2957,15 @@ void SWMM2DResultsLayer::liveSync_()
     live_sync_pending_ = false;
     const bool wantRange = live_range_dirty_, wantFrame = live_frame_dirty_;
     live_range_dirty_ = live_frame_dirty_ = false;
-    if (!source_ || !source_->isLive() || !live_render_enabled_) return;
+    if (!source_ || !source_->isLive() || !live_render_enabled_)
+        return;
 
     const int n = source_->timeCount();
     bool loaded = false;
     const QScopedValueRollback<bool> liveLoad(loading_live_, true);
     // The worker may still be fitting a newer frame than the displayed one.
-    const int shown = async_surface_ && requested_time_idx_ >= 0
-        ? requested_time_idx_ : current_time_idx_;
+    const int shown =
+        async_surface_ && requested_time_idx_ >= 0 ? requested_time_idx_ : current_time_idx_;
     if (wantRange) {
         const int hi = std::max(0, n - 1);
         if (hi != last_range_hi_) {
@@ -2618,9 +2974,12 @@ void SWMM2DResultsLayer::liveSync_()
         }
         // Follow the newest frame until the user scrubs (see refreshTimeRange).
         if (n > 0) {
-            if (shown < 0) { setCurrentTimeIndex(0); loaded = true; }
-            else if (follow_live_ && shown < n - 1) {
-                setCurrentTimeIndex(n - 1); loaded = true;
+            if (shown < 0) {
+                setCurrentTimeIndex(0);
+                loaded = true;
+            } else if (follow_live_ && shown < n - 1) {
+                setCurrentTimeIndex(n - 1);
+                loaded = true;
             }
         }
     }
@@ -2630,18 +2989,22 @@ void SWMM2DResultsLayer::liveSync_()
 
 void SWMM2DResultsLayer::setQsgOwnsRendering(bool own)
 {
-    if (m_qsgOwnsRendering == own) return;
+    if (m_qsgOwnsRendering == own)
+        return;
     m_qsgOwnsRendering = own;
     // Both pipelines need a repaint: the CPU items must clear (or redraw)
     // and the canvas must regrab the QSG frame.
-    if (graphics_item_) graphics_item_->geometryChanged();
-    if (arrows_item_)   arrows_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit repaintRequested();
 }
 
 void SWMM2DResultsLayer::setLiveRenderEnabled(bool on)
 {
-    if (live_render_enabled_ == on) return;
+    if (live_render_enabled_ == on)
+        return;
     live_render_enabled_ = on;
     // Re-arm follow-live on enable so the view jumps to the newest streamed
     // frame; refreshTimeRange() advances the cursor (and itself issues a
@@ -2653,15 +3016,19 @@ void SWMM2DResultsLayer::setLiveRenderEnabled(bool on)
     // Force a repaint regardless: on disable the QSG renderer must run once
     // more to drop its node tree (view clears); on enable a same-frame
     // refresh would otherwise not redraw.
-    if (graphics_item_) graphics_item_->geometryChanged();
-    if (arrows_item_)   arrows_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit repaintRequested();
 }
 
 QString SWMM2DResultsLayer::sourceDescription() const
 {
-    if (!source_) return tr("(no source)");
-    if (source_->isLive()) return tr("live (engine)");
+    if (!source_)
+        return tr("(no source)");
+    if (source_->isLive())
+        return tr("live (engine)");
     if (auto *h5 = dynamic_cast<const HDF5Mesh2DSource *>(source_.get()))
         return h5->path();
     return tr("(in-memory results)");
@@ -2670,39 +3037,40 @@ QString SWMM2DResultsLayer::sourceDescription() const
 QVector<QPair<QString, QString>> SWMM2DResultsLayer::extendedMetadata() const
 {
     QVector<QPair<QString, QString>> md;
-    if (!source_) return md;
+    if (!source_)
+        return md;
 
-    md.append({ tr("Live"), source_->isLive() ? tr("yes (counts grow during run)")
-                                               : tr("no") });
-    md.append({ tr("Vertices"),          QString::number(source_->vertexCount()) });
+    md.append({tr("Live"), source_->isLive() ? tr("yes (counts grow during run)") : tr("no")});
+    md.append({tr("Vertices"), QString::number(source_->vertexCount())});
     {
         int nQuad = 0;
-        for (const auto& c : cells_) if (c[3] >= 0) ++nQuad;
+        for (const auto &c : cells_)
+            if (c[3] >= 0)
+                ++nQuad;
         const int nCell = source_->triangleCount();
-        md.append({ tr("Cells"), tr("%1 (%2 triangles, %3 quads)")
-                                     .arg(nCell).arg(nCell - nQuad).arg(nQuad) });
+        md.append({tr("Cells"),
+                   tr("%1 (%2 triangles, %3 quads)").arg(nCell).arg(nCell - nQuad).arg(nQuad)});
     }
 
     const int n = source_->timeCount();
-    md.append({ tr("Time steps"), QString::number(n) });
+    md.append({tr("Time steps"), QString::number(n)});
     if (n > 0) {
         const QDateTime t0 = source_->simTimeAt(0);
         const QDateTime t1 = source_->simTimeAt(n - 1);
         if (t0.isValid() && t1.isValid())
-            md.append({ tr("Time range"),
-                        QStringLiteral("%1 → %2")
-                            .arg(t0.toString(Qt::ISODate), t1.toString(Qt::ISODate)) });
+            md.append({tr("Time range"), QStringLiteral("%1 → %2").arg(t0.toString(Qt::ISODate),
+                                                                       t1.toString(Qt::ISODate))});
     }
 
-    md.append({ tr("Dry depth"), QStringLiteral("%1 m").arg(dryDepth(), 0, 'g', 3) });
-    md.append({ tr("Velocity / flux"),
-                hasEdgeFluxData() ? tr("available") : tr("none") });
+    md.append({tr("Dry depth"), QStringLiteral("%1 m").arg(dryDepth(), 0, 'g', 3)});
+    md.append({tr("Velocity / flux"), hasEdgeFluxData() ? tr("available") : tr("none")});
     return md;
 }
 
 void SWMM2DResultsLayer::refreshTimeRange()
 {
-    if (!source_) return;
+    if (!source_)
+        return;
 
     // Live master gate: when live rendering is switched off mid-run, freeze the
     // 2D layer ENTIRELY — and crucially, return BEFORE emitting timeRangeChanged.
@@ -2712,7 +3080,8 @@ void SWMM2DResultsLayer::refreshTimeRange()
     // displayed frame is held — the "slider still progressing when live updating
     // is off" bug. The range and cursor now hold until live rendering is
     // re-enabled (setLiveRenderEnabled(true) calls refreshTimeRange to catch up).
-    if (source_->isLive() && !live_render_enabled_) return;
+    if (source_->isLive() && !live_render_enabled_)
+        return;
 
     // Live (streaming) source: seed the first frame so the map isn't blank, then
     // follow the newest frame as ticks arrive so the run animates in place. The
@@ -2729,7 +3098,8 @@ void SWMM2DResultsLayer::refreshTimeRange()
 
     const int n = source_->timeCount();
     emit timeRangeChanged(0, std::max(0, n - 1));
-    if (n <= 0) return;
+    if (n <= 0)
+        return;
     // Non-live (e.g. a file source still being appended) keeps follow-latest.
     if (current_time_idx_ < n - 1)
         setCurrentTimeIndex(n - 1);
@@ -2745,17 +3115,21 @@ void SWMM2DResultsLayer::closeSource()
     // runs HDF5Mesh2DSource::~HDF5Mesh2DSource → Mesh2DH5Reader::~Mesh2DH5Reader
     // → H5Fclose, releasing the file so the engine can truncate / rewrite.
     source_.reset();
-    surface_region_.reset();published_region_.reset();analysis_surface_.reset();
-    surfaceNeighbors_.clear();hydraulic_view_={};
+    surface_region_.reset();
+    published_region_.reset();
+    analysis_surface_.reset();
+    surfaceNeighbors_.clear();
+    hydraulic_view_ = {};
     current_time_idx_ = -1;
-    last_range_hi_    = -1;
+    last_range_hi_ = -1;
     live_range_dirty_ = live_frame_dirty_ = false;
-    cellMaxSource_    = nullptr;
+    cellMaxSource_ = nullptr;
     cellMaxCache_.clear();
     current_depths_.clear();
     current_flux_.clear();
     cellFlowDepths_.clear();
-    cellFlowMaxDepths_.clear();cellFlowFlags_.clear();
+    cellFlowMaxDepths_.clear();
+    cellFlowFlags_.clear();
     // Per-tri animated state is cleared on next setSource via
     // rebuildSceneGeometry_(); for the moment, just blank the canvas.
     for (auto &t : m_sceneTris) {
@@ -2763,13 +3137,15 @@ void SWMM2DResultsLayer::closeSource()
         t.dv0 = t.dv1 = t.dv2 = 0.0f;
         t.vx = t.vy = t.vmag = 0.0f;
     }
-    m_sceneEdges.clear();   // Issue 3 — drop the wireframe with the source
-    vvx_.clear();           // V1 — drop the per-vertex velocity field
+    m_sceneEdges.clear(); // Issue 3 — drop the wireframe with the source
+    vvx_.clear();         // V1 — drop the per-vertex velocity field
     vvy_.clear();
-    velocity_scratch_={};
+    velocity_scratch_ = {};
     have_velocity_ = false;
-    if (graphics_item_) graphics_item_->geometryChanged();
-    if (arrows_item_)   arrows_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit timeRangeChanged(0, 0);
     emit currentTimeChanged(-1);
     emit currentDateTimeChanged(QDateTime());
@@ -2778,7 +3154,8 @@ void SWMM2DResultsLayer::closeSource()
 
 void SWMM2DResultsLayer::setDryDepth(double d)
 {
-    if (!std::isfinite(d) || d < 0.0) return;
+    if (!std::isfinite(d) || d < 0.0)
+        return;
     const bool changed = (d != dry_depth_);
     dry_depth_ = d;
     // Drive the vector overlays' wet/dry cutoff from the same model DRY_DEPTH so
@@ -2798,35 +3175,41 @@ void SWMM2DResultsLayer::setDryDepth(double d)
 
 void SWMM2DResultsLayer::setThinFilmDepth(double metres)
 {
-    if (!std::isfinite(metres)) return;
+    if (!std::isfinite(metres))
+        return;
     metres = metres < 0.0 ? -1.0 : metres;
-    if (thin_film_depth_ == metres) return;
+    if (thin_film_depth_ == metres)
+        return;
     thin_film_depth_ = metres;
     refreshWaterDisplayPolicy_();
 }
 
 void SWMM2DResultsLayer::setShowThinFilms(bool show)
 {
-    if (show_thin_films_ == show) return;
+    if (show_thin_films_ == show)
+        return;
     show_thin_films_ = show;
     refreshWaterDisplayPolicy_();
 }
 
 QJsonObject SWMM2DResultsLayer::waterDisplayPolicyToJson() const
 {
-    return {{QStringLiteral("version"),1},
-            {QStringLiteral("thinFilmDepthMetres"),thin_film_depth_},
-            {QStringLiteral("showThinFilms"),show_thin_films_}};
+    return {{QStringLiteral("version"), 1},
+            {QStringLiteral("thinFilmDepthMetres"), thin_film_depth_},
+            {QStringLiteral("showThinFilms"), show_thin_films_}};
 }
 
 void SWMM2DResultsLayer::restoreWaterDisplayPolicy(const QJsonObject &json)
 {
-    if (json.value(QStringLiteral("version")).toInt() != 1) return;
+    if (json.value(QStringLiteral("version")).toInt() != 1)
+        return;
     const auto depth = json.value(QStringLiteral("thinFilmDepthMetres"));
     const auto show = json.value(QStringLiteral("showThinFilms"));
-    if (!depth.isDouble() || !std::isfinite(depth.toDouble()) || !show.isBool()) return;
+    if (!depth.isDouble() || !std::isfinite(depth.toDouble()) || !show.isBool())
+        return;
     const double metres = depth.toDouble() < 0.0 ? -1.0 : depth.toDouble();
-    if (thin_film_depth_ == metres && show_thin_films_ == show.toBool()) return;
+    if (thin_film_depth_ == metres && show_thin_films_ == show.toBool())
+        return;
     thin_film_depth_ = metres;
     show_thin_films_ = show.toBool();
     refreshWaterDisplayPolicy_();
@@ -2838,7 +3221,8 @@ void SWMM2DResultsLayer::refreshWaterDisplayPolicy_()
     // current mask. Invalidate pending map work before requesting a repaint.
     ++policy_revision_;
     surfaceMaxSource_ = nullptr;
-    if ((async_surface_ || surface_region_) && source_ && requested_time_idx_ >= 0 && published_key_.frame >= 0) {
+    if ((async_surface_ || surface_region_) && source_ && requested_time_idx_ >= 0 &&
+        published_key_.frame >= 0) {
         // Refit the requested frame under the new policy on the worker. The
         // policy signal is emitted together with the refitted surface.
         policy_signal_pending_ = true;
@@ -2847,18 +3231,22 @@ void SWMM2DResultsLayer::refreshWaterDisplayPolicy_()
     }
     applyCurrentDepths_();
     applyCurrentFlux_();
-    if (graphics_item_) graphics_item_->geometryChanged();
-    if (arrows_item_) arrows_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit waterDisplayPolicyChanged();
     emit repaintRequested();
 }
 
 void SWMM2DResultsLayer::setMaxDepth(double d)
 {
-    if (d == max_depth_) return;
+    if (d == max_depth_)
+        return;
     max_depth_ = d;
     max_depth_user_set_ = true;
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
     emit repaintRequested();
 }
 
@@ -2870,8 +3258,7 @@ void SWMM2DResultsLayer::setMaxDepth(double d)
 
 bool SWMM2DResultsLayer::velocityVectorsVisible() const
 {
-    return m_velocityVectorSublayer ? m_velocityVectorSublayer->isVisible()
-                                    : velocity_visible_;
+    return m_velocityVectorSublayer ? m_velocityVectorSublayer->isVisible() : velocity_visible_;
 }
 
 void SWMM2DResultsLayer::setVelocityVectorsVisible(bool v)
@@ -2881,14 +3268,14 @@ void SWMM2DResultsLayer::setVelocityVectorsVisible(bool v)
         m_velocityVectorSublayer->setVisible(v);
         return;
     }
-    if (arrows_item_) arrows_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit repaintRequested();
 }
 
 qreal SWMM2DResultsLayer::velocityOpacity() const
 {
-    return m_velocityVectorSublayer ? m_velocityVectorSublayer->opacity()
-                                    : velocity_opacity_;
+    return m_velocityVectorSublayer ? m_velocityVectorSublayer->opacity() : velocity_opacity_;
 }
 
 void SWMM2DResultsLayer::setVelocityOpacity(qreal alpha)
@@ -2899,7 +3286,8 @@ void SWMM2DResultsLayer::setVelocityOpacity(qreal alpha)
         m_velocityVectorSublayer->setOpacity(alpha);
         return;
     }
-    if (arrows_item_) arrows_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit repaintRequested();
 }
 
@@ -2912,23 +3300,28 @@ double SWMM2DResultsLayer::velocityArrowScale() const
 
 void SWMM2DResultsLayer::setVelocityArrowScale(double scale)
 {
-    if (scale <= 0.0) return;
+    if (scale <= 0.0)
+        return;
     velocity_arrow_scale_ = scale;
     if (m_velocityVectorSublayer && m_velocityVectorSublayer->vectorStyle()) {
         m_velocityVectorSublayer->vectorStyle()->setGlyphLengthScalePxPerMps(scale);
         return;
     }
-    if (arrows_item_) arrows_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit repaintRequested();
 }
 
 void SWMM2DResultsLayer::setMaxVelocity(double v)
 {
-    if (v <= 0.0) return;
-    if (v == max_velocity_) return;
+    if (v <= 0.0)
+        return;
+    if (v == max_velocity_)
+        return;
     max_velocity_ = v;
     max_velocity_user_set_ = true;
-    if (arrows_item_) arrows_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
     emit repaintRequested();
 }
 
@@ -2938,18 +3331,22 @@ void SWMM2DResultsLayer::setMaxVelocity(double v)
 
 void SWMM2DResultsLayer::setColorRampStyle(ColorRampStyle s)
 {
-    if (s == color_ramp_style_) return;
+    if (s == color_ramp_style_)
+        return;
     color_ramp_style_ = s;
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
     emit repaintRequested();
 }
 
 void SWMM2DResultsLayer::setColorClasses(int n)
 {
     n = std::clamp(n, 2, 64);
-    if (n == color_classes_) return;
+    if (n == color_classes_)
+        return;
     color_classes_ = n;
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
     emit repaintRequested();
 }
 
@@ -2961,8 +3358,7 @@ void SWMM2DResultsLayer::setColorClasses(int n)
 
 bool SWMM2DResultsLayer::filledContours() const
 {
-    return m_contourBandSublayer ? m_contourBandSublayer->isVisible()
-                                 : filled_contours_;
+    return m_contourBandSublayer ? m_contourBandSublayer->isVisible() : filled_contours_;
 }
 
 void SWMM2DResultsLayer::setFilledContours(bool on)
@@ -2972,13 +3368,13 @@ void SWMM2DResultsLayer::setFilledContours(bool on)
         m_contourBandSublayer->setVisible(on);
         return;
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
 }
 
 double SWMM2DResultsLayer::filledContoursOpacity() const
 {
-    return m_contourBandSublayer ? m_contourBandSublayer->opacity()
-                                 : filled_contours_opacity_;
+    return m_contourBandSublayer ? m_contourBandSublayer->opacity() : filled_contours_opacity_;
 }
 
 void SWMM2DResultsLayer::setFilledContoursOpacity(double a)
@@ -2989,7 +3385,8 @@ void SWMM2DResultsLayer::setFilledContoursOpacity(double a)
         m_contourBandSublayer->setOpacity(a);
         return;
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
 }
 
 int SWMM2DResultsLayer::filledContoursLevels() const
@@ -3007,7 +3404,8 @@ void SWMM2DResultsLayer::setFilledContoursLevels(int n)
         m_contourBandSublayer->bandStyle()->setBandCount(n);
         return;
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
 }
 
 bool SWMM2DResultsLayer::isolines() const
@@ -3022,7 +3420,8 @@ void SWMM2DResultsLayer::setIsolines(bool on)
         m_isolineSublayer->setVisible(on);
         return;
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
 }
 
 int SWMM2DResultsLayer::isolinesLevels() const
@@ -3040,7 +3439,8 @@ void SWMM2DResultsLayer::setIsolinesLevels(int n)
         m_isolineSublayer->isolineStyle()->setIsoValueCount(n);
         return;
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
 }
 
 QColor SWMM2DResultsLayer::isolinesColor() const
@@ -3057,7 +3457,8 @@ void SWMM2DResultsLayer::setIsolinesColor(QColor c)
         m_isolineSublayer->isolineStyle()->setColor(c);
         return;
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
 }
 
 double SWMM2DResultsLayer::isolinesWidth() const
@@ -3075,27 +3476,35 @@ void SWMM2DResultsLayer::setIsolinesWidth(double px)
         m_isolineSublayer->isolineStyle()->setLineWidthPx(px);
         return;
     }
-    if (graphics_item_) graphics_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
 }
 
 std::pair<float, int> SWMM2DResultsLayer::currentPeak() const
 {
-    if(published_region_ && source_) {
-        std::vector<float> values;if(!source_->readDepthsAt(current_time_idx_,values)) return {0,-1};
-        std::pair<float,int> peak{0,-1};for(size_t c=0;c<values.size();++c)
-            if(std::isfinite(values[c]) && values[c]>peak.first) peak={values[c],int(c)};
+    if (published_region_ && source_) {
+        std::vector<float> values;
+        if (!source_->readDepthsAt(current_time_idx_, values))
+            return {0, -1};
+        std::pair<float, int> peak{0, -1};
+        for (size_t c = 0; c < values.size(); ++c)
+            if (std::isfinite(values[c]) && values[c] > peak.first)
+                peak = {values[c], int(c)};
         return peak;
     }
-    if (current_depths_.empty()) return {0.0f, -1};
+    if (current_depths_.empty())
+        return {0.0f, -1};
     auto it = std::max_element(current_depths_.begin(), current_depths_.end());
-    return { *it, static_cast<int>(std::distance(current_depths_.begin(), it)) };
+    return {*it, static_cast<int>(std::distance(current_depths_.begin(), it))};
 }
 
 void SWMM2DResultsLayer::setCurrentSimTime(QDateTime t)
 {
-    if (!source_ || !t.isValid()) return;
+    if (!source_ || !t.isValid())
+        return;
     const int n = source_->timeCount();
-    if (n == 0) return;
+    if (n == 0)
+        return;
 
     // 2026-07-19 — binary search for the nearest frame (slider scrub perf;
     // replaces the O(n) linear scan). The H5 /time dataset is monotonically
@@ -3116,8 +3525,7 @@ void SWMM2DResultsLayer::setCurrentSimTime(QDateTime t)
         const QDateTime tPrev = source_->simTimeAt(lo - 1);
         const QDateTime tCurr = source_->simTimeAt(lo);
         if (tPrev.isValid() &&
-            (!tCurr.isValid() ||
-             std::abs(t.msecsTo(tPrev)) <= std::abs(t.msecsTo(tCurr))))
+            (!tCurr.isValid() || std::abs(t.msecsTo(tPrev)) <= std::abs(t.msecsTo(tCurr))))
             best = lo - 1;
     }
     // Issue 2 — this setter is only ever reached from a user scrub (the slider)
@@ -3133,9 +3541,11 @@ void SWMM2DResultsLayer::setCurrentSimTime(QDateTime t)
 
 void SWMM2DResultsLayer::setCurrentSimTimeAsOf(QDateTime cursor)
 {
-    if (!source_ || !cursor.isValid()) return;
+    if (!source_ || !cursor.isValid())
+        return;
     const int n = source_->timeCount();
-    if (n == 0) return;
+    if (n == 0)
+        return;
 
     // Largest index whose frame time is at or before the cursor (causal floor).
     // Clamp to 0 (hold the first frame) when the cursor precedes every frame.
@@ -3143,7 +3553,7 @@ void SWMM2DResultsLayer::setCurrentSimTimeAsOf(QDateTime cursor)
     // 2026-07-19 — binary search (slider scrub perf; replaces the O(n)
     // linear scan). /time is monotonic: bisect for the first frame >
     // cursor; the causal floor is the frame before it.
-    int lo = 0, hi = n;                    // half-open [lo, hi)
+    int lo = 0, hi = n; // half-open [lo, hi)
     while (lo < hi) {
         const int mid = lo + (hi - lo) / 2;
         const QDateTime tm = source_->simTimeAt(mid);
@@ -3165,10 +3575,11 @@ void SWMM2DResultsLayer::setCurrentSimTimeAsOf(QDateTime cursor)
 // CF.3 — cell selection / highlight
 // ---------------------------------------------------------------------------
 
-QVector<int> SWMM2DResultsLayer::pickCellsInRect(const QRectF& sceneRect) const
+QVector<int> SWMM2DResultsLayer::pickCellsInRect(const QRectF &sceneRect) const
 {
     QVector<int> hits;
-    if (sceneRect.isNull() || cellCentroidScene_.empty()) return hits;
+    if (sceneRect.isNull() || cellCentroidScene_.empty())
+        return hits;
     const int nCell = static_cast<int>(cellCentroidScene_.size());
     hits.reserve(nCell / 4);
     for (int i = 0; i < nCell; ++i) {
@@ -3178,10 +3589,11 @@ QVector<int> SWMM2DResultsLayer::pickCellsInRect(const QRectF& sceneRect) const
     return hits;
 }
 
-QVector<int> SWMM2DResultsLayer::pickCellsInPolygon(const QPolygonF& scenePoly) const
+QVector<int> SWMM2DResultsLayer::pickCellsInPolygon(const QPolygonF &scenePoly) const
 {
     QVector<int> hits;
-    if (scenePoly.size() < 3 || cellCentroidScene_.empty()) return hits;
+    if (scenePoly.size() < 3 || cellCentroidScene_.empty())
+        return hits;
     const int nCell = static_cast<int>(cellCentroidScene_.size());
     hits.reserve(nCell / 4);
     for (int i = 0; i < nCell; ++i) {
@@ -3191,41 +3603,42 @@ QVector<int> SWMM2DResultsLayer::pickCellsInPolygon(const QPolygonF& scenePoly) 
     return hits;
 }
 
-namespace {
-// Barycentric point-in-triangle test for scene-space coordinates.
-inline bool pointInTriangle(const QPointF& p,
-                            const QPointF& a,
-                            const QPointF& b,
-                            const QPointF& c)
+namespace
 {
-    if (!std::isfinite(p.x()) || !std::isfinite(p.y()) ||
-        !std::isfinite(a.x()) || !std::isfinite(a.y()) ||
-        !std::isfinite(b.x()) || !std::isfinite(b.y()) ||
+// Barycentric point-in-triangle test for scene-space coordinates.
+/**
+ * @param[in] p Finite scene-map sample.
+ * @param[in] a,b,c Finite triangle points in same frame.
+ * @return True on/in nondegenerate triangle including boundaries, false nonfinite/absolute
+ *   double-area<=1e-18; winding independent, no epsilon expansion.
+ */
+inline bool pointInTriangle(const QPointF &p, const QPointF &a, const QPointF &b, const QPointF &c)
+{
+    if (!std::isfinite(p.x()) || !std::isfinite(p.y()) || !std::isfinite(a.x()) ||
+        !std::isfinite(a.y()) || !std::isfinite(b.x()) || !std::isfinite(b.y()) ||
         !std::isfinite(c.x()) || !std::isfinite(c.y()))
         return false;
     if (!(std::abs(twiceSignedArea(a, b, c)) > 1e-18))
         return false;
 
-    const double d1 = (p.x() - b.x()) * (a.y() - b.y()) -
-                      (a.x() - b.x()) * (p.y() - b.y());
-    const double d2 = (p.x() - c.x()) * (b.y() - c.y()) -
-                      (b.x() - c.x()) * (p.y() - c.y());
-    const double d3 = (p.x() - a.x()) * (c.y() - a.y()) -
-                      (c.x() - a.x()) * (p.y() - a.y());
+    const double d1 = (p.x() - b.x()) * (a.y() - b.y()) - (a.x() - b.x()) * (p.y() - b.y());
+    const double d2 = (p.x() - c.x()) * (b.y() - c.y()) - (b.x() - c.x()) * (p.y() - c.y());
+    const double d3 = (p.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (p.y() - a.y());
     const bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
     const bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
     return !(hasNeg && hasPos);
 }
 } // namespace
 
-int SWMM2DResultsLayer::pickCellAt(const QPointF& scenePt) const
+int SWMM2DResultsLayer::pickCellAt(const QPointF &scenePt) const
 {
     const int tri = pickDisplayTriAt_(scenePt);
-    if (tri < 0 || tri >= static_cast<int>(triCell_.size())) return -1;
+    if (tri < 0 || tri >= static_cast<int>(triCell_.size()))
+        return -1;
     return triCell_[size_t(tri)];
 }
 
-int SWMM2DResultsLayer::pickDisplayTriAt_(const QPointF& scenePt) const
+int SWMM2DResultsLayer::pickDisplayTriAt_(const QPointF &scenePt) const
 {
     // Fast path: the spatial grid narrows the search to the one cell containing
     // the point — O(candidates) instead of an O(n) scan over all cells. The
@@ -3234,7 +3647,7 @@ int SWMM2DResultsLayer::pickDisplayTriAt_(const QPointF& scenePt) const
         const int *b = nullptr, *e = nullptr;
         m_triGrid.candidatesAtPoint(scenePt.x(), scenePt.y(), b, e);
         for (const int *p = b; p < e; ++p) {
-            const auto& t = m_sceneTris[*p];
+            const auto &t = m_sceneTris[*p];
             if (pointInTriangle(scenePt, t.a, t.b, t.c))
                 return *p;
         }
@@ -3243,31 +3656,32 @@ int SWMM2DResultsLayer::pickDisplayTriAt_(const QPointF& scenePt) const
 
     // Fallback: linear scan when the grid isn't built. Stops at first hit.
     for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const auto& t = m_sceneTris[i];
+        const auto &t = m_sceneTris[i];
         if (pointInTriangle(scenePt, t.a, t.b, t.c))
             return i;
     }
     return -1;
 }
 
-float SWMM2DResultsLayer::depthAtSceneNow(const QPointF& scenePt) const
+float SWMM2DResultsLayer::depthAtSceneNow(const QPointF &scenePt) const
 {
     const int idx = pickDisplayTriAt_(scenePt);
-    if (idx < 0 || idx >= m_sceneTris.size()) return 0.0f;
-    if(published_region_ && source_) {
-        float depth=std::numeric_limits<float>::quiet_NaN();
-        source_->readDepthAt(current_time_idx_,triCell_[size_t(idx)],depth);
+    if (idx < 0 || idx >= m_sceneTris.size())
+        return 0.0f;
+    if (published_region_ && source_) {
+        float depth = std::numeric_limits<float>::quiet_NaN();
+        source_->readDepthAt(current_time_idx_, triCell_[size_t(idx)], depth);
         return depth;
     }
-    return m_sceneTris[idx].depth;   // sub-triangle carries its CELL's depth
+    return m_sceneTris[idx].depth; // sub-triangle carries its CELL's depth
 }
 
-float SWMM2DResultsLayer::depthAtSceneInterp(const QPointF& scenePt) const
+float SWMM2DResultsLayer::depthAtSceneInterp(const QPointF &scenePt) const
 {
     return depthAtDisplayTriInterp_(pickDisplayTriAt_(scenePt), scenePt);
 }
 
-float SWMM2DResultsLayer::depthAtCellInterp(int cell, const QPointF& scenePt) const
+float SWMM2DResultsLayer::depthAtCellInterp(int cell, const QPointF &scenePt) const
 {
     // Interpolate depth at a point whose containing CELL is already known
     // (e.g. the cached Sample::triIdx during animation), skipping the cell
@@ -3279,173 +3693,220 @@ float SWMM2DResultsLayer::depthAtCellInterp(int cell, const QPointF& scenePt) co
     if (cell < 0 || cell + 1 >= static_cast<int>(cellTri0_.size()))
         return 0.0f;
     const int t0 = cellTri0_[size_t(cell)], t1 = cellTri0_[size_t(cell) + 1];
-    if (t0 >= t1) return 0.0f;
+    if (t0 >= t1)
+        return 0.0f;
     int idx = t0;
     for (int t = t0; t < t1; ++t) {
-        if (t >= m_sceneTris.size()) break;
-        const auto& st = m_sceneTris[t];
-        if (pointInTriangle(scenePt, st.a, st.b, st.c)) { idx = t; break; }
+        if (t >= m_sceneTris.size())
+            break;
+        const auto &st = m_sceneTris[t];
+        if (pointInTriangle(scenePt, st.a, st.b, st.c)) {
+            idx = t;
+            break;
+        }
     }
     return depthAtDisplayTriInterp_(idx, scenePt);
 }
 
-double SWMM2DResultsLayer::groundAtDisplayTriangle(int idx, const QPointF& p) const
+double SWMM2DResultsLayer::groundAtDisplayTriangle(int idx, const QPointF &p) const
 {
     if (idx < 0 || idx >= m_sceneTris.size() || size_t(idx) >= tris_.size())
         return std::numeric_limits<double>::quiet_NaN();
-    const auto& t = m_sceneTris[idx];
-    const auto& ids = tris_[size_t(idx)];
+    const auto &t = m_sceneTris[idx];
+    const auto &ids = tris_[size_t(idx)];
     for (int id : ids)
-        if (id < 0 || size_t(id) >= vz_.size()) return std::numeric_limits<double>::quiet_NaN();
-    std::array<double,3> w;
-    if (!CellWaterGeometry::barycentric(p,t.a,t.b,t.c,w))
+        if (id < 0 || size_t(id) >= vz_.size())
+            return std::numeric_limits<double>::quiet_NaN();
+    std::array<double, 3> w;
+    if (!CellWaterGeometry::barycentric(p, t.a, t.b, t.c, w))
         return std::numeric_limits<double>::quiet_NaN();
     const double z0 = vz_[ids[0]];
-    return z0 + w[1]*(vz_[ids[1]]-z0) + w[2]*(vz_[ids[2]]-z0);
+    return z0 + w[1] * (vz_[ids[1]] - z0) + w[2] * (vz_[ids[2]] - z0);
 }
 
-double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(int idx, const QPointF& p) const
+double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(int idx, const QPointF &p) const
 {
-    const auto analysis=analysisSurface_();
-    return signedDepthAtDisplayTriangle(idx,p,analysis ? analysis->smooth : surfaceDepths_);
+    const auto analysis = analysisSurface_();
+    return signedDepthAtDisplayTriangle(idx, p, analysis ? analysis->smooth : surfaceDepths_);
 }
 
-double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(int idx, const QPointF& p,
-    const std::vector<CellWaterGeometry::CornerDepths>& field) const
+double SWMM2DResultsLayer::signedDepthAtDisplayTriangle(
+    int idx, const QPointF &p, const std::vector<CellWaterGeometry::CornerDepths> &field) const
 {
-    const double nan=std::numeric_limits<double>::quiet_NaN();
-    if (idx<0 || size_t(idx)>=triCell_.size() || idx>=m_sceneTris.size()) return nan;
-    const int cell=triCell_[size_t(idx)];
-    if (cell<0 || size_t(cell)>=field.size()) return nan;
-    const auto& tri=m_sceneTris[idx];
-    std::array<double,3> w;
-    if (!CellWaterGeometry::barycentric(p,tri.a,tri.b,tri.c,w)) return nan;
-    double depth=0;
-    for (int k=0;k<3;++k) {
-        const int v=tris_[size_t(idx)][k];
-        const auto& ids=cells_[size_t(cell)];
-        const auto it=std::find(ids.begin(),ids.end(),v);
-        if (v<0 || it==ids.end()) return nan;
-        depth+=w[k]*field[size_t(cell)][size_t(it-ids.begin())];
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    if (idx < 0 || size_t(idx) >= triCell_.size() || idx >= m_sceneTris.size())
+        return nan;
+    const int cell = triCell_[size_t(idx)];
+    if (cell < 0 || size_t(cell) >= field.size())
+        return nan;
+    const auto &tri = m_sceneTris[idx];
+    std::array<double, 3> w;
+    if (!CellWaterGeometry::barycentric(p, tri.a, tri.b, tri.c, w))
+        return nan;
+    double depth = 0;
+    for (int k = 0; k < 3; ++k) {
+        const int v = tris_[size_t(idx)][k];
+        const auto &ids = cells_[size_t(cell)];
+        const auto it = std::find(ids.begin(), ids.end(), v);
+        if (v < 0 || it == ids.end())
+            return nan;
+        depth += w[k] * field[size_t(cell)][size_t(it - ids.begin())];
     }
     return depth;
 }
 
 CellWaterGeometry::Surface SWMM2DResultsLayer::surfaceForDepth(int cell, double depth) const
 {
-    if (cell < 0 || size_t(cell) >= cellSplit_.size()) return {};
-    return CellWaterGeometry::reconstruct(cellSplit_[size_t(cell)],depth,vz_);
+    if (cell < 0 || size_t(cell) >= cellSplit_.size())
+        return {};
+    return CellWaterGeometry::reconstruct(cellSplit_[size_t(cell)], depth, vz_);
 }
 
-float SWMM2DResultsLayer::depthAtDisplayTriInterp_(int idx, const QPointF& p) const
+float SWMM2DResultsLayer::depthAtDisplayTriInterp_(int idx, const QPointF &p) const
 {
-    return float(std::max(0.0, signedDepthAtDisplayTriangle(idx,p)));
+    return float(std::max(0.0, signedDepthAtDisplayTriangle(idx, p)));
 }
 
 bool SWMM2DResultsLayer::cellHasSurface(int cell) const
 {
-    return CellWaterGeometry::visible(cellWaterDisplayState(cell),waterVisibilityPolicy());
+    return CellWaterGeometry::visible(cellWaterDisplayState(cell), waterVisibilityPolicy());
 }
 
 CellWaterGeometry::DisplayState SWMM2DResultsLayer::cellWaterDisplayState(int cell) const
 {
-    if(published_region_) {
-        const auto analysis=analysisSurface_();
-        if(!analysis || cell<0 || size_t(cell)>=analysis->smooth.size()) return CellWaterGeometry::DisplayState::Invalid;
-        const auto raw=CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
-            surfaceForDepth(cell,analysis->depths[size_t(cell)]),vz_,waterVisibilityPolicy());
-        if(!CellWaterGeometry::visible(raw,waterVisibilityPolicy()) || analysis->flow.empty()) return raw;
+    if (published_region_) {
+        const auto analysis = analysisSurface_();
+        if (!analysis || cell < 0 || size_t(cell) >= analysis->smooth.size())
+            return CellWaterGeometry::DisplayState::Invalid;
+        const auto raw = CellWaterGeometry::displayState(
+            cellSplit_[size_t(cell)], surfaceForDepth(cell, analysis->depths[size_t(cell)]), vz_,
+            waterVisibilityPolicy());
+        if (!CellWaterGeometry::visible(raw, waterVisibilityPolicy()) || analysis->flow.empty())
+            return raw;
         return CellWaterGeometry::displayState(analysis->flow[size_t(cell)],
-            cellSplit_[size_t(cell)].vertexCount(),waterVisibilityPolicy());
+                                               cellSplit_[size_t(cell)].vertexCount(),
+                                               waterVisibilityPolicy());
     }
     if (cell < 0 || size_t(cell) >= cellSurfaces_.size() || size_t(cell) >= cellSplit_.size())
         return CellWaterGeometry::DisplayState::Invalid;
-    const auto raw=CellWaterGeometry::displayState(cellSplit_[size_t(cell)],
-        cellSurfaces_[size_t(cell)],vz_,waterVisibilityPolicy());
-    if (!CellWaterGeometry::visible(raw,waterVisibilityPolicy())) return raw;
-    if (size_t(cell)<cellFlowDepths_.size())
+    const auto raw = CellWaterGeometry::displayState(
+        cellSplit_[size_t(cell)], cellSurfaces_[size_t(cell)], vz_, waterVisibilityPolicy());
+    if (!CellWaterGeometry::visible(raw, waterVisibilityPolicy()))
+        return raw;
+    if (size_t(cell) < cellFlowDepths_.size())
         return CellWaterGeometry::displayState(cellFlowDepths_[size_t(cell)],
-            cellSplit_[size_t(cell)].vertexCount(),waterVisibilityPolicy());
-    if (size_t(cell)<cellFlowMaxDepths_.size())
+                                               cellSplit_[size_t(cell)].vertexCount(),
+                                               waterVisibilityPolicy());
+    if (size_t(cell) < cellFlowMaxDepths_.size())
         return CellWaterGeometry::displayState(
-            CellWaterGeometry::DepthSummary{cellFlowMaxDepths_[size_t(cell)],cellFlowFlags_[size_t(cell)]},
+            CellWaterGeometry::DepthSummary{cellFlowMaxDepths_[size_t(cell)],
+                                            cellFlowFlags_[size_t(cell)]},
             waterVisibilityPolicy());
     return raw;
 }
 
 SWMM2DResultsLayer::VelocityField SWMM2DResultsLayer::captureVelocityField() const
 {
-    if(published_region_) {
-        VelocityField field;field.cells=published_region_->cells;field.vertices=published_region_->vertices;
-        for(int c:field.cells) {
-            const auto state=CellWaterGeometry::displayState(surfaceDepths_[size_t(c)],
-                cellSplit_[size_t(c)].vertexCount(),waterVisibilityPolicy());
-            field.depths.push_back(CellWaterGeometry::visible(state,waterVisibilityPolicy())?current_depths_[size_t(c)]:0.f);
+    if (published_region_) {
+        VelocityField field;
+        field.cells = published_region_->cells;
+        field.vertices = published_region_->vertices;
+        for (int c : field.cells) {
+            const auto state = CellWaterGeometry::displayState(surfaceDepths_[size_t(c)],
+                                                               cellSplit_[size_t(c)].vertexCount(),
+                                                               waterVisibilityPolicy());
+            field.depths.push_back(CellWaterGeometry::visible(state, waterVisibilityPolicy())
+                                       ? current_depths_[size_t(c)]
+                                       : 0.f);
         }
-        for(int v:field.vertices) {field.vx.push_back(vvx_[size_t(v)]);field.vy.push_back(vvy_[size_t(v)]);}
+        for (int v : field.vertices) {
+            field.vx.push_back(vvx_[size_t(v)]);
+            field.vy.push_back(vvy_[size_t(v)]);
+        }
         return field;
     }
     VelocityField field{current_depths_, vvx_, vvy_, {}, {}};
     for (size_t c = 0; c < field.depths.size(); ++c)
         if (!CellWaterGeometry::visible(CellWaterGeometry::displayState(surfaceDepths_[c],
-                cellSplit_[c].vertexCount(),waterVisibilityPolicy()),waterVisibilityPolicy())) field.depths[c] = 0.0f;
+                                                                        cellSplit_[c].vertexCount(),
+                                                                        waterVisibilityPolicy()),
+                                        waterVisibilityPolicy()))
+            field.depths[c] = 0.0f;
     return field;
 }
 
-bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
-                                         float& outVx, float& outVy) const
+bool SWMM2DResultsLayer::velocityAtScene(const QPointF &scenePt, float &outVx, float &outVy) const
 {
-    const int cell=pickCellAt(scenePt);
-    if(cell<0 || size_t(cell)>=surfaceDepths_.size() || !CellWaterGeometry::visible(
-        CellWaterGeometry::displayState(surfaceDepths_[size_t(cell)],cellSplit_[size_t(cell)].vertexCount(),
-            waterVisibilityPolicy()),waterVisibilityPolicy())) {outVx=outVy=0;return false;}
+    const int cell = pickCellAt(scenePt);
+    if (cell < 0 || size_t(cell) >= surfaceDepths_.size() ||
+        !CellWaterGeometry::visible(
+            CellWaterGeometry::displayState(surfaceDepths_[size_t(cell)],
+                                            cellSplit_[size_t(cell)].vertexCount(),
+                                            waterVisibilityPolicy()),
+            waterVisibilityPolicy())) {
+        outVx = outVy = 0;
+        return false;
+    }
     return velocityAtScene_(scenePt, outVx, outVy, current_depths_, vvx_, vvy_);
 }
 
-bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
-    float& outVx, float& outVy, const VelocityField& field) const
+bool SWMM2DResultsLayer::velocityAtScene(const QPointF &scenePt, float &outVx, float &outVy,
+                                         const VelocityField &field) const
 {
-    if(field.cells.empty()) return velocityAtScene_(scenePt, outVx, outVy, field.depths, field.vx, field.vy);
-    outVx=outVy=0;
-    const int t=pickDisplayTriAt_(scenePt);if(t<0)return false;
-    const int c=triCell_[size_t(t)];
-    const auto cell=std::lower_bound(field.cells.begin(),field.cells.end(),c);
-    if(cell==field.cells.end() || *cell!=c) return false;
-    const float depth=field.depths[size_t(cell-field.cells.begin())];
-    if(!std::isfinite(depth) || depth<=0 || depth<dry_depth_) return false;
-    std::array<double,3> w;const auto& tri=m_sceneTris[t];
-    if(!CellWaterGeometry::barycentric(scenePt,tri.a,tri.b,tri.c,w)) return false;
-    for(int k=0;k<3;++k) {
-        const int v=tris_[size_t(t)][k];
-        const auto at=std::lower_bound(field.vertices.begin(),field.vertices.end(),v);
-        if(at==field.vertices.end() || *at!=v) {outVx=outVy=0;return false;}
-        const size_t i=size_t(at-field.vertices.begin());outVx+=float(w[k]*field.vx[i]);outVy+=float(w[k]*field.vy[i]);
+    if (field.cells.empty())
+        return velocityAtScene_(scenePt, outVx, outVy, field.depths, field.vx, field.vy);
+    outVx = outVy = 0;
+    const int t = pickDisplayTriAt_(scenePt);
+    if (t < 0)
+        return false;
+    const int c = triCell_[size_t(t)];
+    const auto cell = std::lower_bound(field.cells.begin(), field.cells.end(), c);
+    if (cell == field.cells.end() || *cell != c)
+        return false;
+    const float depth = field.depths[size_t(cell - field.cells.begin())];
+    if (!std::isfinite(depth) || depth <= 0 || depth < dry_depth_)
+        return false;
+    std::array<double, 3> w;
+    const auto &tri = m_sceneTris[t];
+    if (!CellWaterGeometry::barycentric(scenePt, tri.a, tri.b, tri.c, w))
+        return false;
+    for (int k = 0; k < 3; ++k) {
+        const int v = tris_[size_t(t)][k];
+        const auto at = std::lower_bound(field.vertices.begin(), field.vertices.end(), v);
+        if (at == field.vertices.end() || *at != v) {
+            outVx = outVy = 0;
+            return false;
+        }
+        const size_t i = size_t(at - field.vertices.begin());
+        outVx += float(w[k] * field.vx[i]);
+        outVy += float(w[k] * field.vy[i]);
     }
     return true;
 }
 
-bool SWMM2DResultsLayer::velocityAtScene_(const QPointF& scenePt,
-    float& outVx, float& outVy, const std::vector<float>& depths,
-    const std::vector<float>& vx, const std::vector<float>& vy) const
+bool SWMM2DResultsLayer::velocityAtScene_(const QPointF &scenePt, float &outVx, float &outVy,
+                                          const std::vector<float> &depths,
+                                          const std::vector<float> &vx,
+                                          const std::vector<float> &vy) const
 {
     outVx = outVy = 0.0f;
-    if (vx.empty() || vy.empty()) return false;
+    if (vx.empty() || vy.empty())
+        return false;
     const int idx = pickDisplayTriAt_(scenePt);
-    if (idx < 0 || idx >= m_sceneTris.size() ||
-        idx >= static_cast<int>(tris_.size()))
+    if (idx < 0 || idx >= m_sceneTris.size() || idx >= static_cast<int>(tris_.size()))
         return false;
     // A cell the solver marks dry this frame carries no flow, even if its
     // vertices borrowed a velocity from a still-wet neighbour. Gate on the
     // cell's own mean depth so arrows never appear in a dry cell.
     const int cell = triCell_[size_t(idx)];
-    if (cell < 0 || cell >= static_cast<int>(depths.size())
-        || !std::isfinite(depths[size_t(cell)]) || depths[size_t(cell)] <= 0.0f
-        || depths[size_t(cell)] < float(dry_depth_))
+    if (cell < 0 || cell >= static_cast<int>(depths.size()) ||
+        !std::isfinite(depths[size_t(cell)]) || depths[size_t(cell)] <= 0.0f ||
+        depths[size_t(cell)] < float(dry_depth_))
         return false;
 
-    const auto& t   = m_sceneTris[idx];
-    const auto& tri = tris_[idx];
-    auto vget = [&](int k, const std::vector<float>& arr) -> double {
+    const auto &t = m_sceneTris[idx];
+    const auto &tri = tris_[idx];
+    auto vget = [&](int k, const std::vector<float> &arr) -> double {
         const int vi = tri[k];
         return (vi >= 0 && size_t(vi) < arr.size()) ? double(arr[vi]) : 0.0;
     };
@@ -3462,9 +3923,11 @@ bool SWMM2DResultsLayer::velocityAtScene_(const QPointF& scenePt,
     const double denom = d00 * d11 - d01 * d01;
     double wA = 1.0, wB = 0.0, wC = 0.0;
     if (denom != 0.0) {
-        const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
-        const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
-        wC = u; wB = v; wA = 1.0 - u - v;
+        const double u = (d11 * d20 - d01 * d21) / denom; // weight for c
+        const double v = (d00 * d21 - d01 * d20) / denom; // weight for b
+        wC = u;
+        wB = v;
+        wA = 1.0 - u - v;
     }
     outVx = float(wA * vget(0, vx) + wB * vget(1, vx) + wC * vget(2, vx));
     outVy = float(wA * vget(0, vy) + wB * vget(1, vy) + wC * vget(2, vy));
@@ -3474,25 +3937,30 @@ bool SWMM2DResultsLayer::velocityAtScene_(const QPointF& scenePt,
 QVector<double> SWMM2DResultsLayer::currentDepthSamples(bool includeDry) const
 {
     std::vector<float> full;
-    if(published_region_ && source_) source_->readDepthsAt(current_time_idx_,full);
-    const auto& depths=published_region_?full:current_depths_;
-    QVector<double> samples;samples.reserve(depths.size());
-    for(float d:depths) if(std::isfinite(d) && (includeDry?d>=0:d>0)) samples.push_back(d);
+    if (published_region_ && source_)
+        source_->readDepthsAt(current_time_idx_, full);
+    const auto &depths = published_region_ ? full : current_depths_;
+    QVector<double> samples;
+    samples.reserve(depths.size());
+    for (float d : depths)
+        if (std::isfinite(d) && (includeDry ? d >= 0 : d > 0))
+            samples.push_back(d);
     return samples;
 }
 
 QVector<double> SWMM2DResultsLayer::depthClassificationSamples(
-    const OpenSWMM::Render::ClassificationScheme& scheme) const
+    const OpenSWMM::Render::ClassificationScheme &scheme) const
 {
     using namespace OpenSWMM::Render;
-    if (scheme.method() != BinMethod::Quantile
-        && scheme.method() != BinMethod::NaturalBreaks
-        && scheme.method() != BinMethod::StdDev) return {};
+    if (scheme.method() != BinMethod::Quantile && scheme.method() != BinMethod::NaturalBreaks &&
+        scheme.method() != BinMethod::StdDev)
+        return {};
     QVector<double> samples;
-    auto append = [&](const auto& depths) {
+    auto append = [&](const auto &depths) {
         samples.reserve(depths.size());
         for (float d : depths)
-            if (std::isfinite(d) && d > 0.0) samples.push_back(d);
+            if (std::isfinite(d) && d > 0.0)
+                samples.push_back(d);
     };
     if (scheme.rangeMode() == RangeMode::PerFrameAutoStretch)
         return currentDepthSamples();
@@ -3503,176 +3971,204 @@ QVector<double> SWMM2DResultsLayer::depthClassificationSamples(
 
 QVector<float> SWMM2DResultsLayer::maxDepthPerCell() const
 {
-    if (!source_ || cells_.empty() || source_->timeCount() <= 0) return {};
+    if (!source_ || cells_.empty() || source_->timeCount() <= 0)
+        return {};
     const int nT = source_->timeCount();
     const int gen = source_->historyGeneration();
-    if (cellMaxSource_ != source_.get() || cellMaxGeneration_ != gen
-        || cellMaxCache_.size() != cells_.size() || cellMaxFramesDone_ > nT-1) {
-        cellMaxCache_.assign(cells_.size(),0.0f);
+    if (cellMaxSource_ != source_.get() || cellMaxGeneration_ != gen ||
+        cellMaxCache_.size() != cells_.size() || cellMaxFramesDone_ > nT - 1) {
+        cellMaxCache_.assign(cells_.size(), 0.0f);
         cellMaxFramesDone_ = 0;
         cellMaxSource_ = source_.get();
         cellMaxGeneration_ = gen;
     }
-    auto fold = [](auto& maxima, const std::vector<float>& depths) {
+    auto fold = [](auto &maxima, const std::vector<float> &depths) {
         for (size_t c = 0; c < depths.size(); ++c)
-            if (std::isfinite(depths[c])) maxima[c] = std::max(maxima[c],depths[c]);
+            if (std::isfinite(depths[c]))
+                maxima[c] = std::max(maxima[c], depths[c]);
     };
     // Freeze completed frames only. The newest live frame can be replaced
     // with LOWER depths, so it must never contaminate the persistent maximum.
     std::vector<float> values;
-    while (cellMaxFramesDone_ < nT-1) {
-        if (!source_->readDepthsAt(cellMaxFramesDone_,values) || values.size() != cells_.size()) break;
-        fold(cellMaxCache_,values);
+    while (cellMaxFramesDone_ < nT - 1) {
+        if (!source_->readDepthsAt(cellMaxFramesDone_, values) || values.size() != cells_.size())
+            break;
+        fold(cellMaxCache_, values);
         ++cellMaxFramesDone_;
     }
-    QVector<float> out(cellMaxCache_.begin(),cellMaxCache_.end());
-    if (source_->readDepthsAt(nT-1,values) && values.size() == cells_.size()) fold(out,values);
+    QVector<float> out(cellMaxCache_.begin(), cellMaxCache_.end());
+    if (source_->readDepthsAt(nT - 1, values) && values.size() == cells_.size())
+        fold(out, values);
     return out;
 }
 
 std::vector<CellWaterGeometry::CornerDepths> SWMM2DResultsLayer::maxSurfaceDepths() const
 {
-    if (!source_ || cells_.empty() || source_->timeCount()<=0) return {};
-    const int count=source_->timeCount();
+    if (!source_ || cells_.empty() || source_->timeCount() <= 0)
+        return {};
+    const int count = source_->timeCount();
     resetEnvelopeIfStale_();
     if (async_surface_) {
         // Never fit on the caller's thread: fold what the worker has produced.
         advanceEnvelope_();
-        auto out=surfaceMaxCache_;
-        if (const auto* newest=newestSurface_(count-1)) foldSurfaceMaximum(*newest,out);
+        auto out = surfaceMaxCache_;
+        if (const auto *newest = newestSurface_(count - 1))
+            foldSurfaceMaximum(*newest, out);
         return out;
     }
     std::vector<float> depths, flux;
     std::vector<CellWaterGeometry::Surface> surfaces(cells_.size());
     std::vector<CellWaterGeometry::CornerDepths> field;
-    auto fold=[&](int frame,auto& maximum) {
-        if (!source_->readDepthsAt(frame,depths) || depths.size()!=cells_.size()) return false;
-        for (size_t c=0;c<cells_.size();++c) surfaces[c]=surfaceForDepth(int(c),depths[c]);
-        if (!source_->readEdgeFluxAt(frame,flux)) flux.clear();
-        const auto reconstructed=CellWaterGeometry::flowingCornerDepths(
-            cellSplit_,surfaces,vx_,vy_,vz_,surfaceTopology_,depths,flux,waterVisibilityPolicy());
-        CellWaterGeometry::smoothCornerDepths(cellSplit_,surfaces,vz_,surfaceTopology_,field,
-                                             waterVisibilityPolicy(),reconstructed);
-        for (size_t c=0;c<field.size();++c)
-            for (int k=0;k<4;++k)
-                if (std::isfinite(field[c][k])
-                    && (!std::isfinite(maximum[c][k]) || field[c][k]>maximum[c][k]))
-                    maximum[c][k]=field[c][k];
+    auto fold = [&](int frame, auto &maximum) {
+        if (!source_->readDepthsAt(frame, depths) || depths.size() != cells_.size())
+            return false;
+        for (size_t c = 0; c < cells_.size(); ++c)
+            surfaces[c] = surfaceForDepth(int(c), depths[c]);
+        if (!source_->readEdgeFluxAt(frame, flux))
+            flux.clear();
+        const auto reconstructed = CellWaterGeometry::flowingCornerDepths(
+            cellSplit_, surfaces, vx_, vy_, vz_, surfaceTopology_, depths, flux,
+            waterVisibilityPolicy());
+        CellWaterGeometry::smoothCornerDepths(cellSplit_, surfaces, vz_, surfaceTopology_, field,
+                                              waterVisibilityPolicy(), reconstructed);
+        for (size_t c = 0; c < field.size(); ++c)
+            for (int k = 0; k < 4; ++k)
+                if (std::isfinite(field[c][k]) &&
+                    (!std::isfinite(maximum[c][k]) || field[c][k] > maximum[c][k]))
+                    maximum[c][k] = field[c][k];
         return true;
     };
     // Reconstruct each actual frame BEFORE taking its temporal maximum.
     // Smoothing independently peaked cell volumes can put the envelope below
     // water that really occurred. Never freeze the replaceable newest frame.
-    while (surfaceMaxFramesDone_<count-1) {
-        if (!fold(surfaceMaxFramesDone_,surfaceMaxCache_)) break;
+    while (surfaceMaxFramesDone_ < count - 1) {
+        if (!fold(surfaceMaxFramesDone_, surfaceMaxCache_))
+            break;
         ++surfaceMaxFramesDone_;
     }
-    auto out=surfaceMaxCache_;
-    fold(count-1,out);
+    auto out = surfaceMaxCache_;
+    fold(count - 1, out);
     return out;
 }
 
 void SWMM2DResultsLayer::resetEnvelopeIfStale_() const
 {
-    const int count=source_->timeCount(), generation=source_->historyGeneration();
-    if (surfaceMaxSource_!=source_.get() || surfaceMaxGeneration_!=generation
-        || surfaceMaxCache_.size()!=cells_.size() || surfaceMaxFramesDone_>count-1) {
-        const double nan=std::numeric_limits<double>::quiet_NaN();
-        surfaceMaxCache_.assign(cells_.size(),CellWaterGeometry::CornerDepths{nan,nan,nan,nan});
-        surfaceMaxFramesDone_=0;
-        surfaceMaxSource_=source_.get(); surfaceMaxGeneration_=generation;
+    const int count = source_->timeCount(), generation = source_->historyGeneration();
+    if (surfaceMaxSource_ != source_.get() || surfaceMaxGeneration_ != generation ||
+        surfaceMaxCache_.size() != cells_.size() || surfaceMaxFramesDone_ > count - 1) {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        surfaceMaxCache_.assign(cells_.size(), CellWaterGeometry::CornerDepths{nan, nan, nan, nan});
+        surfaceMaxFramesDone_ = 0;
+        surfaceMaxSource_ = source_.get();
+        surfaceMaxGeneration_ = generation;
     }
 }
 
 // Freeze every completed frame the worker has already fitted, in order.
 void SWMM2DResultsLayer::advanceEnvelope_() const
 {
-    const int count=source_->timeCount();
-    while (surfaceMaxFramesDone_<count-1) {
-        auto key=surfaceKey_(surfaceMaxFramesDone_);key.regionRev=0;
-        const auto hit=cachedSurface_(key);
-        if (!hit) break;
-        foldSurfaceMaximum(hit->smooth,surfaceMaxCache_);
+    const int count = source_->timeCount();
+    while (surfaceMaxFramesDone_ < count - 1) {
+        auto key = surfaceKey_(surfaceMaxFramesDone_);
+        key.regionRev = 0;
+        const auto hit = cachedSurface_(key);
+        if (!hit)
+            break;
+        foldSurfaceMaximum(hit->smooth, surfaceMaxCache_);
         ++surfaceMaxFramesDone_;
     }
 }
 
-const std::vector<CellWaterGeometry::CornerDepths>* SWMM2DResultsLayer::newestSurface_(int frame) const
+const std::vector<CellWaterGeometry::CornerDepths> *
+SWMM2DResultsLayer::newestSurface_(int frame) const
 {
-    auto key=surfaceKey_(frame);key.regionRev=0;
-    if (!published_region_ && published_key_==key) return &surfaceDepths_;
-    if (envelope_newest_ && envelope_newest_->key==key) return &envelope_newest_->smooth;
-    if (const auto hit=cachedSurface_(key)) return &hit->smooth;   // kept alive by the cache
+    auto key = surfaceKey_(frame);
+    key.regionRev = 0;
+    if (!published_region_ && published_key_ == key)
+        return &surfaceDepths_;
+    if (envelope_newest_ && envelope_newest_->key == key)
+        return &envelope_newest_->smooth;
+    if (const auto hit = cachedSurface_(key))
+        return &hit->smooth; // kept alive by the cache
     return nullptr;
 }
 
 bool SWMM2DResultsLayer::envelopeComplete() const
 {
-    if (!async_surface_ || !source_ || cells_.empty() || source_->timeCount()<=0) return true;
-    const int count=source_->timeCount();
+    if (!async_surface_ || !source_ || cells_.empty() || source_->timeCount() <= 0)
+        return true;
+    const int count = source_->timeCount();
     resetEnvelopeIfStale_();
     advanceEnvelope_();
-    return surfaceMaxFramesDone_>=count-1 && newestSurface_(count-1);
+    return surfaceMaxFramesDone_ >= count - 1 && newestSurface_(count - 1);
 }
 
 void SWMM2DResultsLayer::requestEnvelope()
 {
-    if (envelopeComplete()) { emit envelopeReady(); return; }
-    envelope_wanted_=true;
+    if (envelopeComplete()) {
+        emit envelopeReady();
+        return;
+    }
+    envelope_wanted_ = true;
     scheduleFit_();
 }
 
 // Next frame the envelope still needs, or null. Announces completion.
 std::shared_ptr<SWMM2DResultsLayer::SurfaceJob> SWMM2DResultsLayer::nextEnvelopeJob_()
 {
-    if (!envelope_wanted_ || !source_ || cells_.empty() || cellSplit_.size()!=cells_.size())
+    if (!envelope_wanted_ || !source_ || cells_.empty() || cellSplit_.size() != cells_.size())
         return {};
-    const int count=source_->timeCount();
-    if (count<=0) return {};
+    const int count = source_->timeCount();
+    if (count <= 0)
+        return {};
     resetEnvelopeIfStale_();
     advanceEnvelope_();
-    int frame=surfaceMaxFramesDone_;
-    if (frame>=count-1) {
-        if (newestSurface_(count-1)) {
-            envelope_wanted_=false;
+    int frame = surfaceMaxFramesDone_;
+    if (frame >= count - 1) {
+        if (newestSurface_(count - 1)) {
+            envelope_wanted_ = false;
             emit envelopeReady();
             return {};
         }
-        frame=count-1;
+        frame = count - 1;
     }
-    auto job=std::make_shared<SurfaceJob>();
-    job->key=surfaceKey_(frame);job->key.regionRev=0;
-    job->epoch=surface_epoch_;
-    job->forEnvelope=true;
-    job->policy=waterVisibilityPolicy();
+    auto job = std::make_shared<SurfaceJob>();
+    job->key = surfaceKey_(frame);
+    job->key.regionRev = 0;
+    job->epoch = surface_epoch_;
+    job->forEnvelope = true;
+    job->policy = waterVisibilityPolicy();
     readSurfaceJob_(*job);
     return job;
 }
 
 QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
 {
-    const auto maximum=maxSurfaceDepths();
-    if (maximum.empty()) return {};
-    QVector<float> out(vz_.size(),0.0f);
-    for (size_t c=0;c<cells_.size();++c)
-        for (int k=0;k<cellSplit_[c].vertexCount();++k) {
-            const int v=cells_[c][k];
-            if (v>=0 && size_t(v)<vz_.size() && std::isfinite(maximum[c][k]))
-                out[v]=std::max(out[v],float(std::max(0.0,maximum[c][k])));
+    const auto maximum = maxSurfaceDepths();
+    if (maximum.empty())
+        return {};
+    QVector<float> out(vz_.size(), 0.0f);
+    for (size_t c = 0; c < cells_.size(); ++c)
+        for (int k = 0; k < cellSplit_[c].vertexCount(); ++k) {
+            const int v = cells_[c][k];
+            if (v >= 0 && size_t(v) < vz_.size() && std::isfinite(maximum[c][k]))
+                out[v] = std::max(out[v], float(std::max(0.0, maximum[c][k])));
         }
     return out;
 }
 
-float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF& p, const QVector<float>&) const
+float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF &p, const QVector<float> &) const
 {
-    const int tri=pickDisplayTriAt_(p);
-    if (tri<0) return 0;
-    return float(std::max(0.0,signedDepthAtDisplayTriangle(tri,p,maxSurfaceDepths())));
+    const int tri = pickDisplayTriAt_(p);
+    if (tri < 0)
+        return 0;
+    return float(std::max(0.0, signedDepthAtDisplayTriangle(tri, p, maxSurfaceDepths())));
 }
 
-void SWMM2DResultsLayer::highlightCells(const QSet<int>& triIdxSet)
+void SWMM2DResultsLayer::highlightCells(const QSet<int> &triIdxSet)
 {
-    if (m_highlighted == triIdxSet) return;
+    if (m_highlighted == triIdxSet)
+        return;
     m_highlighted = triIdxSet;
     if (graphics_item_)
         graphics_item_->update();
@@ -3685,7 +4181,8 @@ void SWMM2DResultsLayer::highlightCells(const QSet<int>& triIdxSet)
 
 void SWMM2DResultsLayer::clearHighlights()
 {
-    if (m_highlighted.isEmpty()) return;
+    if (m_highlighted.isEmpty())
+        return;
     m_highlighted.clear();
     if (graphics_item_)
         graphics_item_->update();
@@ -3699,12 +4196,16 @@ void SWMM2DResultsLayer::clearHighlights()
 
 void SWMM2DResultsLayer::rebuildSceneGeometry_()
 {
-    cancelSurfaceJobs_();   // the worker reads the geometry rebuilt below
-    surface_region_.reset();published_region_.reset();analysis_surface_.reset();
-    surfaceNeighbors_.clear();hydraulic_view_={};++surface_region_revision_;
+    cancelSurfaceJobs_(); // the worker reads the geometry rebuilt below
+    surface_region_.reset();
+    published_region_.reset();
+    analysis_surface_.reset();
+    surfaceNeighbors_.clear();
+    hydraulic_view_ = {};
+    ++surface_region_revision_;
     m_sceneTris.clear();
-    m_triGrid.clear();   // drop the stale index; every early-return path below
-                         // leaves an empty grid so pickCellAt falls back safely.
+    m_triGrid.clear(); // drop the stale index; every early-return path below
+                       // leaves an empty grid so pickCellAt falls back safely.
     tris_.clear();
     triCell_.clear();
     cellTri0_.clear();
@@ -3712,12 +4213,12 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     cellSurfaces_.clear();
     surfaceTopology_.edges.clear();
     surfaceDepths_.clear();
-    surfaceMaxSource_=nullptr;
+    surfaceMaxSource_ = nullptr;
     cellMaxSource_ = nullptr;
     cellCentroidScene_.clear();
     vvx_.clear();
     vvy_.clear();
-    velocity_scratch_={};
+    velocity_scratch_ = {};
     m_sceneEdges.clear();
     m_sceneVerts.clear();
     m_sceneBBox = QRectF();
@@ -3727,14 +4228,16 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // must notice the geometry went away too.
     ++m_geomRevision;
 
-    if (!source_) return;
+    if (!source_)
+        return;
 
     // Cells first (per-face values live on them); the display fan is derived
     // below once the vertex ids are validated.
     if (!source_->readCells(vx_, vy_, vz_, cells_)) {
         return;
     }
-    if (cells_.empty()) return;
+    if (cells_.empty())
+        return;
     if (vx_.empty() || vy_.size() != vx_.size() || vz_.size() != vx_.size()) {
         qWarning("[2D-render] invalid mesh geometry vector sizes "
                  "(x=%llu y=%llu z=%llu)",
@@ -3794,8 +4297,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     std::vector<double> bx(static_cast<size_t>(nVerts));
     std::vector<double> by(static_cast<size_t>(nVerts));
     for (int i = 0; i < nVerts; ++i) {
-        if (!std::isfinite(vx_[i]) || !std::isfinite(vy_[i])
-            || !std::isfinite(vz_[i])) {
+        if (!std::isfinite(vx_[i]) || !std::isfinite(vy_[i]) || !std::isfinite(vz_[i])) {
             validVerts[size_t(i)] = 0;
             ++badVerts;
             // Reprojecting garbage can throw OGR errors, so feed the transform
@@ -3808,13 +4310,16 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         const double my = vy_[i] * invScale;
         bx[size_t(i)] = mx;
         by[size_t(i)] = my;
-        if (mx < lMinX) lMinX = mx;
-        if (mx > lMaxX) lMaxX = mx;
-        if (my < lMinY) lMinY = my;
-        if (my > lMaxY) lMaxY = my;
+        if (mx < lMinX)
+            lMinX = mx;
+        if (mx > lMaxX)
+            lMaxX = mx;
+        if (my < lMinY)
+            lMinY = my;
+        if (my > lMaxY)
+            lMaxY = my;
     }
-    CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(),
-                                         nVerts);
+    CRSReproject::transformPointsInPlace(m_transform, bx.data(), by.data(), nVerts);
 
     for (int i = 0; i < nVerts; ++i) {
         double sx = bx[size_t(i)];
@@ -3822,12 +4327,17 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         if (!validVerts[size_t(i)])
             sx = sy = 0.0;
         scenePts.append(QPointF(sx, sy));
-        if (!validVerts[size_t(i)]) continue;
+        if (!validVerts[size_t(i)])
+            continue;
         haveValidVertex = true;
-        if (sx < minX) minX = sx;
-        if (sx > maxX) maxX = sx;
-        if (sy < minY) minY = sy;
-        if (sy > maxY) maxY = sy;
+        if (sx < minX)
+            minX = sx;
+        if (sx > maxX)
+            maxX = sx;
+        if (sy < minY)
+            minY = sy;
+        if (sy > maxY)
+            maxY = sy;
     }
     if (!haveValidVertex) {
         qWarning("[2D-render] 2D mesh has no finite vertices; results layer "
@@ -3839,11 +4349,10 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         return;
     }
     if (badVerts > 0) {
-        qWarning("[2D-render] ignored %d non-finite 2D mesh vertex/vertices",
-                 badVerts);
+        qWarning("[2D-render] ignored %d non-finite 2D mesh vertex/vertices", badVerts);
     }
     m_sceneBBox = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
-    setExtent(MapExtent(lMinX, lMinY, lMaxX, lMaxY));  // layer CRS, not scene
+    setExtent(MapExtent(lMinX, lMinY, lMaxX, lMaxY)); // layer CRS, not scene
     // QSG-2D-1M — shared-vertex cache for the renderer. If any source
     // vertex was non-finite, leave this empty so indexed fill/unique-marker
     // paths fall back to the validated per-triangle buffers below.
@@ -3852,12 +4361,14 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // Invalidate cells that touch a non-finite vertex before the split so
     // cellGeom never orders NaN elevations; their fan slots become {-1,-1,-1}.
     {
-        for (auto& cell : cells_) {
+        for (auto &cell : cells_) {
             const int nv = cellVertexCount(cell);
             bool ok = cellIndicesInRange(cell, nVerts);
             for (int k = 0; ok && k < nv; ++k)
-                if (!validVerts[size_t(cell[k])]) ok = false;
-            if (!ok) cell[0] = cell[1] = cell[2] = -1;   // v3 kept: slot count preserved
+                if (!validVerts[size_t(cell[k])])
+                    ok = false;
+            if (!ok)
+                cell[0] = cell[1] = cell[2] = -1; // v3 kept: slot count preserved
         }
     }
 
@@ -3866,29 +4377,31 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // the vertex reconstruction consumes. Mixed meshes render, hit-test and
     // contour on this fan; every per-face value is looked up through triCell_.
     buildDisplayFan(vx_, vy_, vz_, cells_, tris_, triCell_, cellTri0_, &cellSplit_);
-    surfaceTopology_=CellWaterGeometry::smoothTopology(cellSplit_);
-    if(source_->supportsHydraulicCells()) {
-        surfaceNeighbors_.assign(cells_.size(),std::array<int,4>{-1,-1,-1,-1});
-        for(const auto& edge:surfaceTopology_.edges) {
-            auto connect=[&](int a,int b,int other) {
-                const int cell=a/4,nv=cellSplit_[size_t(cell)].vertexCount();
-                const int start=(a%4+1)%nv==b%4?a%4:b%4;
-                surfaceNeighbors_[size_t(cell)][start]=other/4;
+    surfaceTopology_ = CellWaterGeometry::smoothTopology(cellSplit_);
+    if (source_->supportsHydraulicCells()) {
+        surfaceNeighbors_.assign(cells_.size(), std::array<int, 4>{-1, -1, -1, -1});
+        for (const auto &edge : surfaceTopology_.edges) {
+            auto connect = [&](int a, int b, int other) {
+                const int cell = a / 4, nv = cellSplit_[size_t(cell)].vertexCount();
+                const int start = (a % 4 + 1) % nv == b % 4 ? a % 4 : b % 4;
+                surfaceNeighbors_[size_t(cell)][start] = other / 4;
             };
-            connect(edge.a0,edge.b0,edge.a1);connect(edge.a1,edge.b1,edge.a0);
+            connect(edge.a0, edge.b0, edge.a1);
+            connect(edge.a1, edge.b1, edge.a0);
         }
     }
     cellFlowDepths_.clear();
-    cellFlowMaxDepths_.clear();cellFlowFlags_.clear();
+    cellFlowMaxDepths_.clear();
+    cellFlowFlags_.clear();
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
     int badTris = 0;
     for (int i = 0; i < static_cast<int>(tris_.size()); ++i) {
-        SceneTri& st = m_sceneTris[i];
+        SceneTri &st = m_sceneTris[i];
         st.depth = 0.0f;
         st.vx = st.vy = st.vmag = 0.0f;
 
-        const auto& tri = tris_[i];
+        const auto &tri = tris_[i];
         if (!triIndicesInRange(tri, nVerts)) {
             tris_[i] = {-1, -1, -1};
             st.a = st.b = st.c = st.centroid = QPointF();
@@ -3906,12 +4419,13 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
             continue;
         }
 
-        st.centroid = QPointF((st.a.x() + st.b.x() + st.c.x()) / 3.0,
-                               (st.a.y() + st.b.y() + st.c.y()) / 3.0);
+        st.centroid =
+            QPointF((st.a.x() + st.b.x() + st.c.x()) / 3.0, (st.a.y() + st.b.y() + st.c.y()) / 3.0);
     }
     if (badTris > 0) {
         qWarning("[2D-render] collapsed %d invalid 2D mesh triangle(s); "
-                 "depth contours will skip them", badTris);
+                 "depth contours will skip them",
+                 badTris);
     }
 
     // Per-CELL scene centroid (area centroid of the fan — for a triangle the
@@ -3922,15 +4436,18 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         const int t0 = cellTri0_[c], t1 = cellTri0_[c + 1];
         double sx = 0.0, sy = 0.0, sa = 0.0;
         for (int t = t0; t < t1; ++t) {
-            const SceneTri& st = m_sceneTris[t];
-            if (!triIndicesInRange(tris_[size_t(t)], nVerts)) continue;
+            const SceneTri &st = m_sceneTris[t];
+            if (!triIndicesInRange(tris_[size_t(t)], nVerts))
+                continue;
             const double a = std::abs(twiceSignedArea(st.a, st.b, st.c));
             sx += a * st.centroid.x();
             sy += a * st.centroid.y();
             sa += a;
         }
-        if (t1 - t0 == 1)      cellCentroidScene_[c] = m_sceneTris[t0].centroid;
-        else if (sa > 0.0)     cellCentroidScene_[c] = QPointF(sx / sa, sy / sa);
+        if (t1 - t0 == 1)
+            cellCentroidScene_[c] = m_sceneTris[t0].centroid;
+        else if (sa > 0.0)
+            cellCentroidScene_[c] = QPointF(sx / sa, sy / sa);
     }
 
     // Issue 3 — deduplicated wireframe edge set (each undirected edge stored
@@ -3942,23 +4459,25 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         seen.reserve(static_cast<int>(tris_.size()) * 3);
         m_sceneEdges.reserve(static_cast<int>(tris_.size()) * 3);
         auto pushEdge = [&](int a, int b) {
-            if (a == b || a < 0 || b < 0 || a >= nVerts || b >= nVerts) return;
+            if (a == b || a < 0 || b < 0 || a >= nVerts || b >= nVerts)
+                return;
             const QPair<int, int> key = (a < b) ? qMakePair(a, b) : qMakePair(b, a);
-            if (seen.contains(key)) return;
+            if (seen.contains(key))
+                return;
             seen.insert(key);
-            const double dx   = vx_[a] - vx_[b];
-            const double dy   = vy_[a] - vy_[b];
+            const double dx = vx_[a] - vx_[b];
+            const double dy = vy_[a] - vy_[b];
             const double dist = std::sqrt(dx * dx + dy * dy);
-            const double dz   = std::abs(vz_[a] - vz_[b]);
+            const double dz = std::abs(vz_[a] - vz_[b]);
             SceneEdge e;
-            e.a     = scenePts[a];
-            e.b     = scenePts[b];
+            e.a = scenePts[a];
+            e.b = scenePts[b];
             e.slope = (dist > 1e-9) ? float(dz / dist) : 0.0f;
             m_sceneEdges.append(e);
         };
         // Walk the CELL boundary (true quad outline — the VFR diagonal is a
         // storage-model artefact, not a mesh edge, so it is never stroked).
-        for (const auto& cell : cells_) {
+        for (const auto &cell : cells_) {
             const int nv = cellVertexCount(cell);
             for (int k = 0; k < nv; ++k)
                 pushEdge(cell[k], cell[(k + 1) % nv]);
@@ -3970,9 +4489,9 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // it — is O(cell) instead of O(n).
     QVector<QRectF> triBBoxes(m_sceneTris.size());
     for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const SceneTri& t = m_sceneTris[i];
-        if (!triIndicesInRange(tris_[size_t(i)], nVerts)
-            || !(std::abs(twiceSignedArea(t.a, t.b, t.c)) > 1e-18)) {
+        const SceneTri &t = m_sceneTris[i];
+        if (!triIndicesInRange(tris_[size_t(i)], nVerts) ||
+            !(std::abs(twiceSignedArea(t.a, t.b, t.c)) > 1e-18)) {
             triBBoxes[i] = QRectF();
             continue;
         }
@@ -3994,8 +4513,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     edge_ny_.clear();
     have_edge_geom_ = false;
     if (source_) {
-        have_edge_geom_ = source_->readEdgeGeometry(edge_length_,
-                                                     edge_nx_, edge_ny_);
+        have_edge_geom_ = source_->readEdgeGeometry(edge_length_, edge_nx_, edge_ny_);
         if (!have_edge_geom_) {
             edge_length_.clear();
             edge_nx_.clear();
@@ -4006,28 +4524,30 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
 
 // The one reconstruction used by the synchronous path, the worker and the
 // envelope: per-cell VFR surface, neighborhood fit, shared-corner projection.
-void SWMM2DResultsLayer::fitSurfaceFields_(const std::vector<float>& depths,
-    const std::vector<float>& flux, CellWaterGeometry::VisibilityPolicy policy,
-    std::vector<CellWaterGeometry::Surface>& surfaces,
-    std::vector<CellWaterGeometry::CornerDepths>& flow,
-    std::vector<CellWaterGeometry::CornerDepths>& smooth,
-    CellWaterGeometry::NeighborhoodFit::Workspace* workspace) const
+void SWMM2DResultsLayer::fitSurfaceFields_(
+    const std::vector<float> &depths, const std::vector<float> &flux,
+    CellWaterGeometry::VisibilityPolicy policy, std::vector<CellWaterGeometry::Surface> &surfaces,
+    std::vector<CellWaterGeometry::CornerDepths> &flow,
+    std::vector<CellWaterGeometry::CornerDepths> &smooth,
+    CellWaterGeometry::NeighborhoodFit::Workspace *workspace) const
 {
     surfaces.resize(cells_.size());
     for (size_t c = 0; c < cells_.size(); ++c)
-        surfaces[c] = CellWaterGeometry::reconstruct(cellSplit_[c],depths[c],vz_);
-    flow=CellWaterGeometry::flowingCornerDepths(
-        cellSplit_,surfaces,vx_,vy_,vz_,surfaceTopology_,depths,flux,policy,nullptr,workspace,std::move(flow));
-    CellWaterGeometry::smoothCornerDepths(cellSplit_,surfaces,vz_,surfaceTopology_,smooth,
-                                         policy,flow);
+        surfaces[c] = CellWaterGeometry::reconstruct(cellSplit_[c], depths[c], vz_);
+    flow = CellWaterGeometry::flowingCornerDepths(cellSplit_, surfaces, vx_, vy_, vz_,
+                                                  surfaceTopology_, depths, flux, policy, nullptr,
+                                                  workspace, std::move(flow));
+    CellWaterGeometry::smoothCornerDepths(cellSplit_, surfaces, vz_, surfaceTopology_, smooth,
+                                          policy, flow);
 }
 
 void SWMM2DResultsLayer::applyCurrentDepths_()
 {
     ++frame_revision_;
-    if (current_depths_.size() != cells_.size() || cellSplit_.size() != cells_.size()) return;
-    fitSurfaceFields_(current_depths_,current_flux_,waterVisibilityPolicy(),
-                      cellSurfaces_,cellFlowDepths_,surfaceDepths_);
+    if (current_depths_.size() != cells_.size() || cellSplit_.size() != cells_.size())
+        return;
+    fitSurfaceFields_(current_depths_, current_flux_, waterVisibilityPolicy(), cellSurfaces_,
+                      cellFlowDepths_, surfaceDepths_);
     std::vector<double>().swap(cellFlowMaxDepths_);
     std::vector<unsigned char>().swap(cellFlowFlags_);
     fillSceneCorners_();
@@ -4036,20 +4556,24 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
 void SWMM2DResultsLayer::fillSceneCorners_()
 {
     for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const auto& ids = tris_[size_t(i)];
+        const auto &ids = tris_[size_t(i)];
         const int cell = triCell_[size_t(i)];
         auto depth = [&](int v) {
-            const auto& ids=cells_[size_t(cell)];
-            const auto it=std::find(ids.begin(),ids.end(),v);
-            return v>=0 && it!=ids.end() ? float(surfaceDepths_[size_t(cell)][size_t(it-ids.begin())])
-                : std::numeric_limits<float>::quiet_NaN();
+            const auto &ids = cells_[size_t(cell)];
+            const auto it = std::find(ids.begin(), ids.end(), v);
+            return v >= 0 && it != ids.end()
+                       ? float(surfaceDepths_[size_t(cell)][size_t(it - ids.begin())])
+                       : std::numeric_limits<float>::quiet_NaN();
         };
-        auto& t = m_sceneTris[i];
+        auto &t = m_sceneTris[i];
         t.depth = current_depths_[size_t(cell)];
-        t.dv0 = depth(ids[0]); t.dv1 = depth(ids[1]); t.dv2 = depth(ids[2]);
+        t.dv0 = depth(ids[0]);
+        t.dv1 = depth(ids[1]);
+        t.dv2 = depth(ids[2]);
         if (!max_depth_user_set_)
-            for (float d : {t.dv0,t.dv1,t.dv2})
-                if (std::isfinite(d)) max_depth_ = std::max(max_depth_,double(d));
+            for (float d : {t.dv0, t.dv1, t.dv2})
+                if (std::isfinite(d))
+                    max_depth_ = std::max(max_depth_, double(d));
     }
 }
 
@@ -4057,19 +4581,17 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
 {
     have_velocity_ = false;
     const int nCell = static_cast<int>(cells_.size());
-    const int nTri  = static_cast<int>(tris_.size());
+    const int nTri = static_cast<int>(tris_.size());
     const std::size_t nSlots = std::size_t(mesh::edgeSlotCount(nCell));
-    if (!have_edge_geom_ || cells_.empty() ||
-        current_flux_.size() != nSlots ||
-        edge_length_.size() != nSlots ||
-        static_cast<int>(current_depths_.size()) != nCell ||
+    if (!have_edge_geom_ || cells_.empty() || current_flux_.size() != nSlots ||
+        edge_length_.size() != nSlots || static_cast<int>(current_depths_.size()) != nCell ||
         static_cast<int>(triCell_.size()) != nTri) {
         // No flux data this tick — wipe per-tri velocities so an old frame
         // doesn't ghost when the user scrubs into a flux-less region.
-        for (auto& st : m_sceneTris) {
+        for (auto &st : m_sceneTris) {
             st.vx = st.vy = st.vmag = 0.0f;
         }
-        std::fill(vvx_.begin(), vvx_.end(), 0.0f);   // V1 — drop stale vertex field
+        std::fill(vvx_.begin(), vvx_.end(), 0.0f); // V1 — drop stale vertex field
         std::fill(vvy_.begin(), vvy_.end(), 0.0f);
         return;
     }
@@ -4077,35 +4599,41 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
     // RT0 cell-centred reconstruction (mesh::rt0CellDischarge — the same
     // per-cell solve the live export uses). The cell's vector is written to
     // each of its display sub-triangles.
-    const double    dryEps = dry_depth_;
+    const double dryEps = dry_depth_;
 
     float running_max = 0.0f;
-    auto& cellVx=velocity_scratch_[0];cellVx.assign(size_t(nCell),0.0f);
-    auto& cellVy=velocity_scratch_[1];cellVy.assign(size_t(nCell),0.0f);
-    auto& cellVm=velocity_scratch_[2];cellVm.assign(size_t(nCell),0.0f);
+    auto &cellVx = velocity_scratch_[0];
+    cellVx.assign(size_t(nCell), 0.0f);
+    auto &cellVy = velocity_scratch_[1];
+    cellVy.assign(size_t(nCell), 0.0f);
+    auto &cellVm = velocity_scratch_[2];
+    cellVm.assign(size_t(nCell), 0.0f);
     for (int c = 0; c < nCell; ++c) {
         const float depth = current_depths_[size_t(c)];
-        if (depth < dryEps || !cellHasSurface(c)) continue;
+        if (depth < dryEps || !cellHasSurface(c))
+            continue;
 
         double vx_model = 0.0, vy_model = 0.0;
-        if (!mesh::cellVelocity(c, cellVertexCount(cells_[size_t(c)]),
-                                    current_flux_.data(), edge_length_.data(),
-                                    edge_nx_.data(), edge_ny_.data(), depth, dryEps,
-                                    vx_model, vy_model))
+        if (!mesh::cellVelocity(c, cellVertexCount(cells_[size_t(c)]), current_flux_.data(),
+                                edge_length_.data(), edge_nx_.data(), edge_ny_.data(), depth,
+                                dryEps, vx_model, vy_model))
             continue;
 
         // Scene-space velocity: vy is flipped so the arrow points the right
         // way after the rebuildSceneGeometry_() Y-flip on vertex coords.
         cellVx[size_t(c)] = static_cast<float>(vx_model);
         cellVy[size_t(c)] = static_cast<float>(-vy_model);
-        cellVm[size_t(c)] = static_cast<float>(std::sqrt(vx_model * vx_model +
-                                                          vy_model * vy_model));
-        if (cellVm[size_t(c)] > running_max) running_max = cellVm[size_t(c)];
+        cellVm[size_t(c)] =
+            static_cast<float>(std::sqrt(vx_model * vx_model + vy_model * vy_model));
+        if (cellVm[size_t(c)] > running_max)
+            running_max = cellVm[size_t(c)];
     }
     for (int t = 0; t < nTri; ++t) {
-        SceneTri& st = m_sceneTris[t];
+        SceneTri &st = m_sceneTris[t];
         const size_t c = size_t(triCell_[size_t(t)]);
-        st.vx = cellVx[c]; st.vy = cellVy[c]; st.vmag = cellVm[c];
+        st.vx = cellVx[c];
+        st.vy = cellVy[c];
+        st.vmag = cellVm[c];
     }
 
     have_velocity_ = (running_max > 0.0f);
@@ -4125,11 +4653,13 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
     vvx_.assign(static_cast<size_t>(nVert), 0.0f);
     vvy_.assign(static_cast<size_t>(nVert), 0.0f);
     if (have_velocity_) {
-        auto& wsum=velocity_scratch_[3];wsum.assign(static_cast<size_t>(nVert),0.0f);
+        auto &wsum = velocity_scratch_[3];
+        wsum.assign(static_cast<size_t>(nVert), 0.0f);
         for (int c = 0; c < nCell; ++c) {
             const float depth = current_depths_[size_t(c)];
-            if (depth < dryEps || !cellHasSurface(c) || cellVm[size_t(c)] <= 0.0f) continue;
-            const auto& cell = cells_[size_t(c)];
+            if (depth < dryEps || !cellHasSurface(c) || cellVm[size_t(c)] <= 0.0f)
+                continue;
+            const auto &cell = cells_[size_t(c)];
             const int nv = cellVertexCount(cell);
             // Depth weight × 3/nv: the plan's 1/nv-per-incident-cell rule,
             // normalised so all-triangle meshes are unchanged (a quad's four
@@ -4137,14 +4667,18 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
             const float wgt = (nv == 3) ? depth : depth * 0.75f;
             for (int k = 0; k < nv; ++k) {
                 const int vi = cell[k];
-                if (vi < 0 || vi >= nVert) continue;
+                if (vi < 0 || vi >= nVert)
+                    continue;
                 vvx_[vi] += cellVx[size_t(c)] * wgt;
                 vvy_[vi] += cellVy[size_t(c)] * wgt;
                 wsum[vi] += wgt;
             }
         }
         for (int v = 0; v < nVert; ++v)
-            if (wsum[v] > 0.0f) { vvx_[v] /= wsum[v]; vvy_[v] /= wsum[v]; }
+            if (wsum[v] > 0.0f) {
+                vvx_[v] /= wsum[v];
+                vvy_[v] /= wsum[v];
+            }
     }
 }
 
@@ -4152,11 +4686,11 @@ void SWMM2DResultsLayer::applyCurrentFlux_()
 // OpenSWMMVisLayer interface
 // ---------------------------------------------------------------------------
 
-void SWMM2DResultsLayer::populateScene(QGraphicsScene* scene,
-                                         const MapExtent& /*canvasExtent*/,
-                                         const SpatialReferenceSystem* /*canvasSRS*/)
+void SWMM2DResultsLayer::populateScene(QGraphicsScene *scene, const MapExtent & /*canvasExtent*/,
+                                       const SpatialReferenceSystem * /*canvasSRS*/)
 {
-    if (!scene) return;
+    if (!scene)
+        return;
     if (graphics_item_) {
         scene->removeItem(graphics_item_);
         delete graphics_item_;
@@ -4175,7 +4709,7 @@ void SWMM2DResultsLayer::populateScene(QGraphicsScene* scene,
     arrows_item_->geometryChanged();
 }
 
-void SWMM2DResultsLayer::depopulateScene(QGraphicsScene* scene)
+void SWMM2DResultsLayer::depopulateScene(QGraphicsScene *scene)
 {
     // VS.1 — capture the vacated region before deletion so we can mark it
     // dirty afterward. Otherwise toggling this layer OFF removes the items
@@ -4183,13 +4717,15 @@ void SWMM2DResultsLayer::depopulateScene(QGraphicsScene* scene)
     QRectF dirty;
     if (graphics_item_) {
         dirty = dirty.united(graphics_item_->sceneBoundingRect());
-        if (scene) scene->removeItem(graphics_item_);
+        if (scene)
+            scene->removeItem(graphics_item_);
         delete graphics_item_;
         graphics_item_ = nullptr;
     }
     if (arrows_item_) {
         dirty = dirty.united(arrows_item_->sceneBoundingRect());
-        if (scene) scene->removeItem(arrows_item_);
+        if (scene)
+            scene->removeItem(arrows_item_);
         delete arrows_item_;
         arrows_item_ = nullptr;
     }
@@ -4201,16 +4737,16 @@ void SWMM2DResultsLayer::depopulateScene(QGraphicsScene* scene)
     }
 }
 
-void SWMM2DResultsLayer::refreshScene(QGraphicsScene* scene,
-                                        const MapExtent& canvasExtent,
-                                        const SpatialReferenceSystem* canvasSRS)
+void SWMM2DResultsLayer::refreshScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
+                                      const SpatialReferenceSystem *canvasSRS)
 {
     if (!graphics_item_) {
         populateScene(scene, canvasExtent, canvasSRS);
         return;
     }
     graphics_item_->geometryChanged();
-    if (arrows_item_) arrows_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
 }
 
 void SWMM2DResultsLayer::setFallbackCoordinateScale(double metresPerModelUnit)
@@ -4221,14 +4757,16 @@ void SWMM2DResultsLayer::setFallbackCoordinateScale(double metresPerModelUnit)
         return;
 
     m_fallbackMetresPerModelUnit = metresPerModelUnit;
-    m_warnedUndeclaredCrs = false;   // a new fallback deserves a fresh notice
+    m_warnedUndeclaredCrs = false; // a new fallback deserves a fresh notice
 
     if (source_) {
         rebuildSceneGeometry_();
         applyCurrentDepths_();
         applyCurrentFlux_();
-        if (graphics_item_) graphics_item_->geometryChanged();
-        if (arrows_item_)   arrows_item_->geometryChanged();
+        if (graphics_item_)
+            graphics_item_->geometryChanged();
+        if (arrows_item_)
+            arrows_item_->geometryChanged();
         emit repaintRequested();
     }
 }
@@ -4240,8 +4778,7 @@ double SWMM2DResultsLayer::resolveCoordinateScale_() const
     // source CRS actually declares. Issue #155.
     if (source_) {
         const auto ref = source_->coordinateReference();
-        if (ref.declared && ref.metresPerModelUnit > 0.0
-            && std::isfinite(ref.metresPerModelUnit)) {
+        if (ref.declared && ref.metresPerModelUnit > 0.0 && std::isfinite(ref.metresPerModelUnit)) {
             // Engine 6.0+ states the exact factor it applied, so this inverts
             // the conversion precisely — including the engine's international
             // foot, which is ~2 ppm off a US-survey-foot CRS's own unit.
@@ -4259,62 +4796,57 @@ double SWMM2DResultsLayer::resolveCoordinateScale_() const
     // The default of 1.0 is deliberate: unset, this leaves the coordinates
     // untouched, which is what the layer did before #155 and keeps it in
     // agreement with SWMM2DMeshLayer rather than inventing a new offset.
-    if (m_fallbackMetresPerModelUnit > 0.0
-        && !qFuzzyCompare(m_fallbackMetresPerModelUnit, 1.0)
-        && !m_warnedUndeclaredCrs) {
+    if (m_fallbackMetresPerModelUnit > 0.0 && !qFuzzyCompare(m_fallbackMetresPerModelUnit, 1.0) &&
+        !m_warnedUndeclaredCrs) {
         m_warnedUndeclaredCrs = true;
         qWarning("[2D-render] %s: 2D result source declares no /crs variable; "
                  "assuming engine SI metres and dividing by %.10f m per model "
                  "unit. Re-run with OpenSWMM Engine 6.0+ for an exact, "
                  "self-describing factor.",
-                 qUtf8Printable(name()),
-                 m_fallbackMetresPerModelUnit);
+                 qUtf8Printable(name()), m_fallbackMetresPerModelUnit);
     }
     return 1.0 / m_fallbackMetresPerModelUnit;
 }
 
-void SWMM2DResultsLayer::onCanvasCRSChanged(
-        const SpatialReferenceSystem* newCanvasSRS)
+void SWMM2DResultsLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
 {
     // Undeclared model coordinates remain a pass-through on every canvas.
     // Attaching a view must not invalidate their prepared regional fields
     // and particle identities. Unit changes rebuild through their own setter.
-    if (!srs() && !m_transform) return;
+    if (!srs() && !m_transform)
+        return;
     // Same transform path as SWMM2DMeshLayer::onCanvasCRSChanged — without it
     // the results sat in model coordinates on a reprojected canvas while the
     // mesh layer moved, separating terrain from inundation. Issue #155.
     OGRCoordinateTransformation::DestroyCT(m_transform);
     m_transform = nullptr;
 
-    if (srs() && newCanvasSRS
-        && srs()->ogrSpatialReference()
-        && newCanvasSRS->ogrSpatialReference()
-        && !srs()->ogrSpatialReference()->IsSame(
-                newCanvasSRS->ogrSpatialReference()))
-    {
-        m_transform = OGRCreateCoordinateTransformation(
-            srs()->ogrSpatialReference(),
-            newCanvasSRS->ogrSpatialReference());
+    if (srs() && newCanvasSRS && srs()->ogrSpatialReference() &&
+        newCanvasSRS->ogrSpatialReference() &&
+        !srs()->ogrSpatialReference()->IsSame(newCanvasSRS->ogrSpatialReference())) {
+        m_transform = OGRCreateCoordinateTransformation(srs()->ogrSpatialReference(),
+                                                        newCanvasSRS->ogrSpatialReference());
     }
 
-    const bool wasRegional=bool(published_region_);
+    const bool wasRegional = bool(published_region_);
     rebuildSceneGeometry_();
-    if(wasRegional && source_ && current_time_idx_>=0) {
+    if (wasRegional && source_ && current_time_idx_ >= 0) {
         loadFrame_(current_time_idx_);
         return;
     }
     applyCurrentDepths_();
     applyCurrentFlux_();
-    if (graphics_item_) graphics_item_->geometryChanged();
-    if (arrows_item_)   arrows_item_->geometryChanged();
+    if (graphics_item_)
+        graphics_item_->geometryChanged();
+    if (arrows_item_)
+        arrows_item_->geometryChanged();
 }
 
 // ---------------------------------------------------------------------------
 // Legend builder — graduated rows that mirror what paint() actually draws.
 // ---------------------------------------------------------------------------
 
-QList<OpenSWMM::Render::LegendSymbolItem>
-SWMM2DResultsLayer::sublayerLegendItems() const
+QList<OpenSWMM::Render::LegendSymbolItem> SWMM2DResultsLayer::sublayerLegendItems() const
 {
     using OpenSWMM::Render::LegendSymbolItem;
     using OpenSWMM::Render::SymbolLayer;
@@ -4323,7 +4855,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
     QList<LegendSymbolItem> out;
 
     const double dry = 0.0; // palette range is independent of film visibility
-    const double mx  = std::max(dry + 1e-6, max_depth_);
+    const double mx = std::max(dry + 1e-6, max_depth_);
 
     // 2026-06-21 — the depth color ramp legend section was removed along with
     // the depth-ramp sublayer. Contour bands (below) now carry the depth
@@ -4334,7 +4866,8 @@ SWMM2DResultsLayer::sublayerLegendItems() const
     // their own sublayerId, so legend right-click → Edit Style routes to the
     // matching panel tab.
     const auto appendFillSection = [&out, this](const OpenSWMM::Render::ISublayer *sub) {
-        if (!sub || !sub->isVisible()) return;
+        if (!sub || !sub->isVisible())
+            return;
         LegendSymbolItem header;
         header.label = sub->displayName();
         header.sublayerId = sub->id();
@@ -4349,23 +4882,21 @@ SWMM2DResultsLayer::sublayerLegendItems() const
     if (filledContours()) {
         LegendSymbolItem header;
         header.label = tr("Depth (m)");
-        header.sublayerId = m_contourBandSublayer
-                              ? m_contourBandSublayer->id() : QString();
+        header.sublayerId = m_contourBandSublayer ? m_contourBandSublayer->id() : QString();
         out.append(header);
 
         const OpenSWMM::Render::ContourBandStyle *bs =
             m_contourBandSublayer ? m_contourBandSublayer->bandStyle() : nullptr;
-        const int alpha = std::clamp(
-            int(std::lround(filledContoursOpacity() * 255.0)), 0, 255);
-        const QString bandSubId =
-            m_contourBandSublayer ? m_contourBandSublayer->id() : QString();
+        const int alpha = std::clamp(int(std::lround(filledContoursOpacity() * 255.0)), 0, 255);
+        const QString bandSubId = m_contourBandSublayer ? m_contourBandSublayer->id() : QString();
 
         if (bs) {
             // Slice US.2 — rows straight from the classification scheme so the
             // value labels follow the actual class edges (equal interval,
             // quantile, Jenks, …) and pick up per-class colour overrides. The
             // swatch colours match colorForBand the renderer paints with.
-            const auto items = bs->scheme().legendItems(dry, mx, depthClassificationSamples(bs->scheme()));
+            const auto items =
+                bs->scheme().legendItems(dry, mx, depthClassificationSamples(bs->scheme()));
             for (LegendSymbolItem item : items) {
                 item.sublayerId = bandSubId;
                 item.symbol.opacity = filledContoursOpacity();
@@ -4377,19 +4908,17 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             for (int i = 0; i < n; ++i) {
                 const double t = (i + 0.5) / n;
                 int r = 0, g = 0, b = 0, a = 0;
-                inundationColorRgba(bandLo + t * (bandHi - bandLo),
-                                    bandLo, bandHi, r, g, b, a);
+                inundationColorRgba(bandLo + t * (bandHi - bandLo), bandLo, bandHi, r, g, b, a);
                 QColor c(r, g, b);
                 c.setAlpha(alpha);
 
                 LegendSymbolItem item;
-                const double lo = bandLo + double(i)     / n * (bandHi - bandLo);
+                const double lo = bandLo + double(i) / n * (bandHi - bandLo);
                 const double hi = bandLo + double(i + 1) / n * (bandHi - bandLo);
-                item.label      = QStringLiteral("%1 – %2 m")
-                                    .arg(lo, 0, 'g', 3).arg(hi, 0, 'g', 3);
+                item.label = QStringLiteral("%1 – %2 m").arg(lo, 0, 'g', 3).arg(hi, 0, 'g', 3);
                 item.sublayerId = bandSubId;
-                item.range      = { lo, hi };
-                item.classKey   = QString::number(i);
+                item.range = {lo, hi};
+                item.classKey = QString::number(i);
                 SymbolLayer sl;
                 sl.kind = SymbolLayerKind::SimpleFill;
                 OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
@@ -4406,18 +4935,15 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             m_isolineSublayer ? m_isolineSublayer->isolineStyle() : nullptr;
 
         LegendSymbolItem item;
-        if (is && is->levelMode() ==
-                OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval)
-            item.label = tr("Depth isolines (every %1 m)")
-                             .arg(is->levelInterval(), 0, 'g', 3);
+        if (is && is->levelMode() == OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval)
+            item.label = tr("Depth isolines (every %1 m)").arg(is->levelInterval(), 0, 'g', 3);
         else
             item.label = tr("Depth isolines (%1 levels)").arg(isolinesLevels());
-        item.sublayerId = m_isolineSublayer ? m_isolineSublayer->id()
-                                            : QString();
+        item.sublayerId = m_isolineSublayer ? m_isolineSublayer->id() : QString();
         SymbolLayer sl;
         sl.kind = SymbolLayerKind::SimpleLine;
         OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                                isolinesColor());
+                                                  isolinesColor());
         sl.props.insert(QStringLiteral("width"), isolinesWidth());
         item.symbol.layers.append(sl);
         out.append(item);
@@ -4429,7 +4955,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             SymbolLayer isl;
             isl.kind = SymbolLayerKind::SimpleLine;
             OpenSWMM::Render::SymbolProps::writeColor(isl.props, QStringLiteral("color"),
-                                    isolinesColor());
+                                                      isolinesColor());
             isl.props.insert(QStringLiteral("width"), is->indexWidthPx());
             idx.symbol.layers.append(isl);
             out.append(idx);
@@ -4438,7 +4964,8 @@ SWMM2DResultsLayer::sublayerLegendItems() const
 
     // Velocity arrows — visible only when the feed has data. Delegates to
     // the sublayer so the rows match the painted colour bands exactly.
-    if (m_flowStreakSublayer->isVisible()) out.append(m_flowStreakSublayer->legendSymbolItems());
+    if (m_flowStreakSublayer->isVisible())
+        out.append(m_flowStreakSublayer->legendSymbolItems());
     if (velocityVectorsVisible() && have_velocity_) {
         if (m_velocityVectorSublayer) {
             out.append(m_velocityVectorSublayer->legendSymbolItems());
@@ -4451,7 +4978,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             int r = 0, g = 0, b = 0;
             velocityColorRgb(max_velocity_, max_velocity_, r, g, b);
             OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                                    QColor(r, g, b, 230));
+                                                      QColor(r, g, b, 230));
             sl.props.insert(QStringLiteral("size"), 12.0);
             item.symbol.layers.append(sl);
             out.append(item);
@@ -4460,12 +4987,15 @@ SWMM2DResultsLayer::sublayerLegendItems() const
 
     for (auto *sub : sublayers()) {
         auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub);
-        if (!scalar || !scalar->isVisible()) continue;
+        if (!scalar || !scalar->isVisible())
+            continue;
         const auto *style = scalar->fillStyle();
         auto frame = qsgOwnsRendering() ? scalar->presentedFrame() : nullptr;
-        if (!frame) frame = resultFrame(style->attribute(), currentTimeIndex(),
-            !style->scheme().useCustomRange()
-            && style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun);
+        if (!frame)
+            frame = resultFrame(style->attribute(), currentTimeIndex(),
+                                !style->scheme().useCustomRange() &&
+                                    style->scheme().rangeMode() ==
+                                        OpenSWMM::Render::RangeMode::FixedOverRun);
         out.append(scalar->legendSymbolItems(*frame));
     }
 
@@ -4496,23 +5026,22 @@ SWMM2DResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory /*cat*/) const
 {
     using OpenSWMM::Render::AttributeField;
 
-    auto make = [](const char *name, const char *display,
-                   const char *unit) -> AttributeField {
+    auto make = [](const char *name, const char *display, const char *unit) -> AttributeField {
         AttributeField f;
-        f.name        = QString::fromLatin1(name);
+        f.name = QString::fromLatin1(name);
         f.displayName = QString::fromLatin1(display);
-        f.type        = QMetaType::Double;
-        f.isDynamic   = true;
-        f.unit        = QString::fromLatin1(unit);
+        f.type = QMetaType::Double;
+        f.isDynamic = true;
+        f.unit = QString::fromLatin1(unit);
         return f;
     };
 
     QVector<AttributeField> out;
-    out.append(make("depth", "depth (m)",                "m"));
-    out.append(make("head",  "head (m)",                 "m"));
-    out.append(make("vmag",  "velocity magnitude (m/s)", "m/s"));
-    out.append(make("vx",    "velocity x (m/s)",         "m/s"));
-    out.append(make("vy",    "velocity y (m/s)",         "m/s"));
+    out.append(make("depth", "depth (m)", "m"));
+    out.append(make("head", "head (m)", "m"));
+    out.append(make("vmag", "velocity magnitude (m/s)", "m/s"));
+    out.append(make("vx", "velocity x (m/s)", "m/s"));
+    out.append(make("vy", "velocity y (m/s)", "m/s"));
     return out;
 }
 
@@ -4543,34 +5072,32 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     // matching legacy sublayer style fields, which the existing paint
     // pipeline (depth ramp / contour bands / isolines / mesh edges / mesh
     // nodes) already reads each frame.
-    struct Seed { const char *name; SymbolLayer (*build)(); };
+    struct Seed {
+        const char *name;
+        SymbolLayer (*build)();
+    };
     const Seed seeds[] = {
-        {"Depth color ramp",
-            [] { return RasterColorRampSymbolLayerSpec{}.toSymbolLayer(); }},
-        {"Hillshade",
-            [] { return HillshadeSymbolLayerSpec{}.toSymbolLayer(); }},
+        {"Depth color ramp", [] { return RasterColorRampSymbolLayerSpec{}.toSymbolLayer(); }},
+        {"Hillshade", [] { return HillshadeSymbolLayerSpec{}.toSymbolLayer(); }},
         {"Contour bands",
-            [] {
-                ContourSymbolLayerSpec s;
-                s.mode = ContourMode::Filled;
-                return s.toSymbolLayer();
-            }},
+         [] {
+             ContourSymbolLayerSpec s;
+             s.mode = ContourMode::Filled;
+             return s.toSymbolLayer();
+         }},
         {"Contour lines",
-            [] {
-                ContourSymbolLayerSpec s;
-                s.mode = ContourMode::Lines;
-                return s.toSymbolLayer();
-            }},
-        {"Mesh edges",
-            [] { return MeshEdgeSymbolLayerSpec{}.toSymbolLayer(); }},
-        {"Mesh nodes",
-            [] { return MeshNodeSymbolLayerSpec{}.toSymbolLayer(); }},
+         [] {
+             ContourSymbolLayerSpec s;
+             s.mode = ContourMode::Lines;
+             return s.toSymbolLayer();
+         }},
+        {"Mesh edges", [] { return MeshEdgeSymbolLayerSpec{}.toSymbolLayer(); }},
+        {"Mesh nodes", [] { return MeshNodeSymbolLayerSpec{}.toSymbolLayer(); }},
         // Slice AN.3 — 7th seed rule for the velocity-vector sublayer.
         // The painter (SWMM2DVelocityArrowsItem) already consumes
         // VelocityVectorStyle each frame; this rule + the back-prop
         // lambda below give the user a Symbology-tab editor surface.
-        {"Velocity vectors",
-            [] { return VelocityVectorSymbolLayerSpec{}.toSymbolLayer(); }},
+        {"Velocity vectors", [] { return VelocityVectorSymbolLayerSpec{}.toSymbolLayer(); }},
     };
 
     QVector<Rule *> ruleHandles;
@@ -4581,8 +5108,8 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         style.layers.clear();
         style.layers.append(s.build());
         single->setSymbol(style);
-        Rule *r = m_ruleList->append(std::make_unique<Rule>(
-            QString::fromLatin1(s.name), std::move(single)));
+        Rule *r = m_ruleList->append(
+            std::make_unique<Rule>(QString::fromLatin1(s.name), std::move(single)));
         ruleHandles.append(r);
     }
 
@@ -4595,10 +5122,13 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     // wired to graphics_item_->geometryChanged() — the next paint reads
     // the updated legacy fields.
     auto firstLayer = [](Rule *r) -> const SymbolLayer * {
-        if (!r) return nullptr;
+        if (!r)
+            return nullptr;
         auto *single = dynamic_cast<const SingleSymbolRenderer *>(r->renderer());
-        if (!single) return nullptr;
-        if (single->symbol().layers.isEmpty()) return nullptr;
+        if (!single)
+            return nullptr;
+        if (single->symbol().layers.isEmpty())
+            return nullptr;
         return &single->symbol().layers.first();
     };
 
@@ -4616,10 +5146,11 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     //    hillshaded-results renderer can read it.
     //    Slice AN.4 — extended to write fillColor + useElevationRamp from
     //    the HillshadeSymbolStyleAdapter's prop keys. ────────────────
-    QObject::connect(ruleHandles[1], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
+    QObject::connect(
+        ruleHandles[1], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
             const SymbolLayer *layer = firstLayer(ruleHandles[1]);
-            if (!layer || layer->kind != SymbolLayerKind::Hillshade) return;
+            if (!layer || layer->kind != SymbolLayerKind::Hillshade)
+                return;
             const auto spec = HillshadeSymbolLayerSpec::fromSymbolLayer(*layer);
             if (auto *fill = self->m_meshFillSublayer; fill && fill->fillStyle()) {
                 auto *st = fill->fillStyle();
@@ -4627,11 +5158,11 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
                 const auto &p = layer->props;
                 if (p.contains(QStringLiteral("fillColor"))) {
                     const QColor c = p.value(QStringLiteral("fillColor")).value<QColor>();
-                    if (c.isValid()) st->setFillColor(c);
+                    if (c.isValid())
+                        st->setFillColor(c);
                 }
                 if (p.contains(QStringLiteral("useElevationRamp")))
-                    st->setUseElevationRamp(
-                        p.value(QStringLiteral("useElevationRamp")).toBool());
+                    st->setUseElevationRamp(p.value(QStringLiteral("useElevationRamp")).toBool());
             }
         });
 
@@ -4639,28 +5170,29 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     // Slice AN.4 — extended to write attribute / bandCount /
     // belowMinColor / aboveMaxColor / direct lowColor / highColor from
     // the ContourBandSymbolStyleAdapter's prop keys.
-    QObject::connect(ruleHandles[2], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
+    QObject::connect(
+        ruleHandles[2], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
             const SymbolLayer *layer = firstLayer(ruleHandles[2]);
-            if (!layer || layer->kind != SymbolLayerKind::Contour) return;
+            if (!layer || layer->kind != SymbolLayerKind::Contour)
+                return;
             const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
             if (auto *sub = self->m_contourBandSublayer; sub && sub->bandStyle()) {
                 auto *st = sub->bandStyle();
                 const auto &p = layer->props;
                 st->setBandCount(p.contains(QStringLiteral("bandCount"))
-                    ? p.value(QStringLiteral("bandCount")).toInt()
-                    : spec.binner.binCount());
+                                     ? p.value(QStringLiteral("bandCount")).toInt()
+                                     : spec.binner.binCount());
                 st->setSmoothBands(spec.smoothBands);
-                const QColor specLow = !spec.ramp.stops.isEmpty()
-                    ? spec.ramp.stops.first().second : QColor(0, 0, 255);
-                const QColor specHigh = !spec.ramp.stops.isEmpty()
-                    ? spec.ramp.stops.last().second : QColor(255, 0, 0);
+                const QColor specLow =
+                    !spec.ramp.stops.isEmpty() ? spec.ramp.stops.first().second : QColor(0, 0, 255);
+                const QColor specHigh =
+                    !spec.ramp.stops.isEmpty() ? spec.ramp.stops.last().second : QColor(255, 0, 0);
                 st->setLowColor(p.contains(QStringLiteral("lowColor"))
-                    ? p.value(QStringLiteral("lowColor")).value<QColor>()
-                    : specLow);
+                                    ? p.value(QStringLiteral("lowColor")).value<QColor>()
+                                    : specLow);
                 st->setHighColor(p.contains(QStringLiteral("highColor"))
-                    ? p.value(QStringLiteral("highColor")).value<QColor>()
-                    : specHigh);
+                                     ? p.value(QStringLiteral("highColor")).value<QColor>()
+                                     : specHigh);
                 if (p.contains(QStringLiteral("belowMinColor")))
                     st->setBelowMinColor(p.value(QStringLiteral("belowMinColor")).value<QColor>());
                 if (p.contains(QStringLiteral("aboveMaxColor")))
@@ -4674,29 +5206,30 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     // Slice AN.4 — extended to write attribute + dashPattern (from
     // IsolineSymbolStyleAdapter) and to honour explicit isoValueCount /
     // color / lineWidthPx / labels overrides from the prop bag.
-    QObject::connect(ruleHandles[3], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
+    QObject::connect(
+        ruleHandles[3], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
             const SymbolLayer *layer = firstLayer(ruleHandles[3]);
-            if (!layer || layer->kind != SymbolLayerKind::Contour) return;
+            if (!layer || layer->kind != SymbolLayerKind::Contour)
+                return;
             const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
             if (auto *sub = self->m_isolineSublayer; sub && sub->isolineStyle()) {
                 auto *st = sub->isolineStyle();
                 const auto &p = layer->props;
                 st->setIsoValueCount(p.contains(QStringLiteral("isoValueCount"))
-                    ? p.value(QStringLiteral("isoValueCount")).toInt()
-                    : spec.binner.binCount());
+                                         ? p.value(QStringLiteral("isoValueCount")).toInt()
+                                         : spec.binner.binCount());
                 st->setColor(p.contains(QStringLiteral("color"))
-                    ? p.value(QStringLiteral("color")).value<QColor>()
-                    : spec.lineColor);
+                                 ? p.value(QStringLiteral("color")).value<QColor>()
+                                 : spec.lineColor);
                 st->setLineWidthPx(p.contains(QStringLiteral("width"))
-                    ? p.value(QStringLiteral("width")).toDouble()
-                    : spec.lineWidthPx);
+                                       ? p.value(QStringLiteral("width")).toDouble()
+                                       : spec.lineWidthPx);
                 st->setLabels(p.contains(QStringLiteral("labels"))
-                    ? p.value(QStringLiteral("labels")).toBool()
-                    : spec.labelEveryN > 0);
+                                  ? p.value(QStringLiteral("labels")).toBool()
+                                  : spec.labelEveryN > 0);
                 if (p.contains(QStringLiteral("penStyle")))
-                    st->setDashPattern(static_cast<Qt::PenStyle>(
-                        p.value(QStringLiteral("penStyle")).toInt()));
+                    st->setDashPattern(
+                        static_cast<Qt::PenStyle>(p.value(QStringLiteral("penStyle")).toInt()));
                 if (p.contains(QStringLiteral("attribute")))
                     st->setAttribute(p.value(QStringLiteral("attribute")).toString());
             }
@@ -4704,42 +5237,45 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
 
     // ── Mesh edges (MeshEdgeSpec) ───────────────────────────────────────
     QObject::connect(ruleHandles[4], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[4]);
-            if (!layer || layer->kind != SymbolLayerKind::MeshEdge) return;
-            const auto spec = MeshEdgeSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_meshEdgeSublayer; sub && sub->edgeStyle()) {
-                auto *st = sub->edgeStyle();
-                st->setColor(spec.color);
-                st->setLineWidthPx(spec.width);
-                st->setDashPattern(spec.penStyle);
-                st->setUseSlopeDrivenWidth(spec.useSlopeDrivenWidth);
-                st->setSlopeBreak(spec.slopeBreak);
-                st->setWideWidthPx(spec.wideWidthPx);
-                st->setWideColor(spec.wideColor);
-            }
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[4]);
+                         if (!layer || layer->kind != SymbolLayerKind::MeshEdge)
+                             return;
+                         const auto spec = MeshEdgeSymbolLayerSpec::fromSymbolLayer(*layer);
+                         if (auto *sub = self->m_meshEdgeSublayer; sub && sub->edgeStyle()) {
+                             auto *st = sub->edgeStyle();
+                             st->setColor(spec.color);
+                             st->setLineWidthPx(spec.width);
+                             st->setDashPattern(spec.penStyle);
+                             st->setUseSlopeDrivenWidth(spec.useSlopeDrivenWidth);
+                             st->setSlopeBreak(spec.slopeBreak);
+                             st->setWideWidthPx(spec.wideWidthPx);
+                             st->setWideColor(spec.wideColor);
+                         }
+                     });
 
     // ── Mesh nodes (MeshNodeSpec wraps MarkerSpec) ──────────────────────
     // The Slice AN.4 tagged-vertex prop back-prop is gone: tagged styling
     // moved to CoupledNodeStyle (mesh layer's coupled-node sublayer), and
     // the results renderer never honoured it anyway.
     QObject::connect(ruleHandles[5], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[5]);
-            if (!layer || layer->kind != SymbolLayerKind::MeshNode) return;
-            const auto spec = MeshNodeSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_meshNodeSublayer; sub && sub->nodeStyle()) {
-                auto *st = sub->nodeStyle();
-                st->setColor(spec.marker.fillColor);
-                st->setMarkerSizePx(spec.marker.sizePx);
-                st->setOutlineColor(spec.marker.outlineColor);
-                st->setOutlineWidthPx(spec.marker.outlineWidth);
-                int shapeIdx = static_cast<int>(spec.marker.shape);
-                if (shapeIdx < 0 || shapeIdx > 3) shapeIdx = 0;
-                st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
-            }
-        });
+                     [self, ruleHandles, firstLayer]() {
+                         const SymbolLayer *layer = firstLayer(ruleHandles[5]);
+                         if (!layer || layer->kind != SymbolLayerKind::MeshNode)
+                             return;
+                         const auto spec = MeshNodeSymbolLayerSpec::fromSymbolLayer(*layer);
+                         if (auto *sub = self->m_meshNodeSublayer; sub && sub->nodeStyle()) {
+                             auto *st = sub->nodeStyle();
+                             st->setColor(spec.marker.fillColor);
+                             st->setMarkerSizePx(spec.marker.sizePx);
+                             st->setOutlineColor(spec.marker.outlineColor);
+                             st->setOutlineWidthPx(spec.marker.outlineWidth);
+                             int shapeIdx = static_cast<int>(spec.marker.shape);
+                             if (shapeIdx < 0 || shapeIdx > 3)
+                                 shapeIdx = 0;
+                             st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
+                         }
+                     });
 
     // ── (Slice DM.3 IAttributeProvider impl follows the rule wiring
     //    block — search for "availableAttributes" below.) ─────────────
@@ -4750,20 +5286,21 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     //    (SWMM2DVelocityArrowsItem in swmm2dresultslayer.cpp) re-reads
     //    those fields each frame, so edits take effect on the next
     //    animation tick. ───────────────────────────────────────────────
-    QObject::connect(ruleHandles[6], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
+    QObject::connect(
+        ruleHandles[6], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
             const SymbolLayer *layer = firstLayer(ruleHandles[6]);
-            if (!layer || layer->kind != SymbolLayerKind::VectorGlyph) return;
+            if (!layer || layer->kind != SymbolLayerKind::VectorGlyph)
+                return;
             const auto spec = VelocityVectorSymbolLayerSpec::fromSymbolLayer(*layer);
             if (auto *sub = self->m_velocityVectorSublayer; sub && sub->vectorStyle()) {
                 auto *st = sub->vectorStyle();
                 st->setGlyphLengthScalePxPerMps(spec.glyphLengthScalePxPerMps);
-                st->setGlyphLengthMinPx        (spec.glyphLengthMinPx);
-                st->setGlyphLengthMaxPx        (spec.glyphLengthMaxPx);
-                st->setGlyphSpacingPx          (spec.glyphSpacingPx);
-                st->setHeadSizePx              (spec.headSizePx);
-                st->setColor                   (spec.color);
-                st->setDryDepthCutoff          (spec.dryDepthCutoff);
+                st->setGlyphLengthMinPx(spec.glyphLengthMinPx);
+                st->setGlyphLengthMaxPx(spec.glyphLengthMaxPx);
+                st->setGlyphSpacingPx(spec.glyphSpacingPx);
+                st->setHeadSizePx(spec.headSizePx);
+                st->setColor(spec.color);
+                st->setDryDepthCutoff(spec.dryDepthCutoff);
             }
         });
 }
@@ -4777,24 +5314,25 @@ SWMM2DResultsLayer::styleSubjects()
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
 
     auto add = [&](OpenSWMM::Render::ISublayer *sub, const QString &section) {
-        if (!sub || !sub->style()) return;
-        out.push_back(std::make_unique<LayerStyleSubject>(
-            sub->displayName(), sub->style(), sub->id(), section));
+        if (!sub || !sub->style())
+            return;
+        out.push_back(std::make_unique<LayerStyleSubject>(sub->displayName(), sub->style(),
+                                                          sub->id(), section));
     };
 
     const QString sect = QStringLiteral("Sublayers");
-    add(m_meshFillSublayer,         sect);
-    add(m_meshEdgeSublayer,         sect);
-    add(m_meshNodeSublayer,         sect);
-    add(m_cellDepthFillSublayer,    sect);
-    add(m_smoothDepthFillSublayer,  sect);
-    add(m_contourBandSublayer,      sect);
-    add(m_isolineSublayer,          sect);
-    add(m_velocityVectorSublayer,   sect);
-    add(m_flowStreakSublayer,       sect);
+    add(m_meshFillSublayer, sect);
+    add(m_meshEdgeSublayer, sect);
+    add(m_meshNodeSublayer, sect);
+    add(m_cellDepthFillSublayer, sect);
+    add(m_smoothDepthFillSublayer, sect);
+    add(m_contourBandSublayer, sect);
+    add(m_isolineSublayer, sect);
+    add(m_velocityVectorSublayer, sect);
+    add(m_flowStreakSublayer, sect);
     for (auto *sub : sublayers())
-        if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) add(sub, sect);
-
+        if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub))
+            add(sub, sect);
 
     return out;
 }

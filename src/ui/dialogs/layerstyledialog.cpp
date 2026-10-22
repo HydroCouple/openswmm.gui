@@ -1,9 +1,13 @@
-/*!
- * \file   layerstyledialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      layerstyledialog.cpp
+ * @brief     refactored to a QGIS-aligned fixed tab set with a vertical sidebar (`tabPosition =
+ *            West`).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/layerstyledialog.h"
 #include "ui/widgets/classificationeditor.h"
 
@@ -24,7 +28,7 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
-#include "layers/gisvectorsymboladapter.h"   // G-1/G-2 — tabbed point/line/polygon editor
+#include "layers/gisvectorsymboladapter.h" // G-1/G-2 — tabbed point/line/polygon editor
 #include "ui/dialogs/rastersymbologypanel.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
@@ -76,9 +80,11 @@
 
 #include <cmath>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 // #36 — app-level undo for symbology edits. Captures the layer's style-subject
 // snapshots before/after a dialog session and restores them on undo/redo by
@@ -96,7 +102,7 @@ QString subjectSnapshotKey(const ILayerStyleSubject &subject)
     // Current sublayers expose stable routing IDs. Retain a title fallback for
     // legacy singleton subjects that predate the routing contract.
     return subject.routingId().isEmpty() ? QStringLiteral("title:") + subject.title()
-                                        : QStringLiteral("id:") + subject.routingId();
+                                         : QStringLiteral("id:") + subject.routingId();
 }
 
 QJsonObject captureSubjectSnapshots(OpenSWMMVisLayer *layer)
@@ -105,61 +111,79 @@ QJsonObject captureSubjectSnapshots(OpenSWMMVisLayer *layer)
     if (layer) {
         const auto subjects = layer->styleSubjects();
         for (const auto &subject : subjects)
-            if (subject) snapshots.insert(subjectSnapshotKey(*subject), subject->snapshot());
+            if (subject)
+                snapshots.insert(subjectSnapshotKey(*subject), subject->snapshot());
         if (auto *results = qobject_cast<SWMM2DResultsLayer *>(layer))
-            snapshots.insert(QStringLiteral("waterDisplayPolicy"), results->waterDisplayPolicyToJson());
+            snapshots.insert(QStringLiteral("waterDisplayPolicy"),
+                             results->waterDisplayPolicyToJson());
     }
     return snapshots;
 }
 
 void restoreSubjectSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &snapshots)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
     // Structural style restoration may recreate sublayers. Never reuse the
     // dialog's wrappers or assume their old vector order still identifies them.
     const auto subjects = layer->styleSubjects();
     for (const auto &subject : subjects) {
-        if (!subject) continue;
+        if (!subject)
+            continue;
         const QString key = subjectSnapshotKey(*subject);
-        if (snapshots.contains(key)) subject->restore(snapshots.value(key).toObject());
+        if (snapshots.contains(key))
+            subject->restore(snapshots.value(key).toObject());
     }
     if (auto *results = qobject_cast<SWMM2DResultsLayer *>(layer))
-        results->restoreWaterDisplayPolicy(snapshots.value(QStringLiteral("waterDisplayPolicy")).toObject());
+        results->restoreWaterDisplayPolicy(
+            snapshots.value(QStringLiteral("waterDisplayPolicy")).toObject());
 }
 
 void applyStyleSnapshots(OpenSWMMVisLayer *layer, const QJsonObject &styleJson,
                          const QJsonObject &snapshots, const QJsonObject &general)
 {
-    if (!layer) return;
-    if (!styleJson.isEmpty()) OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, styleJson);
+    if (!layer)
+        return;
+    if (!styleJson.isEmpty())
+        OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, styleJson);
     restoreSubjectSnapshots(layer, snapshots);
-    if (general.contains("name")) layer->setName(general.value("name").toString());
-    if (general.contains("visible")) layer->setVisible(general.value("visible").toBool());
-    if (general.contains("opacity")) layer->setOpacity(general.value("opacity").toDouble());
+    if (general.contains("name"))
+        layer->setName(general.value("name").toString());
+    if (general.contains("visible"))
+        layer->setVisible(general.value("visible").toBool());
+    if (general.contains("opacity"))
+        layer->setOpacity(general.value("opacity").toDouble());
 }
 
 class EditLayerStyleCommand : public QUndoCommand
 {
 public:
-    EditLayerStyleCommand(OpenSWMMVisLayer *layer,
-                          QJsonObject styleBefore, QJsonObject styleAfter,
-                          QJsonObject before, QJsonObject after,
-                          QJsonObject generalBefore, QJsonObject generalAfter)
-        : m_layer(layer), m_styleBefore(std::move(styleBefore)), m_styleAfter(std::move(styleAfter)),
-          m_before(std::move(before)), m_after(std::move(after)),
-          m_generalBefore(std::move(generalBefore)), m_generalAfter(std::move(generalAfter))
+    EditLayerStyleCommand(OpenSWMMVisLayer *layer, QJsonObject styleBefore, QJsonObject styleAfter,
+                          QJsonObject before, QJsonObject after, QJsonObject generalBefore,
+                          QJsonObject generalAfter)
+        : m_layer(layer), m_styleBefore(std::move(styleBefore)),
+          m_styleAfter(std::move(styleAfter)), m_before(std::move(before)),
+          m_after(std::move(after)), m_generalBefore(std::move(generalBefore)),
+          m_generalAfter(std::move(generalAfter))
     {
-        setText(QCoreApplication::translate("LayerStyleDialog", "Edit layer style")
-                + (layer ? QStringLiteral(" — %1").arg(layer->name()) : QString()));
+        setText(QCoreApplication::translate("LayerStyleDialog", "Edit layer style") +
+                (layer ? QStringLiteral(" — %1").arg(layer->name()) : QString()));
     }
-    void undo() override { applyStyleSnapshots(m_layer.data(), m_styleBefore, m_before, m_generalBefore); }
+    void undo() override
+    {
+        applyStyleSnapshots(m_layer.data(), m_styleBefore, m_before, m_generalBefore);
+    }
     void redo() override
     {
         // Preview/Apply already installed this state. Avoid a redundant first
         // replay, particularly when structural sublayers can be recreated.
-        if (m_firstRedo) { m_firstRedo = false; return; }
+        if (m_firstRedo) {
+            m_firstRedo = false;
+            return;
+        }
         applyStyleSnapshots(m_layer.data(), m_styleAfter, m_after, m_generalAfter);
     }
+
 private:
     QPointer<OpenSWMMVisLayer> m_layer;
     QJsonObject m_styleBefore, m_styleAfter, m_before, m_after;
@@ -182,13 +206,16 @@ public:
         m_allowed = QSet<QString>(names.cbegin(), names.cend());
         invalidateFilter();
     }
+
 protected:
     bool filterAcceptsRow(int row, const QModelIndex &parent) const override
     {
-        if (!parent.isValid()) return true;
+        if (!parent.isValid())
+            return true;
         const QModelIndex idx = sourceModel()->index(row, 0, parent);
         return m_allowed.contains(idx.data(Qt::DisplayRole).toString());
     }
+
 private:
     QSet<QString> m_allowed;
 };
@@ -196,17 +223,19 @@ private:
 QHash<QString, QStringList> groupPropertiesByClassInfo(const QObject *obj)
 {
     QHash<QString, QStringList> out;
-    if (!obj) return out;
+    if (!obj)
+        return out;
     const QMetaObject *mo = obj->metaObject();
     QHash<QString, QString> propToGroup;
     for (int i = 0; i < mo->classInfoCount(); ++i) {
         const QMetaClassInfo ci = mo->classInfo(i);
         const QString name = QString::fromLatin1(ci.name());
-        if (!name.startsWith(QStringLiteral("group:"))) continue;
+        if (!name.startsWith(QStringLiteral("group:")))
+            continue;
         propToGroup.insert(name.mid(6), QString::fromLatin1(ci.value()));
     }
     const int firstOwn = mo->propertyOffset();
-    const int total    = mo->propertyCount();
+    const int total = mo->propertyCount();
     for (int p = firstOwn; p < total; ++p) {
         const QMetaProperty mp = mo->property(p);
         const QString name = QString::fromLatin1(mp.name());
@@ -230,7 +259,7 @@ QWidget *makeGroupView(QPropertyModel *pm, const QStringList &propNames, QWidget
     view->setModel(proxy);
     view->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     view->header()->setStretchLastSection(false);
-    view->header()->setMinimumSectionSize(90);  // stop columns collapsing (Issue 1)
+    view->header()->setMinimumSectionSize(90); // stop columns collapsing (Issue 1)
     view->expandAll();
     return view;
 }
@@ -240,8 +269,7 @@ QWidget *makeGroupView(QPropertyModel *pm, const QStringList &propNames, QWidget
  *  the bag carries them). Slice X.2 will pull this through SymbologyTab. */
 QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
 {
-    if (auto *custom = StyleEditorRegistry::instance().createEditorFor(
-            propertyObject, parent)) {
+    if (auto *custom = StyleEditorRegistry::instance().createEditorFor(propertyObject, parent)) {
         // Form-based editors (point/line/polygon + 2D symbol editors, feature
         // editors) pack dense forms; wrap so a narrow/short dialog scrolls
         // instead of compressing their combos / spin boxes (Issue 1).
@@ -258,7 +286,7 @@ QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
         view->setModel(pm);
         view->header()->setSectionResizeMode(0, QHeaderView::Interactive);
         view->header()->setStretchLastSection(false);
-        view->header()->setMinimumSectionSize(90);  // stop columns collapsing (Issue 1)
+        view->header()->setMinimumSectionSize(90); // stop columns collapsing (Issue 1)
         view->expandAll();
         return view;
     }
@@ -288,7 +316,8 @@ QWidget *buildSubjectsPanel(
     QHash<QString, QTabWidget *> sections; // section name → inner tab widget
 
     for (const auto &subj : subjects) {
-        if (!subj || !subj->propertyObject()) continue;
+        if (!subj || !subj->propertyObject())
+            continue;
         QWidget *editor = buildSubjectEditor(subj->propertyObject(), tabs);
         const QString sect = subj->section();
         if (sect.isEmpty()) {
@@ -316,21 +345,34 @@ const char *layerTypeLabel(int t)
 {
     using L = OpenSWMMVisLayer;
     switch (t) {
-        case L::SWMMModelLayer:               return "SWMM Model";
-        case L::SWMMResultsLayer:             return "SWMM Results";
-        case L::SWMMVectorLayer:
-        case L::SWMMGISLayer:                 return "Vector";
-        case L::SWMMRasterLayer:              return "Raster / DEM";
-        case L::SWMMImageryLayer:             return "Imagery (basemap)";
-        case L::SWMMWMSLayer:                 return "WMS";
-        case L::SWMMWMTSLayer:                return "WMTS / XYZ";
-        case L::SWMMTabularDataLayer:         return "Tabular";
-        case L::SWMMTabularyTimeSeriesLayer:  return "Tabular time-series";
-        case L::SWMMSubProjectLayer:          return "Sub-project";
-        case L::SWMM2DMeshLayer:              return "2D Mesh / TIN";
-        case L::SWMM2DResultsLayer:           return "2D Results";
-        case L::SWMMDefaultLayer:
-        default:                              return "Unknown";
+    case L::SWMMModelLayer:
+        return "SWMM Model";
+    case L::SWMMResultsLayer:
+        return "SWMM Results";
+    case L::SWMMVectorLayer:
+    case L::SWMMGISLayer:
+        return "Vector";
+    case L::SWMMRasterLayer:
+        return "Raster / DEM";
+    case L::SWMMImageryLayer:
+        return "Imagery (basemap)";
+    case L::SWMMWMSLayer:
+        return "WMS";
+    case L::SWMMWMTSLayer:
+        return "WMTS / XYZ";
+    case L::SWMMTabularDataLayer:
+        return "Tabular";
+    case L::SWMMTabularyTimeSeriesLayer:
+        return "Tabular time-series";
+    case L::SWMMSubProjectLayer:
+        return "Sub-project";
+    case L::SWMM2DMeshLayer:
+        return "2D Mesh / TIN";
+    case L::SWMM2DResultsLayer:
+        return "2D Results";
+    case L::SWMMDefaultLayer:
+    default:
+        return "Unknown";
     }
 }
 
@@ -348,40 +390,43 @@ LayerCapabilities layerCapabilities(OpenSWMMVisLayer *layer)
     caps |= LayerCapability::Information;
     caps |= LayerCapability::Rendering;
     caps |= LayerCapability::Metadata;
-    if (!layer) return caps;
+    if (!layer)
+        return caps;
 
     const int t = layer->layerType();
 
     // Source tab — only when the layer has an editable CRS / filter / path.
     switch (t) {
-        case L::SWMMModelLayer:
-        case L::SWMMResultsLayer:
-        case L::SWMMVectorLayer:
-        case L::SWMMGISLayer:
-        case L::SWMMRasterLayer:
-        case L::SWMM2DMeshLayer:
-        case L::SWMM2DResultsLayer:
-        case L::SWMMWMSLayer:
-        case L::SWMMWMTSLayer:
-        case L::SWMMImageryLayer:
-            caps |= LayerCapability::Source;
-            break;
-        default: break;
+    case L::SWMMModelLayer:
+    case L::SWMMResultsLayer:
+    case L::SWMMVectorLayer:
+    case L::SWMMGISLayer:
+    case L::SWMMRasterLayer:
+    case L::SWMM2DMeshLayer:
+    case L::SWMM2DResultsLayer:
+    case L::SWMMWMSLayer:
+    case L::SWMMWMTSLayer:
+    case L::SWMMImageryLayer:
+        caps |= LayerCapability::Source;
+        break;
+    default:
+        break;
     }
 
     // Symbology — every layer kind except basemap-only types (WMTS/WMS/XYZ
     // imagery have no client-side symbology; styling lives on the server).
     switch (t) {
-        case L::SWMMModelLayer:
-        case L::SWMMResultsLayer:
-        case L::SWMMVectorLayer:
-        case L::SWMMGISLayer:
-        case L::SWMMRasterLayer:
-        case L::SWMM2DMeshLayer:
-        case L::SWMM2DResultsLayer:
-            caps |= LayerCapability::Symbology;
-            break;
-        default: break;
+    case L::SWMMModelLayer:
+    case L::SWMMResultsLayer:
+    case L::SWMMVectorLayer:
+    case L::SWMMGISLayer:
+    case L::SWMMRasterLayer:
+    case L::SWMM2DMeshLayer:
+    case L::SWMM2DResultsLayer:
+        caps |= LayerCapability::Symbology;
+        break;
+    default:
+        break;
     }
 
     // Labels — VS.10: now uniform across all feature-bearing layers. The
@@ -389,15 +434,16 @@ LayerCapabilities layerCapabilities(OpenSWMMVisLayer *layer)
     // layers expose the Labels tab too (label painting for those kinds is
     // wired in their paint paths).
     switch (t) {
-        case L::SWMMModelLayer:
-        case L::SWMMVectorLayer:
-        case L::SWMMGISLayer:
-        case L::SWMMResultsLayer:
-        case L::SWMM2DResultsLayer:
-        case L::SWMM2DMeshLayer:
-            caps |= LayerCapability::Labels;
-            break;
-        default: break;
+    case L::SWMMModelLayer:
+    case L::SWMMVectorLayer:
+    case L::SWMMGISLayer:
+    case L::SWMMResultsLayer:
+    case L::SWMM2DResultsLayer:
+    case L::SWMM2DMeshLayer:
+        caps |= LayerCapability::Labels;
+        break;
+    default:
+        break;
     }
 
     // VS.5 — the Temporal / Mask / Auxiliary Storage / Joins / Diagrams
@@ -412,24 +458,21 @@ LayerCapabilities layerCapabilities(OpenSWMMVisLayer *layer)
 // ctor / dtor
 // ---------------------------------------------------------------------------
 
-LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
-                                    QString initialRoutingId,
-                                    QWidget *parent,
-                                    QUndoStack *undoStack)
-    : QDialog(parent)
-    , m_layer(layer)
-    , m_initialRoutingId(std::move(initialRoutingId))
-    , m_undoStack(undoStack)
+LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer, QString initialRoutingId,
+                                   QWidget *parent, QUndoStack *undoStack)
+    : QDialog(parent), m_layer(layer), m_initialRoutingId(std::move(initialRoutingId)),
+      m_undoStack(undoStack)
 {
-    setWindowTitle(layer ? tr("%1 — Layer Properties").arg(layer->name())
-                         : tr("Layer Properties"));
+    setWindowTitle(layer ? tr("%1 — Layer Properties").arg(layer->name()) : tr("Layer Properties"));
     resize(820, 600);
 
-    if (m_layer) connect(m_layer, &QObject::destroyed, this, &LayerStyleDialog::invalidateTarget);
-    if (m_undoStack) connect(m_undoStack, &QObject::destroyed, this, [this] {
-        onCancel();
-        setEnabled(false);
-    });
+    if (m_layer)
+        connect(m_layer, &QObject::destroyed, this, &LayerStyleDialog::invalidateTarget);
+    if (m_undoStack)
+        connect(m_undoStack, &QObject::destroyed, this, [this] {
+            onCancel();
+            setEnabled(false);
+        });
 
     m_caps = layerCapabilities(layer);
 
@@ -446,7 +489,7 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
     // the per-layer-kind inner tab widgets stay unnamed (data-driven).
     setObjectName(QStringLiteral("LayerStyleDialog"));
     m_tabs->setObjectName(QStringLiteral("tabs"));
-    m_tabs->setTabPosition(QTabWidget::North);    // Slice X.17 — horizontal tabs.
+    m_tabs->setTabPosition(QTabWidget::North); // Slice X.17 — horizontal tabs.
     m_tabs->setDocumentMode(true);
     root->addWidget(m_tabs, 1);
 
@@ -458,40 +501,35 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
     if (m_layer) {
         readFromLayer();
         snapshotSubjects();
-        m_undoBaseline = m_subjectSnapshots;   // #36 — open-time state for undo
+        m_undoBaseline = m_subjectSnapshots; // #36 — open-time state for undo
         // Full renderer-state baseline (kind renderers + label config) —
         // the part Cancel/undo can't reconstruct from subject snapshots.
-        m_styleSnapshot     = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
+        m_styleSnapshot = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
         m_undoStyleBaseline = m_styleSnapshot;
         focusInitialSubject();
     }
 
     auto *bb = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply,
-        this);
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
 
     // Slice X.23 — Import / Export style buttons.  Aligned to the
     // dialog button bar so they're available regardless of which
     // tab is active.  Restricted to layer kinds whose styling we
     // can round-trip (vector + SWMM model/results).
-    if (m_layer && (qobject_cast<SWMMModelLayer  *>(m_layer)
-                  || qobject_cast<SWMMResultsLayer *>(m_layer)
-                  || qobject_cast<GISVectorLayer *>(m_layer))) {
-        auto *importBtn = bb->addButton(tr("Import style…"),
-                                         QDialogButtonBox::ActionRole);
-        auto *exportBtn = bb->addButton(tr("Export style…"),
-                                         QDialogButtonBox::ActionRole);
-        connect(importBtn, &QPushButton::clicked,
-                this, &LayerStyleDialog::onImportStyle);
-        connect(exportBtn, &QPushButton::clicked,
-                this, &LayerStyleDialog::onExportStyle);
+    if (m_layer &&
+        (qobject_cast<SWMMModelLayer *>(m_layer) || qobject_cast<SWMMResultsLayer *>(m_layer) ||
+         qobject_cast<GISVectorLayer *>(m_layer))) {
+        auto *importBtn = bb->addButton(tr("Import style…"), QDialogButtonBox::ActionRole);
+        auto *exportBtn = bb->addButton(tr("Export style…"), QDialogButtonBox::ActionRole);
+        connect(importBtn, &QPushButton::clicked, this, &LayerStyleDialog::onImportStyle);
+        connect(exportBtn, &QPushButton::clicked, this, &LayerStyleDialog::onExportStyle);
     }
 
     root->addWidget(bb);
     connect(bb, &QDialogButtonBox::accepted, this, &LayerStyleDialog::onAccept);
     connect(bb, &QDialogButtonBox::rejected, this, &LayerStyleDialog::onCancel);
-    connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked,
-            this, &LayerStyleDialog::onApply);
+    connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked, this,
+            &LayerStyleDialog::onApply);
 }
 
 LayerStyleDialog::~LayerStyleDialog() = default;
@@ -534,7 +572,7 @@ void LayerStyleDialog::buildInformationTab()
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(8);
 
-    auto *idBox  = new QGroupBox(tr("Identification"), page);
+    auto *idBox = new QGroupBox(tr("Identification"), page);
     auto *idForm = new QFormLayout(idBox);
     m_nameEdit = new QLineEdit(idBox);
     idForm->addRow(tr("Nam&e:"), m_nameEdit);
@@ -543,8 +581,8 @@ void LayerStyleDialog::buildInformationTab()
     idForm->addRow(tr("&Type:"), m_typeLabel);
     root->addWidget(idBox);
 
-    auto *propBox  = new QGroupBox(tr("Properties"), page);
-    auto *propLay  = new QVBoxLayout(propBox);
+    auto *propBox = new QGroupBox(tr("Properties"), page);
+    auto *propLay = new QVBoxLayout(propBox);
     m_infoText = new QPlainTextEdit(propBox);
     m_infoText->setReadOnly(true);
     m_infoText->setLineWrapMode(QPlainTextEdit::NoWrap);
@@ -553,8 +591,7 @@ void LayerStyleDialog::buildInformationTab()
     root->addWidget(propBox, 1);
 
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
-                   style()->standardIcon(QStyle::SP_FileDialogInfoView),
-                   tr("I&nformation"));
+                   style()->standardIcon(QStyle::SP_FileDialogInfoView), tr("I&nformation"));
 }
 
 void LayerStyleDialog::buildSourceTab()
@@ -568,7 +605,7 @@ void LayerStyleDialog::buildSourceTab()
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(8);
 
-    auto *origBox  = new QGroupBox(tr("Layer Source"), page);
+    auto *origBox = new QGroupBox(tr("Layer Source"), page);
     auto *origForm = new QFormLayout(origBox);
 
     // Populated in readFromLayer() from the layer's polymorphic
@@ -582,13 +619,13 @@ void LayerStyleDialog::buildSourceTab()
 
     root->addWidget(origBox);
 
-    auto *crsBox  = new QGroupBox(tr("Coordinate Reference System"), page);
+    auto *crsBox = new QGroupBox(tr("Coordinate Reference System"), page);
     auto *crsForm = new QFormLayout(crsBox);
 
     auto *crsRow = new QWidget(crsBox);
     auto *crsLay = new QHBoxLayout(crsRow);
     crsLay->setContentsMargins(0, 0, 0, 0);
-    m_crsLabel  = new QLabel(crsRow);
+    m_crsLabel = new QLabel(crsRow);
     m_crsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_crsButton = new QToolButton(crsRow);
     m_crsButton->setText(tr("Change…"));
@@ -599,12 +636,10 @@ void LayerStyleDialog::buildSourceTab()
     root->addWidget(crsBox);
     root->addStretch();
 
-    connect(m_crsButton, &QToolButton::clicked,
-            this, &LayerStyleDialog::onPickCRS);
+    connect(m_crsButton, &QToolButton::clicked, this, &LayerStyleDialog::onPickCRS);
 
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
-                   style()->standardIcon(QStyle::SP_DriveHDIcon),
-                   tr("S&ource"));
+                   style()->standardIcon(QStyle::SP_DriveHDIcon), tr("S&ource"));
 }
 
 void LayerStyleDialog::buildSymbologyTab()
@@ -638,9 +673,8 @@ void LayerStyleDialog::buildSymbologyTab()
     // remains the underlying single-source model; rule-based (filter)
     // rendering survives as a per-kind renderer *type* in the renderer combo.
     // See docs/SYMBOLOGY_MVC_ARCHITECTURE_AND_GAPS.md §4a.
-    const bool isMultiKind =
-        qobject_cast<SWMMModelLayer  *>(m_layer.data()) ||
-        qobject_cast<SWMMResultsLayer *>(m_layer.data());
+    const bool isMultiKind = qobject_cast<SWMMModelLayer *>(m_layer.data()) ||
+                             qobject_cast<SWMMResultsLayer *>(m_layer.data());
 
     if (isMultiKind) {
         auto *panel = new KindTreeSymbologyPanel(m_layer.data(), page);
@@ -688,8 +722,8 @@ void LayerStyleDialog::buildSymbologyTab()
         // the paletted class table, RGB band picks and the hillshade group.
         // Writes live into the layer's IRasterRenderer; Cancel / undo
         // restore through StyleFileIO's raster block.
-        root->addWidget(OpenSWMM::Ui::wrapInScrollArea(
-                            new RasterSymbologyPanel(ras, page), page), 1);
+        root->addWidget(OpenSWMM::Ui::wrapInScrollArea(new RasterSymbologyPanel(ras, page), page),
+                        1);
     } else {
         // Single-renderer layers (2D mesh).
         RendererPanelContext ctx;
@@ -698,8 +732,7 @@ void LayerStyleDialog::buildSymbologyTab()
         root->addWidget(tab, 1);
     }
 
-    m_tabs->addTab(page,
-                   style()->standardIcon(QStyle::SP_FileDialogContentsView),
+    m_tabs->addTab(page, style()->standardIcon(QStyle::SP_FileDialogContentsView),
                    tr("S&ymbology"));
 }
 
@@ -713,10 +746,9 @@ void LayerStyleDialog::buildLabelsTab()
     // Wrap in a scroll area (matching buildSubjectEditor's Symbology path) so
     // the stacked group boxes keep their sizes and the page scrolls instead of
     // squeezing the controls when the dialog is small.
-    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(
-                       new openswmmvis::ui::LabelsTab(m_layer, m_tabs), m_tabs),
-                   style()->standardIcon(QStyle::SP_FileDialogDetailedView),
-                   tr("L&abels"));
+    m_tabs->addTab(
+        OpenSWMM::Ui::wrapInScrollArea(new openswmmvis::ui::LabelsTab(m_layer, m_tabs), m_tabs),
+        style()->standardIcon(QStyle::SP_FileDialogDetailedView), tr("L&abels"));
 }
 
 void LayerStyleDialog::buildRenderingTab()
@@ -746,17 +778,33 @@ void LayerStyleDialog::buildRenderingTab()
     // the layer's setter triggers paint via repaintRequested.
     using OpenSWMM::Render::BasemapRenderParams;
     auto readBmParams = [this]() -> std::optional<BasemapRenderParams> {
-        if (auto *l = qobject_cast<XYZTileLayer *>(m_layer)) return l->basemapRenderParams();
-        if (auto *l = qobject_cast<WMTSLayer    *>(m_layer)) return l->basemapRenderParams();
-        if (auto *l = qobject_cast<WMSLayer     *>(m_layer)) return l->basemapRenderParams();
-        if (auto *l = qobject_cast<WCSLayer     *>(m_layer)) return l->basemapRenderParams();
+        if (auto *l = qobject_cast<XYZTileLayer *>(m_layer))
+            return l->basemapRenderParams();
+        if (auto *l = qobject_cast<WMTSLayer *>(m_layer))
+            return l->basemapRenderParams();
+        if (auto *l = qobject_cast<WMSLayer *>(m_layer))
+            return l->basemapRenderParams();
+        if (auto *l = qobject_cast<WCSLayer *>(m_layer))
+            return l->basemapRenderParams();
         return std::nullopt;
     };
     auto writeBmParams = [this](const BasemapRenderParams &p) {
-        if (auto *l = qobject_cast<XYZTileLayer *>(m_layer)) { l->setBasemapRenderParams(p); return; }
-        if (auto *l = qobject_cast<WMTSLayer    *>(m_layer)) { l->setBasemapRenderParams(p); return; }
-        if (auto *l = qobject_cast<WMSLayer     *>(m_layer)) { l->setBasemapRenderParams(p); return; }
-        if (auto *l = qobject_cast<WCSLayer     *>(m_layer)) { l->setBasemapRenderParams(p); return; }
+        if (auto *l = qobject_cast<XYZTileLayer *>(m_layer)) {
+            l->setBasemapRenderParams(p);
+            return;
+        }
+        if (auto *l = qobject_cast<WMTSLayer *>(m_layer)) {
+            l->setBasemapRenderParams(p);
+            return;
+        }
+        if (auto *l = qobject_cast<WMSLayer *>(m_layer)) {
+            l->setBasemapRenderParams(p);
+            return;
+        }
+        if (auto *l = qobject_cast<WCSLayer *>(m_layer)) {
+            l->setBasemapRenderParams(p);
+            return;
+        }
     };
 
     if (const auto cur = readBmParams()) {
@@ -777,27 +825,29 @@ void LayerStyleDialog::buildRenderingTab()
         };
         m_brightnessSlider = makeBipolarSlider(m_basemapAdjustBox);
         m_brightnessSlider->setValue(int(std::round(cur->brightness * 100.0)));
-        m_brightnessSlider->setToolTip(tr("Brightness — additive offset (-100 = black, +100 = max bright)."));
+        m_brightnessSlider->setToolTip(
+            tr("Brightness — additive offset (-100 = black, +100 = max bright)."));
         form->addRow(tr("&Brightness:"), m_brightnessSlider);
 
         m_contrastSlider = makeBipolarSlider(m_basemapAdjustBox);
         m_contrastSlider->setValue(int(std::round((cur->contrast - 1.0) * 100.0)));
-        m_contrastSlider->setToolTip(tr("Contrast — pivot around 0.5 (-100 = flat grey, 0 = identity, +100 = doubled)."));
+        m_contrastSlider->setToolTip(
+            tr("Contrast — pivot around 0.5 (-100 = flat grey, 0 = identity, +100 = doubled)."));
         form->addRow(tr("Contrast:"), m_contrastSlider);
 
         m_saturationSlider = makeBipolarSlider(m_basemapAdjustBox);
         m_saturationSlider->setValue(int(std::round(cur->saturation * 100.0)));
-        m_saturationSlider->setToolTip(tr("Saturation — -100 = greyscale, 0 = unchanged, +100 = oversaturated."));
+        m_saturationSlider->setToolTip(
+            tr("Saturation — -100 = greyscale, 0 = unchanged, +100 = oversaturated."));
         form->addRow(tr("Saturation:"), m_saturationSlider);
 
         m_resamplingCombo = new QComboBox(m_basemapAdjustBox);
         m_resamplingCombo->addItem(tr("Bilinear (smooth)"), int(BasemapRenderParams::Bilinear));
-        m_resamplingCombo->addItem(tr("Nearest (crisp)"),   int(BasemapRenderParams::Nearest));
+        m_resamplingCombo->addItem(tr("Nearest (crisp)"), int(BasemapRenderParams::Nearest));
         m_resamplingCombo->setCurrentIndex(m_resamplingCombo->findData(int(cur->resampling)));
-        m_resamplingCombo->setToolTip(tr(
-            "How the painter scales tiles to screen pixels.  Bilinear "
-            "is the default; switch to Nearest when you want crisp "
-            "pixel-art-style edges on raster basemaps."));
+        m_resamplingCombo->setToolTip(tr("How the painter scales tiles to screen pixels.  Bilinear "
+                                         "is the default; switch to Nearest when you want crisp "
+                                         "pixel-art-style edges on raster basemaps."));
         form->addRow(tr("Resampling:"), m_resamplingCombo);
 
         // Reset button — handy because dragging multiple sliders away
@@ -815,17 +865,17 @@ void LayerStyleDialog::buildRenderingTab()
         auto push = [this, writeBmParams]() {
             BasemapRenderParams p;
             p.brightness = m_brightnessSlider->value() / 100.0;
-            p.contrast   = 1.0 + (m_contrastSlider->value() / 100.0);
+            p.contrast = 1.0 + (m_contrastSlider->value() / 100.0);
             p.saturation = m_saturationSlider->value() / 100.0;
             p.resampling = static_cast<BasemapRenderParams::Resampling>(
                 m_resamplingCombo->currentData().toInt());
             writeBmParams(p);
         };
-        connect(m_brightnessSlider, &QSlider::valueChanged, this, [push](int){ push(); });
-        connect(m_contrastSlider,   &QSlider::valueChanged, this, [push](int){ push(); });
-        connect(m_saturationSlider, &QSlider::valueChanged, this, [push](int){ push(); });
-        connect(m_resamplingCombo,  qOverload<int>(&QComboBox::currentIndexChanged),
-                this, [push](int){ push(); });
+        connect(m_brightnessSlider, &QSlider::valueChanged, this, [push](int) { push(); });
+        connect(m_contrastSlider, &QSlider::valueChanged, this, [push](int) { push(); });
+        connect(m_saturationSlider, &QSlider::valueChanged, this, [push](int) { push(); });
+        connect(m_resamplingCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [push](int) { push(); });
         connect(resetBtn, &QToolButton::clicked, this, [this, writeBmParams]() {
             writeBmParams(BasemapRenderParams{});
             onBasemapRenderParamsChanged();
@@ -835,48 +885,54 @@ void LayerStyleDialog::buildRenderingTab()
         // it (style file import, programmatic change).  Each basemap
         // type has its own signal; connect whichever applies.
         if (auto *l = qobject_cast<XYZTileLayer *>(m_layer))
-            connect(l, &XYZTileLayer::basemapRenderParamsChanged,
-                    this, &LayerStyleDialog::onBasemapRenderParamsChanged);
+            connect(l, &XYZTileLayer::basemapRenderParamsChanged, this,
+                    &LayerStyleDialog::onBasemapRenderParamsChanged);
         else if (auto *l = qobject_cast<WMTSLayer *>(m_layer))
-            connect(l, &WMTSLayer::basemapRenderParamsChanged,
-                    this, &LayerStyleDialog::onBasemapRenderParamsChanged);
+            connect(l, &WMTSLayer::basemapRenderParamsChanged, this,
+                    &LayerStyleDialog::onBasemapRenderParamsChanged);
         else if (auto *l = qobject_cast<WMSLayer *>(m_layer))
-            connect(l, &WMSLayer::basemapRenderParamsChanged,
-                    this, &LayerStyleDialog::onBasemapRenderParamsChanged);
+            connect(l, &WMSLayer::basemapRenderParamsChanged, this,
+                    &LayerStyleDialog::onBasemapRenderParamsChanged);
         else if (auto *l = qobject_cast<WCSLayer *>(m_layer))
-            connect(l, &WCSLayer::basemapRenderParamsChanged,
-                    this, &LayerStyleDialog::onBasemapRenderParamsChanged);
+            connect(l, &WCSLayer::basemapRenderParamsChanged, this,
+                    &LayerStyleDialog::onBasemapRenderParamsChanged);
     }
 
     vlay->addStretch();
 
-    connect(m_opacitySlider, &QSlider::valueChanged,
-            this, &LayerStyleDialog::onOpacitySliderChanged);
-    connect(m_opacitySpin, qOverload<int>(&QSpinBox::valueChanged),
-            this, &LayerStyleDialog::onOpacitySpinChanged);
+    connect(m_opacitySlider, &QSlider::valueChanged, this,
+            &LayerStyleDialog::onOpacitySliderChanged);
+    connect(m_opacitySpin, qOverload<int>(&QSpinBox::valueChanged), this,
+            &LayerStyleDialog::onOpacitySpinChanged);
 
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
-                   style()->standardIcon(QStyle::SP_ComputerIcon),
-                   tr("&Rendering"));
+                   style()->standardIcon(QStyle::SP_ComputerIcon), tr("&Rendering"));
 }
 
 void LayerStyleDialog::onBasemapRenderParamsChanged()
 {
-    if (!m_brightnessSlider) return;
+    if (!m_brightnessSlider)
+        return;
     using OpenSWMM::Render::BasemapRenderParams;
     BasemapRenderParams cur;
-    if      (auto *l = qobject_cast<XYZTileLayer *>(m_layer)) cur = l->basemapRenderParams();
-    else if (auto *l = qobject_cast<WMTSLayer    *>(m_layer)) cur = l->basemapRenderParams();
-    else if (auto *l = qobject_cast<WMSLayer     *>(m_layer)) cur = l->basemapRenderParams();
-    else if (auto *l = qobject_cast<WCSLayer     *>(m_layer)) cur = l->basemapRenderParams();
-    else return;
-    QSignalBlocker b1(m_brightnessSlider), b2(m_contrastSlider),
-        b3(m_saturationSlider), b4(m_resamplingCombo);
+    if (auto *l = qobject_cast<XYZTileLayer *>(m_layer))
+        cur = l->basemapRenderParams();
+    else if (auto *l = qobject_cast<WMTSLayer *>(m_layer))
+        cur = l->basemapRenderParams();
+    else if (auto *l = qobject_cast<WMSLayer *>(m_layer))
+        cur = l->basemapRenderParams();
+    else if (auto *l = qobject_cast<WCSLayer *>(m_layer))
+        cur = l->basemapRenderParams();
+    else
+        return;
+    QSignalBlocker b1(m_brightnessSlider), b2(m_contrastSlider), b3(m_saturationSlider),
+        b4(m_resamplingCombo);
     m_brightnessSlider->setValue(int(std::round(cur.brightness * 100.0)));
-    m_contrastSlider  ->setValue(int(std::round((cur.contrast - 1.0) * 100.0)));
+    m_contrastSlider->setValue(int(std::round((cur.contrast - 1.0) * 100.0)));
     m_saturationSlider->setValue(int(std::round(cur.saturation * 100.0)));
     const int idx = m_resamplingCombo->findData(int(cur.resampling));
-    if (idx >= 0) m_resamplingCombo->setCurrentIndex(idx);
+    if (idx >= 0)
+        m_resamplingCombo->setCurrentIndex(idx);
 }
 
 void LayerStyleDialog::buildMetadataTab()
@@ -889,7 +945,7 @@ void LayerStyleDialog::buildMetadataTab()
     // minimum section size keeps both columns readable on a narrow dialog
     // (PLAN_2D_GUI_FIXES Issue 1 convention) rather than squishing.
     m_metadataTable = new QTableWidget(0, 2, page);
-    m_metadataTable->setHorizontalHeaderLabels({ tr("Property"), tr("Value") });
+    m_metadataTable->setHorizontalHeaderLabels({tr("Property"), tr("Value")});
     m_metadataTable->verticalHeader()->setVisible(false);
     m_metadataTable->setAlternatingRowColors(true);
     m_metadataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -914,10 +970,9 @@ void LayerStyleDialog::buildMetadataTab()
     if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(m_layer)) {
         auto *pyramidBtn = new QToolButton(page);
         pyramidBtn->setText(tr("Rebuild pyramid"));
-        pyramidBtn->setToolTip(tr(
-            "Rebuild this mesh's far-zoom LOD pyramid (overview) in the "
-            "background. Use after bulk elevation edits if the zoomed-out "
-            "view looks stale."));
+        pyramidBtn->setToolTip(tr("Rebuild this mesh's far-zoom LOD pyramid (overview) in the "
+                                  "background. Use after bulk elevation edits if the zoomed-out "
+                                  "view looks stale."));
         pyramidBtn->setEnabled(!mesh->overviewBuildRunning());
         connect(pyramidBtn, &QToolButton::clicked, this, [mesh, pyramidBtn]() {
             pyramidBtn->setEnabled(false);
@@ -932,50 +987,50 @@ void LayerStyleDialog::buildMetadataTab()
     refreshBtn->setText(tr("Refresh"));
     refreshBtn->setToolTip(tr("Re-read metadata (e.g. the time-step count of a "
                               "running 2D results layer)."));
-    connect(refreshBtn, &QToolButton::clicked,
-            this, &LayerStyleDialog::populateMetadata);
+    connect(refreshBtn, &QToolButton::clicked, this, &LayerStyleDialog::populateMetadata);
     refreshRow->addWidget(refreshBtn);
     vlay->addLayout(refreshRow);
 
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
-                   style()->standardIcon(QStyle::SP_FileIcon),
-                   tr("&Metadata"));
+                   style()->standardIcon(QStyle::SP_FileIcon), tr("&Metadata"));
 }
 
 void LayerStyleDialog::populateMetadata()
 {
-    if (!m_metadataTable || !m_layer) return;
+    if (!m_metadataTable || !m_layer)
+        return;
 
     // Common block (kept in the dialog — every layer has these), then the
     // layer's own type-specific rows.
     QVector<QPair<QString, QString>> rows;
-    rows.append({ tr("ID"),      m_layer->layerId() });
-    rows.append({ tr("Type"),    QString::fromLatin1(layerTypeLabel(m_layer->layerType())) });
-    rows.append({ tr("Visible"), m_layer->isVisible() ? tr("yes") : tr("no") });
-    rows.append({ tr("Opacity"), QStringLiteral("%1 %").arg(qRound(m_layer->opacity() * 100)) });
+    rows.append({tr("ID"), m_layer->layerId()});
+    rows.append({tr("Type"), QString::fromLatin1(layerTypeLabel(m_layer->layerType()))});
+    rows.append({tr("Visible"), m_layer->isVisible() ? tr("yes") : tr("no")});
+    rows.append({tr("Opacity"), QStringLiteral("%1 %").arg(qRound(m_layer->opacity() * 100))});
     if (auto *srs = m_layer->srs()) {
         const QString auth = srs->toAuthority();
-        rows.append({ tr("CRS"), auth.isEmpty() ? tr("(local)") : auth });
+        rows.append({tr("CRS"), auth.isEmpty() ? tr("(local)") : auth});
     } else {
-        rows.append({ tr("CRS"), tr("(none)") });
+        rows.append({tr("CRS"), tr("(none)")});
     }
     const MapExtent ext = m_layer->extent();
     if (ext.isValid())
-        rows.append({ tr("Extent"),
-                      QStringLiteral("[%1, %2] → [%3, %4]")
-                          .arg(ext.xMin(), 0, 'g', 8).arg(ext.yMin(), 0, 'g', 8)
-                          .arg(ext.xMax(), 0, 'g', 8).arg(ext.yMax(), 0, 'g', 8) });
+        rows.append({tr("Extent"), QStringLiteral("[%1, %2] → [%3, %4]")
+                                       .arg(ext.xMin(), 0, 'g', 8)
+                                       .arg(ext.yMin(), 0, 'g', 8)
+                                       .arg(ext.xMax(), 0, 'g', 8)
+                                       .arg(ext.yMax(), 0, 'g', 8)});
     if (!m_layer->children().isEmpty())
-        rows.append({ tr("Children"), QString::number(m_layer->children().size()) });
+        rows.append({tr("Children"), QString::number(m_layer->children().size())});
 
-    rows.append(m_layer->extendedMetadata());   // type-specific
+    rows.append(m_layer->extendedMetadata()); // type-specific
 
     m_metadataTable->clearContents();
     m_metadataTable->setRowCount(rows.size());
     for (int r = 0; r < rows.size(); ++r) {
         m_metadataTable->setItem(r, 0, new QTableWidgetItem(rows[r].first));
         auto *valItem = new QTableWidgetItem(rows[r].second);
-        valItem->setToolTip(rows[r].second);   // full value on hover if elided
+        valItem->setToolTip(rows[r].second); // full value on hover if elided
         m_metadataTable->setItem(r, 1, valItem);
     }
     m_metadataTable->resizeRowsToContents();
@@ -987,7 +1042,8 @@ void LayerStyleDialog::populateMetadata()
 
 void LayerStyleDialog::readFromLayer()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
 
     // Information tab.
     if (m_nameEdit) {
@@ -1013,10 +1069,19 @@ void LayerStyleDialog::readFromLayer()
     }
 
     // Rendering tab.
-    if (m_visibleBox) { QSignalBlocker b(m_visibleBox); m_visibleBox->setChecked(m_layer->isVisible()); }
+    if (m_visibleBox) {
+        QSignalBlocker b(m_visibleBox);
+        m_visibleBox->setChecked(m_layer->isVisible());
+    }
     const int opacity = qRound(m_layer->opacity() * 100);
-    if (m_opacitySlider) { QSignalBlocker b(m_opacitySlider); m_opacitySlider->setValue(opacity); }
-    if (m_opacitySpin)   { QSignalBlocker b(m_opacitySpin);   m_opacitySpin->setValue(opacity); }
+    if (m_opacitySlider) {
+        QSignalBlocker b(m_opacitySlider);
+        m_opacitySlider->setValue(opacity);
+    }
+    if (m_opacitySpin) {
+        QSignalBlocker b(m_opacitySpin);
+        m_opacitySpin->setValue(opacity);
+    }
 
     // Information + Metadata text dumps.
     QStringList lines;
@@ -1033,46 +1098,55 @@ void LayerStyleDialog::readFromLayer()
     const MapExtent ext = m_layer->extent();
     if (ext.isValid()) {
         lines << QStringLiteral("Extent:    [%1, %2] → [%3, %4]")
-                     .arg(ext.xMin(), 0, 'g', 8).arg(ext.yMin(), 0, 'g', 8)
-                     .arg(ext.xMax(), 0, 'g', 8).arg(ext.yMax(), 0, 'g', 8);
+                     .arg(ext.xMin(), 0, 'g', 8)
+                     .arg(ext.yMin(), 0, 'g', 8)
+                     .arg(ext.xMax(), 0, 'g', 8)
+                     .arg(ext.yMax(), 0, 'g', 8);
     } else {
         lines << QStringLiteral("Extent:    (invalid / not yet computed)");
     }
     if (!m_layer->children().isEmpty())
         lines << QStringLiteral("Children:  %1").arg(m_layer->children().size());
     const QString summary = lines.join('\n');
-    if (m_infoText) m_infoText->setPlainText(summary);
+    if (m_infoText)
+        m_infoText->setPlainText(summary);
 
     // Metadata tab renders the structured key/value table (common block +
     // the layer's type-specific extendedMetadata()), not a copy of summary.
     populateMetadata();
 
     // Cancel-rollback snapshot.
-    m_snapshotName    = m_layer->name();
+    m_snapshotName = m_layer->name();
     m_snapshotVisible = m_layer->isVisible();
     m_snapshotOpacity = m_layer->opacity();
 }
 
 void LayerStyleDialog::writeGeneralRenderingToLayer()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     // These controls are drafts (unlike live symbology). Only write a field
     // changed relative to its hydrated display, preserving external edits and
     // precise stored opacity when the rounded percentage was untouched.
-    if (m_nameEdit && m_nameEdit->text() != m_snapshotName && m_nameEdit->text() != m_layer->name()) {
-        if (!m_undoGeneralBefore.contains("name")) m_undoGeneralBefore.insert("name", m_layer->name());
+    if (m_nameEdit && m_nameEdit->text() != m_snapshotName &&
+        m_nameEdit->text() != m_layer->name()) {
+        if (!m_undoGeneralBefore.contains("name"))
+            m_undoGeneralBefore.insert("name", m_layer->name());
         m_layer->setName(m_nameEdit->text());
         m_undoGeneralAfter.insert("name", m_layer->name());
     }
-    if (m_visibleBox && m_visibleBox->isChecked() != m_snapshotVisible && m_visibleBox->isChecked() != m_layer->isVisible()) {
-        if (!m_undoGeneralBefore.contains("visible")) m_undoGeneralBefore.insert("visible", m_layer->isVisible());
+    if (m_visibleBox && m_visibleBox->isChecked() != m_snapshotVisible &&
+        m_visibleBox->isChecked() != m_layer->isVisible()) {
+        if (!m_undoGeneralBefore.contains("visible"))
+            m_undoGeneralBefore.insert("visible", m_layer->isVisible());
         m_layer->setVisible(m_visibleBox->isChecked());
         m_undoGeneralAfter.insert("visible", m_layer->isVisible());
     }
     if (m_opacitySpin && m_opacitySpin->value() != qRound(m_snapshotOpacity * 100.0)) {
         const double opacity = m_opacitySpin->value() / 100.0;
         if (opacity != m_layer->opacity()) {
-            if (!m_undoGeneralBefore.contains("opacity")) m_undoGeneralBefore.insert("opacity", m_layer->opacity());
+            if (!m_undoGeneralBefore.contains("opacity"))
+                m_undoGeneralBefore.insert("opacity", m_layer->opacity());
             m_layer->setOpacity(opacity);
             m_undoGeneralAfter.insert("opacity", opacity);
         }
@@ -1091,7 +1165,8 @@ void LayerStyleDialog::restoreSubjectsFromSnapshot()
 
 void LayerStyleDialog::focusInitialSubject()
 {
-    if (m_initialRoutingId.isEmpty()) return;
+    if (m_initialRoutingId.isEmpty())
+        return;
     // Bring the Symbology tab to the foreground when an initialRoutingId is
     // provided. Compare with the mnemonic ampersand stripped — the tab is
     // added as tr("S&ymbology"), so a literal compare against tr("Symbology")
@@ -1106,8 +1181,9 @@ void LayerStyleDialog::focusInitialSubject()
     for (int i = 0; i < m_tabs->count(); ++i) {
         if (plainTabText(m_tabs->tabText(i)) == target) {
             m_tabs->setCurrentIndex(i);
-            if(auto *results=m_tabs->widget(i)->findChild<Swmm2DResultsStylePanel *>())
-                if(results->focusResult(m_initialRoutingId))return;
+            if (auto *results = m_tabs->widget(i)->findChild<Swmm2DResultsStylePanel *>())
+                if (results->focusResult(m_initialRoutingId))
+                    return;
             // Walk the inner QTabWidget if present.
             auto *inner = m_tabs->widget(i)->findChild<QTabWidget *>();
             if (inner) {
@@ -1130,13 +1206,17 @@ void LayerStyleDialog::focusInitialSubject()
 bool LayerStyleDialog::validClassificationDrafts() const
 {
     for (auto *editor : findChildren<ClassificationEditor *>())
-        if (!editor->hasValidDraft()) { editor->setFocus(Qt::OtherFocusReason); return false; }
+        if (!editor->hasValidDraft()) {
+            editor->setFocus(Qt::OtherFocusReason);
+            return false;
+        }
     return true;
 }
 
 void LayerStyleDialog::onApply()
 {
-    if (m_sessionFinished || !m_layer || !validClassificationDrafts()) return;
+    if (m_sessionFinished || !m_layer || !validClassificationDrafts())
+        return;
     writeGeneralRenderingToLayer();
     snapshotSubjects();
     m_styleSnapshot = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
@@ -1145,7 +1225,8 @@ void LayerStyleDialog::onApply()
 
 void LayerStyleDialog::recordAcceptedSession()
 {
-    if (!m_undoStack || !m_layer) return;
+    if (!m_undoStack || !m_layer)
+        return;
     const QJsonObject after = captureSubjectSnapshots(m_layer);
     const QJsonObject styleAfter = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
     // Drop net-zero general edits, just as no-op symbology sessions are dropped.
@@ -1155,17 +1236,26 @@ void LayerStyleDialog::recordAcceptedSession()
             m_undoGeneralAfter.remove(key);
         }
     }
-    if (after != m_undoBaseline || styleAfter != m_undoStyleBaseline || !m_undoGeneralBefore.isEmpty())
+    if (after != m_undoBaseline || styleAfter != m_undoStyleBaseline ||
+        !m_undoGeneralBefore.isEmpty())
         m_undoStack->push(new EditLayerStyleCommand(m_layer, m_undoStyleBaseline, styleAfter,
-            m_undoBaseline, after, m_undoGeneralBefore, m_undoGeneralAfter));
+                                                    m_undoBaseline, after, m_undoGeneralBefore,
+                                                    m_undoGeneralAfter));
 }
 
-void LayerStyleDialog::accept() { onAccept(); }
-void LayerStyleDialog::reject() { onCancel(); }
+void LayerStyleDialog::accept()
+{
+    onAccept();
+}
+void LayerStyleDialog::reject()
+{
+    onCancel();
+}
 
 void LayerStyleDialog::onAccept()
 {
-    if (m_sessionFinished || !m_layer || !validClassificationDrafts()) return;
+    if (m_sessionFinished || !m_layer || !validClassificationDrafts())
+        return;
     writeGeneralRenderingToLayer();
     recordAcceptedSession();
     m_sessionFinished = true;
@@ -1174,7 +1264,8 @@ void LayerStyleDialog::onAccept()
 
 void LayerStyleDialog::onCancel()
 {
-    if (m_sessionFinished) return;
+    if (m_sessionFinished)
+        return;
     if (m_layer) {
         const QJsonObject styleNow = OpenSWMM::Render::StyleFileIO::styleToJson(m_layer);
         if (styleNow != m_styleSnapshot)
@@ -1203,19 +1294,19 @@ void LayerStyleDialog::invalidateTarget()
 
 void LayerStyleDialog::onExportStyle()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     const QString defaultName = m_layer->name() + QStringLiteral(".swmm-style.json");
     const QString path = QFileDialog::getSaveFileName(
-        this, tr("Export style"), defaultName,
-        tr("SWMMVis style (*.swmm-style.json *.json)"));
-    if (path.isEmpty() || !m_layer || m_sessionFinished) return;
+        this, tr("Export style"), defaultName, tr("SWMMVis style (*.swmm-style.json *.json)"));
+    if (path.isEmpty() || !m_layer || m_sessionFinished)
+        return;
 
     const auto res = OpenSWMM::Render::StyleFileIO::exportStyle(m_layer, path);
     if (!res.ok) {
         QMessageBox::warning(this, tr("Export style"),
-                              res.errorMessage.isEmpty()
-                                  ? tr("Failed to export style.")
-                                  : res.errorMessage);
+                             res.errorMessage.isEmpty() ? tr("Failed to export style.")
+                                                        : res.errorMessage);
         return;
     }
     QString msg = tr("Saved style to %1").arg(path);
@@ -1226,37 +1317,41 @@ void LayerStyleDialog::onExportStyle()
 
 void LayerStyleDialog::onImportStyle()
 {
-    if (!m_layer) return;
-    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("styles"),
-        this, tr("Import style"), QString(),
+    if (!m_layer)
+        return;
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+        QStringLiteral("styles"), this, tr("Import style"), QString(),
         tr("Style files (*.swmm-style.json *.json *.qml);;All files (*)"));
-    if (path.isEmpty() || !m_layer || m_sessionFinished) return;
+    if (path.isEmpty() || !m_layer || m_sessionFinished)
+        return;
 
     const auto res = OpenSWMM::Render::StyleFileIO::importStyle(m_layer, path);
     if (!res.ok) {
         QMessageBox::warning(this, tr("Import style"),
-                              res.errorMessage.isEmpty()
-                                  ? tr("Failed to import style.")
-                                  : res.errorMessage);
+                             res.errorMessage.isEmpty() ? tr("Failed to import style.")
+                                                        : res.errorMessage);
         return;
     }
     if (!res.warnings.isEmpty()) {
-        QMessageBox::information(this, tr("Import style"),
-                                  tr("Imported with warnings:\n\n%1")
-                                      .arg(res.warnings.join(QChar('\n'))));
+        QMessageBox::information(
+            this, tr("Import style"),
+            tr("Imported with warnings:\n\n%1").arg(res.warnings.join(QChar('\n'))));
     }
     // Import is a preview within this edit session. Keep the original Cancel
     // and undo checkpoints so it remains reversible until Apply/OK.
-    if (m_layer) m_subjects = m_layer->styleSubjects();
+    if (m_layer)
+        m_subjects = m_layer->styleSubjects();
 }
 
 void LayerStyleDialog::onPickCRS()
 {
     CRSSelectionDialog dlg(this);
     dlg.setCurrentCRS(m_layer ? m_layer->srs() : nullptr);
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted)
+        return;
     SpatialReferenceSystem *srs = dlg.selectedSRS();
-    if (!srs) return;
+    if (!srs)
+        return;
     if (m_layer)
         m_layer->setSRS(srs, true);
     if (m_crsLabel)

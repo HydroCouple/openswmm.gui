@@ -1,9 +1,10 @@
-/*!
- * \file   rulelist.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  RuleList implementation (Slice Z.1).
+/**
+ * @file      rulelist.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     RuleList implementation (Slice Z.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/rulelist.h"
@@ -161,9 +162,7 @@ void RuleList::clear()
 
 void RuleList::setActiveIndex(int index)
 {
-    const int clamped = (index < 0 || count() == 0)
-                            ? -1
-                            : std::clamp(index, 0, count() - 1);
+    const int clamped = (index < 0 || count() == 0) ? -1 : std::clamp(index, 0, count() - 1);
     if (clamped == m_activeIndex)
         return;
     m_activeIndex = clamped;
@@ -205,9 +204,9 @@ void RuleList::loadLegacySublayersAsRules(const QJsonArray &sublayers)
         if (!v.isObject())
             continue;
         const QJsonObject sl = v.toObject();
-        const QString id  = sl.value(QStringLiteral("id")).toString();
-        const bool    vis = sl.value(QStringLiteral("isVisible")).toBool(true);
-        const double  op  = sl.value(QStringLiteral("opacity")).toDouble(1.0);
+        const QString id = sl.value(QStringLiteral("id")).toString();
+        const bool vis = sl.value(QStringLiteral("isVisible")).toBool(true);
+        const double op = sl.value(QStringLiteral("opacity")).toDouble(1.0);
 
         // Z.1 migration: identity + visibility + opacity → SingleSymbol
         // placeholder. Full style-payload migration (per-archetype marker
@@ -217,11 +216,8 @@ void RuleList::loadLegacySublayersAsRules(const QJsonArray &sublayers)
         s.opacity = std::clamp(op, 0.0, 1.0);
         single->setSymbol(s);
 
-        auto rule = std::make_unique<Rule>(id.isEmpty()
-                                               ? QStringLiteral("Sublayer")
-                                               : id,
-                                           std::move(single),
-                                           this);
+        auto rule = std::make_unique<Rule>(id.isEmpty() ? QStringLiteral("Sublayer") : id,
+                                           std::move(single), this);
         rule->setVisible(vis);
         connectRule(rule.get());
         m_rules.push_back(std::move(rule));

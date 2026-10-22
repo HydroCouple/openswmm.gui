@@ -1,8 +1,9 @@
-/*!
- * \file   test_meshquadregion.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_meshquadregion.cpp
+ * @brief     Tests for meshquadregion.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Quad redesign gate 2 (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md
  * §3, §4.1, §7.2) — QtTest coverage for the PSLG quad-region geometry
@@ -10,7 +11,9 @@
  * auto-classification (Mapped / Submapped / Free), single-region validation
  * against domains and holes, pairwise overlap checks, ring resampling and
  * point-in-ring.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <limits>
 #include <QPolygonF>
@@ -22,45 +25,85 @@
 
 using namespace mesh;
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Construct an open axis-aligned rectangular ring for local geometry tests.
+ * @param[in] x0 Left origin coordinate in shared planar units.
+ * @param[in] y0 Bottom origin coordinate in the same units.
+ * @param[in] w Signed horizontal extent; positive fixture widths produce conventional corner
+ * order.
+ * @param[in] h Signed vertical extent; positive width/height produce CCW order.
+ * @return Four owned corners without closing duplicate; no size/finite-value validation or
+ * external state.
+ */
 QPolygonF rect(double x0, double y0, double w, double h)
 {
-    return QPolygonF{QPointF(x0, y0), QPointF(x0 + w, y0), QPointF(x0 + w, y0 + h), QPointF(x0, y0 + h)};
+    return QPolygonF{QPointF(x0, y0), QPointF(x0 + w, y0), QPointF(x0 + w, y0 + h),
+                     QPointF(x0, y0 + h)};
 }
 
 /*! 10×10 L with a 5×5 notch removed at the top-right, CCW. */
 QPolygonF lShape()
 {
-    return QPolygonF{QPointF(0, 0), QPointF(10, 0), QPointF(10, 5), QPointF(5, 5), QPointF(5, 10), QPointF(0, 10)};
+    return QPolygonF{QPointF(0, 0), QPointF(10, 0), QPointF(10, 5),
+                     QPointF(5, 5), QPointF(5, 10), QPointF(0, 10)};
 }
 
+/**
+ * @brief Construct a regular open polygon fixture about a supplied center.
+ * @param[in] n Vertex count; nonpositive values yield an empty polygon.
+ * @param[in] r Radius in shared planar units; callers supply positive finite radius.
+ * @param[in] c Center in those planar units, default origin; preserved.
+ * @return Owned n equally spaced points in CCW order for positive radius and n>=3; no
+ * validation, closure duplicate or model mutation.
+ */
 QPolygonF regularPolygon(int n, double r, const QPointF &c = QPointF(0, 0))
 {
     QPolygonF p;
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         const double a = 2.0 * M_PI * i / n;
         p << QPointF(c.x() + r * std::cos(a), c.y() + r * std::sin(a));
     }
     return p;
 }
 
-bool near(double a, double b, double tol) { return std::abs(a - b) <= tol; }
+/**
+ * @brief Compare fixture scalar values using inclusive absolute tolerance.
+ * @param[in] a First value in the measured quantity's units.
+ * @param[in] b Second value in identical units.
+ * @param[in] tol Nonnegative absolute tolerance in those units.
+ * @return abs(a-b)<=tol; NaN does not compare equal, no relative-error normalization.
+ */
+bool near(double a, double b, double tol)
+{
+    return std::abs(a - b) <= tol;
+}
 
 /*! True when \p p lies on some edge of the closed ring within \p tol. */
+/**
+ * @brief Test whether a point lies within tolerance of a nondegenerate ring edge.
+ * @param[in] ring Stable open or closed ring, last-to-first edge included; empty ring returns
+ * false.
+ * @param[in] p Query point in ring coordinate units.
+ * @param[in] tol Nonnegative Euclidean distance tolerance in those units.
+ * @return True if any clamped segment projection is within tol; zero-length edges are skipped.
+ * No interior containment test or input mutation; callers supply finite test coordinates.
+ */
 bool onRingBoundary(const QPolygonF &ring, const QPointF &p, double tol)
 {
     const int n = ring.size();
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         const QPointF a = ring[i], b = ring[(i + 1) % n];
         const QPointF ab = b - a, ap = p - a;
         const double l2 = ab.x() * ab.x() + ab.y() * ab.y();
-        if (l2 <= 0.0) continue;
+        if (l2 <= 0.0)
+            continue;
         const double t = std::clamp((ap.x() * ab.x() + ap.y() * ab.y()) / l2, 0.0, 1.0);
         const QPointF q = a + ab * t;
-        if (std::hypot(p.x() - q.x(), p.y() - q.y()) <= tol) return true;
+        if (std::hypot(p.x() - q.x(), p.y() - q.y()) <= tol)
+            return true;
     }
     return false;
 }
@@ -72,6 +115,11 @@ class TestMeshQuadRegion : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Register valid inherited/unlimited/square/elongated aspect caps and invalid
+     * small/nonfinite caps.
+     * @note QtTest rows encode expected validation success; no mesh or UI is created.
+     */
     void aspectValidation_data()
     {
         QTest::addColumn<double>("cap");
@@ -85,6 +133,11 @@ private slots:
         QTest::newRow("infinity") << std::numeric_limits<double>::infinity() << false;
     }
 
+    /**
+     * @brief Verify region validation accepts precisely the data-driven aspect-cap conventions.
+     * @note Uses 20 x 10 rectangle inside 100 square with spacing 1; empty diagnostic means
+     * expected valid, invalid cap must return a diagnostic. Pure local geometry.
+     */
     void aspectValidation()
     {
         QFETCH(double, cap);
@@ -96,7 +149,12 @@ private slots:
         QCOMPARE(validateQuadRegion(q, {rect(0, 0, 100, 100)}, {}).isEmpty(), valid);
     }
 
-
+    /**
+     * @brief Register crossing, containment, boundary-touch, bounding-box-only and degenerate
+     * polyline cases.
+     * @note Includes later-segment intersection, duplicate points, empty and singleton paths;
+     * expected intersection treats boundary contact as present.
+     */
     void polylineRectIntersection_data()
     {
         QTest::addColumn<QPolygonF>("path");
@@ -117,6 +175,13 @@ private slots:
         QTest::newRow("single-point") << QPolygonF{{5, 5}} << false;
     }
 
+    /**
+     * @brief Verify polyline intersection is stable under reversal, rectangle normalization and
+     * projected translation.
+     * @note Compares expected row against 10 square and reversed box, then translates
+     * by(500000,4500000); empty rectangle always refuses. Does not confuse bounding-box overlap
+     * with segment intersection.
+     */
     void polylineRectIntersection()
     {
         QFETCH(QPolygonF, path);
@@ -127,7 +192,8 @@ private slots:
         QCOMPARE(polylineIntersectsRect(path, box), intersects);
         QCOMPARE(polylineIntersectsRect(path, QRectF(10, 10, -10, -10)), intersects);
         const QPointF offset(500000, 4500000);
-        for (QPointF &p : path) p += offset;
+        for (QPointF &p : path)
+            p += offset;
         QCOMPARE(polylineIntersectsRect(path, box.translated(offset)), intersects);
         QVERIFY(!polylineIntersectsRect(path, QRectF()));
     }
@@ -143,7 +209,8 @@ private slots:
         QVERIFY(near(ringSignedArea(n), 50.0, 1e-9));
         QVERIFY(ringSignedArea(cw) < 0.0);
 
-        QPolygonF dup{QPointF(0, 0), QPointF(10, 0), QPointF(10, 0), QPointF(10, 5), QPointF(0, 5), QPointF(0, 5)};
+        QPolygonF dup{QPointF(0, 0),  QPointF(10, 0), QPointF(10, 0),
+                      QPointF(10, 5), QPointF(0, 5),  QPointF(0, 5)};
         const QPolygonF d = normalizeRingCCW(dup);
         QCOMPARE(d.size(), 4);
         QVERIFY(ringSignedArea(d) > 0.0);
@@ -158,17 +225,21 @@ private slots:
     void ringTurnDeg_square()
     {
         const QPolygonF sq = rect(0, 0, 10, 10);
-        for (int i = 0; i < 4; ++i) QVERIFY(near(ringTurnDeg(sq, i), 90.0, 1e-9));
+        for (int i = 0; i < 4; ++i)
+            QVERIFY(near(ringTurnDeg(sq, i), 90.0, 1e-9));
         const QPolygonF L = lShape();
         int reflex = 0;
-        for (int i = 0; i < L.size(); ++i)
-        {
+        for (int i = 0; i < L.size(); ++i) {
             const double t = ringTurnDeg(L, i);
             QVERIFY(near(std::abs(t), 90.0, 1e-9));
-            if (t < 0.0) { ++reflex; QCOMPARE(i, 3); }
+            if (t < 0.0) {
+                ++reflex;
+                QCOMPARE(i, 3);
+            }
         }
         QCOMPARE(reflex, 1);
-        QPolygonF withMid{QPointF(0, 0), QPointF(5, 0), QPointF(10, 0), QPointF(10, 5), QPointF(0, 5)};
+        QPolygonF withMid{QPointF(0, 0), QPointF(5, 0), QPointF(10, 0), QPointF(10, 5),
+                          QPointF(0, 5)};
         QVERIFY(near(ringTurnDeg(withMid, 1), 0.0, 1e-9));
     }
 
@@ -209,7 +280,8 @@ private slots:
         QVector<int> corners;
         QCOMPARE(classifyQuadRegion(regularPolygon(12, 10.0), &corners), QuadRegionMode::Free);
         QVERIFY(corners.isEmpty());
-        QPolygonF blob{QPointF(0, 0), QPointF(10, 1), QPointF(12, 6), QPointF(6, 11), QPointF(-1, 5)};
+        QPolygonF blob{QPointF(0, 0), QPointF(10, 1), QPointF(12, 6), QPointF(6, 11),
+                       QPointF(-1, 5)};
         QCOMPARE(classifyQuadRegion(blob, nullptr), QuadRegionMode::Free);
     }
 
@@ -241,13 +313,13 @@ private slots:
         besideHole.ring = rect(60, 60, 20, 10);
         QVERIFY(validateQuadRegion(besideHole, domains, holes).isEmpty());
 
-        QuadRegion tooSmall = ok;            // area 200 < 4·8² = 256
+        QuadRegion tooSmall = ok; // area 200 < 4·8² = 256
         tooSmall.spacing = 8.0;
         QVERIFY(!validateQuadRegion(tooSmall, domains, noHoles).isEmpty());
-        QuadRegion justBig = ok;             // area 200 >= 4·7² = 196
+        QuadRegion justBig = ok; // area 200 >= 4·7² = 196
         justBig.spacing = 7.0;
         QVERIFY(validateQuadRegion(justBig, domains, noHoles).isEmpty());
-        QuadRegion noSpacing = tooSmall;     // spacing 0 → area test skipped
+        QuadRegion noSpacing = tooSmall; // spacing 0 → area test skipped
         noSpacing.spacing = 0.0;
         QVERIFY(validateQuadRegion(noSpacing, domains, noHoles).isEmpty());
 
@@ -264,22 +336,28 @@ private slots:
      *  rings sharing an edge → OK. */
     void validateQuadRegionsDisjoint_cases()
     {
-        QuadRegion a; a.ring = rect(0, 0, 10, 5);
-        QuadRegion b; b.ring = rect(20, 0, 10, 5);
+        QuadRegion a;
+        a.ring = rect(0, 0, 10, 5);
+        QuadRegion b;
+        b.ring = rect(20, 0, 10, 5);
         QVERIFY(validateQuadRegionsDisjoint({a, b}).isEmpty());
 
-        QuadRegion c; c.ring = rect(5, 2, 15, 6);
+        QuadRegion c;
+        c.ring = rect(5, 2, 15, 6);
         const QString err = validateQuadRegionsDisjoint({a, c});
         QVERIFY(!err.isEmpty());
         QVERIFY(err.contains(QStringLiteral("overlaps")));
 
-        QuadRegion d; d.ring = rect(10, 0, 10, 5);      // shares edge x = 10
+        QuadRegion d;
+        d.ring = rect(10, 0, 10, 5); // shares edge x = 10
         QVERIFY(validateQuadRegionsDisjoint({a, d}).isEmpty());
-        QuadRegion e; e.ring = rect(10, 5, 10, 5);      // shares only the vertex (10,5)
+        QuadRegion e;
+        e.ring = rect(10, 5, 10, 5); // shares only the vertex (10,5)
         QVERIFY(validateQuadRegionsDisjoint({a, e}).isEmpty());
 
         // Fully nested is an overlap as well.
-        QuadRegion inner; inner.ring = rect(2, 1, 4, 2);
+        QuadRegion inner;
+        inner.ring = rect(2, 1, 4, 2);
         QVERIFY(!validateQuadRegionsDisjoint({a, inner}).isEmpty());
         QVERIFY(validateQuadRegionsDisjoint({a}).isEmpty());
         QVERIFY(validateQuadRegionsDisjoint({}).isEmpty());
@@ -295,11 +373,12 @@ private slots:
         QVERIFY(ringSignedArea(rs) > 0.0);
         QVERIFY(near(ringSignedArea(rs), 100.0, 1e-9));
         QVERIFY(rs.first() != rs.last());
-        for (const QPointF &p : rs) QVERIFY(onRingBoundary(sq, p, 1e-9));
-        for (const QPointF &c : sq) QVERIFY(rs.contains(c));
+        for (const QPointF &p : rs)
+            QVERIFY(onRingBoundary(sq, p, 1e-9));
+        for (const QPointF &c : sq)
+            QVERIFY(rs.contains(c));
         // Consecutive spacing is h on every edge.
-        for (int i = 0; i < rs.size(); ++i)
-        {
+        for (int i = 0; i < rs.size(); ++i) {
             const QPointF a = rs[i], b = rs[(i + 1) % rs.size()];
             QVERIFY(near(std::hypot(b.x() - a.x(), b.y() - a.y()), 2.0, 1e-9));
         }
@@ -327,9 +406,10 @@ private slots:
         const QPolygonF L = lShape();
         QVERIFY(pointInRing(L, QPointF(2, 8)));
         QVERIFY(pointInRing(L, QPointF(8, 2)));
-        QVERIFY(!pointInRing(L, QPointF(8, 8)));   // the notch
+        QVERIFY(!pointInRing(L, QPointF(8, 8))); // the notch
 
-        QPolygonF closed = sq; closed << sq.first();
+        QPolygonF closed = sq;
+        closed << sq.first();
         QVERIFY(pointInRing(closed, QPointF(5, 5)));
         QVERIFY(!pointInRing(closed, QPointF(15, 5)));
         QVERIFY(!pointInRing(QPolygonF{QPointF(0, 0), QPointF(1, 0)}, QPointF(0.5, 0)));

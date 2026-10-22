@@ -1,8 +1,11 @@
-/*!
- * \file   vectorexport.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      vectorexport.cpp
+ * @brief     Widget-free writer behind the layer tree's Export entries
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.5, R8).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "io/vectorexport.h"
@@ -32,14 +35,28 @@
 using openswmmvis::feature::FieldChoice;
 using openswmmvis::feature::FieldType;
 
-namespace openswmmvis::io {
+namespace openswmmvis::io
+{
 
-namespace {
+namespace
+{
 
-QString tr_(const char *s) { return QCoreApplication::translate("VectorExport", s); }
+/**
+ * @brief Translate export labels and diagnostics.
+ * @param[in] s Non-null translation source text.
+ * @return Localized text in the VectorExport context.
+ */
+QString tr_(const char *s)
+{
+    return QCoreApplication::translate("VectorExport", s);
+}
 
 const QString kCancelled = QStringLiteral("Cancelled");
 
+/**
+ * @brief Read GDAL error detail for an export diagnostic.
+ * @return Trimmed current error, or a localized fallback when GDAL supplied none.
+ */
 QString lastGdalError()
 {
     const char *msg = CPLGetLastErrorMsg();
@@ -47,19 +64,25 @@ QString lastGdalError()
     return s.isEmpty() ? tr_("no further detail from GDAL") : s;
 }
 
-/*! The in-memory vector driver: MEM from GDAL 3.11, Memory before. */
+/*! The in-memory vector driver: MEM from GDAL 3.11, Memory before.
+ * @return Borrowed MEM vector driver, falling back to Memory for older GDAL; null when neither is registered.
+ */
 GDALDriver *memoryDriver()
 {
     GDALDriverManager *mgr = GetGDALDriverManager();
     if (GDALDriver *d = mgr->GetDriverByName("MEM"))
-        if (d->GetMetadataItem(GDAL_DCAP_VECTOR)) return d;
+        if (d->GetMetadataItem(GDAL_DCAP_VECTOR))
+            return d;
     return mgr->GetDriverByName("Memory");
 }
 
 /*! Delete \p path and the files that travel with it (Shapefile sidecars, a
  *  File Geodatabase folder, GDAL's .aux.xml). A folder is only ever removed
  *  when it is a .gdb: any other folder named as an output is left alone (the
- *  write into it then fails) rather than deleted with what it holds. */
+ *  write into it then fails) rather than deleted with what it holds.
+ * @param[in] path Export path to delete with known Shapefile/PAM companions; .gdb folders may be removed recursively.
+ * @details Deletion is best-effort and does not restore replaced contents or report removal errors.
+ */
 void removeOutput(const QString &path)
 {
     const QFileInfo fi(path);
@@ -78,15 +101,24 @@ void removeOutput(const QString &path)
 }
 
 /*! Remove \p folder again when this export created it (\p created) and the
- *  clean-up left it empty; a folder that held anything is never touched. */
+ *  clean-up left it empty; a folder that held anything is never touched.
+ * @param[in] created Whether this export created the directory.
+ * @param[in] folder Candidate directory, removed only if created and empty.
+ * @return Always false for use in failure paths.
+ */
 bool dropCreatedFolder(bool created, const QString &folder)
 {
-    if (created) QDir().rmdir(folder);   // rmdir refuses a non-empty folder
+    if (created)
+        QDir().rmdir(folder); // rmdir refuses a non-empty folder
     return false;
 }
 
 /*! Undo everything written so far and record why. Returns false so callers
- *  can `return fail(...)`. */
+ *  can `return fail(...)`.
+ * @param[in,out] rep Report whose tracked output files/layers are removed and cleared; warnings remain.
+ * @param[in] why Diagnostic replacing rep.error.
+ * @return Always false; output deletion is best-effort.
+ */
 bool failAndClean(ExportReport &rep, const QString &why)
 {
     for (auto it = rep.files.crbegin(); it != rep.files.crend(); ++it)
@@ -97,36 +129,54 @@ bool failAndClean(ExportReport &rep, const QString &why)
     return false;
 }
 
+/**
+ * @brief Map the export geometry category to an OGR type.
+ * @param[in] g Supported point, line, or polygon category.
+ * @return Matching 2D OGR type, or wkbUnknown for an unsupported value.
+ */
 OGRwkbGeometryType wkbFor(ExportGeometry g)
 {
     switch (g) {
-    case ExportGeometry::Point:      return wkbPoint;
-    case ExportGeometry::LineString: return wkbLineString;
-    case ExportGeometry::Polygon:    return wkbPolygon;
+    case ExportGeometry::Point:
+        return wkbPoint;
+    case ExportGeometry::LineString:
+        return wkbLineString;
+    case ExportGeometry::Polygon:
+        return wkbPolygon;
     }
     return wkbUnknown;
 }
 
-/*! The OGR geometry for \p row, or nullptr when it has too few points. */
+/*! The OGR geometry for \p row, or nullptr when it has too few points.
+ * @param[in] row Coordinates in source CRS units.
+ * @param[in] g Required geometry kind.
+ * @return Owning geometry, or null for insufficient vertices/unsupported kind; polygon rings are closed, without topology validation.
+ */
 std::unique_ptr<OGRGeometry> geometryFor(const ExportRow &row, ExportGeometry g)
 {
     const auto &p = row.points;
     switch (g) {
     case ExportGeometry::Point:
-        if (p.isEmpty()) return nullptr;
+        if (p.isEmpty())
+            return nullptr;
         return std::make_unique<OGRPoint>(p.first().x(), p.first().y());
     case ExportGeometry::LineString: {
-        if (p.size() < 2) return nullptr;
+        if (p.size() < 2)
+            return nullptr;
         auto ls = std::make_unique<OGRLineString>();
-        for (const QPointF &q : p) ls->addPoint(q.x(), q.y());
+        for (const QPointF &q : p)
+            ls->addPoint(q.x(), q.y());
         return ls;
     }
     case ExportGeometry::Polygon: {
-        if (p.size() < 3) return nullptr;
+        if (p.size() < 3)
+            return nullptr;
         auto ring = std::make_unique<OGRLinearRing>();
-        for (const QPointF &q : p) ring->addPoint(q.x(), q.y());
+        for (const QPointF &q : p)
+            ring->addPoint(q.x(), q.y());
         ring->closeRings();
-        if (ring->getNumPoints() < 4) return nullptr;
+        if (ring->getNumPoints() < 4)
+            return nullptr;
         auto poly = std::make_unique<OGRPolygon>();
         poly->addRingDirectly(ring.release());
         return poly;
@@ -135,13 +185,21 @@ std::unique_ptr<OGRGeometry> geometryFor(const ExportRow &row, ExportGeometry g)
     return nullptr;
 }
 
+/**
+ * @brief Map export storage types to OGR scalar types.
+ * @param[in] t Logical field type.
+ * @return Integer for integer/boolean, real for real, otherwise string; boolean subtype is added separately.
+ */
 OGRFieldType ogrTypeFor(FieldType t)
 {
     switch (t) {
     case FieldType::Integer:
-    case FieldType::Boolean: return OFTInteger;
-    case FieldType::Real:    return OFTReal;
-    case FieldType::Text:    break;
+    case FieldType::Boolean:
+        return OFTInteger;
+    case FieldType::Real:
+        return OFTReal;
+    case FieldType::Text:
+        break;
     }
     return OFTString;
 }
@@ -149,20 +207,27 @@ OGRFieldType ogrTypeFor(FieldType t)
 /*! Bridges GDAL's progress callback to ExportProgress: GDAL reports a
  *  fraction of one translate; this maps it into [base, base + span) and
  *  remembers a cancel, which GDAL only reports as a failed translate. */
-struct ProgressBridge
-{
+struct ProgressBridge {
     const ExportProgress *progress = nullptr;
     int base = 0, span = 100, total = 100;
     QString what;
     bool cancelled = false;
 };
 
+/**
+ * @brief Convert GDAL fractional progress into export work counters.
+ * @param[in] fraction GDAL progress fraction for one translation.
+ * @param[in,out] data Nullable borrowed ProgressBridge pointer; its callback may set cancelled.
+ * @return GDAL TRUE to continue, FALSE after the caller requests cancellation; the unused message argument is ignored.
+ */
 int CPL_STDCALL bridgeProgress(double fraction, const char *, void *data)
 {
     auto *b = static_cast<ProgressBridge *>(data);
-    if (!b || !b->progress || !*b->progress) return TRUE;
+    if (!b || !b->progress || !*b->progress)
+        return TRUE;
     const int done = b->base + int(fraction * b->span);
-    if ((*b->progress)(done, b->total, b->what)) return TRUE;
+    if ((*b->progress)(done, b->total, b->what))
+        return TRUE;
     b->cancelled = true;
     return FALSE;
 }
@@ -171,11 +236,25 @@ int CPL_STDCALL bridgeProgress(double fraction, const char *, void *data)
 class Argv
 {
 public:
-    Argv &operator<<(const QString &s) { m_bytes << s.toUtf8(); return *this; }
+    /**
+     * @brief Append an owned UTF-8 GDAL option argument.
+     * @param[in] s Argument text.
+     * @return This builder for chained insertion; previously returned data pointers must be refreshed.
+     */
+    Argv &operator<<(const QString &s)
+    {
+        m_bytes << s.toUtf8();
+        return *this;
+    }
+    /**
+     * @brief Materialize a null-terminated mutable argv view over owned argument bytes.
+     * @return Borrowed pointers valid until argument insertion, another data() call, or destruction.
+     */
     char **data()
     {
         m_ptrs.clear();
-        for (QByteArray &b : m_bytes) m_ptrs.push_back(b.data());
+        for (QByteArray &b : m_bytes)
+            m_ptrs.push_back(b.data());
         m_ptrs.push_back(nullptr);
         return m_ptrs.data();
     }
@@ -188,7 +267,12 @@ private:
 /*! The -f / CRS / -lco part every vector translate here shares. A memory
  *  source carries its CRS on its layers; a file source has its own unless
  *  the GUI layer overrides it (options.sourceSrsWkt), which is then assigned
- *  (-a_srs) or used as the source of the reprojection (-s_srs). */
+ *  (-a_srs) or used as the source of the reprojection (-s_srs).
+ * @param[in] fmt Curated output capabilities, including forced-WGS84 behavior.
+ * @param[in] options CRS overrides and target selection.
+ * @param[in] sourceIsMemory True when source layers already carry the assigned source CRS.
+ * @param[in,out] argv Builder receiving format/CRS/layer-creation arguments.
+ */
 void translateArgs(const gdalcaps::VectorWriteFormat &fmt, const ExportOptions &options,
                    bool sourceIsMemory, Argv &argv)
 {
@@ -207,26 +291,35 @@ void translateArgs(const gdalcaps::VectorWriteFormat &fmt, const ExportOptions &
         argv << QStringLiteral("-lco") << QStringLiteral("GEOMETRY=AS_WKT");
 }
 
-/*! Run GDALVectorTranslate(dest ← src) with \p argv. */
-bool runTranslate(const QString &dest, GDALDataset *src, Argv &argv,
-                  ProgressBridge &bridge, QString *error)
+/*! Run GDALVectorTranslate(dest ← src) with \p argv.
+ * @param[in] dest Output dataset path.
+ * @param[in] src Non-null borrowed source dataset, retained by the caller.
+ * @param[in,out] argv Options parsed synchronously; its storage remains owned by the builder.
+ * @param[in,out] bridge Work mapping and cancellation state supplied to GDAL.
+ * @param[out] error Optional option/write/cancellation diagnostic, unchanged on success.
+ * @return True after GDAL translation and output-handle close; false does not itself remove partial output.
+ */
+bool runTranslate(const QString &dest, GDALDataset *src, Argv &argv, ProgressBridge &bridge,
+                  QString *error)
 {
     GDALVectorTranslateOptions *opts = GDALVectorTranslateOptionsNew(argv.data(), nullptr);
     if (!opts) {
-        if (error) *error = tr_("Invalid export options: %1").arg(lastGdalError());
+        if (error)
+            *error = tr_("Invalid export options: %1").arg(lastGdalError());
         return false;
     }
     GDALVectorTranslateOptionsSetProgress(opts, bridgeProgress, &bridge);
     GDALDatasetH srcH = GDALDataset::ToHandle(src);
     int usageError = 0;
     CPLErrorReset();
-    GDALDatasetH out = GDALVectorTranslate(dest.toUtf8().constData(), nullptr, 1, &srcH,
-                                           opts, &usageError);
+    GDALDatasetH out =
+        GDALVectorTranslate(dest.toUtf8().constData(), nullptr, 1, &srcH, opts, &usageError);
     GDALVectorTranslateOptionsFree(opts);
     if (!out) {
-        if (error) *error = bridge.cancelled ? kCancelled
-                                             : tr_("Could not write \"%1\": %2")
-                                                   .arg(dest, lastGdalError());
+        if (error)
+            *error = bridge.cancelled
+                         ? kCancelled
+                         : tr_("Could not write \"%1\": %2").arg(dest, lastGdalError());
         return false;
     }
     GDALClose(out);
@@ -236,21 +329,31 @@ bool runTranslate(const QString &dest, GDALDataset *src, Argv &argv,
 /*!
  * \brief Build \p tables in a new in-memory dataset.
  * \param names  Per table, the output field names (shortened for Shapefile).
+ * @param[in] tables Non-null borrowed table pointers, each with aligned metadata/row values.
+ * @param[in] options Source CRS assigned to the in-memory layers when parseable.
+ * @param[in] valueLists Attempt coded field domains for text choices when true.
+ * @param[in] progress Optional synchronous callback, checked every 1024 collected features.
+ * @param[in,out] done Accumulated work counter, incremented for written or geometry-skipped rows.
+ * @param[in] total Progress denominator.
+ * @param[out] error Optional diagnostic for driver/dataset/schema/feature failures.
+ * @param[out] cancelled Optional flag set true when the callback cancels; not reset here.
+ * @return Owned GDAL dataset requiring GDALClose(), or null after closing its partially built dataset on failure/cancellation.
  */
 GDALDataset *buildMemory(const QVector<const ExportTable *> &tables,
-                         const QVector<QStringList> &names,
-                         const ExportOptions &options, bool valueLists,
-                         const ExportProgress &progress, int &done, int total,
+                         const QVector<QStringList> &names, const ExportOptions &options,
+                         bool valueLists, const ExportProgress &progress, int &done, int total,
                          QString *error, bool *cancelled)
 {
     GDALDriver *drv = memoryDriver();
     if (!drv) {
-        if (error) *error = tr_("This GDAL build has no in-memory vector driver.");
+        if (error)
+            *error = tr_("This GDAL build has no in-memory vector driver.");
         return nullptr;
     }
     GDALDataset *ds = drv->Create("", 0, 0, 0, GDT_Unknown, nullptr);
     if (!ds) {
-        if (error) *error = tr_("Could not create the in-memory dataset: %1").arg(lastGdalError());
+        if (error)
+            *error = tr_("Could not create the in-memory dataset: %1").arg(lastGdalError());
         return nullptr;
     }
 
@@ -267,14 +370,16 @@ GDALDataset *buildMemory(const QVector<const ExportTable *> &tables,
         OGRLayer *layer = ds->CreateLayer(table.name.toUtf8().constData(), srs.get(),
                                           wkbFor(table.geometry), nullptr);
         if (!layer) {
-            if (error) *error = tr_("Could not create layer \"%1\": %2").arg(table.name, lastGdalError());
+            if (error)
+                *error = tr_("Could not create layer \"%1\": %2").arg(table.name, lastGdalError());
             GDALClose(ds);
             return nullptr;
         }
         for (int f = 0; f < table.fields.size(); ++f) {
             const ExportField &field = table.fields.at(f);
             OGRFieldDefn defn(names.at(t).at(f).toUtf8().constData(), ogrTypeFor(field.type));
-            if (field.type == FieldType::Boolean) defn.SetSubType(OFSTBoolean);
+            if (field.type == FieldType::Boolean)
+                defn.SetSubType(OFSTBoolean);
 #if GDAL_VERSION_NUM >= GDAL_COMPUTE_VERSION(3, 7, 0)
             defn.SetComment(field.description().toStdString());
 #endif
@@ -282,23 +387,24 @@ GDALDataset *buildMemory(const QVector<const ExportTable *> &tables,
                 std::vector<OGRCodedValue> values;
                 for (const FieldChoice &c : field.choices) {
                     OGRCodedValue cv;
-                    cv.pszCode  = CPLStrdup(c.value.toUtf8().constData());
-                    cv.pszValue = c.label.isEmpty() ? nullptr
-                                                    : CPLStrdup(c.label.toUtf8().constData());
+                    cv.pszCode = CPLStrdup(c.value.toUtf8().constData());
+                    cv.pszValue =
+                        c.label.isEmpty() ? nullptr : CPLStrdup(c.label.toUtf8().constData());
                     values.push_back(cv);
                 }
-                const std::string domain = (table.name + QLatin1Char('_') + names.at(t).at(f))
-                                               .toStdString();
+                const std::string domain =
+                    (table.name + QLatin1Char('_') + names.at(t).at(f)).toStdString();
                 std::string reason;
-                if (ds->AddFieldDomain(std::make_unique<OGRCodedFieldDomain>(
-                                           domain, std::string(), OFTString, OFSTNone,
-                                           std::move(values)),
+                if (ds->AddFieldDomain(std::make_unique<OGRCodedFieldDomain>(domain, std::string(),
+                                                                             OFTString, OFSTNone,
+                                                                             std::move(values)),
                                        reason))
                     defn.SetDomainName(domain);
             }
             if (layer->CreateField(&defn) != OGRERR_NONE) {
-                if (error) *error = tr_("Could not create field \"%1\": %2")
-                                        .arg(field.name, lastGdalError());
+                if (error)
+                    *error =
+                        tr_("Could not create field \"%1\": %2").arg(field.name, lastGdalError());
                 GDALClose(ds);
                 return nullptr;
             }
@@ -306,32 +412,47 @@ GDALDataset *buildMemory(const QVector<const ExportTable *> &tables,
 
         for (const ExportRow &row : table.rows) {
             std::unique_ptr<OGRGeometry> geom = geometryFor(row, table.geometry);
-            if (!geom) { ++done; continue; }   // the collector reports why
+            if (!geom) {
+                ++done;
+                continue;
+            } // the collector reports why
             OGRFeature *feat = OGRFeature::CreateFeature(layer->GetLayerDefn());
             feat->SetGeometryDirectly(geom.release());
             for (int f = 0; f < table.fields.size() && f < row.values.size(); ++f) {
                 const QVariant &v = row.values.at(f);
-                if (!v.isValid() || v.isNull()) { feat->SetFieldNull(f); continue; }
+                if (!v.isValid() || v.isNull()) {
+                    feat->SetFieldNull(f);
+                    continue;
+                }
                 switch (table.fields.at(f).type) {
-                case FieldType::Integer: feat->SetField(f, v.toInt()); break;
-                case FieldType::Boolean: feat->SetField(f, v.toBool() ? 1 : 0); break;
-                case FieldType::Real:    feat->SetField(f, v.toDouble()); break;
+                case FieldType::Integer:
+                    feat->SetField(f, v.toInt());
+                    break;
+                case FieldType::Boolean:
+                    feat->SetField(f, v.toBool() ? 1 : 0);
+                    break;
+                case FieldType::Real:
+                    feat->SetField(f, v.toDouble());
+                    break;
                 case FieldType::Text:
-                    feat->SetField(f, v.toString().toUtf8().constData()); break;
+                    feat->SetField(f, v.toString().toUtf8().constData());
+                    break;
                 }
             }
             const OGRErr err = layer->CreateFeature(feat);
             OGRFeature::DestroyFeature(feat);
             if (err != OGRERR_NONE) {
-                if (error) *error = tr_("Could not add a feature to \"%1\": %2")
-                                        .arg(table.name, lastGdalError());
+                if (error)
+                    *error = tr_("Could not add a feature to \"%1\": %2")
+                                 .arg(table.name, lastGdalError());
                 GDALClose(ds);
                 return nullptr;
             }
             ++done;
-            if ((done & 0x3FF) == 0 && progress
-                && !progress(done, total, tr_("Collecting %1…").arg(table.name))) {
-                if (cancelled) *cancelled = true;
+            if ((done & 0x3FF) == 0 && progress &&
+                !progress(done, total, tr_("Collecting %1…").arg(table.name))) {
+                if (cancelled)
+                    *cancelled = true;
                 GDALClose(ds);
                 return nullptr;
             }
@@ -340,15 +461,22 @@ GDALDataset *buildMemory(const QVector<const ExportTable *> &tables,
     return ds;
 }
 
-/*! Write <shp stem>_fields.csv: one line per field, short name → label, unit. */
-bool writeFieldMap(const QString &shpPath, const ExportTable &table,
-                   const QStringList &names, QString *csvPath)
+/*! Write `shp_stem_fields.csv`: one line per field, short name → label, unit.
+ * @param[in] shpPath Shapefile path defining the companion CSV stem.
+ * @param[in] table Original full field metadata.
+ * @param[in] names Short output names, one per table field.
+ * @param[out] csvPath Non-null destination receiving the companion path even on open failure.
+ * @return False when the CSV cannot open; true after submitting rows to its text stream, without an explicit final flush-error check.
+ */
+bool writeFieldMap(const QString &shpPath, const ExportTable &table, const QStringList &names,
+                   QString *csvPath)
 {
     const QFileInfo fi(shpPath);
-    *csvPath = fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
-               + QStringLiteral("_fields.csv");
+    *csvPath = fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName() +
+               QStringLiteral("_fields.csv");
     QFile f(*csvPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return false;
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+        return false;
     QTextStream out(&f);
     const auto quote = [](QString s) {
         s.replace(QLatin1Char('"'), QStringLiteral("\"\""));
@@ -357,13 +485,13 @@ bool writeFieldMap(const QString &shpPath, const ExportTable &table,
     out << "field,name,label,unit\n";
     for (int i = 0; i < table.fields.size(); ++i) {
         const ExportField &fd = table.fields.at(i);
-        out << quote(names.at(i)) << ',' << quote(fd.name) << ','
-            << quote(fd.label) << ',' << quote(fd.unit) << '\n';
+        out << quote(names.at(i)) << ',' << quote(fd.name) << ',' << quote(fd.label) << ','
+            << quote(fd.unit) << '\n';
     }
     return true;
 }
 
-}   // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Names and paths
@@ -388,7 +516,8 @@ QStringList shortFieldNames(const QStringList &names, int maxLen)
 QString exportPathFor(const ExportOptions &options, const QString &tableName)
 {
     const gdalcaps::VectorWriteFormat fmt = gdalcaps::vectorWriteFormat(options.driver);
-    if (fmt.multiLayer) return options.destination;
+    if (fmt.multiLayer)
+        return options.destination;
     return QDir(options.destination).filePath(tableName + QLatin1Char('.') + fmt.extension);
 }
 
@@ -406,8 +535,8 @@ bool exportVectorTables(const QVector<ExportTable> &tables, const ExportOptions 
 
     const gdalcaps::VectorWriteFormat fmt = gdalcaps::vectorWriteFormat(options.driver);
     if (fmt.driver.isEmpty())
-        return failAndClean(rep, tr_("The format \"%1\" cannot be written by this build.")
-                                     .arg(options.driver));
+        return failAndClean(
+            rep, tr_("The format \"%1\" cannot be written by this build.").arg(options.driver));
     if (options.destination.isEmpty())
         return failAndClean(rep, tr_("No destination was given."));
     if (tables.isEmpty())
@@ -420,13 +549,16 @@ bool exportVectorTables(const QVector<ExportTable> &tables, const ExportOptions 
     QVector<QStringList> names;
     for (const ExportTable &t : tables) {
         QStringList n;
-        for (const ExportField &f : t.fields) n << f.name;
+        for (const ExportField &f : t.fields)
+            n << f.name;
         names << (fmt.shortFieldNames ? shortFieldNames(n) : n);
-        for (const QString &s : t.skipped) rep.warnings << s;
+        for (const QString &s : t.skipped)
+            rep.warnings << s;
     }
 
     int rowsTotal = 0;
-    for (const ExportTable &t : tables) rowsTotal += t.rows.size();
+    for (const ExportTable &t : tables)
+        rowsTotal += t.rows.size();
     const int destinations = fmt.multiLayer ? 1 : int(tables.size());
     const int total = rowsTotal + 100 * destinations;
     int done = 0;
@@ -435,27 +567,29 @@ bool exportVectorTables(const QVector<ExportTable> &tables, const ExportOptions 
     if (fmt.multiLayer) {
         QDir().mkpath(QFileInfo(options.destination).absolutePath());
     } else if (!QDir().mkpath(options.destination)) {
-        return failAndClean(rep, tr_("Could not create the folder \"%1\".").arg(options.destination));
+        return failAndClean(rep,
+                            tr_("Could not create the folder \"%1\".").arg(options.destination));
     }
 
     const auto writeOne = [&](const QVector<const ExportTable *> &batch,
-                              const QVector<QStringList> &batchNames,
-                              const QString &dest) -> bool {
+                              const QVector<QStringList> &batchNames, const QString &dest) -> bool {
         QString err;
         bool cancelled = false;
-        GDALDataset *mem = buildMemory(batch, batchNames, options, fmt.keepsValueLists,
-                                       progress, done, total, &err, &cancelled);
-        if (!mem) return failAndClean(rep, cancelled ? kCancelled : err);
+        GDALDataset *mem = buildMemory(batch, batchNames, options, fmt.keepsValueLists, progress,
+                                       done, total, &err, &cancelled);
+        if (!mem)
+            return failAndClean(rep, cancelled ? kCancelled : err);
 
-        removeOutput(dest);   // replace: the dialog asked before overwriting
+        removeOutput(dest); // replace: the dialog asked before overwriting
         Argv argv;
         translateArgs(fmt, options, /*sourceIsMemory=*/true, argv);
         ProgressBridge bridge{&progress, done, 100, total,
                               tr_("Writing %1…").arg(QFileInfo(dest).fileName())};
-        rep.files << dest;   // listed first, so a failure part-way removes it
+        rep.files << dest; // listed first, so a failure part-way removes it
         const bool ok = runTranslate(dest, mem, argv, bridge, &err);
         GDALClose(mem);
-        if (!ok) return failAndClean(rep, err);
+        if (!ok)
+            return failAndClean(rep, err);
         done += 100;
         if (progress && !progress(done, total, QFileInfo(dest).fileName()))
             return failAndClean(rep, kCancelled);
@@ -464,9 +598,12 @@ bool exportVectorTables(const QVector<ExportTable> &tables, const ExportOptions 
 
     if (fmt.multiLayer) {
         QVector<const ExportTable *> all;
-        for (const ExportTable &t : tables) all << &t;
-        if (!writeOne(all, names, options.destination)) return false;
-        for (const ExportTable &t : tables) rep.layers << qMakePair(options.destination, t.name);
+        for (const ExportTable &t : tables)
+            all << &t;
+        if (!writeOne(all, names, options.destination))
+            return false;
+        for (const ExportTable &t : tables)
+            rep.layers << qMakePair(options.destination, t.name);
     } else {
         for (int i = 0; i < tables.size(); ++i) {
             const QString dest = exportPathFor(options, tables.at(i).name);
@@ -475,12 +612,15 @@ bool exportVectorTables(const QVector<ExportTable> &tables, const ExportOptions 
             rep.layers << qMakePair(dest, QString());
             if (fmt.shortFieldNames) {
                 QString csv;
-                if (writeFieldMap(dest, tables.at(i), names.at(i), &csv)) rep.files << csv;
-                else rep.warnings << tr_("Could not write the field map %1.").arg(csv);
+                if (writeFieldMap(dest, tables.at(i), names.at(i), &csv))
+                    rep.files << csv;
+                else
+                    rep.warnings << tr_("Could not write the field map %1.").arg(csv);
             }
         }
     }
-    if (progress) progress(total, total, tr_("Done"));
+    if (progress)
+        progress(total, total, tr_("Done"));
     return true;
 }
 
@@ -498,23 +638,25 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
 
     const gdalcaps::VectorWriteFormat fmt = gdalcaps::vectorWriteFormat(options.driver);
     if (fmt.driver.isEmpty())
-        return failAndClean(rep, tr_("The format \"%1\" cannot be written by this build.")
-                                     .arg(options.driver));
+        return failAndClean(
+            rep, tr_("The format \"%1\" cannot be written by this build.").arg(options.driver));
     if (options.destination.isEmpty())
         return failAndClean(rep, tr_("No destination was given."));
 
     CPLErrorReset();
-    auto *src = static_cast<GDALDataset *>(GDALOpenEx(
-        source.path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
-        nullptr, nullptr, nullptr));
+    auto *src = static_cast<GDALDataset *>(GDALOpenEx(source.path.toUtf8().constData(),
+                                                      GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr,
+                                                      nullptr, nullptr));
     if (!src)
-        return failAndClean(rep, tr_("Could not open \"%1\": %2").arg(source.path, lastGdalError()));
+        return failAndClean(rep,
+                            tr_("Could not open \"%1\": %2").arg(source.path, lastGdalError()));
     OGRLayer *layer = source.layerName.isEmpty()
                           ? src->GetLayer(0)
                           : src->GetLayerByName(source.layerName.toUtf8().constData());
     if (!layer) {
         GDALClose(src);
-        return failAndClean(rep, tr_("\"%1\" has no layer \"%2\".").arg(source.path, source.layerName));
+        return failAndClean(rep,
+                            tr_("\"%1\" has no layer \"%2\".").arg(source.path, source.layerName));
     }
     const QString layerName = QString::fromUtf8(layer->GetName());
     const QString outName = source.outputName.isEmpty() ? layerName : source.outputName;
@@ -532,7 +674,8 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
 #if GDAL_VERSION_NUM >= 3080000
             f.label = QString::fromStdString(fd->GetComment());
 #endif
-            if (f.label.isEmpty()) f.label = f.name;
+            if (f.label.isEmpty())
+                f.label = f.name;
             const int unitStart = f.label.lastIndexOf(QStringLiteral(" ("));
             if (unitStart >= 0 && f.label.endsWith(QLatin1Char(')'))) {
                 f.unit = f.label.mid(unitStart + 2, f.label.size() - unitStart - 3);
@@ -547,7 +690,8 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
     translateArgs(fmt, options, /*sourceIsMemory=*/false, argv);
     if (!source.fids.isEmpty()) {
         QStringList ids;
-        for (qint64 f : source.fids) ids << QString::number(f);
+        for (qint64 f : source.fids)
+            ids << QString::number(f);
         QString quoted = layerName;
         quoted.replace(QLatin1Char('"'), QStringLiteral("\"\""));
         argv << QStringLiteral("-sql")
@@ -556,7 +700,8 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
              << QStringLiteral("-dialect") << QStringLiteral("OGRSQL");
     }
     argv << QStringLiteral("-nln") << outName;
-    if (source.fids.isEmpty()) argv << layerName;   // positional: this layer only
+    if (source.fids.isEmpty())
+        argv << layerName; // positional: this layer only
 
     QString dest = options.destination;
     const bool madeFolder = !fmt.multiLayer && !QFileInfo(options.destination).isDir();
@@ -565,7 +710,8 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
     } else {
         if (!QDir().mkpath(options.destination)) {
             GDALClose(src);
-            return failAndClean(rep, tr_("Could not create the folder \"%1\".").arg(options.destination));
+            return failAndClean(
+                rep, tr_("Could not create the folder \"%1\".").arg(options.destination));
         }
         dest = exportPathFor(options, outName);
     }
@@ -581,9 +727,9 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
     }
     if (fmt.shortFieldNames) {
         QStringList writtenNames;
-        auto *written = static_cast<GDALDataset *>(GDALOpenEx(
-            dest.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
-            nullptr, nullptr, nullptr));
+        auto *written = static_cast<GDALDataset *>(GDALOpenEx(dest.toUtf8().constData(),
+                                                              GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                                                              nullptr, nullptr, nullptr));
         if (written) {
             if (auto *outLayer = written->GetLayer(0)) {
                 const auto *def = outLayer->GetLayerDefn();
@@ -593,9 +739,11 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
             GDALClose(written);
         }
         QString csv;
-        if (writtenNames.size() == fieldMap.fields.size()
-            && writeFieldMap(dest, fieldMap, writtenNames, &csv)) rep.files << csv;
-        else rep.warnings << tr_("Could not write the field map for %1.").arg(dest);
+        if (writtenNames.size() == fieldMap.fields.size() &&
+            writeFieldMap(dest, fieldMap, writtenNames, &csv))
+            rep.files << csv;
+        else
+            rep.warnings << tr_("Could not write the field map for %1.").arg(dest);
     }
     rep.layers << qMakePair(dest, fmt.multiLayer ? outName : QString());
     return true;
@@ -606,8 +754,7 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
 // ---------------------------------------------------------------------------
 
 bool exportRaster(const QString &sourcePath, const QString &destination,
-                  const QString &targetSrsWkt, const ExportProgress &progress,
-                  ExportReport *report)
+                  const QString &targetSrsWkt, const ExportProgress &progress, ExportReport *report)
 {
     ExportReport local;
     ExportReport &rep = report ? *report : local;
@@ -629,10 +776,10 @@ bool exportRaster(const QString &sourcePath, const QString &destination,
     rep.files << destination;
 
     Argv argv;
-    argv << QStringLiteral("-of") << QStringLiteral("GTiff")
-         << QStringLiteral("-co") << QStringLiteral("COMPRESS=DEFLATE")
-         << QStringLiteral("-co") << QStringLiteral("TILED=YES")
-         << QStringLiteral("-co") << QStringLiteral("BIGTIFF=IF_SAFER");
+    argv << QStringLiteral("-of") << QStringLiteral("GTiff") << QStringLiteral("-co")
+         << QStringLiteral("COMPRESS=DEFLATE") << QStringLiteral("-co")
+         << QStringLiteral("TILED=YES") << QStringLiteral("-co")
+         << QStringLiteral("BIGTIFF=IF_SAFER");
     ProgressBridge bridge{&progress, 0, 100, 100,
                           tr_("Writing %1…").arg(QFileInfo(destination).fileName())};
     int usageError = 0;
@@ -664,9 +811,10 @@ bool exportRaster(const QString &sourcePath, const QString &destination,
                                      : tr_("Could not write \"%1\": %2").arg(destination, why));
     }
     GDALClose(out);
-    if (progress && !progress(100, 100, tr_("Done"))) return failAndClean(rep, kCancelled);
+    if (progress && !progress(100, 100, tr_("Done")))
+        return failAndClean(rep, kCancelled);
     rep.layers << qMakePair(destination, QString());
     return true;
 }
 
-}   // namespace openswmmvis::io
+} // namespace openswmmvis::io

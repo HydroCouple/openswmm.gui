@@ -1,3 +1,12 @@
+/**
+ * @file      test_plotdock.cpp
+ * @brief     Tests for plotdock.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/panels/plotdock.h"
 #include "ui/panels/plotpanelview.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -33,22 +42,29 @@ private slots:
         QMainWindow window;
         auto *dock = new PlotDock("Profiles", "profiles", &window);
         window.addDockWidget(Qt::BottomDockWidgetArea, dock);
-        window.resize(900, 600); window.show();
+        window.resize(900, 600);
+        window.show();
         QPointer<PlotPanelView> first = new PlotPanelView;
         QPointer<PlotPanelView> second = new PlotPanelView;
-        first->setProperty("zoom", 2.0); second->setProperty("zoom", 7.0);
-        dock->addView(first, "First"); dock->addView(second, "Second");
+        first->setProperty("zoom", 2.0);
+        second->setProperty("zoom", 7.0);
+        dock->addView(first, "First");
+        dock->addView(second, "Second");
         QCOMPARE(dock->tabs()->count(), 2);
         QTRY_VERIFY(second->isPlotActive());
         QVERIFY(!first->isPlotActive());
         dock->tabs()->tabBar()->moveTab(1, 0);
         QCOMPARE(dock->tabs()->currentWidget(), second.data());
         dock->reveal(first);
-        QTRY_VERIFY(first->isPlotActive()); QVERIFY(!second->isPlotActive());
+        QTRY_VERIFY(first->isPlotActive());
+        QVERIFY(!second->isPlotActive());
         dock->close();
-        QVERIFY(first); QVERIFY(second); QCOMPARE(dock->tabs()->count(), 2);
+        QVERIFY(first);
+        QVERIFY(second);
+        QCOMPARE(dock->tabs()->count(), 2);
         QVERIFY(!first->isPlotActive());
-        dock->reveal(first); dock->setFloating(true);
+        dock->reveal(first);
+        dock->setFloating(true);
         QTRY_VERIFY(dock->isFloating());
         QCOMPARE(first->property("zoom").toDouble(), 2.0);
         QCOMPARE(second->property("zoom").toDouble(), 7.0);
@@ -65,7 +81,8 @@ private slots:
         QCOMPARE(dock->tabs()->count(), 2);
         dock->closeView(first);
         QCOMPARE(dock->tabs()->count(), 1);
-        QTRY_VERIFY(first.isNull()); QVERIFY(second);
+        QTRY_VERIFY(first.isNull());
+        QVERIFY(second);
         QTRY_VERIFY(second->isPlotActive());
         // Programmatic project closure follows the same path as a tab button.
         second->close();
@@ -84,13 +101,17 @@ private slots:
         window.show();
         auto *a = new PlotPanelView;
         auto *b = new PlotPanelView;
-        one->setActiveContext(&projectA); two->setActiveContext(&projectA);
-        one->addView(a, "A", &projectA); two->addView(b, "B", &projectB);
+        one->setActiveContext(&projectA);
+        two->setActiveContext(&projectA);
+        one->addView(a, "A", &projectA);
+        two->addView(b, "B", &projectB);
         QVERIFY(!b->isPlotActive());
         two->setActiveContext(&projectB);
-        QTRY_VERIFY(b->isPlotActive()); QVERIFY(!a->isPlotActive());
+        QTRY_VERIFY(b->isPlotActive());
+        QVERIFY(!a->isPlotActive());
         one->reveal(a);
-        QTRY_VERIFY(a->isPlotActive()); QTRY_VERIFY(!b->isPlotActive());
+        QTRY_VERIFY(a->isPlotActive());
+        QTRY_VERIFY(!b->isPlotActive());
         one->setActiveContext(&projectB);
         QVERIFY(!a->isPlotActive());
     }
@@ -99,18 +120,21 @@ private slots:
         QMainWindow window;
         auto *dock = new PlotDock("Profiles", "profiles", &window);
         window.addDockWidget(Qt::BottomDockWidgetArea, dock);
-        window.resize(950, 650); window.show();
+        window.resize(950, 650);
+        window.show();
         auto create = [] {
             auto *view = new PlotPanelView;
             view->setObjectName("LayoutTest");
             auto *layout = new QVBoxLayout(view);
             auto *splitter = new QSplitter(view);
             splitter->setObjectName("main");
-            splitter->addWidget(new QWidget); splitter->addWidget(new QWidget);
+            splitter->addWidget(new QWidget);
+            splitter->addWidget(new QWidget);
             layout->addWidget(splitter);
             return view;
         };
-        auto *first = create(); dock->addView(first, "First");
+        auto *first = create();
+        dock->addView(first, "First");
         auto *splitter = first->findChild<QSplitter *>();
         splitter->setSizes({200, 600});
         first->saveLayout();
@@ -122,7 +146,8 @@ private slots:
         s.setValue("Dialogs/LayoutTest/toggle/mapTool", true);
         auto *second = create();
         auto *mapTool = new QAction(second);
-        mapTool->setObjectName("mapTool"); mapTool->setCheckable(true);
+        mapTool->setObjectName("mapTool");
+        mapTool->setCheckable(true);
         mapTool->setProperty("noLayoutPersistence", true);
         const QRect geometry = window.geometry();
         dock->addView(second, "Second");

@@ -1,13 +1,16 @@
-/*!
- * \file   test_meshreorder.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_meshreorder.cpp
+ * @brief     Tests for meshreorder.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * mesh::reorderMeshHilbert — permutation validity (same coordinate-keyed
  * multisets, attributes preserved, indices correctly remapped), locality
  * improvement on a scrambled structured mesh, and idempotence.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QHash>
 #include <QRandomGenerator>
@@ -20,34 +23,44 @@ using mesh::MeshResult;
 using mesh::MeshTriangle;
 using mesh::MeshVertex;
 
-namespace {
+namespace
+{
 
-/*! Structured N×N grid of squares split into two triangles each, with the
- *  triangle order SHUFFLED (seeded) to exercise spatially scattered
- *  refinement order.  Vertex (i,j) index = j*(N+1)+i; z = x + 100*y so every
- *  vertex is uniquely identifiable by coordinates. */
+/**
+ *
+ * @brief Build a reproducibly scrambled structured mesh for reorder checks.
+ * @param N Cells per side, intended at least 2 so fixed cell coupling index 3 exists;
+ * counts/products must fit int/Qt container capacity.
+ * @return Owned ok mesh with (N+1)^2 tagged vertices, 2*N*N counterclockwise triangles,
+ * seeded triangle/vertex permutations, one marked boundary and one cell coupling.
+ * XY/Z use arbitrary common fixture units, Z=x+100*y; Cd=.5 and area=1.5 squared
+ * units for the coupling. No geometric validation, file IO or production reorder here.
+ *
+ */
 MeshResult scrambledGrid(int N)
 {
     MeshResult m;
     for (int j = 0; j <= N; ++j)
-        for (int i = 0; i <= N; ++i)
-        {
+        for (int i = 0; i <= N; ++i) {
             MeshVertex v;
-            v.xy  = QPointF(i, j);
-            v.z   = i + 100.0 * j;
+            v.xy = QPointF(i, j);
+            v.z = i + 100.0 * j;
             v.tag = QStringLiteral("v%1_%2").arg(i).arg(j);
             m.vertices.append(v);
         }
     auto vid = [N](int i, int j) { return j * (N + 1) + i; };
     for (int j = 0; j < N; ++j)
-        for (int i = 0; i < N; ++i)
-        {
+        for (int i = 0; i < N; ++i) {
             MeshTriangle a;
-            a.v0 = vid(i, j); a.v1 = vid(i + 1, j); a.v2 = vid(i, j + 1);
+            a.v0 = vid(i, j);
+            a.v1 = vid(i + 1, j);
+            a.v2 = vid(i, j + 1);
             a.tag = QStringLiteral("t%1_%2a").arg(i).arg(j);
             m.triangles.append(a);
             MeshTriangle b;
-            b.v0 = vid(i + 1, j); b.v1 = vid(i + 1, j + 1); b.v2 = vid(i, j + 1);
+            b.v0 = vid(i + 1, j);
+            b.v1 = vid(i + 1, j + 1);
+            b.v2 = vid(i, j + 1);
             b.tag = QStringLiteral("t%1_%2b").arg(i).arg(j);
             m.triangles.append(b);
         }
@@ -65,8 +78,7 @@ MeshResult scrambledGrid(int N)
     for (int v = 0; v < m.vertices.size(); ++v)
         shuffled[vperm[v]] = m.vertices[v];
     m.vertices = shuffled;
-    for (MeshTriangle &t : m.triangles)
-    {
+    for (MeshTriangle &t : m.triangles) {
         t.v0 = vperm[t.v0];
         t.v1 = vperm[t.v1];
         t.v2 = vperm[t.v2];
@@ -75,16 +87,32 @@ MeshResult scrambledGrid(int N)
     // A few boundary edges + couplings to verify remapping (through the
     // vertex shuffle above, so they reference the shuffled numbering).
     mesh::MeshEdge e;
-    e.v0 = vperm[vid(0, 0)]; e.v1 = vperm[vid(1, 0)]; e.marker = 7; e.tag = "edge0";
+    e.v0 = vperm[vid(0, 0)];
+    e.v1 = vperm[vid(1, 0)];
+    e.marker = 7;
+    e.tag = "edge0";
     m.boundaryEdges.append(e);
     mesh::CellCoupling c;
-    c.tri = 3; c.nodeId = "J1"; c.cd = 0.5; c.area = 1.5;
+    c.tri = 3;
+    c.nodeId = "J1";
+    c.cd = 0.5;
+    c.area = 1.5;
     m.cellCouplings.append(c);
     m.ok = true;
     return m;
 }
 
 // Canonical signature of a triangle: sorted coordinate triple + tag.
+/**
+ *
+ * @brief Build an orientation-insensitive triangle geometry/tag comparison key.
+ * @param m Borrowed mesh owning all indices referenced by t.
+ * @param t Borrowed triangle; only v0/v1/v2 and tag are considered, not quad v3.
+ * @return Owned sorted XY/Z coordinate strings joined with tag, using QString's
+ * default numeric formatting. Suitable for small integer fixtures, not collision-free
+ * binary identity or arbitrary floating precision; no mutation.
+ *
+ */
 QString triSignature(const MeshResult &m, const MeshTriangle &t)
 {
     QStringList corners;
@@ -97,36 +125,49 @@ QString triSignature(const MeshResult &m, const MeshTriangle &t)
     return corners.join(QLatin1Char('|')) + QLatin1Char('#') + t.tag;
 }
 
+/**
+ *
+ * @brief Compute the first-three-corner signed planar area for a fixture cell.
+ * @param m Borrowed mesh with valid referenced vertex indices.
+ * @param t Borrowed triangle; a quad's fourth corner would be ignored.
+ * @return Half cross product in squared XY units, positive counterclockwise.
+ * No validation or input mutation.
+ *
+ */
 double signedArea(const MeshResult &m, const MeshTriangle &t)
 {
     const QPointF &a = m.vertices[t.v0].xy;
     const QPointF &b = m.vertices[t.v1].xy;
     const QPointF &c = m.vertices[t.v2].xy;
-    return 0.5 * ((b.x() - a.x()) * (c.y() - a.y())
-                  - (c.x() - a.x()) * (b.y() - a.y()));
+    return 0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (b.y() - a.y()));
 }
 
 // Adjacency-based locality: mean |triA - triB| over shared (interior) edges.
+/**
+ *
+ * @brief Measure triangle-index separation over shared fixture edges.
+ * @param m Borrowed triangular manifold mesh with valid vertex references.
+ * @return Mean absolute triangle-index difference across interior edges, or zero
+ * when no edge repeats. Uses first triangle per undirected edge; nonmanifold repeats
+ * compare to that first triangle and quads ignore v3. No physical-distance units,
+ * neighbor rebuild or input mutation.
+ *
+ */
 double meanAdjacentTriDistance(const MeshResult &m)
 {
     QHash<QPair<int, int>, int> firstTri;
     double sum = 0.0;
     qint64 n = 0;
-    for (int t = 0; t < m.triangles.size(); ++t)
-    {
+    for (int t = 0; t < m.triangles.size(); ++t) {
         const MeshTriangle &tr = m.triangles[t];
         const int vs[3] = {tr.v0, tr.v1, tr.v2};
-        for (int e = 0; e < 3; ++e)
-        {
-            const auto key = qMakePair(std::min(vs[e], vs[(e + 1) % 3]),
-                                       std::max(vs[e], vs[(e + 1) % 3]));
+        for (int e = 0; e < 3; ++e) {
+            const auto key =
+                qMakePair(std::min(vs[e], vs[(e + 1) % 3]), std::max(vs[e], vs[(e + 1) % 3]));
             auto it = firstTri.constFind(key);
-            if (it == firstTri.constEnd())
-            {
+            if (it == firstTri.constEnd()) {
                 firstTri.insert(key, t);
-            }
-            else
-            {
+            } else {
                 sum += std::abs(t - it.value());
                 ++n;
             }
@@ -143,14 +184,25 @@ class TestMeshReorder : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require empty/null mesh reorder completion and preserve zero cell count.
+     *
+     */
     void emptyMesh_noop()
     {
         MeshResult m;
-        mesh::reorderMeshHilbert(&m);     // no crash
+        mesh::reorderMeshHilbert(&m); // no crash
         mesh::reorderMeshHilbert(nullptr);
         QCOMPARE(m.triangles.size(), 0);
     }
 
+    /**
+     *
+     * @brief Require reorder to preserve vertex/cell coordinate-tag multisets, orientation,
+     * marked boundary and coupled cell geometry.
+     *
+     */
     void permutationValidity()
     {
         const MeshResult before = scrambledGrid(20);
@@ -163,12 +215,11 @@ private slots:
         // Vertex multiset (coordinates + z + tag) unchanged.
         QStringList vb, va;
         for (const MeshVertex &v : before.vertices)
-            vb << QStringLiteral("%1,%2,%3,%4")
-                      .arg(v.xy.x()).arg(v.xy.y()).arg(v.z).arg(v.tag);
+            vb << QStringLiteral("%1,%2,%3,%4").arg(v.xy.x()).arg(v.xy.y()).arg(v.z).arg(v.tag);
         for (const MeshVertex &v : after.vertices)
-            va << QStringLiteral("%1,%2,%3,%4")
-                      .arg(v.xy.x()).arg(v.xy.y()).arg(v.z).arg(v.tag);
-        vb.sort(); va.sort();
+            va << QStringLiteral("%1,%2,%3,%4").arg(v.xy.x()).arg(v.xy.y()).arg(v.z).arg(v.tag);
+        vb.sort();
+        va.sort();
         QCOMPARE(va, vb);
 
         // Triangle multiset (by corner coordinates + tag) unchanged.
@@ -177,7 +228,8 @@ private slots:
             tb << triSignature(before, t);
         for (const MeshTriangle &t : after.triangles)
             ta << triSignature(after, t);
-        tb.sort(); ta.sort();
+        tb.sort();
+        ta.sort();
         QCOMPARE(ta, tb);
 
         // Orientation preserved for every triangle.
@@ -194,11 +246,16 @@ private slots:
         QCOMPARE(after.cellCouplings.size(), 1);
         const QString sigBefore =
             triSignature(before, before.triangles[before.cellCouplings[0].tri]);
-        const QString sigAfter =
-            triSignature(after, after.triangles[after.cellCouplings[0].tri]);
+        const QString sigAfter = triSignature(after, after.triangles[after.cellCouplings[0].tri]);
         QCOMPARE(sigAfter, sigBefore);
     }
 
+    /**
+     *
+     * @brief Require seeded 40x40 fixture reorder to reduce adjacent cell-index distance below
+     * one quarter and reduce vertex-index spread.
+     *
+     */
     void localityImproves()
     {
         const MeshResult before = scrambledGrid(40);
@@ -206,18 +263,24 @@ private slots:
         mesh::reorderMeshHilbert(&after);
 
         const double adjBefore = meanAdjacentTriDistance(before);
-        const double adjAfter  = meanAdjacentTriDistance(after);
-        QVERIFY2(adjAfter < adjBefore * 0.25,
-                 qPrintable(QStringLiteral("adjacency distance %1 -> %2")
-                                .arg(adjBefore).arg(adjAfter)));
+        const double adjAfter = meanAdjacentTriDistance(after);
+        QVERIFY2(
+            adjAfter < adjBefore * 0.25,
+            qPrintable(QStringLiteral("adjacency distance %1 -> %2").arg(adjBefore).arg(adjAfter)));
 
         const double spreadBefore = mesh::meanVertexIndexSpread(before);
-        const double spreadAfter  = mesh::meanVertexIndexSpread(after);
+        const double spreadAfter = mesh::meanVertexIndexSpread(after);
         QVERIFY2(spreadAfter < spreadBefore,
-                 qPrintable(QStringLiteral("vertex spread %1 -> %2")
-                                .arg(spreadBefore).arg(spreadAfter)));
+                 qPrintable(
+                     QStringLiteral("vertex spread %1 -> %2").arg(spreadBefore).arg(spreadAfter)));
     }
 
+    /**
+     *
+     * @brief Require a second reorder to preserve first-three-corner cell indices and vertex XY
+     * order on the seeded fixture.
+     *
+     */
     void idempotent()
     {
         MeshResult once = scrambledGrid(15);
@@ -226,8 +289,7 @@ private slots:
         mesh::reorderMeshHilbert(&twice);
 
         QCOMPARE(twice.triangles.size(), once.triangles.size());
-        for (int t = 0; t < once.triangles.size(); ++t)
-        {
+        for (int t = 0; t < once.triangles.size(); ++t) {
             QCOMPARE(twice.triangles[t].v0, once.triangles[t].v0);
             QCOMPARE(twice.triangles[t].v1, once.triangles[t].v1);
             QCOMPARE(twice.triangles[t].v2, once.triangles[t].v2);
@@ -236,9 +298,12 @@ private slots:
             QCOMPARE(twice.vertices[v].xy, once.vertices[v].xy);
     }
 
-    /*! Mixed tri/quad mesh: the engine's cell order is triangles first, then
-     *  quads, so the Hilbert reorder must keep the two classes separate and
-     *  renumber all FOUR corners of a quad. */
+    /**
+     *
+     * @brief Require mixed reorder to retain quad count, place triangles first and correctly
+     * remap all four ordered unit-square corners.
+     *
+     */
     void mixed_mesh_keeps_triangles_first_and_remaps_quads()
     {
         MeshResult m = scrambledGrid(6);
@@ -251,26 +316,32 @@ private slots:
         auto vid = [&](int i, int j) {
             // Vertex ids were permuted: look the corner up by coordinates.
             for (int v = 0; v < mixed.vertices.size(); ++v)
-                if (mixed.vertices[v].xy == QPointF(i, j)) return v;
+                if (mixed.vertices[v].xy == QPointF(i, j))
+                    return v;
             return -1;
         };
         int nQuads = 0;
         for (int j = 0; j < N; ++j)
-            for (int i = 0; i < N; ++i)
-            {
+            for (int i = 0; i < N; ++i) {
                 if (i % 2 == 0) {
                     MeshTriangle q;
-                    q.v0 = vid(i, j); q.v1 = vid(i + 1, j);
-                    q.v2 = vid(i + 1, j + 1); q.v3 = vid(i, j + 1);
+                    q.v0 = vid(i, j);
+                    q.v1 = vid(i + 1, j);
+                    q.v2 = vid(i + 1, j + 1);
+                    q.v3 = vid(i, j + 1);
                     q.tag = QStringLiteral("q%1_%2").arg(i).arg(j);
                     mixed.triangles.append(q);
                     ++nQuads;
                 } else {
                     MeshTriangle a;
-                    a.v0 = vid(i, j); a.v1 = vid(i + 1, j); a.v2 = vid(i, j + 1);
+                    a.v0 = vid(i, j);
+                    a.v1 = vid(i + 1, j);
+                    a.v2 = vid(i, j + 1);
                     mixed.triangles.append(a);
                     MeshTriangle b;
-                    b.v0 = vid(i + 1, j); b.v1 = vid(i + 1, j + 1); b.v2 = vid(i, j + 1);
+                    b.v0 = vid(i + 1, j);
+                    b.v1 = vid(i + 1, j + 1);
+                    b.v2 = vid(i, j + 1);
                     mixed.triangles.append(b);
                 }
             }
@@ -287,14 +358,14 @@ private slots:
             QCOMPARE(after.triangles[t].isQuad(), t >= nTri);
 
         // Every quad still spans a unit square (all four corners remapped).
-        for (const MeshTriangle &q : after.triangles)
-        {
-            if (!q.isQuad()) continue;
+        for (const MeshTriangle &q : after.triangles) {
+            if (!q.isQuad())
+                continue;
             QStringList corners;
             for (int k = 0; k < 4; ++k)
                 corners << QStringLiteral("%1,%2")
-                              .arg(after.vertices[q.vertex(k)].xy.x())
-                              .arg(after.vertices[q.vertex(k)].xy.y());
+                               .arg(after.vertices[q.vertex(k)].xy.x())
+                               .arg(after.vertices[q.vertex(k)].xy.y());
             const double x0 = after.vertices[q.v0].xy.x();
             const double y0 = after.vertices[q.v0].xy.y();
             QStringList expect;

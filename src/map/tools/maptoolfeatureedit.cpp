@@ -1,8 +1,12 @@
-/*!
- * \file   maptoolfeatureedit.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maptoolfeatureedit.cpp
+ * @brief     Editing tools for an existing FeatureLayer feature
+ *            (workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §3.3): add a hole,
+ *            add a part, edit vertices, move a whole feature.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "map/tools/maptoolfeatureedit.h"
@@ -22,8 +26,13 @@
 using namespace openswmmvis::feature;
 using openswmmvis::map::EditFeatureGeometryCommand;
 
-namespace {
+namespace
+{
 
+/**
+ * @param[in] s Required borrowed NUL-terminated source text.
+ * @return FeatureEditTools-context translation, source fallback without catalog; no mutation.
+ */
 QString tr_(const char *s)
 {
     return QCoreApplication::translate("FeatureEditTools", s);
@@ -31,15 +40,28 @@ QString tr_(const char *s)
 
 /*! The one selected feature, or kInvalidFeatureId when zero or many are
  *  selected. Editing tools act on exactly one feature; asking the user to
- *  narrow the selection is clearer than silently picking one. */
+ *  narrow the selection is clearer than silently picking one.
+ * @param[in] layer Optional borrowed target layer, null gives invalid ID.
+ * @return Sole selected stable ID only for exactly1entry, otherwise kInvalidFeatureId; does not
+ *   validate existence/editability/source geometry.
+ */
 FeatureId soleSelection(const FeatureLayer *layer)
 {
-    if (!layer) return kInvalidFeatureId;
+    if (!layer)
+        return kInvalidFeatureId;
     const QSet<long long> ids = layer->selectedFeatureIds();
-    if (ids.size() != 1) return kInvalidFeatureId;
+    if (ids.size() != 1)
+        return kInvalidFeatureId;
     return static_cast<FeatureId>(*ids.constBegin());
 }
 
+/**
+ * @param[in] p Query point in shared planar/pixel frame.
+ * @param[in] a First segment endpoint.
+ * @param[in] b Second segment endpoint.
+ * @return Euclidean distance to clamped projection, first endpoint for zero-length segment;
+ *   nonfinite unchecked/propagates. Same coordinate units, no mutation.
+ */
 double distToSegment(const QPointF &p, const QPointF &a, const QPointF &b)
 {
     const double vx = b.x() - a.x(), vy = b.y() - a.y();
@@ -52,7 +74,7 @@ double distToSegment(const QPointF &p, const QPointF &a, const QPointF &b)
     return std::sqrt(dx * dx + dy * dy);
 }
 
-}   // namespace
+} // namespace
 
 // ===========================================================================
 // Add hole
@@ -71,16 +93,20 @@ FeatureId OpenSWMMVisMapToolAddHole::selectedFeature() const
 FeatureGeometry OpenSWMMVisMapToolAddHole::buildGeometry(const Ring &ring) const
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer) return {};
+    if (!layer)
+        return {};
 
     const FeatureId id = selectedFeature();
-    if (id == kInvalidFeatureId) return {};   // commit() rejects an empty result
+    if (id == kInvalidFeatureId)
+        return {}; // commit() rejects an empty result
 
     Feature f;
-    if (!layer->feature(id, f)) return {};
+    if (!layer->feature(id, f))
+        return {};
 
     FeatureGeometry g = f.geometry;
-    if (g.parts().isEmpty()) return {};
+    if (g.parts().isEmpty())
+        return {};
 
     // Attach the hole to the part that CONTAINS it. With a multi-polygon the
     // user may well be punching an island out of the second part, and guessing
@@ -95,7 +121,8 @@ FeatureGeometry OpenSWMMVisMapToolAddHole::buildGeometry(const Ring &ring) const
             }
         }
     }
-    if (host < 0) return {};
+    if (host < 0)
+        return {};
 
     Ring hole = ring;
     hole.normalizeCCW();
@@ -120,20 +147,25 @@ FeatureId OpenSWMMVisMapToolAddPart::selectedFeature() const
 int OpenSWMMVisMapToolAddPart::minimumVertices() const
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer) return 3;
+    if (!layer)
+        return 3;
     switch (layer->geometryType()) {
     case GeometryType::Point:
-    case GeometryType::MultiPoint:      return 1;
+    case GeometryType::MultiPoint:
+        return 1;
     case GeometryType::LineString:
-    case GeometryType::MultiLineString: return 2;
-    default:                            return 3;
+    case GeometryType::MultiLineString:
+        return 2;
+    default:
+        return 3;
     }
 }
 
 bool OpenSWMMVisMapToolAddPart::isClosed() const
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer) return true;
+    if (!layer)
+        return true;
     const GeometryType t = layer->geometryType();
     return t == GeometryType::Polygon || t == GeometryType::MultiPolygon;
 }
@@ -141,26 +173,31 @@ bool OpenSWMMVisMapToolAddPart::isClosed() const
 FeatureGeometry OpenSWMMVisMapToolAddPart::buildGeometry(const Ring &ring) const
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer) return {};
+    if (!layer)
+        return {};
 
     const FeatureId id = selectedFeature();
-    if (id == kInvalidFeatureId) return {};
+    if (id == kInvalidFeatureId)
+        return {};
 
     Feature f;
-    if (!layer->feature(id, f)) return {};
+    if (!layer->feature(id, f))
+        return {};
 
     // Only a Multi* layer can hold more than one part. Refusing here — rather
     // than appending and letting validate() complain about part count — lets
     // commit() report a reason the user can act on.
     const GeometryType declared = layer->geometryType();
-    if (!isMultiType(declared)) return {};
+    if (!isMultiType(declared))
+        return {};
 
     FeatureGeometry g = f.geometry;
     g.setType(declared);
 
     Part p;
     p.exterior = ring;
-    if (isClosed()) p.exterior.normalizeCCW();
+    if (isClosed())
+        p.exterior.normalizeCCW();
     g.addPart(p);
     return g;
 }
@@ -169,16 +206,17 @@ FeatureGeometry OpenSWMMVisMapToolAddPart::buildGeometry(const Ring &ring) const
 // Edit vertex
 // ===========================================================================
 
-OpenSWMMVisMapToolEditFeatureVertex::OpenSWMMVisMapToolEditFeatureVertex(
-        MapCanvas *canvas, QObject *parent)
-    : OpenSWMMVisMapTool(QStringLiteral("Edit Feature Vertices"), canvas, parent)
-    , m_featureId(kInvalidFeatureId)
+OpenSWMMVisMapToolEditFeatureVertex::OpenSWMMVisMapToolEditFeatureVertex(MapCanvas *canvas,
+                                                                         QObject *parent)
+    : OpenSWMMVisMapTool(QStringLiteral("Edit Feature Vertices"), canvas, parent),
+      m_featureId(kInvalidFeatureId)
 {
 }
 
 void OpenSWMMVisMapToolEditFeatureVertex::setTargetLayer(FeatureLayer *layer)
 {
-    if (m_target == layer) return;
+    if (m_target == layer)
+        return;
     m_target = layer;
     reloadSelection();
 }
@@ -208,7 +246,8 @@ void OpenSWMMVisMapToolEditFeatureVertex::reloadSelection()
     m_geom = FeatureGeometry{};
     if (m_featureId != kInvalidFeatureId && m_target) {
         Feature f;
-        if (m_target->feature(m_featureId, f)) m_geom = f.geometry;
+        if (m_target->feature(m_featureId, f))
+            m_geom = f.geometry;
     }
     m_hover.clear();
     m_dragging.clear();
@@ -218,24 +257,29 @@ void OpenSWMMVisMapToolEditFeatureVertex::reloadSelection()
 
 Ring *OpenSWMMVisMapToolEditFeatureVertex::ringFor(const FeatureVertexRef &ref)
 {
-    if (ref.part < 0 || ref.part >= m_geom.parts().size()) return nullptr;
+    if (ref.part < 0 || ref.part >= m_geom.parts().size())
+        return nullptr;
     Part &p = m_geom.parts()[ref.part];
-    if (ref.ring < 0) return &p.exterior;
-    if (ref.ring >= p.holes.size()) return nullptr;
+    if (ref.ring < 0)
+        return &p.exterior;
+    if (ref.ring >= p.holes.size())
+        return nullptr;
     return &p.holes[ref.ring];
 }
 
 const Ring *OpenSWMMVisMapToolEditFeatureVertex::ringFor(const FeatureVertexRef &ref) const
 {
-    if (ref.part < 0 || ref.part >= m_geom.parts().size()) return nullptr;
+    if (ref.part < 0 || ref.part >= m_geom.parts().size())
+        return nullptr;
     const Part &p = m_geom.parts().at(ref.part);
-    if (ref.ring < 0) return &p.exterior;
-    if (ref.ring >= p.holes.size()) return nullptr;
+    if (ref.ring < 0)
+        return &p.exterior;
+    if (ref.ring >= p.holes.size())
+        return nullptr;
     return &p.holes.at(ref.ring);
 }
 
-FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::handleAt(const QPoint &pos,
-                                                               int tolPx) const
+FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::handleAt(const QPoint &pos, int tolPx) const
 {
     FeatureVertexRef best;
     double bestDist = tolPx + 1.0;
@@ -255,20 +299,21 @@ FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::handleAt(const QPoint &pos
     for (int p = 0; p < m_geom.parts().size(); ++p) {
         const Part &part = m_geom.parts().at(p);
         scan(p, -1, part.exterior);
-        for (int h = 0; h < part.holes.size(); ++h) scan(p, h, part.holes.at(h));
+        for (int h = 0; h < part.holes.size(); ++h)
+            scan(p, h, part.holes.at(h));
     }
     return best;
 }
 
-FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::segmentAt(const QPoint &pos,
-                                                                int tolPx) const
+FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::segmentAt(const QPoint &pos, int tolPx) const
 {
     FeatureVertexRef best;
     double bestDist = tolPx + 1.0;
 
     const auto scan = [&](int partIdx, int ringIdx, const Ring &r, bool closed) {
         const int n = r.pts.size();
-        if (n < 2) return;
+        if (n < 2)
+            return;
         const int last = closed ? n : n - 1;
         for (int i = 0; i < last; ++i) {
             const QPointF a = r.pts.at(i);
@@ -279,7 +324,7 @@ FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::segmentAt(const QPoint &po
             const double d = distToSegment(QPointF(pos), QPointF(ax, ay), QPointF(bx, by));
             if (d <= tolPx && d < bestDist) {
                 bestDist = d;
-                best = {partIdx, ringIdx, i};   // insert AFTER vertex i
+                best = {partIdx, ringIdx, i}; // insert AFTER vertex i
             }
         }
     };
@@ -289,7 +334,8 @@ FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::segmentAt(const QPoint &po
     for (int p = 0; p < m_geom.parts().size(); ++p) {
         const Part &part = m_geom.parts().at(p);
         scan(p, -1, part.exterior, closed);
-        for (int h = 0; h < part.holes.size(); ++h) scan(p, h, part.holes.at(h), true);
+        for (int h = 0; h < part.holes.size(); ++h)
+            scan(p, h, part.holes.at(h), true);
     }
     return best;
 }
@@ -297,20 +343,23 @@ FeatureVertexRef OpenSWMMVisMapToolEditFeatureVertex::segmentAt(const QPoint &po
 void OpenSWMMVisMapToolEditFeatureVertex::pushEdit(const QString &text, bool mergeable)
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer || m_featureId == kInvalidFeatureId || !m_canvas) return;
+    if (!layer || m_featureId == kInvalidFeatureId || !m_canvas)
+        return;
 
     QString reason;
     if (!m_geom.validate(layer->geometryType(), &reason)) {
         emit editRejected(reason);
-        m_geom = m_before;          // roll the working copy back
+        m_geom = m_before; // roll the working copy back
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("feature-vertex-reject"));
         return;
     }
 
-    auto *cmd = new EditFeatureGeometryCommand(layer, m_featureId, m_before, m_geom,
-                                               text, mergeable, m_canvas);
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       delete cmd;
+    auto *cmd = new EditFeatureGeometryCommand(layer, m_featureId, m_before, m_geom, text,
+                                               mergeable, m_canvas);
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else
+        delete cmd;
 
     m_before = m_geom;
 }
@@ -318,11 +367,14 @@ void OpenSWMMVisMapToolEditFeatureVertex::pushEdit(const QString &text, bool mer
 void OpenSWMMVisMapToolEditFeatureVertex::mousePressEvent(QMouseEvent *event)
 {
     FeatureLayer *layer = m_target.data();
-    if (!layer || !layer->isEditable()) return;
+    if (!layer || !layer->isEditable())
+        return;
 
     // The selection may have changed since the last event.
-    if (soleSelection(layer) != m_featureId) reloadSelection();
-    if (m_featureId == kInvalidFeatureId) return;
+    if (soleSelection(layer) != m_featureId)
+        reloadSelection();
+    if (m_featureId == kInvalidFeatureId)
+        return;
 
     const QPoint pos = event->pos();
 
@@ -332,14 +384,17 @@ void OpenSWMMVisMapToolEditFeatureVertex::mousePressEvent(QMouseEvent *event)
         m_before = m_geom;
         if (h.isValid()) {
             Ring *r = ringFor(h);
-            if (!r) return;
+            if (!r)
+                return;
             r->removeVertex(h.vertex);
             pushEdit(tr_("Delete vertex"), /*mergeable=*/false);
         } else {
             const FeatureVertexRef s = segmentAt(pos);
-            if (!s.isValid()) return;
+            if (!s.isValid())
+                return;
             Ring *r = ringFor(s);
-            if (!r) return;
+            if (!r)
+                return;
             double mx = 0, my = 0;
             toMapCoords(pos.x(), pos.y(), mx, my);
             // A vertex inserted into a 3D ring is unsampled until the next
@@ -356,16 +411,19 @@ void OpenSWMMVisMapToolEditFeatureVertex::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     m_dragging = handleAt(pos);
-    m_dragged  = false;
-    if (m_dragging.isValid()) m_before = m_geom;
+    m_dragged = false;
+    if (m_dragging.isValid())
+        m_before = m_geom;
 }
 
 void OpenSWMMVisMapToolEditFeatureVertex::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     if (!m_dragging.isValid()) {
         const FeatureVertexRef h = handleAt(event->pos());
@@ -378,7 +436,8 @@ void OpenSWMMVisMapToolEditFeatureVertex::mouseMoveEvent(QMouseEvent *event)
     }
 
     Ring *r = ringFor(m_dragging);
-    if (!r) return;
+    if (!r)
+        return;
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
     r->moveVertex(m_dragging.vertex, QPointF(mx, my));
@@ -411,9 +470,10 @@ void OpenSWMMVisMapToolEditFeatureVertex::mouseReleaseEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolEditFeatureVertex::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() != Qt::Key_Escape) return;
+    if (event->key() != Qt::Key_Escape)
+        return;
     if (m_dragging.isValid()) {
-        m_geom = m_before;          // abandon the in-flight drag
+        m_geom = m_before; // abandon the in-flight drag
         m_dragging.clear();
         m_dragged = false;
     } else {
@@ -423,11 +483,11 @@ void OpenSWMMVisMapToolEditFeatureVertex::keyPressEvent(QKeyEvent *event)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("feature-vertex-escape"));
 }
 
-void OpenSWMMVisMapToolEditFeatureVertex::paint(QPainter *painter,
-                                                const MapExtent &,
+void OpenSWMMVisMapToolEditFeatureVertex::paint(QPainter *painter, const MapExtent &,
                                                 const SpatialReferenceSystem *)
 {
-    if (!painter || m_featureId == kInvalidFeatureId) return;
+    if (!painter || m_featureId == kInvalidFeatureId)
+        return;
 
     painter->save();
     const QColor accent(30, 110, 200);
@@ -447,7 +507,8 @@ void OpenSWMMVisMapToolEditFeatureVertex::paint(QPainter *painter,
     for (int p = 0; p < m_geom.parts().size(); ++p) {
         const Part &part = m_geom.parts().at(p);
         drawRing(part.exterior, p, -1);
-        for (int h = 0; h < part.holes.size(); ++h) drawRing(part.holes.at(h), p, h);
+        for (int h = 0; h < part.holes.size(); ++h)
+            drawRing(part.holes.at(h), p, h);
     }
     painter->restore();
 }
@@ -456,10 +517,9 @@ void OpenSWMMVisMapToolEditFeatureVertex::paint(QPainter *painter,
 // Move feature
 // ===========================================================================
 
-OpenSWMMVisMapToolMoveFeature::OpenSWMMVisMapToolMoveFeature(MapCanvas *canvas,
-                                                              QObject *parent)
-    : OpenSWMMVisMapTool(QStringLiteral("Move Feature"), canvas, parent)
-    , m_featureId(kInvalidFeatureId)
+OpenSWMMVisMapToolMoveFeature::OpenSWMMVisMapToolMoveFeature(MapCanvas *canvas, QObject *parent)
+    : OpenSWMMVisMapTool(QStringLiteral("Move Feature"), canvas, parent),
+      m_featureId(kInvalidFeatureId)
 {
 }
 
@@ -482,15 +542,21 @@ void OpenSWMMVisMapToolMoveFeature::deactivate()
 
 void OpenSWMMVisMapToolMoveFeature::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
     FeatureLayer *layer = m_target.data();
-    if (!layer || !layer->isEditable()) return;
+    if (!layer || !layer->isEditable())
+        return;
 
     m_featureId = soleSelection(layer);
-    if (m_featureId == kInvalidFeatureId) return;
+    if (m_featureId == kInvalidFeatureId)
+        return;
 
     Feature f;
-    if (!layer->feature(m_featureId, f)) { m_featureId = kInvalidFeatureId; return; }
+    if (!layer->feature(m_featureId, f)) {
+        m_featureId = kInvalidFeatureId;
+        return;
+    }
 
     m_before = f.geometry;
     double mx = 0, my = 0;
@@ -502,7 +568,8 @@ void OpenSWMMVisMapToolMoveFeature::mousePressEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolMoveFeature::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_moving || !m_canvas) return;
+    if (!m_moving || !m_canvas)
+        return;
     Q_UNUSED(event);
     // The preview is the committed geometry until release: translating the
     // working copy per motion and writing on release keeps the write count at
@@ -512,35 +579,42 @@ void OpenSWMMVisMapToolMoveFeature::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolMoveFeature::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (!m_moving) return;
+    if (!m_moving)
+        return;
     m_moving = false;
     emit cursorChanged(cursor());
 
     FeatureLayer *layer = m_target.data();
-    if (!layer || m_featureId == kInvalidFeatureId || !m_canvas) return;
+    if (!layer || m_featureId == kInvalidFeatureId || !m_canvas)
+        return;
 
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
     const QPointF delta(mx - m_anchor.x(), my - m_anchor.y());
-    if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) return;
+    if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y()))
+        return;
 
     FeatureGeometry moved = m_before;
     const auto shiftRing = [&delta](Ring &r) {
-        for (QPointF &p : r.pts) p += delta;
+        for (QPointF &p : r.pts)
+            p += delta;
     };
     for (Part &p : moved.parts()) {
         shiftRing(p.exterior);
-        for (Ring &h : p.holes) shiftRing(h);
+        for (Ring &h : p.holes)
+            shiftRing(h);
     }
 
     if (layer->isThreeD() && layer->zPolicy().resampleOnEdit)
         layer->sampleZ(moved, m_canvas, /*densify=*/false);
 
-    auto *cmd = new EditFeatureGeometryCommand(layer, m_featureId, m_before, moved,
-                                               tr_("Move feature"),
-                                               /*mergeable=*/false, m_canvas);
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       delete cmd;
+    auto *cmd =
+        new EditFeatureGeometryCommand(layer, m_featureId, m_before, moved, tr_("Move feature"),
+                                       /*mergeable=*/false, m_canvas);
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else
+        delete cmd;
 
     m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                          QStringLiteral("feature-move-commit"));

@@ -1,9 +1,9 @@
-/*!
- * \file   test_linkgrid_outliers.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  A handful of corrupt coordinates must not make a model unusable.
+/**
+ * @file      test_linkgrid_outliers.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     A handful of corrupt coordinates must not make a model unusable.
  *
  *         West Whiteland's 2024 model has 10 junctions (J45194, J45202,
  *         J45231, J45269 and neighbours) sitting up to 40,000,000 units from
@@ -23,7 +23,9 @@
  *         signature, so this pins the behaviour a user sees — both that a
  *         normal link is still selectable when a degenerate extent is
  *         present, and that the corrupt ones did not silently disappear.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 
 #include <QApplication>
@@ -33,7 +35,8 @@
 #include <QTest>
 #include <QVariantMap>
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -45,7 +48,7 @@ QString fixturePath()
     return QDir(dataDir()).filePath(QStringLiteral("corrupt_coords_fixture.inp"));
 }
 
-}  // namespace
+} // namespace
 
 class TestLinkGridOutliers : public QObject
 {
@@ -113,7 +116,7 @@ void TestLinkGridOutliers::extentReflectsTheCorruptCoordinates()
     QList<QString> warnings, errors;
     QVERIFY(layer.loadModel(warnings, errors));
 
-    QCOMPARE(layer.cachedNodeCount(), 45);   // 40 J + 4 BAD + 1 outfall
+    QCOMPARE(layer.cachedNodeCount(), 45); // 40 J + 4 BAD + 1 outfall
     QVERIFY(layer.extent().isValid());
     QVERIFY2(layer.extent().xMax() > 2.0e7,
              "the far-away junctions must still be part of the model extent");

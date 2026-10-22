@@ -1,11 +1,11 @@
-/*!
- * \file   gageblend.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Volume-conserving weighted blend of rain-gage time series.
+/**
+ * @file      gageblend.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Volume-conserving weighted blend of rain-gage time series.
  *
- * \details Produces the single synthetic series that represents a weighted
+ * @details Produces the single synthetic series that represents a weighted
  *          combination of several rain gages — the data half of an
  *          interpolated-gage assignment.
  *
@@ -32,6 +32,7 @@
  *          Leaf module: no Qt-GUI, engine, or GDAL dependency. Times are plain
  *          seconds since the epoch so the module stays testable without
  *          QDateTime.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMMVIS_CORE_GAGEBLEND_H
@@ -46,11 +47,10 @@ namespace GageBlend
 {
 
 /*! \brief Rain-data format, matching SWMM_GageRainType. */
-enum class RainType
-{
-    Intensity  = 0,  ///< Value is a rate (depth/hour).
-    Volume     = 1,  ///< Value is depth accumulated over one interval.
-    Cumulative = 2   ///< Value is a running total; deltas carry the depth.
+enum class RainType {
+    Intensity = 0, ///< Value is a rate (depth/hour).
+    Volume = 1,    ///< Value is depth accumulated over one interval.
+    Cumulative = 2 ///< Value is a running total; deltas carry the depth.
 };
 
 /*! \brief Ceiling on grid cells, so a pathological gcd cannot melt the model. */
@@ -60,46 +60,43 @@ constexpr int kMaxGridCells = 200000;
 constexpr double kVolumeTolerance = 1e-9;
 
 /*! \brief One (time, value) entry of a rainfall series. */
-struct SeriesPoint
-{
-    qint64 t     = 0;    ///< Seconds since the epoch.
-    double value = 0.0;  ///< In the series' own rain type and units.
+struct SeriesPoint {
+    qint64 t = 0;       ///< Seconds since the epoch.
+    double value = 0.0; ///< In the series' own rain type and units.
 };
 
 /*! \brief A contributing gage: its series plus everything needed to read it. */
-struct SourceGage
-{
-    QVector<SeriesPoint> points;                     ///< Strictly increasing in t.
-    qint64               intervalSec = 0;            ///< Gage recording interval.
-    RainType             rainType    = RainType::Intensity;
-    double               scaleFactor = 1.0;          ///< Folded into the blend.
-    QString              name;                       ///< For diagnostics only.
+struct SourceGage {
+    QVector<SeriesPoint> points; ///< Strictly increasing in t.
+    qint64 intervalSec = 0;      ///< Gage recording interval.
+    RainType rainType = RainType::Intensity;
+    double scaleFactor = 1.0; ///< Folded into the blend.
+    QString name;             ///< For diagnostics only.
 };
 
 /*! \brief A constant-intensity interval, `[t0, t1)`, in depth/hour. */
-struct Box
-{
+struct Box {
     qint64 t0 = 0;
     qint64 t1 = 0;
     double intensity = 0.0;
 };
 
 /*! \brief Outcome of one blend. */
-struct BlendResult
-{
-    QVector<SeriesPoint> points;            ///< Emitted series; INTENSITY.
-    qint64               intervalSec = 0;   ///< gcd of the source intervals.
+struct BlendResult {
+    QVector<SeriesPoint> points; ///< Emitted series; INTENSITY.
+    qint64 intervalSec = 0;      ///< gcd of the source intervals.
 
-    double blendedDepth   = 0.0;   ///< Total depth of \ref points.
-    double referenceDepth = 0.0;   ///< Weighted sum of the sources' depths.
-    double relativeError  = 0.0;   ///< |blended - reference| / max(reference, eps).
+    double blendedDepth = 0.0;   ///< Total depth of \ref points.
+    double referenceDepth = 0.0; ///< Weighted sum of the sources' depths.
+    double relativeError = 0.0;  ///< |blended - reference| / max(reference, eps).
 
-    double peakBlended   = 0.0;    ///< Max emitted intensity.
-    double peakReference = 0.0;    ///< Weighted sum of the sources' peaks.
+    double peakBlended = 0.0;   ///< Max emitted intensity.
+    double peakReference = 0.0; ///< Weighted sum of the sources' peaks.
 
-    QString error;                 ///< Non-empty means nothing was produced.
+    QString error; ///< Non-empty means nothing was produced.
 
-    /*! \brief True when the blend conserved volume within tolerance. */
+    /*! \brief True when the blend conserved volume within tolerance.     * @return True only with no error and relative conservation error no greater than kVolumeTolerance.
+     */
     [[nodiscard]] bool volumeOk() const
     {
         return error.isEmpty() && relativeError <= kVolumeTolerance;
@@ -107,7 +104,8 @@ struct BlendResult
 
     /*! \brief Fraction of the reference peak that survived, or 1 when flat.
      *         Reported, never enforced — attenuation is physically expected
-     *         when misaligned sources are integrated onto a common grid. */
+     *         when misaligned sources are integrated onto a common grid.     * @return Blended/reference peak ratio when reference peak is positive; 1 otherwise. This is a diagnostic without clipping to [0,1].
+     */
     [[nodiscard]] double peakRetention() const
     {
         return peakReference > 0.0 ? peakBlended / peakReference : 1.0;
@@ -127,10 +125,14 @@ struct BlendResult
  *          decrease read as a counter reset (the new value is then the whole
  *          interval's depth) — matching `convertRainfall`.
  * \returns Boxes in ascending time; empty when the source has no usable entry.
+ * @param[in] source Increasing timestamped points, a positive recording interval in seconds and dimensionless scale factor. Depth units must be consistent with other sources before blending.
+ * @details Nonfinite input values or scaled intensities are omitted. Does not sort timestamps or mutate source records.
  */
 [[nodiscard]] QVector<Box> toBoxes(const SourceGage &source);
 
-/*! \brief Total depth carried by a box list. */
+/*! \brief Total depth carried by a box list. * @param[in] boxes Intervals with timestamps in seconds and intensity in a shared depth/hour unit.
+ * @return Sum of intensity times interval duration in the corresponding depth unit; overlaps are summed.
+ */
 [[nodiscard]] double boxDepth(const QVector<Box> &boxes);
 
 /*!
@@ -139,11 +141,14 @@ struct BlendResult
  *          the blend intended, so it can be used to verify a series after it
  *          has round-tripped through storage. Any entry lost, reordered, or
  *          rounded on the way shows up here.
+ * @param[in] points Increasing timestamped values in the declared rainfall representation.
+ * @param[in] intervalSec Recording interval in seconds; nonpositive intervals yield zero depth.
+ * @param[in] rainType Interpretation of each stored value.
+ * @param[in] scaleFactor Dimensionless source multiplier.
+ * @return Integrated depth in the source depth unit after box preemption and scaling.
  */
-[[nodiscard]] double engineDepth(const QVector<SeriesPoint> &points,
-                                 qint64 intervalSec,
-                                 RainType rainType   = RainType::Intensity,
-                                 double   scaleFactor = 1.0);
+[[nodiscard]] double engineDepth(const QVector<SeriesPoint> &points, qint64 intervalSec,
+                                 RainType rainType = RainType::Intensity, double scaleFactor = 1.0);
 
 /*!
  * \brief Blend \p sources under \p weights into one INTENSITY series.
@@ -161,8 +166,7 @@ struct BlendResult
  * year, which is the signature of a relative-hours series mixed with
  * absolute-dated ones.
  */
-[[nodiscard]] BlendResult blend(const QVector<SourceGage> &sources,
-                                const QVector<double> &weights);
+[[nodiscard]] BlendResult blend(const QVector<SourceGage> &sources, const QVector<double> &weights);
 
 /*!
  * \brief Sources validated and expanded once, for many blends.
@@ -172,21 +176,26 @@ struct BlendResult
  *          instead of re-expanding all G sources C times. Results are
  *          bit-identical to blend(sources, weights).
  */
-struct PreparedSources
-{
+struct PreparedSources {
     QVector<QVector<Box>> boxes;
-    QVector<double>       depth;      ///< boxDepth() per source.
-    QVector<double>       peak;       ///< Max box intensity per source.
-    qint64                pitch     = 0;
-    qint64                spanLo    = 0;
-    qint64                cellCount = 0;
-    QString               error;      ///< Same refusals as blend().
+    QVector<double> depth; ///< boxDepth() per source.
+    QVector<double> peak;  ///< Max box intensity per source.
+    qint64 pitch = 0;
+    qint64 spanLo = 0;
+    qint64 cellCount = 0;
+    QString error; ///< Same refusals as blend().
 };
 
-/*! \brief Validate + expand \p sources once. */
+/*! \brief Validate + expand \p sources once. * @param[in] sources Nonempty contributing records with shared depth units and compatible time bases.
+ * @return Owning reusable box/grid data, or nonempty error explaining interval, data, span or grid limits.
+ * @details Pure calculation with no engine or GUI access; returned data may be shared read-only across worker blends.
+ */
 [[nodiscard]] PreparedSources prepare(const QVector<SourceGage> &sources);
 
-/*! \brief blend() against prepared sources; \p weights index-aligned. */
+/*! \brief blend() against prepared sources; \p weights index-aligned. * @param[in] prepared Successfully prepared source/grid data; a prior error is propagated.
+ * @param[in] weights One dimensionless weight per source, used without normalization; zero and nonfinite weights are ignored and signed finite weights are applied as supplied.
+ * @return Owning intensity series and depth/peak checks; errors leave no generated points.
+ */
 [[nodiscard]] BlendResult blendPrepared(const PreparedSources &prepared,
                                         const QVector<double> &weights);
 

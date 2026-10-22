@@ -1,6 +1,6 @@
-/*!
- * \file   test_dataobjectattributetable.cpp
- * \brief  Data objects in the Attribute Table + the open-for-object editor
+/**
+ * @file      test_dataobjectattributetable.cpp
+ * @brief     Data objects in the Attribute Table + the open-for-object editor
  *         dispatch (workplans/DATA_OBJECT_EDIT_AND_ATTRIBUTE_TABLE_PLAN_2026-10-02.md).
  *
  * Guards:
@@ -14,6 +14,10 @@
  *      reverts in one undo.
  *   5. Inlet fields the design's type does not use are read-only.
  *   6. Name-reference columns (aquifer evap pattern) round-trip names.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "aquifer/aquiferprovider.h"
@@ -37,7 +41,8 @@
 using openswmmvis::ColumnSpec;
 using DC = SWMMModelLayer;
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -47,10 +52,10 @@ QString dataDir()
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
-        QDir(dataDir()).filePath(QStringLiteral("data_object_table_fixture.inp")),
-        nullptr);
+        QDir(dataDir()).filePath(QStringLiteral("data_object_table_fixture.inp")), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
@@ -58,7 +63,8 @@ int colFor(const DataObjectAttributeTableModel &m, const QString &key)
 {
     const QList<ColumnSpec> specs = m.columnSpecs();
     for (int i = 0; i < specs.size(); ++i)
-        if (specs[i].key == key) return i;
+        if (specs[i].key == key)
+            return i;
     return -1;
 }
 
@@ -90,11 +96,13 @@ void TestDataObjectAttributeTable::everyEditableCategoryOpensExistingObjects()
     const auto &reg = ComprehensiveEditorRegistry::instance();
     for (int i = 0; i < DC::NumDataCategories; ++i) {
         const auto cat = static_cast<SWMMModelLayer::DataCategory>(i);
-        if (!reg.hasEditor(cat)) continue;
+        if (!reg.hasEditor(cat))
+            continue;
         const auto *entry = reg.find(cat);
         QVERIFY2(entry && entry->openForObject,
                  qPrintable(QStringLiteral("category %1 enables Edit… but cannot "
-                                           "open an existing object").arg(i)));
+                                           "open an existing object")
+                                .arg(i)));
     }
 }
 
@@ -103,10 +111,10 @@ void TestDataObjectAttributeTable::rowsMatchRegistry_data()
     QTest::addColumn<int>("category");
     QTest::addColumn<int>("expectedRows");
     QTest::newRow("pollutants") << int(DC::DataPollutants) << 2;
-    QTest::newRow("landuses")   << int(DC::DataLandUses)   << 2;
-    QTest::newRow("aquifers")   << int(DC::DataAquifers)   << 2;
-    QTest::newRow("streets")    << int(DC::DataStreets)    << 2;
-    QTest::newRow("inlets")     << int(DC::DataInlets)     << 2;
+    QTest::newRow("landuses") << int(DC::DataLandUses) << 2;
+    QTest::newRow("aquifers") << int(DC::DataAquifers) << 2;
+    QTest::newRow("streets") << int(DC::DataStreets) << 2;
+    QTest::newRow("inlets") << int(DC::DataInlets) << 2;
 }
 
 void TestDataObjectAttributeTable::rowsMatchRegistry()
@@ -134,8 +142,8 @@ void TestDataObjectAttributeTable::editWritesProviderEngineAndUndoes()
 {
     auto layer = openLayer();
     QVERIFY(layer);
-    auto *reg = qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(
-        layer->ensurePollutantRegistry());
+    auto *reg =
+        qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer->ensurePollutantRegistry());
     QVERIFY(reg);
 
     QUndoStack stack;
@@ -169,8 +177,7 @@ void TestDataObjectAttributeTable::bulkEditUndoesInOneStep()
 {
     auto layer = openLayer();
     QVERIFY(layer);
-    auto *reg = qobject_cast<openswmmvis::street::StreetRegistry *>(
-        layer->ensureStreetRegistry());
+    auto *reg = qobject_cast<openswmmvis::street::StreetRegistry *>(layer->ensureStreetRegistry());
     QVERIFY(reg);
 
     QUndoStack stack;
@@ -202,9 +209,9 @@ void TestDataObjectAttributeTable::inletFieldsFollowType()
     model.setSource(layer.get(), DC::DataInlets);
 
     const int grate = model.rowForName(QStringLiteral("GRATE1"));
-    const int curb  = model.rowForName(QStringLiteral("CURB1"));
+    const int curb = model.rowForName(QStringLiteral("CURB1"));
     const int grateLen = colFor(model, QStringLiteral("grateLength"));
-    const int curbLen  = colFor(model, QStringLiteral("curbLength"));
+    const int curbLen = colFor(model, QStringLiteral("curbLength"));
     QVERIFY(grate >= 0 && curb >= 0 && grateLen >= 0 && curbLen >= 0);
 
     QVERIFY(model.flags(model.index(grate, grateLen)) & Qt::ItemIsEditable);
@@ -221,8 +228,8 @@ void TestDataObjectAttributeTable::nameReferenceColumnRoundTrips()
 {
     auto layer = openLayer();
     QVERIFY(layer);
-    auto *reg = qobject_cast<openswmmvis::aquifer::AquiferRegistry *>(
-        layer->ensureAquiferRegistry());
+    auto *reg =
+        qobject_cast<openswmmvis::aquifer::AquiferRegistry *>(layer->ensureAquiferRegistry());
     QVERIFY(reg);
 
     DataObjectAttributeTableModel model;
@@ -232,8 +239,7 @@ void TestDataObjectAttributeTable::nameReferenceColumnRoundTrips()
     const int aq2 = model.rowForName(QStringLiteral("AQ2"));
     QVERIFY(col >= 0 && aq1 >= 0 && aq2 >= 0);
 
-    QCOMPARE(model.data(model.index(aq2, col), Qt::EditRole).toString(),
-             QStringLiteral("EvapPat"));
+    QCOMPARE(model.data(model.index(aq2, col), Qt::EditRole).toString(), QStringLiteral("EvapPat"));
     QCOMPARE(model.data(model.index(aq2, col)).toString(), QStringLiteral("EvapPat"));
     QVERIFY(!model.data(model.index(aq1, col)).isValid());
 

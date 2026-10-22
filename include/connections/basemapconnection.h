@@ -1,10 +1,10 @@
-/*!
- * \file   basemapconnection.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \brief  Plain data structs for all supported basemap connection types.
+/**
+ * @file      basemapconnection.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @brief     Plain data structs for all supported basemap connection types.
  *
- * \details
+ * @details
  * `BasemapHttpHeaders` is a QMap<QString,QString> where the key "referer"
  * stores the HTTP Referer header.  Arbitrary extra headers are stored
  * alongside it.  When persisted in QSettings the key is written under a
@@ -13,7 +13,10 @@
  *
  * `TileAxisOrder` is shared between `XYZConnection` (stored on the struct)
  * and `XYZTileLayer` (stored as a runtime member).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #ifndef BASEMAPCONNECTION_H
 #define BASEMAPCONNECTION_H
 
@@ -36,10 +39,9 @@ using BasemapHttpHeaders = QMap<QString, QString>;
  * \enum TileAxisOrder
  * \brief Controls how {x}/{y} tile coordinates are ordered in the URL.
  */
-enum class TileAxisOrder
-{
-    ZXY = 0,  /*!< Standard OSM / slippy-map: tile/{z}/{x}/{y} */
-    ZYX = 1,  /*!< ArcGIS REST:               tile/{z}/{y}/{x} */
+enum class TileAxisOrder {
+    ZXY = 0, /*!< Standard OSM / slippy-map: tile/{z}/{x}/{y} */
+    ZYX = 1, /*!< ArcGIS REST:               tile/{z}/{y}/{x} */
 };
 
 // ---------------------------------------------------------------------------
@@ -51,11 +53,14 @@ enum class TileAxisOrder
  * \brief Username + password pair.  Stored encrypted in QSettings by
  *        `BasemapConnectionStore`; never written to project files.
  */
-struct BasemapAuth
-{
+struct BasemapAuth {
     QString username;
     QString password;
 
+    /**
+     * @brief Check whether the credential pair contains any text.
+     * @return True only when both username and password are empty; whitespace counts as content.
+     */
     [[nodiscard]] bool isEmpty() const { return username.isEmpty() && password.isEmpty(); }
 };
 
@@ -67,12 +72,11 @@ struct BasemapAuth
  * \struct XYZConnection
  * \brief All parameters needed to configure an XYZ (slippy-map) tile layer.
  */
-struct XYZConnection
-{
-    QString            name;
-    QString            urlTemplate;
-    int                zMin           = 0;
-    int                zMax           = 19;
+struct XYZConnection {
+    QString name;
+    QString urlTemplate;
+    int zMin = 0;
+    int zMax = 19;
     /*!
      * \brief DPI rendering hint.
      * 0 = Undefined (use tile dimensions as-is)
@@ -81,32 +85,59 @@ struct XYZConnection
      * This is NOT a URL modifier.  "@2x" in a URL template is a literal
      * string the user types.
      */
-    int                tilePixelRatio = 0;
-    TileAxisOrder      axisOrder      = TileAxisOrder::ZXY;
-    BasemapHttpHeaders httpHeaders;   /*!< Key "referer" + arbitrary extras. */
-    bool               isBuiltin      = false; /*!< Built-in entries cannot be deleted. */
+    int tilePixelRatio = 0;
+    TileAxisOrder axisOrder = TileAxisOrder::ZXY;
+    BasemapHttpHeaders httpHeaders; /*!< Key "referer" + arbitrary extras. */
+    bool isBuiltin = false;         /*!< Built-in entries cannot be deleted. */
 
     /*!
      * \brief Returns the list of pre-populated, non-deletable built-in connections.
+     * @return Independent value copies of predefined public endpoints, with isBuiltin set; credentials are not included.
+     * @details Does not read saved profiles or check network availability.
      */
     static QList<XYZConnection> builtins()
     {
         return {
-            { "OpenStreetMap",
-              "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-              0, 19, 0, TileAxisOrder::ZXY, {}, true },
-            { "CartoDB Positron",
-              "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-              0, 20, 2, TileAxisOrder::ZXY, {}, true },
-            { "CartoDB Dark Matter",
-              "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-              0, 20, 2, TileAxisOrder::ZXY, {}, true },
-            { "Stadia Alidade Smooth",
-              "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png",
-              0, 20, 2, TileAxisOrder::ZXY, {}, true },
-            { "ESRI World Imagery",
-              "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-              0, 23, 0, TileAxisOrder::ZXY, {}, true },
+            {"OpenStreetMap",
+             "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+             0,
+             19,
+             0,
+             TileAxisOrder::ZXY,
+             {},
+             true},
+            {"CartoDB Positron",
+             "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+             0,
+             20,
+             2,
+             TileAxisOrder::ZXY,
+             {},
+             true},
+            {"CartoDB Dark Matter",
+             "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+             0,
+             20,
+             2,
+             TileAxisOrder::ZXY,
+             {},
+             true},
+            {"Stadia Alidade Smooth",
+             "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png",
+             0,
+             20,
+             2,
+             TileAxisOrder::ZXY,
+             {},
+             true},
+            {"ESRI World Imagery",
+             "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+             0,
+             23,
+             0,
+             TileAxisOrder::ZXY,
+             {},
+             true},
         };
     }
 };
@@ -123,28 +154,27 @@ struct XYZConnection
  * if the URL contains "SERVICE=WMTS" or "/WMTSCapabilities.xml"
  * (case-insensitive) the service is treated as WMTS; otherwise WMS.
  */
-struct WMSConnection
-{
-    QString            name;
-    QString            url;
+struct WMSConnection {
+    QString name;
+    QString url;
 
     // --- Layer selection (populated after Connect) ---
-    QString            layerName;
-    QString            style;
-    QString            imageFormat    = "image/png";
-    QString            crs            = "EPSG:3857";
-    QString            tileMatrixSet;     /*!< WMTS only; empty for WMS. */
+    QString layerName;
+    QString style;
+    QString imageFormat = "image/png";
+    QString crs = "EPSG:3857";
+    QString tileMatrixSet; /*!< WMTS only; empty for WMS. */
 
     // --- Advanced options (mirrors QGIS WMS provider settings) ---
     /*!
      * \brief DPI mode bitmask: 0=None, 1=QGIS, 2=UMN, 4=GeoServer, 7=All (default).
      */
-    int                dpiMode                 = 7;
-    int                tilePixelRatio          = 0;  /*!< 0/1/2 — same semantics as XYZConnection. */
-    bool               ignoreGetMapURI         = false;
-    bool               ignoreAxisOrientation   = false;
-    bool               invertAxisOrientation   = false;
-    bool               smoothPixmapTransform   = true;
+    int dpiMode = 7;
+    int tilePixelRatio = 0; /*!< 0/1/2 — same semantics as XYZConnection. */
+    bool ignoreGetMapURI = false;
+    bool ignoreAxisOrientation = false;
+    bool invertAxisOrientation = false;
+    bool smoothPixmapTransform = true;
 
     BasemapHttpHeaders httpHeaders;
 };
@@ -164,26 +194,25 @@ struct WMSConnection
  * The rendered output follows the WMS single-image pattern: one GetCoverage
  * request per canvas viewport, decoded via GDAL and painted into the canvas.
  */
-struct WCSConnection
-{
-    QString            name;
-    QString            url;                   /*!< Base service URL (no query string). */
+struct WCSConnection {
+    QString name;
+    QString url; /*!< Base service URL (no query string). */
     /*!
      * \brief Negotiated WCS version string ("1.0.0", "1.1.2", "2.0.1").
      * Populated at connect time; default targets 2.0.1.
      */
-    QString            version      = QStringLiteral("2.0.1");
+    QString version = QStringLiteral("2.0.1");
 
     // --- Coverage selection (populated after Connect + DescribeCoverage) ---
-    QString            coverageId;            /*!< Selected coverage identifier. */
-    QString            outputCrs    = QStringLiteral("EPSG:4326");
-    QString            outputFormat = QStringLiteral("image/tiff"); /*!< GDAL-readable MIME type. */
+    QString coverageId; /*!< Selected coverage identifier. */
+    QString outputCrs = QStringLiteral("EPSG:4326");
+    QString outputFormat = QStringLiteral("image/tiff"); /*!< GDAL-readable MIME type. */
     /*!
      * \brief Optional WCS range subset string, e.g. "band[1]".
      * Empty string = all fields (default).
      */
-    QString            rangeSubset;
-    QString            interpolation = QStringLiteral("nearest");
+    QString rangeSubset;
+    QString interpolation = QStringLiteral("nearest");
 
     BasemapHttpHeaders httpHeaders;
 };
@@ -207,10 +236,9 @@ struct WCSConnection
  * is decided at connect time from what the server advertises. What is worth
  * remembering is where the service is and which collection was taken from it.
  */
-struct WFSConnection
-{
-    QString            name;
-    QString            url;         /*!< Base service URL (no query string). */
+struct WFSConnection {
+    QString name;
+    QString url; /*!< Base service URL (no query string). */
 
     /*!
      * \brief Version string the service answered in ("1.1.0", "2.0.0").
@@ -219,10 +247,10 @@ struct WFSConnection
      * without the requested version answers in the newest it has, and the
      * spelling of the request parameters follows the answer.
      */
-    QString            version;
+    QString version;
 
     //! Selected feature type, prefixed as the service spells it ("bag:pand").
-    QString            typeName;
+    QString typeName;
 
     BasemapHttpHeaders httpHeaders;
 };
@@ -242,23 +270,22 @@ struct WFSConnection
  * `tile/{z}/{row}/{col}` — the ArcGIS REST tile endpoint convention.
  * No separate ArcGIS layer class is needed.
  */
-struct ArcGISRestConnection
-{
-    QString            name;
-    QString            url;
-    QString            urlPrefix;          /*!< Optional proxy prefix. */
+struct ArcGISRestConnection {
+    QString name;
+    QString url;
+    QString urlPrefix; /*!< Optional proxy prefix. */
     /*!
      * \brief ArcGIS Enterprise Portal content endpoint.
      * Example: https://portal.example.com/arcgis/sharing/rest/content
      * Leave empty for public ArcGIS Online.
      */
-    QString            contentEndpoint;
+    QString contentEndpoint;
     /*!
      * \brief ArcGIS Enterprise Portal community endpoint.
      * Example: https://portal.example.com/arcgis/sharing/rest/community
      * Leave empty for public ArcGIS Online.
      */
-    QString            communityEndpoint;
+    QString communityEndpoint;
 
     BasemapHttpHeaders httpHeaders;
 };
@@ -275,12 +302,11 @@ struct ArcGISRestConnection
  * sidecar) unless a world file and/or CRS override is supplied.
  * No auth or HTTP headers — local files have none.
  */
-struct LocalRasterConnection
-{
+struct LocalRasterConnection {
     QString name;
     QString filePath;
-    QString worldFilePath;   /*!< Empty = rely on embedded/sidecar georef. */
-    QString crsAuthCode;     /*!< e.g. "EPSG:26985". Empty = use embedded CRS. */
+    QString worldFilePath; /*!< Empty = rely on embedded/sidecar georef. */
+    QString crsAuthCode;   /*!< e.g. "EPSG:26985". Empty = use embedded CRS. */
 };
 
 #endif // BASEMAPCONNECTION_H

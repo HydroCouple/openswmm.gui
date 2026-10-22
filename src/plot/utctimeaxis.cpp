@@ -1,16 +1,20 @@
 /**
- * @file utctimeaxis.cpp
- * @brief Implementation of UtcTimeAxis — see the header for why this exists.
+ * @file      utctimeaxis.cpp
+ * @brief     Implementation of UtcTimeAxis — see the header for why this exists.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "plot/utctimeaxis.h"
 
 #include <algorithm>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
-UtcTimeAxis::UtcTimeAxis(QObject *parent)
-    : QCategoryAxis(parent)
+UtcTimeAxis::UtcTimeAxis(QObject *parent) : QCategoryAxis(parent)
 {
     // Labels sit ON their tick value rather than centred in the band between
     // two categories, which is what makes a category axis read as a time axis.
@@ -76,7 +80,7 @@ void UtcTimeAxis::setRangeMs(qint64 minMs, qint64 maxMs)
     if (maxMs < minMs)
         std::swap(minMs, maxMs);
     if (m_minMs == minMs && m_maxMs == maxMs)
-        return;                       // no-op guard: panel sync connects both ways
+        return; // no-op guard: panel sync connects both ways
     m_minMs = minMs;
     m_maxMs = maxMs;
     rebuildLabels();
@@ -86,7 +90,7 @@ void UtcTimeAxis::setRangeMs(qint64 minMs, qint64 maxMs)
 void UtcTimeAxis::onValueRangeChanged(qreal min, qreal max)
 {
     if (m_rebuilding)
-        return;                       // our own QValueAxis::setRange in rebuildLabels()
+        return; // our own QValueAxis::setRange in rebuildLabels()
     setRangeMs(qRound64(min), qRound64(max));
 }
 
@@ -111,8 +115,7 @@ void UtcTimeAxis::rebuildLabels()
     if (m_maxMs <= m_minMs) {
         // Degenerate range (a single point, or nothing plotted yet). Leave the
         // axis label-less rather than emitting one tick at an arbitrary value.
-        QValueAxis::setRange(static_cast<qreal>(m_minMs),
-                             static_cast<qreal>(m_minMs + 1));
+        QValueAxis::setRange(static_cast<qreal>(m_minMs), static_cast<qreal>(m_minMs + 1));
         setStartValue(static_cast<qreal>(m_minMs));
         m_rebuilding = false;
         return;
@@ -126,14 +129,13 @@ void UtcTimeAxis::rebuildLabels()
     m_rebuilding = false;
 
     const qint64 span = m_maxMs - m_minMs;
-    const int    n    = m_tickCount;
+    const int n = m_tickCount;
     for (int i = 0; i <= n - 1; ++i) {
         // Tick i sits at min + i/(n-1) of the span: both edges labelled, as
         // QDateTimeAxis does.
         const qint64 ms = m_minMs + (span * i) / (n - 1);
         // Qt::UTC is the entire point of this class.
-        const QString label =
-            QDateTime::fromMSecsSinceEpoch(ms, Qt::UTC).toString(m_format);
+        const QString label = QDateTime::fromMSecsSinceEpoch(ms, Qt::UTC).toString(m_format);
         // Duplicate labels would collide in QCategoryAxis' name-keyed map — a
         // short format over a short span can round two ticks to the same text.
         if (categoriesLabels().contains(label))
@@ -142,4 +144,4 @@ void UtcTimeAxis::rebuildLabels()
     }
 }
 
-}  // namespace openswmmvis::plot
+} // namespace openswmmvis::plot

@@ -1,16 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      test_lid_node_layers.cpp
+ * @brief     Tests for lid node layers.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/models/lidnodelayermodel.h"
 #include "ui/sectionview/lidlayerdiagram.h"
 #include <QtTest>
 using namespace openswmmvis::ui;
 using namespace openswmmvis::sectionview;
-class TestLidNodeLayers : public QObject {
+class TestLidNodeLayers : public QObject
+{
     Q_OBJECT
 private slots:
-    void arbitraryRowsAndReordering() {
+    void arbitraryRowsAndReordering()
+    {
         LidNodeLayerModel model;
         model.append(0);
-        for (int i = 0; i < 60; ++i) model.append(i % 2 ? 2 : 1);
+        for (int i = 0; i < 60; ++i)
+            model.append(i % 2 ? 2 : 1);
         model.append(3);
         QCOMPARE(model.rowCount(), 62);
         QVERIFY(model.setData(model.index(1, 1), 321.5));
@@ -20,9 +33,13 @@ private slots:
         QCOMPARE(model.rowCount(), 61);
         QVERIFY(!model.setData(model.index(0, 1), -1));
     }
-    void countPreservesBoundariesAndTreatmentFollowsLayer() {
+    void countPreservesBoundariesAndTreatmentFollowsLayer()
+    {
         LidNodeLayerModel model;
-        model.append(0); model.append(1); model.append(2); model.append(3);
+        model.append(0);
+        model.append(1);
+        model.append(2);
+        model.append(3);
         model.setTreatments({{2, "TSS", 25, 1.5, "R = 0.2"}});
         model.setMediaCount(80);
         QCOMPARE(model.mediaCount(), 80);
@@ -37,9 +54,11 @@ private slots:
         model.remove(2);
         QVERIFY(model.treatmentRows().isEmpty());
     }
-    void retentionParametersFollowPhysicalRows() {
+    void retentionParametersFollowPhysicalRows()
+    {
         LidNodeLayerModel model;
-        for (int kind : {0, 1, 2, 3}) model.append(kind);
+        for (int kind : {0, 1, 2, 3})
+            model.append(kind);
         QVERIFY(model.setData(model.index(1, 11), 2.5));
         QVERIFY(!model.setData(model.index(0, 11), 2.5));
         QVERIFY(!model.setData(model.index(1, 14), -1));
@@ -49,18 +68,25 @@ private slots:
         QCOMPARE(model.retention.size(), model.layers.size());
         QCOMPARE(model.data(model.index(1, 11)).toDouble(), 2.5);
     }
-    void defaultsRespectUnits() {
+    void defaultsRespectUnits()
+    {
         LidNodeLayerModel si, us;
-        si.append(1, true); us.append(1, false);
+        si.append(1, true);
+        us.append(1, false);
         QVERIFY(qAbs(si.layers[0].params[0] - us.layers[0].params[0] * 25.4) < 1.e-10);
         QCOMPARE(si.layers[0].params[1], us.layers[0].params[1]);
     }
-    void diagramRetainsRepeatedMedia() {
-        LidDiagramInput in; in.type = LidType::Node;
-        for (int i = 0; i < 40; ++i) in.orderedLayers.append({LidLayer::Soil, 100, .45, 25});
+    void diagramRetainsRepeatedMedia()
+    {
+        LidDiagramInput in;
+        in.type = LidType::Node;
+        for (int i = 0; i < 40; ++i)
+            in.orderedLayers.append({LidLayer::Soil, 100, .45, 25});
         const auto diagram = buildLidLayerDiagram(in);
         int media = 0;
-        for (const auto& polygon : diagram.polys) if (polygon.role == DiagramRole::Media) ++media;
+        for (const auto &polygon : diagram.polys)
+            if (polygon.role == DiagramRole::Media)
+                ++media;
         QCOMPARE(media, 40);
     }
 };

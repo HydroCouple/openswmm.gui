@@ -1,6 +1,6 @@
-/*!
- * \file test_2d_output_options_page.cpp
- * \brief E1 (2026-09-07) — the Simulation Options 2D page Output group:
+/**
+ * @file      test_2d_output_options_page.cpp
+ * @brief     E1 (2026-09-07) — the Simulation Options 2D page Output group:
  *        OUTPUT_PRECISION / OUTPUT_COMPRESSION / REPORT_2D_STEP /
  *        REPORT_2D_VARIABLES / REPORT_2D_SPECIES read from and written to
  *        the engine through swmm_options_get_ext / set_ext.
@@ -15,7 +15,12 @@
  *   - REPORT_2D_STEP is compared in seconds ("00:10:00" vs 600) and the
  *     variables key as a mask ("DEFAULT" vs its expanded list), so a
  *     re-open + Apply after an edit is still the identity.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 
@@ -35,37 +40,93 @@
 
 #include <memory>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Resolve the shared 2D-output-option input fixture directory.
+ * @return SWMMVIS_GUI_TEST_DATA or cwd fallback text, without existence checks,
+ * normalization or directory creation. Does not modify environment/settings.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
-QString fixture(const QString &name) { return QDir(dataDir()).filePath(name); }
+/**
+ *
+ * @brief Join one fixture filename to the configured shared data directory.
+ * @param name Borrowed relative input filename including extension.
+ * @return Owned path; no open, cleanup or validity check.
+ *
+ */
+QString fixture(const QString &name)
+{
+    return QDir(dataDir()).filePath(name);
+}
 
+/**
+ *
+ * @brief Own/load a model layer for live output-option widget tests.
+ * @param path Borrowed input model filename, copied by the constructed layer.
+ * @return Owned loaded model layer or null on failed load, destroying the partial
+ * layer. Warning/error lists are discarded; no assertion or simulation run here.
+ * Requires engine/model/GUI dependencies, and caller must outlive dialogs borrowing it.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &path)
 {
     auto layer = std::make_unique<SWMMModelLayer>(path, nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
+/**
+ *
+ * @brief Read one extension option through the engine into a fixed local buffer.
+ * @param e Borrowed live engine valid for option queries.
+ * @param key Borrowed null-terminated option key.
+ * @return Trimmed UTF-8 value or empty on getter failure; failed/empty values are
+ * indistinguishable. Buffer capacity 4096 bytes bounds accepted results. No mutation.
+ *
+ */
 QString ext(SWMM_Engine e, const char *key)
 {
     char buf[4096] = {};
-    if (swmm_options_get_ext(e, key, buf, sizeof(buf)) != 0) return {};
+    if (swmm_options_get_ext(e, key, buf, sizeof(buf)) != 0)
+        return {};
     return QString::fromUtf8(buf).trimmed();
 }
 
-template <class W>
-W *child(QObject *root, const char *name)
+/**
+ *
+ * @brief Find a typed descendant by its fixture object name.
+ * @tparam W QObject-derived child type, normally a widget/editor type.
+ * @param root Borrowed nonnull live QObject whose descendants are searched recursively.
+ * @param name Borrowed null-terminated Latin-1 object name.
+ * @return Borrowed first matching typed child or null; valid only while owned object
+ * survives. No assertion, creation, ownership transfer or UI mutation.
+ *
+ */
+template <class W> W *child(QObject *root, const char *name)
 {
     W *w = root->findChild<W *>(QLatin1String(name));
     return w;
 }
 
+/**
+ *
+ * @brief Find the first list row containing a bracketed option token.
+ * @param list Borrowed nonnull live list widget.
+ * @param token Borrowed token inserted into [token] and matched case-sensitively.
+ * @return Borrowed item pointer or null; list retains ownership. This is substring
+ * matching on display text, not metadata equality; invalid after row removal/clear.
+ *
+ */
 QListWidgetItem *itemByToken(QListWidget *list, const QString &token)
 {
     for (int r = 0; r < list->count(); ++r)
@@ -81,12 +142,21 @@ class Test2DOutputOptionsPage : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Load mini_2d.inp and require default output
+     * precision/compression/cadence/mask/species widgets with an unedited Apply reporting no
+     * writes.
+     * Checks mandatory depth row flags and populated size estimate. Requires live dialog/
+     * engine support; only in-memory model is touched.
+     *
+     */
     void defaultsSeedAndApplyIsIdentity()
     {
         auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
         QVERIFY(layer);
-        SimulationOptionsDialog dlg(layer->engine(), layer.get(), QStringLiteral("6.0.0"),
-                                    nullptr, nullptr);
+        SimulationOptionsDialog dlg(layer->engine(), layer.get(), QStringLiteral("6.0.0"), nullptr,
+                                    nullptr);
 
         auto *prec = child<QComboBox>(&dlg, "output2DPrecisionCombo");
         auto *comp = child<QSpinBox>(&dlg, "output2DCompressionSpin");
@@ -117,6 +187,13 @@ private slots:
         QVERIFY(!dlg.wroteAnyChanges());
     }
 
+    /**
+     *
+     * @brief Edit precision/compression, 600-second cadence and MINIMAL mask, then require exact
+     * extension keys and semantically unchanged re-Apply.
+     * Constructs two dialogs over the same opened engine; no file save or simulation.
+     *
+     */
     void editsLandOnTheirKeys()
     {
         auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -167,6 +244,13 @@ private slots:
         QVERIFY(!dlg2.wroteAnyChanges());
     }
 
+    /**
+     *
+     * @brief Require an undeclared TSS output-filter name to survive dialog hydration/unedited
+     * Apply, then switch explicitly to ALL.
+     * Edits only the disposable engine extension option and widget selection.
+     *
+     */
     void speciesSubsetRoundTrips()
     {
         auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -178,7 +262,7 @@ private slots:
 
         SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
         auto *allSp = child<QCheckBox>(&dlg, "report2DAllSpeciesBox");
-        auto *list  = child<QListWidget>(&dlg, "report2DSpeciesList");
+        auto *list = child<QListWidget>(&dlg, "report2DSpeciesList");
         QVERIFY(allSp && list);
         QVERIFY(!allSp->isChecked());
         QVERIFY(list->isEnabled());

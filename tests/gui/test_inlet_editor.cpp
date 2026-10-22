@@ -1,8 +1,9 @@
-/*!
- * \file   test_inlet_editor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_inlet_editor.cpp
+ * @brief     Tests for inlet editor.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Inlets plan §2.2–2.3 (INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05,
  * Phase G2). Three concerns, all reachable without the dialog:
@@ -18,7 +19,9 @@
  *
  * Plus the property bag's group-visibility table, which drives which rows the
  * editor shows for each type.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "inlet/inletprovider.h"
 #include "inlet/inletregistry.h"
 #include "inlet/inletundocommands.h"
@@ -51,38 +54,37 @@ using openswmmvis::ui::InletPropertyBag;
 using openswmmvis::ui::InletSceneBuilder;
 using openswmmvis::ui::InletTheme;
 
-namespace {
+namespace
+{
 
 /*! A design with a distinct value in every slot so a dropped field shows up. */
 InletDesignData sampleDesign(InletType t)
 {
     InletDesignData d;
-    d.type        = t;
+    d.type = t;
     d.grateLength = 3.25;
-    d.grateWidth  = 1.75;
-    d.grateType   = GrateType::CurvedVane;
-    d.openArea    = 0.62;
+    d.grateWidth = 1.75;
+    d.grateType = GrateType::CurvedVane;
+    d.openArea = 0.62;
     d.splashVeloc = 4.5;
-    d.curbLength  = 5.5;
-    d.curbHeight  = 0.75;
-    d.throat      = ThroatType::Inclined;
-    d.slotLength  = 8.0;
-    d.slotWidth   = 0.35;
-    d.curveId     = QStringLiteral("CAP1");
-    d.curveKind   = InletCurveKind::Diversion;
+    d.curbLength = 5.5;
+    d.curbHeight = 0.75;
+    d.throat = ThroatType::Inclined;
+    d.slotLength = 8.0;
+    d.slotWidth = 0.35;
+    d.curveId = QStringLiteral("CAP1");
+    d.curveKind = InletCurveKind::Diversion;
     return d;
 }
 
 bool usesGrateGroup(InletType t)
 {
-    return t == InletType::Grate || t == InletType::DropGrate
-        || t == InletType::Combo;
+    return t == InletType::Grate || t == InletType::DropGrate || t == InletType::Combo;
 }
 
 bool usesCurbGroup(InletType t)
 {
-    return t == InletType::Curb || t == InletType::DropCurb
-        || t == InletType::Combo;
+    return t == InletType::Curb || t == InletType::DropCurb || t == InletType::Combo;
 }
 
 /*! What sampleDesign(t) looks like after an engine round-trip.
@@ -95,23 +97,23 @@ bool usesCurbGroup(InletType t)
 InletDesignData expectedAfterRoundTrip(InletType t)
 {
     const InletDesignData s = sampleDesign(t);
-    InletDesignData e;              // provider defaults
+    InletDesignData e; // provider defaults
     e.type = t;
     if (usesGrateGroup(t)) {
         e.grateLength = s.grateLength;
-        e.grateWidth  = s.grateWidth;
-        e.grateType   = s.grateType;
-        e.openArea    = s.openArea;
+        e.grateWidth = s.grateWidth;
+        e.grateType = s.grateType;
+        e.openArea = s.openArea;
         e.splashVeloc = s.splashVeloc;
     }
     if (usesCurbGroup(t)) {
         e.curbLength = s.curbLength;
         e.curbHeight = s.curbHeight;
-        e.throat     = s.throat;
+        e.throat = s.throat;
     }
     if (t == InletType::Slotted) {
         e.slotLength = s.slotLength;
-        e.slotWidth  = s.slotWidth;
+        e.slotWidth = s.slotWidth;
     }
     if (t == InletType::Custom) {
         e.curveId = s.curveId;
@@ -128,7 +130,8 @@ int calloutCount(QGraphicsScene *scene)
     int n = 0;
     const auto items = scene->items();
     for (QGraphicsItem *it : items)
-        if (it->data(InletSceneBuilder::CalloutRole).isValid()) ++n;
+        if (it->data(InletSceneBuilder::CalloutRole).isValid())
+            ++n;
     return n;
 }
 
@@ -138,8 +141,7 @@ QGraphicsScene *sceneFor(InletType t, GrateType g = GrateType::PBar50)
     InletDesignData d = sampleDesign(t);
     d.grateType = g;
     p.setDesign(d);
-    return InletSceneBuilder::build(p, /*units*/ nullptr,
-                                     InletTheme::fromPalette(QPalette()));
+    return InletSceneBuilder::build(p, /*units*/ nullptr, InletTheme::fromPalette(QPalette()));
 }
 
 } // namespace
@@ -158,17 +160,15 @@ private slots:
         QVERIFY(eng != nullptr);
 
         static const InletType kAll[] = {
-            InletType::Grate, InletType::Curb, InletType::Combo,
-            InletType::Slotted, InletType::DropGrate, InletType::DropCurb,
-            InletType::Custom,
+            InletType::Grate,     InletType::Curb,     InletType::Combo,  InletType::Slotted,
+            InletType::DropGrate, InletType::DropCurb, InletType::Custom,
         };
 
         // Author one design per type through the registry, then flush.
         {
             InletRegistry reg;
             for (InletType t : kAll) {
-                const QString name =
-                    QStringLiteral("IN%1").arg(static_cast<int>(t));
+                const QString name = QStringLiteral("IN%1").arg(static_cast<int>(t));
                 InletProvider *p = reg.create(name);
                 QVERIFY(p);
                 p->setDesign(sampleDesign(t));
@@ -190,19 +190,19 @@ private slots:
             QCOMPARE(got.type, static_cast<int>(want.type));
             if (usesGrateGroup(t)) {
                 QCOMPARE(got.grate_length, want.grateLength);
-                QCOMPARE(got.grate_width,  want.grateWidth);
-                QCOMPARE(got.grate_type,   static_cast<int>(want.grateType));
-                QCOMPARE(got.open_area,    want.openArea);
+                QCOMPARE(got.grate_width, want.grateWidth);
+                QCOMPARE(got.grate_type, static_cast<int>(want.grateType));
+                QCOMPARE(got.open_area, want.openArea);
                 QCOMPARE(got.splash_veloc, want.splashVeloc);
             }
             if (usesCurbGroup(t)) {
                 QCOMPARE(got.curb_length, want.curbLength);
                 QCOMPARE(got.curb_height, want.curbHeight);
-                QCOMPARE(got.throat,      static_cast<int>(want.throat));
+                QCOMPARE(got.throat, static_cast<int>(want.throat));
             }
             if (t == InletType::Slotted) {
                 QCOMPARE(got.slot_length, want.slotLength);
-                QCOMPARE(got.slot_width,  want.slotWidth);
+                QCOMPARE(got.slot_width, want.slotWidth);
             }
             if (t == InletType::Custom)
                 QCOMPARE(QString::fromUtf8(got.curve_id), want.curveId);
@@ -214,8 +214,7 @@ private slots:
             InletRegistry reloaded;
             QCOMPARE(reloaded.loadFromEngine(eng), int(std::size(kAll)));
             for (InletType t : kAll) {
-                const QString name =
-                    QStringLiteral("IN%1").arg(static_cast<int>(t));
+                const QString name = QStringLiteral("IN%1").arg(static_cast<int>(t));
                 InletProvider *p = reloaded.findByName(name);
                 QVERIFY2(p, qPrintable(name));
                 QVERIFY2(p->design() == expectedAfterRoundTrip(t), qPrintable(name));
@@ -262,8 +261,8 @@ private slots:
         const InletDesignData before = p->design();
         InletDesignData after = before;
         after.grateLength = 9.5;
-        after.grateType   = GrateType::Generic;
-        after.openArea    = 0.4;
+        after.grateType = GrateType::Generic;
+        after.openArea = 0.4;
 
         QUndoStack stack;
         stack.push(new SetInletParamsCommand(p, before, after));
@@ -308,15 +307,18 @@ private slots:
     void sceneBuilder_CalloutCountPerType()
     {
         // The table documented in inletdrawingview.h.
-        struct Row { InletType type; int callouts; };
+        struct Row {
+            InletType type;
+            int callouts;
+        };
         static const Row kRows[] = {
-            { InletType::Grate,     2 },   // L, W
-            { InletType::DropGrate, 2 },   // L, W
-            { InletType::Curb,      3 },   // L, h, throat
-            { InletType::DropCurb,  2 },   // L (×4 sides), h
-            { InletType::Combo,     5 },   // L grate, W, L curb, sweeper, h
-            { InletType::Slotted,   2 },   // L, w
-            { InletType::Custom,    2 },   // curve name, curve kind
+            {InletType::Grate, 2},     // L, W
+            {InletType::DropGrate, 2}, // L, W
+            {InletType::Curb, 3},      // L, h, throat
+            {InletType::DropCurb, 2},  // L (×4 sides), h
+            {InletType::Combo, 5},     // L grate, W, L curb, sweeper, h
+            {InletType::Slotted, 2},   // L, w
+            {InletType::Custom, 2},    // curve name, curve kind
         };
 
         for (const Row &r : kRows) {
@@ -329,7 +331,7 @@ private slots:
 
     void sceneBuilder_GenericGrateAddsTwoCallouts()
     {
-        QGraphicsScene *plain   = sceneFor(InletType::Grate, GrateType::PBar50);
+        QGraphicsScene *plain = sceneFor(InletType::Grate, GrateType::PBar50);
         QGraphicsScene *generic = sceneFor(InletType::Grate, GrateType::Generic);
         QCOMPARE(calloutCount(generic), calloutCount(plain) + 2);
         delete plain;
@@ -361,14 +363,13 @@ private slots:
     void propertyBag_GroupVisibilityMatchesTheLegacyTable()
     {
         using G = InletPropertyBag;
-        QCOMPARE(int(G::groupsFor(InletType::Grate)),     int(G::GrateGroup));
+        QCOMPARE(int(G::groupsFor(InletType::Grate)), int(G::GrateGroup));
         QCOMPARE(int(G::groupsFor(InletType::DropGrate)), int(G::GrateGroup));
-        QCOMPARE(int(G::groupsFor(InletType::Curb)),      int(G::CurbGroup));
-        QCOMPARE(int(G::groupsFor(InletType::DropCurb)),  int(G::CurbGroup));
-        QCOMPARE(int(G::groupsFor(InletType::Combo)),
-                 int(G::GrateGroup | G::CurbGroup));
-        QCOMPARE(int(G::groupsFor(InletType::Slotted)),   int(G::SlottedGroup));
-        QCOMPARE(int(G::groupsFor(InletType::Custom)),    int(G::CustomGroup));
+        QCOMPARE(int(G::groupsFor(InletType::Curb)), int(G::CurbGroup));
+        QCOMPARE(int(G::groupsFor(InletType::DropCurb)), int(G::CurbGroup));
+        QCOMPARE(int(G::groupsFor(InletType::Combo)), int(G::GrateGroup | G::CurbGroup));
+        QCOMPARE(int(G::groupsFor(InletType::Slotted)), int(G::SlottedGroup));
+        QCOMPARE(int(G::groupsFor(InletType::Custom)), int(G::CustomGroup));
     }
 
     void propertyBag_GenericOnlyAndDropCurbExceptions()
@@ -415,7 +416,9 @@ private slots:
         InletDesignData seenBefore, seenAfter;
         int calls = 0;
         bag.setCommitHandler([&](const InletDesignData &b, const InletDesignData &a) {
-            seenBefore = b; seenAfter = a; ++calls;
+            seenBefore = b;
+            seenAfter = a;
+            ++calls;
         });
         bag.setGrateWidth(4.25);
         QCOMPARE(calls, 1);

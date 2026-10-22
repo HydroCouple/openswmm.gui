@@ -1,7 +1,10 @@
-/*!
- * \file   gageassignment.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      gageassignment.cpp
+ * @brief     Two rules live here.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "core/gageassignment.h"
@@ -23,6 +26,12 @@ namespace GageAssignment
 namespace
 {
 // Squared distance — the clipping and weighting paths never need the root.
+/**
+ * @brief Compute squared distance for site coincidence and weighting.
+ * @param[in] a First site/query coordinate.
+ * @param[in] b Second coordinate in the same frame.
+ * @return Squared Euclidean distance.
+ */
 inline double dist2(const QPointF &a, const QPointF &b)
 {
     const double dx = a.x() - b.x();
@@ -49,8 +58,7 @@ constexpr int kMaxLatticeCandidates = 100000;
 // Thiessen area-majority
 // ===========================================================================
 
-QVector<QPointF> clipHalfPlane(const QVector<QPointF> &ring,
-                               const QPointF &keep,
+QVector<QPointF> clipHalfPlane(const QVector<QPointF> &ring, const QPointF &keep,
                                const QPointF &drop)
 {
     const int n = static_cast<int>(ring.size());
@@ -65,14 +73,11 @@ QVector<QPointF> clipHalfPlane(const QVector<QPointF> &ring,
     const double mx = 0.5 * (keep.x() + drop.x());
     const double my = 0.5 * (keep.y() + drop.y());
 
-    const auto side = [&](const QPointF &p) {
-        return nx * (p.x() - mx) + ny * (p.y() - my);
-    };
+    const auto side = [&](const QPointF &p) { return nx * (p.x() - mx) + ny * (p.y() - my); };
 
     QVector<QPointF> out;
     out.reserve(n + 4);
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         const QPointF &cur = ring[i];
         const QPointF &nxt = ring[(i + 1) % n];
         const double fCur = side(cur);
@@ -82,30 +87,26 @@ QVector<QPointF> clipHalfPlane(const QVector<QPointF> &ring,
             out.append(cur);
 
         // Crossing — emit the bisector intersection.
-        if ((fCur < 0.0 && fNxt > 0.0) || (fCur > 0.0 && fNxt < 0.0))
-        {
+        if ((fCur < 0.0 && fNxt > 0.0) || (fCur > 0.0 && fNxt < 0.0)) {
             const double denom = fCur - fNxt;
-            if (denom != 0.0)
-            {
+            if (denom != 0.0) {
                 const double t = fCur / denom;
-                out.append(QPointF(cur.x() + t * (nxt.x() - cur.x()),
-                                   cur.y() + t * (nxt.y() - cur.y())));
+                out.append(
+                    QPointF(cur.x() + t * (nxt.x() - cur.x()), cur.y() + t * (nxt.y() - cur.y())));
             }
         }
     }
     return out;
 }
 
-QVector<double> thiessenAreaShares(const QVector<QPointF> &ring,
-                                   const QVector<QPointF> &gages)
+QVector<double> thiessenAreaShares(const QVector<QPointF> &ring, const QVector<QPointF> &gages)
 {
     const int g = static_cast<int>(gages.size());
     QVector<double> shares(g, 0.0);
     if (g == 0 || ring.size() < 3)
         return shares;
 
-    for (int i = 0; i < g; ++i)
-    {
+    for (int i = 0; i < g; ++i) {
         // A gage coincident with an earlier one owns no cell: the bisector
         // between them is undefined, and letting both keep the whole region
         // would make the shares sum to more than the ring area. The lower
@@ -117,8 +118,7 @@ QVector<double> thiessenAreaShares(const QVector<QPointF> &ring,
             continue;
 
         QVector<QPointF> cell = ring;
-        for (int j = 0; j < g && cell.size() >= 3; ++j)
-        {
+        for (int j = 0; j < g && cell.size() >= 3; ++j) {
             if (j == i || dist2(gages[i], gages[j]) <= kSiteCoincidenceTol2)
                 continue;
             cell = clipHalfPlane(cell, gages[i], gages[j]);
@@ -137,8 +137,15 @@ namespace
 {
 // clipHalfPlane() into a caller-owned buffer, so a ring clipped against a
 // handful of half-planes allocates nothing after the first query on a thread.
-void clipInto(const std::vector<QPointF> &ring, const QPointF &keep,
-              const QPointF &drop, std::vector<QPointF> &out)
+/**
+ * @brief Clip into reusable storage against a site-pair Voronoi half-plane.
+ * @param[in] ring Open ring to clip, distinct from output storage.
+ * @param[in] keep Retained site.
+ * @param[in] drop Competing site defining the perpendicular bisector.
+ * @param[out] out Cleared and filled with retained/interpolated ring vertices; empty for fewer than three inputs.
+ */
+void clipInto(const std::vector<QPointF> &ring, const QPointF &keep, const QPointF &drop,
+              std::vector<QPointF> &out)
 {
     out.clear();
     const int n = static_cast<int>(ring.size());
@@ -148,36 +155,35 @@ void clipInto(const std::vector<QPointF> &ring, const QPointF &keep,
     const double ny = drop.y() - keep.y();
     const double mx = 0.5 * (keep.x() + drop.x());
     const double my = 0.5 * (keep.y() + drop.y());
-    const auto side = [&](const QPointF &p) {
-        return nx * (p.x() - mx) + ny * (p.y() - my);
-    };
-    for (int i = 0; i < n; ++i)
-    {
+    const auto side = [&](const QPointF &p) { return nx * (p.x() - mx) + ny * (p.y() - my); };
+    for (int i = 0; i < n; ++i) {
         const QPointF &cur = ring[i];
         const QPointF &nxt = ring[(i + 1) % n];
         const double fCur = side(cur);
         const double fNxt = side(nxt);
         if (fCur <= 0.0)
             out.push_back(cur);
-        if ((fCur < 0.0 && fNxt > 0.0) || (fCur > 0.0 && fNxt < 0.0))
-        {
+        if ((fCur < 0.0 && fNxt > 0.0) || (fCur > 0.0 && fNxt < 0.0)) {
             const double denom = fCur - fNxt;
-            if (denom != 0.0)
-            {
+            if (denom != 0.0) {
                 const double t = fCur / denom;
-                out.push_back(QPointF(cur.x() + t * (nxt.x() - cur.x()),
-                                      cur.y() + t * (nxt.y() - cur.y())));
+                out.push_back(
+                    QPointF(cur.x() + t * (nxt.x() - cur.x()), cur.y() + t * (nxt.y() - cur.y())));
             }
         }
     }
 }
 
+/**
+ * @brief Compute absolute shoelace area for a scratch ring.
+ * @param[in] r Ordered open ring with implicit closing edge.
+ * @return Area in squared coordinate units; zero for empty input.
+ */
 double ringArea(const std::vector<QPointF> &r)
 {
     double a2 = 0.0;
     const size_t n = r.size();
-    for (size_t i = 0; i < n; ++i)
-    {
+    for (size_t i = 0; i < n; ++i) {
         const QPointF &p = r[i];
         const QPointF &q = r[(i + 1) % n];
         a2 += p.x() * q.y() - q.x() * p.y();
@@ -200,11 +206,9 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
     // Same coincidence rule as thiessenAreaShares(): a later site within the
     // tolerance of an earlier one owns no cell.
     QVector<int> live;
-    for (int i = 0; i < g; ++i)
-    {
+    for (int i = 0; i < g; ++i) {
         for (int j : std::as_const(live))
-            if (dist2(sites[i], sites[j]) <= kSiteCoincidenceTol2)
-            {
+            if (dist2(sites[i], sites[j]) <= kSiteCoincidenceTol2) {
                 m_shadowed[i] = true;
                 break;
             }
@@ -214,27 +218,24 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
 
     // Delaunay neighbours, triangulated in a normalised frame for conditioning
     // (the same treatment NaturalNeighbourInterpolator gives its seeds).
-    if (live.size() >= 3)
-    {
+    if (live.size() >= 3) {
         double minX = sites[live[0]].x(), maxX = minX;
         double minY = sites[live[0]].y(), maxY = minY;
-        for (int i : std::as_const(live))
-        {
-            minX = std::min(minX, sites[i].x()); maxX = std::max(maxX, sites[i].x());
-            minY = std::min(minY, sites[i].y()); maxY = std::max(maxY, sites[i].y());
+        for (int i : std::as_const(live)) {
+            minX = std::min(minX, sites[i].x());
+            maxX = std::max(maxX, sites[i].x());
+            minY = std::min(minY, sites[i].y());
+            maxY = std::max(maxY, sites[i].y());
         }
         const double scale = std::max(maxX - minX, maxY - minY);
-        if (scale > 0.0)
-        {
+        if (scale > 0.0) {
             QVector<QPointF> norm;
             norm.reserve(live.size());
             for (int i : std::as_const(live))
-                norm.append(QPointF((sites[i].x() - minX) / scale,
-                                    (sites[i].y() - minY) / scale));
+                norm.append(QPointF((sites[i].x() - minX) / scale, (sites[i].y() - minY) / scale));
             mesh::ConstrainedDelaunay cdt;
             QVector<int> vertexOf;
-            if (cdt.build(norm, &vertexOf))
-            {
+            if (cdt.build(norm, &vertexOf)) {
                 cdt.removeSuperTriangles();
                 // Vertex id -> original site index (duplicates after
                 // normalisation collapse onto their first occurrence).
@@ -244,12 +245,10 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
                         siteOfVertex.insert(vertexOf[k], live[k]);
                 QVector<QSet<int>> nb(g);
                 bool any = false;
-                for (const auto &t : cdt.triangles())
-                {
+                for (const auto &t : cdt.triangles()) {
                     if (!t.alive)
                         continue;
-                    for (int e = 0; e < 3; ++e)
-                    {
+                    for (int e = 0; e < 3; ++e) {
                         const int a = siteOfVertex.value(t.v[e], -1);
                         const int b = siteOfVertex.value(t.v[(e + 1) % 3], -1);
                         if (a < 0 || b < 0 || a == b)
@@ -259,11 +258,9 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
                         any = true;
                     }
                 }
-                if (any)
-                {
+                if (any) {
                     m_delaunay = true;
-                    for (int i : std::as_const(live))
-                    {
+                    for (int i : std::as_const(live)) {
                         QVector<int> v(nb[i].begin(), nb[i].end());
                         std::sort(v.begin(), v.end());
                         m_nbrs[i] = v;
@@ -285,21 +282,24 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
     double bx0 = e.left(), bx1 = e.right(), by0 = e.top(), by1 = e.bottom();
     const bool haveExtent = !e.isNull();
     bool first = !haveExtent;
-    for (int i : std::as_const(live))
-    {
+    for (int i : std::as_const(live)) {
         const QPointF &p = sites[i];
-        if (first) { bx0 = bx1 = p.x(); by0 = by1 = p.y(); first = false; }
-        bx0 = std::min(bx0, p.x()); bx1 = std::max(bx1, p.x());
-        by0 = std::min(by0, p.y()); by1 = std::max(by1, p.y());
+        if (first) {
+            bx0 = bx1 = p.x();
+            by0 = by1 = p.y();
+            first = false;
+        }
+        bx0 = std::min(bx0, p.x());
+        bx1 = std::max(bx1, p.x());
+        by0 = std::min(by0, p.y());
+        by1 = std::max(by1, p.y());
     }
     const double pad = std::max(1.0, 0.01 * std::max(bx1 - bx0, by1 - by0));
     const QRectF box(QPointF(bx0 - pad, by0 - pad), QPointF(bx1 + pad, by1 + pad));
     std::vector<QPointF> cell, tmp;
-    for (int i : std::as_const(live))
-    {
+    for (int i : std::as_const(live)) {
         cell = {box.topLeft(), box.topRight(), box.bottomRight(), box.bottomLeft()};
-        for (int j : std::as_const(m_nbrs[i]))
-        {
+        for (int j : std::as_const(m_nbrs[i])) {
             clipInto(cell, sites[i], sites[j], tmp);
             cell.swap(tmp);
             if (cell.size() < 3)
@@ -308,10 +308,11 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
         if (cell.size() < 3)
             continue;
         double x0 = cell[0].x(), x1 = x0, y0 = cell[0].y(), y1 = y0;
-        for (const QPointF &p : cell)
-        {
-            x0 = std::min(x0, p.x()); x1 = std::max(x1, p.x());
-            y0 = std::min(y0, p.y()); y1 = std::max(y1, p.y());
+        for (const QPointF &p : cell) {
+            x0 = std::min(x0, p.x());
+            x1 = std::max(x1, p.x());
+            y0 = std::min(y0, p.y());
+            y1 = std::max(y1, p.y());
         }
         m_cellBox[i] = QRectF(QPointF(x0, y0), QPointF(x1, y1));
     }
@@ -321,12 +322,11 @@ int ThiessenIndex::nearestSite(const QPointF &p) const
 {
     int best = -1;
     double bestD = 0.0;
-    for (int i = 0; i < m_sites.size(); ++i)
-    {
+    for (int i = 0; i < m_sites.size(); ++i) {
         if (m_shadowed[i])
             continue;
         const double d = dist2(p, m_sites[i]);
-        if (best < 0 || d < bestD)   // strict — ties keep the lowest index
+        if (best < 0 || d < bestD) // strict — ties keep the lowest index
         {
             best = i;
             bestD = d;
@@ -351,28 +351,26 @@ QVector<double> ThiessenIndex::areaShares(const QVector<QPointF> &ring) const
 
     thread_local std::vector<QPointF> cell, tmp, src;
     src.assign(ring.begin(), ring.end());
-    if (oneCell)
-    {
+    if (oneCell) {
         shares[first] = ringArea(src);
         return shares;
     }
 
     double x0 = ring[0].x(), x1 = x0, y0 = ring[0].y(), y1 = y0;
-    for (const QPointF &p : ring)
-    {
-        x0 = std::min(x0, p.x()); x1 = std::max(x1, p.x());
-        y0 = std::min(y0, p.y()); y1 = std::max(y1, p.y());
+    for (const QPointF &p : ring) {
+        x0 = std::min(x0, p.x());
+        x1 = std::max(x1, p.x());
+        y0 = std::min(y0, p.y());
+        y1 = std::max(y1, p.y());
     }
-    for (int i = 0; i < g; ++i)
-    {
+    for (int i = 0; i < g; ++i) {
         if (m_shadowed[i] || m_cellBox[i].isNull())
             continue;
         const QRectF &b = m_cellBox[i];
         if (b.right() < x0 || b.left() > x1 || b.bottom() < y0 || b.top() > y1)
-            continue;   // this cell cannot reach the ring
+            continue; // this cell cannot reach the ring
         cell = src;
-        for (int j : m_nbrs[i])
-        {
+        for (int j : m_nbrs[i]) {
             clipInto(cell, m_sites[i], m_sites[j], tmp);
             cell.swap(tmp);
             if (cell.size() < 3)
@@ -392,13 +390,12 @@ int areaMajorityGage(const QVector<double> &shares, double *fractionOut)
     int best = -1;
     double bestArea = 0.0;
     double total = 0.0;
-    for (int i = 0; i < static_cast<int>(shares.size()); ++i)
-    {
+    for (int i = 0; i < static_cast<int>(shares.size()); ++i) {
         const double a = shares[i];
         if (!(a > 0.0))
             continue;
         total += a;
-        if (a > bestArea)   // strict — ties keep the earlier, lowest index
+        if (a > bestArea) // strict — ties keep the earlier, lowest index
         {
             bestArea = a;
             best = i;
@@ -427,8 +424,7 @@ QVector<QPointF> samplePolygon(const QVector<QPointF> &ring, int target)
 
     double minX = ring[0].x(), maxX = ring[0].x();
     double minY = ring[0].y(), maxY = ring[0].y();
-    for (const QPointF &p : ring)
-    {
+    for (const QPointF &p : ring) {
         minX = std::min(minX, p.x());
         maxX = std::max(maxX, p.x());
         minY = std::min(minY, p.y());
@@ -444,16 +440,14 @@ QVector<QPointF> samplePolygon(const QVector<QPointF> &ring, int target)
         return {EditGeometry::interiorPoint(ring)};
 
     // Coarsen when the bounding box would demand too many candidates.
-    const double candidates =
-        (spanX / pitch + 1.0) * (spanY / pitch + 1.0);
+    const double candidates = (spanX / pitch + 1.0) * (spanY / pitch + 1.0);
     if (candidates > static_cast<double>(kMaxLatticeCandidates))
         pitch *= std::sqrt(candidates / static_cast<double>(kMaxLatticeCandidates));
 
     QVector<QPointF> pts;
     pts.reserve(want);
     for (double y = minY + 0.5 * pitch; y <= maxY; y += pitch)
-        for (double x = minX + 0.5 * pitch; x <= maxX; x += pitch)
-        {
+        for (double x = minX + 0.5 * pitch; x <= maxX; x += pitch) {
             const QPointF p(x, y);
             if (EditGeometry::pointInRing(ring, p))
                 pts.append(p);
@@ -464,8 +458,7 @@ QVector<QPointF> samplePolygon(const QVector<QPointF> &ring, int target)
     return pts;
 }
 
-QVector<QPair<int, double>> idwWeights(const QPointF &p,
-                                       const QVector<QPointF> &sites)
+QVector<QPair<int, double>> idwWeights(const QPointF &p, const QVector<QPointF> &sites)
 {
     const int n = static_cast<int>(sites.size());
     QVector<QPair<int, double>> out;
@@ -478,8 +471,7 @@ QVector<QPair<int, double>> idwWeights(const QPointF &p,
 
     out.reserve(n);
     double total = 0.0;
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         const double w = 1.0 / dist2(p, sites[i]);
         out.append({i, w});
         total += w;
@@ -488,7 +480,7 @@ QVector<QPair<int, double>> idwWeights(const QPointF &p,
         return {};
     for (QPair<int, double> &t : out)
         t.second /= total;
-    return out;   // built in ascending index order
+    return out; // built in ascending index order
 }
 
 // ===========================================================================
@@ -505,11 +497,9 @@ ClusterKey quantizeWeights(const QVector<double> &w, double tol, double wEps)
     // Clamp the microscopic tail away, then renormalise what survives.
     QVector<double> clamped(n, 0.0);
     double total = 0.0;
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         const double v = w[i];
-        if (std::isfinite(v) && v >= wEps)
-        {
+        if (std::isfinite(v) && v >= wEps) {
             clamped[i] = v;
             total += v;
         }
@@ -521,12 +511,11 @@ ClusterKey quantizeWeights(const QVector<double> &w, double tol, double wEps)
     double best = 0.0;
     QVector<long long> q(n, 0);
     long long sum = 0;
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         const double v = clamped[i] / total;
         q[i] = std::llround(v / tol);
         sum += q[i];
-        if (v > best)   // strict — ties keep the lowest index
+        if (v > best) // strict — ties keep the lowest index
         {
             best = v;
             argmax = i;

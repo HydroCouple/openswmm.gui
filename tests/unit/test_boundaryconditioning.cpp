@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-/*!
- * \file   test_boundaryconditioning.cpp
- * \brief  Footprint conditioning (MESH_REGIONAL_TRIQUAD_PLAN D-R3): holes and
+/**
+ * @file      test_boundaryconditioning.cpp
+ * @brief     Footprint conditioning (MESH_REGIONAL_TRIQUAD_PLAN D-R3): holes and
  *         gaps narrower than the minimum cell size go, redundant vertices go,
- *         square corners stay square. SWMMVIS_BOUNDARY_CONDITION_FILE=<shp>
+ *         square corners stay square. SWMMVIS_BOUNDARY_CONDITION_FILE=boundary.shp
  *         additionally times a real boundary.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include "mesh/boundaryconditioning.h"
@@ -22,8 +27,18 @@
 
 using namespace mesh;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Parse controlled fixture WKT and record its OGR parse status.
+ * @param text Borrowed nonnull null-terminated geometry WKT; no spatial reference.
+ * @return Owning geometry pointer using default delete, possibly null on failure.
+ * Records a nonfatal expectation and still returns; callers must assert before use.
+ * No file access or coordinate transformation.
+ *
+ */
 std::unique_ptr<OGRGeometry> wkt(const char *text)
 {
     OGRGeometry *g = nullptr;
@@ -31,18 +46,38 @@ std::unique_ptr<OGRGeometry> wkt(const char *text)
     return std::unique_ptr<OGRGeometry>(g);
 }
 
+/**
+ *
+ * @brief Wrap production boundary conditioning in an owned fixture result.
+ * @param g Borrowed input geometry accepted by conditionMeshRegion, not owned here.
+ * @param gap Minimum resolved gap in the geometry's planar coordinate units;
+ * intended finite nonnegative.
+ * @param r Borrowed output report pointer passed through to production.
+ * @return Owning conditioned geometry using default delete, or null on production
+ * failure. Simplification tolerance is .25*gap. No local status assertion or input edit.
+ *
+ */
 std::unique_ptr<OGRGeometry> condition(const OGRGeometry *g, double gap, BoundaryConditionReport *r)
 {
     return std::unique_ptr<OGRGeometry>(conditionMeshRegion(g, gap, 0.25 * gap, r));
 }
 
-/*! Holes as (minX, minY, maxX, maxY) envelopes, for assertions. */
+/**
+ *
+ * @brief Collect hole extents for controlled polygon assertions.
+ * @param g Borrowed nonnull polygon geometry; caller must verify polygon type first.
+ * @return Owned envelopes in interior-ring order and input coordinate units. Does
+ * not support arbitrary geometry types or validate rings; no input mutation.
+ *
+ */
 std::vector<OGREnvelope> holeEnvelopes(const OGRGeometry *g)
 {
     std::vector<OGREnvelope> out;
     const OGRPolygon *poly = g->toPolygon();
     for (int i = 0; i < poly->getNumInteriorRings(); ++i) {
-        OGREnvelope e; poly->getInteriorRing(i)->getEnvelope(&e); out.push_back(e);
+        OGREnvelope e;
+        poly->getInteriorRing(i)->getEnvelope(&e);
+        out.push_back(e);
     }
     return out;
 }
@@ -68,11 +103,11 @@ TEST(BoundaryConditioning, NarrowHolesFillAndCloseHolesMerge)
     bool merged = false, lone = false;
     for (const auto &e : holes) {
         merged = merged || (std::abs(e.MinX - 40) < 1e-9 && std::abs(e.MaxX - 61) < 1e-9);
-        lone = lone || (std::abs(e.MinX - 70) < 1e-9 && std::abs(e.MaxX - 80) < 1e-9
-                        && std::abs(e.MinY - 70) < 1e-9 && std::abs(e.MaxY - 80) < 1e-9);
+        lone = lone || (std::abs(e.MinX - 70) < 1e-9 && std::abs(e.MaxX - 80) < 1e-9 &&
+                        std::abs(e.MinY - 70) < 1e-9 && std::abs(e.MaxY - 80) < 1e-9);
     }
     EXPECT_TRUE(merged);
-    EXPECT_TRUE(lone);   // a wide hole keeps its exact square shape
+    EXPECT_TRUE(lone); // a wide hole keeps its exact square shape
 }
 
 TEST(BoundaryConditioning, GapToTheBoundaryClosesIntoANotch)
@@ -94,17 +129,21 @@ TEST(BoundaryConditioning, ThinProtrusionsAndRedundantVerticesGo)
     // A 20 x 20 building with a 0.5-wide, 6-long spike and extra collinear
     // vertices along its edges: the spike is cut back and the collinear
     // vertices dropped, leaving the four square corners.
-    auto g = wkt("POLYGON((0 0,100 0,100 100,0 100,0 0),"
-                 "(40 40,45 40,50 40,55 40,60 40,60 50,60 60,50 60,50.25 60,50.25 66,49.75 66,49.75 60,40 60,40 50,40 40))");
+    auto g = wkt(
+        "POLYGON((0 0,100 0,100 100,0 100,0 0),"
+        "(40 40,45 40,50 40,55 40,60 40,60 50,60 60,50 60,50.25 60,50.25 66,49.75 66,49.75 60,40 60,40 50,40 40))");
     BoundaryConditionReport r;
     auto out = condition(g.get(), 2.0, &r);
     ASSERT_TRUE(out);
     ASSERT_EQ(r.holesOut, 1);
     const OGRLinearRing *hole = out->toPolygon()->getInteriorRing(0);
-    EXPECT_EQ(hole->getNumPoints(), 5);   // closed square: 4 corners + repeat
-    OGREnvelope e; hole->getEnvelope(&e);
-    EXPECT_NEAR(e.MinX, 40, 1e-9); EXPECT_NEAR(e.MaxX, 60, 1e-9);
-    EXPECT_NEAR(e.MinY, 40, 1e-9); EXPECT_NEAR(e.MaxY, 60, 1e-9);
+    EXPECT_EQ(hole->getNumPoints(), 5); // closed square: 4 corners + repeat
+    OGREnvelope e;
+    hole->getEnvelope(&e);
+    EXPECT_NEAR(e.MinX, 40, 1e-9);
+    EXPECT_NEAR(e.MaxX, 60, 1e-9);
+    EXPECT_NEAR(e.MinY, 40, 1e-9);
+    EXPECT_NEAR(e.MaxY, 60, 1e-9);
 }
 
 TEST(BoundaryConditioning, NonPositiveGapOrNonPolygonIsRefused)
@@ -121,21 +160,28 @@ TEST(BoundaryConditioning, NonPositiveGapOrNonPolygonIsRefused)
 TEST(BoundaryConditioning, RealBoundaryTiming)
 {
     const QString path = qEnvironmentVariable("SWMMVIS_BOUNDARY_CONDITION_FILE");
-    if (path.isEmpty()) GTEST_SKIP() << "opt-in";
+    if (path.isEmpty())
+        GTEST_SKIP() << "opt-in";
     const double gap = qEnvironmentVariableIsSet("SWMMVIS_BOUNDARY_CONDITION_GAP")
-        ? qEnvironmentVariable("SWMMVIS_BOUNDARY_CONDITION_GAP").toDouble() : 6.56;
+                           ? qEnvironmentVariable("SWMMVIS_BOUNDARY_CONDITION_GAP").toDouble()
+                           : 6.56;
     GDALAllRegister();
-    std::unique_ptr<GDALDataset> ds(GDALDataset::Open(path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY));
+    std::unique_ptr<GDALDataset> ds(
+        GDALDataset::Open(path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY));
     ASSERT_TRUE(ds);
     OGRMultiPolygon mp;
     for (auto &f : *ds->GetLayer(0)) {
         const OGRGeometry *geom = f->GetGeometryRef();
-        if (!geom) continue;
-        if (wkbFlatten(geom->getGeometryType()) == wkbPolygon) mp.addGeometry(geom);
+        if (!geom)
+            continue;
+        if (wkbFlatten(geom->getGeometryType()) == wkbPolygon)
+            mp.addGeometry(geom);
         else if (wkbFlatten(geom->getGeometryType()) == wkbMultiPolygon)
-            for (const OGRPolygon *p : *geom->toMultiPolygon()) mp.addGeometry(p);
+            for (const OGRPolygon *p : *geom->toMultiPolygon())
+                mp.addGeometry(p);
     }
-    QElapsedTimer clock; clock.start();
+    QElapsedTimer clock;
+    clock.start();
     std::unique_ptr<OGRGeometry> dissolved(mp.UnaryUnion());
     ASSERT_TRUE(dissolved);
     const qint64 unionMs = clock.elapsed();
@@ -153,23 +199,32 @@ TEST(BoundaryConditioning, RealBoundaryTiming)
     // Optional probe: SWMMVIS_BOUNDARY_CONDITION_PROBE="x,y,radius" prints
     // every conditioned ring vertex near a point (diagnostics).
     // SWMMVIS_BOUNDARY_CONDITION_SEEDS="x1,y1;x2,y2": which ring holds each point.
-    for (const QString &pt : qEnvironmentVariable("SWMMVIS_BOUNDARY_CONDITION_SEEDS").split(';', Qt::SkipEmptyParts)) {
+    for (const QString &pt :
+         qEnvironmentVariable("SWMMVIS_BOUNDARY_CONDITION_SEEDS").split(';', Qt::SkipEmptyParts)) {
         const QStringList xy = pt.split(',');
         OGRPoint q(xy[0].toDouble(), xy[1].toDouble());
         OGRMultiPolygon polys;
-        if (wkbFlatten(out->getGeometryType()) == wkbPolygon) polys.addGeometry(out.get());
-        else for (const OGRPolygon *p : *out->toMultiPolygon()) polys.addGeometry(p);
+        if (wkbFlatten(out->getGeometryType()) == wkbPolygon)
+            polys.addGeometry(out.get());
+        else
+            for (const OGRPolygon *p : *out->toMultiPolygon())
+                polys.addGeometry(p);
         QString where = QStringLiteral("outside every polygon");
         int pi = 0;
         for (const OGRPolygon *poly : polys) {
-            OGRPolygon shell; shell.addRing(poly->getExteriorRing());
+            OGRPolygon shell;
+            shell.addRing(poly->getExteriorRing());
             if (shell.Contains(&q)) {
                 where = QStringLiteral("inside polygon %1 (meshed area)").arg(pi);
                 for (int h = 0; h < poly->getNumInteriorRings(); ++h) {
-                    OGRPolygon hole; hole.addRing(poly->getInteriorRing(h));
+                    OGRPolygon hole;
+                    hole.addRing(poly->getInteriorRing(h));
                     if (hole.Contains(&q)) {
-                        where = QStringLiteral("inside polygon %1 hole %2 (%3 vertices, area %4)").arg(pi).arg(h)
-                                    .arg(poly->getInteriorRing(h)->getNumPoints()).arg(hole.get_Area(), 0, 'f', 0);
+                        where = QStringLiteral("inside polygon %1 hole %2 (%3 vertices, area %4)")
+                                    .arg(pi)
+                                    .arg(h)
+                                    .arg(poly->getInteriorRing(h)->getNumPoints())
+                                    .arg(hole.get_Area(), 0, 'f', 0);
                         break;
                     }
                 }
@@ -182,15 +237,20 @@ TEST(BoundaryConditioning, RealBoundaryTiming)
     if (probe.size() == 3) {
         const double px = probe[0].toDouble(), py = probe[1].toDouble(), pr = probe[2].toDouble();
         OGRMultiPolygon polys;
-        if (wkbFlatten(out->getGeometryType()) == wkbPolygon) polys.addGeometry(out.get());
-        else for (const OGRPolygon *p : *out->toMultiPolygon()) polys.addGeometry(p);
+        if (wkbFlatten(out->getGeometryType()) == wkbPolygon)
+            polys.addGeometry(out.get());
+        else
+            for (const OGRPolygon *p : *out->toMultiPolygon())
+                polys.addGeometry(p);
         int pi = 0;
         for (const OGRPolygon *poly : polys) {
             for (int ri = -1; ri < poly->getNumInteriorRings(); ++ri) {
-                const OGRLinearRing *ring = ri < 0 ? poly->getExteriorRing() : poly->getInteriorRing(ri);
+                const OGRLinearRing *ring =
+                    ri < 0 ? poly->getExteriorRing() : poly->getInteriorRing(ri);
                 for (int i = 0; i < ring->getNumPoints(); ++i)
                     if (std::hypot(ring->getX(i) - px, ring->getY(i) - py) < pr)
-                        std::printf("poly %d ring %d vertex %d: %.4f %.4f\n", pi, ri, i, ring->getX(i), ring->getY(i));
+                        std::printf("poly %d ring %d vertex %d: %.4f %.4f\n", pi, ri, i,
+                                    ring->getX(i), ring->getY(i));
             }
             ++pi;
         }

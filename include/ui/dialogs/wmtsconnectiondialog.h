@@ -1,11 +1,11 @@
-/*!
- * \file   wmtsconnectiondialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
+/**
+ * @file      wmtsconnectiondialog.h
+ * @brief     Dialog for connecting to an OGC WMTS service and selecting a layer to add.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #ifndef WMTSCONNECTIONDIALOG_H
@@ -51,7 +51,6 @@ class WMTSConnectionDialog : public QDialog
     Q_OBJECT
 
 public:
-
     explicit WMTSConnectionDialog(QWidget *parent = nullptr);
     ~WMTSConnectionDialog() override;
 
@@ -74,17 +73,17 @@ private:
     void saveRecentUrls();
     void loadRecentUrls();
 
-    QComboBox        *m_urlCombo        = nullptr;
-    QTreeWidget      *m_layerList       = nullptr;
-    QComboBox        *m_tileMatrixCombo = nullptr;
-    QComboBox        *m_styleCombo      = nullptr;
-    QComboBox        *m_formatCombo     = nullptr;
-    QLabel           *m_serviceTitle    = nullptr;
-    QDialogButtonBox *m_buttonBox       = nullptr;
+    QComboBox *m_urlCombo = nullptr;
+    QTreeWidget *m_layerList = nullptr;
+    QComboBox *m_tileMatrixCombo = nullptr;
+    QComboBox *m_styleCombo = nullptr;
+    QComboBox *m_formatCombo = nullptr;
+    QLabel *m_serviceTitle = nullptr;
+    QDialogButtonBox *m_buttonBox = nullptr;
 
-    WMTSLayer        *m_pendingLayer    = nullptr;
-    WMTSServiceInfo  *m_serviceInfo     = nullptr;
-    QString           m_selectedLayerId;
+    WMTSLayer *m_pendingLayer = nullptr;
+    WMTSServiceInfo *m_serviceInfo = nullptr;
+    QString m_selectedLayerId;
 };
 
 #endif // WMTSCONNECTIONDIALOG_H

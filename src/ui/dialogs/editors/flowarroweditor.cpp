@@ -1,9 +1,17 @@
-/*!
- * \file   flowarroweditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      flowarroweditor.cpp
+ * @brief     Arrows are a property of the LINK KIND, not of the renderer, and two channels carry
+ *            them, chosen by the host: - model layers   → SWMMElementSymbol::showArrows /
+ *            arrowSize / arrowColor, through the layer's per-kind setters (which resync the
+ *            persistent symbol adapter the single-symbol editor and Cancel rollback use); -
+ *            results layers → LineFeatureSublayerStyle::showFlowArrows / arrowLengthPx /
+ *            arrowWidthPx / arrowColor.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/flowarroweditor.h"
 
 #include "layers/swmmmodellayer.h"
@@ -17,23 +25,26 @@
 #include <QFormLayout>
 #include <QSignalBlocker>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /*! The link kinds that carry a flow direction at all. Nodes and
  *  subcatchments have no upstream/downstream, so the group stays hidden. */
 bool isLinkKind(OpenSWMMVis::SwmmCategory c)
 {
     using namespace OpenSWMMVis;
-    return c == CatConduits || c == CatPumps || c == CatOrifices
-        || c == CatWeirs    || c == CatOutlets;
+    return c == CatConduits || c == CatPumps || c == CatOrifices || c == CatWeirs ||
+           c == CatOutlets;
 }
 
-OpenSWMM::Render::LineFeatureSublayerStyle *
-resultsLineStyle(SWMMResultsLayer *layer, OpenSWMMVis::SwmmCategory c)
+OpenSWMM::Render::LineFeatureSublayerStyle *resultsLineStyle(SWMMResultsLayer *layer,
+                                                             OpenSWMMVis::SwmmCategory c)
 {
-    if (!layer) return nullptr;
+    if (!layer)
+        return nullptr;
     auto *sub = layer->featureSublayer(c);
     return sub ? qobject_cast<OpenSWMM::Render::LineFeatureSublayerStyle *>(sub->featureStyle())
                : nullptr;
@@ -41,13 +52,11 @@ resultsLineStyle(SWMMResultsLayer *layer, OpenSWMMVis::SwmmCategory c)
 
 } // namespace
 
-FlowArrowEditor::FlowArrowEditor(OpenSWMMVisLayer *hostLayer,
-                                 OpenSWMMVis::SwmmCategory category,
+FlowArrowEditor::FlowArrowEditor(OpenSWMMVisLayer *hostLayer, OpenSWMMVis::SwmmCategory category,
                                  QWidget *parent)
-    : QGroupBox(tr("Flow direction arrows"), parent)
-    , m_modelLayer(qobject_cast<SWMMModelLayer *>(hostLayer))
-    , m_resultsLayer(qobject_cast<SWMMResultsLayer *>(hostLayer))
-    , m_category(category)
+    : QGroupBox(tr("Flow direction arrows"), parent),
+      m_modelLayer(qobject_cast<SWMMModelLayer *>(hostLayer)),
+      m_resultsLayer(qobject_cast<SWMMResultsLayer *>(hostLayer)), m_category(category)
 {
     auto *aForm = new QFormLayout(this);
     m_showChk = new QCheckBox(tr("Show flow arrows"), this);
@@ -70,44 +79,45 @@ FlowArrowEditor::FlowArrowEditor(OpenSWMMVisLayer *hostLayer,
     aForm->addRow(tr("Colou&r:"), m_colorBtn);
 
     connect(m_showChk, &QCheckBox::toggled, this, [this](bool) { onChanged(); });
-    connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double) { onChanged(); });
-    connect(m_widSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double) { onChanged(); });
-    connect(m_colorBtn, &ColorButton::colorChanged,
-            this, [this](const QColor &) { onChanged(); });
+    connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double) { onChanged(); });
+    connect(m_widSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double) { onChanged(); });
+    connect(m_colorBtn, &ColorButton::colorChanged, this, [this](const QColor &) { onChanged(); });
 
     refreshFromModel();
 }
 
 bool FlowArrowEditor::hasChannel() const
 {
-    if (!isLinkKind(m_category)) return false;
+    if (!isLinkKind(m_category))
+        return false;
     return m_modelLayer || resultsLineStyle(m_resultsLayer, m_category);
 }
 
 void FlowArrowEditor::refreshFromModel()
 {
-    bool   show = false;
+    bool show = false;
     double size = 10.0;
     double width = 12.0;
     QColor color(34, 34, 34);
     const bool have = hasChannel();
 
     if (have && m_modelLayer) {
-        show  = m_modelLayer->linkArrowsEnabled(m_category);
-        size  = m_modelLayer->linkArrowSize(m_category);
+        show = m_modelLayer->linkArrowsEnabled(m_category);
+        size = m_modelLayer->linkArrowSize(m_category);
         width = m_modelLayer->linkArrowWidth(m_category);
         color = m_modelLayer->linkArrowColor(m_category);
     } else if (auto *ls = have ? resultsLineStyle(m_resultsLayer, m_category) : nullptr) {
-        show  = ls->showFlowArrows();
-        size  = ls->arrowLengthPx();
+        show = ls->showFlowArrows();
+        size = ls->arrowLengthPx();
         width = ls->arrowWidthPx();
         color = ls->arrowColor();
     }
 
     setVisible(have);
-    if (!have) return;
+    if (!have)
+        return;
 
     QSignalBlocker b1(m_showChk), b2(m_sizeSpin), b3(m_colorBtn), b4(m_widSpin);
     m_showChk->setChecked(show);
@@ -121,8 +131,8 @@ void FlowArrowEditor::refreshFromModel()
 
 void FlowArrowEditor::onChanged()
 {
-    const bool   show  = m_showChk->isChecked();
-    const double size  = m_sizeSpin->value();
+    const bool show = m_showChk->isChecked();
+    const double size = m_sizeSpin->value();
     const double width = m_widSpin->value();
     const QColor color = m_colorBtn->color();
     m_sizeSpin->setEnabled(show);

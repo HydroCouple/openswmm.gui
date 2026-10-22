@@ -1,17 +1,16 @@
-/*!
- * \file   test_nninterpvalues.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      test_nninterpvalues.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
  *
- * \brief Characterization QtTest pinning the NUMERIC output of
+ * @brief     Characterization QtTest pinning the NUMERIC output of
  *        NaturalNeighbourInterpolator::interpolate().
  *
- *        test_nninterpdegenerate.cpp covers only degenerate inputs — it asserts
- *        nothing about the values interpolate() returns, so it cannot catch a
- *        regression in the weight computation. These tests close that gap:
+ *        test_nninterpdegenerate.cpp focuses on refusal cases plus a flat-field
+ *        control. These cases add linear/nonlinear weight characterization:
  *
  *          - Mathematical invariants that any correct natural-neighbour scheme
- *            must satisfy (seed reproduction, constant reproduction, linear
+ *            must satisfy (exact-seed NaN and near-seed convergence, constant and linear
  *            reproduction inside the hull, NaN outside it).
  *          - Golden values at asymmetric query points, captured from the
  *            implementation as it stood before weightsAt() was factored out.
@@ -19,6 +18,8 @@
  *
  *        If a change here fails, the mesh generator's no-DTM elevation fallback
  *        has changed too — that is the regression this file exists to catch.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest/QtTest>
@@ -34,9 +35,9 @@
 //
 // Verified: with the hash seed pinned, the refactored code reproduces all six
 // of these to every one of their 17 significant digits.
-#define GOLDEN_SIBSON_74_76  323.97299064429757
-#define GOLDEN_SIBSON_62_81  345.54678048148395
-#define GOLDEN_SIBSON_83_64  246.64036506507577
+#define GOLDEN_SIBSON_74_76 323.97299064429757
+#define GOLDEN_SIBSON_62_81 345.54678048148395
+#define GOLDEN_SIBSON_83_64 246.64036506507577
 #define GOLDEN_LAPLACE_74_76 324.09950633067291
 #define GOLDEN_LAPLACE_62_81 345.20757889920600
 #define GOLDEN_LAPLACE_83_64 247.53346615670281
@@ -62,13 +63,19 @@ namespace
 // EVERY query falls back — there is no interior path left to characterize. The
 // jitter breaks the cocircularity a perfect lattice would otherwise produce,
 // which the in-circle test treats as degenerate.
+/**
+ *
+ * @brief Construct the deterministic noncocircular interpolation seed lattice.
+ * @return Owned 36 XY points on a 6x6 grid with spacing 3 and small sine/cosine
+ * jitter in arbitrary planar fixture units. No interpolator state, randomness or file IO.
+ *
+ */
 QVector<QPointF> seeds()
 {
     QVector<QPointF> pts;
     pts.reserve(36);
     for (int j = 0; j < 6; ++j)
-        for (int i = 0; i < 6; ++i)
-        {
+        for (int i = 0; i < 6; ++i) {
             const double jx = 0.13 * std::sin(3.0 * i + 1.7 * j);
             const double jy = 0.11 * std::cos(2.3 * i - 0.9 * j);
             pts.append(QPointF(3.0 * i + jx, 3.0 * j + jy));
@@ -78,6 +85,14 @@ QVector<QPointF> seeds()
 
 // z = 2x - 3y + 7 sampled at the seeds — natural-neighbour coordinates
 // reproduce a linear field exactly, for both variants.
+/**
+ *
+ * @brief Sample the local linear reference field at supplied XY points.
+ * @param pts Borrowed ordered coordinates in common fixture units.
+ * @return Owned values 2*x-3*y+7 in the same order, without finite/range validation.
+ * This is a formula reference, not a production interpolation call.
+ *
+ */
 QVector<double> linearZ(const QVector<QPointF> &pts)
 {
     QVector<double> z;
@@ -87,8 +102,17 @@ QVector<double> linearZ(const QVector<QPointF> &pts)
     return z;
 }
 
-bool build(NaturalNeighbourInterpolator &interp,
-           NaturalNeighbourInterpolator::Variant v,
+/**
+ *
+ * @brief Set a variant and build interpolation over the fixed fixture seeds.
+ * @param interp Borrowed mutable interpolator; previous variant/mesh state may change.
+ * @param v Requested Sibson or Laplace variant.
+ * @param z Borrowed per-seed values, intended length 36 in seed order.
+ * @return Production build status; local diagnostic text is discarded. Does not
+ * assert success or roll back an earlier variant assignment after a build failure.
+ *
+ */
+bool build(NaturalNeighbourInterpolator &interp, NaturalNeighbourInterpolator::Variant v,
            const QVector<double> &z)
 {
     interp.setVariant(v);
@@ -103,13 +127,23 @@ class TestNNInterpValues : public QObject
 
 private slots:
     // ── Invariants: seed reproduction ───────────────────────────────────
+    /**
+     *
+     * @brief Supply Sibson/Laplace variant rows shared by the interpolation invariant cases.
+     *
+     */
     void reproducesSeedValues_data()
     {
         QTest::addColumn<int>("variant");
-        QTest::newRow("sibson")  << 0;
+        QTest::newRow("sibson") << 0;
         QTest::newRow("laplace") << 1;
     }
 
+    /**
+     *
+     * @brief Pin exact-seed NaN behavior and near-seed convergence within 1e-4 for both variants.
+     *
+     */
     void reproducesSeedValues()
     {
         QFETCH(int, variant);
@@ -135,15 +169,25 @@ private slots:
         QVERIFY(std::isnan(interp.interpolate(pts[14].x(), pts[14].y())));
 
         // Approaching that seed, the value does converge to it.
-        const double near = interp.interpolate(pts[14].x() + 1e-6,
-                                               pts[14].y() + 1e-6);
+        const double near = interp.interpolate(pts[14].x() + 1e-6, pts[14].y() + 1e-6);
         QVERIFY(std::isfinite(near));
         QVERIFY(std::abs(near - z[14]) < 1e-4);
     }
 
     // ── Invariants: constant field (partition of unity) ─────────────────
+    /**
+     *
+     * @brief Reuse the two-variant invariant data table for constant-field reproduction.
+     *
+     */
     void reproducesConstantField_data() { reproducesSeedValues_data(); }
 
+    /**
+     *
+     * @brief Require each finite probe value to reproduce 42 within 1e-9 for both variants.
+     * NaN probes are skipped and this case does not require a positive count of finite probes.
+     *
+     */
     void reproducesConstantField()
     {
         QFETCH(int, variant);
@@ -156,20 +200,30 @@ private slots:
                       z));
 
         const QVector<QPointF> probes{{7.4, 7.6}, {6.2, 8.1}, {8.3, 6.4}, {7.0, 7.0}};
-        for (const QPointF &p : probes)
-        {
+        for (const QPointF &p : probes) {
             const double got = interp.interpolate(p.x(), p.y());
             if (!std::isfinite(got))
-                continue;   // cavity touched the hull — legitimate NaN
-            QVERIFY2(std::abs(got - 42.0) < 1e-9,
-                     qPrintable(QStringLiteral("at (%1,%2) got %3")
-                                    .arg(p.x()).arg(p.y()).arg(got)));
+                continue; // cavity touched the hull — legitimate NaN
+            QVERIFY2(
+                std::abs(got - 42.0) < 1e-9,
+                qPrintable(QStringLiteral("at (%1,%2) got %3").arg(p.x()).arg(p.y()).arg(got)));
         }
     }
 
     // ── Invariants: linear reproduction inside the hull ─────────────────
+    /**
+     *
+     * @brief Reuse the two-variant invariant data table for linear-field reproduction.
+     *
+     */
     void reproducesLinearField_data() { reproducesSeedValues_data(); }
 
+    /**
+     *
+     * @brief Require finite interior probes to reproduce 2*x-3*y+7 within 1e-8 and at least one
+     * probe to be checked.
+     *
+     */
     void reproducesLinearField()
     {
         QFETCH(int, variant);
@@ -182,25 +236,38 @@ private slots:
                       z));
 
         int checked = 0;
-        const QVector<QPointF> probes{{7.4, 7.6}, {6.2, 8.1}, {8.3, 6.4}, {7.0, 7.0},
-                                      {9.1, 5.8}, {5.5, 9.2}};
-        for (const QPointF &p : probes)
-        {
+        const QVector<QPointF> probes{{7.4, 7.6}, {6.2, 8.1}, {8.3, 6.4},
+                                      {7.0, 7.0}, {9.1, 5.8}, {5.5, 9.2}};
+        for (const QPointF &p : probes) {
             const double got = interp.interpolate(p.x(), p.y());
             if (!std::isfinite(got))
                 continue;
             const double want = 2.0 * p.x() - 3.0 * p.y() + 7.0;
             QVERIFY2(std::abs(got - want) < 1e-8,
                      qPrintable(QStringLiteral("at (%1,%2) got %3 want %4")
-                                    .arg(p.x()).arg(p.y()).arg(got).arg(want)));
+                                    .arg(p.x())
+                                    .arg(p.y())
+                                    .arg(got)
+                                    .arg(want)));
             ++checked;
         }
         QVERIFY2(checked > 0, "no probe landed strictly inside the hull");
     }
 
     // ── Invariant: outside the hull is NaN, never a silent extrapolation ─
+    /**
+     *
+     * @brief Reuse Sibson/Laplace variant rows for outside-hull refusal checks.
+     *
+     */
     void outsideHullIsNaN_data() { reproducesSeedValues_data(); }
 
+    /**
+     *
+     * @brief Require three distant outside-hull coordinates to yield NaN for either interpolation
+     * variant.
+     *
+     */
     void outsideHullIsNaN()
     {
         QFETCH(int, variant);
@@ -222,6 +289,12 @@ private slots:
     // linear field would hide weight changes (any partition of unity
     // reproduces it), so these use a NON-linear field where the value depends
     // on the individual weights.
+    /**
+     *
+     * @brief Supply six asymmetric Sibson/Laplace query coordinates with pre-refactor nonlinear
+     * reference values.
+     *
+     */
     void goldenValues_data()
     {
         QTest::addColumn<int>("variant");
@@ -229,14 +302,21 @@ private slots:
         QTest::addColumn<double>("qy");
         QTest::addColumn<double>("expected");
 
-        QTest::newRow("sibson@7.4,7.6")    << 0 << 7.4  << 7.6  << GOLDEN_SIBSON_74_76;
-        QTest::newRow("sibson@6.2,8.1")    << 0 << 6.2  << 8.1  << GOLDEN_SIBSON_62_81;
-        QTest::newRow("sibson@8.3,6.4")<< 0 << 8.3 << 6.4 << GOLDEN_SIBSON_83_64;
-        QTest::newRow("laplace@7.4,7.6")   << 1 << 7.4  << 7.6  << GOLDEN_LAPLACE_74_76;
-        QTest::newRow("laplace@6.2,8.1")   << 1 << 6.2  << 8.1  << GOLDEN_LAPLACE_62_81;
-        QTest::newRow("laplace@8.3,6.4")<< 1 << 8.3<< 6.4 << GOLDEN_LAPLACE_83_64;
+        QTest::newRow("sibson@7.4,7.6") << 0 << 7.4 << 7.6 << GOLDEN_SIBSON_74_76;
+        QTest::newRow("sibson@6.2,8.1") << 0 << 6.2 << 8.1 << GOLDEN_SIBSON_62_81;
+        QTest::newRow("sibson@8.3,6.4") << 0 << 8.3 << 6.4 << GOLDEN_SIBSON_83_64;
+        QTest::newRow("laplace@7.4,7.6") << 1 << 7.4 << 7.6 << GOLDEN_LAPLACE_74_76;
+        QTest::newRow("laplace@6.2,8.1") << 1 << 6.2 << 8.1 << GOLDEN_LAPLACE_62_81;
+        QTest::newRow("laplace@8.3,6.4") << 1 << 8.3 << 6.4 << GOLDEN_LAPLACE_83_64;
     }
 
+    /**
+     *
+     * @brief Compare interpolation of seed-index-squared values with recorded golden values at
+     * 1e-12 relative tolerance.
+     * The tolerance permits preexisting hash-order floating-point reassociation.
+     *
+     */
     void goldenValues()
     {
         QFETCH(int, variant);
@@ -258,7 +338,8 @@ private slots:
         const double got = interp.interpolate(qx, qy);
         QVERIFY2(std::abs(got - expected) <= kGoldenRelTol * std::abs(expected),
                  qPrintable(QStringLiteral("got %1 expected %2")
-                                .arg(got, 0, 'g', 17).arg(expected, 0, 'g', 17)));
+                                .arg(got, 0, 'g', 17)
+                                .arg(expected, 0, 'g', 17)));
     }
 };
 

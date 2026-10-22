@@ -1,15 +1,16 @@
-/*!
- * \file   test_exportlayerdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The one export dialog
+/**
+ * @file      test_exportlayerdialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The one export dialog
  *         (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.3).
  *
  * The view only collects options: GeoPackage by default (Q8), a file for a
  * multi-layer format and a folder otherwise, WGS 84 stated for GeoJSON, the
  * checklist and options wired through, and nothing to export — or a
  * destination that is the source or the project's feature store — refused.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "io/gdaldrivers.h"
@@ -26,7 +27,8 @@ using openswmmvis::ui::ExportDialogSetup;
 using openswmmvis::ui::ExportItem;
 using openswmmvis::ui::ExportLayerDialog;
 
-namespace {
+namespace
+{
 
 ExportDialogSetup swmmSetup()
 {
@@ -35,7 +37,8 @@ ExportDialogSetup swmmSetup()
     s.title = QStringLiteral("Export SWMM objects");
     s.items << ExportItem{0, QStringLiteral("Junctions (12)"), QStringLiteral("junctions"), true}
             << ExportItem{4, QStringLiteral("Conduits (11)"), QStringLiteral("conduits"), true}
-            << ExportItem{9, QStringLiteral("Subcatchments (0)"), QStringLiteral("subcatchments"), false};
+            << ExportItem{9, QStringLiteral("Subcatchments (0)"), QStringLiteral("subcatchments"),
+                          false};
     s.canIncludeResults = true;
     s.includeResults = true;
     s.sourceCrsLabel = QStringLiteral("EPSG:25832");
@@ -44,7 +47,7 @@ ExportDialogSetup swmmSetup()
     return s;
 }
 
-}   // namespace
+} // namespace
 
 class TestExportLayerDialog : public QObject
 {
@@ -56,10 +59,11 @@ private slots:
         ExportLayerDialog dlg(swmmSetup());
         QCOMPARE(dlg.driver(), QStringLiteral("GPKG"));
         QCOMPARE(dlg.destination(), QStringLiteral("/data/project/model_objects.gpkg"));
-        QCOMPARE(dlg.targetPaths(), QStringList{QStringLiteral("/data/project/model_objects.gpkg")});
+        QCOMPARE(dlg.targetPaths(),
+                 QStringList{QStringLiteral("/data/project/model_objects.gpkg")});
         QCOMPARE(dlg.checkedItems(), (QList<int>{0, 4}));
         QVERIFY(dlg.includeResults());
-        QVERIFY(!dlg.addToMap());   // off by default
+        QVERIFY(!dlg.addToMap()); // off by default
         QVERIFY(dlg.targetSrsWkt().isEmpty());
         QVERIFY(dlg.validationError().isEmpty());
     }
@@ -114,11 +118,11 @@ private slots:
         ExportDialogSetup s = swmmSetup();
         s.protectedPaths << QStringLiteral("/data/project/model.features.gpkg");
         ExportLayerDialog dlg(s);
-        QVERIFY(dlg.validationError().isEmpty());   // default name is elsewhere
+        QVERIFY(dlg.validationError().isEmpty()); // default name is elsewhere
         dlg.setDestination(QStringLiteral("/data/project/model.features.gpkg"));
         QVERIFY(dlg.validationError().contains(QStringLiteral("model.features.gpkg")));
         dlg.setDestination(QStringLiteral("/data/project/../project/./model.features.gpkg"));
-        QVERIFY(!dlg.validationError().isEmpty());   // same file, spelt differently
+        QVERIFY(!dlg.validationError().isEmpty()); // same file, spelt differently
 
         // A folder is never taken for a file: GeoPackage would replace it whole.
         const QString folder = QCoreApplication::applicationDirPath();
@@ -158,7 +162,7 @@ private slots:
         QVERIFY(box->isEnabled());
         box->setChecked(true);
         QVERIFY(with.selectedOnly());
-        QCOMPARE(with.checkedItems(), QList<int>{0});   // no checklist: the one item
+        QCOMPARE(with.checkedItems(), QList<int>{0}); // no checklist: the one item
     }
 
     void rasterExportIsOneGeoTiff()

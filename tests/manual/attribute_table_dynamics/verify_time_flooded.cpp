@@ -17,12 +17,32 @@
 //   ./tests/manual/attribute_table_dynamics/verify_time_flooded \
 //       tests/manual/attribute_table_dynamics/pump_model.out
 
+/**
+ * @file      verify_time_flooded.cpp
+ * @brief     Tests for verify time flooded.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <openswmm/engine/openswmm_output.h>
 
 #include <cstdio>
 #include <cstring>
 #include <string>
 
+/**
+ *
+ * @brief Print flooded-node raw seconds and converted hours for manual report comparison.
+ * @param argc Process argument count; optional first path overrides pump_model.out.
+ * @param argv Borrowed null-terminated process strings; argv[1] is the native output
+ * filename when present, remaining arguments ignored.
+ * @return 1 if output cannot open, otherwise 0 after closing it. Skips missing node
+ * IDs, failed statistics and nonpositive values. No automated comparison/tolerance
+ * against the report; stdout values divide seconds by 3600 and no files are written.
+ *
+ */
 int main(int argc, char **argv)
 {
     const char *out = (argc > 1) ? argv[1] : "pump_model.out";
@@ -40,11 +60,14 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < nNodes; ++i) {
         const char *id = swmm_output_get_node_id(h, i);
-        if (!id) continue;
+        if (!id)
+            continue;
 
         double raw = 0.0;
-        if (swmm_output_get_node_stat_time_flooded(h, i, &raw) != 0) continue;
-        if (raw <= 0.0) continue;   // only the nodes the .rpt lists
+        if (swmm_output_get_node_stat_time_flooded(h, i, &raw) != 0)
+            continue;
+        if (raw <= 0.0)
+            continue; // only the nodes the .rpt lists
 
         std::printf("%-16s %14.2f %14.4f\n", id, raw, raw / 3600.0);
     }

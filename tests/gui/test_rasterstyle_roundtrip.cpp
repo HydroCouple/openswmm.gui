@@ -1,16 +1,16 @@
-/*!
- * \file   test_rasterstyle_roundtrip.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Raster symbology end-to-end: GISRasterLayer default-renderer
+/**
+ * @file      test_rasterstyle_roundtrip.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Raster symbology end-to-end: GISRasterLayer default-renderer
  *         selection, per-band statistics / sampling, classified rendering
  *         through the tile pipeline (and its cache invalidation), the RGB
  *         ↔ single-band switch, StyleFileIO / project-style round-trips
  *         (the dialog's Cancel + the .oswp block), and the Symbology-tab
  *         panel mounted by LayerStyleDialog.
  *
- *         Fixtures are synthesised with GDAL into <repo>/tests/output/
+ *         Fixtures are synthesised with GDAL into the repository tests/output/
  *         raster_style so a human can open them in QGIS afterwards — never
  *         a temp dir (CLAUDE.md §4.1):
  *           gradient_f32.tif — 50×50 Float32, value = x + y (0..98),
@@ -19,6 +19,7 @@
  *           rgb3.tif         — 20×20 3-band Byte (R 200, G x·10, B 50)
  *           multi_u16.tif    — 20×20 3-band UInt16 (all 1000)
  *         All in EPSG:32633, 10 m pixels, origin 500000 E / 4601000 N.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "layers/gisrasterlayer.h"
@@ -66,30 +67,62 @@ using OpenSWMM::Render::StyleFileIO;
 using openswmmvis::ui::LayerStyleDialog;
 using openswmmvis::ui::RasterSymbologyPanel;
 
-namespace {
+namespace
+{
 
 constexpr double kNoData = -9999.0;
-constexpr int    kEpsg   = 32633;
+constexpr int kEpsg = 32633;
 
-//! Reviewable output root: <repo>/tests/output/raster_style (never a temp dir).
+//! Reviewable output root: the repository tests/output/raster_style (never a temp dir).
+/**
+ *
+ * @brief Resolve/create the persistent raster-style inspection directory.
+ * @return output/raster_style under the directory two levels above
+ * SWMMVIS_GUI_TEST_DATA (default cwd). cdUp/mkpath statuses are unchecked; path can
+ * remain relative. Does not clear prior fixtures; builders replace named datasets.
+ *
+ */
 QString outputDir()
 {
     QDir d(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")));
-    d.cdUp();   // tests/gui
-    d.cdUp();   // tests
+    d.cdUp(); // tests/gui
+    d.cdUp(); // tests
     const QString out = d.filePath(QStringLiteral("output/raster_style"));
     QDir().mkpath(out);
     return out;
 }
 
-QString fixture(const char *name) { return outputDir() + QLatin1Char('/') + QLatin1String(name); }
+/**
+ *
+ * @brief Join a raster fixture filename to the inspection output root.
+ * @param name Borrowed null-terminated Latin-1 filename including extension.
+ * @return Owned joined path after outputDir attempts parent creation. No file open/
+ * validation or cleanup; callers use disposable names.
+ *
+ */
+QString fixture(const char *name)
+{
+    return outputDir() + QLatin1Char('/') + QLatin1String(name);
+}
 
+/**
+ *
+ * @brief Assign the fixed projected-metre transform and CRS to a fixture dataset.
+ * @param ds Nonnull borrowed writable GDAL dataset, retained by its caller.
+ * @return False for transform/CRS import/projection failure, true otherwise. Sets
+ * 10-metre north-up pixels at (500000,4601000), EPSG:32633. Frees WKT bytes; export
+ * status is inferred from its pointer. Earlier transform mutation is not rolled back
+ * if later steps fail; does not close/flush the dataset.
+ *
+ */
 bool applyGeoref(GDALDataset *ds)
 {
-    double gt[6] = { 500000.0, 10.0, 0.0, 4601000.0, 0.0, -10.0 };
-    if (ds->SetGeoTransform(gt) != CE_None) return false;
+    double gt[6] = {500000.0, 10.0, 0.0, 4601000.0, 0.0, -10.0};
+    if (ds->SetGeoTransform(gt) != CE_None)
+        return false;
     OGRSpatialReference srs;
-    if (srs.importFromEPSG(kEpsg) != OGRERR_NONE) return false;
+    if (srs.importFromEPSG(kEpsg) != OGRERR_NONE)
+        return false;
     char *wkt = nullptr;
     srs.exportToWkt(&wkt);
     const bool ok = wkt && ds->SetProjection(wkt) == CE_None;
@@ -97,37 +130,75 @@ bool applyGeoref(GDALDataset *ds)
     return ok;
 }
 
+/**
+ *
+ * @brief Create/replace one georeferenced GeoTIFF fixture.
+ * @param path Borrowed test-owned destination with an existing writable parent.
+ * @param w Positive pixel columns with representable allocation sizes.
+ * @param h Positive pixel rows.
+ * @param bands Positive raster band count supported by GTiff/type.
+ * @param type GDAL pixel storage type, copied to creation.
+ * @return Owned open dataset requiring GDALClose, or null on driver/create/georef
+ * failure. Registers drivers and attempts removal of an earlier path without checking
+ * unlink status. Failed georeferencing closes the new dataset but can leave its
+ * partial file; no transaction or complete input validation.
+ *
+ */
 GDALDataset *createTif(const QString &path, int w, int h, int bands, GDALDataType type)
 {
     GDALAllRegister();
     GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
-    if (!drv) return nullptr;
-    if (QFile::exists(path)) QFile::remove(path);
+    if (!drv)
+        return nullptr;
+    if (QFile::exists(path))
+        QFile::remove(path);
     GDALDataset *ds = drv->Create(path.toUtf8().constData(), w, h, bands, type, nullptr);
-    if (ds && !applyGeoref(ds)) { GDALClose(ds); return nullptr; }
+    if (ds && !applyGeoref(ds)) {
+        GDALClose(ds);
+        return nullptr;
+    }
     return ds;
 }
 
+/**
+ *
+ * @brief Replace the single-band 50x50 gradient raster used by style cases.
+ * @return True for successful creation/georef and full Float32 band write, false
+ * otherwise. Values x+y, with -9999 NoData in the upper-left 5x5 cells. NoData/close
+ * status is unchecked; partial file can remain. Coordinates follow applyGeoref.
+ *
+ */
 bool buildGradient()
 {
     GDALDataset *ds = createTif(fixture("gradient_f32.tif"), 50, 50, 1, GDT_Float32);
-    if (!ds) return false;
+    if (!ds)
+        return false;
     GDALRasterBand *b = ds->GetRasterBand(1);
     b->SetNoDataValue(kNoData);
     std::vector<float> px(50 * 50);
     for (int y = 0; y < 50; ++y)
         for (int x = 0; x < 50; ++x)
             px[size_t(y) * 50 + x] = (x < 5 && y < 5) ? float(kNoData) : float(x + y);
-    const bool ok = b->RasterIO(GF_Write, 0, 0, 50, 50, px.data(), 50, 50,
-                                GDT_Float32, 0, 0) == CE_None;
+    const bool ok =
+        b->RasterIO(GF_Write, 0, 0, 50, 50, px.data(), 50, 50, GDT_Float32, 0, 0) == CE_None;
     GDALClose(ds);
     return ok;
 }
 
+/**
+ *
+ * @brief Replace the categorical 20x20 byte raster with four quadrant values.
+ * @return True for creation, band write and color-table assignment, false otherwise.
+ * Sets five palette entries (transparent zero plus red/green/blue/yellow), declares
+ * palette interpretation without checking that status and closes the dataset. Partial
+ * files can survive failure; uses the common projected-metre transform.
+ *
+ */
 bool buildLanduse()
 {
     GDALDataset *ds = createTif(fixture("landuse_ct.tif"), 20, 20, 1, GDT_Byte);
-    if (!ds) return false;
+    if (!ds)
+        return false;
     GDALRasterBand *b = ds->GetRasterBand(1);
     std::vector<GByte> px(20 * 20);
     for (int y = 0; y < 20; ++y)
@@ -136,52 +207,92 @@ bool buildLanduse()
     bool ok = b->RasterIO(GF_Write, 0, 0, 20, 20, px.data(), 20, 20, GDT_Byte, 0, 0) == CE_None;
     GDALColorTable ct;
     const GDALColorEntry entries[5] = {
-        { 0, 0, 0, 0 }, { 255, 0, 0, 255 }, { 0, 255, 0, 255 },
-        { 0, 0, 255, 255 }, { 255, 255, 0, 255 } };
-    for (int i = 0; i < 5; ++i) ct.SetColorEntry(i, &entries[i]);
+        {0, 0, 0, 0}, {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 0, 255}};
+    for (int i = 0; i < 5; ++i)
+        ct.SetColorEntry(i, &entries[i]);
     ok = ok && b->SetColorTable(&ct) == CE_None;
     b->SetColorInterpretation(GCI_PaletteIndex);
     GDALClose(ds);
     return ok;
 }
 
+/**
+ *
+ * @brief Replace the 20x20 three-band byte composite fixture.
+ * @return True for creation and all attempted band writes. R=200, G=10*column, B=50.
+ * Short-circuit status chaining skips later band writes after a failure; dataset still
+ * closes, with close status unchecked and partial output retained.
+ *
+ */
 bool buildRgb3()
 {
     GDALDataset *ds = createTif(fixture("rgb3.tif"), 20, 20, 3, GDT_Byte);
-    if (!ds) return false;
+    if (!ds)
+        return false;
     std::vector<GByte> r(400, 200), g(400), bl(400, 50);
     for (int y = 0; y < 20; ++y)
         for (int x = 0; x < 20; ++x)
             g[size_t(y) * 20 + x] = GByte(x * 10);
     bool ok = true;
-    ok = ok && ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, 20, 20, r.data(),  20, 20, GDT_Byte, 0, 0) == CE_None;
-    ok = ok && ds->GetRasterBand(2)->RasterIO(GF_Write, 0, 0, 20, 20, g.data(),  20, 20, GDT_Byte, 0, 0) == CE_None;
-    ok = ok && ds->GetRasterBand(3)->RasterIO(GF_Write, 0, 0, 20, 20, bl.data(), 20, 20, GDT_Byte, 0, 0) == CE_None;
+    ok = ok && ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, 20, 20, r.data(), 20, 20, GDT_Byte, 0,
+                                              0) == CE_None;
+    ok = ok && ds->GetRasterBand(2)->RasterIO(GF_Write, 0, 0, 20, 20, g.data(), 20, 20, GDT_Byte, 0,
+                                              0) == CE_None;
+    ok = ok && ds->GetRasterBand(3)->RasterIO(GF_Write, 0, 0, 20, 20, bl.data(), 20, 20, GDT_Byte,
+                                              0, 0) == CE_None;
     GDALClose(ds);
     return ok;
 }
 
+/**
+ *
+ * @brief Replace the three-band UInt16 fixture used to distinguish RGB default policy.
+ * @return True for creation and three successful band writes, false otherwise.
+ * All 20x20 values are 1000. Later writes short-circuit after failure; closes dataset
+ * without checking final status and retains partial file.
+ *
+ */
 bool buildMultiU16()
 {
     GDALDataset *ds = createTif(fixture("multi_u16.tif"), 20, 20, 3, GDT_UInt16);
-    if (!ds) return false;
+    if (!ds)
+        return false;
     std::vector<GUInt16> px(400, 1000);
     bool ok = true;
     for (int b = 1; b <= 3; ++b)
-        ok = ok && ds->GetRasterBand(b)->RasterIO(GF_Write, 0, 0, 20, 20, px.data(),
-                                                   20, 20, GDT_UInt16, 0, 0) == CE_None;
+        ok = ok && ds->GetRasterBand(b)->RasterIO(GF_Write, 0, 0, 20, 20, px.data(), 20, 20,
+                                                  GDT_UInt16, 0, 0) == CE_None;
     GDALClose(ds);
     return ok;
 }
 
-/*! Full raster footprint in its own CRS (identity warp). */
+/**
+ *
+ * @brief Compute the full bounds for the fixed fixture affine transform.
+ * @param wPx Positive raster columns.
+ * @param hPx Positive raster rows.
+ * @return Owned extent in EPSG:32633 metres with 10-metre pixels and fixed origin.
+ * No file metadata read, reprojection or dimensional validation.
+ *
+ */
 MapExtent rasterExtent(int wPx, int hPx)
 {
     return MapExtent(500000.0, 4601000.0 - 10.0 * hPx, 500000.0 + 10.0 * wPx, 4601000.0);
 }
 
-/*! Drive the async tile pipeline until it settles, then composite. Mirrors
- *  test_gisrastercrs. */
+/**
+ *
+ * @brief Request async tiles for a fixture viewport, then composite the layer.
+ * @param layer Borrowed mutable raster layer; viewport/cache state changes in place.
+ * @param e Borrowed target bounds in the fixed EPSG:32633 metre canvas CRS.
+ * @param size Positive output pixel dimensions.
+ * @return Owned transparent-background ARGB32_Premultiplied composite after up to
+ * 40 rounds of repaint waits (250 ms each), stopping on a quiet round after the
+ * first three. This heuristic does not prove every asynchronous task is complete.
+ * Requires GUI thread/event loop, valid layer/source and size; layer must outlive
+ * queued tasks. Does not save the image or modify source raster values.
+ *
+ */
 QImage renderLayer(GISRasterLayer &layer, const MapExtent &e, const QSize &size)
 {
     SpatialReferenceSystem canvas(QStringLiteral("EPSG"), kEpsg);
@@ -203,23 +314,54 @@ QImage renderLayer(GISRasterLayer &layer, const MapExtent &e, const QSize &size)
 /*! Opaque colours that cover at least \p minPixels pixels, and the
  *  transparent-pixel count. Dominance filtering keeps a stray resampled edge
  *  pixel from inflating the count. */
-struct ColourCensus { int dominant = 0; int transparent = 0; QHash<QRgb, int> counts; };
+struct ColourCensus {
+    int dominant = 0;
+    int transparent = 0;
+    QHash<QRgb, int> counts;
+};
+/**
+ *
+ * @brief Count exact alpha-bearing colors and transparent fixture pixels.
+ * @param img Borrowed image read via pixel(), normally ARGB32_Premultiplied.
+ * @param minPixels Minimum occurrences for a color to count as dominant, default 5.
+ * @return Owned counts for every exact QRgb with alpha>0, zero-alpha pixel total
+ * and number of colors reaching the threshold. Partly transparent colors are included;
+ * no unpremultiplication, perceptual grouping or input mutation.
+ *
+ */
 ColourCensus census(const QImage &img, int minPixels = 5)
 {
     ColourCensus c;
     for (int y = 0; y < img.height(); ++y)
         for (int x = 0; x < img.width(); ++x) {
             const QRgb px = img.pixel(x, y);
-            if (qAlpha(px) == 0) { ++c.transparent; continue; }
+            if (qAlpha(px) == 0) {
+                ++c.transparent;
+                continue;
+            }
             ++c.counts[px];
         }
     for (auto it = c.counts.cbegin(); it != c.counts.cend(); ++it)
-        if (it.value() >= minPixels) ++c.dominant;
+        if (it.value() >= minPixels)
+            ++c.dominant;
     return c;
 }
 
-std::unique_ptr<GraduatedRasterRenderer> makeClassified(int classes, const char *ramp,
-                                                        double lo, double hi,
+/**
+ *
+ * @brief Construct/reclassify an owned fixture graduated-raster renderer.
+ * @param classes Requested class count, normally within supported production bounds.
+ * @param ramp Borrowed null-terminated Latin-1 ramp name, copied.
+ * @param lo Lower data bound in scalar dataset units.
+ * @param hi Upper data bound in those units, normally greater than lo.
+ * @param samples Borrowed class samples; empty selects EqualInterval, nonempty
+ * selects Quantile, and values are passed to production reclassify.
+ * @return Owned Classified renderer with requested range/scheme; no layer attachment,
+ * file IO or independent validation. Ownership transfers when setRasterRenderer moves it.
+ *
+ */
+std::unique_ptr<GraduatedRasterRenderer> makeClassified(int classes, const char *ramp, double lo,
+                                                        double hi,
                                                         const QVector<double> &samples = {})
 {
     auto g = std::make_unique<GraduatedRasterRenderer>();
@@ -241,14 +383,28 @@ class TestRasterStyleRoundTrip : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require creation/replacement of gradient, palette, RGB-byte and UInt16 fixture
+     * rasters before style cases.
+     * Outputs persist for GIS review. Fatal setup assertions can leave earlier successful
+     * files and a partial failing raster; requires GDAL GTiff and EPSG support.
+     *
+     */
     void initTestCase()
     {
         QVERIFY2(buildGradient(), "could not write gradient_f32.tif");
-        QVERIFY2(buildLanduse(),  "could not write landuse_ct.tif");
-        QVERIFY2(buildRgb3(),     "could not write rgb3.tif");
+        QVERIFY2(buildLanduse(), "could not write landuse_ct.tif");
+        QVERIFY2(buildRgb3(), "could not write rgb3.tif");
         QVERIFY2(buildMultiU16(), "could not write multi_u16.tif");
     }
 
+    /**
+     *
+     * @brief Require float->continuous graduated, used color-table->paletted,
+     * three-byte-band->RGB and nonbyte multiband->graduated defaults.
+     *
+     */
     void defaultRenderers_matchDatasetContent()
     {
         {
@@ -258,7 +414,7 @@ private slots:
             QCOMPARE(g->scheme().mode(), ClassificationScheme::ClassMode::Continuous);
             // NoData excluded from the statistics: the 5×5 corner hides every
             // x+y < 5, so the band minimum is 5, not 0 (and never −9999).
-            QVERIFY(std::abs(g->dataMin() - 5.0)  < 1e-6);
+            QVERIFY(std::abs(g->dataMin() - 5.0) < 1e-6);
             QVERIFY(std::abs(g->dataMax() - 98.0) < 1e-6);
             QVERIFY(layer.hasNoDataValue());
             QCOMPARE(layer.noDataValue(), kNoData);
@@ -271,8 +427,9 @@ private slots:
             // GeoTIFF stores an 8-bit palette as 256 entries, so the table is
             // filtered to the values the data actually uses (1..4).
             QList<int> values;
-            for (const auto &c : p->classes()) values.append(c.value);
-            QCOMPARE(values, (QList<int>{ 1, 2, 3, 4 }));
+            for (const auto &c : p->classes())
+                values.append(c.value);
+            QCOMPARE(values, (QList<int>{1, 2, 3, 4}));
             QCOMPARE(p->colorForValue(1.0), QColor(255, 0, 0, 255));
             QCOMPARE(p->colorForValue(2.0), QColor(0, 255, 0, 255));
             QCOMPARE(p->colorForValue(4.0), QColor(255, 255, 0, 255));
@@ -295,14 +452,24 @@ private slots:
         }
     }
 
+    /**
+     *
+     * @brief Check NoData-filtered gradient samples/range, fresh capped sampling, invalid-band
+     * NaN and used categorical values.
+     *
+     */
     void bandData_sampleRangeUniqueValues()
     {
         GISRasterLayer layer(fixture("gradient_f32.tif"));
         const QVector<double> s = layer.sampleValues(1);
-        QCOMPARE(s.size(), 50 * 50 - 25);              // NoData corner dropped
+        QCOMPARE(s.size(), 50 * 50 - 25); // NoData corner dropped
         double mn = 1e9, mx = -1e9;
-        for (double v : s) { QVERIFY(v != kNoData); mn = std::min(mn, v); mx = std::max(mx, v); }
-        QCOMPARE(mn, 5.0);   // x+y < 5 lies entirely inside the NoData corner
+        for (double v : s) {
+            QVERIFY(v != kNoData);
+            mn = std::min(mn, v);
+            mx = std::max(mx, v);
+        }
+        QCOMPARE(mn, 5.0); // x+y < 5 lies entirely inside the NoData corner
         QCOMPARE(mx, 98.0);
         // Capped sample stays on a regular grid ≤ the cap.
         GISRasterLayer fresh(fixture("gradient_f32.tif"));
@@ -311,13 +478,19 @@ private slots:
         const auto [lo, hi] = layer.bandRange(1);
         QVERIFY(std::abs(lo - 5.0) < 1e-6);
         QVERIFY(std::abs(hi - 98.0) < 1e-6);
-        QVERIFY(std::isnan(layer.bandRange(7).first));   // no such band
+        QVERIFY(std::isnan(layer.bandRange(7).first)); // no such band
 
         GISRasterLayer lu(fixture("landuse_ct.tif"));
-        QCOMPARE(lu.uniqueValues(1), (QList<int>{ 1, 2, 3, 4 }));
-        QCOMPARE(lu.colorTableClasses().size(), 4);      // 256-slot palette, 4 used
+        QCOMPARE(lu.uniqueValues(1), (QList<int>{1, 2, 3, 4}));
+        QCOMPARE(lu.colorTableClasses().size(), 4); // 256-slot palette, 4 used
     }
 
+    /**
+     *
+     * @brief Require three then five class colors through async tiles after in-place renderer
+     * notification, with transparent NoData and matching legend count.
+     *
+     */
     void classifiedRender_paintsClassColoursAndInvalidates()
     {
         GISRasterLayer layer(fixture("gradient_f32.tif"));
@@ -347,6 +520,12 @@ private slots:
         QCOMPARE(openswmmvis::map::LegendContent::legendItemsFor(&layer).size(), 5);
     }
 
+    /**
+     *
+     * @brief Check RGB center channels, switch to band-two grayscale and require increasing x
+     * intensity plus continuous legend count.
+     *
+     */
     void rgb_switchToGraduatedOnBand2()
     {
         GISRasterLayer layer(fixture("rgb3.tif"));
@@ -361,7 +540,7 @@ private slots:
         const auto [lo, hi] = layer.bandRange(2);
         QVERIFY(std::abs(lo - 0.0) < 1e-6);
         QVERIFY(std::abs(hi - 190.0) < 1e-6);
-        auto g = std::make_unique<GraduatedRasterRenderer>();   // continuous grayscale
+        auto g = std::make_unique<GraduatedRasterRenderer>(); // continuous grayscale
         g->setDataRange(lo, hi);
         layer.setRasterRenderer(std::move(g));
 
@@ -370,11 +549,18 @@ private slots:
         QCOMPARE(qAlpha(pxGray), 255);
         QCOMPARE(qRed(pxGray), qGreen(pxGray));
         QCOMPARE(qGreen(pxGray), qBlue(pxGray));
-        QVERIFY(qRed(gray.pixel(1, 10)) < qRed(gray.pixel(18, 10)));   // ramps with x
+        QVERIFY(qRed(gray.pixel(1, 10)) < qRed(gray.pixel(18, 10))); // ramps with x
         QCOMPARE(openswmmvis::map::LegendContent::legendItemsFor(&layer).size(),
                  GraduatedRasterRenderer::kContinuousLegendRows);
     }
 
+    /**
+     *
+     * @brief Require raster renderer/band/hillshade style snapshots to transfer, restore after
+     * mutation and ignore empty legacy project blocks.
+     * Exercises StyleFileIO restoration directly; no modal Cancel click in this case.
+     *
+     */
     void styleJson_roundTripAndCancelRestore()
     {
         GISRasterLayer a(fixture("gradient_f32.tif"));
@@ -383,11 +569,18 @@ private slots:
         a.setRasterRenderer(makeClassified(4, "plasma", 0.0, 98.0, a.sampleValues(1)));
 
         const QJsonObject snap = StyleFileIO::styleToJson(&a);
-        QCOMPARE(snap.value(QStringLiteral("layerType")).toString(), QStringLiteral("GISRasterLayer"));
+        QCOMPARE(snap.value(QStringLiteral("layerType")).toString(),
+                 QStringLiteral("GISRasterLayer"));
         QCOMPARE(snap.value(QStringLiteral("renderBand")).toInt(), 1);
-        QCOMPARE(snap.value(QStringLiteral("rasterRenderer")).toObject()
-                     .value(QStringLiteral("id")).toString(), QStringLiteral("graduatedraster"));
-        QVERIFY(snap.value(QStringLiteral("hillshade")).toObject().value(QStringLiteral("enabled")).toBool());
+        QCOMPARE(snap.value(QStringLiteral("rasterRenderer"))
+                     .toObject()
+                     .value(QStringLiteral("id"))
+                     .toString(),
+                 QStringLiteral("graduatedraster"));
+        QVERIFY(snap.value(QStringLiteral("hillshade"))
+                    .toObject()
+                    .value(QStringLiteral("enabled"))
+                    .toBool());
 
         // A fresh layer (open-time default) adopts the whole block.
         GISRasterLayer b(fixture("gradient_f32.tif"));
@@ -402,7 +595,7 @@ private slots:
 
         // Cancel path: mutate, then restore the opening snapshot.
         auto p = std::make_unique<PalettedRasterRenderer>();
-        p->buildClassesFromValues({ 1, 2 });
+        p->buildClassesFromValues({1, 2});
         a.setRasterRenderer(std::move(p));
         a.setHillshadeEnabled(false);
         QVERIFY(dynamic_cast<PalettedRasterRenderer *>(a.rasterRenderer()));
@@ -419,6 +612,12 @@ private slots:
         QCOMPARE(StyleFileIO::styleToJson(&a), snap);
     }
 
+    /**
+     *
+     * @brief Require live raster symbology panel mount/type switching/class edits and Cancel
+     * restoration of the opening full style snapshot.
+     *
+     */
     void dialog_mountsPanelSwitchesRendererAndCancels()
     {
         GISRasterLayer layer(fixture("gradient_f32.tif"));
@@ -431,7 +630,7 @@ private slots:
 
         auto *combo = panel->findChild<QComboBox *>(QStringLiteral("rasterRendererKind"));
         QVERIFY(combo);
-        QVERIFY(combo->findData(int(RasterSymbologyPanel::Kind::MultiBand)) < 0);   // 1 band
+        QVERIFY(combo->findData(int(RasterSymbologyPanel::Kind::MultiBand)) < 0); // 1 band
 
         combo->setCurrentIndex(combo->findData(int(RasterSymbologyPanel::Kind::Paletted)));
         auto *pal = dynamic_cast<PalettedRasterRenderer *>(layer.rasterRenderer());
@@ -455,7 +654,8 @@ private slots:
         QVERIFY(editor);
         QSpinBox *countSpin = nullptr;
         for (QSpinBox *s : editor->findChildren<QSpinBox *>())
-            if (s->maximum() == 64) countSpin = s;
+            if (s->maximum() == 64)
+                countSpin = s;
         QVERIFY(countSpin);
         QSignalSpy changed(&layer, &GISRasterLayer::rasterRendererChanged);
         countSpin->setValue(7);
@@ -465,8 +665,8 @@ private slots:
 
         auto *clip = panel->findChild<QCheckBox *>(QStringLiteral("rasterClipOutOfRange"));
         QVERIFY(!clip); // Numeric layers use one consistent range policy.
-        QCOMPARE(g->colorForValue(g->effectiveRange().first-1).alpha(), 0);
-        QCOMPARE(g->colorForValue(g->effectiveRange().second+1),
+        QCOMPARE(g->colorForValue(g->effectiveRange().first - 1).alpha(), 0);
+        QCOMPARE(g->colorForValue(g->effectiveRange().second + 1),
                  g->colorForValue(g->effectiveRange().second));
 
         // Cancel restores the opening state (renderer + hillshade + band).
@@ -476,15 +676,24 @@ private slots:
         QCOMPARE(StyleFileIO::styleToJson(&layer), opening);
     }
 
-    /*! Reviewable artefacts: the Symbology tab for each renderer family,
-     *  grabbed offscreen into tests/output/raster_style/symbology_*.png. */
+    /**
+     *
+     * @brief Open each raster renderer family in the live Symbology tab and require
+     * persistent PNG saves after event processing.
+     * Writes/replaces graduated/paletted/multiband screenshots; this records images for
+     * manual review without asserting their visual layout.
+     *
+     */
     void dialog_screenshotsForReview()
     {
-        struct Shot { const char *file; const char *png; };
+        struct Shot {
+            const char *file;
+            const char *png;
+        };
         const Shot shots[] = {
-            { "gradient_f32.tif", "symbology_graduated.png" },
-            { "landuse_ct.tif",   "symbology_paletted.png"  },
-            { "rgb3.tif",         "symbology_multiband.png" },
+            {"gradient_f32.tif", "symbology_graduated.png"},
+            {"landuse_ct.tif", "symbology_paletted.png"},
+            {"rgb3.tif", "symbology_multiband.png"},
         };
         for (const Shot &s : shots) {
             GISRasterLayer layer(fixture(s.file));
@@ -498,7 +707,8 @@ private slots:
             dlg.show();
             QTest::qWait(100);
             const QString path = outputDir() + QLatin1Char('/') + QLatin1String(s.png);
-            QVERIFY2(dlg.grab().save(path), qPrintable(QStringLiteral("cannot write %1").arg(path)));
+            QVERIFY2(dlg.grab().save(path),
+                     qPrintable(QStringLiteral("cannot write %1").arg(path)));
             dlg.close();
         }
     }

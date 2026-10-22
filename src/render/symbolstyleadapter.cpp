@@ -1,16 +1,17 @@
-/*!
- * \file   symbolstyleadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  SymbolStyleAdapter implementation (Slice B.6c) + archetype-aware
+/**
+ * @file      symbolstyleadapter.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     SymbolStyleAdapter implementation (Slice B.6c) + archetype-aware
  *         siblings (Slice SS.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/symbolstyleadapter.h"
 
 #include "render/ifeaturerenderer.h"
-#include "render/markershape.h"   // X1 dialog-read — markerShapeFromString
+#include "render/markershape.h" // X1 dialog-read — markerShapeFromString
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/rule.h"
 #include "render/symbollayer.h"
@@ -23,45 +24,65 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 // ── Free helpers shared by the legacy adapter and the SS.1 siblings ──
 
 /*! Try to get a writable pointer to the Rule's underlying
  *  SingleSymbolRenderer. Returns null when the Rule's renderer isn't a
- *  SingleSymbol (e.g. user already switched to Graduated). */
+ *  SingleSymbol (e.g. user already switched to Graduated).
+ * @param rule Optional borrowed rule, inspected without changing its renderer.
+ * @return Borrowed mutable renderer, or nullptr; replacement/destruction invalidates it. */
 SingleSymbolRenderer *singleRendererOf(Rule *rule)
 {
-    if (!rule) return nullptr;
+    if (!rule)
+        return nullptr;
     return dynamic_cast<SingleSymbolRenderer *>(rule->renderer());
 }
 
+/** @brief Inspect a rule's single-symbol renderer without transferring ownership.
+ * @param rule Optional borrowed rule that remains alive throughout the call.
+ * @return Borrowed const pointer, or nullptr for null/other renderer types. */
 const SingleSymbolRenderer *singleRendererOf(const Rule *rule)
 {
-    if (!rule) return nullptr;
+    if (!rule)
+        return nullptr;
     return dynamic_cast<const SingleSymbolRenderer *>(rule->renderer());
 }
 
 /*! Return the first SymbolLayer in the Rule's SingleSymbolRenderer's
  *  symbol, or nullptr when the Rule isn't a SingleSymbol or the symbol
- *  has no layers. */
+ *  has no layers.
+ * @param rule Optional borrowed rule, inspected without mutation.
+ * @return Borrowed first-pass pointer or nullptr; renderer/style replacement or
+ * destruction can invalidate it. The pass kind itself is not checked. */
 const SymbolLayer *firstLayerOf(const Rule *rule)
 {
     const SingleSymbolRenderer *s = singleRendererOf(rule);
-    if (!s) return nullptr;
+    if (!s)
+        return nullptr;
     const SymbolStyle &style = s->symbol();
     return style.layers.isEmpty() ? nullptr : &style.layers.first();
 }
 
-/*! Read a typed prop from the Rule's first SymbolLayer. */
-template <typename T>
-T readPropOn(const Rule *rule, const QString &key, const T &fallback)
+/** @brief Read a convertible property from a rule's first single-symbol pass.
+ * @tparam T Requested QVariant-convertible result type.
+ * @param rule Optional borrowed rule, inspected without mutation.
+ * @param key Exact property key to look up.
+ * @param fallback Value copied when the pass/key/type is unavailable.
+ * @return Converted value, otherwise fallback. Null/other renderers and empty
+ * stacks use fallback; converted values are not validated for range or finiteness. */
+template <typename T> T readPropOn(const Rule *rule, const QString &key, const T &fallback)
 {
     const SymbolLayer *layer = firstLayerOf(rule);
-    if (!layer) return fallback;
+    if (!layer)
+        return fallback;
     const auto it = layer->props.constFind(key);
-    if (it == layer->props.constEnd()) return fallback;
-    if (!it.value().canConvert<T>()) return fallback;
+    if (it == layer->props.constEnd())
+        return fallback;
+    if (!it.value().canConvert<T>())
+        return fallback;
     return it.value().value<T>();
 }
 
@@ -72,39 +93,59 @@ T readPropOn(const Rule *rule, const QString &key, const T &fallback)
  *  (struct-regen path). value<QColor>() does NOT parse a hex QString in this
  *  codebase, so a plain read returned an invalid colour and the dialog opened
  *  showing defaults. This reader accepts both encodings and an optional
- *  secondary key. */
-QColor readColorOn(const Rule *rule, const QString &key,
-                   const QColor &fallback, const QString &altKey = QString())
+ *  secondary key.
+ * @param rule Optional borrowed rule, inspected without mutation.
+ * @param key Exact primary color key.
+ * @param fallback Color returned when neither requested key produces a valid parsed color.
+ * @param altKey Optional secondary key, tried only after the primary fails.
+ * @return Owned QColor from variant conversion or subsequent string parsing,
+ * otherwise fallback. This helper's string retry also applies to invalid QColor
+ * payloads, following Qt's string conversion rather than SymbolProps::readColor(). */
+QColor readColorOn(const Rule *rule, const QString &key, const QColor &fallback,
+                   const QString &altKey = QString())
 {
     const SymbolLayer *layer = firstLayerOf(rule);
-    if (!layer) return fallback;
+    if (!layer)
+        return fallback;
     auto tryKey = [&](const QString &k, QColor &out) -> bool {
         const auto it = layer->props.constFind(k);
-        if (it == layer->props.constEnd()) return false;
-        QColor c = it.value().value<QColor>();              // QColor variant
-        if (!c.isValid()) c = QColor(it.value().toString()); // hex string
-        if (c.isValid()) { out = c; return true; }
+        if (it == layer->props.constEnd())
+            return false;
+        QColor c = it.value().value<QColor>(); // QColor variant
+        if (!c.isValid())
+            c = QColor(it.value().toString()); // hex string
+        if (c.isValid()) {
+            out = c;
+            return true;
+        }
         return false;
     };
     QColor c;
-    if (tryKey(key, c)) return c;
-    if (!altKey.isEmpty() && tryKey(altKey, c)) return c;
+    if (tryKey(key, c))
+        return c;
+    if (!altKey.isEmpty() && tryKey(altKey, c))
+        return c;
     return fallback;
 }
 
 /*! Tolerant marker-shape read: the typed-spec path stores "shape" as an int,
  *  the struct-regen path stores it as a token string (markerShapeToString).
- *  Accept both. */
+ *  Accept both.
+ * @param rule Optional borrowed rule whose first single-symbol pass is inspected.
+ * @param fallback Integer returned for no pass/key or failed nonstring conversion.
+ * @return Converted integer, or markerShapeFromString() for string payloads;
+ * unknown strings resolve to Circle, independent of fallback. Enum bounds are not checked. */
 int readShapeOn(const Rule *rule, int fallback)
 {
     const SymbolLayer *layer = firstLayerOf(rule);
-    if (!layer) return fallback;
+    if (!layer)
+        return fallback;
     const auto it = layer->props.constFind(QStringLiteral("shape"));
-    if (it == layer->props.constEnd()) return fallback;
+    if (it == layer->props.constEnd())
+        return fallback;
     const QVariant &v = it.value();
     if (v.typeId() == QMetaType::QString)
-        return static_cast<int>(
-            OpenSWMM::Render::markerShapeFromString(v.toString()));
+        return static_cast<int>(OpenSWMM::Render::markerShapeFromString(v.toString()));
     bool ok = false;
     const int i = v.toInt(&ok);
     return ok ? i : fallback;
@@ -112,18 +153,24 @@ int readShapeOn(const Rule *rule, int fallback)
 
 /*! Write a typed prop into the Rule's first SymbolLayer. Creates a
  *  layer entry if the symbol has none yet. Returns true when the value
- *  actually changed (so callers know whether to fire notifyRendererStateChanged). */
-template <typename T>
-bool writePropOn(Rule *rule, const QString &key, const T &value)
+ *  actually changed; the helper itself calls notifyRendererStateChanged().
+ * @tparam T QVariant-storable value type with equality comparison.
+ * @param rule Optional borrowed rule; only SingleSymbolRenderer is writable.
+ * @param key Exact property key to insert/replace on the first pass.
+ * @param value Value copied without validation; a missing pass becomes a default SymbolLayer.
+ * @return True after storing a changed style and notifying the rule; false for
+ * unsupported/null renderers or equal convertible current values. Later passes,
+ * data-defined expressions, and other style/renderer fields are retained. */
+template <typename T> bool writePropOn(Rule *rule, const QString &key, const T &value)
 {
     SingleSymbolRenderer *s = singleRendererOf(rule);
-    if (!s) return false;
+    if (!s)
+        return false;
     SymbolStyle style = s->symbol();
     if (style.layers.isEmpty())
         style.layers.append(SymbolLayer{});
     QVariant currentVar = style.layers.first().props.value(key);
-    if (currentVar.isValid() && currentVar.canConvert<T>()
-        && currentVar.value<T>() == value)
+    if (currentVar.isValid() && currentVar.canConvert<T>() && currentVar.value<T>() == value)
         return false;
     style.layers.first().props.insert(key, QVariant::fromValue(value));
     s->setSymbol(style);
@@ -140,6 +187,10 @@ bool writePropOn(Rule *rule, const QString &key, const T &value)
  *  falls back to the generic SymbolStyleAdapter for those. */
 enum class Archetype { Point, Line, Polygon, Other };
 
+/** @brief Map a first-pass kind to a generic feature adapter family.
+ * @param kind Kind to inspect, including mesh kinds that map to Point/Line.
+ * @return Point, Line or Polygon for recognized feature-like kinds, otherwise Other.
+ * The caller handles dedicated raster/contour/mesh/velocity adapters before this fallback. */
 Archetype archetypeFor(SymbolLayerKind kind)
 {
     switch (kind) {
@@ -159,11 +210,11 @@ Archetype archetypeFor(SymbolLayerKind kind)
     case SymbolLayerKind::RasterColorRamp:
     case SymbolLayerKind::Hillshade:
     case SymbolLayerKind::Contour:
-    case SymbolLayerKind::VectorGlyph:  // Slice AN.1 — falls through
-                                        // because the factory's earlier
-                                        // explicit switch already returns
-                                        // VelocityVectorSymbolStyleAdapter
-                                        // before reaching archetypeFor.
+    case SymbolLayerKind::VectorGlyph: // Slice AN.1 — falls through
+                                       // because the factory's earlier
+                                       // explicit switch already returns
+                                       // VelocityVectorSymbolStyleAdapter
+                                       // before reaching archetypeFor.
         return Archetype::Other;
     }
     return Archetype::Other;
@@ -184,73 +235,84 @@ Archetype archetypeFor(SymbolLayerKind kind)
 // "isoValueCount", "labels", "highlightTagged", "taggedColor",
 // "taggedSizePx", "hillshadeStrength", "useElevationRamp") are
 // introduced here; AN.5 promotes them into the typed specs.
-namespace keys {
-constexpr auto kFillColor    = "fillColor";
-constexpr auto kFillOpacity  = "fillOpacity";
+namespace keys
+{
+constexpr auto kFillColor = "fillColor";
+constexpr auto kFillOpacity = "fillOpacity";
 constexpr auto kOutlineColor = "outlineColor";
 constexpr auto kOutlineWidth = "outlineWidth";
-constexpr auto kSize         = "size";
-constexpr auto kShape        = "shape";
-constexpr auto kLineColor    = "color";
-constexpr auto kLineWidth    = "width";
-constexpr auto kPenStyle     = "penStyle";
-constexpr auto kOffsetPx     = "offsetPx";
-constexpr auto kDrawArrows   = "drawArrows";
-constexpr auto kArrowColor   = "arrowColor";
-constexpr auto kArrowLength  = "arrowLengthPx";
-constexpr auto kArrowWidth   = "arrowWidthPx";
+constexpr auto kSize = "size";
+constexpr auto kShape = "shape";
+constexpr auto kLineColor = "color";
+constexpr auto kLineWidth = "width";
+constexpr auto kPenStyle = "penStyle";
+constexpr auto kOffsetPx = "offsetPx";
+constexpr auto kDrawArrows = "drawArrows";
+constexpr auto kArrowColor = "arrowColor";
+constexpr auto kArrowLength = "arrowLengthPx";
+constexpr auto kArrowWidth = "arrowWidthPx";
 constexpr auto kArrowOnlyPos = "arrowOnlyWhenFlowPos";
-constexpr auto kShowLabel    = "showLabel";
-constexpr auto kLabelFont    = "labelFont";
-constexpr auto kLabelColor   = "labelColor";
+constexpr auto kShowLabel = "showLabel";
+constexpr auto kLabelFont = "labelFont";
+constexpr auto kLabelColor = "labelColor";
 // AN.2 — raster color ramp / contour / mesh / velocity.
-constexpr auto kOpacity            = "opacity";
-constexpr auto kAttribute          = "attribute";
-constexpr auto kMinValue           = "minValue";
-constexpr auto kMaxValue           = "maxValue";
-constexpr auto kLowColor           = "lowColor";
-constexpr auto kHighColor          = "highColor";
-constexpr auto kBelowMinColor      = "belowMinColor";
-constexpr auto kAboveMaxColor      = "aboveMaxColor";
-constexpr auto kUseLogScale        = "useLogScale";
-constexpr auto kHillshadeStrength  = "hillshadeStrength";
-constexpr auto kUseElevationRamp   = "useElevationRamp";
-constexpr auto kBandCount          = "bandCount";
-constexpr auto kSmoothBands        = "smoothBands";
-constexpr auto kIsoValueCount      = "isoValueCount";
-constexpr auto kLabels             = "labels";
-constexpr auto kContourMode        = "mode";
-constexpr auto kUseSlopeDriven     = "useSlopeDrivenWidth";
-constexpr auto kSlopeBreak         = "slopeBreak";
-constexpr auto kWideWidthPx        = "wideWidthPx";
-constexpr auto kWideColor          = "wideColor";
-constexpr auto kHighlightTagged    = "highlightTagged";
-constexpr auto kTaggedColor        = "taggedColor";
-constexpr auto kTaggedSizePx       = "taggedSizePx";
+constexpr auto kOpacity = "opacity";
+constexpr auto kAttribute = "attribute";
+constexpr auto kMinValue = "minValue";
+constexpr auto kMaxValue = "maxValue";
+constexpr auto kLowColor = "lowColor";
+constexpr auto kHighColor = "highColor";
+constexpr auto kBelowMinColor = "belowMinColor";
+constexpr auto kAboveMaxColor = "aboveMaxColor";
+constexpr auto kUseLogScale = "useLogScale";
+constexpr auto kHillshadeStrength = "hillshadeStrength";
+constexpr auto kUseElevationRamp = "useElevationRamp";
+constexpr auto kBandCount = "bandCount";
+constexpr auto kSmoothBands = "smoothBands";
+constexpr auto kIsoValueCount = "isoValueCount";
+constexpr auto kLabels = "labels";
+constexpr auto kContourMode = "mode";
+constexpr auto kUseSlopeDriven = "useSlopeDrivenWidth";
+constexpr auto kSlopeBreak = "slopeBreak";
+constexpr auto kWideWidthPx = "wideWidthPx";
+constexpr auto kWideColor = "wideColor";
+constexpr auto kHighlightTagged = "highlightTagged";
+constexpr auto kTaggedColor = "taggedColor";
+constexpr auto kTaggedSizePx = "taggedSizePx";
 // Velocity vector glyphs (AN.1).
-constexpr auto kGlyphScale         = "glyphLengthScalePxPerMps";
-constexpr auto kGlyphMin           = "glyphLengthMinPx";
-constexpr auto kGlyphMax           = "glyphLengthMaxPx";
-constexpr auto kGlyphSpacing       = "glyphSpacingPx";
-constexpr auto kHeadSize           = "headSizePx";
-constexpr auto kDryDepth           = "dryDepthCutoff";
+constexpr auto kGlyphScale = "glyphLengthScalePxPerMps";
+constexpr auto kGlyphMin = "glyphLengthMinPx";
+constexpr auto kGlyphMax = "glyphLengthMaxPx";
+constexpr auto kGlyphSpacing = "glyphSpacingPx";
+constexpr auto kHeadSize = "headSizePx";
+constexpr auto kDryDepth = "dryDepthCutoff";
 } // namespace keys
 
 // Slice AN.2 — opacity write helper shared by every adapter. Same shape
 // as the legacy SymbolStyleAdapter::setOpacity but free-function so the
 // raster adapters can call it without a base-class dependency.
+/** @brief Update overall opacity for a rule's single-symbol renderer.
+ * @param rule Optional borrowed rule; null/other renderer types are no-ops.
+ * @param v Finite dimensionless opacity clamped to [0,1], without a finiteness check.
+ * Fuzzy-equal shifted opacity is a no-op. A change copies/replaces the style and
+ * notifies the rule; no property-bag key or individual pass alpha is edited. */
 void writeOpacityOn(Rule *rule, qreal v)
 {
     SingleSymbolRenderer *s = singleRendererOf(rule);
-    if (!s) return;
+    if (!s)
+        return;
     const qreal clamped = std::clamp(v, 0.0, 1.0);
     SymbolStyle style = s->symbol();
-    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0)) return;
+    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0))
+        return;
     style.opacity = clamped;
     s->setSymbol(style);
     rule->notifyRendererStateChanged();
 }
 
+/** @brief Read stored overall opacity without clamping or applying parent opacity.
+ * @param rule Optional borrowed rule to inspect.
+ * @return Single-symbol style opacity, or one for null/other renderer types. */
 qreal readOpacityOn(const Rule *rule)
 {
     const SingleSymbolRenderer *s = singleRendererOf(rule);
@@ -263,12 +325,11 @@ qreal readOpacityOn(const Rule *rule)
 // SymbolStyleAdapter — original Slice B.6c implementation (unchanged).
 // ===========================================================================
 
-SymbolStyleAdapter::SymbolStyleAdapter(Rule *rule, QObject *parent)
-    : QObject(parent), m_rule(rule)
+SymbolStyleAdapter::SymbolStyleAdapter(Rule *rule, QObject *parent) : QObject(parent), m_rule(rule)
 {
     if (m_rule) {
-        QObject::connect(m_rule, &Rule::rendererReplaced,
-                         this, &SymbolStyleAdapter::onRendererReplaced);
+        QObject::connect(m_rule, &Rule::rendererReplaced, this,
+                         &SymbolStyleAdapter::onRendererReplaced);
     }
 }
 
@@ -292,7 +353,8 @@ qreal SymbolStyleAdapter::opacity() const
 void SymbolStyleAdapter::setOpacity(qreal v)
 {
     SingleSymbolRenderer *s = singleRendererOf(m_rule);
-    if (!s) return;
+    if (!s)
+        return;
     const qreal clamped = std::clamp(v, 0.0, 1.0);
     SymbolStyle style = s->symbol();
     if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0))
@@ -304,22 +366,20 @@ void SymbolStyleAdapter::setOpacity(qreal v)
 
 // ── prop read / write helpers ───────────────────────────────────────
 
-template <typename T>
-T SymbolStyleAdapter::readProp(const QString &key, const T &fallback) const
+template <typename T> T SymbolStyleAdapter::readProp(const QString &key, const T &fallback) const
 {
     return readPropOn<T>(m_rule, key, fallback);
 }
 
-template <typename T>
-bool SymbolStyleAdapter::writeProp(const QString &key, const T &value)
+template <typename T> bool SymbolStyleAdapter::writeProp(const QString &key, const T &value)
 {
     return writePropOn<T>(m_rule, key, value);
 }
 
 // Explicit instantiations for the types this header uses.
 template QColor SymbolStyleAdapter::readProp<QColor>(const QString &, const QColor &) const;
-template qreal  SymbolStyleAdapter::readProp<qreal>(const QString &, const qreal &) const;
-template int    SymbolStyleAdapter::readProp<int>(const QString &, const int &) const;
+template qreal SymbolStyleAdapter::readProp<qreal>(const QString &, const qreal &) const;
+template int SymbolStyleAdapter::readProp<int>(const QString &, const int &) const;
 
 template bool SymbolStyleAdapter::writeProp<QColor>(const QString &, const QColor &);
 template bool SymbolStyleAdapter::writeProp<qreal>(const QString &, const qreal &);
@@ -386,8 +446,7 @@ void SymbolStyleAdapter::setMarkerSize(qreal v)
 MarkerShape SymbolStyleAdapter::markerShape() const
 {
     return static_cast<MarkerShape>(
-        readProp<int>(QStringLiteral("shape"),
-                      static_cast<int>(MarkerShape::Circle)));
+        readProp<int>(QStringLiteral("shape"), static_cast<int>(MarkerShape::Circle)));
 }
 
 void SymbolStyleAdapter::setMarkerShape(MarkerShape v)
@@ -417,9 +476,8 @@ QObject *SymbolStyleAdapter::createFor(Rule *rule, QObject *parent)
         // ContourBand vs Isoline share SymbolLayerKind::Contour; the
         // "mode" prop (ContourMode int: Lines=0, Filled=1, Both=2)
         // disambiguates. Default to Lines when the prop is absent.
-        const int mode = layer->props.value(
-            QLatin1String(keys::kContourMode), 0).toInt();
-        if (mode == 0)  // Lines
+        const int mode = layer->props.value(QLatin1String(keys::kContourMode), 0).toInt();
+        if (mode == 0) // Lines
             return new IsolineSymbolStyleAdapter(rule, parent);
         return new ContourBandSymbolStyleAdapter(rule, parent);
     }
@@ -434,10 +492,14 @@ QObject *SymbolStyleAdapter::createFor(Rule *rule, QObject *parent)
     }
 
     switch (archetypeFor(layer->kind)) {
-    case Archetype::Point:   return new PointSymbolStyleAdapter(rule, parent);
-    case Archetype::Line:    return new LineSymbolStyleAdapter(rule, parent);
-    case Archetype::Polygon: return new PolygonSymbolStyleAdapter(rule, parent);
-    case Archetype::Other:   break;
+    case Archetype::Point:
+        return new PointSymbolStyleAdapter(rule, parent);
+    case Archetype::Line:
+        return new LineSymbolStyleAdapter(rule, parent);
+    case Archetype::Polygon:
+        return new PolygonSymbolStyleAdapter(rule, parent);
+    case Archetype::Other:
+        break;
     }
     return new SymbolStyleAdapter(rule, parent);
 }
@@ -450,14 +512,17 @@ PointSymbolStyleAdapter::PointSymbolStyleAdapter(Rule *rule, QObject *parent)
     : QObject(parent), m_rule(rule)
 {
     if (m_rule) {
-        QObject::connect(m_rule, &Rule::rendererReplaced,
-                         this, &PointSymbolStyleAdapter::onRendererReplaced);
+        QObject::connect(m_rule, &Rule::rendererReplaced, this,
+                         &PointSymbolStyleAdapter::onRendererReplaced);
     }
 }
 
 PointSymbolStyleAdapter::~PointSymbolStyleAdapter() = default;
 
-void PointSymbolStyleAdapter::onRendererReplaced() { emit changed(); }
+void PointSymbolStyleAdapter::onRendererReplaced()
+{
+    emit changed();
+}
 
 qreal PointSymbolStyleAdapter::opacity() const
 {
@@ -468,10 +533,12 @@ qreal PointSymbolStyleAdapter::opacity() const
 void PointSymbolStyleAdapter::setOpacity(qreal v)
 {
     SingleSymbolRenderer *s = singleRendererOf(m_rule);
-    if (!s) return;
+    if (!s)
+        return;
     const qreal clamped = std::clamp(v, 0.0, 1.0);
     SymbolStyle style = s->symbol();
-    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0)) return;
+    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0))
+        return;
     style.opacity = clamped;
     s->setSymbol(style);
     m_rule->notifyRendererStateChanged();
@@ -481,8 +548,7 @@ MarkerShape PointSymbolStyleAdapter::markerShape() const
 {
     // X1 dialog-read fix — "shape" may be an int (typed-spec) or a token
     // string (struct-regen path). readShapeOn accepts both.
-    return static_cast<MarkerShape>(
-        readShapeOn(m_rule, static_cast<int>(MarkerShape::Circle)));
+    return static_cast<MarkerShape>(readShapeOn(m_rule, static_cast<int>(MarkerShape::Circle)));
 }
 
 void PointSymbolStyleAdapter::setMarkerShape(MarkerShape v)
@@ -504,8 +570,7 @@ QColor PointSymbolStyleAdapter::fillColor() const
 {
     // X1 dialog-read fix — accept "fillColor" (typed-spec) OR "color"
     // (struct-regen), QColor variant OR hex string.
-    return readColorOn(m_rule, QLatin1String(keys::kFillColor), QColor(),
-                       QStringLiteral("color"));
+    return readColorOn(m_rule, QLatin1String(keys::kFillColor), QColor(), QStringLiteral("color"));
 }
 
 void PointSymbolStyleAdapter::setFillColor(const QColor &c)
@@ -571,14 +636,17 @@ LineSymbolStyleAdapter::LineSymbolStyleAdapter(Rule *rule, QObject *parent)
     : QObject(parent), m_rule(rule)
 {
     if (m_rule) {
-        QObject::connect(m_rule, &Rule::rendererReplaced,
-                         this, &LineSymbolStyleAdapter::onRendererReplaced);
+        QObject::connect(m_rule, &Rule::rendererReplaced, this,
+                         &LineSymbolStyleAdapter::onRendererReplaced);
     }
 }
 
 LineSymbolStyleAdapter::~LineSymbolStyleAdapter() = default;
 
-void LineSymbolStyleAdapter::onRendererReplaced() { emit changed(); }
+void LineSymbolStyleAdapter::onRendererReplaced()
+{
+    emit changed();
+}
 
 qreal LineSymbolStyleAdapter::opacity() const
 {
@@ -589,10 +657,12 @@ qreal LineSymbolStyleAdapter::opacity() const
 void LineSymbolStyleAdapter::setOpacity(qreal v)
 {
     SingleSymbolRenderer *s = singleRendererOf(m_rule);
-    if (!s) return;
+    if (!s)
+        return;
     const qreal clamped = std::clamp(v, 0.0, 1.0);
     SymbolStyle style = s->symbol();
-    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0)) return;
+    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0))
+        return;
     style.opacity = clamped;
     s->setSymbol(style);
     m_rule->notifyRendererStateChanged();
@@ -620,8 +690,8 @@ void LineSymbolStyleAdapter::setLineWidth(qreal v)
 
 Qt::PenStyle LineSymbolStyleAdapter::dashPattern() const
 {
-    return static_cast<Qt::PenStyle>(readPropOn<int>(
-        m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(Qt::SolidLine)));
+    return static_cast<Qt::PenStyle>(
+        readPropOn<int>(m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(Qt::SolidLine)));
 }
 
 void LineSymbolStyleAdapter::setDashPattern(Qt::PenStyle s)
@@ -701,8 +771,7 @@ void LineSymbolStyleAdapter::setArrowWidth(qreal v)
 
 QColor LineSymbolStyleAdapter::arrowColor() const
 {
-    return readColorOn(m_rule, QLatin1String(keys::kArrowColor),
-                       QColor(34, 34, 34));
+    return readColorOn(m_rule, QLatin1String(keys::kArrowColor), QColor(34, 34, 34));
 }
 
 void LineSymbolStyleAdapter::setArrowColor(const QColor &c)
@@ -728,14 +797,17 @@ PolygonSymbolStyleAdapter::PolygonSymbolStyleAdapter(Rule *rule, QObject *parent
     : QObject(parent), m_rule(rule)
 {
     if (m_rule) {
-        QObject::connect(m_rule, &Rule::rendererReplaced,
-                         this, &PolygonSymbolStyleAdapter::onRendererReplaced);
+        QObject::connect(m_rule, &Rule::rendererReplaced, this,
+                         &PolygonSymbolStyleAdapter::onRendererReplaced);
     }
 }
 
 PolygonSymbolStyleAdapter::~PolygonSymbolStyleAdapter() = default;
 
-void PolygonSymbolStyleAdapter::onRendererReplaced() { emit changed(); }
+void PolygonSymbolStyleAdapter::onRendererReplaced()
+{
+    emit changed();
+}
 
 qreal PolygonSymbolStyleAdapter::opacity() const
 {
@@ -746,10 +818,12 @@ qreal PolygonSymbolStyleAdapter::opacity() const
 void PolygonSymbolStyleAdapter::setOpacity(qreal v)
 {
     SingleSymbolRenderer *s = singleRendererOf(m_rule);
-    if (!s) return;
+    if (!s)
+        return;
     const qreal clamped = std::clamp(v, 0.0, 1.0);
     SymbolStyle style = s->symbol();
-    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0)) return;
+    if (qFuzzyCompare(style.opacity + 1.0, clamped + 1.0))
+        return;
     style.opacity = clamped;
     s->setSymbol(style);
     m_rule->notifyRendererStateChanged();
@@ -757,8 +831,7 @@ void PolygonSymbolStyleAdapter::setOpacity(qreal v)
 
 QColor PolygonSymbolStyleAdapter::fillColor() const
 {
-    return readColorOn(m_rule, QLatin1String(keys::kFillColor), QColor(),
-                       QStringLiteral("color"));
+    return readColorOn(m_rule, QLatin1String(keys::kFillColor), QColor(), QStringLiteral("color"));
 }
 
 void PolygonSymbolStyleAdapter::setFillColor(const QColor &c)
@@ -773,8 +846,7 @@ qreal PolygonSymbolStyleAdapter::fillOpacity() const
 
 void PolygonSymbolStyleAdapter::setFillOpacity(qreal v)
 {
-    writePropOn<qreal>(m_rule, QLatin1String(keys::kFillOpacity),
-                       std::clamp(v, 0.0, 1.0));
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kFillOpacity), std::clamp(v, 0.0, 1.0));
 }
 
 QColor PolygonSymbolStyleAdapter::outlineColor() const
@@ -842,281 +914,472 @@ void PolygonSymbolStyleAdapter::setLabelColor(const QColor &c)
 // Shared across the 7 raster adapters. Cuts ~70 lines of repetitive
 // member-function bodies. Each adapter calls this once near the top of
 // its block.
-#define OSWMM_RASTER_ADAPTER_COMMON(ClassName)                             \
-    ClassName::ClassName(Rule *rule, QObject *parent)                      \
-        : QObject(parent), m_rule(rule)                                    \
-    {                                                                      \
-        if (m_rule) {                                                      \
-            QObject::connect(m_rule, &Rule::rendererReplaced,              \
-                             this, &ClassName::onRendererReplaced);        \
-        }                                                                  \
-    }                                                                      \
-    ClassName::~ClassName() = default;                                     \
-    void ClassName::onRendererReplaced() { emit changed(); }               \
-    qreal ClassName::opacity() const { return readOpacityOn(m_rule); }     \
-    void  ClassName::setOpacity(qreal v) { writeOpacityOn(m_rule, v); }
+#define OSWMM_RASTER_ADAPTER_COMMON(ClassName)                                                     \
+    ClassName::ClassName(Rule *rule, QObject *parent) : QObject(parent), m_rule(rule)              \
+    {                                                                                              \
+        if (m_rule) {                                                                              \
+            QObject::connect(m_rule, &Rule::rendererReplaced, this,                                \
+                             &ClassName::onRendererReplaced);                                      \
+        }                                                                                          \
+    }                                                                                              \
+    ClassName::~ClassName() = default;                                                             \
+    void ClassName::onRendererReplaced()                                                           \
+    {                                                                                              \
+        emit changed();                                                                            \
+    }                                                                                              \
+    qreal ClassName::opacity() const                                                               \
+    {                                                                                              \
+        return readOpacityOn(m_rule);                                                              \
+    }                                                                                              \
+    void ClassName::setOpacity(qreal v)                                                            \
+    {                                                                                              \
+        writeOpacityOn(m_rule, v);                                                                 \
+    }
 
 // ── RasterColorRampSymbolStyleAdapter ────────────────────────────────
 
 OSWMM_RASTER_ADAPTER_COMMON(RasterColorRampSymbolStyleAdapter)
 
 QString RasterColorRampSymbolStyleAdapter::attribute() const
-{ return readPropOn<QString>(m_rule, QLatin1String(keys::kAttribute), QString()); }
+{
+    return readPropOn<QString>(m_rule, QLatin1String(keys::kAttribute), QString());
+}
 void RasterColorRampSymbolStyleAdapter::setAttribute(const QString &v)
-{ writePropOn<QString>(m_rule, QLatin1String(keys::kAttribute), v); }
+{
+    writePropOn<QString>(m_rule, QLatin1String(keys::kAttribute), v);
+}
 
 qreal RasterColorRampSymbolStyleAdapter::minValue() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kMinValue), 0.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kMinValue), 0.0);
+}
 void RasterColorRampSymbolStyleAdapter::setMinValue(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kMinValue), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kMinValue), v);
+}
 
 qreal RasterColorRampSymbolStyleAdapter::maxValue() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kMaxValue), 1.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kMaxValue), 1.0);
+}
 void RasterColorRampSymbolStyleAdapter::setMaxValue(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kMaxValue), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kMaxValue), v);
+}
 
 QColor RasterColorRampSymbolStyleAdapter::lowColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), QColor(0, 0, 255)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), QColor(0, 0, 255));
+}
 void RasterColorRampSymbolStyleAdapter::setLowColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), c);
+}
 
 QColor RasterColorRampSymbolStyleAdapter::highColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), QColor(255, 0, 0)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), QColor(255, 0, 0));
+}
 void RasterColorRampSymbolStyleAdapter::setHighColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), c);
+}
 
 QColor RasterColorRampSymbolStyleAdapter::belowMinColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), QColor(0, 0, 0, 0)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), QColor(0, 0, 0, 0));
+}
 void RasterColorRampSymbolStyleAdapter::setBelowMinColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), c);
+}
 
 QColor RasterColorRampSymbolStyleAdapter::aboveMaxColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), QColor(0, 0, 0, 0)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), QColor(0, 0, 0, 0));
+}
 void RasterColorRampSymbolStyleAdapter::setAboveMaxColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), c);
+}
 
 bool RasterColorRampSymbolStyleAdapter::useLogScale() const
-{ return readPropOn<bool>(m_rule, QLatin1String(keys::kUseLogScale), false); }
+{
+    return readPropOn<bool>(m_rule, QLatin1String(keys::kUseLogScale), false);
+}
 void RasterColorRampSymbolStyleAdapter::setUseLogScale(bool v)
-{ writePropOn<bool>(m_rule, QLatin1String(keys::kUseLogScale), v); }
+{
+    writePropOn<bool>(m_rule, QLatin1String(keys::kUseLogScale), v);
+}
 
 // ── HillshadeSymbolStyleAdapter ──────────────────────────────────────
 
 OSWMM_RASTER_ADAPTER_COMMON(HillshadeSymbolStyleAdapter)
 
 QColor HillshadeSymbolStyleAdapter::fillColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), QColor(180, 180, 180)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), QColor(180, 180, 180));
+}
 void HillshadeSymbolStyleAdapter::setFillColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), c);
+}
 
 qreal HillshadeSymbolStyleAdapter::hillshadeStrength() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kHillshadeStrength), 0.5); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kHillshadeStrength), 0.5);
+}
 void HillshadeSymbolStyleAdapter::setHillshadeStrength(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kHillshadeStrength), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kHillshadeStrength), v);
+}
 
 bool HillshadeSymbolStyleAdapter::useElevationRamp() const
-{ return readPropOn<bool>(m_rule, QLatin1String(keys::kUseElevationRamp), false); }
+{
+    return readPropOn<bool>(m_rule, QLatin1String(keys::kUseElevationRamp), false);
+}
 void HillshadeSymbolStyleAdapter::setUseElevationRamp(bool v)
-{ writePropOn<bool>(m_rule, QLatin1String(keys::kUseElevationRamp), v); }
+{
+    writePropOn<bool>(m_rule, QLatin1String(keys::kUseElevationRamp), v);
+}
 
 // ── ContourBandSymbolStyleAdapter ────────────────────────────────────
 
 OSWMM_RASTER_ADAPTER_COMMON(ContourBandSymbolStyleAdapter)
 
 QString ContourBandSymbolStyleAdapter::attribute() const
-{ return readPropOn<QString>(m_rule, QLatin1String(keys::kAttribute), QString()); }
+{
+    return readPropOn<QString>(m_rule, QLatin1String(keys::kAttribute), QString());
+}
 void ContourBandSymbolStyleAdapter::setAttribute(const QString &v)
-{ writePropOn<QString>(m_rule, QLatin1String(keys::kAttribute), v); }
+{
+    writePropOn<QString>(m_rule, QLatin1String(keys::kAttribute), v);
+}
 
 int ContourBandSymbolStyleAdapter::bandCount() const
-{ return readPropOn<int>(m_rule, QLatin1String(keys::kBandCount), 8); }
+{
+    return readPropOn<int>(m_rule, QLatin1String(keys::kBandCount), 8);
+}
 void ContourBandSymbolStyleAdapter::setBandCount(int v)
-{ writePropOn<int>(m_rule, QLatin1String(keys::kBandCount), v); }
+{
+    writePropOn<int>(m_rule, QLatin1String(keys::kBandCount), v);
+}
 
 QColor ContourBandSymbolStyleAdapter::lowColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), QColor(0, 0, 255)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), QColor(0, 0, 255));
+}
 void ContourBandSymbolStyleAdapter::setLowColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kLowColor), c);
+}
 
 QColor ContourBandSymbolStyleAdapter::highColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), QColor(255, 0, 0)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), QColor(255, 0, 0));
+}
 void ContourBandSymbolStyleAdapter::setHighColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kHighColor), c);
+}
 
 QColor ContourBandSymbolStyleAdapter::belowMinColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), QColor(0, 0, 0, 0)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), QColor(0, 0, 0, 0));
+}
 void ContourBandSymbolStyleAdapter::setBelowMinColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kBelowMinColor), c);
+}
 
 QColor ContourBandSymbolStyleAdapter::aboveMaxColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), QColor(0, 0, 0, 0)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), QColor(0, 0, 0, 0));
+}
 void ContourBandSymbolStyleAdapter::setAboveMaxColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kAboveMaxColor), c);
+}
 
 bool ContourBandSymbolStyleAdapter::smoothBands() const
-{ return readPropOn<bool>(m_rule, QLatin1String(keys::kSmoothBands), true); }
+{
+    return readPropOn<bool>(m_rule, QLatin1String(keys::kSmoothBands), true);
+}
 void ContourBandSymbolStyleAdapter::setSmoothBands(bool v)
-{ writePropOn<bool>(m_rule, QLatin1String(keys::kSmoothBands), v); }
+{
+    writePropOn<bool>(m_rule, QLatin1String(keys::kSmoothBands), v);
+}
 
 // ── IsolineSymbolStyleAdapter ────────────────────────────────────────
 
 OSWMM_RASTER_ADAPTER_COMMON(IsolineSymbolStyleAdapter)
 
 QString IsolineSymbolStyleAdapter::attribute() const
-{ return readPropOn<QString>(m_rule, QLatin1String(keys::kAttribute), QString()); }
+{
+    return readPropOn<QString>(m_rule, QLatin1String(keys::kAttribute), QString());
+}
 void IsolineSymbolStyleAdapter::setAttribute(const QString &v)
-{ writePropOn<QString>(m_rule, QLatin1String(keys::kAttribute), v); }
+{
+    writePropOn<QString>(m_rule, QLatin1String(keys::kAttribute), v);
+}
 
 int IsolineSymbolStyleAdapter::isoValueCount() const
-{ return readPropOn<int>(m_rule, QLatin1String(keys::kIsoValueCount), 5); }
+{
+    return readPropOn<int>(m_rule, QLatin1String(keys::kIsoValueCount), 5);
+}
 void IsolineSymbolStyleAdapter::setIsoValueCount(int v)
-{ writePropOn<int>(m_rule, QLatin1String(keys::kIsoValueCount), v); }
+{
+    writePropOn<int>(m_rule, QLatin1String(keys::kIsoValueCount), v);
+}
 
 QColor IsolineSymbolStyleAdapter::color() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), QColor(40, 40, 40)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), QColor(40, 40, 40));
+}
 void IsolineSymbolStyleAdapter::setColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), c);
+}
 
 qreal IsolineSymbolStyleAdapter::lineWidthPx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), 0.75); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), 0.75);
+}
 void IsolineSymbolStyleAdapter::setLineWidthPx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), v);
+}
 
 Qt::PenStyle IsolineSymbolStyleAdapter::dashPattern() const
-{ return static_cast<Qt::PenStyle>(readPropOn<int>(
-    m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(Qt::SolidLine))); }
+{
+    return static_cast<Qt::PenStyle>(
+        readPropOn<int>(m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(Qt::SolidLine)));
+}
 void IsolineSymbolStyleAdapter::setDashPattern(Qt::PenStyle s)
-{ writePropOn<int>(m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(s)); }
+{
+    writePropOn<int>(m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(s));
+}
 
 bool IsolineSymbolStyleAdapter::labels() const
-{ return readPropOn<bool>(m_rule, QLatin1String(keys::kLabels), false); }
+{
+    return readPropOn<bool>(m_rule, QLatin1String(keys::kLabels), false);
+}
 void IsolineSymbolStyleAdapter::setLabels(bool v)
-{ writePropOn<bool>(m_rule, QLatin1String(keys::kLabels), v); }
+{
+    writePropOn<bool>(m_rule, QLatin1String(keys::kLabels), v);
+}
 
 // ── MeshEdgeSymbolStyleAdapter ───────────────────────────────────────
 
 OSWMM_RASTER_ADAPTER_COMMON(MeshEdgeSymbolStyleAdapter)
 
 QColor MeshEdgeSymbolStyleAdapter::color() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), QColor(80, 80, 80)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), QColor(80, 80, 80));
+}
 void MeshEdgeSymbolStyleAdapter::setColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), c);
+}
 
 qreal MeshEdgeSymbolStyleAdapter::lineWidthPx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), 0.5); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), 0.5);
+}
 void MeshEdgeSymbolStyleAdapter::setLineWidthPx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kLineWidth), v);
+}
 
 Qt::PenStyle MeshEdgeSymbolStyleAdapter::dashPattern() const
-{ return static_cast<Qt::PenStyle>(readPropOn<int>(
-    m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(Qt::SolidLine))); }
+{
+    return static_cast<Qt::PenStyle>(
+        readPropOn<int>(m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(Qt::SolidLine)));
+}
 void MeshEdgeSymbolStyleAdapter::setDashPattern(Qt::PenStyle s)
-{ writePropOn<int>(m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(s)); }
+{
+    writePropOn<int>(m_rule, QLatin1String(keys::kPenStyle), static_cast<int>(s));
+}
 
 bool MeshEdgeSymbolStyleAdapter::useSlopeDrivenWidth() const
-{ return readPropOn<bool>(m_rule, QLatin1String(keys::kUseSlopeDriven), false); }
+{
+    return readPropOn<bool>(m_rule, QLatin1String(keys::kUseSlopeDriven), false);
+}
 void MeshEdgeSymbolStyleAdapter::setUseSlopeDrivenWidth(bool v)
-{ writePropOn<bool>(m_rule, QLatin1String(keys::kUseSlopeDriven), v); }
+{
+    writePropOn<bool>(m_rule, QLatin1String(keys::kUseSlopeDriven), v);
+}
 
 qreal MeshEdgeSymbolStyleAdapter::slopeBreak() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kSlopeBreak), 0.5); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kSlopeBreak), 0.5);
+}
 void MeshEdgeSymbolStyleAdapter::setSlopeBreak(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kSlopeBreak), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kSlopeBreak), v);
+}
 
 qreal MeshEdgeSymbolStyleAdapter::wideWidthPx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kWideWidthPx), 1.5); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kWideWidthPx), 1.5);
+}
 void MeshEdgeSymbolStyleAdapter::setWideWidthPx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kWideWidthPx), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kWideWidthPx), v);
+}
 
 QColor MeshEdgeSymbolStyleAdapter::wideColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kWideColor), QColor(40, 40, 40)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kWideColor), QColor(40, 40, 40));
+}
 void MeshEdgeSymbolStyleAdapter::setWideColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kWideColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kWideColor), c);
+}
 
 // ── MeshNodeSymbolStyleAdapter ───────────────────────────────────────
 
 OSWMM_RASTER_ADAPTER_COMMON(MeshNodeSymbolStyleAdapter)
 
 QColor MeshNodeSymbolStyleAdapter::color() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), QColor(60, 120, 200)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), QColor(60, 120, 200));
+}
 void MeshNodeSymbolStyleAdapter::setColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), c);
+}
 
 qreal MeshNodeSymbolStyleAdapter::markerSizePx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kSize), 6.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kSize), 6.0);
+}
 void MeshNodeSymbolStyleAdapter::setMarkerSizePx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kSize), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kSize), v);
+}
 
 MarkerShape MeshNodeSymbolStyleAdapter::shape() const
-{ return static_cast<MarkerShape>(readPropOn<int>(
-    m_rule, QLatin1String(keys::kShape), static_cast<int>(MarkerShape::Circle))); }
+{
+    return static_cast<MarkerShape>(readPropOn<int>(m_rule, QLatin1String(keys::kShape),
+                                                    static_cast<int>(MarkerShape::Circle)));
+}
 void MeshNodeSymbolStyleAdapter::setShape(MarkerShape s)
-{ writePropOn<int>(m_rule, QLatin1String(keys::kShape), static_cast<int>(s)); }
+{
+    writePropOn<int>(m_rule, QLatin1String(keys::kShape), static_cast<int>(s));
+}
 
 QColor MeshNodeSymbolStyleAdapter::outlineColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kOutlineColor), QColor(40, 40, 40)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kOutlineColor), QColor(40, 40, 40));
+}
 void MeshNodeSymbolStyleAdapter::setOutlineColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kOutlineColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kOutlineColor), c);
+}
 
 qreal MeshNodeSymbolStyleAdapter::outlineWidthPx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kOutlineWidth), 0.5); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kOutlineWidth), 0.5);
+}
 void MeshNodeSymbolStyleAdapter::setOutlineWidthPx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kOutlineWidth), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kOutlineWidth), v);
+}
 
 bool MeshNodeSymbolStyleAdapter::highlightTagged() const
-{ return readPropOn<bool>(m_rule, QLatin1String(keys::kHighlightTagged), false); }
+{
+    return readPropOn<bool>(m_rule, QLatin1String(keys::kHighlightTagged), false);
+}
 void MeshNodeSymbolStyleAdapter::setHighlightTagged(bool v)
-{ writePropOn<bool>(m_rule, QLatin1String(keys::kHighlightTagged), v); }
+{
+    writePropOn<bool>(m_rule, QLatin1String(keys::kHighlightTagged), v);
+}
 
 QColor MeshNodeSymbolStyleAdapter::taggedColor() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kTaggedColor), QColor(255, 140, 0)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kTaggedColor), QColor(255, 140, 0));
+}
 void MeshNodeSymbolStyleAdapter::setTaggedColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kTaggedColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kTaggedColor), c);
+}
 
 qreal MeshNodeSymbolStyleAdapter::taggedSizePx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kTaggedSizePx), 8.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kTaggedSizePx), 8.0);
+}
 void MeshNodeSymbolStyleAdapter::setTaggedSizePx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kTaggedSizePx), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kTaggedSizePx), v);
+}
 
 // ── VelocityVectorSymbolStyleAdapter ─────────────────────────────────
 
 OSWMM_RASTER_ADAPTER_COMMON(VelocityVectorSymbolStyleAdapter)
 
 qreal VelocityVectorSymbolStyleAdapter::glyphLengthScalePxPerMps() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphScale), 20.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphScale), 20.0);
+}
 void VelocityVectorSymbolStyleAdapter::setGlyphLengthScalePxPerMps(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphScale), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphScale), v);
+}
 
 qreal VelocityVectorSymbolStyleAdapter::glyphLengthMinPx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMin), 4.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMin), 4.0);
+}
 void VelocityVectorSymbolStyleAdapter::setGlyphLengthMinPx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMin), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMin), v);
+}
 
 qreal VelocityVectorSymbolStyleAdapter::glyphLengthMaxPx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMax), 40.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMax), 40.0);
+}
 void VelocityVectorSymbolStyleAdapter::setGlyphLengthMaxPx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMax), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphMax), v);
+}
 
 qreal VelocityVectorSymbolStyleAdapter::glyphSpacingPx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphSpacing), 30.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kGlyphSpacing), 30.0);
+}
 void VelocityVectorSymbolStyleAdapter::setGlyphSpacingPx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphSpacing), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kGlyphSpacing), v);
+}
 
 qreal VelocityVectorSymbolStyleAdapter::headSizePx() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kHeadSize), 5.0); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kHeadSize), 5.0);
+}
 void VelocityVectorSymbolStyleAdapter::setHeadSizePx(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kHeadSize), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kHeadSize), v);
+}
 
 QColor VelocityVectorSymbolStyleAdapter::color() const
-{ return readPropOn<QColor>(m_rule, QLatin1String(keys::kLineColor),
-                            QColor(20, 20, 20, 220)); }
+{
+    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), QColor(20, 20, 20, 220));
+}
 void VelocityVectorSymbolStyleAdapter::setColor(const QColor &c)
-{ writePropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), c); }
+{
+    writePropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), c);
+}
 
 qreal VelocityVectorSymbolStyleAdapter::dryDepthCutoff() const
-{ return readPropOn<qreal>(m_rule, QLatin1String(keys::kDryDepth), 0.01); }
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kDryDepth), 0.01);
+}
 void VelocityVectorSymbolStyleAdapter::setDryDepthCutoff(qreal v)
-{ writePropOn<qreal>(m_rule, QLatin1String(keys::kDryDepth), v); }
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kDryDepth), v);
+}
 
 #undef OSWMM_RASTER_ADAPTER_COMMON
 

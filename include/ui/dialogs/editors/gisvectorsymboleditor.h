@@ -1,16 +1,18 @@
-/*!
- * \file   gisvectorsymboleditor.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  GIS-style editor for GisVectorSymbolAdapter (Slice U-V4).
+/**
+ * @file      gisvectorsymboleditor.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     GIS-style editor for GisVectorSymbolAdapter (Slice U-V4).
  *
  *         Surfaces every Q_PROPERTY of the GISVectorSymbol struct
  *         (markers, lines, polygons, labels) in a single tabbed
  *         widget. Geometry-specific sub-tabs let the user style
  *         points/lines/polygons independently; labels are always
  *         applicable.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_GISVECTORSYMBOLEDITOR_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_GISVECTORSYMBOLEDITOR_H
 
@@ -23,7 +25,8 @@ class QDoubleSpinBox;
 class QFontComboBox;
 class QLineEdit;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ColorButton;
 class DashStyleCombo;
@@ -34,8 +37,7 @@ class GisVectorSymbolEditor : public IStyleEditorWidget
 {
     Q_OBJECT
 public:
-    explicit GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter,
-                                    QWidget *parent = nullptr);
+    explicit GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QWidget *parent = nullptr);
 
     void refreshFromModel() override;
 
@@ -45,30 +47,30 @@ private:
     GisVectorSymbolAdapter *m_adapter = nullptr;
 
     // Marker
-    MarkerShapeCombo *m_shapeCombo  = nullptr;
-    QDoubleSpinBox   *m_markerSize  = nullptr;
-    ColorButton      *m_markerFill  = nullptr;
-    ColorButton      *m_markerStroke= nullptr;
-    QDoubleSpinBox   *m_markerStrokeW = nullptr;
+    MarkerShapeCombo *m_shapeCombo = nullptr;
+    QDoubleSpinBox *m_markerSize = nullptr;
+    ColorButton *m_markerFill = nullptr;
+    ColorButton *m_markerStroke = nullptr;
+    QDoubleSpinBox *m_markerStrokeW = nullptr;
 
     // Line
-    ColorButton      *m_lineColor   = nullptr;
-    QDoubleSpinBox   *m_lineWidth   = nullptr;
-    DashStyleCombo   *m_lineDash    = nullptr;
+    ColorButton *m_lineColor = nullptr;
+    QDoubleSpinBox *m_lineWidth = nullptr;
+    DashStyleCombo *m_lineDash = nullptr;
 
     // Polygon
-    ColorButton      *m_polyFill    = nullptr;
-    ColorButton      *m_polyOutline = nullptr;
-    QDoubleSpinBox   *m_polyOutlineW = nullptr;
+    ColorButton *m_polyFill = nullptr;
+    ColorButton *m_polyOutline = nullptr;
+    QDoubleSpinBox *m_polyOutlineW = nullptr;
 
     // Labels
-    QCheckBox        *m_showLabels  = nullptr;
-    QLineEdit        *m_labelField  = nullptr;
-    QFontComboBox    *m_labelFont   = nullptr;
-    ColorButton      *m_labelColor  = nullptr;
+    QCheckBox *m_showLabels = nullptr;
+    QLineEdit *m_labelField = nullptr;
+    QFontComboBox *m_labelFont = nullptr;
+    ColorButton *m_labelColor = nullptr;
 
-    StylePreviewSwatch *m_pointPreview   = nullptr;
-    StylePreviewSwatch *m_linePreview    = nullptr;
+    StylePreviewSwatch *m_pointPreview = nullptr;
+    StylePreviewSwatch *m_linePreview = nullptr;
     StylePreviewSwatch *m_polygonPreview = nullptr;
 };
 

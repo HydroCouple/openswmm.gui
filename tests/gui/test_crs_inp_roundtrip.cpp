@@ -1,6 +1,6 @@
-/*!
- * \file test_crs_inp_roundtrip.cpp
- * \brief The [OPTIONS] CRS is the model's coordinate system of record.
+/**
+ * @file      test_crs_inp_roundtrip.cpp
+ * @brief     The [OPTIONS] CRS is the model's coordinate system of record.
  *
  * Two rules, both gated here:
  *  1. On open, a CRS in the .inp wins over the .oswp sidecar's copy. The
@@ -16,6 +16,10 @@
  * the NEW coordinates; and the sidecar restore overwrote the .inp's CRS.
  *
  * All output goes to <repo>/tests/output/crs_inp_roundtrip/, never a temp dir.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmmmodellayer.h"
@@ -31,10 +35,11 @@
 #include <QTest>
 #include <QTextStream>
 
-namespace {
+namespace
+{
 
-constexpr const char *kInpCrs      = "EPSG:26985";
-constexpr int         kAssignedCode = 32618;   // EPSG:32618
+constexpr const char *kInpCrs = "EPSG:26985";
+constexpr int kAssignedCode = 32618; // EPSG:32618
 
 QString dataDir()
 {
@@ -44,9 +49,9 @@ QString dataDir()
 //! Reviewable output root: <repo>/tests/output/crs_inp_roundtrip.
 QString outDir()
 {
-    QDir d(dataDir());              // tests/gui/data
-    d.cdUp();                       // tests/gui
-    d.cdUp();                       // tests
+    QDir d(dataDir()); // tests/gui/data
+    d.cdUp();          // tests/gui
+    d.cdUp();          // tests
     const QString out = d.filePath(QStringLiteral("output/crs_inp_roundtrip"));
     QDir().mkpath(out);
     return out;
@@ -80,7 +85,8 @@ bool writeDeck(const QString &path, const QString &crs)
 QString crsLineInOptions(const QString &inp)
 {
     QFile f(inp);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     QTextStream ts(&f);
     bool inOptions = false;
     while (!ts.atEnd()) {
@@ -89,8 +95,8 @@ QString crsLineInOptions(const QString &inp)
             inOptions = line.startsWith(QStringLiteral("[OPTIONS]"));
             continue;
         }
-        if (inOptions && line.startsWith(QStringLiteral("CRS"))
-            && line.size() > 3 && line.at(3).isSpace())
+        if (inOptions && line.startsWith(QStringLiteral("CRS")) && line.size() > 3 &&
+            line.at(3).isSpace())
             return line.simplified();
     }
     return {};
@@ -100,12 +106,14 @@ QString crsLineInOptions(const QString &inp)
 SWMMVisProjectWindow *openWindow(const QString &deckPath, QString *why)
 {
     auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
-    if (!workspace) { *why = QStringLiteral("workspace null"); return nullptr; }
+    if (!workspace) {
+        *why = QStringLiteral("workspace null");
+        return nullptr;
+    }
     auto *window = new SWMMVisProjectWindow(workspace, deckPath, nullptr);
     QList<QString> warnings, errors;
     if (!window->loadModel(warnings, errors)) {
-        *why = QStringLiteral("loadModel failed: %1")
-                   .arg(errors.join(QLatin1String("; ")));
+        *why = QStringLiteral("loadModel failed: %1").arg(errors.join(QLatin1String("; ")));
         return nullptr;
     }
     return window;
@@ -120,8 +128,7 @@ QString layerAuthority(SWMMVisProjectWindow *w)
 void assignEpsg(SWMMVisProjectWindow *w, int code)
 {
     auto *layer = w->modelLayer();
-    layer->setSRS(SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"),
-                                                       code, layer), true);
+    layer->setSRS(SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), code, layer), true);
 }
 
 } // namespace
@@ -176,10 +183,10 @@ private slots:
         }
         SWMMVisProjectWindow *w = openWindow(deck, &why);
         QVERIFY2(w, qPrintable(why));
-        QVERIFY(!w->modelLayer()->crsAssigned());   // defaulted on open, not assigned
+        QVERIFY(!w->modelLayer()->crsAssigned()); // defaulted on open, not assigned
         QVERIFY2(ProjectSerializer::applyFromFile(oswp, w, &err), qPrintable(err));
         QCOMPARE(layerAuthority(w), QStringLiteral("EPSG:%1").arg(kAssignedCode));
-        QVERIFY(w->modelLayer()->crsAssigned());    // the sidecar's CRS IS an assignment
+        QVERIFY(w->modelLayer()->crsAssigned()); // the sidecar's CRS IS an assignment
         delete w;
     }
 
@@ -187,7 +194,7 @@ private slots:
      *  the CRS-picker-on-open / sidecar case. */
     void assignedCrsIsWrittenWhenInpHadNone()
     {
-        const QString deck  = outDir() + QStringLiteral("/no_crs_src.inp");
+        const QString deck = outDir() + QStringLiteral("/no_crs_src.inp");
         const QString saved = outDir() + QStringLiteral("/no_crs_assigned_saved.inp");
         QVERIFY(writeDeck(deck, QString()));
 
@@ -196,8 +203,7 @@ private slots:
         QVERIFY2(w, qPrintable(why));
         assignEpsg(w, kAssignedCode);
         QVERIFY2(w->saveAs(saved, &err), qPrintable(err));
-        QCOMPARE(crsLineInOptions(saved),
-                 QStringLiteral("CRS EPSG:%1").arg(kAssignedCode));
+        QCOMPARE(crsLineInOptions(saved), QStringLiteral("CRS EPSG:%1").arg(kAssignedCode));
         delete w;
     }
 
@@ -206,7 +212,7 @@ private slots:
      *  NEW one, and reopening it must read the new one back. */
     void reassignedCrsReplacesTheInpLine()
     {
-        const QString deck  = outDir() + QStringLiteral("/with_crs_src.inp");
+        const QString deck = outDir() + QStringLiteral("/with_crs_src.inp");
         const QString saved = outDir() + QStringLiteral("/with_crs_reassigned_saved.inp");
         QVERIFY(writeDeck(deck, QString::fromLatin1(kInpCrs)));
 
@@ -218,8 +224,7 @@ private slots:
             QVERIFY2(w->saveAs(saved, &err), qPrintable(err));
             delete w;
         }
-        QCOMPARE(crsLineInOptions(saved),
-                 QStringLiteral("CRS EPSG:%1").arg(kAssignedCode));
+        QCOMPARE(crsLineInOptions(saved), QStringLiteral("CRS EPSG:%1").arg(kAssignedCode));
         SWMMVisProjectWindow *w = openWindow(saved, &why);
         QVERIFY2(w, qPrintable(why));
         QCOMPARE(layerAuthority(w), QStringLiteral("EPSG:%1").arg(kAssignedCode));
@@ -229,7 +234,7 @@ private slots:
     /*! Must-not-change — an unedited save keeps the .inp's own CRS line. */
     void unchangedCrsIsPreservedOnSave()
     {
-        const QString deck  = outDir() + QStringLiteral("/with_crs_unedited.inp");
+        const QString deck = outDir() + QStringLiteral("/with_crs_unedited.inp");
         const QString saved = outDir() + QStringLiteral("/with_crs_unedited_saved.inp");
         QVERIFY(writeDeck(deck, QString::fromLatin1(kInpCrs)));
 
@@ -248,15 +253,15 @@ private slots:
      *  is a real EPSG code, not a local CRS. */
     void defaultedCrsIsNeverWritten()
     {
-        const QString deck  = outDir() + QStringLiteral("/no_crs_default.inp");
+        const QString deck = outDir() + QStringLiteral("/no_crs_default.inp");
         const QString saved = outDir() + QStringLiteral("/no_crs_default_saved.inp");
         QVERIFY(writeDeck(deck, QString()));
 
         QString why, err;
         SWMMVisProjectWindow *w = openWindow(deck, &why);
         QVERIFY2(w, qPrintable(why));
-        QVERIFY(w->modelLayer()->srs());              // something was defaulted...
-        QVERIFY(!w->modelLayer()->crsAssigned());     // ...but nothing was assigned
+        QVERIFY(w->modelLayer()->srs());          // something was defaulted...
+        QVERIFY(!w->modelLayer()->crsAssigned()); // ...but nothing was assigned
         QVERIFY2(w->saveAs(saved, &err), qPrintable(err));
         QCOMPARE(crsLineInOptions(saved), QString());
         delete w;

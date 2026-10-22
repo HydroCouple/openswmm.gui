@@ -16,6 +16,16 @@
 //
 // Gated on SWMMVIS_MESH_OVERHAUL_ENGINE=1 (QSKIP otherwise); the storm case
 // additionally QSKIPs until the Bellinge harness has produced mesh_B.2dm.
+
+/**
+ * @file      test_mesh_overhaul_engine.cpp
+ * @brief     Tests for mesh overhaul engine.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "mesh/meshgenerator.h"
 #include "mesh/meshcellgeom.h"
 #include "mesh/inpmeshwriter.h"
@@ -30,30 +40,41 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
 constexpr double kSqrt3_4 = 0.4330127018922193;
-constexpr double kLakeWse = 0.5;                  // SWASHES lake at rest
+constexpr double kLakeWse = 0.5; // SWASHES lake at rest
 
-struct ShippedMesh
-{
+struct ShippedMesh {
     QVector<QPointF> xy;
-    QVector<double>  z;
+    QVector<double> z;
     QVector<std::array<int, 3>> tris;
 };
 
+/**
+ * @brief Read inline vertex and triangle sections from the shipped lake input deck.
+ * @param[in] inpPath Read-only UTF8 text deck path; no ownership retained.
+ * @return Owned coordinate/elevation/triangle arrays, empty if opening fails; ignores unrelated
+ * sections and short lines. Numeric conversion and zero-based indices are trusted fixture data,
+ * not validated. Closes file on return, may allocate; never rewrites the source deck.
+ */
 ShippedMesh parseInlineMesh(const QString &inpPath)
 {
     ShippedMesh m;
     QFile f(inpPath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return m;
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return m;
     QString section;
     while (!f.atEnd()) {
         const QString line = QString::fromUtf8(f.readLine()).trimmed();
-        if (line.isEmpty() || line.startsWith(";;")) continue;
-        if (line.startsWith('[')) { section = line.toUpper(); continue; }
-        const QStringList p = line.split(QRegularExpression("\\s+"),
-                                         Qt::SkipEmptyParts);
+        if (line.isEmpty() || line.startsWith(";;"))
+            continue;
+        if (line.startsWith('[')) {
+            section = line.toUpper();
+            continue;
+        }
+        const QStringList p = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
         if (section == "[2D_VERTICES]" && p.size() >= 3) {
             m.xy.append(QPointF(p[0].toDouble(), p[1].toDouble()));
             m.z.append(p[2].toDouble());
@@ -66,46 +87,73 @@ ShippedMesh parseInlineMesh(const QString &inpPath)
 
 //! Bed elevation at (x, y): barycentric over the shipped triangles, nearest
 //! shipped vertex as the fallback for boundary rounding.
+/**
+ * @brief Interpolate shipped terrain barycentrically, falling back to nearest vertex outside
+ * triangles.
+ * @param[in] m Stable nonempty shipped mesh with matched xy/z sizes and valid triangle indices.
+ * @param[in] q Query in same planar units/CRS, preserved.
+ * @return Weighted vertex elevation in source vertical units for first containing triangle
+ * within 1e-9 barycentric slack; otherwise nearest vertex elevation. Determinants below 1e-12
+ * skipped. Requires at least one elevation, no validation/allocation or physical state change.
+ */
 double bedAt(const ShippedMesh &m, const QPointF &q)
 {
     for (const auto &t : m.tris) {
         const QPointF a = m.xy[t[0]], b = m.xy[t[1]], c = m.xy[t[2]];
-        const double det = (b.x() - a.x()) * (c.y() - a.y())
-                         - (c.x() - a.x()) * (b.y() - a.y());
-        if (std::abs(det) < 1e-12) continue;
-        const double l1 = ((q.x() - a.x()) * (c.y() - a.y())
-                         - (c.x() - a.x()) * (q.y() - a.y())) / det;
-        const double l2 = ((b.x() - a.x()) * (q.y() - a.y())
-                         - (q.x() - a.x()) * (b.y() - a.y())) / det;
+        const double det = (b.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (b.y() - a.y());
+        if (std::abs(det) < 1e-12)
+            continue;
+        const double l1 =
+            ((q.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (q.y() - a.y())) / det;
+        const double l2 =
+            ((b.x() - a.x()) * (q.y() - a.y()) - (q.x() - a.x()) * (b.y() - a.y())) / det;
         const double l0 = 1.0 - l1 - l2;
         const double eps = -1e-9;
         if (l0 >= eps && l1 >= eps && l2 >= eps)
             return l0 * m.z[t[0]] + l1 * m.z[t[1]] + l2 * m.z[t[2]];
     }
-    int best = 0; double bestD = 1e300;
+    int best = 0;
+    double bestD = 1e300;
     for (int i = 0; i < m.xy.size(); ++i) {
         const double d = QLineF(m.xy[i], q).length();
-        if (d < bestD) { bestD = d; best = i; }
+        if (d < bestD) {
+            bestD = d;
+            best = i;
+        }
     }
     return m.z[best];
 }
 
 //! Run one deck through the in-process engine; returns success and leaves
 //! the rpt/out/h5 files beside the deck.
+/**
+ * @brief Start an in-process simulation and wait for its completion signal with review outputs
+ * beside deck.
+ * @param[in] inp Existing deck path, preserved; runner writes inp+.rpt,inp+.out and configured
+ * HDF5 outputs.
+ * @param[out] errOut Optional borrowed QString set on timeout or signaled engine failure;
+ * unchanged on success.
+ * @return Signaled success flag, false after six-hour wait timeout; timeout does not cancel the
+ * job. Requires GUI/event-loop environment, uses incrementing static job ID and is not
+ * concurrent-safe. Allocates an unparented runner which this helper does not delete; no runner
+ * ownership is returned. May perform long engine/file IO and leave partial outputs on failure.
+ */
 bool runDeck(const QString &inp, QString *errOut)
 {
     static int jobId = 900;
-    auto *runner = new SimulationRunner(++jobId, QStringLiteral("phase7"),
-                                        inp, inp + ".rpt", inp + ".out");
+    auto *runner =
+        new SimulationRunner(++jobId, QStringLiteral("phase7"), inp, inp + ".rpt", inp + ".out");
     QSignalSpy spy(runner, &SimulationRunner::finished);
     runner->start();
     // bellinge_T8 on the run-B mesh took 4 h 19 min on the owner's Mac.
     if (!spy.wait(6 * 60 * 60 * 1000)) {
-        if (errOut) *errOut = QStringLiteral("engine run timed out");
+        if (errOut)
+            *errOut = QStringLiteral("engine run timed out");
         return false;
     }
     const auto args = spy.takeFirst();
-    if (!args.at(1).toBool() && errOut) *errOut = args.at(3).toString();
+    if (!args.at(1).toBool() && errOut)
+        *errOut = args.at(3).toString();
     return args.at(1).toBool();
 }
 
@@ -117,16 +165,28 @@ class TestMeshOverhaulEngine : public QObject
     QString m_repo, m_outRoot;
 
 private slots:
+    /**
+     * @brief Gate expensive engine round trips and create their designated review output
+     * directory.
+     * @note Skips unless SWMMVIS_MESH_OVERHAUL_ENGINE=1; captures configured engine repository
+     * and output roots, fails if engine output directory cannot be created. Does not run a model
+     * yet.
+     */
     void initTestCase()
     {
         if (qEnvironmentVariable("SWMMVIS_MESH_OVERHAUL_ENGINE") != "1")
             QSKIP("Set SWMMVIS_MESH_OVERHAUL_ENGINE=1 to run the engine "
                   "round-trip gates (runs the 2D engine; minutes).");
-        m_repo    = QStringLiteral(SWMMVIS_MESH_OVERHAUL_REPO_DIR);
+        m_repo = QStringLiteral(SWMMVIS_MESH_OVERHAUL_REPO_DIR);
         m_outRoot = QStringLiteral(SWMMVIS_MESH_OVERHAUL_OUT_DIR "/engine");
         QVERIFY(QDir().mkpath(m_outRoot));
     }
 
+    /**
+     * @brief Register all-triangle and mixed rectangular-quad lake-at-rest remeshing cases.
+     * @note Both use the shipped SWASHES immersed-bed surface and fixed initial water
+     * elevation.5.
+     */
     void lakeAtRest_data()
     {
         QTest::addColumn<bool>("quadRegion");
@@ -134,6 +194,15 @@ private slots:
         QTest::newRow("quad-region") << true;
     }
 
+    /**
+     * @brief Verify generated triangular/mixed meshes remain exactly at rest and conserve volume
+     * in the engine.
+     * @note Reads shipped deck, interpolates bed, writes case-local lake.inp/lake.2dm and
+     * simulation outputs; requires quads only in requested row,>=2 HDF5 frames, exact depth
+     * invariance and absolute volume drift<=1e-9*max(initialVolume,1). Designated output deck
+     * may be replaced; source remains read-only. Gated expensive engine test, can wait up to six
+     * hours per run; no artifacts removed on completion.
+     */
     void lakeAtRest()
     {
         QFETCH(bool, quadRegion);
@@ -142,20 +211,20 @@ private slots:
         const ShippedMesh shipped = parseInlineMesh(shippedInp);
         QVERIFY(shipped.tris.size() > 0);
 
-        const QDir dir(m_outRoot + "/lake_at_rest/"
-                       + QString::fromLatin1(QTest::currentDataTag()));
+        const QDir dir(m_outRoot + "/lake_at_rest/" + QString::fromLatin1(QTest::currentDataTag()));
         QVERIFY(QDir().mkpath(dir.path()));
 
         // Domain = the shipped mesh's bounding rectangle (0..25 × -1..1).
         double x0 = shipped.xy.first().x(), x1 = x0;
         double y0 = shipped.xy.first().y(), y1 = y0;
         for (const QPointF &p : shipped.xy) {
-            x0 = std::min(x0, p.x()); x1 = std::max(x1, p.x());
-            y0 = std::min(y0, p.y()); y1 = std::max(y1, p.y());
+            x0 = std::min(x0, p.x());
+            x1 = std::max(x1, p.x());
+            y0 = std::min(y0, p.y());
+            y1 = std::max(y1, p.y());
         }
         mesh::MeshGenerator g;
-        g.setDomain(QPolygonF(QVector<QPointF>{
-            {x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}));
+        g.setDomain(QPolygonF(QVector<QPointF>{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}));
         if (quadRegion) {
             // Aligned quads down the middle of the channel, triangles round
             // them: the mixed mesh must be at rest too.
@@ -166,28 +235,32 @@ private slots:
             g.addQuadRegion(qr);
         }
         mesh::GenerationOptions o;
-        o.maxArea       = kSqrt3_4;          // cell size 1 m ≈ the shipped grid
-        o.minCellSize   = 0.25;
+        o.maxArea = kSqrt3_4; // cell size 1 m ≈ the shipped grid
+        o.minCellSize = 0.25;
         g.setOptions(o);
         mesh::MeshResult m = g.generate();
         QVERIFY2(m.errorMsg.isEmpty(), qPrintable(m.errorMsg));
         QVERIFY(m.triangles.size() > 0);
         int quadCells = 0;
-        for (const auto &cell : m.triangles) quadCells += cell.isQuad() ? 1 : 0;
+        for (const auto &cell : m.triangles)
+            quadCells += cell.isQuad() ? 1 : 0;
         if (quadRegion)
             QVERIFY2(quadCells > 0, qPrintable(g.quadRegionReports().value(0).message));
         else
             QCOMPARE(quadCells, 0);
 
         // Bed from the shipped surface; lake-at-rest initial condition.
-        for (auto &v : m.vertices) v.z = bedAt(shipped, v.xy);
+        for (auto &v : m.vertices)
+            v.z = bedAt(shipped, v.xy);
         for (auto &cell : m.triangles) {
-            double zMean = m.vertices[cell.v0].z + m.vertices[cell.v1].z
-                         + m.vertices[cell.v2].z;
+            double zMean = m.vertices[cell.v0].z + m.vertices[cell.v1].z + m.vertices[cell.v2].z;
             int nv = 3;
-            if (cell.isQuad()) { zMean += m.vertices[cell.v3].z; nv = 4; }
+            if (cell.isQuad()) {
+                zMean += m.vertices[cell.v3].z;
+                nv = 4;
+            }
             zMean /= nv;
-            cell.mannings  = 1e-8;           // frictionless, like the deck
+            cell.mannings = 1e-8; // frictionless, like the deck
             cell.initDepth = std::max(0.0, kLakeWse - zMean);
         }
 
@@ -195,9 +268,8 @@ private slots:
         QFile::remove(deck);
         QVERIFY(QFile::copy(shippedInp, deck));
         QString err;
-        QVERIFY2(mesh::InpMeshWriter::writeExternal(
-                     deck, dir.filePath("lake.2dm"), m, mesh::CouplingMap{},
-                     0.035, &err),
+        QVERIFY2(mesh::InpMeshWriter::writeExternal(deck, dir.filePath("lake.2dm"), m,
+                                                    mesh::CouplingMap{}, 0.035, &err),
                  qPrintable(err));
 
         QVERIFY2(runDeck(deck, &err), qPrintable(err));
@@ -223,31 +295,34 @@ private slots:
             QVERIFY(reader.readDepthsAt(t, h));
             double vol = 0.0;
             for (size_t i = 0; i < h.size(); ++i) {
-                maxDiff = std::max(maxDiff,
-                                   double(std::abs(h[i] - h0[i])));
+                maxDiff = std::max(maxDiff, double(std::abs(h[i] - h0[i])));
                 vol += area[int(i)] * h[i];
             }
             maxVolDrift = std::max(maxVolDrift, std::abs(vol - v0));
         }
         qInfo("[lake %s] cells=%lld frames=%d max|h-h0|=%.3g volDrift=%.3g",
-              QTest::currentDataTag(), (long long) m.triangles.size(), nt,
-              maxDiff, maxVolDrift);
+              QTest::currentDataTag(), (long long)m.triangles.size(), nt, maxDiff, maxVolDrift);
         QVERIFY2(maxDiff == 0.0,
-                 qPrintable(QString("lake not at rest: max|h-h0| = %1")
-                                .arg(maxDiff, 0, 'g', 17)));
+                 qPrintable(QString("lake not at rest: max|h-h0| = %1").arg(maxDiff, 0, 'g', 17)));
         QVERIFY2(maxVolDrift <= 1e-9 * std::max(v0, 1.0),
-                 qPrintable(QString("volume drift %1 of %2")
-                                .arg(maxVolDrift).arg(v0)));
+                 qPrintable(QString("volume drift %1 of %2").arg(maxVolDrift).arg(v0)));
     }
 
+    /**
+     * @brief Verify the acceptance mesh runs the Bellinge storm with zero displayed 2Dcontinuity
+     * error and clean topology.
+     * @note Skips absent mesh_B.2dm; copies deck/available feature/rain sidecars into designated
+     * engine review output, substitutes mesh reference and runs engine. Requires report 2Dline
+     * containing 0.000, no degenerate cell/triangle/quad or T-junction messages. Shipped report
+     * is logged for comparison, not byte-compared; writes/replaces only staged outputs, may run
+     * for hours.
+     */
     void bellingeStorm()
     {
-        const QString meshB = QStringLiteral(
-            SWMMVIS_MESH_OVERHAUL_OUT_DIR "/bellinge/mesh_B.2dm");
+        const QString meshB = QStringLiteral(SWMMVIS_MESH_OVERHAUL_OUT_DIR "/bellinge/mesh_B.2dm");
         if (!QFileInfo::exists(meshB))
             QSKIP("Run the Bellinge acceptance harness first (mesh_B.2dm).");
-        const QString srcDir =
-            m_repo + "/tests/output/gui_perf_2026-09-09/decks_gui";
+        const QString srcDir = m_repo + "/tests/output/gui_perf_2026-09-09/decks_gui";
         const QDir dir(m_outRoot + "/bellinge");
         QVERIFY(QDir().mkpath(dir.path()));
         const QString deck = dir.filePath("bellinge_T8.inp");
@@ -257,30 +332,26 @@ private slots:
         // lives with the example, not the perf deck).
         const QHash<QString, QString> sidecars = {
             {QStringLiteral("bellinge_T8.features.gpkg"), srcDir},
-            {QStringLiteral("rg_bellinge_Jun2010_Aug2021.dat"),
-             m_repo + "/examples/bellinge_2d"},
+            {QStringLiteral("rg_bellinge_Jun2010_Aug2021.dat"), m_repo + "/examples/bellinge_2d"},
         };
         for (auto it = sidecars.cbegin(); it != sidecars.cend(); ++it) {
             QFile::remove(dir.filePath(it.key()));
             if (QFileInfo::exists(it.value() + "/" + it.key()))
-                QVERIFY(QFile::copy(it.value() + "/" + it.key(),
-                                    dir.filePath(it.key())));
+                QVERIFY(QFile::copy(it.value() + "/" + it.key(), dir.filePath(it.key())));
         }
         QString err;
-        QVERIFY2(mesh::InpMeshWriter::writeMeshFileRef(deck, meshB, &err),
-                 qPrintable(err));
+        QVERIFY2(mesh::InpMeshWriter::writeMeshFileRef(deck, meshB, &err), qPrintable(err));
         QVERIFY2(runDeck(deck, &err), qPrintable(err));
 
         // 2D continuity from the report, compared with the shipped run.
         auto continuityLines = [](const QString &rptPath) {
             QFile f(rptPath);
             QStringList out;
-            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return out;
-            const QStringList lines =
-                QString::fromUtf8(f.readAll()).split('\n');
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+                return out;
+            const QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
             for (const QString &l : lines)
-                if (l.contains(QStringLiteral("Continuity Error"),
-                               Qt::CaseInsensitive))
+                if (l.contains(QStringLiteral("Continuity Error"), Qt::CaseInsensitive))
                     out << l.trimmed();
             return out;
         };
@@ -292,11 +363,11 @@ private slots:
         // Gate: the 2D continuity error reads 0.000 % like the shipped run.
         bool zero2d = false;
         for (const QString &l : mine)
-            if (l.contains(QStringLiteral("2D"), Qt::CaseInsensitive)
-                && l.contains(QStringLiteral("0.000")))
+            if (l.contains(QStringLiteral("2D"), Qt::CaseInsensitive) &&
+                l.contains(QStringLiteral("0.000")))
                 zero2d = true;
-        QVERIFY2(zero2d, qPrintable(
-            QStringLiteral("2D continuity not 0.000%%: ") + mine.join(" | ")));
+        QVERIFY2(zero2d,
+                 qPrintable(QStringLiteral("2D continuity not 0.000%%: ") + mine.join(" | ")));
 
         // Q1: no degenerate-cell / T-junction complaints from the engine.
         QFile rpt(deck + ".rpt");
@@ -304,12 +375,11 @@ private slots:
         const QString text = QString::fromUtf8(rpt.readAll());
         // "degenerate weights" in the rainfall-fallback note is not a mesh
         // complaint; only cell/triangle degeneracy counts here.
-        QVERIFY2(!text.contains(QRegularExpression(
-                     QStringLiteral("degenerate (cell|triangle|quad)"),
-                     QRegularExpression::CaseInsensitiveOption)),
-                 "engine reported degenerate cells");
-        QVERIFY2(!text.contains(QStringLiteral("T-junction"),
-                                Qt::CaseInsensitive),
+        QVERIFY2(
+            !text.contains(QRegularExpression(QStringLiteral("degenerate (cell|triangle|quad)"),
+                                              QRegularExpression::CaseInsensitiveOption)),
+            "engine reported degenerate cells");
+        QVERIFY2(!text.contains(QStringLiteral("T-junction"), Qt::CaseInsensitive),
                  "engine reported T-junctions");
     }
 };

@@ -1,24 +1,25 @@
-/*!
- * \file   seriespairing.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      seriespairing.cpp
+ * @brief     1v1 scatter column.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/seriespairing.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
-PairedSamples pairSamplesNearest(const std::vector<double>& bt,
-                                 const std::vector<double>& bv,
-                                 const std::vector<double>& ct,
-                                 const std::vector<double>& cv)
+PairedSamples pairSamplesNearest(const std::vector<double> &bt, const std::vector<double> &bv,
+                                 const std::vector<double> &ct, const std::vector<double> &cv)
 {
     PairedSamples out;
-    if (bt.empty() || ct.empty() || bt.size() != bv.size() ||
-        ct.size() != cv.size())
+    if (bt.empty() || ct.empty() || bt.size() != bv.size() || ct.size() != cv.size())
         return out;
 
     // Tolerance: half the smaller report step of the two streams. Falls
@@ -28,8 +29,10 @@ PairedSamples pairSamplesNearest(const std::vector<double>& bt,
     const double stepB = (bt.size() >= 2) ? std::fabs(bt[1] - bt[0]) : 0.0;
     const double stepC = (ct.size() >= 2) ? std::fabs(ct[1] - ct[0]) : 0.0;
     double step = 0.0;
-    if (stepB > 0.0 && stepC > 0.0) step = std::min(stepB, stepC);
-    else                            step = std::max(stepB, stepC);
+    if (stepB > 0.0 && stepC > 0.0)
+        step = std::min(stepB, stepC);
+    else
+        step = std::max(stepB, stepC);
     constexpr double kEpsilon = 1e-12;
     const double tolerance = std::max(0.5 * step, kEpsilon);
 
@@ -45,7 +48,8 @@ PairedSamples pairSamplesNearest(const std::vector<double>& bt,
                 out.x.push_back(bv[i]);
                 out.y.push_back(cv[j]);
             }
-            ++i; ++j;
+            ++i;
+            ++j;
         } else if (tb < tc) {
             ++i;
         } else {

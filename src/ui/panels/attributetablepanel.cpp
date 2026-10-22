@@ -1,7 +1,10 @@
-/*!
- * \file   attributetablepanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      attributetablepanel.cpp
+ * @brief     Attribute Tables dock.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/panels/attributevalueproxy.h"
@@ -17,7 +20,7 @@
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/subcatchcompoundeditref.h"
-#include "ui/properties/userflagseditref.h"   // per-object User Flags cell
+#include "ui/properties/userflagseditref.h" // per-object User Flags cell
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
@@ -106,8 +109,8 @@
 #include <ogr_feature.h>
 #include <ogr_geometry.h>
 
-#include <algorithm>   // std::sort / std::unique — selectionAsTsv row ordering
-#include <utility>     // std::move — GIS attribute-row caching
+#include <algorithm> // std::sort / std::unique — selectionAsTsv row ordering
+#include <utility>   // std::move — GIS attribute-row caching
 
 Q_LOGGING_CATEGORY(lcAttrTbl, "openswmm.attr-table")
 // Per-file definition of the shared open-tail profiling category (the
@@ -119,7 +122,8 @@ Q_LOGGING_CATEGORY(lcLoadGuiAtp, "openswmm.load.gui")
 class QueryLineEdit final : public QLineEdit
 {
 public:
-    explicit QueryLineEdit(QWidget *parent) : QLineEdit(parent) {
+    explicit QueryLineEdit(QWidget *parent) : QLineEdit(parent)
+    {
         m_completer = new QCompleter(this);
         m_candidates = new QStringListModel(this);
         m_completer->setModel(m_candidates);
@@ -129,20 +133,24 @@ public:
         connect(this, &QLineEdit::textEdited, this, [this] { showSuggestions(); });
         connect(m_completer, qOverload<const QString &>(&QCompleter::activated), this,
                 [this](const QString &candidate) {
-            const auto suggestions = openswmmvis::suggestQuery(text(), cursorPosition(), m_fields);
-            const int cursor = cursorPosition();
-            QString updated = text();
-            updated.replace(suggestions.start, cursor - suggestions.start, candidate);
-            setText(updated);
-            setCursorPosition(suggestions.start + candidate.size());
-        });
+                    const auto suggestions =
+                        openswmmvis::suggestQuery(text(), cursorPosition(), m_fields);
+                    const int cursor = cursorPosition();
+                    QString updated = text();
+                    updated.replace(suggestions.start, cursor - suggestions.start, candidate);
+                    setText(updated);
+                    setCursorPosition(suggestions.start + candidate.size());
+                });
     }
-    void setFields(const QStringList &fields) {
+    void setFields(const QStringList &fields)
+    {
         m_fields = fields;
         m_completer->popup()->hide();
     }
+
 protected:
-    void keyPressEvent(QKeyEvent *event) override {
+    void keyPressEvent(QKeyEvent *event) override
+    {
         if (event->key() == Qt::Key_Space && event->modifiers().testFlag(Qt::ControlModifier)) {
             showSuggestions(true);
             event->accept();
@@ -150,26 +158,34 @@ protected:
         }
         QLineEdit::keyPressEvent(event);
     }
+
 private:
-    void showSuggestions(bool explicitRequest = false) {
+    void showSuggestions(bool explicitRequest = false)
+    {
         const auto suggestions = openswmmvis::suggestQuery(text(), cursorPosition(), m_fields);
         // A finished value should still allow Return to apply the query.
-        if (!explicitRequest && suggestions.start == cursorPosition()
-            && !text().left(cursorPosition()).endsWith(' ')) {
+        if (!explicitRequest && suggestions.start == cursorPosition() &&
+            !text().left(cursorPosition()).endsWith(' ')) {
             m_completer->popup()->hide();
             return;
         }
-        if (!explicitRequest && suggestions.candidates.size() == 1
-            && suggestions.candidates.first().compare(text().mid(suggestions.start, cursorPosition() - suggestions.start), Qt::CaseInsensitive) == 0) {
+        if (!explicitRequest && suggestions.candidates.size() == 1 &&
+            suggestions.candidates.first().compare(
+                text().mid(suggestions.start, cursorPosition() - suggestions.start),
+                Qt::CaseInsensitive) == 0) {
             m_completer->popup()->hide();
             return;
         }
         m_candidates->setStringList(suggestions.candidates);
         m_completer->setCompletionPrefix(QString());
-        if (suggestions.candidates.isEmpty()) { m_completer->popup()->hide(); return; }
+        if (suggestions.candidates.isEmpty()) {
+            m_completer->popup()->hide();
+            return;
+        }
         QRect rectangle = cursorRect();
-        rectangle.setWidth(qMax(240, m_completer->popup()->sizeHintForColumn(0)
-                               + m_completer->popup()->verticalScrollBar()->sizeHint().width()));
+        rectangle.setWidth(
+            qMax(240, m_completer->popup()->sizeHintForColumn(0) +
+                          m_completer->popup()->verticalScrollBar()->sizeHint().width()));
         m_completer->complete(rectangle);
     }
     QStringList m_fields;
@@ -194,8 +210,9 @@ private:
 class GISVectorAttributeTableModel : public QAbstractTableModel
 {
 public:
-    explicit GISVectorAttributeTableModel(QObject *parent = nullptr)
-        : QAbstractTableModel(parent) {}
+    explicit GISVectorAttributeTableModel(QObject *parent = nullptr) : QAbstractTableModel(parent)
+    {
+    }
 
     /*! Bind to a feature layer (nullptr clears). Reads columns + rows now. */
     void setLayer(GISVectorLayer *layer)
@@ -230,7 +247,7 @@ public:
             // return.) The attribute filter is left in place so the table
             // matches the map's filtered feature set.
             OGRGeometry *savedFilter = ol->GetSpatialFilter();
-            OGRGeometry *savedClone  = savedFilter ? savedFilter->clone() : nullptr;
+            OGRGeometry *savedClone = savedFilter ? savedFilter->clone() : nullptr;
             ol->SetSpatialFilter(nullptr);
             ol->ResetReading();
 
@@ -243,24 +260,32 @@ public:
                 m_fids.push_back(fid);
                 row.push_back(QVariant::fromValue<qlonglong>(fid));
                 for (int i = 0; i < nFields; ++i) {
-                    if (!f->IsFieldSetAndNotNull(i)) { row.push_back(QVariant()); continue; }
+                    if (!f->IsFieldSetAndNotNull(i)) {
+                        row.push_back(QVariant());
+                        continue;
+                    }
                     switch (defn->GetFieldDefn(i)->GetType()) {
                     case OFTInteger:
-                        row.push_back(f->GetFieldAsInteger(i)); break;
+                        row.push_back(f->GetFieldAsInteger(i));
+                        break;
                     case OFTInteger64:
-                        row.push_back(static_cast<qlonglong>(f->GetFieldAsInteger64(i))); break;
+                        row.push_back(static_cast<qlonglong>(f->GetFieldAsInteger64(i)));
+                        break;
                     case OFTReal:
-                        row.push_back(f->GetFieldAsDouble(i)); break;
+                        row.push_back(f->GetFieldAsDouble(i));
+                        break;
                     default:
-                        row.push_back(QString::fromUtf8(f->GetFieldAsString(i))); break;
+                        row.push_back(QString::fromUtf8(f->GetFieldAsString(i)));
+                        break;
                     }
                 }
                 m_rows.push_back(std::move(row));
                 OGRFeature::DestroyFeature(f);
             }
 
-            ol->SetSpatialFilter(savedClone);   // layer clones internally
-            if (savedClone) OGRGeometryFactory::destroyGeometry(savedClone);
+            ol->SetSpatialFilter(savedClone); // layer clones internally
+            if (savedClone)
+                OGRGeometryFactory::destroyGeometry(savedClone);
             ol->ResetReading();
         }
         endResetModel();
@@ -271,36 +296,44 @@ public:
     /*! Row↔fid mapping for the selection bridge (MeshAttributeTableModel's
      *  refForRow/rowForRef idiom). -1 on either miss. */
     [[nodiscard]] long long fidForRow(int row) const
-    { return (row >= 0 && row < m_fids.size()) ? m_fids[row] : -1; }
-    [[nodiscard]] int rowForFid(long long fid) const
-    { return m_rowByFid.value(fid, -1); }
+    {
+        return (row >= 0 && row < m_fids.size()) ? m_fids[row] : -1;
+    }
+    [[nodiscard]] int rowForFid(long long fid) const { return m_rowByFid.value(fid, -1); }
 
     int rowCount(const QModelIndex &parent = {}) const override
-    { return parent.isValid() ? 0 : static_cast<int>(m_rows.size()); }
+    {
+        return parent.isValid() ? 0 : static_cast<int>(m_rows.size());
+    }
 
     int columnCount(const QModelIndex &parent = {}) const override
-    { return parent.isValid() ? 0 : static_cast<int>(m_headers.size()); }
+    {
+        return parent.isValid() ? 0 : static_cast<int>(m_headers.size());
+    }
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
     {
         if (role == openswmmvis::kAttributeValueRole || role == openswmmvis::kAttributeSortRole)
             return openswmmvis::attributeValue(data(index, Qt::DisplayRole));
-        if (!index.isValid()) return {};
+        if (!index.isValid())
+            return {};
         if (role != Qt::DisplayRole && role != Qt::EditRole && role != Qt::ToolTipRole)
             return {};
         const int r = index.row(), c = index.column();
-        if (r < 0 || r >= m_rows.size() || c < 0 || c >= m_headers.size()) return {};
+        if (r < 0 || r >= m_rows.size() || c < 0 || c >= m_headers.size())
+            return {};
         return m_rows[r].value(c);
     }
 
     QVariant headerData(int section, Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override
     {
-        if (role != Qt::DisplayRole) return {};
-        if (orientation == Qt::Horizontal
-            && section >= 0 && section < m_headers.size())
+        if (role != Qt::DisplayRole)
+            return {};
+        if (orientation == Qt::Horizontal && section >= 0 && section < m_headers.size())
             return m_headers[section];
-        if (orientation == Qt::Vertical) return section + 1;
+        if (orientation == Qt::Vertical)
+            return section + 1;
         return {};
     }
 
@@ -329,37 +362,39 @@ public:
     {
         Qt::ItemFlags f = QAbstractTableModel::flags(index);
         // Column 0 is the FID: identity, never editable.
-        if (index.isValid() && index.column() > 0
-            && editableFeatureLayer() && m_canvas)
+        if (index.isValid() && index.column() > 0 && editableFeatureLayer() && m_canvas)
             f |= Qt::ItemIsEditable;
         return f;
     }
 
-    bool setData(const QModelIndex &index, const QVariant &value,
-                 int role = Qt::EditRole) override
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override
     {
         if (role != Qt::EditRole || !index.isValid() || index.column() <= 0)
             return false;
         FeatureLayer *fl = editableFeatureLayer();
-        if (!fl || !m_canvas || !m_canvas->undoStack()) return false;
+        if (!fl || !m_canvas || !m_canvas->undoStack())
+            return false;
 
         const long long fid = fidForRow(index.row());
-        if (fid < 0) return false;
+        if (fid < 0)
+            return false;
         openswmmvis::feature::Feature feat;
         if (!fl->feature(static_cast<openswmmvis::feature::FeatureId>(fid), feat))
             return false;
 
         const openswmmvis::feature::Schema schema = fl->schema();
-        const int fieldIdx = index.column() - 1;      // column 0 is the FID
-        if (fieldIdx < 0 || fieldIdx >= schema.count()) return false;
+        const int fieldIdx = index.column() - 1; // column 0 is the FID
+        if (fieldIdx < 0 || fieldIdx >= schema.count())
+            return false;
         const openswmmvis::feature::FieldDef fd = schema.at(fieldIdx);
 
         QVariantMap next = feat.attributes;
         next.insert(fd.name, openswmmvis::feature::coerceToFieldType(value, fd.type));
-        if (next == feat.attributes) return false;
+        if (next == feat.attributes)
+            return false;
 
-        auto *cmd = new openswmmvis::map::EditFeatureAttributesCommand(
-            fl, feat.id, feat.attributes, next, m_canvas.data());
+        auto *cmd = new openswmmvis::map::EditFeatureAttributesCommand(fl, feat.id, feat.attributes,
+                                                                       next, m_canvas.data());
         m_canvas->undoStack()->push(cmd);
         // featuresChanged → reload() repaints the row with the STORED value,
         // which may differ from what was typed once coercion has run.
@@ -367,15 +402,16 @@ public:
     }
 
 private:
-    QPointer<GISVectorLayer>   m_layer;
-    QPointer<MapCanvas>        m_canvas;
-    QStringList                m_headers;
+    QPointer<GISVectorLayer> m_layer;
+    QPointer<MapCanvas> m_canvas;
+    QStringList m_headers;
     QVector<QVector<QVariant>> m_rows;
-    QVector<long long>         m_fids;      //!< row → OGR FID
-    QHash<long long, int>      m_rowByFid;  //!< OGR FID → row
+    QVector<long long> m_fids;        //!< row → OGR FID
+    QHash<long long, int> m_rowByFid; //!< OGR FID → row
 };
 
-namespace {
+namespace
+{
 
 // Column specs for whichever of the two spec-carrying models `src` is,
 // or an empty list for the tabular / GIS sources (which have headers
@@ -401,51 +437,54 @@ QList<openswmmvis::ColumnSpec> specsFor(const QAbstractItemModel *src)
 // tag dispatch and an engine name→index lookup.  Resolving field name →
 // column once in bind() makes it ~one data() call per row per referenced
 // field.
-class RowPredicate {
+class RowPredicate
+{
 public:
     /*! Resolve `p`'s field names against `src`'s columns.  Cheap to call
      *  again; it is the per-row work this exists to avoid. */
     void bind(QAbstractItemModel *src, const openswmmvis::QueryPredicate &p)
     {
-        m_src  = src;
+        m_src = src;
         m_pred = p;
         m_cols.clear();
         m_missing.clear();
-        if (!src || !p.isValid()) return;
+        if (!src || !p.isValid())
+            return;
 
         const auto specs = specsFor(src);
-        const int  nCol  = src->columnCount();
+        const int nCol = src->columnCount();
 
         for (const QString &field : openswmmvis::queryFieldNames(p)) {
             int hit = -1;
             // Two passes so an exact match anywhere beats a
             // case-insensitive one earlier in the table.
             for (int pass = 0; pass < 2 && hit < 0; ++pass) {
-                const auto cs = (pass == 0) ? Qt::CaseSensitive
-                                            : Qt::CaseInsensitive;
+                const auto cs = (pass == 0) ? Qt::CaseSensitive : Qt::CaseInsensitive;
                 for (int c = 0; c < nCol; ++c) {
                     // Action/summary cells have no scalar query value. Scalar
                     // reference pickers are queryable independently of editor kind.
-                    if (c < specs.size()
-                        && !specs[c].queryable)
+                    if (c < specs.size() && !specs[c].queryable)
                         continue;
                     const bool match =
-                        (c < specs.size()
-                         && (QString::compare(specs[c].key,   field, cs) == 0
-                          || QString::compare(specs[c].label, field, cs) == 0))
-                        || QString::compare(
-                               src->headerData(c, Qt::Horizontal,
-                                               Qt::DisplayRole).toString(),
-                               field, cs) == 0;
-                    if (match) { hit = c; break; }
+                        (c < specs.size() && (QString::compare(specs[c].key, field, cs) == 0 ||
+                                              QString::compare(specs[c].label, field, cs) == 0)) ||
+                        QString::compare(
+                            src->headerData(c, Qt::Horizontal, Qt::DisplayRole).toString(), field,
+                            cs) == 0;
+                    if (match) {
+                        hit = c;
+                        break;
+                    }
                 }
             }
             // A field naming no column contributes no map entry, which is
             // exactly what the old all-columns build did for an unknown
             // name: lookupField returns an invalid QVariant and every
             // comparison against it is false.
-            if (hit >= 0) m_cols.append({hit, field});
-            else m_missing.append(field);
+            if (hit >= 0)
+                m_cols.append({hit, field});
+            else
+                m_missing.append(field);
         }
     }
 
@@ -453,8 +492,10 @@ public:
 
     [[nodiscard]] bool accepts(int srcRow, const QModelIndex &parent = {}) const
     {
-        if (!m_pred.root) return true;   // no filter
-        if (!m_src) return true;
+        if (!m_pred.root)
+            return true; // no filter
+        if (!m_src)
+            return true;
         QVariantMap m;
         for (const auto &col : m_cols) {
             const QModelIndex idx = m_src->index(srcRow, col.first, parent);
@@ -466,10 +507,10 @@ public:
     }
 
 private:
-    QAbstractItemModel          *m_src = nullptr;
-    openswmmvis::QueryPredicate  m_pred;
+    QAbstractItemModel *m_src = nullptr;
+    openswmmvis::QueryPredicate m_pred;
     QStringList m_missing;
-    QVector<QPair<int, QString>> m_cols;   // (source column, field as typed)
+    QVector<QPair<int, QString>> m_cols; // (source column, field as typed)
 };
 
 // Slice Z.2 — proxy that composes the "show selected only" name filter
@@ -482,20 +523,19 @@ private:
 // alternation over every selected name — `^(?:a|b|c|…)$` — which was
 // recompiled and re-matched against every row on each selection change.
 // A QSet probe is the same test without the quadratic blowup.
-class FilteringProxy : public openswmmvis::AttributeValueProxy {
+class FilteringProxy : public openswmmvis::AttributeValueProxy
+{
 public:
-    explicit FilteringProxy(QObject *parent = nullptr)
-        : openswmmvis::AttributeValueProxy(parent) {}
+    explicit FilteringProxy(QObject *parent = nullptr) : openswmmvis::AttributeValueProxy(parent) {}
 
     /*! `text` is the string `p` was parsed from; `queryText()` hands it
      *  back so callers can tell whether the proxy's visible rows are
      *  still the match set for what is in the query bar. */
-    void setQueryPredicate(const openswmmvis::QueryPredicate &p,
-                           const QString &text = {})
+    void setQueryPredicate(const openswmmvis::QueryPredicate &p, const QString &text = {})
     {
         m_predicate = p;
         m_queryText = text;
-        m_bound     = false;
+        m_bound = false;
         invalidateFilter();
     }
     [[nodiscard]] QString queryText() const { return m_queryText; }
@@ -506,8 +546,9 @@ public:
      *  `(?!)` sentinel pattern expressed. */
     void setNameFilter(const QSet<QString> &names, bool active)
     {
-        if (m_nameFilterActive == active && m_names == names) return;
-        m_names            = names;
+        if (m_nameFilterActive == active && m_names == names)
+            return;
+        m_names = names;
         m_nameFilterActive = active;
         invalidateFilter();
     }
@@ -536,39 +577,44 @@ public:
     }
 
 protected:
-    bool filterAcceptsRow(int row, const QModelIndex &parent) const override {
+    bool filterAcceptsRow(int row, const QModelIndex &parent) const override
+    {
         auto *src = sourceModel();
-        if (!src) return true;
+        if (!src)
+            return true;
         if (m_nameFilterActive) {
-            const QModelIndex nameIdx =
-                src->index(row, filterKeyColumn(), parent);
+            const QModelIndex nameIdx = src->index(row, filterKeyColumn(), parent);
             if (!m_names.contains(src->data(nameIdx, filterRole()).toString()))
                 return false;
         }
-        if (!m_predicate.isValid()) return true;
+        if (!m_predicate.isValid())
+            return true;
         ensureBound();
         return m_rp.accepts(row, parent);
     }
 
 private:
-    void ensureBound() const {
-        if (m_bound) return;
+    void ensureBound() const
+    {
+        if (m_bound)
+            return;
         m_rp.bind(sourceModel(), m_predicate);
         m_bound = true;
     }
 
     openswmmvis::QueryPredicate m_predicate;
-    QString                     m_queryText;
-    QSet<QString>               m_names;
-    bool                        m_nameFilterActive = false;
-    mutable RowPredicate        m_rp;
-    mutable bool                m_bound = false;
-    QMetaObject::Connection     m_resetConn;
+    QString m_queryText;
+    QSet<QString> m_names;
+    bool m_nameFilterActive = false;
+    mutable RowPredicate m_rp;
+    mutable bool m_bound = false;
+    QMetaObject::Connection m_resetConn;
 };
 
 } // anonymous
 
-namespace {
+namespace
+{
 
 // Apply a set of SOURCE rows to the view's selection in one emission.
 // Selecting one index at a time makes QItemSelectionModel re-merge its
@@ -581,29 +627,31 @@ namespace {
 void selectSourceRows(QItemSelectionModel *sel, QSortFilterProxyModel *proxy,
                       QAbstractItemModel *src, const QList<int> &srcRows)
 {
-    if (!sel || !proxy || !src) return;
+    if (!sel || !proxy || !src)
+        return;
     const int lastCol = proxy->columnCount() - 1;
     QList<int> prxRows;
     prxRows.reserve(srcRows.size());
     for (int r : srcRows) {
         const QModelIndex p = proxy->mapFromSource(src->index(r, 0));
-        if (p.isValid()) prxRows << p.row();
+        if (p.isValid())
+            prxRows << p.row();
     }
     std::sort(prxRows.begin(), prxRows.end());
     prxRows.erase(std::unique(prxRows.begin(), prxRows.end()), prxRows.end());
 
     QItemSelection selection;
     if (lastCol >= 0) {
-        for (int i = 0; i < prxRows.size(); ) {
+        for (int i = 0; i < prxRows.size();) {
             int j = i;
-            while (j + 1 < prxRows.size() && prxRows[j + 1] == prxRows[j] + 1) ++j;
-            selection.append(QItemSelectionRange(
-                proxy->index(prxRows[i], 0), proxy->index(prxRows[j], lastCol)));
+            while (j + 1 < prxRows.size() && prxRows[j + 1] == prxRows[j] + 1)
+                ++j;
+            selection.append(QItemSelectionRange(proxy->index(prxRows[i], 0),
+                                                 proxy->index(prxRows[j], lastCol)));
             i = j + 1;
         }
     }
-    sel->select(selection, QItemSelectionModel::ClearAndSelect
-                             | QItemSelectionModel::Rows);
+    sel->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
 }
 
 // Map Category → the SWMMObjectRef ObjectType the SelectionManager
@@ -643,18 +691,19 @@ const QLatin1String kMeshPrefix("mesh:");
 QChar meshKindChar(MeshAttributeTableModel::Kind k)
 {
     switch (k) {
-    case MeshAttributeTableModel::Kind::Vertex: return QLatin1Char('v');
-    case MeshAttributeTableModel::Kind::Edge:   return QLatin1Char('e');
-    case MeshAttributeTableModel::Kind::Cell:   return QLatin1Char('c');
+    case MeshAttributeTableModel::Kind::Vertex:
+        return QLatin1Char('v');
+    case MeshAttributeTableModel::Kind::Edge:
+        return QLatin1Char('e');
+    case MeshAttributeTableModel::Kind::Cell:
+        return QLatin1Char('c');
     }
     return QLatin1Char('v');
 }
 
-QString meshSourceKey(const SWMM2DMeshLayer *layer,
-                      MeshAttributeTableModel::Kind kind)
+QString meshSourceKey(const SWMM2DMeshLayer *layer, MeshAttributeTableModel::Kind kind)
 {
-    return QStringLiteral("mesh:%1:%2").arg(layer->layerId())
-                                        .arg(meshKindChar(kind));
+    return QStringLiteral("mesh:%1:%2").arg(layer->layerId()).arg(meshKindChar(kind));
 }
 
 /*! QSettings sub-key for a mesh table's column widths. Keyed by ELEMENT KIND,
@@ -667,18 +716,20 @@ QString meshWidthsKey(MeshAttributeTableModel::Kind kind)
 }
 
 /*! Split a "mesh:<layerId>:<kind>" payload. Returns false when it isn't one. */
-bool parseMeshSourceKey(const QString &key, QString *layerId,
-                        MeshAttributeTableModel::Kind *kind)
+bool parseMeshSourceKey(const QString &key, QString *layerId, MeshAttributeTableModel::Kind *kind)
 {
-    if (!key.startsWith(kMeshPrefix)) return false;
+    if (!key.startsWith(kMeshPrefix))
+        return false;
     const int sep = key.lastIndexOf(QLatin1Char(':'));
-    if (sep <= int(kMeshPrefix.size()) - 1) return false;
-    if (layerId) *layerId = key.mid(kMeshPrefix.size(), sep - kMeshPrefix.size());
+    if (sep <= int(kMeshPrefix.size()) - 1)
+        return false;
+    if (layerId)
+        *layerId = key.mid(kMeshPrefix.size(), sep - kMeshPrefix.size());
     if (kind) {
         const QChar k = key.at(sep + 1);
-        *kind = (k == QLatin1Char('e')) ? MeshAttributeTableModel::Kind::Edge
-              : (k == QLatin1Char('c')) ? MeshAttributeTableModel::Kind::Cell
-                                        : MeshAttributeTableModel::Kind::Vertex;
+        *kind = (k == QLatin1Char('e'))   ? MeshAttributeTableModel::Kind::Edge
+                : (k == QLatin1Char('c')) ? MeshAttributeTableModel::Kind::Cell
+                                          : MeshAttributeTableModel::Kind::Vertex;
     }
     return true;
 }
@@ -702,37 +753,54 @@ QString dataWidthsKey(int dataCategory)
 const char *dataCategoryLabel(SWMMModelLayer::DataCategory dc)
 {
     switch (dc) {
-    case SWMMModelLayer::DataPollutants: return "Pollutants";
-    case SWMMModelLayer::DataLandUses:   return "Land Uses";
-    case SWMMModelLayer::DataAquifers:   return "Aquifers";
-    case SWMMModelLayer::DataStreets:    return "Streets";
-    case SWMMModelLayer::DataInlets:     return "Inlets";
-    default:                             return "Data";
+    case SWMMModelLayer::DataPollutants:
+        return "Pollutants";
+    case SWMMModelLayer::DataLandUses:
+        return "Land Uses";
+    case SWMMModelLayer::DataAquifers:
+        return "Aquifers";
+    case SWMMModelLayer::DataStreets:
+        return "Streets";
+    case SWMMModelLayer::DataInlets:
+        return "Inlets";
+    default:
+        return "Data";
     }
 }
 
 const char *categoryLabel(SWMMModelLayer::Category cat)
 {
     switch (cat) {
-    case SWMMModelLayer::CatJunctions:     return "Junctions";
-    case SWMMModelLayer::CatOutfalls:      return "Outfalls";
-    case SWMMModelLayer::CatStorage:       return "Storage";
-    case SWMMModelLayer::CatDividers:      return "Dividers";
-    case SWMMModelLayer::CatConduits:      return "Conduits";
-    case SWMMModelLayer::CatPumps:         return "Pumps";
-    case SWMMModelLayer::CatOrifices:      return "Orifices";
-    case SWMMModelLayer::CatWeirs:         return "Weirs";
-    case SWMMModelLayer::CatOutlets:       return "Outlets";
-    case SWMMModelLayer::CatSubcatchments: return "Subcatchments";
-    case SWMMModelLayer::CatRainGages:     return "Rain Gages";
-    default:                                return "Unknown";
+    case SWMMModelLayer::CatJunctions:
+        return "Junctions";
+    case SWMMModelLayer::CatOutfalls:
+        return "Outfalls";
+    case SWMMModelLayer::CatStorage:
+        return "Storage";
+    case SWMMModelLayer::CatDividers:
+        return "Dividers";
+    case SWMMModelLayer::CatConduits:
+        return "Conduits";
+    case SWMMModelLayer::CatPumps:
+        return "Pumps";
+    case SWMMModelLayer::CatOrifices:
+        return "Orifices";
+    case SWMMModelLayer::CatWeirs:
+        return "Weirs";
+    case SWMMModelLayer::CatOutlets:
+        return "Outlets";
+    case SWMMModelLayer::CatSubcatchments:
+        return "Subcatchments";
+    case SWMMModelLayer::CatRainGages:
+        return "Rain Gages";
+    default:
+        return "Unknown";
     }
 }
 
 } // anonymous
 
-AttributeTablePanel::AttributeTablePanel(QWidget *parent)
-    : QWidget(parent)
+AttributeTablePanel::AttributeTablePanel(QWidget *parent) : QWidget(parent)
 {
     qApp->installEventFilter(this);
 
@@ -833,13 +901,13 @@ void AttributeTablePanel::buildUi()
     m_toolbar->setIconSize(QSize(16, 16));
     m_toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
 
-    auto *actShow   = m_toolbar->addAction(tr("Show selected only"));
+    auto *actShow = m_toolbar->addAction(tr("Show selected only"));
     actShow->setCheckable(true);
-    auto *actZoom   = m_toolbar->addAction(tr("Zoom to selected"));
+    auto *actZoom = m_toolbar->addAction(tr("Zoom to selected"));
     // Copy carries no shortcut of its own — Ctrl+C is owned by the main
     // window's actionCopy, which routes to the focused panel.  The hint in
     // the label is there so the binding is still discoverable.
-    m_copyAct       = m_toolbar->addAction(tr("Copy (Ctrl+C)"));
+    m_copyAct = m_toolbar->addAction(tr("Copy (Ctrl+C)"));
     m_copyAct->setToolTip(tr("Copy the selected rows to the clipboard as "
                              "tab-separated text"));
     auto *actExport = m_toolbar->addAction(tr("Export CSV…"));
@@ -857,27 +925,27 @@ void AttributeTablePanel::buildUi()
     auto *selRow = new QHBoxLayout();
     selRow->setContentsMargins(4, 0, 4, 2);
     selRow->addWidget(new QLabel(tr("Selection:"), this));
-    m_selReplaceR   = new QRadioButton(tr("Replace"),   this);
-    m_selAddR       = new QRadioButton(tr("Add"),       this);
-    m_selSubtractR  = new QRadioButton(tr("Subtract"),  this);
+    m_selReplaceR = new QRadioButton(tr("Replace"), this);
+    m_selAddR = new QRadioButton(tr("Add"), this);
+    m_selSubtractR = new QRadioButton(tr("Subtract"), this);
     m_selIntersectR = new QRadioButton(tr("Intersect"), this);
-    m_selInvertR    = new QRadioButton(tr("Invert"),    this);
-    m_selReplaceR  ->setToolTip(tr("Replace the current selection with the matched rows"));
-    m_selAddR      ->setToolTip(tr("Union the matched rows into the current selection"));
-    m_selSubtractR ->setToolTip(tr("Subtract the matched rows from the current selection"));
+    m_selInvertR = new QRadioButton(tr("Invert"), this);
+    m_selReplaceR->setToolTip(tr("Replace the current selection with the matched rows"));
+    m_selAddR->setToolTip(tr("Union the matched rows into the current selection"));
+    m_selSubtractR->setToolTip(tr("Subtract the matched rows from the current selection"));
     m_selIntersectR->setToolTip(tr("Keep only rows that are in BOTH matched ∩ selection"));
-    m_selInvertR   ->setToolTip(tr("Replace selection with all rows in this category that are NOT currently selected (ignores the query)"));
+    m_selInvertR->setToolTip(tr(
+        "Replace selection with all rows in this category that are NOT currently selected (ignores the query)"));
     m_selReplaceR->setChecked(true);
 
     m_selGroup = new QButtonGroup(this);
     m_selGroup->setExclusive(true);
-    m_selGroup->addButton(m_selReplaceR,   SelReplace);
-    m_selGroup->addButton(m_selAddR,       SelAdd);
-    m_selGroup->addButton(m_selSubtractR,  SelSubtract);
+    m_selGroup->addButton(m_selReplaceR, SelReplace);
+    m_selGroup->addButton(m_selAddR, SelAdd);
+    m_selGroup->addButton(m_selSubtractR, SelSubtract);
     m_selGroup->addButton(m_selIntersectR, SelIntersect);
-    m_selGroup->addButton(m_selInvertR,    SelInvert);
-    for (auto *r : {m_selReplaceR, m_selAddR, m_selSubtractR,
-                       m_selIntersectR, m_selInvertR})
+    m_selGroup->addButton(m_selInvertR, SelInvert);
+    for (auto *r : {m_selReplaceR, m_selAddR, m_selSubtractR, m_selIntersectR, m_selInvertR})
         selRow->addWidget(r);
 
     selRow->addStretch();
@@ -896,48 +964,47 @@ void AttributeTablePanel::buildUi()
     m_queryEdit->setObjectName(QStringLiteral("attributeQuery"));
     m_queryEdit->setPlaceholderText(
         tr("e.g.  \"Max depth\" > 5   •   Name LIKE 'J%'   •   Type IN ('Junction','Outfall')"));
-    m_queryEdit->setToolTip(tr(
-        "Filter rows by a SQL-like WHERE clause.\n"
-        "\n"
-        "Column names:\n"
-        "• Quote with double quotes (or [brackets]) when they contain spaces:\n"
-        "    \"Invert elev\" > 100\n"
-        "• Lookup is case-insensitive — \"max depth\" works.\n"
-        "\n"
-        "Values:\n"
-        "• Numbers: 100, 3.14, -2\n"
-        "• Strings: single-quoted — 'Junction'\n"
-        "\n"
-        "Comparison: = != <> < <= > >=\n"
-        "\n"
-        "LIKE — case-insensitive pattern match on a string column:\n"
-        "    Name LIKE 'J%'      — names starting with J\n"
-        "    Name LIKE '%-OUT'   — names ending with -OUT\n"
-        "    Name LIKE 'J__'    — J followed by exactly two characters\n"
-        "    %  matches any sequence (zero or more chars)\n"
-        "    _  matches exactly one character\n"
-        "\n"
-        "IN — match any of a list of values:\n"
-        "    Type IN ('Junction','Outfall')\n"
-        "\n"
-        "NOT — negate a condition or a group:\n"
-        "    NOT (Name LIKE 'J%' OR Name = 'OUT')\n"
-        "    Name NOT IN ('J1', 'J2')\n"
-        "    Name NOT LIKE 'OUT%'\n"
-        "BETWEEN includes both endpoints; NOT BETWEEN excludes that range.\n"
-        "IS NULL / IS NOT NULL test missing values.\n"
-        "TRUE / FALSE are boolean literals; numbers also accept 1e-3 and .5.\n"
-        "Escape a quote by doubling it: 'O''Brien'.\n"
-        "Combine with AND / OR / NOT, group with ( ). NOT binds before AND, then OR.\n"
-        "Optional leading WHERE. Use this table's fields and displayed units.\n"
-        "Suggestions appear as you type; Ctrl+Space opens them at the cursor."));
+    m_queryEdit->setToolTip(
+        tr("Filter rows by a SQL-like WHERE clause.\n"
+           "\n"
+           "Column names:\n"
+           "• Quote with double quotes (or [brackets]) when they contain spaces:\n"
+           "    \"Invert elev\" > 100\n"
+           "• Lookup is case-insensitive — \"max depth\" works.\n"
+           "\n"
+           "Values:\n"
+           "• Numbers: 100, 3.14, -2\n"
+           "• Strings: single-quoted — 'Junction'\n"
+           "\n"
+           "Comparison: = != <> < <= > >=\n"
+           "\n"
+           "LIKE — case-insensitive pattern match on a string column:\n"
+           "    Name LIKE 'J%'      — names starting with J\n"
+           "    Name LIKE '%-OUT'   — names ending with -OUT\n"
+           "    Name LIKE 'J__'    — J followed by exactly two characters\n"
+           "    %  matches any sequence (zero or more chars)\n"
+           "    _  matches exactly one character\n"
+           "\n"
+           "IN — match any of a list of values:\n"
+           "    Type IN ('Junction','Outfall')\n"
+           "\n"
+           "NOT — negate a condition or a group:\n"
+           "    NOT (Name LIKE 'J%' OR Name = 'OUT')\n"
+           "    Name NOT IN ('J1', 'J2')\n"
+           "    Name NOT LIKE 'OUT%'\n"
+           "BETWEEN includes both endpoints; NOT BETWEEN excludes that range.\n"
+           "IS NULL / IS NOT NULL test missing values.\n"
+           "TRUE / FALSE are boolean literals; numbers also accept 1e-3 and .5.\n"
+           "Escape a quote by doubling it: 'O''Brien'.\n"
+           "Combine with AND / OR / NOT, group with ( ). NOT binds before AND, then OR.\n"
+           "Optional leading WHERE. Use this table's fields and displayed units.\n"
+           "Suggestions appear as you type; Ctrl+Space opens them at the cursor."));
     m_queryEdit->setClearButtonEnabled(true);
     queryRow->addWidget(m_queryEdit, 1);
     m_queryApply = new QPushButton(tr("Apply"), this);
     m_queryApply->setDefault(false);
-    m_queryApply->setToolTip(tr(
-        "Filter the rows to those matching the query AND apply the chosen "
-        "selection mode (radios above) to those rows."));
+    m_queryApply->setToolTip(tr("Filter the rows to those matching the query AND apply the chosen "
+                                "selection mode (radios above) to those rows."));
     m_queryClear = new QPushButton(tr("Clear"), this);
     m_queryClear->setToolTip(tr("Clear the query and show all rows"));
     queryRow->addWidget(m_queryApply);
@@ -948,52 +1015,53 @@ void AttributeTablePanel::buildUi()
     queryRow->addWidget(m_queryStatus);
     root->addLayout(queryRow);
 
-    connect(m_queryEdit,  &QLineEdit::returnPressed,
-            this, &AttributeTablePanel::onQueryApplyClicked);
-    connect(m_queryApply, &QPushButton::clicked,
-            this, &AttributeTablePanel::onQueryApplyClicked);
-    connect(m_queryClear, &QPushButton::clicked,
-            this, &AttributeTablePanel::onQueryClearClicked);
+    connect(m_queryEdit, &QLineEdit::returnPressed, this,
+            &AttributeTablePanel::onQueryApplyClicked);
+    connect(m_queryApply, &QPushButton::clicked, this, &AttributeTablePanel::onQueryApplyClicked);
+    connect(m_queryClear, &QPushButton::clicked, this, &AttributeTablePanel::onQueryClearClicked);
 
-    m_model        = new SWMMAttributeTableModel(this);
+    m_model = new SWMMAttributeTableModel(this);
     m_tabularModel = new TabularDataTableModel(this);
-    m_gisModel     = new GISVectorAttributeTableModel(this);
-    m_meshModel    = new MeshAttributeTableModel(this);
-    m_dataModel    = new DataObjectAttributeTableModel(this);
-    m_proxy        = new FilteringProxy(this);
+    m_gisModel = new GISVectorAttributeTableModel(this);
+    m_meshModel = new MeshAttributeTableModel(this);
+    m_dataModel = new DataObjectAttributeTableModel(this);
+    m_proxy = new FilteringProxy(this);
     m_proxy->setSourceModel(m_model);
 
     // Mesh edits are undoable through the shared map stack, so an edit made
     // here refreshes the mesh toolbar and the map the same way a toolbar edit
     // refreshes this table.
-    connect(m_meshModel, &MeshAttributeTableModel::objectEdited,
-            this, [this](const QString &refName) {
-                if (!m_suppressEditForward) emit objectEdited(refName);
+    connect(m_meshModel, &MeshAttributeTableModel::objectEdited, this,
+            [this](const QString &refName) {
+                if (!m_suppressEditForward)
+                    emit objectEdited(refName);
             });
-    connect(m_dataModel, &DataObjectAttributeTableModel::objectEdited,
-            this, [this](const QString &name) {
-                if (!m_suppressEditForward) emit objectEdited(name);
+    connect(m_dataModel, &DataObjectAttributeTableModel::objectEdited, this,
+            [this](const QString &name) {
+                if (!m_suppressEditForward)
+                    emit objectEdited(name);
             });
 
     // Round-4 follow-up 2026-05-12 — when the flow-units system
     // flips (US ↔ SI) the model emits headerDataChanged and the
     // header strings change length ("Invert Elevation (ft)" vs
     // "(m)").  Re-fit any columns that became too narrow.
-    connect(m_model, &QAbstractItemModel::headerDataChanged,
-            this, [this](Qt::Orientation o, int, int) {
-                if (o == Qt::Horizontal) ensureMinColumnWidths();
+    connect(m_model, &QAbstractItemModel::headerDataChanged, this,
+            [this](Qt::Orientation o, int, int) {
+                if (o == Qt::Horizontal)
+                    ensureMinColumnWidths();
             });
 
     // Cross-view sync — forward direct-edit notifications so the
     // Property Browser dock can refresh its adapter view of the
     // same object.  Suppressed when we're refreshing in response
     // to an external edit ourselves (`m_suppressEditForward`).
-    connect(m_model, &SWMMAttributeTableModel::objectEdited,
-            this, [this](const QString &name) {
-                if (!m_suppressEditForward) emit objectEdited(name);
-            });
+    connect(m_model, &SWMMAttributeTableModel::objectEdited, this, [this](const QString &name) {
+        if (!m_suppressEditForward)
+            emit objectEdited(name);
+    });
     m_proxy->setSortRole(openswmmvis::kAttributeSortRole);
-    m_proxy->setFilterKeyColumn(0);  // Name column drives "show selected only"
+    m_proxy->setFilterKeyColumn(0); // Name column drives "show selected only"
     // No setFilterCaseSensitivity: the name filter is a QSet probe now,
     // and both sides of it are the model's own spelling of the name
     // (the set is built from refs that came out of objectNameAt(), which
@@ -1005,15 +1073,16 @@ void AttributeTablePanel::buildUi()
     m_view->horizontalHeader()->setSectionsClickable(true);
     m_view->setModel(m_proxy);
     m_view->setSortingEnabled(true);
-    connect(m_proxy, &QAbstractItemModel::modelReset, this, &AttributeTablePanel::updateQueryFields);
-    connect(m_proxy, &QAbstractItemModel::modelReset, this, &AttributeTablePanel::updateSelectionCount);
+    connect(m_proxy, &QAbstractItemModel::modelReset, this,
+            &AttributeTablePanel::updateQueryFields);
+    connect(m_proxy, &QAbstractItemModel::modelReset, this,
+            &AttributeTablePanel::updateSelectionCount);
     updateQueryFields();
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_view->setAlternatingRowColors(true);
     m_view->horizontalHeader()->setStretchLastSection(false);
-    m_view->verticalHeader()->setDefaultSectionSize(
-        m_view->verticalHeader()->minimumSectionSize());
+    m_view->verticalHeader()->setDefaultSectionSize(m_view->verticalHeader()->minimumSectionSize());
 
     // Use a sharper selection colour than the OS default — the
     // OS-grey for inactive widgets is hard to spot when the table
@@ -1022,12 +1091,11 @@ void AttributeTablePanel::buildUi()
     // selection-highlight convention so the two views look related.
     {
         QPalette pal = m_view->palette();
-        pal.setColor(QPalette::Active,    QPalette::Highlight,
-                     QColor(0xFF, 0xE0, 0x66));  // warm yellow
-        pal.setColor(QPalette::Inactive,  QPalette::Highlight,
-                     QColor(0xFF, 0xE0, 0x66));
-        pal.setColor(QPalette::Active,    QPalette::HighlightedText, Qt::black);
-        pal.setColor(QPalette::Inactive,  QPalette::HighlightedText, Qt::black);
+        pal.setColor(QPalette::Active, QPalette::Highlight,
+                     QColor(0xFF, 0xE0, 0x66)); // warm yellow
+        pal.setColor(QPalette::Inactive, QPalette::Highlight, QColor(0xFF, 0xE0, 0x66));
+        pal.setColor(QPalette::Active, QPalette::HighlightedText, Qt::black);
+        pal.setColor(QPalette::Inactive, QPalette::HighlightedText, Qt::black);
         m_view->setPalette(pal);
     }
     root->addWidget(m_view, 1);
@@ -1044,45 +1112,36 @@ void AttributeTablePanel::buildUi()
     // Conduit ↔ Pump ↔ …) is deliberately NOT inline-editable; the
     // user reaches it via this menu.
     m_view->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_view, &QTableView::customContextMenuRequested,
-            this, &AttributeTablePanel::onContextMenuRequested);
+    connect(m_view, &QTableView::customContextMenuRequested, this,
+            &AttributeTablePanel::onContextMenuRequested);
 
     // Delete / Backspace on the table deletes the selected rows' objects.
     // Scoped to the view (WidgetWithChildrenShortcut) so it only fires while
     // the table has focus, never while the query line-edit or combo does.
-    for (QKeySequence seq : {QKeySequence(QKeySequence::Delete),
-                             QKeySequence(Qt::Key_Backspace)}) {
+    for (QKeySequence seq : {QKeySequence(QKeySequence::Delete), QKeySequence(Qt::Key_Backspace)}) {
         auto *sc = new QShortcut(seq, m_view);
         sc->setContext(Qt::WidgetWithChildrenShortcut);
-        connect(sc, &QShortcut::activated,
-                this, &AttributeTablePanel::deleteSelectedRows);
+        connect(sc, &QShortcut::activated, this, &AttributeTablePanel::deleteSelectedRows);
     }
 
-    connect(m_categoryCombo,
-            QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &AttributeTablePanel::onCategoryChanged);
-    connect(m_view->selectionModel(),
-            &QItemSelectionModel::selectionChanged,
-            this, [this]() {
-                onTableSelectionChanged();
-                // Bus-backed sources recount from the bus signal instead.
-                if (selectionIsViewLocal()) updateSelectionCount();
-            });
-    connect(m_view->verticalHeader(), &QHeaderView::sectionDoubleClicked,
-            this, &AttributeTablePanel::onRowHeaderDoubleClicked);
-    connect(actShow, &QAction::toggled,
-            this, &AttributeTablePanel::onShowSelectedOnlyToggled);
-    connect(actZoom, &QAction::triggered,
-            this, &AttributeTablePanel::onZoomToSelectedClicked);
-    connect(m_copyAct, &QAction::triggered,
-            this, &AttributeTablePanel::copySelectionToClipboard);
-    connect(actExport, &QAction::triggered,
-            this, &AttributeTablePanel::onExportCsvClicked);
+    connect(m_categoryCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &AttributeTablePanel::onCategoryChanged);
+    connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
+        onTableSelectionChanged();
+        // Bus-backed sources recount from the bus signal instead.
+        if (selectionIsViewLocal())
+            updateSelectionCount();
+    });
+    connect(m_view->verticalHeader(), &QHeaderView::sectionDoubleClicked, this,
+            &AttributeTablePanel::onRowHeaderDoubleClicked);
+    connect(actShow, &QAction::toggled, this, &AttributeTablePanel::onShowSelectedOnlyToggled);
+    connect(actZoom, &QAction::triggered, this, &AttributeTablePanel::onZoomToSelectedClicked);
+    connect(m_copyAct, &QAction::triggered, this, &AttributeTablePanel::copySelectionToClipboard);
+    connect(actExport, &QAction::triggered, this, &AttributeTablePanel::onExportCsvClicked);
 }
 
-void AttributeTablePanel::setProject(SWMMModelLayer *layer,
-                                      SelectionManager *selMgr,
-                                      MapCanvas *canvas)
+void AttributeTablePanel::setProject(SWMMModelLayer *layer, SelectionManager *selMgr,
+                                     MapCanvas *canvas)
 {
     qCDebug(lcAttrTbl) << "setProject layer=" << layer << "selMgr=" << selMgr
                        << "canvas=" << canvas;
@@ -1090,75 +1149,66 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
         return;
 
     if (m_selMgr) {
-        QObject::disconnect(m_selMgr, &SelectionManager::selectionChanged,
-                            this,     &AttributeTablePanel::onSelectionManagerChanged);
-        QObject::disconnect(m_selMgr, &SelectionManager::selectionChanged,
-                            this,     &AttributeTablePanel::updateSelectionCount);
+        QObject::disconnect(m_selMgr, &SelectionManager::selectionChanged, this,
+                            &AttributeTablePanel::onSelectionManagerChanged);
+        QObject::disconnect(m_selMgr, &SelectionManager::selectionChanged, this,
+                            &AttributeTablePanel::updateSelectionCount);
     }
     if (m_layer) {
-        QObject::disconnect(m_layer, &SWMMModelLayer::modelLoaded,
-                            this,    &AttributeTablePanel::refresh);
-        QObject::disconnect(m_layer, &SWMMModelLayer::geometryChanged,
-                            this,    &AttributeTablePanel::refresh);
-        QObject::disconnect(m_layer, &SWMMModelLayer::dataObjectsChanged,
-                            this,    &AttributeTablePanel::refresh);
-        QObject::disconnect(m_layer, &SWMMModelLayer::attributeChanged,
-                            this,    &AttributeTablePanel::onObjectEditedExternally);
+        QObject::disconnect(m_layer, &SWMMModelLayer::modelLoaded, this,
+                            &AttributeTablePanel::refresh);
+        QObject::disconnect(m_layer, &SWMMModelLayer::geometryChanged, this,
+                            &AttributeTablePanel::refresh);
+        QObject::disconnect(m_layer, &SWMMModelLayer::dataObjectsChanged, this,
+                            &AttributeTablePanel::refresh);
+        QObject::disconnect(m_layer, &SWMMModelLayer::attributeChanged, this,
+                            &AttributeTablePanel::onObjectEditedExternally);
     }
     // Z.4.3 — also detach canvas layer-add/remove so we don't get
     // stale tabular-layer entries from a closed project.
     if (m_canvas) {
-        QObject::disconnect(m_canvas, &MapCanvas::layerAdded,
-                            this,     &AttributeTablePanel::refresh);
-        QObject::disconnect(m_canvas, &MapCanvas::layerRemoved,
-                            this,     &AttributeTablePanel::refresh);
+        QObject::disconnect(m_canvas, &MapCanvas::layerAdded, this, &AttributeTablePanel::refresh);
+        QObject::disconnect(m_canvas, &MapCanvas::layerRemoved, this,
+                            &AttributeTablePanel::refresh);
     }
 
-    m_layer  = layer;
+    m_layer = layer;
     m_selMgr = selMgr;
     m_canvas = canvas;
     // Keep the GIS model's undo target current even when the canvas changes
     // after a feature source is already bound — a stale one would silently
     // make an editable layer read-only again.
-    if (m_gisModel) m_gisModel->setCanvas(m_canvas.data());
+    if (m_gisModel)
+        m_gisModel->setCanvas(m_canvas.data());
 
     // Z.4.3 — listen for layer add/remove so loaded CSV/TSV layers
     // immediately surface in the category combo without a tab
     // switch.  refresh() rebuilds the combo entries.
     if (m_canvas) {
-        connect(m_canvas, &MapCanvas::layerAdded,
-                this,     &AttributeTablePanel::refresh,
+        connect(m_canvas, &MapCanvas::layerAdded, this, &AttributeTablePanel::refresh,
                 Qt::UniqueConnection);
-        connect(m_canvas, &MapCanvas::layerRemoved,
-                this,     &AttributeTablePanel::refresh,
+        connect(m_canvas, &MapCanvas::layerRemoved, this, &AttributeTablePanel::refresh,
                 Qt::UniqueConnection);
     }
 
     if (m_layer) {
-        connect(m_layer, &SWMMModelLayer::modelLoaded,
-                this,    &AttributeTablePanel::refresh,
+        connect(m_layer, &SWMMModelLayer::modelLoaded, this, &AttributeTablePanel::refresh,
                 Qt::UniqueConnection);
-        connect(m_layer, &SWMMModelLayer::geometryChanged,
-                this,    &AttributeTablePanel::refresh,
+        connect(m_layer, &SWMMModelLayer::geometryChanged, this, &AttributeTablePanel::refresh,
                 Qt::UniqueConnection);
         // Queued: providerAboutToBeRemoved-driven emissions arrive before
         // the removal lands — deferring to the next event-loop turn makes
         // refresh() read post-mutation state.
-        connect(m_layer, &SWMMModelLayer::dataObjectsChanged,
-                this,    &AttributeTablePanel::refresh,
-                static_cast<Qt::ConnectionType>(Qt::QueuedConnection
-                                                | Qt::UniqueConnection));
-        connect(m_layer, &SWMMModelLayer::attributeChanged,
-                this,    &AttributeTablePanel::onObjectEditedExternally,
-                Qt::UniqueConnection);
+        connect(m_layer, &SWMMModelLayer::dataObjectsChanged, this, &AttributeTablePanel::refresh,
+                static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::UniqueConnection));
+        connect(m_layer, &SWMMModelLayer::attributeChanged, this,
+                &AttributeTablePanel::onObjectEditedExternally, Qt::UniqueConnection);
     }
     if (m_selMgr) {
-        connect(m_selMgr, &SelectionManager::selectionChanged,
-                this,     &AttributeTablePanel::onSelectionManagerChanged,
-                Qt::UniqueConnection);
-        connect(m_selMgr, &SelectionManager::selectionChanged,
-                this,     &AttributeTablePanel::updateSelectionCount,
-                Qt::UniqueConnection);
+        connect(m_selMgr, &SelectionManager::selectionChanged, this,
+                &AttributeTablePanel::onSelectionManagerChanged, Qt::UniqueConnection);
+        connect(m_selMgr, &SelectionManager::selectionChanged, this,
+                &AttributeTablePanel::updateSelectionCount, Qt::UniqueConnection);
     }
 
     // Slice Z.5.5 — wire the canvas's MapUndoStack into the model
@@ -1182,18 +1232,19 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
 
 void AttributeTablePanel::setResultsSource(SWMMResultsLayer *layer)
 {
-    if (m_model) m_model->setResultsSource(layer);
+    if (m_model)
+        m_model->setResultsSource(layer);
 }
 
 void AttributeTablePanel::refreshHeaders()
 {
-    if (m_model) m_model->refreshHeaders();
+    if (m_model)
+        m_model->refreshHeaders();
 }
 
 void AttributeTablePanel::refresh()
 {
-    qCDebug(lcAttrTbl) << "refresh() layer=" << m_layer
-                       << "model=" << m_model
+    qCDebug(lcAttrTbl) << "refresh() layer=" << m_layer << "model=" << m_model
                        << "combo=" << m_categoryCombo;
     // Perf-plan Phase 0: refresh() fires from five signals (modelLoaded,
     // geometryChanged, dataObjectsChanged, layerAdded, layerRemoved) and
@@ -1203,10 +1254,9 @@ void AttributeTablePanel::refresh()
     refreshTimer.start();
     const QObject *trigger = sender();
     const auto logRefresh = qScopeGuard([&refreshTimer, trigger] {
-        qCDebug(lcLoadGuiAtp) << "AttributeTablePanel::refresh:"
-                              << refreshTimer.elapsed() << "ms, trigger="
-                              << (trigger ? trigger->metaObject()->className()
-                                          : "direct");
+        qCDebug(lcLoadGuiAtp) << "AttributeTablePanel::refresh:" << refreshTimer.elapsed()
+                              << "ms, trigger="
+                              << (trigger ? trigger->metaObject()->className() : "direct");
     });
     if (!m_categoryCombo || !m_model) {
         // Should never happen — buildUi() creates both unconditionally.
@@ -1225,9 +1275,8 @@ void AttributeTablePanel::refresh()
     // drops the stale connection with the old instance.
     if (m_layer) {
         if (auto *ufm = m_layer->ensureUserFlagsModel())
-            connect(ufm, &openswmmvis::ui::UserFlagsModel::defsChanged,
-                    this, &AttributeTablePanel::refresh,
-                    Qt::UniqueConnection);
+            connect(ufm, &openswmmvis::ui::UserFlagsModel::defsChanged, this,
+                    &AttributeTablePanel::refresh, Qt::UniqueConnection);
     }
 
     // Rebuild category combo entries — SWMM categories first
@@ -1242,19 +1291,21 @@ void AttributeTablePanel::refresh()
     if (m_layer) {
         for (auto cat : m_layer->categoryOrder()) {
             const int n = m_layer->categoryCount(cat);
-            if (n <= 0) continue;
-            m_categoryCombo->addItem(
-                QStringLiteral("%1 (%2)").arg(categoryLabel(cat)).arg(n),
-                static_cast<int>(cat));
+            if (n <= 0)
+                continue;
+            m_categoryCombo->addItem(QStringLiteral("%1 (%2)").arg(categoryLabel(cat)).arg(n),
+                                     static_cast<int>(cat));
         }
         // Non-spatial data objects that support bulk editing. Payload is
         // "data:<DataCategory>".
         bool addedSeparator = false;
         for (int dc = 0; dc < SWMMModelLayer::NumDataCategories; ++dc) {
             const auto cat = static_cast<SWMMModelLayer::DataCategory>(dc);
-            if (!DataObjectAttributeTableModel::supportsCategory(cat)) continue;
+            if (!DataObjectAttributeTableModel::supportsCategory(cat))
+                continue;
             const int n = m_layer->dataObjectCount(cat);
-            if (n <= 0) continue;
+            if (n <= 0)
+                continue;
             if (!addedSeparator && m_categoryCombo->count() > 0) {
                 m_categoryCombo->insertSeparator(m_categoryCombo->count());
                 addedSeparator = true;
@@ -1269,14 +1320,14 @@ void AttributeTablePanel::refresh()
         bool addedSeparator = false;
         for (OpenSWMMVisLayer *l : m_canvas->layers()) {
             auto *tab = qobject_cast<TabularDataLayer *>(l);
-            if (!tab) continue;
+            if (!tab)
+                continue;
             if (!addedSeparator && m_categoryCombo->count() > 0) {
                 m_categoryCombo->insertSeparator(m_categoryCombo->count());
                 addedSeparator = true;
             }
             m_categoryCombo->addItem(
-                QStringLiteral("▾ Table: %1 (%2)")
-                    .arg(tab->name()).arg(tab->rowCount()),
+                QStringLiteral("▾ Table: %1 (%2)").arg(tab->name()).arg(tab->rowCount()),
                 QStringLiteral("tab:%1").arg(tab->layerId()));
         }
     }
@@ -1286,19 +1337,19 @@ void AttributeTablePanel::refresh()
         bool addedSeparator = false;
         for (OpenSWMMVisLayer *l : m_canvas->layers()) {
             auto *gis = qobject_cast<GISVectorLayer *>(l);
-            if (!gis) continue;
+            if (!gis)
+                continue;
             if (!addedSeparator && m_categoryCombo->count() > 0) {
                 m_categoryCombo->insertSeparator(m_categoryCombo->count());
                 addedSeparator = true;
             }
             m_categoryCombo->addItem(
-                QStringLiteral("◆ Features: %1 (%2)")
-                    .arg(gis->name()).arg(gis->featureCount()),
+                QStringLiteral("◆ Features: %1 (%2)").arg(gis->name()).arg(gis->featureCount()),
                 QStringLiteral("gis:%1").arg(gis->layerId()));
             // GIS layers open asynchronously; refresh the combo + active source
             // once the dataset is ready so the row/feature counts populate.
-            connect(gis, &GISVectorLayer::openFinished,
-                    this, &AttributeTablePanel::refresh, Qt::UniqueConnection);
+            connect(gis, &GISVectorLayer::openFinished, this, &AttributeTablePanel::refresh,
+                    Qt::UniqueConnection);
         }
     }
     // 2D mesh layers contribute three tables each — vertices, edges, cells.
@@ -1309,39 +1360,42 @@ void AttributeTablePanel::refresh()
         bool addedSeparator = false;
         for (OpenSWMMVisLayer *l : m_canvas->layers()) {
             auto *mesh = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!mesh) continue;
+            if (!mesh)
+                continue;
             if (!addedSeparator && m_categoryCombo->count() > 0) {
                 m_categoryCombo->insertSeparator(m_categoryCombo->count());
                 addedSeparator = true;
             }
             const bool ready = mesh->sceneGeometryComplete();
-            struct { MeshAttributeTableModel::Kind kind; QString label; int count; } rows[] = {
+            struct {
+                MeshAttributeTableModel::Kind kind;
+                QString label;
+                int count;
+            } rows[] = {
                 {MeshAttributeTableModel::Kind::Vertex, tr("Vertices"), mesh->vertexCount()},
-                {MeshAttributeTableModel::Kind::Edge,   tr("Edges"),    mesh->edgeCount()},
-                {MeshAttributeTableModel::Kind::Cell,   tr("Cells"),    mesh->triangleCount()},
+                {MeshAttributeTableModel::Kind::Edge, tr("Edges"), mesh->edgeCount()},
+                {MeshAttributeTableModel::Kind::Cell, tr("Cells"), mesh->triangleCount()},
             };
             for (const auto &r : rows) {
                 m_categoryCombo->addItem(
-                    QStringLiteral("△ Mesh %1 — %2 (%3)")
-                        .arg(mesh->name(), r.label).arg(r.count),
+                    QStringLiteral("△ Mesh %1 — %2 (%3)").arg(mesh->name(), r.label).arg(r.count),
                     meshSourceKey(mesh, r.kind));
                 const int i = m_categoryCombo->count() - 1;
                 if (!ready) {
-                    auto *model = qobject_cast<QStandardItemModel *>(
-                        m_categoryCombo->model());
+                    auto *model = qobject_cast<QStandardItemModel *>(m_categoryCombo->model());
                     if (auto *item = model ? model->item(i) : nullptr)
                         item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-                    m_categoryCombo->setItemData(
-                        i, tr("Available once the mesh finishes loading."),
-                        Qt::ToolTipRole);
+                    m_categoryCombo->setItemData(i, tr("Available once the mesh finishes loading."),
+                                                 Qt::ToolTipRole);
                 }
             }
-            connect(mesh, &SWMM2DMeshLayer::sceneGeometryReady,
-                    this, &AttributeTablePanel::refresh, Qt::UniqueConnection);
+            connect(mesh, &SWMM2DMeshLayer::sceneGeometryReady, this, &AttributeTablePanel::refresh,
+                    Qt::UniqueConnection);
         }
     }
     int idx = m_categoryCombo->findText(currentText);
-    if (idx < 0) idx = 0;
+    if (idx < 0)
+        idx = 0;
     m_categoryCombo->setCurrentIndex(idx);
     m_categoryCombo->blockSignals(false);
 
@@ -1405,8 +1459,7 @@ void AttributeTablePanel::refresh()
 
     // Z.2 — refresh row-count badge whenever the model resets.
     if (m_queryStatus) {
-        const int total = m_proxy->sourceModel()
-                              ? m_proxy->sourceModel()->rowCount() : 0;
+        const int total = m_proxy->sourceModel() ? m_proxy->sourceModel()->rowCount() : 0;
         m_queryStatus->setText(tr("%1 row%2").arg(total).arg(total == 1 ? "" : "s"));
     }
 
@@ -1416,7 +1469,8 @@ void AttributeTablePanel::refresh()
 
 void AttributeTablePanel::showLayerSource(OpenSWMMVisLayer *layer)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
 
     QString key;
     if (qobject_cast<GISVectorLayer *>(layer))
@@ -1428,7 +1482,7 @@ void AttributeTablePanel::showLayerSource(OpenSWMMVisLayer *layer)
         // the user switch to edges / cells from the combo.
         key = meshSourceKey(mesh, MeshAttributeTableModel::Kind::Vertex);
     if (key.isEmpty())
-        return;   // model / results layer — keep the current SWMM category
+        return; // model / results layer — keep the current SWMM category
 
     int idx = m_categoryCombo->findData(key);
     if (idx < 0) {
@@ -1437,19 +1491,24 @@ void AttributeTablePanel::showLayerSource(OpenSWMMVisLayer *layer)
         idx = m_categoryCombo->findData(key);
     }
     if (idx >= 0)
-        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+        m_categoryCombo->setCurrentIndex(idx); // fires onCategoryChanged
 }
 
 void AttributeTablePanel::showModelCategory(SWMMModelLayer *model, int category,
                                             SWMMResultsLayer *run)
 {
-    if (!m_layer || (model && model != m_layer.data())) return;
-    if (run) setResultsSource(run);
+    if (!m_layer || (model && model != m_layer.data()))
+        return;
+    if (run)
+        setResultsSource(run);
 
     int idx = -1;
     for (int i = 0; i < m_categoryCombo->count(); ++i) {
         const QVariant d = m_categoryCombo->itemData(i);
-        if (d.userType() == QMetaType::Int && d.toInt() == category) { idx = i; break; }
+        if (d.userType() == QMetaType::Int && d.toInt() == category) {
+            idx = i;
+            break;
+        }
     }
     if (idx < 0) {
         // Objects added since the combo was last rebuilt (empty categories
@@ -1457,27 +1516,31 @@ void AttributeTablePanel::showModelCategory(SWMMModelLayer *model, int category,
         refresh();
         for (int i = 0; i < m_categoryCombo->count(); ++i) {
             const QVariant d = m_categoryCombo->itemData(i);
-            if (d.userType() == QMetaType::Int && d.toInt() == category) { idx = i; break; }
+            if (d.userType() == QMetaType::Int && d.toInt() == category) {
+                idx = i;
+                break;
+            }
         }
     }
     if (idx >= 0)
-        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+        m_categoryCombo->setCurrentIndex(idx); // fires onCategoryChanged
 }
 
 void AttributeTablePanel::showMeshTable(SWMM2DMeshLayer *mesh, int meshKind)
 {
-    if (!mesh) return;
-    const auto kind = meshKind == 1 ? MeshAttributeTableModel::Kind::Edge
-                    : meshKind == 2 ? MeshAttributeTableModel::Kind::Cell
-                                    : MeshAttributeTableModel::Kind::Vertex;
+    if (!mesh)
+        return;
+    const auto kind = meshKind == 1   ? MeshAttributeTableModel::Kind::Edge
+                      : meshKind == 2 ? MeshAttributeTableModel::Kind::Cell
+                                      : MeshAttributeTableModel::Kind::Vertex;
     const QString key = meshSourceKey(mesh, kind);
     int idx = m_categoryCombo->findData(key);
     if (idx < 0) {
-        refresh();   // mesh added since the combo was last rebuilt
+        refresh(); // mesh added since the combo was last rebuilt
         idx = m_categoryCombo->findData(key);
     }
     if (idx >= 0)
-        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+        m_categoryCombo->setCurrentIndex(idx); // fires onCategoryChanged
 }
 
 void AttributeTablePanel::showDataCategory(int dataCategory)
@@ -1488,16 +1551,17 @@ void AttributeTablePanel::showDataCategory(int dataCategory)
     const QString key = dataSourceKey(dataCategory);
     int idx = m_categoryCombo->findData(key);
     if (idx < 0) {
-        refresh();   // objects added since the combo was last rebuilt
+        refresh(); // objects added since the combo was last rebuilt
         idx = m_categoryCombo->findData(key);
     }
     if (idx >= 0)
-        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+        m_categoryCombo->setCurrentIndex(idx); // fires onCategoryChanged
 }
 
 void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
 {
-    if (m_categoryCombo->currentIndex() < 0) return;
+    if (m_categoryCombo->currentIndex() < 0)
+        return;
 
     // Save the outgoing SWMM category's column widths before any
     // model swap so the next visit to it restores the same layout.
@@ -1513,7 +1577,8 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
     const QVariant data = m_categoryCombo->currentData();
     if (data.userType() == QMetaType::Int) {
         // SWMM category.
-        if (!m_layer) return;
+        if (!m_layer)
+            return;
         const auto cat = static_cast<SWMMModelLayer::Category>(data.toInt());
         m_model->setSource(m_layer, cat);
         m_proxy->setSourceModel(m_model);
@@ -1546,7 +1611,7 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
                 }
             }
         }
-        bindGisSource(gis);   // also installs the column delegates
+        bindGisSource(gis); // also installs the column delegates
     } else if (data.toString().startsWith(kMeshPrefix)) {
         bindMeshSource(data.toString());
     } else if (data.toString().startsWith(kDataPrefix)) {
@@ -1576,21 +1641,22 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
 // remembers widths across launches even before a project is opened.
 static QString projectScopeKeyFor(const SWMMModelLayer *layer)
 {
-    if (!layer) return QStringLiteral("default");
+    if (!layer)
+        return QStringLiteral("default");
     const QString path = layer->modelFilePath();
-    if (path.isEmpty()) return QStringLiteral("default");
+    if (path.isEmpty())
+        return QStringLiteral("default");
     const QFileInfo info(path);
     const QByteArray canonical = info.absoluteFilePath().toUtf8();
     const QByteArray digest =
-        QCryptographicHash::hash(canonical, QCryptographicHash::Sha1)
-            .toHex().left(8);
+        QCryptographicHash::hash(canonical, QCryptographicHash::Sha1).toHex().left(8);
     QString base = info.completeBaseName();
     // Strip path separators / chars QSettings would treat as
     // groups (defence-in-depth — completeBaseName already excludes
     // directory separators).
-    base.replace(QRegularExpression(QStringLiteral("[/\\\\\\s]")),
-                 QStringLiteral("_"));
-    if (base.isEmpty()) base = QStringLiteral("project");
+    base.replace(QRegularExpression(QStringLiteral("[/\\\\\\s]")), QStringLiteral("_"));
+    if (base.isEmpty())
+        base = QStringLiteral("project");
     return QStringLiteral("%1-%2").arg(base, QString::fromLatin1(digest));
 }
 
@@ -1601,9 +1667,11 @@ void AttributeTablePanel::saveColumnWidths(SWMMModelLayer::Category cat) const
 
 void AttributeTablePanel::saveColumnWidths(const QString &sourceKey) const
 {
-    if (!m_view || sourceKey.isEmpty()) return;
+    if (!m_view || sourceKey.isEmpty())
+        return;
     auto *header = m_view->horizontalHeader();
-    if (!header || header->count() == 0) return;
+    if (!header || header->count() == 0)
+        return;
     QSettings s;
     const QString scope = projectScopeKeyFor(m_model ? m_model->layer() : nullptr);
     s.setValue(QStringLiteral("SWMMVis/AttributeTablePanel/projects/%1/%2/columnWidths")
@@ -1613,15 +1681,19 @@ void AttributeTablePanel::saveColumnWidths(const QString &sourceKey) const
 
 void AttributeTablePanel::restoreColumnWidths(const QString &sourceKey)
 {
-    if (!m_view || sourceKey.isEmpty()) return;
+    if (!m_view || sourceKey.isEmpty())
+        return;
     auto *header = m_view->horizontalHeader();
-    if (!header) return;
+    if (!header)
+        return;
     QSettings s;
     const QString scope = projectScopeKeyFor(m_model ? m_model->layer() : nullptr);
     const QByteArray state =
         s.value(QStringLiteral("SWMMVis/AttributeTablePanel/projects/%1/%2/columnWidths")
-                    .arg(scope, sourceKey)).toByteArray();
-    if (!state.isEmpty()) header->restoreState(state);
+                    .arg(scope, sourceKey))
+            .toByteArray();
+    if (!state.isEmpty())
+        header->restoreState(state);
     // Header state includes clickability, not just column widths. Repair
     // layouts saved before the grouped header enabled sorting clicks.
     header->setSectionsClickable(true);
@@ -1630,9 +1702,11 @@ void AttributeTablePanel::restoreColumnWidths(const QString &sourceKey)
 
 void AttributeTablePanel::restoreColumnWidths(SWMMModelLayer::Category cat)
 {
-    if (!m_view) return;
+    if (!m_view)
+        return;
     auto *header = m_view->horizontalHeader();
-    if (!header) return;
+    if (!header)
+        return;
     QSettings s;
     const QString scope = projectScopeKeyFor(m_model ? m_model->layer() : nullptr);
 
@@ -1642,10 +1716,10 @@ void AttributeTablePanel::restoreColumnWidths(SWMMModelLayer::Category cat)
     // new scheme.
     const QString primaryKey =
         QStringLiteral("SWMMVis/AttributeTablePanel/projects/%1/cat%2/columnWidths")
-            .arg(scope).arg(static_cast<int>(cat));
-    const QString legacyKey =
-        QStringLiteral("SWMMVis/AttributeTablePanel/cat%1/columnWidths")
+            .arg(scope)
             .arg(static_cast<int>(cat));
+    const QString legacyKey =
+        QStringLiteral("SWMMVis/AttributeTablePanel/cat%1/columnWidths").arg(static_cast<int>(cat));
 
     QByteArray state = s.value(primaryKey).toByteArray();
     if (state.isEmpty())
@@ -1659,9 +1733,11 @@ void AttributeTablePanel::restoreColumnWidths(SWMMModelLayer::Category cat)
 
 void AttributeTablePanel::ensureMinColumnWidths()
 {
-    if (!m_view) return;
+    if (!m_view)
+        return;
     auto *header = m_view->horizontalHeader();
-    if (!header) return;
+    if (!header)
+        return;
     const int count = header->count();
     for (int c = 0; c < count; ++c) {
         // `sectionSizeHint` measures the header text + sort indicator
@@ -1677,14 +1753,16 @@ void AttributeTablePanel::ensureMinColumnWidths()
 
 void AttributeTablePanel::installColumnDelegates()
 {
-    if (!m_view || !m_model) return;
+    if (!m_view || !m_model)
+        return;
     installColumnDelegates(m_model->columnSpecs(), m_model->columnCount());
 }
 
-void AttributeTablePanel::installColumnDelegates(
-    const QList<openswmmvis::ColumnSpec> &specs, int clearUpTo)
+void AttributeTablePanel::installColumnDelegates(const QList<openswmmvis::ColumnSpec> &specs,
+                                                 int clearUpTo)
 {
-    if (!m_view) return;
+    if (!m_view)
+        return;
     // The model has already switched, so its current column count cannot
     // tell us which columns held editors in the previous (possibly wider)
     // schema. Detach every recorded binding before deleting any delegate.
@@ -1693,7 +1771,8 @@ void AttributeTablePanel::installColumnDelegates(
     for (auto it = m_installedDelegates.cbegin(); it != m_installedDelegates.cend(); ++it)
         m_view->setItemDelegateForColumn(it.key(), nullptr);
     for (QStyledItemDelegate *old : std::as_const(m_installedDelegates))
-        if (old) old->deleteLater();
+        if (old)
+            old->deleteLater();
     m_installedDelegates.clear();
 
     int clearTo = std::max(clearUpTo, int(specs.size()));
@@ -1707,16 +1786,12 @@ void AttributeTablePanel::installColumnDelegates(
         QStyledItemDelegate *del = nullptr;
         switch (spec.editor) {
         case openswmmvis::EditorKind::Numeric:
-            del = new openswmmvis::NumericDelegate(this,
-                                                     spec.minValue,
-                                                     spec.maxValue,
-                                                     spec.decimals,
-                                                     openswmmvis::columnStep(spec));
+            del = new openswmmvis::NumericDelegate(this, spec.minValue, spec.maxValue,
+                                                   spec.decimals, openswmmvis::columnStep(spec));
             break;
         case openswmmvis::EditorKind::Integer:
-            del = new openswmmvis::IntegerDelegate(this,
-                                                     static_cast<int>(spec.minValue),
-                                                     static_cast<int>(spec.maxValue));
+            del = new openswmmvis::IntegerDelegate(this, static_cast<int>(spec.minValue),
+                                                   static_cast<int>(spec.maxValue));
             break;
         case openswmmvis::EditorKind::Enum:
             del = new openswmmvis::EnumDelegate(this, spec.enumValues);
@@ -1728,8 +1803,7 @@ void AttributeTablePanel::installColumnDelegates(
             del = new openswmmvis::FileBrowseDelegate(this, spec.fileFilter);
             break;
         case openswmmvis::EditorKind::FileColumn:
-            del = new openswmmvis::FileColumnDelegate(
-                this, openswmmvis::kFileColumnOptionsRole);
+            del = new openswmmvis::FileColumnDelegate(this, openswmmvis::kFileColumnOptionsRole);
             break;
         case openswmmvis::EditorKind::Compound:
             del = new openswmmvis::CompoundEditDelegate(this);
@@ -1749,8 +1823,7 @@ void AttributeTablePanel::installColumnDelegates(
     }
 }
 
-SWMMObjectRef::ObjectType
-AttributeTablePanel::objectTypeFor(SWMMModelLayer::Category cat) const
+SWMMObjectRef::ObjectType AttributeTablePanel::objectTypeFor(SWMMModelLayer::Category cat) const
 {
     return objectTypeForCategory(cat);
 }
@@ -1772,7 +1845,8 @@ bool AttributeTablePanel::meshSourceActive() const
 
 void AttributeTablePanel::bindMeshSource(const QString &key)
 {
-    if (!m_meshModel || !m_proxy) return;
+    if (!m_meshModel || !m_proxy)
+        return;
 
     QString layerId;
     MeshAttributeTableModel::Kind kind = MeshAttributeTableModel::Kind::Vertex;
@@ -1790,22 +1864,23 @@ void AttributeTablePanel::bindMeshSource(const QString &key)
     m_meshModel->setModelLayer(m_layer);
     m_meshModel->setSource(mesh, kind);
     m_proxy->setSourceModel(m_meshModel);
-    installColumnDelegates(m_meshModel->columnSpecs(),
-                           m_meshModel->columnCount());
+    installColumnDelegates(m_meshModel->columnSpecs(), m_meshModel->columnCount());
     restoreColumnWidths(meshWidthsKey(kind));
 }
 
 QSet<SWMMObjectRef> AttributeTablePanel::meshRefs(bool applyQuery) const
 {
     QSet<SWMMObjectRef> out;
-    if (!meshSourceActive()) return out;
+    if (!meshSourceActive())
+        return out;
 
     openswmmvis::QueryPredicate pred;
     if (applyQuery && m_queryEdit) {
         const QString text = m_queryEdit->text().trimmed();
         pred = openswmmvis::parseQuery(text);
         // Parse error → empty match set; the query bar already shows why.
-        if (!text.isEmpty() && !pred.isValid()) return out;
+        if (!text.isEmpty() && !pred.isValid())
+            return out;
     }
 
     // Same column-resolving predicate the proxy filters with, so the mesh
@@ -1815,24 +1890,29 @@ QSet<SWMMObjectRef> AttributeTablePanel::meshRefs(bool applyQuery) const
     rp.bind(m_meshModel, pred);
     const int nRow = m_meshModel->rowCount();
     for (int row = 0; row < nRow; ++row) {
-        if (!rp.accepts(row)) continue;
+        if (!rp.accepts(row))
+            continue;
         const SWMMObjectRef ref = m_meshModel->refForRow(row);
-        if (ref.isValid()) out.insert(ref);
+        if (ref.isValid())
+            out.insert(ref);
     }
     return out;
 }
 
 void AttributeTablePanel::meshSelectionToBus()
 {
-    if (!m_selMgr || !meshSourceActive() || !m_view) return;
+    if (!m_selMgr || !meshSourceActive() || !m_view)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
 
     QSet<SWMMObjectRef> refs;
     for (const QModelIndex &proxyIdx : sel->selectedRows()) {
         const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
         const SWMMObjectRef ref = m_meshModel->refForRow(srcIdx.row());
-        if (ref.isValid()) refs.insert(ref);
+        if (ref.isValid())
+            refs.insert(ref);
     }
     // Replace, matching what picking rows in a SWMM category does.
     m_selMgr->select(refs, SelectionManager::Replace);
@@ -1840,14 +1920,17 @@ void AttributeTablePanel::meshSelectionToBus()
     // zoom its highlight is sub-pixel. Raise the map beacon so the selection
     // is findable. Interactive map picks deliberately do not do this: you
     // just clicked the thing.
-    if (m_canvas) m_canvas->flashSelection();
+    if (m_canvas)
+        m_canvas->flashSelection();
 }
 
 void AttributeTablePanel::meshSelectionFromBus(const QSet<SWMMObjectRef> &current)
 {
-    if (!meshSourceActive() || !m_view) return;
+    if (!meshSourceActive() || !m_view)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
 
     m_applyingFromBus = true;
 
@@ -1856,7 +1939,8 @@ void AttributeTablePanel::meshSelectionFromBus(const QSet<SWMMObjectRef> &curren
     QList<int> rows;
     for (const auto &ref : current) {
         const int row = m_meshModel->rowForRef(ref);
-        if (row >= 0) rows << row;
+        if (row >= 0)
+            rows << row;
     }
 
     auto *fp = static_cast<FilteringProxy *>(m_proxy);
@@ -1864,8 +1948,7 @@ void AttributeTablePanel::meshSelectionFromBus(const QSet<SWMMObjectRef> &curren
         QSet<QString> ids;
         ids.reserve(rows.size());
         for (int row : std::as_const(rows)) {
-            ids.insert(m_meshModel->data(m_meshModel->index(row, 0),
-                                         Qt::DisplayRole).toString());
+            ids.insert(m_meshModel->data(m_meshModel->index(row, 0), Qt::DisplayRole).toString());
         }
         fp->setNameFilter(ids, true);
     } else {
@@ -1879,20 +1962,22 @@ void AttributeTablePanel::meshSelectionFromBus(const QSet<SWMMObjectRef> &curren
 
 bool AttributeTablePanel::gisSourceActive() const
 {
-    return m_proxy && m_gisModel && m_proxy->sourceModel() == m_gisModel
-           && m_gisModel->layer();
+    return m_proxy && m_gisModel && m_proxy->sourceModel() == m_gisModel && m_gisModel->layer();
 }
 
 QSet<SWMMObjectRef> AttributeTablePanel::gisRefs(bool applyQuery) const
 {
     QSet<SWMMObjectRef> refs;
-    if (!gisSourceActive()) return refs;
+    if (!gisSourceActive())
+        return refs;
     const auto pred = applyQuery ? openswmmvis::parseQuery(m_queryEdit->text().trimmed())
-                                : openswmmvis::QueryPredicate{};
-    if (!pred.error.isEmpty()) return refs;
+                                 : openswmmvis::QueryPredicate{};
+    if (!pred.error.isEmpty())
+        return refs;
     RowPredicate predicate;
     predicate.bind(m_gisModel, pred);
-    if (!predicate.missingFields().isEmpty()) return refs;
+    if (!predicate.missingFields().isEmpty())
+        return refs;
     for (int row = 0; row < m_gisModel->rowCount(); ++row) {
         const auto fid = m_gisModel->fidForRow(row);
         if (fid >= 0 && predicate.accepts(row))
@@ -1903,32 +1988,39 @@ QSet<SWMMObjectRef> AttributeTablePanel::gisRefs(bool applyQuery) const
 
 void AttributeTablePanel::gisSelectionToBus()
 {
-    if (!m_selMgr || !gisSourceActive() || !m_view) return;
+    if (!m_selMgr || !gisSourceActive() || !m_view)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
 
     const QString layerId = m_gisModel->layer()->layerId();
     QSet<SWMMObjectRef> refs;
     for (const QModelIndex &proxyIdx : sel->selectedRows()) {
         const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
         const long long fid = m_gisModel->fidForRow(srcIdx.row());
-        if (fid >= 0) refs.insert(GisObjectRef::feature(layerId, fid));
+        if (fid >= 0)
+            refs.insert(GisObjectRef::feature(layerId, fid));
     }
     // The GisSelectionBridge convention: replace only the FEATURE portion
     // of the bus, keeping other kinds — so a table pick behaves exactly
     // like a map pick, and removing refs never clobbers a SWMM selection.
     for (const SWMMObjectRef &r : m_selMgr->selection())
-        if (r.objectType != SWMMObjectRef::Feature) refs.insert(r);
+        if (r.objectType != SWMMObjectRef::Feature)
+            refs.insert(r);
     m_selMgr->select(refs, SelectionManager::Replace);
     // See meshSelectionToBus: raise the beacon so the pick is findable.
-    if (m_canvas) m_canvas->flashSelection();
+    if (m_canvas)
+        m_canvas->flashSelection();
 }
 
 void AttributeTablePanel::gisSelectionFromBus(const QSet<SWMMObjectRef> &current)
 {
-    if (!gisSourceActive() || !m_view) return;
+    if (!gisSourceActive() || !m_view)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
 
     m_applyingFromBus = true;
 
@@ -1937,10 +2029,13 @@ void AttributeTablePanel::gisSelectionFromBus(const QSet<SWMMObjectRef> &current
     for (const auto &ref : current) {
         QString lid;
         long long fid = -1;
-        if (!GisObjectRef::parseFeature(ref, &lid, &fid)) continue;
-        if (lid != layerId) continue;
+        if (!GisObjectRef::parseFeature(ref, &lid, &fid))
+            continue;
+        if (lid != layerId)
+            continue;
         const int row = m_gisModel->rowForFid(fid);
-        if (row >= 0) rows << row;
+        if (row >= 0)
+            rows << row;
     }
 
     // "Show selected only" rides the synthetic FID display column 0 —
@@ -1950,8 +2045,7 @@ void AttributeTablePanel::gisSelectionFromBus(const QSet<SWMMObjectRef> &current
         QSet<QString> ids;
         ids.reserve(rows.size());
         for (int row : std::as_const(rows)) {
-            ids.insert(m_gisModel->data(m_gisModel->index(row, 0),
-                                        Qt::DisplayRole).toString());
+            ids.insert(m_gisModel->data(m_gisModel->index(row, 0), Qt::DisplayRole).toString());
         }
         fp->setNameFilter(ids, true);
     } else {
@@ -1978,10 +2072,10 @@ bool AttributeTablePanel::dataSourceActive() const
 
 void AttributeTablePanel::bindDataSource(int dataCategory)
 {
-    if (!m_dataModel || !m_proxy) return;
+    if (!m_dataModel || !m_proxy)
+        return;
     m_dataModel->setUndoStack(m_canvas ? m_canvas->undoStack() : nullptr);
-    m_dataModel->setSource(m_layer,
-                           static_cast<SWMMModelLayer::DataCategory>(dataCategory));
+    m_dataModel->setSource(m_layer, static_cast<SWMMModelLayer::DataCategory>(dataCategory));
     m_proxy->setSourceModel(m_dataModel);
     installColumnDelegates(m_dataModel->columnSpecs(), m_dataModel->columnCount());
     restoreColumnWidths(dataWidthsKey(dataCategory));
@@ -1990,56 +2084,67 @@ void AttributeTablePanel::bindDataSource(int dataCategory)
 QSet<SWMMObjectRef> AttributeTablePanel::dataRefs(bool applyQuery) const
 {
     QSet<SWMMObjectRef> out;
-    if (!dataSourceActive()) return out;
+    if (!dataSourceActive())
+        return out;
 
     openswmmvis::QueryPredicate pred;
     if (applyQuery && m_queryEdit) {
         const QString text = m_queryEdit->text().trimmed();
         pred = openswmmvis::parseQuery(text);
-        if (!text.isEmpty() && !pred.isValid()) return out;
+        if (!text.isEmpty() && !pred.isValid())
+            return out;
     }
     RowPredicate rp;
     rp.bind(m_dataModel, pred);
     const auto type = m_dataModel->objectType();
     const int nRow = m_dataModel->rowCount();
     for (int row = 0; row < nRow; ++row) {
-        if (!rp.accepts(row)) continue;
+        if (!rp.accepts(row))
+            continue;
         const QString name = m_dataModel->objectNameAt(row);
-        if (!name.isEmpty()) out.insert(SWMMObjectRef(type, name));
+        if (!name.isEmpty())
+            out.insert(SWMMObjectRef(type, name));
     }
     return out;
 }
 
 void AttributeTablePanel::dataSelectionToBus()
 {
-    if (!m_selMgr || !dataSourceActive() || !m_view) return;
+    if (!m_selMgr || !dataSourceActive() || !m_view)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
     const auto type = m_dataModel->objectType();
     QSet<SWMMObjectRef> refs;
     for (const QModelIndex &proxyIdx : sel->selectedRows()) {
         const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
         const QString name = m_dataModel->objectNameAt(srcIdx.row());
-        if (!name.isEmpty()) refs.insert(SWMMObjectRef(type, name));
+        if (!name.isEmpty())
+            refs.insert(SWMMObjectRef(type, name));
     }
     m_selMgr->select(refs, SelectionManager::Replace);
 }
 
 void AttributeTablePanel::dataSelectionFromBus(const QSet<SWMMObjectRef> &current)
 {
-    if (!dataSourceActive() || !m_view) return;
+    if (!dataSourceActive() || !m_view)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
 
     m_applyingFromBus = true;
     const auto type = m_dataModel->objectType();
     QSet<QString> names;
     QList<int> rows;
     for (const auto &ref : current) {
-        if (ref.objectType != type) continue;
+        if (ref.objectType != type)
+            continue;
         names.insert(ref.name);
         const int row = m_dataModel->rowForName(ref.name);
-        if (row >= 0) rows << row;
+        if (row >= 0)
+            rows << row;
     }
     static_cast<FilteringProxy *>(m_proxy)->setNameFilter(
         m_showSelectedOnly ? names : QSet<QString>{}, m_showSelectedOnly);
@@ -2049,16 +2154,29 @@ void AttributeTablePanel::dataSelectionFromBus(const QSet<SWMMObjectRef> &curren
 
 void AttributeTablePanel::onTableSelectionChanged()
 {
-    if (m_applyingFromBus || !m_selMgr || !m_view || !m_proxy) return;
-    if (meshSourceActive()) { meshSelectionToBus(); return; }
-    if (gisSourceActive())  { gisSelectionToBus();  return; }
-    if (dataSourceActive()) { dataSelectionToBus(); return; }
-    if (!m_model) return;
+    if (m_applyingFromBus || !m_selMgr || !m_view || !m_proxy)
+        return;
+    if (meshSourceActive()) {
+        meshSelectionToBus();
+        return;
+    }
+    if (gisSourceActive()) {
+        gisSelectionToBus();
+        return;
+    }
+    if (dataSourceActive()) {
+        dataSelectionToBus();
+        return;
+    }
+    if (!m_model)
+        return;
     // Z.4.3 — only the SWMM model carries object refs; tabular
     // source has no canvas-linked selection.
-    if (m_proxy->sourceModel() != m_model) return;
+    if (m_proxy->sourceModel() != m_model)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
 
     const auto type = objectTypeForCategory(m_model->category());
     QSet<SWMMObjectRef> refs;
@@ -2072,24 +2190,37 @@ void AttributeTablePanel::onTableSelectionChanged()
     // See meshSelectionToBus: locate the row's feature on the map. Guarded
     // by the m_applyingFromBus early-return above, so this only fires on a
     // genuine user pick in the table, never on a bus-driven sync.
-    if (m_canvas) m_canvas->flashSelection();
+    if (m_canvas)
+        m_canvas->flashSelection();
 }
 
-void AttributeTablePanel::onSelectionManagerChanged(
-    const QSet<SWMMObjectRef> &current,
-    const QSet<SWMMObjectRef> & /*added*/,
-    const QSet<SWMMObjectRef> & /*removed*/)
+void AttributeTablePanel::onSelectionManagerChanged(const QSet<SWMMObjectRef> &current,
+                                                    const QSet<SWMMObjectRef> & /*added*/,
+                                                    const QSet<SWMMObjectRef> & /*removed*/)
 {
-    if (!m_view || !m_proxy) return;
-    if (meshSourceActive()) { meshSelectionFromBus(current); return; }
-    if (gisSourceActive())  { gisSelectionFromBus(current);  return; }
-    if (dataSourceActive()) { dataSelectionFromBus(current); return; }
-    if (!m_layer || !m_model) return;
+    if (!m_view || !m_proxy)
+        return;
+    if (meshSourceActive()) {
+        meshSelectionFromBus(current);
+        return;
+    }
+    if (gisSourceActive()) {
+        gisSelectionFromBus(current);
+        return;
+    }
+    if (dataSourceActive()) {
+        dataSelectionFromBus(current);
+        return;
+    }
+    if (!m_layer || !m_model)
+        return;
     // Z.4.3 — when a tabular source is active, the bus selection
     // doesn't apply (no SWMMObjectRef → row mapping).
-    if (m_proxy->sourceModel() != m_model) return;
+    if (m_proxy->sourceModel() != m_model)
+        return;
     auto *sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
 
     // Reentrancy guard: setting view selection below fires
     // selectionChanged on QItemSelectionModel, which would otherwise
@@ -2106,7 +2237,8 @@ void AttributeTablePanel::onSelectionManagerChanged(
         QSet<QString> names;
         names.reserve(current.size());
         for (const auto &ref : current)
-            if (ref.objectType == type) names.insert(ref.name);
+            if (ref.objectType == type)
+                names.insert(ref.name);
         fp->setNameFilter(names, true);
     } else {
         // setNameFilter early-returns when nothing changes, so this no
@@ -2119,9 +2251,11 @@ void AttributeTablePanel::onSelectionManagerChanged(
     QList<int> rows;
     rows.reserve(current.size());
     for (const auto &ref : current) {
-        if (ref.objectType != type) continue;
+        if (ref.objectType != type)
+            continue;
         const int srcRow = m_model->rowForName(ref.name);
-        if (srcRow >= 0) rows << srcRow;
+        if (srcRow >= 0)
+            rows << srcRow;
     }
     selectSourceRows(sel, m_proxy, m_model, rows);
 
@@ -2139,7 +2273,8 @@ void AttributeTablePanel::onShowSelectedOnlyToggled(bool on)
 
 void AttributeTablePanel::onRowHeaderDoubleClicked(int row)
 {
-    if (!m_view || row < 0) return;
+    if (!m_view || row < 0)
+        return;
     // A double-clicked row that isn't part of the selection replaces it —
     // selectRow flows through onTableSelectionChanged into the bus, so
     // onZoomToSelectedClicked reads a selection that includes this row.
@@ -2150,8 +2285,10 @@ void AttributeTablePanel::onRowHeaderDoubleClicked(int row)
 
 void AttributeTablePanel::onZoomToSelectedClicked()
 {
-    if (!m_canvas || !m_selMgr || m_selMgr->isEmpty()) return;
-    if (dataSourceActive()) return;   // data objects have no map geometry
+    if (!m_canvas || !m_selMgr || m_selMgr->isEmpty())
+        return;
+    if (dataSourceActive())
+        return; // data objects have no map geometry
 
     // The extent is accumulated in the SOURCE layer's own CRS, then projected
     // once — so the mesh branch resolves against the mesh layer, not the model.
@@ -2161,33 +2298,48 @@ void AttributeTablePanel::onZoomToSelectedClicked()
 
     if (meshSourceActive()) {
         SWMM2DMeshLayer *mesh = m_meshModel->layer();
-        if (!mesh) return;
+        if (!mesh)
+            return;
         sourceLayer = mesh;
         for (const auto &ref : m_selMgr->selection()) {
             const int row = m_meshModel->rowForRef(ref);
-            if (row < 0) continue;
+            if (row < 0)
+                continue;
             bool resolved = false;
             const QRectF r = m_meshModel->elementExtent(row, &resolved);
-            if (!resolved) continue;
+            if (!resolved)
+                continue;
             const MapExtent e(r.left(), r.top(), r.right(), r.bottom());
-            if (!any) { acc = e; any = true; }
-            else      { acc = acc.united(e); }
+            if (!any) {
+                acc = e;
+                any = true;
+            } else {
+                acc = acc.united(e);
+            }
         }
     } else {
-        if (!m_layer || !m_model) return;
+        if (!m_layer || !m_model)
+            return;
         const auto type = objectTypeForCategory(m_model->category());
 
         // Build the layer-CRS bbox of the selected objects, skipping those
         // we can't resolve (e.g. ref belongs to a different category).
         for (const auto &ref : m_selMgr->selection()) {
-            if (ref.objectType != type) continue;
+            if (ref.objectType != type)
+                continue;
             const MapExtent e = m_layer->objectExtent(ref.name);
-            if (!std::isfinite(e.xMin()) || !std::isfinite(e.xMax())) continue;
-            if (!any) { acc = e; any = true; }
-            else      { acc = acc.united(e); }
+            if (!std::isfinite(e.xMin()) || !std::isfinite(e.xMax()))
+                continue;
+            if (!any) {
+                acc = e;
+                any = true;
+            } else {
+                acc = acc.united(e);
+            }
         }
     }
-    if (!any || !sourceLayer) return;
+    if (!any || !sourceLayer)
+        return;
 
     // Project to canvas CRS, then add a small pad so the selection
     // doesn't land flush with the viewport edges.  Point selections
@@ -2195,24 +2347,30 @@ void AttributeTablePanel::onZoomToSelectedClicked()
     // layer's overall extent — same heuristic as ObjectBrowser's
     // zoomToObject().
     MapExtent obj = m_canvas->extentInCanvasCRS(sourceLayer, acc);
-    if (!std::isfinite(obj.xMin()) || !std::isfinite(obj.xMax())) return;
+    if (!std::isfinite(obj.xMin()) || !std::isfinite(obj.xMax()))
+        return;
 
     double x0 = obj.xMin(), y0 = obj.yMin();
     double x1 = obj.xMax(), y1 = obj.yMax();
     const bool isPoint = (obj.width() == 0.0 && obj.height() == 0.0);
     if (isPoint) {
         double buf = 100.0;
-        if (const MapExtent le = m_canvas->layerExtentInCanvasCRS(sourceLayer);
-            le.isValid()) {
+        if (const MapExtent le = m_canvas->layerExtentInCanvasCRS(sourceLayer); le.isValid()) {
             const double dx = le.xMax() - le.xMin();
             const double dy = le.yMax() - le.yMin();
             buf = std::max(25.0, 0.005 * std::max(dx, dy));
         }
-        x0 -= buf; y0 -= buf; x1 += buf; y1 += buf;
+        x0 -= buf;
+        y0 -= buf;
+        x1 += buf;
+        y1 += buf;
     } else {
-        const double padX = std::max(1e-6, obj.width()  * 0.10);
+        const double padX = std::max(1e-6, obj.width() * 0.10);
         const double padY = std::max(1e-6, obj.height() * 0.10);
-        x0 -= padX; y0 -= padY; x1 += padX; y1 += padY;
+        x0 -= padX;
+        y0 -= padY;
+        x1 += padX;
+        y1 += padY;
     }
     const MapExtent zoom(x0, y0, x1, y1);
     if (zoom.isValid())
@@ -2232,28 +2390,34 @@ void AttributeTablePanel::onZoomToSelectedClicked()
 
 QString AttributeTablePanel::selectionAsTsv() const
 {
-    if (!m_view || !m_proxy || m_proxy->rowCount() == 0) return {};
+    if (!m_view || !m_proxy || m_proxy->rowCount() == 0)
+        return {};
 
     QList<int> cols;
     const int nCol = m_proxy->columnCount();
     for (int c = 0; c < nCol; ++c)
-        if (!m_view->isColumnHidden(c)) cols << c;
-    if (cols.isEmpty()) return {};
+        if (!m_view->isColumnHidden(c))
+            cols << c;
+    if (cols.isEmpty())
+        return {};
 
     // Selected rows, in the order they appear on screen.  Nothing selected →
     // copy the whole visible table (matching Export CSV's behaviour).
     QList<int> rows;
     if (auto *sm = m_view->selectionModel(); sm && sm->hasSelection()) {
         const QModelIndexList sel = sm->selectedRows();
-        for (const QModelIndex &pi : sel) rows << pi.row();
+        for (const QModelIndex &pi : sel)
+            rows << pi.row();
         std::sort(rows.begin(), rows.end());
         rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
     } else {
         const int nRow = m_proxy->rowCount();
         rows.reserve(nRow);
-        for (int r = 0; r < nRow; ++r) rows << r;
+        for (int r = 0; r < nRow; ++r)
+            rows << r;
     }
-    if (rows.isEmpty()) return {};
+    if (rows.isEmpty())
+        return {};
 
     const auto flatten = [](QString s) {
         s.replace(QLatin1Char('\t'), QLatin1Char(' '));
@@ -2275,7 +2439,8 @@ QString AttributeTablePanel::selectionAsTsv() const
         QStringList cells;
         cells.reserve(cols.size());
         for (int c : std::as_const(cols))
-            cells << flatten(m_proxy->data(m_proxy->index(r, c), openswmmvis::kAttributeValueRole).toString());
+            cells << flatten(
+                m_proxy->data(m_proxy->index(r, c), openswmmvis::kAttributeValueRole).toString());
         lines << cells.join(QLatin1Char('\t'));
     }
 
@@ -2285,35 +2450,35 @@ QString AttributeTablePanel::selectionAsTsv() const
 void AttributeTablePanel::copySelectionToClipboard()
 {
     const QString tsv = selectionAsTsv();
-    if (tsv.isEmpty()) return;
+    if (tsv.isEmpty())
+        return;
     QGuiApplication::clipboard()->setText(tsv);
 }
 
 void AttributeTablePanel::onExportCsvClicked()
 {
-    if (!m_proxy || !m_proxy->sourceModel()
-        || m_proxy->sourceModel()->rowCount() == 0)
+    if (!m_proxy || !m_proxy->sourceModel() || m_proxy->sourceModel()->rowCount() == 0)
         return;
     const QString path = QFileDialog::getSaveFileName(
-        this, tr("Export Attribute Table"),
-        QDir::homePath() + "/attribute_table.csv",
+        this, tr("Export Attribute Table"), QDir::homePath() + "/attribute_table.csv",
         tr("CSV (*.csv);;TSV (*.tsv);;All Files (*)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty())
+        return;
 
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         QMessageBox::warning(this, tr("Export failed"),
-                              tr("Cannot write %1: %2").arg(path, f.errorString()));
+                             tr("Cannot write %1: %2").arg(path, f.errorString()));
         return;
     }
     QTextStream out(&f);
-    const QString sep = path.endsWith(QStringLiteral(".tsv"),
-                                       Qt::CaseInsensitive) ? "\t" : ",";
+    const QString sep = path.endsWith(QStringLiteral(".tsv"), Qt::CaseInsensitive) ? "\t" : ",";
 
     auto quoteCsv = [&](const QString &s) -> QString {
         // RFC 4180-ish: wrap in quotes when the value contains the
         // separator, a quote, or a newline; double up internal quotes.
-        if (sep == "\t") return s;  // TSV: no quoting convention
+        if (sep == "\t")
+            return s; // TSV: no quoting convention
         if (s.contains(',') || s.contains('"') || s.contains('\n')) {
             QString out = s;
             out.replace('"', "\"\"");
@@ -2336,7 +2501,8 @@ void AttributeTablePanel::onExportCsvClicked()
     for (int r = 0; r < nRow; ++r) {
         QStringList cells;
         for (int c = 0; c < nCol; ++c)
-            cells << quoteCsv(m_proxy->data(m_proxy->index(r, c), openswmmvis::kAttributeValueRole).toString());
+            cells << quoteCsv(
+                m_proxy->data(m_proxy->index(r, c), openswmmvis::kAttributeValueRole).toString());
         out << cells.join(sep) << '\n';
     }
     f.close();
@@ -2353,9 +2519,11 @@ void AttributeTablePanel::onExportCsvClicked()
 
 void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
 {
-    if (!m_view) return;
+    if (!m_view)
+        return;
     const QModelIndex proxyIdx = m_view->indexAt(pos);
-    if (!proxyIdx.isValid()) return;
+    if (!proxyIdx.isValid())
+        return;
 
     // Mesh source: Copy + bulk apply + Zoom. Change Type and Delete are SWMM
     // object operations with no mesh equivalent — a mesh element cannot be
@@ -2363,51 +2531,47 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     if (meshSourceActive()) {
         QMenu meshMenu(this);
         QAction *copy = meshMenu.addAction(tr("Copy (Ctrl+C)"));
-        connect(copy, &QAction::triggered,
-                this, &AttributeTablePanel::copySelectionToClipboard);
+        connect(copy, &QAction::triggered, this, &AttributeTablePanel::copySelectionToClipboard);
         meshMenu.addSeparator();
 
         const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
-        const QVariant cellValue = srcIdx.isValid() ? srcIdx.data(Qt::EditRole)
-                                                    : QVariant();
+        const QVariant cellValue = srcIdx.isValid() ? srcIdx.data(Qt::EditRole) : QVariant();
         const int col = srcIdx.isValid() ? srcIdx.column() : -1;
         const QList<openswmmvis::ColumnSpec> specs = m_meshModel->columnSpecs();
         const QList<int> selRows = selectedSourceRows();
         const bool clickedEditable =
             srcIdx.isValid() && (m_meshModel->flags(srcIdx) & Qt::ItemIsEditable);
-        if (clickedEditable && col >= 0 && col < specs.size()
-            && selRows.size() >= 2) {
+        if (clickedEditable && col >= 0 && col < specs.size() && selRows.size() >= 2) {
             const openswmmvis::ColumnSpec &spec = specs[col];
-            QAction *copyVal = meshMenu.addAction(
-                tr("Apply this \"%1\" value to %2 selected rows")
-                    .arg(spec.label).arg(selRows.size()));
-            connect(copyVal, &QAction::triggered, this,
-                    [this, col, selRows, cellValue]() {
-                        applyValueToSelectedRows(col, selRows, cellValue);
-                    });
+            QAction *copyVal = meshMenu.addAction(tr("Apply this \"%1\" value to %2 selected rows")
+                                                      .arg(spec.label)
+                                                      .arg(selRows.size()));
+            connect(copyVal, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                applyValueToSelectedRows(col, selRows, cellValue);
+            });
             // The "prompt for a value" flavour needs a typed input dialog. A
             // reference column (coupled node / time series / curve) has no such
             // dialog — its whole point is that the value comes from a closed
             // picker — so only the copy-the-clicked-cell flavour is offered
             // there, and the copied id is one the picker already validated.
             if (spec.editor != openswmmvis::EditorKind::Compound) {
-                QAction *promptVal = meshMenu.addAction(
-                    tr("Apply \"%1\" value to %2 selected rows…")
-                        .arg(spec.label).arg(selRows.size()));
-                connect(promptVal, &QAction::triggered, this,
-                        [this, col, selRows, cellValue]() {
-                            bool ok = false;
-                            const QVariant v = promptBulkValue(col, cellValue, &ok);
-                            if (ok) applyValueToSelectedRows(col, selRows, v);
-                        });
+                QAction *promptVal =
+                    meshMenu.addAction(tr("Apply \"%1\" value to %2 selected rows…")
+                                           .arg(spec.label)
+                                           .arg(selRows.size()));
+                connect(promptVal, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                    bool ok = false;
+                    const QVariant v = promptBulkValue(col, cellValue, &ok);
+                    if (ok)
+                        applyValueToSelectedRows(col, selRows, v);
+                });
             }
             meshMenu.addSeparator();
         }
 
         QAction *zoom = meshMenu.addAction(tr("Zoom to selected"));
         zoom->setEnabled(m_canvas && m_selMgr && !m_selMgr->isEmpty());
-        connect(zoom, &QAction::triggered,
-                this, &AttributeTablePanel::onZoomToSelectedClicked);
+        connect(zoom, &QAction::triggered, this, &AttributeTablePanel::onZoomToSelectedClicked);
         meshMenu.exec(m_view->viewport()->mapToGlobal(pos));
         return;
     }
@@ -2417,8 +2581,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     if (dataSourceActive()) {
         QMenu dataMenu(this);
         QAction *copy = dataMenu.addAction(tr("Copy (Ctrl+C)"));
-        connect(copy, &QAction::triggered,
-                this, &AttributeTablePanel::copySelectionToClipboard);
+        connect(copy, &QAction::triggered, this, &AttributeTablePanel::copySelectionToClipboard);
         dataMenu.addSeparator();
 
         const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
@@ -2438,38 +2601,36 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         const int col = srcIdx.column();
         const QList<openswmmvis::ColumnSpec> specs = m_dataModel->columnSpecs();
         const QList<int> selRows = selectedSourceRows();
-        if ((m_dataModel->flags(srcIdx) & Qt::ItemIsEditable)
-            && col >= 1 && col < specs.size() && selRows.size() >= 2) {
+        if ((m_dataModel->flags(srcIdx) & Qt::ItemIsEditable) && col >= 1 && col < specs.size() &&
+            selRows.size() >= 2) {
             const openswmmvis::ColumnSpec &spec = specs[col];
             dataMenu.addSeparator();
-            QAction *copyVal = dataMenu.addAction(
-                tr("Apply this \"%1\" value to %2 selected rows")
-                    .arg(spec.label).arg(selRows.size()));
-            connect(copyVal, &QAction::triggered, this,
-                    [this, col, selRows, cellValue]() {
-                        applyValueToSelectedRows(col, selRows, cellValue);
-                    });
+            QAction *copyVal = dataMenu.addAction(tr("Apply this \"%1\" value to %2 selected rows")
+                                                      .arg(spec.label)
+                                                      .arg(selRows.size()));
+            connect(copyVal, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                applyValueToSelectedRows(col, selRows, cellValue);
+            });
             QAction *promptVal = dataMenu.addAction(
-                tr("Apply \"%1\" value to %2 selected rows…")
-                    .arg(spec.label).arg(selRows.size()));
-            connect(promptVal, &QAction::triggered, this,
-                    [this, col, selRows, cellValue]() {
-                        bool ok = false;
-                        const QVariant v = promptBulkValue(col, cellValue, &ok);
-                        if (ok) applyValueToSelectedRows(col, selRows, v);
-                    });
+                tr("Apply \"%1\" value to %2 selected rows…").arg(spec.label).arg(selRows.size()));
+            connect(promptVal, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                bool ok = false;
+                const QVariant v = promptBulkValue(col, cellValue, &ok);
+                if (ok)
+                    applyValueToSelectedRows(col, selRows, v);
+            });
         }
         dataMenu.exec(m_view->viewport()->mapToGlobal(pos));
         return;
     }
 
-    if (!m_model || !m_layer) return;
+    if (!m_model || !m_layer)
+        return;
 
     QMenu menu(this);
 
     QAction *copyAct = menu.addAction(tr("Copy (Ctrl+C)"));
-    connect(copyAct, &QAction::triggered,
-            this, &AttributeTablePanel::copySelectionToClipboard);
+    connect(copyAct, &QAction::triggered, this, &AttributeTablePanel::copySelectionToClipboard);
     menu.addSeparator();
 
     // §S.SC.1.c — Cell-type-aware "Edit in …" actions surfacing the
@@ -2481,10 +2642,8 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     // The dispatched action is queued via QAction::triggered (not
     // executed inline) so the menu can keep its existing "Change Type"
     // / "Zoom" entries unchanged below.
-    const QModelIndex sourceIdx = m_proxy ? m_proxy->mapToSource(proxyIdx)
-                                          : proxyIdx;
-    const QVariant cellValue = sourceIdx.isValid()
-        ? sourceIdx.data(Qt::EditRole) : QVariant();
+    const QModelIndex sourceIdx = m_proxy ? m_proxy->mapToSource(proxyIdx) : proxyIdx;
+    const QVariant cellValue = sourceIdx.isValid() ? sourceIdx.data(Qt::EditRole) : QVariant();
     const int metaId = cellValue.userType();
     bool addedEditAction = false;
 
@@ -2492,15 +2651,13 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         const NodeCompoundEditRef ref = cellValue.value<NodeCompoundEditRef>();
         if (ref.engine && !ref.nodeName.isEmpty()) {
             QAction *act = menu.addAction(
-                ref.summary.isEmpty() ? tr("Edit…")
-                                      : tr("Edit \"%1\"…").arg(ref.summary));
+                ref.summary.isEmpty() ? tr("Edit…") : tr("Edit \"%1\"…").arg(ref.summary));
             connect(act, &QAction::triggered, this, [this, ref, sourceIdx]() {
                 NodeCompoundEditDialog dlg(ref, this);
                 dlg.exec();
                 NodeCompoundEditRef updated = ref;
                 updated.summary = dlg.updatedSummary();
-                m_model->setData(sourceIdx, QVariant::fromValue(updated),
-                                  Qt::EditRole);
+                m_model->setData(sourceIdx, QVariant::fromValue(updated), Qt::EditRole);
             });
             addedEditAction = true;
         }
@@ -2508,22 +2665,20 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         const LinkCompoundEditRef ref = cellValue.value<LinkCompoundEditRef>();
         if (ref.engine && !ref.linkName.isEmpty()) {
             QAction *act = menu.addAction(
-                ref.summary.isEmpty() ? tr("Edit…")
-                                      : tr("Edit \"%1\"…").arg(ref.summary));
+                ref.summary.isEmpty() ? tr("Edit…") : tr("Edit \"%1\"…").arg(ref.summary));
             connect(act, &QAction::triggered, this, [this, ref, sourceIdx]() {
                 LinkCompoundEditDialog dlg(ref, this);
                 dlg.exec();
                 LinkCompoundEditRef updated = ref;
                 updated.summary = dlg.updatedSummary();
-                m_model->setData(sourceIdx, QVariant::fromValue(updated),
-                                  Qt::EditRole);
+                m_model->setData(sourceIdx, QVariant::fromValue(updated), Qt::EditRole);
             });
             addedEditAction = true;
         }
     } else if (metaId == qMetaTypeId<DataObjectRef>()) {
         const DataObjectRef ref = cellValue.value<DataObjectRef>();
-        if (ref.layer && ref.kind != DataObjectRef::RainGage
-            && ref.kind != DataObjectRef::SubcatchOutlet
+        if (ref.layer && ref.kind != DataObjectRef::RainGage &&
+            ref.kind != DataObjectRef::SubcatchOutlet
             // Capture nodes are picked from existing nodes — no editor.
             && ref.kind != DataObjectRef::CaptureNode) {
             SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
@@ -2532,67 +2687,89 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             case DataObjectRef::AnyCurve:
             case DataObjectRef::PumpCurve:
             case DataObjectRef::RatingCurve:
-            case DataObjectRef::StorageCurve:   dc = SWMMModelLayer::DataCurves;      break;
-            case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
-            case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
-            case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
-            case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
-            case DataObjectRef::LidControl:     dc = SWMMModelLayer::DataLIDControls; break;
-        case DataObjectRef::Aquifer:        dc = SWMMModelLayer::DataAquifers;    break;
-            case DataObjectRef::Inlet:          dc = SWMMModelLayer::DataInlets;      break;
-            case DataObjectRef::RainGage:       /* handled above */                   break;
-            case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
-            case DataObjectRef::Node:           /* handled above */                   break;
-            case DataObjectRef::CaptureNode:    /* handled above */                   break;
+            case DataObjectRef::StorageCurve:
+                dc = SWMMModelLayer::DataCurves;
+                break;
+            case DataObjectRef::TimeSeries:
+                dc = SWMMModelLayer::DataTimeSeries;
+                break;
+            case DataObjectRef::Pattern:
+                dc = SWMMModelLayer::DataPatterns;
+                break;
+            case DataObjectRef::UnitHydrograph:
+                dc = SWMMModelLayer::DataHydrographs;
+                break;
+            case DataObjectRef::Pollutant:
+                dc = SWMMModelLayer::DataPollutants;
+                break;
+            case DataObjectRef::LidControl:
+                dc = SWMMModelLayer::DataLIDControls;
+                break;
+            case DataObjectRef::Aquifer:
+                dc = SWMMModelLayer::DataAquifers;
+                break;
+            case DataObjectRef::Inlet:
+                dc = SWMMModelLayer::DataInlets;
+                break;
+            case DataObjectRef::RainGage: /* handled above */
+                break;
+            case DataObjectRef::SubcatchOutlet: /* handled above */
+                break;
+            case DataObjectRef::Node: /* handled above */
+                break;
+            case DataObjectRef::CaptureNode: /* handled above */
+                break;
             }
             const auto &reg = ComprehensiveEditorRegistry::instance();
-            const QString title  = reg.editorTitle(dc);
-            const bool   shipped = reg.hasEditor(dc);
+            const QString title = reg.editorTitle(dc);
+            const bool shipped = reg.hasEditor(dc);
             QAction *act = menu.addAction(
                 ref.currentName.isEmpty()
                     ? tr("Open %1…").arg(title.isEmpty() ? tr("Editor") : title)
                     : tr("Edit \"%1\" in %2…")
-                          .arg(ref.currentName,
-                               title.isEmpty() ? tr("Editor") : title));
+                          .arg(ref.currentName, title.isEmpty() ? tr("Editor") : title));
             act->setEnabled(shipped);
-            if (!shipped) act->setToolTip(reg.gapTooltip(dc));
+            if (!shipped)
+                act->setToolTip(reg.gapTooltip(dc));
             connect(act, &QAction::triggered, this, [this, ref, dc, sourceIdx]() {
                 QString chosen;
                 switch (dc) {
                 case SWMMModelLayer::DataHydrographs:
-                    chosen = HydrographGroupEditor::pickGroup(
-                        ref.layer, ref.currentName, this);
+                    chosen = HydrographGroupEditor::pickGroup(ref.layer, ref.currentName, this);
                     break;
                 case SWMMModelLayer::DataPatterns: {
                     using openswmmvis::pattern::PatternRegistry;
                     using openswmmvis::ui::PatternEditorDialog;
-                    auto *r = qobject_cast<PatternRegistry *>(
-                        ref.layer->ensurePatternRegistry());
-                    if (!r) return;
-                    chosen = PatternEditorDialog::pickPattern(
-                        r, /*undoStack=*/nullptr, ref.currentName, this);
+                    auto *r = qobject_cast<PatternRegistry *>(ref.layer->ensurePatternRegistry());
+                    if (!r)
+                        return;
+                    chosen = PatternEditorDialog::pickPattern(r, /*undoStack=*/nullptr,
+                                                              ref.currentName, this);
                     break;
                 }
                 case SWMMModelLayer::DataTimeSeries: {
                     using openswmmvis::timeseries::TimeseriesRegistry;
                     using openswmmvis::ui::TimeseriesEditorDialog;
-                    auto *r = qobject_cast<TimeseriesRegistry *>(
-                        ref.layer->ensureTimeseriesRegistry());
-                    if (!r) return;
-                    chosen = TimeseriesEditorDialog::pickTimeseries(
-                        r, /*undoStack=*/nullptr, ref.currentName, this);
-                    if (!chosen.isEmpty()) r->saveToEngine();
+                    auto *r =
+                        qobject_cast<TimeseriesRegistry *>(ref.layer->ensureTimeseriesRegistry());
+                    if (!r)
+                        return;
+                    chosen = TimeseriesEditorDialog::pickTimeseries(r, /*undoStack=*/nullptr,
+                                                                    ref.currentName, this);
+                    if (!chosen.isEmpty())
+                        r->saveToEngine();
                     break;
                 }
                 case SWMMModelLayer::DataCurves: {
                     using openswmmvis::curve::CurveRegistry;
                     using openswmmvis::ui::CurveEditorDialog;
-                    auto *r = qobject_cast<CurveRegistry *>(
-                        ref.layer->ensureCurveRegistry());
-                    if (!r) return;
-                    QPointer<CurveEditorDialog> dlg = ref.currentName.isEmpty()
-                        ? CurveEditorDialog::createNew(r, /*undoStack=*/nullptr, this)
-                        : nullptr;
+                    auto *r = qobject_cast<CurveRegistry *>(ref.layer->ensureCurveRegistry());
+                    if (!r)
+                        return;
+                    QPointer<CurveEditorDialog> dlg =
+                        ref.currentName.isEmpty()
+                            ? CurveEditorDialog::createNew(r, /*undoStack=*/nullptr, this)
+                            : nullptr;
                     if (!dlg) {
                         dlg = new CurveEditorDialog(r, /*undoStack=*/nullptr, this);
                         dlg->openForCurve(ref.currentName);
@@ -2606,17 +2783,18 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
                 default:
                     return;
                 }
-                if (chosen.isEmpty()) return;
+                if (chosen.isEmpty())
+                    return;
                 DataObjectRef updated = ref;
                 updated.currentName = chosen;
-                m_model->setData(sourceIdx, QVariant::fromValue(updated),
-                                  Qt::EditRole);
+                m_model->setData(sourceIdx, QVariant::fromValue(updated), Qt::EditRole);
             });
             addedEditAction = true;
         }
     }
 
-    if (addedEditAction) menu.addSeparator();
+    if (addedEditAction)
+        menu.addSeparator();
 
     // Bulk "apply to selected" — when the clicked column is a simple
     // editable attribute (Numeric / Integer / Enum / Text) and ≥2 rows
@@ -2633,42 +2811,36 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         // value to copy (also suppresses the option for a non-applicable
         // geom cell or while a simulation is running).
         const bool clickedEditable =
-            sourceIdx.isValid()
-            && (m_model->flags(sourceIdx) & Qt::ItemIsEditable);
-        if (clickedEditable && col >= 1 && col < specs.size()
-            && selRows.size() >= 2) {
+            sourceIdx.isValid() && (m_model->flags(sourceIdx) & Qt::ItemIsEditable);
+        if (clickedEditable && col >= 1 && col < specs.size() && selRows.size() >= 2) {
             using EditorKind = openswmmvis::EditorKind;
             const openswmmvis::ColumnSpec &spec = specs[col];
             const bool simpleEditable =
-                spec.editor == EditorKind::Numeric ||
-                spec.editor == EditorKind::Integer ||
-                spec.editor == EditorKind::Enum    ||
-                spec.editor == EditorKind::Text;
+                spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
+                spec.editor == EditorKind::Enum || spec.editor == EditorKind::Text;
             if (simpleEditable) {
-                QAction *copyAct = menu.addAction(
-                    tr("Apply this \"%1\" value to %2 selected rows")
-                        .arg(spec.label).arg(selRows.size()));
-                connect(copyAct, &QAction::triggered, this,
-                        [this, col, selRows, cellValue]() {
-                            applyValueToSelectedRows(col, selRows, cellValue);
-                        });
-                QAction *promptAct = menu.addAction(
-                    tr("Apply \"%1\" value to %2 selected rows…")
-                        .arg(spec.label).arg(selRows.size()));
-                connect(promptAct, &QAction::triggered, this,
-                        [this, col, selRows, cellValue]() {
-                            bool ok = false;
-                            const QVariant v = promptBulkValue(col, cellValue, &ok);
-                            if (ok) applyValueToSelectedRows(col, selRows, v);
-                        });
+                QAction *copyAct = menu.addAction(tr("Apply this \"%1\" value to %2 selected rows")
+                                                      .arg(spec.label)
+                                                      .arg(selRows.size()));
+                connect(copyAct, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                    applyValueToSelectedRows(col, selRows, cellValue);
+                });
+                QAction *promptAct = menu.addAction(tr("Apply \"%1\" value to %2 selected rows…")
+                                                        .arg(spec.label)
+                                                        .arg(selRows.size()));
+                connect(promptAct, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                    bool ok = false;
+                    const QVariant v = promptBulkValue(col, cellValue, &ok);
+                    if (ok)
+                        applyValueToSelectedRows(col, selRows, v);
+                });
                 menu.addSeparator();
             }
         }
     }
 
     auto *changeTypeAct = menu.addAction(tr("Change Type…"));
-    connect(changeTypeAct, &QAction::triggered,
-            this, &AttributeTablePanel::onChangeTypeTriggered);
+    connect(changeTypeAct, &QAction::triggered, this, &AttributeTablePanel::onChangeTypeTriggered);
 
     // Delete — only for spatial categories that have an engine delete path.
     // Mirrors the map's right-click delete, and routes through the same undo
@@ -2677,20 +2849,17 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         const int nSel = selectedSourceRows().size();
         // Hint the key in the label (matching "Copy (Ctrl+C)" above) rather
         // than via setShortcut(), which would fight the QShortcut on the view.
-        auto *deleteAct = menu.addAction(
-            nSel <= 1 ? tr("Delete (Del)")
-                      : tr("Delete %1 selected (Del)").arg(nSel));
+        auto *deleteAct = menu.addAction(nSel <= 1 ? tr("Delete (Del)")
+                                                   : tr("Delete %1 selected (Del)").arg(nSel));
         deleteAct->setEnabled(nSel >= 1);
-        connect(deleteAct, &QAction::triggered,
-                this, &AttributeTablePanel::deleteSelectedRows);
+        connect(deleteAct, &QAction::triggered, this, &AttributeTablePanel::deleteSelectedRows);
     }
 
     menu.addSeparator();
 
     auto *zoomAct = menu.addAction(tr("Zoom to selected"));
     zoomAct->setEnabled(m_canvas && m_selMgr && !m_selMgr->isEmpty());
-    connect(zoomAct, &QAction::triggered,
-            this, &AttributeTablePanel::onZoomToSelectedClicked);
+    connect(zoomAct, &QAction::triggered, this, &AttributeTablePanel::onZoomToSelectedClicked);
 
     menu.exec(m_view->viewport()->mapToGlobal(pos));
 }
@@ -2702,7 +2871,8 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
 QList<int> AttributeTablePanel::selectedSourceRows() const
 {
     QList<int> rows;
-    if (!m_view || !m_view->selectionModel()) return rows;
+    if (!m_view || !m_view->selectionModel())
+        return rows;
     QSet<int> seen;
     const QModelIndexList sel = m_view->selectionModel()->selectedRows();
     for (const QModelIndex &pi : sel) {
@@ -2715,72 +2885,77 @@ QList<int> AttributeTablePanel::selectedSourceRows() const
     return rows;
 }
 
-void AttributeTablePanel::applyValueToSelectedRows(int column,
-                                                   const QList<int> &sourceRows,
+void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> &sourceRows,
                                                    const QVariant &value)
 {
-    if (column < 0 || sourceRows.isEmpty()) return;
+    if (column < 0 || sourceRows.isEmpty())
+        return;
     // Whichever source is bound — SWMM objects, mesh elements or data
     // objects — the writes go through that model's setData, which pushes onto
     // the same undo stack.
-    QAbstractItemModel *model = meshSourceActive()
-        ? static_cast<QAbstractItemModel *>(m_meshModel)
-        : dataSourceActive() ? static_cast<QAbstractItemModel *>(m_dataModel)
-                             : static_cast<QAbstractItemModel *>(m_model);
-    if (!model) return;
+    QAbstractItemModel *model = meshSourceActive() ? static_cast<QAbstractItemModel *>(m_meshModel)
+                                : dataSourceActive()
+                                    ? static_cast<QAbstractItemModel *>(m_dataModel)
+                                    : static_cast<QAbstractItemModel *>(m_model);
+    if (!model)
+        return;
 
     // Collapse the whole batch into one undo step when a stack is attached
     // (each setData pushes its own AttributeEditCommand inside the macro).
     QUndoStack *undo = meshSourceActive()
-        ? (m_canvas ? static_cast<QUndoStack *>(m_canvas->undoStack()) : nullptr)
-        : dataSourceActive() ? m_dataModel->undoStack()
-                             : (m_model ? m_model->undoStack() : nullptr);
+                           ? (m_canvas ? static_cast<QUndoStack *>(m_canvas->undoStack()) : nullptr)
+                       : dataSourceActive() ? m_dataModel->undoStack()
+                                            : (m_model ? m_model->undoStack() : nullptr);
     if (undo)
         undo->beginMacro(tr("Apply value to %1 rows").arg(sourceRows.size()));
     for (int row : sourceRows) {
         const QModelIndex idx = model->index(row, column);
-        if (!idx.isValid()) continue;
+        if (!idx.isValid())
+            continue;
         // Skip rows whose cell isn't editable (running sim, an inapplicable
         // cross-section geom, or a BC field on an interior mesh edge).
-        if (!(model->flags(idx) & Qt::ItemIsEditable)) continue;
+        if (!(model->flags(idx) & Qt::ItemIsEditable))
+            continue;
         model->setData(idx, value, Qt::EditRole);
     }
-    if (undo) undo->endMacro();
+    if (undo)
+        undo->endMacro();
 }
 
-QVariant AttributeTablePanel::promptBulkValue(int column,
-                                              const QVariant &current,
-                                              bool *ok) const
+QVariant AttributeTablePanel::promptBulkValue(int column, const QVariant &current, bool *ok) const
 {
-    if (ok) *ok = false;
+    if (ok)
+        *ok = false;
     const QList<openswmmvis::ColumnSpec> specs =
         meshSourceActive() ? m_meshModel->columnSpecs()
-        : dataSourceActive() ? m_dataModel->columnSpecs()
-                             : (m_model ? m_model->columnSpecs()
-                                        : QList<openswmmvis::ColumnSpec>{});
-    if (column < 0 || column >= specs.size()) return {};
+        : dataSourceActive()
+            ? m_dataModel->columnSpecs()
+            : (m_model ? m_model->columnSpecs() : QList<openswmmvis::ColumnSpec>{});
+    if (column < 0 || column >= specs.size())
+        return {};
     using openswmmvis::EditorKind;
     const openswmmvis::ColumnSpec &spec = specs[column];
 
     auto *self = const_cast<AttributeTablePanel *>(this);
-    const QString title  = tr("Apply Value");
+    const QString title = tr("Apply Value");
     const QString prompt = tr("New value for \"%1\":").arg(spec.label);
 
     switch (spec.editor) {
     case EditorKind::Numeric: {
         bool got = false;
-        const double dv = QInputDialog::getDouble(
-            self, title, prompt, current.toDouble(),
-            spec.minValue, spec.maxValue, spec.decimals, &got);
-        if (ok) *ok = got;
+        const double dv =
+            QInputDialog::getDouble(self, title, prompt, current.toDouble(), spec.minValue,
+                                    spec.maxValue, spec.decimals, &got);
+        if (ok)
+            *ok = got;
         return got ? QVariant(dv) : QVariant();
     }
     case EditorKind::Integer: {
         bool got = false;
-        const int iv = QInputDialog::getInt(
-            self, title, prompt, current.toInt(),
-            int(spec.minValue), int(spec.maxValue), 1, &got);
-        if (ok) *ok = got;
+        const int iv = QInputDialog::getInt(self, title, prompt, current.toInt(),
+                                            int(spec.minValue), int(spec.maxValue), 1, &got);
+        if (ok)
+            *ok = got;
         return got ? QVariant(iv) : QVariant();
     }
     case EditorKind::Enum: {
@@ -2790,34 +2965,41 @@ QVariant AttributeTablePanel::promptBulkValue(int column,
         int curIdx = 0;
         for (const QVariant &pv : spec.enumValues) {
             const QVariantList pair = pv.toList();
-            if (pair.size() != 2) continue;
+            if (pair.size() != 2)
+                continue;
             labels << pair[0].toString();
             // Name-valued enums (data-object references) carry QString data;
             // every other enum carries an int.
             const bool same = pair[1].userType() == QMetaType::QString
-                ? pair[1] == current : pair[1].toInt() == current.toInt();
-            if (same) curIdx = labels.size() - 1;
+                                  ? pair[1] == current
+                                  : pair[1].toInt() == current.toInt();
+            if (same)
+                curIdx = labels.size() - 1;
         }
-        if (labels.isEmpty()) return {};
+        if (labels.isEmpty())
+            return {};
         bool got = false;
-        const QString chosen = QInputDialog::getItem(
-            self, title, prompt, labels, curIdx, /*editable=*/false, &got);
-        if (!got) return {};
+        const QString chosen =
+            QInputDialog::getItem(self, title, prompt, labels, curIdx, /*editable=*/false, &got);
+        if (!got)
+            return {};
         for (const QVariant &pv : spec.enumValues) {
             const QVariantList pair = pv.toList();
             if (pair.size() == 2 && pair[0].toString() == chosen) {
-                if (ok) *ok = true;
-                return pair[1].userType() == QMetaType::QString
-                    ? pair[1] : QVariant(pair[1].toInt());
+                if (ok)
+                    *ok = true;
+                return pair[1].userType() == QMetaType::QString ? pair[1]
+                                                                : QVariant(pair[1].toInt());
             }
         }
         return {};
     }
     case EditorKind::Text: {
         bool got = false;
-        const QString tv = QInputDialog::getText(
-            self, title, prompt, QLineEdit::Normal, current.toString(), &got);
-        if (ok) *ok = got;
+        const QString tv =
+            QInputDialog::getText(self, title, prompt, QLineEdit::Normal, current.toString(), &got);
+        if (ok)
+            *ok = got;
         return got ? QVariant(tv) : QVariant();
     }
     default:
@@ -2831,12 +3013,14 @@ QVariant AttributeTablePanel::promptBulkValue(int column,
 
 void AttributeTablePanel::updateQueryFields()
 {
-    if (!m_queryEdit || !m_proxy || !m_proxy->sourceModel()) return;
+    if (!m_queryEdit || !m_proxy || !m_proxy->sourceModel())
+        return;
     auto *source = m_proxy->sourceModel();
     const auto specs = specsFor(source);
     QStringList fields;
     for (int column = 0; column < source->columnCount(); ++column) {
-        if (column < specs.size() && !specs[column].queryable) continue;
+        if (column < specs.size() && !specs[column].queryable)
+            continue;
         fields.append(source->headerData(column, Qt::Horizontal).toString());
         if (column < specs.size()) {
             fields.append(specs[column].key);
@@ -2850,9 +3034,11 @@ void AttributeTablePanel::updateQueryFields()
 
 void AttributeTablePanel::onQueryApplyClicked()
 {
-    if (!m_queryEdit || !m_proxy || !m_queryStatus) return;
+    if (!m_queryEdit || !m_proxy || !m_queryStatus)
+        return;
     auto *fp = static_cast<FilteringProxy *>(m_proxy);
-    if (!fp) return;
+    if (!fp)
+        return;
 
     const QString text = m_queryEdit->text().trimmed();
     auto pred = openswmmvis::parseQuery(text);
@@ -2861,16 +3047,15 @@ void AttributeTablePanel::onQueryApplyClicked()
         RowPredicate validator;
         validator.bind(m_proxy->sourceModel(), pred);
         if (!validator.missingFields().isEmpty()) {
-            pred.error = tr("Unknown or non-queryable column: %1").arg(validator.missingFields().join(", "));
+            pred.error =
+                tr("Unknown or non-queryable column: %1").arg(validator.missingFields().join(", "));
             pred.errorPos = 1;
         }
     }
     if (!pred.error.isEmpty()) {
         // Parser error — colour the line edit + show the message.
-        m_queryEdit->setStyleSheet(
-            QStringLiteral("background-color: #FFD6D6;"));
-        m_queryStatus->setText(tr("Error col %1: %2")
-                                  .arg(pred.errorPos).arg(pred.error));
+        m_queryEdit->setStyleSheet(QStringLiteral("background-color: #FFD6D6;"));
+        m_queryStatus->setText(tr("Error col %1: %2").arg(pred.errorPos).arg(pred.error));
         return;
     }
     m_queryEdit->setStyleSheet(QString());
@@ -2886,12 +3071,12 @@ void AttributeTablePanel::onQueryApplyClicked()
     const int matched = m_proxy->rowCount();
     selectionBlocker.unblock();
     // The blocker also hid the view deselecting the rows the filter removed.
-    if (selectionIsViewLocal()) updateSelectionCount();
+    if (selectionIsViewLocal())
+        updateSelectionCount();
     const qint64 filterMs = legTimer.restart();
-    const int total   = m_proxy->sourceModel() ? m_proxy->sourceModel()->rowCount() : 0;
+    const int total = m_proxy->sourceModel() ? m_proxy->sourceModel()->rowCount() : 0;
     if (text.isEmpty())
-        m_queryStatus->setText(tr("%1 row%2")
-                                  .arg(total).arg(total == 1 ? "" : "s"));
+        m_queryStatus->setText(tr("%1 row%2").arg(total).arg(total == 1 ? "" : "s"));
     else
         m_queryStatus->setText(tr("%1 of %2 matched").arg(matched).arg(total));
 
@@ -2904,25 +3089,24 @@ void AttributeTablePanel::onQueryApplyClicked()
     // out was confusing.
     onSelectionApplyClicked();
 
-    qCDebug(lcAttrTbl).noquote()
-        << "query apply: filter_ms=" << filterMs
-        << " select_ms=" << legTimer.elapsed()
-        << " matched=" << matched << "/" << total;
+    qCDebug(lcAttrTbl).noquote() << "query apply: filter_ms=" << filterMs
+                                 << " select_ms=" << legTimer.elapsed() << " matched=" << matched
+                                 << "/" << total;
 }
 
 void AttributeTablePanel::onQueryClearClicked()
 {
-    if (!m_queryEdit || !m_proxy) return;
+    if (!m_queryEdit || !m_proxy)
+        return;
     auto *fp = static_cast<FilteringProxy *>(m_proxy);
-    if (!fp) return;
+    if (!fp)
+        return;
     m_queryEdit->clear();
     m_queryEdit->setStyleSheet(QString());
     fp->setQueryPredicate({}, {});
     if (m_queryStatus) {
-        const int total = m_proxy->sourceModel()
-                              ? m_proxy->sourceModel()->rowCount() : 0;
-        m_queryStatus->setText(tr("%1 row%2")
-                                  .arg(total).arg(total == 1 ? "" : "s"));
+        const int total = m_proxy->sourceModel() ? m_proxy->sourceModel()->rowCount() : 0;
+        m_queryStatus->setText(tr("%1 row%2").arg(total).arg(total == 1 ? "" : "s"));
     }
 }
 
@@ -2933,15 +3117,19 @@ void AttributeTablePanel::onQueryClearClicked()
 QSet<SWMMObjectRef> AttributeTablePanel::matchedRefs() const
 {
     QSet<SWMMObjectRef> out;
-    if (meshSourceActive()) return meshRefs(/*applyQuery=*/true);
-    if (dataSourceActive()) return dataRefs(/*applyQuery=*/true);
-    if (gisSourceActive()) return gisRefs(/*applyQuery=*/true);
-    if (!m_model || !m_queryEdit) return out;
+    if (meshSourceActive())
+        return meshRefs(/*applyQuery=*/true);
+    if (dataSourceActive())
+        return dataRefs(/*applyQuery=*/true);
+    if (gisSourceActive())
+        return gisRefs(/*applyQuery=*/true);
+    if (!m_model || !m_queryEdit)
+        return out;
     // Z.4.3 — selection ops require a SWMM model source; tabular
     // sources have no SWMMObjectRefs.
-    if (m_proxy && m_proxy->sourceModel() != m_model) return out;
-    const SWMMObjectRef::ObjectType type =
-        objectTypeForCategory(m_model->category());
+    if (m_proxy && m_proxy->sourceModel() != m_model)
+        return out;
+    const SWMMObjectRef::ObjectType type = objectTypeForCategory(m_model->category());
     const QString text = m_queryEdit->text().trimmed();
     auto *fp = static_cast<FilteringProxy *>(m_proxy);
 
@@ -2957,10 +3145,10 @@ QSet<SWMMObjectRef> AttributeTablePanel::matchedRefs() const
     if (fp && !fp->nameFilterActive() && fp->queryText() == text) {
         const int nVisible = m_proxy->rowCount();
         for (int r = 0; r < nVisible; ++r) {
-            const int srcRow =
-                m_proxy->mapToSource(m_proxy->index(r, 0)).row();
+            const int srcRow = m_proxy->mapToSource(m_proxy->index(r, 0)).row();
             const QString name = m_model->objectNameAt(srcRow);
-            if (!name.isEmpty()) out.insert(SWMMObjectRef(type, name));
+            if (!name.isEmpty())
+                out.insert(SWMMObjectRef(type, name));
         }
         return out;
     }
@@ -2971,15 +3159,18 @@ QSet<SWMMObjectRef> AttributeTablePanel::matchedRefs() const
     const auto pred = openswmmvis::parseQuery(text);
     // Parse error → empty match set (the query bar shows the error
     // already; the selection ops are no-ops rather than surprising).
-    if (!text.isEmpty() && !pred.isValid()) return out;
+    if (!text.isEmpty() && !pred.isValid())
+        return out;
 
     RowPredicate rp;
     rp.bind(m_model, pred);
     const int nRow = m_model->rowCount();
     for (int row = 0; row < nRow; ++row) {
         const QString name = m_model->objectNameAt(row);
-        if (name.isEmpty()) continue;
-        if (!rp.accepts(row)) continue;
+        if (name.isEmpty())
+            continue;
+        if (!rp.accepts(row))
+            continue;
         out.insert(SWMMObjectRef(type, name));
     }
     return out;
@@ -2988,17 +3179,22 @@ QSet<SWMMObjectRef> AttributeTablePanel::matchedRefs() const
 QSet<SWMMObjectRef> AttributeTablePanel::allCategoryRefs() const
 {
     QSet<SWMMObjectRef> out;
-    if (meshSourceActive()) return meshRefs(/*applyQuery=*/false);
-    if (dataSourceActive()) return dataRefs(/*applyQuery=*/false);
-    if (gisSourceActive()) return gisRefs(/*applyQuery=*/false);
-    if (!m_model) return out;
-    if (m_proxy && m_proxy->sourceModel() != m_model) return out;
-    const SWMMObjectRef::ObjectType type =
-        objectTypeForCategory(m_model->category());
+    if (meshSourceActive())
+        return meshRefs(/*applyQuery=*/false);
+    if (dataSourceActive())
+        return dataRefs(/*applyQuery=*/false);
+    if (gisSourceActive())
+        return gisRefs(/*applyQuery=*/false);
+    if (!m_model)
+        return out;
+    if (m_proxy && m_proxy->sourceModel() != m_model)
+        return out;
+    const SWMMObjectRef::ObjectType type = objectTypeForCategory(m_model->category());
     const int nRow = m_model->rowCount();
     for (int row = 0; row < nRow; ++row) {
         const QString name = m_model->objectNameAt(row);
-        if (!name.isEmpty()) out.insert(SWMMObjectRef(type, name));
+        if (!name.isEmpty())
+            out.insert(SWMMObjectRef(type, name));
     }
     return out;
 }
@@ -3014,7 +3210,8 @@ bool AttributeTablePanel::selectionIsViewLocal() const
 
 int AttributeTablePanel::selectedRowCount() const
 {
-    if (!m_view || !m_proxy || !m_proxy->sourceModel()) return 0;
+    if (!m_view || !m_proxy || !m_proxy->sourceModel())
+        return 0;
     if (selectionIsViewLocal()) {
         const auto *sel = m_view->selectionModel();
         return sel ? static_cast<int>(sel->selectedRows().size()) : 0;
@@ -3026,14 +3223,15 @@ int AttributeTablePanel::selectedRowCount() const
     const QSet<SWMMObjectRef> &current = m_selMgr->selection();
     if (meshSourceActive()) {
         for (const auto &ref : current)
-            if (m_meshModel->rowForRef(ref) >= 0) ++n;
+            if (m_meshModel->rowForRef(ref) >= 0)
+                ++n;
     } else if (gisSourceActive()) {
         const QString layerId = m_gisModel->layer()->layerId();
         for (const auto &ref : current) {
             QString lid;
             long long fid = -1;
-            if (GisObjectRef::parseFeature(ref, &lid, &fid) && lid == layerId
-                && m_gisModel->rowForFid(fid) >= 0)
+            if (GisObjectRef::parseFeature(ref, &lid, &fid) && lid == layerId &&
+                m_gisModel->rowForFid(fid) >= 0)
                 ++n;
         }
     } else if (dataSourceActive()) {
@@ -3052,20 +3250,23 @@ int AttributeTablePanel::selectedRowCount() const
 
 void AttributeTablePanel::updateSelectionCount()
 {
-    if (!m_selectionCount || !m_proxy) return;
+    if (!m_selectionCount || !m_proxy)
+        return;
     const QAbstractItemModel *src = m_proxy->sourceModel();
-    m_selectionCount->setText(tr("%1 of %2 selected")
-                                  .arg(selectedRowCount())
-                                  .arg(src ? src->rowCount() : 0));
+    m_selectionCount->setText(
+        tr("%1 of %2 selected").arg(selectedRowCount()).arg(src ? src->rowCount() : 0));
 }
 
 void AttributeTablePanel::onSelectionApplyClicked()
 {
-    if (!m_selMgr || !m_selGroup) return;
+    if (!m_selMgr || !m_selGroup)
+        return;
     // Tabular sources can be filtered but do not have map selection identities.
-    if (m_proxy->sourceModel() == m_tabularModel) return;
+    if (m_proxy->sourceModel() == m_tabularModel)
+        return;
     const int mode = m_selGroup->checkedId();
-    if (mode < 0) return;
+    if (mode < 0)
+        return;
 
     switch (mode) {
     case SelReplace:
@@ -3083,7 +3284,8 @@ void AttributeTablePanel::onSelectionApplyClicked()
         const QSet<SWMMObjectRef> matched = matchedRefs();
         QSet<SWMMObjectRef> result;
         for (const auto &r : m_selMgr->selection())
-            if (matched.contains(r)) result.insert(r);
+            if (matched.contains(r))
+                result.insert(r);
         m_selMgr->select(result, SelectionManager::Replace);
         return;
     }
@@ -3094,7 +3296,8 @@ void AttributeTablePanel::onSelectionApplyClicked()
         const auto cur = m_selMgr->selection();
         QSet<SWMMObjectRef> result;
         for (const auto &r : all)
-            if (!cur.contains(r)) result.insert(r);
+            if (!cur.contains(r))
+                result.insert(r);
         m_selMgr->select(result, SelectionManager::Replace);
         return;
     }
@@ -3116,7 +3319,8 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
     //     updated row.  onCategoryChanged() calls setSource() which
     //     resets the model; the view then re-reads all values from the
     //     engine, including the just-updated attribute.
-    if (!m_model || name.isEmpty()) return;
+    if (!m_model || name.isEmpty())
+        return;
     m_suppressEditForward = true;
 
     if (m_model->rowForName(name) >= 0) {
@@ -3144,7 +3348,8 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
 
 bool AttributeTablePanel::categoryIsDeletable() const
 {
-    if (!m_model) return false;
+    if (!m_model)
+        return false;
     switch (objectTypeForCategory(m_model->category())) {
     case SWMMObjectRef::Node:
     case SWMMObjectRef::Link:
@@ -3152,7 +3357,7 @@ bool AttributeTablePanel::categoryIsDeletable() const
     case SWMMObjectRef::RainGage:
         return true;
     default:
-        return false;   // data-object categories have no spatial delete path
+        return false; // data-object categories have no spatial delete path
     }
 }
 
@@ -3163,11 +3368,20 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
 
     DeleteObjectCommand::TargetKind kind;
     switch (objectTypeForCategory(m_model->category())) {
-    case SWMMObjectRef::Node:         kind = DeleteObjectCommand::DeleteNode;     break;
-    case SWMMObjectRef::Link:         kind = DeleteObjectCommand::DeleteLink;     break;
-    case SWMMObjectRef::Subcatchment: kind = DeleteObjectCommand::DeleteSubcatch; break;
-    case SWMMObjectRef::RainGage:     kind = DeleteObjectCommand::DeleteGage;     break;
-    default:                          return 0;
+    case SWMMObjectRef::Node:
+        kind = DeleteObjectCommand::DeleteNode;
+        break;
+    case SWMMObjectRef::Link:
+        kind = DeleteObjectCommand::DeleteLink;
+        break;
+    case SWMMObjectRef::Subcatchment:
+        kind = DeleteObjectCommand::DeleteSubcatch;
+        break;
+    case SWMMObjectRef::RainGage:
+        kind = DeleteObjectCommand::DeleteGage;
+        break;
+    default:
+        return 0;
     }
 
     // Drop the current selection first so the post-delete refresh() (driven by
@@ -3195,10 +3409,10 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
         targets.reserve(names.size());
         for (const QString &name : names)
             targets.append({name, kind});
-        stack->push(new BatchDeleteCommand(
-            m_layer, targets, m_canvas,
-            names.size() == 1 ? tr("Delete \"%1\"").arg(names.first())
-                              : tr("Delete %1 objects").arg(names.size())));
+        stack->push(new BatchDeleteCommand(m_layer, targets, m_canvas,
+                                           names.size() == 1
+                                               ? tr("Delete \"%1\"").arg(names.first())
+                                               : tr("Delete %1 objects").arg(names.size())));
         deleted = names.size();
     } else {
         // No canvas/undo stack (headless / tests): perform the SAME mutation
@@ -3215,21 +3429,25 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
             switch (kind) {
             case DeleteObjectCommand::DeleteNode:
                 idx = eng ? swmm_node_index(eng, utf8.constData()) : -1;
-                nodeNames << name; break;
+                nodeNames << name;
+                break;
             case DeleteObjectCommand::DeleteLink:
                 idx = eng ? swmm_link_index(eng, utf8.constData()) : -1;
-                linkNames << name; break;
+                linkNames << name;
+                break;
             case DeleteObjectCommand::DeleteGage:
                 idx = eng ? swmm_gage_index(eng, utf8.constData()) : -1;
-                gageNames << name; break;
+                gageNames << name;
+                break;
             case DeleteObjectCommand::DeleteSubcatch:
                 idx = eng ? swmm_subcatch_index(eng, utf8.constData()) : -1;
-                subcatchNames << name; break;
+                subcatchNames << name;
+                break;
             }
-            if (idx >= 0) ++resolvable;
+            if (idx >= 0)
+                ++resolvable;
         }
-        if (m_layer->applyDeleteMany(nodeNames, linkNames, subcatchNames,
-                                     gageNames))
+        if (m_layer->applyDeleteMany(nodeNames, linkNames, subcatchNames, gageNames))
             deleted = resolvable;
     }
     return deleted;
@@ -3256,12 +3474,13 @@ void AttributeTablePanel::bindGisSource(GISVectorLayer *gis)
                 [this](const QVector<qint64> &) { m_gisModel->reload(); });
         // A column added, dropped or given a value list changes the
         // editors as well as the headers.
-        connect(fl, &FeatureLayer::schemaChanged, this,
-                [this] { m_gisModel->reload(); installFeatureDelegates(); });
+        connect(fl, &FeatureLayer::schemaChanged, this, [this] {
+            m_gisModel->reload();
+            installFeatureDelegates();
+        });
         // Opening / closing the session flips every cell between editable and
         // read-only; reset so the views pick the new flags up.
-        connect(fl, &FeatureLayer::editingChanged, this,
-                [this](bool) { m_gisModel->reload(); });
+        connect(fl, &FeatureLayer::editingChanged, this, [this](bool) { m_gisModel->reload(); });
     }
 }
 
@@ -3269,28 +3488,32 @@ void AttributeTablePanel::installFeatureDelegates()
 {
     // Only while the GIS source is showing: a schema change on a layer the
     // table is not showing must not touch another source's delegates.
-    if (!m_view || !m_proxy || !m_gisModel || m_proxy->sourceModel() != m_gisModel) return;
+    if (!m_view || !m_proxy || !m_gisModel || m_proxy->sourceModel() != m_gisModel)
+        return;
     // Clears (and deletes) whatever the previous source installed.
     installColumnDelegates({}, m_proxy->columnCount());
 
     auto *fl = qobject_cast<FeatureLayer *>(m_gisModel->layer());
-    if (!fl) return;
+    if (!fl)
+        return;
 
     // FEATURE_LAYER_ROLES_AND_FIELDS_PLAN §6 "Views": the same delegate the
     // Features dock uses, from the role-aware schema, so a column edits the
     // same way in both views. Column 0 is the FID; field i is column i + 1.
     const openswmmvis::feature::Schema schema = fl->editorSchema();
     const int bcCol = (fl->role() == FeatureLayerRole::BoundaryCondition)
-                          ? schema.indexOf(QStringLiteral("bc_type")) : -1;
-    const QString lengthUnit = UnitSystem::instance()
-                                   ? UnitSystem::instance()->lengthLabel() : QString();
+                          ? schema.indexOf(QStringLiteral("bc_type"))
+                          : -1;
+    const QString lengthUnit =
+        UnitSystem::instance() ? UnitSystem::instance()->lengthLabel() : QString();
     for (int i = 0; i < schema.count(); ++i) {
         auto *del = new openswmmvis::ui::FeatureFieldDelegate(schema.at(i), this);
         del->setLengthUnit(lengthUnit);
         del->setBcTypeColumn(bcCol >= 0 ? bcCol + 1 : -1);
         del->setWarningColor(openswmmvis::ui::ThemeManager::instance()->colors().warning);
         del->setModelNamesProvider([this](openswmmvis::feature::ModelList list) {
-            if (!m_layer) return QStringList();
+            if (!m_layer)
+                return QStringList();
             // 0 = time series; -1 = every curve kind (a 2D rating curve may
             // reference any curve — MeshAttributeTableModel's AnyCurve).
             return m_layer->tableIdsOfType(
@@ -3311,9 +3534,11 @@ bool AttributeTablePanel::featureSourceIsEditable() const
 
 int AttributeTablePanel::deleteSelectedFeatures()
 {
-    if (!featureSourceIsEditable()) return 0;
+    if (!featureSourceIsEditable())
+        return 0;
     auto *fl = qobject_cast<FeatureLayer *>(m_gisModel->layer());
-    if (!fl) return 0;
+    if (!fl)
+        return 0;
 
     QVector<openswmmvis::feature::FeatureId> ids;
     for (int row : selectedSourceRows()) {
@@ -3321,7 +3546,8 @@ int AttributeTablePanel::deleteSelectedFeatures()
         if (fid >= 0)
             ids.append(static_cast<openswmmvis::feature::FeatureId>(fid));
     }
-    if (ids.isEmpty()) return 0;
+    if (ids.isEmpty())
+        return 0;
     std::sort(ids.begin(), ids.end());
 
     auto *cmd = new openswmmvis::map::DeleteFeaturesCommand(fl, ids, m_canvas.data());
@@ -3339,12 +3565,13 @@ void AttributeTablePanel::deleteSelectedRows()
     // not to SWMM object names, so they must never reach the branch below.
     if (featureSourceIsEditable()) {
         const int n = selectedSourceRows().size();
-        if (n == 0) return;
-        const auto btn = QMessageBox::question(
-            this, tr("Confirm Delete"),
-            tr("Delete %n selected feature(s)?", nullptr, n),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (btn != QMessageBox::Yes) return;
+        if (n == 0)
+            return;
+        const auto btn = QMessageBox::question(this, tr("Confirm Delete"),
+                                               tr("Delete %n selected feature(s)?", nullptr, n),
+                                               QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (btn != QMessageBox::Yes)
+            return;
         deleteSelectedFeatures();
         return;
     }
@@ -3353,24 +3580,27 @@ void AttributeTablePanel::deleteSelectedRows()
     // (GIS) or tabular layer is the active source, Delete must be a no-op —
     // otherwise a row index would be mis-resolved against the SWMM model and
     // delete an unrelated object.
-    if (!m_proxy || m_proxy->sourceModel() != m_model) return;
-    if (!m_layer || !m_model || !categoryIsDeletable()) return;
+    if (!m_proxy || m_proxy->sourceModel() != m_model)
+        return;
+    if (!m_layer || !m_model || !categoryIsDeletable())
+        return;
 
     // Resolve selected rows → object names (source-model rows, de-duplicated).
     QStringList names;
     for (int row : selectedSourceRows()) {
         const QString name = m_model->objectNameAt(row);
-        if (!name.isEmpty()) names << name;
+        if (!name.isEmpty())
+            names << name;
     }
-    if (names.isEmpty()) return;
+    if (names.isEmpty())
+        return;
 
-    const QString msg = names.size() == 1
-        ? tr("Delete \"%1\"?").arg(names.first())
-        : tr("Delete %1 selected objects?").arg(names.size());
-    const auto btn = QMessageBox::question(
-        this, tr("Confirm Delete"), msg,
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (btn != QMessageBox::Yes) return;
+    const QString msg = names.size() == 1 ? tr("Delete \"%1\"?").arg(names.first())
+                                          : tr("Delete %1 selected objects?").arg(names.size());
+    const auto btn = QMessageBox::question(this, tr("Confirm Delete"), msg,
+                                           QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (btn != QMessageBox::Yes)
+        return;
 
     deleteObjects(names);
 }
@@ -3381,33 +3611,32 @@ void AttributeTablePanel::onChangeTypeTriggered()
     // TypeConversionFlow (node + link). The flow warns that type-specific
     // attributes will be lost, converts via the layer, and shows the
     // engine-reported cleared fields + topology warnings.
-    if (!m_view || !m_model || !m_layer || !m_layer->engine()) return;
+    if (!m_view || !m_model || !m_layer || !m_layer->engine())
+        return;
 
     const auto sel = m_view->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
     const auto rows = sel->selectedRows();
     if (rows.isEmpty()) {
-        QMessageBox::information(this, tr("Change Type"),
-            tr("Select a row first."));
+        QMessageBox::information(this, tr("Change Type"), tr("Select a row first."));
         return;
     }
     const QModelIndex srcIdx = m_proxy->mapToSource(rows.first());
     const QString name = m_model->objectNameAt(srcIdx.row());
-    if (name.isEmpty()) return;
+    if (name.isEmpty())
+        return;
 
     const auto cat = m_model->category();
-    const bool isNode = (cat == SWMMModelLayer::CatJunctions ||
-                         cat == SWMMModelLayer::CatOutfalls  ||
-                         cat == SWMMModelLayer::CatStorage   ||
-                         cat == SWMMModelLayer::CatDividers);
-    const bool isLink = (cat == SWMMModelLayer::CatConduits  ||
-                         cat == SWMMModelLayer::CatPumps     ||
-                         cat == SWMMModelLayer::CatOrifices  ||
-                         cat == SWMMModelLayer::CatWeirs     ||
+    const bool isNode =
+        (cat == SWMMModelLayer::CatJunctions || cat == SWMMModelLayer::CatOutfalls ||
+         cat == SWMMModelLayer::CatStorage || cat == SWMMModelLayer::CatDividers);
+    const bool isLink = (cat == SWMMModelLayer::CatConduits || cat == SWMMModelLayer::CatPumps ||
+                         cat == SWMMModelLayer::CatOrifices || cat == SWMMModelLayer::CatWeirs ||
                          cat == SWMMModelLayer::CatOutlets);
     if (!isNode && !isLink) {
         QMessageBox::information(this, tr("Change Type"),
-            tr("Only nodes and links can be converted to another type."));
+                                 tr("Only nodes and links can be converted to another type."));
         return;
     }
 
@@ -3416,12 +3645,15 @@ void AttributeTablePanel::onChangeTypeTriggered()
     // kinds, links five.
     SWMM_Engine eng = m_layer->engine();
     const QByteArray id = name.toUtf8();
-    const int idx = isNode ? swmm_node_index(eng, id.constData())
-                           : swmm_link_index(eng, id.constData());
-    if (idx < 0) return;
+    const int idx =
+        isNode ? swmm_node_index(eng, id.constData()) : swmm_link_index(eng, id.constData());
+    if (idx < 0)
+        return;
     int currentType = 0;
-    if (isNode) swmm_node_get_type(eng, idx, &currentType);
-    else        swmm_link_get_type(eng, idx, &currentType);
+    if (isNode)
+        swmm_node_get_type(eng, idx, &currentType);
+    else
+        swmm_link_get_type(eng, idx, &currentType);
 
     // Virtual junctions surface as their own node kind (mirrors the map's
     // Convert To ▸ menu): a flagged node reports kVirtualNodeType so
@@ -3433,7 +3665,8 @@ void AttributeTablePanel::onChangeTypeTriggered()
     if (isNode) {
         int isVirtual = 0;
         swmm_node_is_virtual(eng, idx, &isVirtual);
-        if (isVirtual) currentType = kVJ;
+        if (isVirtual)
+            currentType = kVJ;
         swmm_node_virtual_eligible(eng, idx, &vjRule);
     }
 
@@ -3441,26 +3674,26 @@ void AttributeTablePanel::onChangeTypeTriggered()
     QVector<int> values;
     const int nKinds = 5;
     for (int t = 0; t < nKinds; ++t) {
-        if (t == currentType) continue;
-        if (isNode && t == kVJ && vjRule != 0) continue;
-        labels << (isNode
-            ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
-            : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t));
+        if (t == currentType)
+            continue;
+        if (isNode && t == kVJ && vjRule != 0)
+            continue;
+        labels << (isNode ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
+                          : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t));
         values << t;
     }
 
     bool ok = false;
-    const QString choice = QInputDialog::getItem(this,
-        isNode ? tr("Change Node Type") : tr("Change Link Type"),
-        tr("Convert <b>%1</b> to:").arg(name),
-        labels, 0, false, &ok);
-    if (!ok || choice.isEmpty()) return;
+    const QString choice =
+        QInputDialog::getItem(this, isNode ? tr("Change Node Type") : tr("Change Link Type"),
+                              tr("Convert <b>%1</b> to:").arg(name), labels, 0, false, &ok);
+    if (!ok || choice.isEmpty())
+        return;
     const int newType = values[labels.indexOf(choice)];
 
     // The shared flow confirms, converts via the layer (which emits the
     // geometryChanged / attributeChanged signals this panel and the
     // Property Browser already listen to), and shows the summary. No
     // explicit reloadGeometry()/refresh()/emit is needed here.
-    openswmmvis::ui::TypeConversionFlow::run(this, m_layer, isNode, name,
-                                             currentType, newType);
+    openswmmvis::ui::TypeConversionFlow::run(this, m_layer, isNode, name, currentType, newType);
 }

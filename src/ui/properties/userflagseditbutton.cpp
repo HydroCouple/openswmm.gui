@@ -1,8 +1,11 @@
-/*!
- * \file   userflagseditbutton.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      userflagseditbutton.cpp
+ * @brief     Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — custom cell editor widget for the
+ *            per-object "User Flags" row.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/userflagseditbutton.h"
@@ -43,7 +46,8 @@ void UserFlagsEditButton::refreshLabel()
 
 void UserFlagsEditButton::onClicked()
 {
-    if (!m_ref.model || m_ref.objectName.isEmpty()) return;
+    if (!m_ref.model || m_ref.objectName.isEmpty())
+        return;
 
     UserFlagValuesDialog dlg(m_ref, this);
     dlg.exec();

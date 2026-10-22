@@ -1,6 +1,6 @@
-/*!
- * \file   test_channelburn_persist.cpp
- * \brief  The .oswp round trip for the Channel Burn-in tab's settings
+/**
+ * @file      test_channelburn_persist.cpp
+ * @brief     The .oswp round trip for the Channel Burn-in tab's settings
  *         (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md D-H).
  *
  * The converters are inline statics on ProjectSerializer for the same reason
@@ -12,7 +12,12 @@
  * (b) a file written by an older build — or a newer one missing a key — loads
  * as the struct's own DEFAULTS, not as zeros. A silently zeroed forced
  * half-width would turn every burn into a lowering-only pass.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QJsonObject>
@@ -24,41 +29,52 @@ using mesh::BurnSelector;
 using mesh::ChannelBurnSettings;
 using mesh::SectionAnchor;
 
-namespace {
+namespace
+{
 
 /*! Every field moved off its default, so a dropped key cannot pass by
  *  coincidentally matching. */
 ChannelBurnSettings authored()
 {
     ChannelBurnSettings s;
-    s.enabled                = true;
-    s.selector.mode          = BurnSelector::Mode::ByQuery;
-    s.selector.query         = QStringLiteral("link_tag = 'creek'");
-    s.selector.conduitIds    = {QStringLiteral("C1"), QStringLiteral("C2")};
+    s.enabled = true;
+    s.selector.mode = BurnSelector::Mode::ByQuery;
+    s.selector.query = QStringLiteral("link_tag = 'creek'");
+    s.selector.conduitIds = {QStringLiteral("C1"), QStringLiteral("C2")};
 
-    s.options.forceHalfWidth        = 3.5;
-    s.options.maxHalfWidth          = 40.0;
-    s.options.clipToBanks           = false;
-    s.options.bankPad               = 1.25;
-    s.options.chainageStep          = 0.75;
-    s.options.lateralStep           = 2.5;
-    s.options.stringCount           = 4;
-    s.options.anchor                = SectionAnchor::BankMidpoint;
-    s.options.sectionBlend          = 12.0;
-    s.options.enforceMonotone       = true;
-    s.options.maxIncision           = 6.0;
-    s.options.burnStreets           = true;
-    s.options.quadCorridor          = false;
-    s.options.channelCellSize       = 1.5;
-    s.options.geometryTolerance      = .025;
+    s.options.forceHalfWidth = 3.5;
+    s.options.maxHalfWidth = 40.0;
+    s.options.clipToBanks = false;
+    s.options.bankPad = 1.25;
+    s.options.chainageStep = 0.75;
+    s.options.lateralStep = 2.5;
+    s.options.stringCount = 4;
+    s.options.anchor = SectionAnchor::BankMidpoint;
+    s.options.sectionBlend = 12.0;
+    s.options.enforceMonotone = true;
+    s.options.maxIncision = 6.0;
+    s.options.burnStreets = true;
+    s.options.quadCorridor = false;
+    s.options.channelCellSize = 1.5;
+    s.options.geometryTolerance = .025;
     s.options.roughnessFromTransect = false;
-    s.options.removeBurnedFrom1D    = false;
+    s.options.removeBurnedFrom1D = false;
     s.options.convertInterfaceNodes = false;
-    s.options.truncateAtBoundary    = false;
-    s.options.connectorLength       = 12.5;
+    s.options.truncateAtBoundary = false;
+    s.options.connectorLength = 12.5;
     return s;
 }
 
+/**
+ *
+ * @brief Compare the persisted burn settings fields covered by this test.
+ * @param a Borrowed actual settings, not modified.
+ * @param b Borrowed expected settings, using matching coordinate/project length units.
+ * Records nonfatal exact comparisons for enable/selector/options fields explicitly
+ * listed in the helper, including connectorLength; it does not serialize data or
+ * prove coverage of future fields added to ChannelBurnSettings.
+ *
+ */
 void expectSame(const ChannelBurnSettings &a, const ChannelBurnSettings &b)
 {
     EXPECT_EQ(a.enabled, b.enabled);
@@ -67,24 +83,24 @@ void expectSame(const ChannelBurnSettings &a, const ChannelBurnSettings &b)
     EXPECT_EQ(a.selector.conduitIds, b.selector.conduitIds);
 
     EXPECT_DOUBLE_EQ(a.options.forceHalfWidth, b.options.forceHalfWidth);
-    EXPECT_DOUBLE_EQ(a.options.maxHalfWidth,   b.options.maxHalfWidth);
-    EXPECT_EQ(a.options.clipToBanks,           b.options.clipToBanks);
-    EXPECT_DOUBLE_EQ(a.options.bankPad,        b.options.bankPad);
-    EXPECT_DOUBLE_EQ(a.options.chainageStep,   b.options.chainageStep);
-    EXPECT_DOUBLE_EQ(a.options.lateralStep,    b.options.lateralStep);
-    EXPECT_EQ(a.options.stringCount,           b.options.stringCount);
-    EXPECT_EQ(int(a.options.anchor),           int(b.options.anchor));
-    EXPECT_DOUBLE_EQ(a.options.sectionBlend,   b.options.sectionBlend);
-    EXPECT_EQ(a.options.enforceMonotone,       b.options.enforceMonotone);
-    EXPECT_DOUBLE_EQ(a.options.maxIncision,    b.options.maxIncision);
-    EXPECT_EQ(a.options.burnStreets,           b.options.burnStreets);
-    EXPECT_EQ(a.options.quadCorridor,          b.options.quadCorridor);
+    EXPECT_DOUBLE_EQ(a.options.maxHalfWidth, b.options.maxHalfWidth);
+    EXPECT_EQ(a.options.clipToBanks, b.options.clipToBanks);
+    EXPECT_DOUBLE_EQ(a.options.bankPad, b.options.bankPad);
+    EXPECT_DOUBLE_EQ(a.options.chainageStep, b.options.chainageStep);
+    EXPECT_DOUBLE_EQ(a.options.lateralStep, b.options.lateralStep);
+    EXPECT_EQ(a.options.stringCount, b.options.stringCount);
+    EXPECT_EQ(int(a.options.anchor), int(b.options.anchor));
+    EXPECT_DOUBLE_EQ(a.options.sectionBlend, b.options.sectionBlend);
+    EXPECT_EQ(a.options.enforceMonotone, b.options.enforceMonotone);
+    EXPECT_DOUBLE_EQ(a.options.maxIncision, b.options.maxIncision);
+    EXPECT_EQ(a.options.burnStreets, b.options.burnStreets);
+    EXPECT_EQ(a.options.quadCorridor, b.options.quadCorridor);
     EXPECT_DOUBLE_EQ(a.options.channelCellSize, b.options.channelCellSize);
-    EXPECT_DOUBLE_EQ(a.options.geometryTolerance,b.options.geometryTolerance);
+    EXPECT_DOUBLE_EQ(a.options.geometryTolerance, b.options.geometryTolerance);
     EXPECT_EQ(a.options.roughnessFromTransect, b.options.roughnessFromTransect);
-    EXPECT_EQ(a.options.removeBurnedFrom1D,    b.options.removeBurnedFrom1D);
+    EXPECT_EQ(a.options.removeBurnedFrom1D, b.options.removeBurnedFrom1D);
     EXPECT_EQ(a.options.convertInterfaceNodes, b.options.convertInterfaceNodes);
-    EXPECT_EQ(a.options.truncateAtBoundary,    b.options.truncateAtBoundary);
+    EXPECT_EQ(a.options.truncateAtBoundary, b.options.truncateAtBoundary);
     EXPECT_DOUBLE_EQ(a.options.connectorLength, b.options.connectorLength);
 }
 
@@ -99,9 +115,9 @@ TEST(ChannelBurnPersist, RoundTripsEveryField)
 
 TEST(ChannelBurnPersist, DefaultsSurviveTheRoundTripToo)
 {
-    const ChannelBurnSettings in;          // an untouched tab
-    expectSame(in, ProjectSerializer::channelBurnFromJson(
-                       ProjectSerializer::channelBurnToJson(in)));
+    const ChannelBurnSettings in; // an untouched tab
+    expectSame(in,
+               ProjectSerializer::channelBurnFromJson(ProjectSerializer::channelBurnToJson(in)));
 }
 
 TEST(ChannelBurnPersist, AnEmptyObjectLoadsAsDefaultsNotZeros)
@@ -138,7 +154,7 @@ TEST(ChannelBurnPersist, AMissingKeyKeepsThatFieldsDefault)
 TEST(ChannelBurnPersist, AnOutOfRangeEnumFallsBackRatherThanCorrupting)
 {
     QJsonObject json = ProjectSerializer::channelBurnToJson(authored());
-    QJsonObject sel  = json.value(QStringLiteral("selector")).toObject();
+    QJsonObject sel = json.value(QStringLiteral("selector")).toObject();
     sel[QStringLiteral("mode")] = 99;
     json[QStringLiteral("selector")] = sel;
     QJsonObject opts = json.value(QStringLiteral("options")).toObject();

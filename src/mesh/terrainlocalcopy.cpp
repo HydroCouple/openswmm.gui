@@ -1,9 +1,13 @@
-/*!
- * \file   terrainlocalcopy.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      terrainlocalcopy.cpp
+ * @brief     A local float32 copy of the DEM window a mesh needs
+ *            (workplans/MESH_SPEED_DEM_IO_PLAN_2026-10-03.md).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/terrainlocalcopy.h"
 
 #include <QCryptographicHash>
@@ -22,18 +26,40 @@
 #include <cmath>
 #include <limits>
 
-namespace mesh {
+namespace mesh
+{
 
-namespace {
+namespace
+{
 
 constexpr int kMarginPixels = 64;
 
-struct ProgressState { const std::function<bool(double)> *progress; bool cancelled = false; };
+struct ProgressState {
+    const std::function<bool(double)> *progress;
+    bool cancelled = false;
+};
 
+/**
+ * @brief Adapt a GDAL progress callback to the borrowed user predicate and retain cancellation
+ * state.
+ * @param[in] fraction GDAL-supplied progress fraction, normally [0,1], forwarded without
+ * clamping.
+ * @par Unnamed argument Borrowed GDAL progress-message pointer, ignored and never retained.
+ * @param[in,out] data Required nonnull pointer to a live ProgressState whose progress points to
+ * a live std::function object (possibly empty). Borrowed for this callback only, no ownership
+ * transfer.
+ * @return GDAL FALSE when a nonempty predicate returns false, setting state.cancelled true; TRUE
+ * otherwise. Does not clear a prior cancellation flag, allocate or update raster data. Predicate
+ * must not throw across the C callback boundary and all referenced state must outlive
+ * GDALTranslate's synchronous call.
+ */
 int progressTick(double fraction, const char *, void *data)
 {
     auto &state = *static_cast<ProgressState *>(data);
-    if (*state.progress && !(*state.progress)(fraction)) { state.cancelled = true; return FALSE; }
+    if (*state.progress && !(*state.progress)(fraction)) {
+        state.cancelled = true;
+        return FALSE;
+    }
     return TRUE;
 }
 
@@ -45,35 +71,67 @@ LocalTerrainResult prepareLocalTerrain(const QString &sourcePath, const QString 
                                        double averageToCellSize)
 {
     LocalTerrainResult out;
-    if (sourcePath.isEmpty() || cacheDir.isEmpty() || meshDomain.isEmpty()) { out.note = QStringLiteral("no cache"); return out; }
+    if (sourcePath.isEmpty() || cacheDir.isEmpty() || meshDomain.isEmpty()) {
+        out.note = QStringLiteral("no cache");
+        return out;
+    }
     GDALAllRegister();
-    GDALDataset *src = static_cast<GDALDataset *>(GDALOpen(sourcePath.toUtf8().constData(), GA_ReadOnly));
-    if (!src) { out.note = QStringLiteral("cannot open source"); return out; }
-    struct Closer { GDALDataset *d; ~Closer() { GDALClose(d); } } closeSource{src};
-    if (src->GetRasterCount() != 1) { out.note = QStringLiteral("multi-band source"); return out; }
+    GDALDataset *src =
+        static_cast<GDALDataset *>(GDALOpen(sourcePath.toUtf8().constData(), GA_ReadOnly));
+    if (!src) {
+        out.note = QStringLiteral("cannot open source");
+        return out;
+    }
+    struct Closer {
+        GDALDataset *d;
+        /*
+         * @brief Release the scoped source dataset on every normal/exceptional C++ exit.
+         * The local guard owns its nonnull GDAL handle, does not own external inputs and must
+         * never be copied to another active owner. No source writes or error propagation.
+         */
+        ~Closer() { GDALClose(d); }
+    } closeSource{src};
+    if (src->GetRasterCount() != 1) {
+        out.note = QStringLiteral("multi-band source");
+        return out;
+    }
     double gt[6];
-    if (src->GetGeoTransform(gt) != CE_None || gt[2] != 0.0 || gt[4] != 0.0) { out.note = QStringLiteral("rotated or missing geotransform"); return out; }
+    if (src->GetGeoTransform(gt) != CE_None || gt[2] != 0.0 || gt[4] != 0.0) {
+        out.note = QStringLiteral("rotated or missing geotransform");
+        return out;
+    }
     GDALRasterBand *band = src->GetRasterBand(1);
 
     // Domain corners in the DEM's frame (densified bounds when the CRS differ).
-    double x0 = meshDomain.left(), y0 = meshDomain.top(), x1 = meshDomain.right(), y1 = meshDomain.bottom();
+    double x0 = meshDomain.left(), y0 = meshDomain.top(), x1 = meshDomain.right(),
+           y1 = meshDomain.bottom();
     const char *demWkt = src->GetProjectionRef();
     if (!meshCRSWkt.isEmpty() && demWkt && *demWkt) {
         OGRSpatialReference mesh, dem;
         mesh.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         dem.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-        if (mesh.importFromWkt(meshCRSWkt.toUtf8().constData()) != OGRERR_NONE || dem.importFromWkt(demWkt) != OGRERR_NONE) {
-            out.note = QStringLiteral("unreadable CRS"); return out;
+        if (mesh.importFromWkt(meshCRSWkt.toUtf8().constData()) != OGRERR_NONE ||
+            dem.importFromWkt(demWkt) != OGRERR_NONE) {
+            out.note = QStringLiteral("unreadable CRS");
+            return out;
         }
         if (!mesh.IsSame(&dem)) {
             OGRCoordinateTransformation *ct = OGRCreateCoordinateTransformation(&mesh, &dem);
             double bx0, by0, bx1, by1;
             const bool ok = ct && ct->TransformBounds(x0, y0, x1, y1, &bx0, &by0, &bx1, &by1, 21);
-            if (ct) OGRCoordinateTransformation::DestroyCT(ct);
-            if (!ok) { out.note = QStringLiteral("domain cannot be transformed to the DEM CRS"); return out; }
+            if (ct)
+                OGRCoordinateTransformation::DestroyCT(ct);
+            if (!ok) {
+                out.note = QStringLiteral("domain cannot be transformed to the DEM CRS");
+                return out;
+            }
             // Mesh-to-DEM length scale, for the averaging block below.
-            if (meshDomain.width() > 0) averageToCellSize *= std::abs(bx1 - bx0) / meshDomain.width();
-            x0 = bx0; y0 = by0; x1 = bx1; y1 = by1;
+            if (meshDomain.width() > 0)
+                averageToCellSize *= std::abs(bx1 - bx0) / meshDomain.width();
+            x0 = bx0;
+            y0 = by0;
+            x1 = bx1;
+            y1 = by1;
         }
     }
     const int w = src->GetRasterXSize(), h = src->GetRasterYSize();
@@ -83,50 +141,74 @@ LocalTerrainResult prepareLocalTerrain(const QString &sourcePath, const QString 
     int c1 = std::clamp(int(std::ceil(std::max(cA, cB))) + kMarginPixels, 0, w);
     int r0 = std::clamp(int(std::floor(std::min(rA, rB))) - kMarginPixels, 0, h);
     int r1 = std::clamp(int(std::ceil(std::max(rA, rB))) + kMarginPixels, 0, h);
-    if (c1 <= c0 || r1 <= r0) { out.note = QStringLiteral("domain outside the DEM"); return out; }
+    if (c1 <= c0 || r1 <= r0) {
+        out.note = QStringLiteral("domain outside the DEM");
+        return out;
+    }
     // Averaging block: whole source pixels per copy pixel. The window grows
     // (or, at the raster edge, shrinks) to whole blocks so every copy pixel
     // is exactly d x d source pixels.
-    const double requestedBlock=averageToCellSize>0
-        ? std::max(1.0,std::floor(averageToCellSize/std::abs(gt[1]))) : 1.0;
-    if (!std::isfinite(requestedBlock) || requestedBlock>std::min(w,h)) {
-        out.note=QStringLiteral("averaging scale is larger than the terrain raster");
+    const double requestedBlock =
+        averageToCellSize > 0 ? std::max(1.0, std::floor(averageToCellSize / std::abs(gt[1])))
+                              : 1.0;
+    if (!std::isfinite(requestedBlock) || requestedBlock > std::min(w, h)) {
+        out.note = QStringLiteral("averaging scale is larger than the terrain raster");
         return out;
     }
-    const int d=int(requestedBlock);
+    const int d = int(requestedBlock);
     if (d > 1) {
         const auto fit = [d](int &lo, int &hi, int size) {
             int n = (hi - lo + d - 1) / d * d;
-            if (n > size) n = size / d * d;
-            if (lo + n > size) lo = size - n;
+            if (n > size)
+                n = size / d * d;
+            if (lo + n > size)
+                lo = size - n;
             hi = lo + n;
         };
-        fit(c0, c1, w); fit(r0, r1, h);
-        if (c1 <= c0 || r1 <= r0) { out.note = QStringLiteral("domain smaller than one averaging block"); return out; }
+        fit(c0, c1, w);
+        fit(r0, r1, h);
+        if (c1 <= c0 || r1 <= r0) {
+            out.note = QStringLiteral("domain smaller than one averaging block");
+            return out;
+        }
     }
     out.decimation = d;
     const QFileInfo info(sourcePath);
     QByteArray blob;
     {
         QDataStream s(&blob, QIODevice::WriteOnly);
-        s << quint32(1) << info.absoluteFilePath() << info.lastModified().toMSecsSinceEpoch() << info.size()
-          << c0 << r0 << c1 << r1 << d;
+        s << quint32(1) << info.absoluteFilePath() << info.lastModified().toMSecsSinceEpoch()
+          << info.size() << c0 << r0 << c1 << r1 << d;
     }
-    const QString key = QString::fromLatin1(QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex().left(32));
+    const QString key = QString::fromLatin1(
+        QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex().left(32));
     const QString path = QDir(cacheDir).filePath(QStringLiteral("D-%1.tif").arg(key));
     if (QFileInfo::exists(path)) {
-        if (GDALDataset *hit = static_cast<GDALDataset *>(GDALOpen(path.toUtf8().constData(), GA_ReadOnly))) {
-            const bool ok = hit->GetRasterXSize() == (c1 - c0) / d && hit->GetRasterYSize() == (r1 - r0) / d;
+        if (GDALDataset *hit =
+                static_cast<GDALDataset *>(GDALOpen(path.toUtf8().constData(), GA_ReadOnly))) {
+            const bool ok =
+                hit->GetRasterXSize() == (c1 - c0) / d && hit->GetRasterYSize() == (r1 - r0) / d;
             GDALClose(hit);
-            if (ok) { out.path = path; out.reused = true; out.bytes = QFileInfo(path).size(); return out; }
+            if (ok) {
+                out.path = path;
+                out.reused = true;
+                out.bytes = QFileInfo(path).size();
+                return out;
+            }
         }
         QFile::remove(path);
     }
     // Uncompressed float32 is the worst case; DEFLATE usually takes a half
     // to two thirds of it. Leave room for the rest of the mesh cache.
     const qint64 worst = qint64((c1 - c0) / d) * qint64((r1 - r0) / d) * 4;
-    if (!QDir().mkpath(cacheDir)) { out.note = QStringLiteral("cannot create the cache folder"); return out; }
-    if (QStorageInfo(cacheDir).bytesAvailable() < 2 * worst) { out.note = QStringLiteral("not enough free space for a local copy"); return out; }
+    if (!QDir().mkpath(cacheDir)) {
+        out.note = QStringLiteral("cannot create the cache folder");
+        return out;
+    }
+    if (QStorageInfo(cacheDir).bytesAvailable() < 2 * worst) {
+        out.note = QStringLiteral("not enough free space for a local copy");
+        return out;
+    }
 
     int hasNd = 0;
     const double nd = band->GetNoDataValue(&hasNd);
@@ -141,24 +223,32 @@ LocalTerrainResult prepareLocalTerrain(const QString &sourcePath, const QString 
     }
     const QByteArray ndText = QByteArray::number(ndF, 'g', 17);
     CPLStringList args;
-    for (const char *a : {"-of", "GTiff", "-ot", "Float32", "-co", "TILED=YES", "-co", "BLOCKXSIZE=256", "-co", "BLOCKYSIZE=256",
-                          "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=3", "-co", "NUM_THREADS=ALL_CPUS", "-co", "BIGTIFF=IF_SAFER"})
+    for (const char *a :
+         {"-of", "GTiff", "-ot", "Float32", "-co", "TILED=YES", "-co", "BLOCKXSIZE=256", "-co",
+          "BLOCKYSIZE=256", "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=3", "-co",
+          "NUM_THREADS=ALL_CPUS", "-co", "BIGTIFF=IF_SAFER"})
         args.AddString(a);
     args.AddString("-srcwin");
-    for (int v : {c0, r0, c1 - c0, r1 - r0}) args.AddString(QByteArray::number(v).constData());
-    if (hasNd) { args.AddString("-a_nodata"); args.AddString(ndText.constData()); }
+    for (int v : {c0, r0, c1 - c0, r1 - r0})
+        args.AddString(QByteArray::number(v).constData());
+    if (hasNd) {
+        args.AddString("-a_nodata");
+        args.AddString(ndText.constData());
+    }
     if (d > 1) {
         args.AddString("-outsize");
         args.AddString(QByteArray::number((c1 - c0) / d).constData());
         args.AddString(QByteArray::number((r1 - r0) / d).constData());
-        args.AddString("-r"); args.AddString("average");
+        args.AddString("-r");
+        args.AddString("average");
     }
     GDALTranslateOptions *options = GDALTranslateOptionsNew(args.List(), nullptr);
     ProgressState state{&progress};
     GDALTranslateOptionsSetProgress(options, progressTick, &state);
     const QString partial = path + QStringLiteral(".partial");
     QFile::remove(partial);
-    GDALDataset *copy = static_cast<GDALDataset *>(GDALTranslate(partial.toUtf8().constData(), src, options, nullptr));
+    GDALDataset *copy = static_cast<GDALDataset *>(
+        GDALTranslate(partial.toUtf8().constData(), src, options, nullptr));
     GDALTranslateOptionsFree(options);
     const bool closed = copy && GDALClose(copy) == CE_None;
     if (!copy || !closed || state.cancelled || !QFile::rename(partial, path)) {

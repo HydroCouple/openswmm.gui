@@ -1,15 +1,17 @@
-/*!
- * \file   swmm2dmeshstylepanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Per-sublayer styling panel for SWMM2DMeshLayer.
+/**
+ * @file      swmm2dmeshstylepanel.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Per-sublayer styling panel for SWMM2DMeshLayer.
  *
  *         Pattern (same as Swmm2DResultsStylePanel): each control is
  *         initialised from the style bag BEFORE its change-signal is
  *         connected, so construction never fires spurious writes;
  *         afterwards every edit applies live.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/swmm2dmeshstylepanel.h"
 
 #include "layers/swmm2dmeshlayer.h"
@@ -48,9 +50,11 @@
 
 #include <cmath>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 using OpenSWMM::Render::ContourBandStyle;
 using OpenSWMM::Render::CoupledNodeStyle;
@@ -63,15 +67,13 @@ using OpenSWMM::Render::MeshNodeStyle;
 /*! ClassificationEditor bound to a mesh sublayer scheme: the sample
  *  provider feeds "Auto-classify from data" the mesh's bed-elevation
  *  distribution; the range provider gives it zMin/zMax. */
-ClassificationEditor *makeMeshClassEditor(
-    SWMM2DMeshLayer *layer,
-    SublayerSchemeBinding::Getter getter,
-    SublayerSchemeBinding::Setter setter,
-    bool continuous, QWidget *parent)
+ClassificationEditor *makeMeshClassEditor(SWMM2DMeshLayer *layer,
+                                          SublayerSchemeBinding::Getter getter,
+                                          SublayerSchemeBinding::Setter setter, bool continuous,
+                                          QWidget *parent)
 {
     auto *binding = new SublayerSchemeBinding(
-        std::move(getter), std::move(setter),
-        [layer] { return layer->elevationSamples(); },
+        std::move(getter), std::move(setter), [layer] { return layer->elevationSamples(); },
         [layer] { return qMakePair(layer->zMin(), layer->zMax()); },
         /*supportsContinuousMode=*/continuous,
         /*supportsRangeModes=*/false);
@@ -102,7 +104,8 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
     auto *tabs = new QTabWidget(this);
     root->addWidget(tabs, 1);
 
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
 
     auto wrapScroll = [tabs](QWidget *page) {
         auto *scroll = new QScrollArea(tabs);
@@ -116,16 +119,17 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
     auto addTab = [tabs, &wrapScroll](QWidget *page, const QString &label,
                                       OpenSWMM::Render::ISublayer *sub) {
         const int idx = tabs->addTab(wrapScroll(page), label);
-        if (sub) tabs->setTabToolTip(idx, sub->id());
+        if (sub)
+            tabs->setTabToolTip(idx, sub->id());
     };
 
-    addTab(buildTerrainFillTab(tabs), tr("&Terrain Fill"),       m_layer->meshFillSublayer());
-    addTab(buildBandTab(tabs),        tr("Elevation &Bands"),    m_layer->contourBandSublayer());
-    addTab(buildIsolineTab(tabs),     tr("Elevation &Isolines"), m_layer->isolineSublayer());
-    addTab(buildMeshEdgeTab(tabs),    tr("&Mesh Edges"),         m_layer->meshEdgeSublayer());
-    addTab(buildMeshNodeTab(tabs),    tr("Mes&h Vertices"),      m_layer->meshNodeSublayer());
-    addTab(buildBcTab(tabs),          tr("Boundary &Conditions"), m_layer->meshBcSublayer());
-    addTab(buildCoupledNodeTab(tabs), tr("Couple&d Nodes"),      m_layer->coupledNodeSublayer());
+    addTab(buildTerrainFillTab(tabs), tr("&Terrain Fill"), m_layer->meshFillSublayer());
+    addTab(buildBandTab(tabs), tr("Elevation &Bands"), m_layer->contourBandSublayer());
+    addTab(buildIsolineTab(tabs), tr("Elevation &Isolines"), m_layer->isolineSublayer());
+    addTab(buildMeshEdgeTab(tabs), tr("&Mesh Edges"), m_layer->meshEdgeSublayer());
+    addTab(buildMeshNodeTab(tabs), tr("Mes&h Vertices"), m_layer->meshNodeSublayer());
+    addTab(buildBcTab(tabs), tr("Boundary &Conditions"), m_layer->meshBcSublayer());
+    addTab(buildCoupledNodeTab(tabs), tr("Couple&d Nodes"), m_layer->coupledNodeSublayer());
 }
 
 // ─── Terrain fill (ramp + attribute colouring + hillshade) ──────────────────
@@ -133,7 +137,7 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
 QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->meshFillSublayer();
     MeshFillStyle *st = sub ? sub->fillStyle() : nullptr;
@@ -147,7 +151,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         // (Manning's n, init depth, infiltration …) can drive the fill.
         // Previously colorByAttribute / noDataColor / categoryPalette had
         // no UI at all.
-        auto *attrBox  = new QGroupBox(tr("Colour by"), page);
+        auto *attrBox = new QGroupBox(tr("Colour by"), page);
         auto *attrForm = new QFormLayout(attrBox);
 
         auto *attr = new QComboBox(attrBox);
@@ -179,9 +183,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         attrForm->addRow(tr("Category palette:"), palette);
         lay->addWidget(attrBox);
 
-        auto applyCategorical = [st, palette]() {
-            palette->setEnabled(st->colorsByCategory());
-        };
+        auto applyCategorical = [st, palette]() { palette->setEnabled(st->colorsByCategory()); };
         applyCategorical();
 
         connect(attr, qOverload<int>(&QComboBox::currentIndexChanged), this,
@@ -197,8 +199,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
 
         // ── Classification (ramp / method / class table) ────────────────
         lay->addWidget(makeMeshClassEditor(
-            L,
-            [st] { return st->scheme(); },
+            L, [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
             /*continuous=*/true, page));
 
@@ -217,8 +218,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         auto *azRow = new QWidget(hsBox);
         auto *azLay = new QHBoxLayout(azRow);
         azLay->setContentsMargins(0, 0, 0, 0);
-        auto *azimuth = makeDSpin(azRow, 0.0, 360.0, 5.0, 1,
-                                  L->hillshadeAzimuth(), tr("°"));
+        auto *azimuth = makeDSpin(azRow, 0.0, 360.0, 5.0, 1, L->hillshadeAzimuth(), tr("°"));
         azimuth->setWrapping(true);
         auto *azSlider = new QSlider(Qt::Horizontal, azRow);
         azSlider->setRange(0, 360);
@@ -230,8 +230,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         auto *altRow = new QWidget(hsBox);
         auto *altLay = new QHBoxLayout(altRow);
         altLay->setContentsMargins(0, 0, 0, 0);
-        auto *altitude = makeDSpin(altRow, 0.0, 90.0, 5.0, 1,
-                                   L->hillshadeAltitude(), tr("°"));
+        auto *altitude = makeDSpin(altRow, 0.0, 90.0, 5.0, 1, L->hillshadeAltitude(), tr("°"));
         auto *altSlider = new QSlider(Qt::Horizontal, altRow);
         altSlider->setRange(0, 90);
         altSlider->setValue(int(std::lround(L->hillshadeAltitude())));
@@ -239,8 +238,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         altLay->addWidget(altitude);
         hsForm->addRow(tr("A&ltitude (sun angle):"), altRow);
 
-        auto *zExag = makeDSpin(hsBox, 0.1, 100.0, 0.5, 2,
-                                L->hillshadeZExag(), tr(" ×"));
+        auto *zExag = makeDSpin(hsBox, 0.1, 100.0, 0.5, 2, L->hillshadeZExag(), tr(" ×"));
         hsForm->addRow(tr("&Vertical exaggeration:"), zExag);
 
         auto *minLit = makeDSpin(hsBox, 0.0, 1.0, 0.05, 2, L->hillshadeMinLit());
@@ -259,12 +257,11 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
             sunThumb->setAzimuth(v);
         };
         connect(azimuth, qOverload<double>(&QDoubleSpinBox::valueChanged), this, pushAz);
-        connect(azSlider, &QSlider::valueChanged, this,
-                [azimuth, pushAz](int v) {
-                    QSignalBlocker bs(azimuth);
-                    azimuth->setValue(double(v));
-                    pushAz(double(v));
-                });
+        connect(azSlider, &QSlider::valueChanged, this, [azimuth, pushAz](int v) {
+            QSignalBlocker bs(azimuth);
+            azimuth->setValue(double(v));
+            pushAz(double(v));
+        });
         auto pushAlt = [L, altSlider, sunThumb](double v) {
             L->setHillshadeAltitude(v);
             QSignalBlocker bs(altSlider);
@@ -272,12 +269,11 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
             sunThumb->setAltitude(v);
         };
         connect(altitude, qOverload<double>(&QDoubleSpinBox::valueChanged), this, pushAlt);
-        connect(altSlider, &QSlider::valueChanged, this,
-                [altitude, pushAlt](int v) {
-                    QSignalBlocker bs(altitude);
-                    altitude->setValue(double(v));
-                    pushAlt(double(v));
-                });
+        connect(altSlider, &QSlider::valueChanged, this, [altitude, pushAlt](int v) {
+            QSignalBlocker bs(altitude);
+            altitude->setValue(double(v));
+            pushAlt(double(v));
+        });
         connect(zExag, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [L](double v) { L->setHillshadeZExag(v); });
         connect(minLit, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
@@ -292,7 +288,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
 QWidget *Swmm2DMeshStylePanel::buildBandTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->contourBandSublayer();
     ContourBandStyle *st = sub ? sub->bandStyle() : nullptr;
@@ -301,15 +297,14 @@ QWidget *Swmm2DMeshStylePanel::buildBandTab(QWidget *parent)
 
     if (st) {
         lay->addWidget(makeMeshClassEditor(
-            m_layer.data(),
-            [st] { return st->scheme(); },
+            m_layer.data(), [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
             /*continuous=*/false, page));
 
-        auto *renderBox  = new QGroupBox(tr("Rendering"), page);
+        auto *renderBox = new QGroupBox(tr("Rendering"), page);
         auto *renderForm = new QFormLayout(renderBox);
-        auto *smooth = new QCheckBox(
-            tr("Interpolate band boundaries (marching triangles)"), renderBox);
+        auto *smooth =
+            new QCheckBox(tr("Interpolate band boundaries (marching triangles)"), renderBox);
         smooth->setChecked(st->smoothBands());
         smooth->setToolTip(tr("On: class boundaries are interpolated through "
                               "cells (marching triangles). Off: each cell is "
@@ -317,8 +312,7 @@ QWidget *Swmm2DMeshStylePanel::buildBandTab(QWidget *parent)
         renderForm->addRow(QString(), smooth);
         lay->addWidget(renderBox);
 
-        connect(smooth, &QCheckBox::toggled, this,
-                [st](bool on) { st->setSmoothBands(on); });
+        connect(smooth, &QCheckBox::toggled, this, [st](bool on) { st->setSmoothBands(on); });
     }
     lay->addStretch();
     return page;
@@ -329,7 +323,7 @@ QWidget *Swmm2DMeshStylePanel::buildBandTab(QWidget *parent)
 QWidget *Swmm2DMeshStylePanel::buildIsolineTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->isolineSublayer();
     IsolineStyle *st = sub ? sub->isolineStyle() : nullptr;
@@ -337,7 +331,7 @@ QWidget *Swmm2DMeshStylePanel::buildIsolineTab(QWidget *parent)
     lay->addWidget(makeSublayerHeader(page, sub, tr("Show elevation contour lines")));
 
     if (st) {
-        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
 
         auto *count = makeSpin(symBox, 1, 200, st->isoValueCount());
@@ -348,8 +342,7 @@ QWidget *Swmm2DMeshStylePanel::buildIsolineTab(QWidget *parent)
         color->setColor(st->color());
         symForm->addRow(tr("Li&ne colour:"), color);
 
-        auto *width = makeDSpin(symBox, 0.25, 10.0, 0.25, 2,
-                                st->lineWidthPx(), tr(" px"));
+        auto *width = makeDSpin(symBox, 0.25, 10.0, 0.25, 2, st->lineWidthPx(), tr(" px"));
         symForm->addRow(tr("Lin&e width:"), width);
 
         auto *labels = new QCheckBox(tr("Show elevation labels"), symBox);
@@ -363,8 +356,7 @@ QWidget *Swmm2DMeshStylePanel::buildIsolineTab(QWidget *parent)
                 [st](const QColor &c) { st->setColor(c); });
         connect(width, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setLineWidthPx(v); });
-        connect(labels, &QCheckBox::toggled, this,
-                [st](bool v) { st->setLabels(v); });
+        connect(labels, &QCheckBox::toggled, this, [st](bool v) { st->setLabels(v); });
     }
     lay->addStretch();
     return page;
@@ -375,7 +367,7 @@ QWidget *Swmm2DMeshStylePanel::buildIsolineTab(QWidget *parent)
 QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->meshEdgeSublayer();
     MeshEdgeStyle *st = sub ? sub->edgeStyle() : nullptr;
@@ -384,7 +376,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
     lay->addWidget(makeSublayerHeader(page, sub, tr("Show mesh edges (wireframe)")));
 
     if (st) {
-        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
 
         auto *color = new ColorButton(symBox);
@@ -392,8 +384,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
         color->setColor(st->color());
         symForm->addRow(tr("Colour:"), color);
 
-        auto *width = makeDSpin(symBox, 0.1, 10.0, 0.05, 2,
-                                st->lineWidthPx(), tr(" px"));
+        auto *width = makeDSpin(symBox, 0.1, 10.0, 0.05, 2, st->lineWidthPx(), tr(" px"));
         symForm->addRow(tr("Width:"), width);
 
         auto *dash = new DashStyleCombo(symBox);
@@ -401,22 +392,22 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
         dash->setMinimumWidth(kComboMinWidthPx);
         symForm->addRow(tr("Stro&ke style:"), dash);
 
-        auto *edgeZoom = makeDSpin(symBox, 0.0, 40.0, 0.5, 1,
-                                   L->edgeZoomMinCellPx(), tr(" px/cell"));
-        edgeZoom->setToolTip(tr(
-            "Show the wireframe once mesh cells project at least this many "
-            "pixels across. 0 = always show when enabled."));
+        auto *edgeZoom =
+            makeDSpin(symBox, 0.0, 40.0, 0.5, 1, L->edgeZoomMinCellPx(), tr(" px/cell"));
+        edgeZoom->setToolTip(tr("Show the wireframe once mesh cells project at least this many "
+                                "pixels across. 0 = always show when enabled."));
         symForm->addRow(tr("S&how edges at:"), edgeZoom);
         lay->addWidget(symBox);
 
-        auto *colourNote = new QLabel(tr(
-            "While Boundary Conditions is shown, its Wall / interior edges "
-            "colour overrides these colours. Turn that row off to use the "
-            "Mesh Edges colours."), page);
+        auto *colourNote =
+            new QLabel(tr("While Boundary Conditions is shown, its Wall / interior edges "
+                          "colour overrides these colours. Turn that row off to use the "
+                          "Mesh Edges colours."),
+                       page);
         colourNote->setWordWrap(true);
         lay->addWidget(colourNote);
 
-        auto *slopeBox  = new QGroupBox(tr("Slope emphasis"), page);
+        auto *slopeBox = new QGroupBox(tr("Slope emphasis"), page);
         auto *slopeForm = new QFormLayout(slopeBox);
         auto *useSlope = new QCheckBox(tr("Widen steep edges"), slopeBox);
         useSlope->setChecked(st->useSlopeDrivenWidth());
@@ -425,8 +416,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
         slopeBreak->setToolTip(tr("Fraction of the maximum slope above which "
                                   "edges use the wide width/colour."));
         slopeForm->addRow(tr("Slope brea&k:"), slopeBreak);
-        auto *wideWidth = makeDSpin(slopeBox, 0.1, 10.0, 0.05, 2,
-                                    st->wideWidthPx(), tr(" px"));
+        auto *wideWidth = makeDSpin(slopeBox, 0.1, 10.0, 0.05, 2, st->wideWidthPx(), tr(" px"));
         slopeForm->addRow(tr("Wide width:"), wideWidth);
         auto *wideColor = new ColorButton(slopeBox);
         wideColor->setShowAlpha(true);
@@ -460,7 +450,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
 QWidget *Swmm2DMeshStylePanel::buildMeshNodeTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->meshNodeSublayer();
     MeshNodeStyle *st = sub ? sub->nodeStyle() : nullptr;
@@ -469,7 +459,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshNodeTab(QWidget *parent)
     lay->addWidget(makeSublayerHeader(page, sub, tr("Show mesh vertices")));
 
     if (st) {
-        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
 
         auto *color = new ColorButton(symBox);
@@ -477,8 +467,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshNodeTab(QWidget *parent)
         color->setColor(st->color());
         symForm->addRow(tr("Colour:"), color);
 
-        auto *size = makeDSpin(symBox, 0.5, 20.0, 0.5, 1,
-                               st->markerSizePx(), tr(" px"));
+        auto *size = makeDSpin(symBox, 0.5, 20.0, 0.5, 1, st->markerSizePx(), tr(" px"));
         symForm->addRow(tr("Marker size:"), size);
 
         auto *outlineColor = new ColorButton(symBox);
@@ -486,15 +475,13 @@ QWidget *Swmm2DMeshStylePanel::buildMeshNodeTab(QWidget *parent)
         outlineColor->setColor(st->outlineColor());
         symForm->addRow(tr("Outline colour:"), outlineColor);
 
-        auto *outlineWidth = makeDSpin(symBox, 0.0, 5.0, 0.25, 2,
-                                       st->outlineWidthPx(), tr(" px"));
+        auto *outlineWidth = makeDSpin(symBox, 0.0, 5.0, 0.25, 2, st->outlineWidthPx(), tr(" px"));
         symForm->addRow(tr("Outline width:"), outlineWidth);
 
-        auto *vertexZoom = makeDSpin(symBox, 0.0, 40.0, 0.5, 1,
-                                     L->vertexZoomMinCellPx(), tr(" px/cell"));
-        vertexZoom->setToolTip(tr(
-            "Show vertex dots once mesh cells project at least this many "
-            "pixels across. 0 = always show when enabled."));
+        auto *vertexZoom =
+            makeDSpin(symBox, 0.0, 40.0, 0.5, 1, L->vertexZoomMinCellPx(), tr(" px/cell"));
+        vertexZoom->setToolTip(tr("Show vertex dots once mesh cells project at least this many "
+                                  "pixels across. 0 = always show when enabled."));
         symForm->addRow(tr("Sh&ow vertices at:"), vertexZoom);
         lay->addWidget(symBox);
 
@@ -518,20 +505,19 @@ QWidget *Swmm2DMeshStylePanel::buildMeshNodeTab(QWidget *parent)
 QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->meshBcSublayer();
     MeshBcStyle *st = sub ? sub->bcStyle() : nullptr;
 
-    lay->addWidget(makeSublayerHeader(page, sub,
-                                      tr("Show boundary-condition indicators")));
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show boundary-condition indicators")));
 
     if (st && sub) {
         auto *grid = new QGroupBox(tr("Per-type styling"), page);
-        auto *gl   = new QGridLayout(grid);
-        gl->addWidget(new QLabel(tr("Type"), grid),   0, 0);
+        auto *gl = new QGridLayout(grid);
+        gl->addWidget(new QLabel(tr("Type"), grid), 0, 0);
         gl->addWidget(new QLabel(tr("Colour"), grid), 0, 1);
-        gl->addWidget(new QLabel(tr("Width"), grid),  0, 2);
+        gl->addWidget(new QLabel(tr("Width"), grid), 0, 2);
 
         const QSet<int> present = sub->bcTypesPresent();
         for (int t = 0; t < MeshBcStyle::kBcTypeCount; ++t) {
@@ -559,8 +545,7 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
 
             QDoubleSpinBox *width = nullptr;
             if (t > 0) {
-                width = makeDSpin(grid, 0.1, 20.0, 0.2, 2,
-                                  st->bcWidthForType(t), tr(" px"));
+                width = makeDSpin(grid, 0.1, 20.0, 0.2, 2, st->bcWidthForType(t), tr(" px"));
                 gl->addWidget(width, row, 2);
             } else {
                 // Wall edges ARE the wireframe — width comes from Mesh Edges.
@@ -569,19 +554,17 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
 
             // setCustomized: a direct panel edit locks this layer's BC style
             // against live re-seeding from the Preferences defaults.
-            connect(vis, &QCheckBox::toggled, this,
-                    [st, t](bool on) {
-                        st->setCustomized(true);
-                        st->setBcTypeVisible(t, on);
-                    });
-            connect(color, &ColorButton::colorChanged, this,
-                    [st, t](const QColor &c) {
-                        st->setCustomized(true);
-                        st->setBcColor(t, c);
-                    });
+            connect(vis, &QCheckBox::toggled, this, [st, t](bool on) {
+                st->setCustomized(true);
+                st->setBcTypeVisible(t, on);
+            });
+            connect(color, &ColorButton::colorChanged, this, [st, t](const QColor &c) {
+                st->setCustomized(true);
+                st->setBcColor(t, c);
+            });
             if (width)
-                connect(width, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                        this, [st, t](double v) {
+                connect(width, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                        [st, t](double v) {
                             st->setCustomized(true);
                             st->setBcWidth(t, v);
                         });
@@ -589,10 +572,9 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
         gl->setColumnStretch(0, 1);
         lay->addWidget(grid);
 
-        auto *note = new QLabel(
-            tr("The boundary ring stays visible at every zoom level; the "
-               "interior wireframe follows the Mesh Edges zoom threshold."),
-            page);
+        auto *note = new QLabel(tr("The boundary ring stays visible at every zoom level; the "
+                                   "interior wireframe follows the Mesh Edges zoom threshold."),
+                                page);
         note->setWordWrap(true);
         lay->addWidget(note);
     }
@@ -605,7 +587,7 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
 QWidget *Swmm2DMeshStylePanel::buildCoupledNodeTab(QWidget *parent)
 {
     auto *page = new QWidget(parent);
-    auto *lay  = new QVBoxLayout(page);
+    auto *lay = new QVBoxLayout(page);
 
     auto *sub = m_layer->coupledNodeSublayer();
     CoupledNodeStyle *st = sub ? sub->coupledStyle() : nullptr;
@@ -613,7 +595,7 @@ QWidget *Swmm2DMeshStylePanel::buildCoupledNodeTab(QWidget *parent)
     lay->addWidget(makeSublayerHeader(page, sub, tr("Show SWMM-coupled vertices")));
 
     if (st) {
-        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
 
         auto *color = new ColorButton(symBox);
@@ -621,16 +603,14 @@ QWidget *Swmm2DMeshStylePanel::buildCoupledNodeTab(QWidget *parent)
         color->setColor(st->color());
         symForm->addRow(tr("Colour:"), color);
 
-        auto *size = makeDSpin(symBox, 0.5, 40.0, 0.5, 1,
-                               st->markerSizePx(), tr(" px"));
+        auto *size = makeDSpin(symBox, 0.5, 40.0, 0.5, 1, st->markerSizePx(), tr(" px"));
         symForm->addRow(tr("Marker size:"), size);
         lay->addWidget(symBox);
 
-        auto *note = new QLabel(
-            tr("Marks 2D mesh vertices coupled to 1D SWMM nodes "
-               "([2D_VERTEX_NODE_MAP]). Markers appear at the Mesh Vertices "
-               "zoom threshold."),
-            page);
+        auto *note = new QLabel(tr("Marks 2D mesh vertices coupled to 1D SWMM nodes "
+                                   "([2D_VERTEX_NODE_MAP]). Markers appear at the Mesh Vertices "
+                                   "zoom threshold."),
+                                page);
         note->setWordWrap(true);
         lay->addWidget(note);
 

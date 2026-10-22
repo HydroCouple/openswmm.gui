@@ -1,10 +1,13 @@
 #include "ui/util/numerictablewidgetitem.h"
-/*!
- * \file   statssummarypanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      statssummarypanel.cpp
+ * @brief     ComparisonPlotDialog chart splitter.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/statssummarypanel.h"
 
 #include "core/preferencesmanager.h"
@@ -27,24 +30,18 @@
 #include <algorithm>
 #include <cmath>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using namespace openswmmvis::plot;
 
-namespace {
+namespace
+{
 const QStringList kBaseColumns = {
-    QStringLiteral("Series"),
-    QStringLiteral("count"),
-    QStringLiteral("mean"),
-    QStringLiteral("median"),
-    QStringLiteral("stddev"),
-    QStringLiteral("min"),
-    QStringLiteral("max"),
-    QStringLiteral("p05"),
-    QStringLiteral("p25"),
-    QStringLiteral("p50"),
-    QStringLiteral("p75"),
-    QStringLiteral("p95"),
+    QStringLiteral("Series"), QStringLiteral("count"),  QStringLiteral("mean"),
+    QStringLiteral("median"), QStringLiteral("stddev"), QStringLiteral("min"),
+    QStringLiteral("max"),    QStringLiteral("p05"),    QStringLiteral("p25"),
+    QStringLiteral("p50"),    QStringLiteral("p75"),    QStringLiteral("p95"),
     QStringLiteral("sum"),
 };
 const QStringList kFitColumns = {
@@ -55,8 +52,7 @@ const QStringList kFitColumns = {
 };
 } // namespace
 
-StatsSummaryPanel::StatsSummaryPanel(QWidget *parent)
-    : QWidget(parent)
+StatsSummaryPanel::StatsSummaryPanel(QWidget *parent) : QWidget(parent)
 {
     m_valueFormat = PreferencesManager::instance()->plotYAxisFormat();
     loadNumberFormat();
@@ -77,8 +73,8 @@ void StatsSummaryPanel::loadNumberFormat()
     s.beginGroup(QStringLiteral("ComparisonPlotDialog/StatsFormat"));
     const int defaultMode = static_cast<int>(m_valueFormat.mode);
     const int mode = s.value(QStringLiteral("mode"), defaultMode).toInt();
-    m_valueFormat.mode = (mode >= static_cast<int>(NumberFormatMode::Decimals)
-                          && mode <= static_cast<int>(NumberFormatMode::Thousands))
+    m_valueFormat.mode = (mode >= static_cast<int>(NumberFormatMode::Decimals) &&
+                          mode <= static_cast<int>(NumberFormatMode::Thousands))
                              ? static_cast<NumberFormatMode>(mode)
                              : NumberFormatMode::Decimals;
     m_valueFormat.count = s.value(QStringLiteral("precision"), m_valueFormat.count).toInt();
@@ -115,7 +111,8 @@ void StatsSummaryPanel::loadColumnVisibility()
     // Default = visible for every known column; load any persisted override.
     const auto allCols = kBaseColumns + kFitColumns;
     for (const QString &col : allCols) {
-        if (col == QStringLiteral("Series")) continue;
+        if (col == QStringLiteral("Series"))
+            continue;
         m_columnVisible[col] = s.value(col, true).toBool();
     }
     s.endGroup();
@@ -125,8 +122,7 @@ void StatsSummaryPanel::saveColumnVisibility()
 {
     QSettings s;
     s.beginGroup(QStringLiteral("ComparisonPlotDialog/StatsColumns"));
-    for (auto it = m_columnVisible.constBegin();
-         it != m_columnVisible.constEnd(); ++it) {
+    for (auto it = m_columnVisible.constBegin(); it != m_columnVisible.constEnd(); ++it) {
         s.setValue(it.key(), it.value());
     }
     s.endGroup();
@@ -134,10 +130,11 @@ void StatsSummaryPanel::saveColumnVisibility()
 
 void StatsSummaryPanel::applyColumnVisibility(QTableWidget *table)
 {
-    if (!table) return;
+    if (!table)
+        return;
     for (int c = 0; c < table->columnCount(); ++c) {
-        const QString name = table->horizontalHeaderItem(c)
-            ? table->horizontalHeaderItem(c)->text() : QString();
+        const QString name =
+            table->horizontalHeaderItem(c) ? table->horizontalHeaderItem(c)->text() : QString();
         // "Series" column is always visible.
         if (name == QStringLiteral("Series")) {
             table->setColumnHidden(c, false);
@@ -148,17 +145,18 @@ void StatsSummaryPanel::applyColumnVisibility(QTableWidget *table)
     }
 }
 
-void StatsSummaryPanel::showHeaderContextMenu(QTableWidget *table,
-                                               const QPoint &globalPos)
+void StatsSummaryPanel::showHeaderContextMenu(QTableWidget *table, const QPoint &globalPos)
 {
-    if (!table) return;
+    if (!table)
+        return;
     QMenu menu(this);
     menu.addAction(tr("Show / hide columns"))->setEnabled(false);
     menu.addSeparator();
     for (int c = 0; c < table->columnCount(); ++c) {
-        const QString name = table->horizontalHeaderItem(c)
-            ? table->horizontalHeaderItem(c)->text() : QString();
-        if (name.isEmpty() || name == QStringLiteral("Series")) continue;
+        const QString name =
+            table->horizontalHeaderItem(c) ? table->horizontalHeaderItem(c)->text() : QString();
+        if (name.isEmpty() || name == QStringLiteral("Series"))
+            continue;
         auto *a = menu.addAction(name);
         a->setCheckable(true);
         a->setChecked(m_columnVisible.value(name, true));
@@ -167,7 +165,7 @@ void StatsSummaryPanel::showHeaderContextMenu(QTableWidget *table,
             saveColumnVisibility();
             // Apply to every tab so columns sync across attribute rows.
             for (int i = 0; i < m_tabs->count(); ++i) {
-                if (auto *t = qobject_cast<QTableWidget*>(m_tabs->widget(i)))
+                if (auto *t = qobject_cast<QTableWidget *>(m_tabs->widget(i)))
                     applyColumnVisibility(t);
             }
         });
@@ -177,29 +175,26 @@ void StatsSummaryPanel::showHeaderContextMenu(QTableWidget *table,
 
 void StatsSummaryPanel::setModel(ComparisonPlotModel *model)
 {
-    if (m_model == model) return;
-    if (m_model) disconnect(m_model, nullptr, this, nullptr);
+    if (m_model == model)
+        return;
+    if (m_model)
+        disconnect(m_model, nullptr, this, nullptr);
     m_model = model;
     if (m_model) {
-        connect(m_model, &ComparisonPlotModel::seriesAdded,
-                this, &StatsSummaryPanel::refresh);
-        connect(m_model, &ComparisonPlotModel::seriesRemoved,
-                this, &StatsSummaryPanel::refresh);
-        connect(m_model, &ComparisonPlotModel::runSourceAdded,
-                this, &StatsSummaryPanel::refresh);
-        connect(m_model, &ComparisonPlotModel::runSourceRemoved,
-                this, &StatsSummaryPanel::refresh);
-        connect(m_model, &ComparisonPlotModel::rowsChanged,
-                this, &StatsSummaryPanel::refresh);
-        connect(m_model, &ComparisonPlotModel::baselineChanged,
-                this, &StatsSummaryPanel::refresh);
+        connect(m_model, &ComparisonPlotModel::seriesAdded, this, &StatsSummaryPanel::refresh);
+        connect(m_model, &ComparisonPlotModel::seriesRemoved, this, &StatsSummaryPanel::refresh);
+        connect(m_model, &ComparisonPlotModel::runSourceAdded, this, &StatsSummaryPanel::refresh);
+        connect(m_model, &ComparisonPlotModel::runSourceRemoved, this, &StatsSummaryPanel::refresh);
+        connect(m_model, &ComparisonPlotModel::rowsChanged, this, &StatsSummaryPanel::refresh);
+        connect(m_model, &ComparisonPlotModel::baselineChanged, this, &StatsSummaryPanel::refresh);
     }
     refresh();
 }
 
 void StatsSummaryPanel::setSelectionRange(QDateTime lo, QDateTime hi)
 {
-    if (m_selLo == lo && m_selHi == hi) return;
+    if (m_selLo == lo && m_selHi == hi)
+        return;
     m_selLo = std::move(lo);
     m_selHi = std::move(hi);
     refresh();
@@ -213,15 +208,17 @@ void StatsSummaryPanel::refresh()
 void StatsSummaryPanel::rebuildTabs()
 {
     m_tabs->clear();
-    if (!m_model) return;
+    if (!m_model)
+        return;
     const auto &rows = m_model->rows();
     for (int r = 0; r < rows.size(); ++r) {
         const auto &row = rows.at(r);
         auto *table = new QTableWidget(m_tabs);
         QStringList columns = kBaseColumns;
-        const bool haveBaseline = m_model->baselineRunIndex() >= 0
-                                   && m_model->runSourceCount() >= 2;
-        if (haveBaseline) columns += kFitColumns;
+        const bool haveBaseline =
+            m_model->baselineRunIndex() >= 0 && m_model->runSourceCount() >= 2;
+        if (haveBaseline)
+            columns += kFitColumns;
         table->setColumnCount(columns.size());
         table->setHorizontalHeaderLabels(columns);
         table->verticalHeader()->setVisible(false);
@@ -231,12 +228,10 @@ void StatsSummaryPanel::rebuildTabs()
 
         // AT.3 — right-click on the horizontal header → column visibility menu.
         table->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(table->horizontalHeader(),
-                &QHeaderView::customContextMenuRequested,
-                this, [this, table](const QPoint &p) {
-                    showHeaderContextMenu(
-                        table,
-                        table->horizontalHeader()->viewport()->mapToGlobal(p));
+        connect(table->horizontalHeader(), &QHeaderView::customContextMenuRequested, this,
+                [this, table](const QPoint &p) {
+                    showHeaderContextMenu(table,
+                                          table->horizontalHeader()->viewport()->mapToGlobal(p));
                 });
 
         populateTab(table, r);
@@ -248,27 +243,27 @@ void StatsSummaryPanel::rebuildTabs()
         // species row carries attribute == Unknown, and labelFor(Unknown)
         // would caption the tab "Unknown".
         const openswmmvis::plot::ResultDescriptor rowDesc = row.descriptor();
-        const QString tabLabel = QStringLiteral("%1 (%2)")
-            .arg(rowDesc.label(), row.unitsLabel);
+        const QString tabLabel = QStringLiteral("%1 (%2)").arg(rowDesc.label(), row.unitsLabel);
         m_tabs->addTab(table, tabLabel);
     }
 }
 
 void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
 {
-    if (!m_model) return;
+    if (!m_model)
+        return;
     const auto &row = m_model->rows().at(rowIndex);
     table->setRowCount(row.seriesIndices.size());
-    const bool haveBaseline = m_model->baselineRunIndex() >= 0
-                               && m_model->runSourceCount() >= 2;
+    const bool haveBaseline = m_model->baselineRunIndex() >= 0 && m_model->runSourceCount() >= 2;
     const int baselineRun = m_model->baselineRunIndex();
 
     // Resolve baseline samples per object once so we can pair against
     // each comparison series in the same row.
-    struct BaselineKey { ObjectRef ref; };
+    struct BaselineKey {
+        ObjectRef ref;
+    };
     auto refKey = [](const ObjectRef &r) {
-        return QStringLiteral("%1|%2|%3")
-            .arg(static_cast<int>(r.kind)).arg(r.name).arg(r.triIdx);
+        return QStringLiteral("%1|%2|%3").arg(static_cast<int>(r.kind)).arg(r.name).arg(r.triIdx);
     };
 
     std::map<QString, std::vector<double>> baselineByObj;
@@ -276,11 +271,13 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
     if (haveBaseline) {
         for (int sIdx : row.seriesIndices) {
             const auto &spec = m_model->spec(sIdx);
-            if (spec.runIndex != baselineRun) continue;
+            if (spec.runIndex != baselineRun)
+                continue;
             SeriesData data;
             m_model->resolveSeries(sIdx, data);
-            if (!data.ok) continue;
-            baselineByObj[refKey(spec.objectRef)]      = data.values;
+            if (!data.ok)
+                continue;
+            baselineByObj[refKey(spec.objectRef)] = data.values;
             baselineTimesByObj[refKey(spec.objectRef)] = data.timesJulian;
         }
     }
@@ -292,7 +289,8 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
         m_model->resolveSeries(sIdx, data);
         if (!data.ok) {
             table->setItem(outRow, 0,
-                new openswmmvis::ui::NumericTableWidgetItem(QStringLiteral("(unresolved series %1)").arg(sIdx)));
+                           new openswmmvis::ui::NumericTableWidgetItem(
+                               QStringLiteral("(unresolved series %1)").arg(sIdx)));
             ++outRow;
             continue;
         }
@@ -302,80 +300,99 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
         filtered.reserve(data.values.size());
         for (std::size_t i = 0; i < data.values.size(); ++i) {
             const QDateTime t = core::swmmDateTimeToQDateTime(data.timesJulian[i]);
-            if (m_selLo.isValid() && t < m_selLo) continue;
-            if (m_selHi.isValid() && t > m_selHi) continue;
+            if (m_selLo.isValid() && t < m_selLo)
+                continue;
+            if (m_selHi.isValid() && t > m_selHi)
+                continue;
             filtered.push_back(data.values[i]);
         }
 
         const auto stats = computeStatistics(filtered);
 
-        const QString legendName = !spec.legendOverride.isEmpty()
-            ? spec.legendOverride
-            : QStringLiteral("%1 — %2")
-                .arg(m_model->runSource(spec.runIndex).label,
-                     spec.objectRef.kind == ObjectRef::Kind::Mesh2DCell
-                         ? QStringLiteral("Cell %1").arg(spec.objectRef.triIdx)
-                         : spec.objectRef.name.isEmpty()
-                             ? QStringLiteral("(System)")
-                             : spec.objectRef.name);
+        const QString legendName =
+            !spec.legendOverride.isEmpty()
+                ? spec.legendOverride
+                : QStringLiteral("%1 — %2").arg(
+                      m_model->runSource(spec.runIndex).label,
+                      spec.objectRef.kind == ObjectRef::Kind::Mesh2DCell
+                          ? QStringLiteral("Cell %1").arg(spec.objectRef.triIdx)
+                      : spec.objectRef.name.isEmpty() ? QStringLiteral("(System)")
+                                                      : spec.objectRef.name);
 
         int col = 0;
         table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(legendName));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(QString::number(stats.count)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.mean)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.median)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.stddev)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.min)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.max)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p05)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p25)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p50)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p75)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p95)));
-        table->setItem(outRow, col++, new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.sum)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(QString::number(stats.count)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.mean)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.median)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.stddev)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.min)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.max)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p05)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p25)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p50)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p75)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.p95)));
+        table->setItem(outRow, col++,
+                       new openswmmvis::ui::NumericTableWidgetItem(formatValue(stats.sum)));
 
         if (haveBaseline) {
             // Pair against baseline samples by timestamp (within ½-step).
             auto it = baselineByObj.find(refKey(spec.objectRef));
             FitMetrics fit;
-            bool       haveFit = false;
+            bool haveFit = false;
             if (it != baselineByObj.end() && spec.runIndex != baselineRun) {
                 const auto &btimes = baselineTimesByObj[refKey(spec.objectRef)];
-                const auto &bvals  = it->second;
-                const double halfStep = (btimes.size() >= 2)
-                    ? 0.5 * std::fabs(btimes[1] - btimes[0]) : 0.0;
+                const auto &bvals = it->second;
+                const double halfStep =
+                    (btimes.size() >= 2) ? 0.5 * std::fabs(btimes[1] - btimes[0]) : 0.0;
                 std::vector<double> xs, ys;
                 std::size_t i = 0, j = 0;
                 while (i < btimes.size() && j < data.timesJulian.size()) {
                     const double tb = btimes[i];
                     const double tc = data.timesJulian[j];
                     const QDateTime tbDt = core::swmmDateTimeToQDateTime(tb);
-                    const bool inWin =
-                        (!m_selLo.isValid() || tbDt >= m_selLo) &&
-                        (!m_selHi.isValid() || tbDt <= m_selHi);
+                    const bool inWin = (!m_selLo.isValid() || tbDt >= m_selLo) &&
+                                       (!m_selHi.isValid() || tbDt <= m_selHi);
                     if (std::fabs(tb - tc) <= halfStep) {
-                        if (inWin && std::isfinite(bvals[i])
-                            && std::isfinite(data.values[j])) {
+                        if (inWin && std::isfinite(bvals[i]) && std::isfinite(data.values[j])) {
                             xs.push_back(bvals[i]);
                             ys.push_back(data.values[j]);
                         }
-                        ++i; ++j;
-                    } else if (tb < tc) ++i;
-                    else                ++j;
+                        ++i;
+                        ++j;
+                    } else if (tb < tc)
+                        ++i;
+                    else
+                        ++j;
                 }
                 if (!xs.empty()) {
-                    fit     = FitMetrics::compute(xs, ys);
+                    fit = FitMetrics::compute(xs, ys);
                     haveFit = true;
                 }
             }
             table->setItem(outRow, col++,
-                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.nse)   : QStringLiteral("—")));
+                           new openswmmvis::ui::NumericTableWidgetItem(
+                               haveFit ? formatValue(fit.nse) : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.r2)    : QStringLiteral("—")));
+                           new openswmmvis::ui::NumericTableWidgetItem(
+                               haveFit ? formatValue(fit.r2) : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.rmse)  : QStringLiteral("—")));
+                           new openswmmvis::ui::NumericTableWidgetItem(
+                               haveFit ? formatValue(fit.rmse) : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new openswmmvis::ui::NumericTableWidgetItem(haveFit ? formatValue(fit.pbias) : QStringLiteral("—")));
+                           new openswmmvis::ui::NumericTableWidgetItem(
+                               haveFit ? formatValue(fit.pbias) : QStringLiteral("—")));
         }
         ++outRow;
     }

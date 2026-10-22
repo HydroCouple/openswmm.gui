@@ -1,9 +1,9 @@
-/*!
- * \file   chartpropertiesdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice AT.3 — modeless dialog hosting a QPropertyModel-backed
+/**
+ * @file      chartpropertiesdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice AT.3 — modeless dialog hosting a QPropertyModel-backed
  *         editor for one ChartProperties wrapper.
  *
  * Opened from the per-chart right-click "Chart Properties…" entry in
@@ -11,7 +11,9 @@
  * displays; deleting the dialog deletes the wrapper (the underlying
  * QChart is unaffected). Window flags include Qt::Tool + StaysOnTop so
  * the editor floats above the main dialog.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_CHARTPROPERTIESDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_CHARTPROPERTIESDIALOG_H
 
@@ -20,9 +22,13 @@
 
 class QTreeView;
 
-namespace openswmmvis::plot { class ChartProperties; }
+namespace openswmmvis::plot
+{
+class ChartProperties;
+}
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ChartPropertiesDialog : public QDialog
 {

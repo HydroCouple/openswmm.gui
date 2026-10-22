@@ -1,6 +1,6 @@
-/*!
- * \file   test_channelburn.cpp
- * \brief  Gate V1 (engine half) for the channel burn-in, phase P0
+/**
+ * @file      test_channelburn.cpp
+ * @brief     Gate V1 (engine half) for the channel burn-in, phase P0
  *         (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §8, §16.7).
  *
  * The reconstructed bed must BE the section the engine routes flow through,
@@ -20,6 +20,10 @@
  *   - IRREGULAR — the engine tabulates a transect on N_TRANSECT_TBL = 51
  *     normalised points with linear interpolation, so the comparison is at
  *     table resolution, and the authored geometry is checked directly.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest>
@@ -46,20 +50,24 @@ private slots:
     void openChannelGateRejectsClosedShapes();
 };
 
-namespace {
+namespace
+{
 
 /*! Flow area of a normalised section at \p d, by exact trapezoidal integration
  *  of the wetted part. The profile is piecewise linear, so this is exact. */
 double areaAtDepth(const mesh::NormalizedSection &ns, double d)
 {
     double a = 0.0;
-    for (int i = 0; i + 1 < ns.station.size(); ++i)
-    {
+    for (int i = 0; i + 1 < ns.station.size(); ++i) {
         const double x0 = ns.station[i], x1 = ns.station[i + 1];
         const double h0 = d - ns.relZ[i], h1 = d - ns.relZ[i + 1];
-        if (h0 <= 0.0 && h1 <= 0.0) continue;
-        if (h0 >= 0.0 && h1 >= 0.0) { a += 0.5 * (h0 + h1) * (x1 - x0); continue; }
-        const double t  = h0 / (h0 - h1);
+        if (h0 <= 0.0 && h1 <= 0.0)
+            continue;
+        if (h0 >= 0.0 && h1 >= 0.0) {
+            a += 0.5 * (h0 + h1) * (x1 - x0);
+            continue;
+        }
+        const double t = h0 / (h0 - h1);
         const double xc = x0 + t * (x1 - x0);
         a += (h0 > 0.0) ? 0.5 * h0 * (xc - x0) : 0.5 * h1 * (x1 - xc);
     }
@@ -69,13 +77,16 @@ double areaAtDepth(const mesh::NormalizedSection &ns, double d)
 double topWidthAtDepth(const mesh::NormalizedSection &ns, double d)
 {
     double w = 0.0;
-    for (int i = 0; i + 1 < ns.station.size(); ++i)
-    {
+    for (int i = 0; i + 1 < ns.station.size(); ++i) {
         const double x0 = ns.station[i], x1 = ns.station[i + 1];
         const double h0 = d - ns.relZ[i], h1 = d - ns.relZ[i + 1];
-        if (h0 <= 0.0 && h1 <= 0.0) continue;
-        if (h0 >= 0.0 && h1 >= 0.0) { w += x1 - x0; continue; }
-        const double t  = h0 / (h0 - h1);
+        if (h0 <= 0.0 && h1 <= 0.0)
+            continue;
+        if (h0 >= 0.0 && h1 >= 0.0) {
+            w += x1 - x0;
+            continue;
+        }
+        const double t = h0 / (h0 - h1);
         const double xc = x0 + t * (x1 - x0);
         w += (h0 > 0.0) ? (xc - x0) : (x1 - xc);
     }
@@ -85,7 +96,7 @@ double topWidthAtDepth(const mesh::NormalizedSection &ns, double d)
 mesh::BurnOptions burnOptions()
 {
     mesh::BurnOptions o;
-    o.clipToBanks = false;      // compare the WHOLE section against the engine
+    o.clipToBanks = false; // compare the WHOLE section against the engine
     o.stringCount = 0;
     return o;
 }
@@ -107,9 +118,9 @@ void TestChannelBurn::reconstructionMatchesEngineTables_data()
     // quadrature error, not a defect — parabolicConvergesWithTheLadder pins that
     // it behaves like one (plan §16.7).
     QTest::newRow("trapezoidal") << int(SWMM_XSECT_TRAPEZOIDAL) << 3.0 << 4.0 << 2.0 << 2.0 << 1e-6;
-    QTest::newRow("triangular")  << int(SWMM_XSECT_TRIANGULAR)  << 2.0 << 6.0 << 0.0 << 0.0 << 1e-6;
-    QTest::newRow("rect_open")   << int(SWMM_XSECT_RECT_OPEN)   << 3.0 << 5.0 << 0.0 << 0.0 << 0.00201;
-    QTest::newRow("parabolic")   << int(SWMM_XSECT_PARABOLIC)   << 2.0 << 6.0 << 0.0 << 0.0 << 1e-3;
+    QTest::newRow("triangular") << int(SWMM_XSECT_TRIANGULAR) << 2.0 << 6.0 << 0.0 << 0.0 << 1e-6;
+    QTest::newRow("rect_open") << int(SWMM_XSECT_RECT_OPEN) << 3.0 << 5.0 << 0.0 << 0.0 << 0.00201;
+    QTest::newRow("parabolic") << int(SWMM_XSECT_PARABOLIC) << 2.0 << 6.0 << 0.0 << 0.0 << 1e-3;
 }
 
 void TestChannelBurn::reconstructionMatchesEngineTables()
@@ -133,9 +144,8 @@ void TestChannelBurn::reconstructionMatchesEngineTables()
     QCOMPARE(widths.size(), depths.size());
 
     QString err;
-    const mesh::NormalizedSection ns =
-        mesh::normalizeSection(mesh::sectionFromWidths(depths, widths), burnOptions(),
-                               nullptr, &err);
+    const mesh::NormalizedSection ns = mesh::normalizeSection(
+        mesh::sectionFromWidths(depths, widths), burnOptions(), nullptr, &err);
     QVERIFY2(ns.isValid(), qPrintable(err));
 
     // Reference: the engine's own tables, through a handle of our own.
@@ -146,8 +156,7 @@ void TestChannelBurn::reconstructionMatchesEngineTables()
     // Rectangular walls use a bounded finite batter; check their area and
     // top width over the same stage range as the other sections.
 
-    for (int i = 1; i <= 10; ++i)
-    {
+    for (int i = 1; i <= 10; ++i) {
         const double d = props.yFull * double(i) / 10.0;
         double refA = 0.0, refW = 0.0;
         QCOMPARE(swmm_xsect_area_of_depth(x, d, &refA), SWMM_OK);
@@ -155,13 +164,13 @@ void TestChannelBurn::reconstructionMatchesEngineTables()
 
         const double gotW = topWidthAtDepth(ns, d);
         QVERIFY2(std::abs(gotW - refW) <= tol * std::max(1.0, refW),
-                 qPrintable(QStringLiteral("depth %1: width %2 vs engine %3")
-                                .arg(d).arg(gotW).arg(refW)));
+                 qPrintable(
+                     QStringLiteral("depth %1: width %2 vs engine %3").arg(d).arg(gotW).arg(refW)));
 
         const double gotA = areaAtDepth(ns, d);
         QVERIFY2(std::abs(gotA - refA) <= tol * std::max(1.0, refA),
-                 qPrintable(QStringLiteral("depth %1: area %2 vs engine %3")
-                                .arg(d).arg(gotA).arg(refA)));
+                 qPrintable(
+                     QStringLiteral("depth %1: area %2 vs engine %3").arg(d).arg(gotA).arg(refA)));
     }
     swmm_xsect_free(x);
 }
@@ -175,17 +184,14 @@ void TestChannelBurn::parabolicConvergesWithTheLadder()
     const double yFull = s.fullProps().yFull;
 
     SWMM_XSect x = nullptr;
-    QCOMPARE(swmm_xsect_create(SWMM_XSECT_PARABOLIC, 2.0, 6.0, 0, 0, SWMM_UNITS_US, &x),
-             SWMM_OK);
+    QCOMPARE(swmm_xsect_create(SWMM_XSECT_PARABOLIC, 2.0, 6.0, 0, 0, SWMM_UNITS_US, &x), SWMM_OK);
 
     auto maxWidthError = [&](int samples) {
         const QVector<double> depths = mesh::cosineDepthLadder(yFull, samples);
-        const mesh::NormalizedSection ns =
-            mesh::normalizeSection(mesh::sectionFromWidths(depths, s.widthsAtDepths(depths)),
-                                   burnOptions());
+        const mesh::NormalizedSection ns = mesh::normalizeSection(
+            mesh::sectionFromWidths(depths, s.widthsAtDepths(depths)), burnOptions());
         double worst = 0.0;
-        for (int i = 1; i <= 10; ++i)
-        {
+        for (int i = 1; i <= 10; ++i) {
             const double d = yFull * double(i) / 10.0;
             double refW = 0.0;
             swmm_xsect_width_of_depth(x, d, &refW);
@@ -195,20 +201,21 @@ void TestChannelBurn::parabolicConvergesWithTheLadder()
     };
 
     const double coarse = maxWidthError(32);
-    const double fine   = maxWidthError(256);
+    const double fine = maxWidthError(256);
     swmm_xsect_free(x);
 
     QVERIFY(coarse > 0.0);
-    QVERIFY2(fine < coarse * 0.25,
-             qPrintable(QStringLiteral("no convergence: 32 samples %1, 256 samples %2")
-                            .arg(coarse).arg(fine)));
+    QVERIFY2(
+        fine < coarse * 0.25,
+        qPrintable(
+            QStringLiteral("no convergence: 32 samples %1, 256 samples %2").arg(coarse).arg(fine)));
 }
 
 void TestChannelBurn::irregularKeepsTheAuthoredAsymmetry()
 {
     // 12-point transect with a non-zero Xfactor / Yfactor, deliberately
     // asymmetric: the thalweg sits left of centre.
-    const QVector<double> st = { 0.0,  5.0, 10.0, 14.0, 18.0, 20.0,
+    const QVector<double> st = {0.0,  5.0,  10.0, 14.0, 18.0, 20.0,
                                 22.0, 26.0, 32.0, 40.0, 50.0, 60.0};
     const QVector<double> el = {812.0, 808.0, 804.0, 801.0, 799.5, 799.0,
                                 800.0, 802.5, 805.0, 807.0, 810.0, 813.0};
@@ -220,46 +227,40 @@ void TestChannelBurn::irregularKeepsTheAuthoredAsymmetry()
     QVERIFY(mesh::validateSection(g).isEmpty());
 
     QString err;
-    const mesh::NormalizedSection ns =
-        mesh::normalizeSection(g, burnOptions(), nullptr, &err);
+    const mesh::NormalizedSection ns = mesh::normalizeSection(g, burnOptions(), nullptr, &err);
     QVERIFY2(ns.isValid(), qPrintable(err));
 
     // The thalweg (station 20 × 1.5 = 30) becomes s = 0, and the section is
     // NOT symmetric about it — which is exactly what outline() would destroy.
     QVERIFY(std::abs(relZAt(ns, 0.0)) < 1e-12);
     QCOMPARE(ns.station.first(), -30.0);
-    QCOMPARE(ns.station.last(),   60.0);
+    QCOMPARE(ns.station.last(), 60.0);
     QVERIFY(std::abs(ns.sMin) < std::abs(ns.sMax));
     QVERIFY(std::abs(relZAt(ns, -6.0) - relZAt(ns, 6.0)) > 0.1);
 
     // The bank stations and the roughness triple survive the transform.
-    QCOMPARE(ns.leftBank,  xLeft  * xMul - 30.0);
+    QCOMPARE(ns.leftBank, xLeft * xMul - 30.0);
     QCOMPARE(ns.rightBank, xRight * xMul - 30.0);
-    QCOMPARE(ns.nChannel,  0.035);
+    QCOMPARE(ns.nChannel, 0.035);
 
     // Against the engine's own handle for the SAME transformed transect: the
     // top width is geometry, not a conveyance-weighted table, so it agrees to
     // table resolution at every depth.
     QVector<double> sx, sy;
-    for (int i = 0; i < st.size(); ++i)
-    {
+    for (int i = 0; i < st.size(); ++i) {
         sx.append(st[i] * xMul);
         sy.append(el[i] + yOff);
     }
     SWMM_XSect x = nullptr;
-    QCOMPARE(swmm_xsect_create_irregular(sx.constData(), sy.constData(), sx.size(),
-                                         xLeft * xMul, xRight * xMul,
-                                         0.06, 0.035, 0.07, 1.0,
-                                         SWMM_UNITS_US, &x),
+    QCOMPARE(swmm_xsect_create_irregular(sx.constData(), sy.constData(), sx.size(), xLeft * xMul,
+                                         xRight * xMul, 0.06, 0.035, 0.07, 1.0, SWMM_UNITS_US, &x),
              SWMM_OK);
 
     double yFull = 0.0, aFull = 0.0, rFull = 0.0, wMax = 0.0, sFull = 0.0, aMax = 0.0;
-    QCOMPARE(swmm_xsect_full_properties(x, &yFull, &aFull, &rFull, &wMax, &sFull, &aMax),
-             SWMM_OK);
+    QCOMPARE(swmm_xsect_full_properties(x, &yFull, &aFull, &rFull, &wMax, &sFull, &aMax), SWMM_OK);
     QVERIFY(yFull > 0.0);
 
-    for (int i = 2; i <= 10; ++i)
-    {
+    for (int i = 2; i <= 10; ++i) {
         const double d = yFull * double(i) / 10.0;
         double refW = 0.0;
         QCOMPARE(swmm_xsect_width_of_depth(x, d, &refW), SWMM_OK);
@@ -268,8 +269,8 @@ void TestChannelBurn::irregularKeepsTheAuthoredAsymmetry()
         // two table rows is read off the chord, so the tolerance is the table's,
         // not the geometry's.
         QVERIFY2(std::abs(gotW - refW) <= 2.0e-2 * std::max(1.0, refW),
-                 qPrintable(QStringLiteral("depth %1: width %2 vs engine %3")
-                                .arg(d).arg(gotW).arg(refW)));
+                 qPrintable(
+                     QStringLiteral("depth %1: width %2 vs engine %3").arg(d).arg(gotW).arg(refW)));
     }
     swmm_xsect_free(x);
 }

@@ -1,9 +1,14 @@
-/*!
- * \file   scalarfillsublayer.cpp
- * \brief  ScalarFillStyle + CellDepthFillSublayer + SmoothDepthFillSublayer.
+/**
+ * @file      scalarfillsublayer.cpp
+ * @brief     ScalarFillStyle + CellDepthFillSublayer + SmoothDepthFillSublayer.
  *         Geometry is built by SWMM2DResultsQSGRenderer (these sublayers, like
  *         the other mesh sublayers, defer node construction to the renderer).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "render/sublayers/scalarfillsublayer.h"
 
 #include <QJsonObject>
@@ -33,45 +38,95 @@ ScalarFillStyle::ScalarFillStyle(QObject *parent) : SublayerStyle(parent)
 }
 
 void ScalarFillStyle::setAttribute(const QString &v)
-{ if (m_attribute != v) { m_attribute = v; setDirty(); } }
+{
+    if (m_attribute != v) {
+        m_attribute = v;
+        setDirty();
+    }
+}
 
 void ScalarFillStyle::setClassified(bool v)
 {
     const auto want = v ? ClassificationScheme::ClassMode::Classified
                         : ClassificationScheme::ClassMode::Continuous;
-    if (m_scheme.mode() != want) { m_scheme.setMode(want); setDirty(); }
+    if (m_scheme.mode() != want) {
+        m_scheme.setMode(want);
+        setDirty();
+    }
 }
 
 void ScalarFillStyle::setBandCount(int v)
 {
-    if (v < 1) v = 1;
-    if (m_scheme.classCount() == v) return;
+    if (v < 1)
+        v = 1;
+    if (m_scheme.classCount() == v)
+        return;
     m_scheme.setClassCount(v);
     setDirty();
 }
 
 void ScalarFillStyle::setColorRampName(const QString &v)
-{ if (m_scheme.rampName()  != v) { m_scheme.setRampName(v);  setDirty(); } }
+{
+    if (m_scheme.rampName() != v) {
+        m_scheme.setRampName(v);
+        setDirty();
+    }
+}
 void ScalarFillStyle::setInvertRamp(bool v)
-{ if (m_scheme.invertRamp() != v) { m_scheme.setInvertRamp(v); setDirty(); } }
+{
+    if (m_scheme.invertRamp() != v) {
+        m_scheme.setInvertRamp(v);
+        setDirty();
+    }
+}
 void ScalarFillStyle::setLowColor(const QColor &v)
-{ if (m_scheme.lowColor()  != v) { m_scheme.setLowColor(v);  setDirty(); } }
+{
+    if (m_scheme.lowColor() != v) {
+        m_scheme.setLowColor(v);
+        setDirty();
+    }
+}
 void ScalarFillStyle::setHighColor(const QColor &v)
-{ if (m_scheme.highColor() != v) { m_scheme.setHighColor(v); setDirty(); } }
+{
+    if (m_scheme.highColor() != v) {
+        m_scheme.setHighColor(v);
+        setDirty();
+    }
+}
 void ScalarFillStyle::setUseCustomRange(bool v)
-{ if (m_scheme.useCustomRange() != v) { m_scheme.setUseCustomRange(v); setDirty(); } }
+{
+    if (m_scheme.useCustomRange() != v) {
+        m_scheme.setUseCustomRange(v);
+        setDirty();
+    }
+}
 void ScalarFillStyle::setRangeMin(double v)
-{ if (!qFuzzyCompare(m_scheme.rangeMin() + 1.0, v + 1.0)) { m_scheme.setRangeMin(v); setDirty(); } }
+{
+    if (!qFuzzyCompare(m_scheme.rangeMin() + 1.0, v + 1.0)) {
+        m_scheme.setRangeMin(v);
+        setDirty();
+    }
+}
 void ScalarFillStyle::setRangeMax(double v)
-{ if (!qFuzzyCompare(m_scheme.rangeMax() + 1.0, v + 1.0)) { m_scheme.setRangeMax(v); setDirty(); } }
+{
+    if (!qFuzzyCompare(m_scheme.rangeMax() + 1.0, v + 1.0)) {
+        m_scheme.setRangeMax(v);
+        setDirty();
+    }
+}
 
 void ScalarFillStyle::setScheme(const ClassificationScheme &s)
-{ if (m_scheme == s) return; m_scheme = s; setDirty(); }
+{
+    if (m_scheme == s)
+        return;
+    m_scheme = s;
+    setDirty();
+}
 
 QJsonObject ScalarFillStyle::toJson() const
 {
     QJsonObject obj;
-    obj.insert(QStringLiteral("attribute"),      m_attribute);
+    obj.insert(QStringLiteral("attribute"), m_attribute);
     obj.insert(QStringLiteral("classification"), m_scheme.toJson());
     return obj;
 }
@@ -80,25 +135,37 @@ void ScalarFillStyle::fromJson(const QJsonObject &j)
 {
     m_attribute = j.value(QStringLiteral("attribute")).toString(m_attribute);
     if (j.contains(QStringLiteral("classification")))
-        m_scheme = ClassificationScheme::fromJson(
-            j.value(QStringLiteral("classification")).toObject());
+        m_scheme =
+            ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
     setDirty();
 }
 
 // ---------------------------------------------------------------------------
 // Shared legend builder (continuous → 6-stop ramp; classified → bandCount).
 // ---------------------------------------------------------------------------
-namespace {
-QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style,
-                                        const QString &subId, qreal opacity)
+namespace
+{
+/** @brief Build a scalar-fill legend without access to frame samples.
+ * @param style Optional borrowed style; null yields an empty list.
+ * @param subId Identifier copied to every returned row.
+ * @param opacity Raw multiplier copied to every normal swatch, without clamping.
+ * @return Six continuous stops, scheme legend rows for custom sample-independent
+ * classified ranges, or class placeholders when numeric bounds are unavailable
+ * or require samples. Invalid custom classification yields one message-only row.
+ * Placeholder classes retain label overrides; no invented numeric ranges are used. */
+QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style, const QString &subId,
+                                        qreal opacity)
 {
     QList<LegendSymbolItem> out;
-    if (!style) return out;
+    if (!style)
+        return out;
     const auto &scheme = style->scheme();
     const bool haveRange = scheme.useCustomRange();
-    const bool dataDependent = scheme.method() == BinMethod::Quantile
-        || scheme.method() == BinMethod::NaturalBreaks || scheme.method() == BinMethod::StdDev;
-    const QString error = haveRange ? scheme.validationError(scheme.rangeMin(), scheme.rangeMax()) : QString();
+    const bool dataDependent = scheme.method() == BinMethod::Quantile ||
+                               scheme.method() == BinMethod::NaturalBreaks ||
+                               scheme.method() == BinMethod::StdDev;
+    const QString error =
+        haveRange ? scheme.validationError(scheme.rangeMin(), scheme.rangeMax()) : QString();
     if (!error.isEmpty()) {
         LegendSymbolItem item;
         item.sublayerId = subId;
@@ -125,12 +192,13 @@ QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style,
             color = scheme.colorForClass(i, n);
             item.userLabel = scheme.labelOverride(i);
             item.label = haveRange && dataDependent
-                ? QObject::tr("Class %1 (data-dependent bounds)").arg(i + 1)
-                : QObject::tr("Class %1 (range unavailable)").arg(i + 1);
+                             ? QObject::tr("Class %1 (data-dependent bounds)").arg(i + 1)
+                             : QObject::tr("Class %1 (range unavailable)").arg(i + 1);
         } else {
             const double fraction = double(i) / double(n - 1);
             if (haveRange) {
-                const double value = scheme.rangeMin() + (scheme.rangeMax() - scheme.rangeMin()) * fraction;
+                const double value =
+                    scheme.rangeMin() + (scheme.rangeMax() - scheme.rangeMin()) * fraction;
                 color = scheme.colorForValue(value, scheme.rangeMin(), scheme.rangeMax());
                 item.label = scheme.formatValue(value);
                 item.range = {value, value};
@@ -159,46 +227,66 @@ QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style,
 // CellDepthFillSublayer
 // ===========================================================================
 CellDepthFillSublayer::CellDepthFillSublayer(QString id_, QObject *parent)
-    : ISublayer(parent), m_id(std::move(id_)),
-      m_style(new ScalarFillStyle(this))
+    : ISublayer(parent), m_id(std::move(id_)), m_style(new ScalarFillStyle(this))
 {
     connect(m_style, &SublayerStyle::styleChanged, this, &ISublayer::invalidated);
 }
 void CellDepthFillSublayer::setVisible(bool v)
-{ if (m_visible == v) return; m_visible = v; emit invalidated(); }
+{
+    if (m_visible == v)
+        return;
+    m_visible = v;
+    emit invalidated();
+}
 void CellDepthFillSublayer::setOpacity(qreal o)
 {
     o = std::clamp<qreal>(o, 0.0, 1.0);
-    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0)) return;
-    m_opacity = o; emit invalidated();
+    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0))
+        return;
+    m_opacity = o;
+    emit invalidated();
 }
 QList<LegendSymbolItem> CellDepthFillSublayer::legendSymbolItems() const
-{ return buildFillLegend(m_style, m_id, m_opacity); }
-QSGNode *CellDepthFillSublayer::buildOrUpdateNode(QSGNode *existing,
-                                                  const SublayerContext &ctx)
-{ Q_UNUSED(ctx); return existing; }
+{
+    return buildFillLegend(m_style, m_id, m_opacity);
+}
+QSGNode *CellDepthFillSublayer::buildOrUpdateNode(QSGNode *existing, const SublayerContext &ctx)
+{
+    Q_UNUSED(ctx);
+    return existing;
+}
 
 // ===========================================================================
 // SmoothDepthFillSublayer
 // ===========================================================================
 SmoothDepthFillSublayer::SmoothDepthFillSublayer(QString id_, QObject *parent)
-    : ISublayer(parent), m_id(std::move(id_)),
-      m_style(new ScalarFillStyle(this))
+    : ISublayer(parent), m_id(std::move(id_)), m_style(new ScalarFillStyle(this))
 {
     connect(m_style, &SublayerStyle::styleChanged, this, &ISublayer::invalidated);
 }
 void SmoothDepthFillSublayer::setVisible(bool v)
-{ if (m_visible == v) return; m_visible = v; emit invalidated(); }
+{
+    if (m_visible == v)
+        return;
+    m_visible = v;
+    emit invalidated();
+}
 void SmoothDepthFillSublayer::setOpacity(qreal o)
 {
     o = std::clamp<qreal>(o, 0.0, 1.0);
-    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0)) return;
-    m_opacity = o; emit invalidated();
+    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0))
+        return;
+    m_opacity = o;
+    emit invalidated();
 }
 QList<LegendSymbolItem> SmoothDepthFillSublayer::legendSymbolItems() const
-{ return buildFillLegend(m_style, m_id, m_opacity); }
-QSGNode *SmoothDepthFillSublayer::buildOrUpdateNode(QSGNode *existing,
-                                                    const SublayerContext &ctx)
-{ Q_UNUSED(ctx); return existing; }
+{
+    return buildFillLegend(m_style, m_id, m_opacity);
+}
+QSGNode *SmoothDepthFillSublayer::buildOrUpdateNode(QSGNode *existing, const SublayerContext &ctx)
+{
+    Q_UNUSED(ctx);
+    return existing;
+}
 
 } // namespace OpenSWMM::Render

@@ -1,11 +1,13 @@
-/*!
- * \file   test_multikindrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_multikindrenderer.cpp
+ * @brief     Tests for multikindrenderer.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BI-MK.1 Phase 8.13.40 — unit tests for MultiKindRenderer.
  * Self-contained: pulls in only the render/*.cpp sources via CMakeLists.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/multikindrenderer.h"
@@ -27,7 +29,8 @@
 
 using namespace OpenSWMM::Render;
 
-namespace {
+namespace
+{
 
 // Build a SingleSymbolRenderer with a single SimpleMarker symbol layer
 // whose colour key carries the supplied hex string. Tests use this to
@@ -48,7 +51,8 @@ QString firstColor(const SymbolStyle &style)
 {
     for (const SymbolLayer &sl : style.layers) {
         const auto it = sl.props.constFind(QStringLiteral("color"));
-        if (it != sl.props.constEnd()) return it.value().toString();
+        if (it != sl.props.constEnd())
+            return it.value().toString();
     }
     return {};
 }
@@ -56,7 +60,7 @@ QString firstColor(const SymbolStyle &style)
 FeatureRef featureWithKind(const QString &kind, int index = 0)
 {
     FeatureRef f;
-    f.layerId      = QStringLiteral("test-layer");
+    f.layerId = QStringLiteral("test-layer");
     f.featureIndex = index;
     f.categoryHint = kind;
     return f;
@@ -116,7 +120,7 @@ private slots:
     {
         MultiKindRenderer r;
         r.setRendererFor(QStringLiteral("Junctions"), makeColored(QStringLiteral("#aabbcc")));
-        r.setRendererFor(QStringLiteral("Conduits"),  makeColored(QStringLiteral("#ddeeff")));
+        r.setRendererFor(QStringLiteral("Conduits"), makeColored(QStringLiteral("#ddeeff")));
 
         const SymbolStyle j = r.symbolFor(featureWithKind(QStringLiteral("Junctions")), {});
         const SymbolStyle c = r.symbolFor(featureWithKind(QStringLiteral("Conduits")), {});
@@ -151,7 +155,7 @@ private slots:
     {
         MultiKindRenderer r;
         r.setFallback(makeColored(QStringLiteral("#aaaaaa")));
-        r.setFallback(nullptr);  // contract: null is silently ignored
+        r.setFallback(nullptr); // contract: null is silently ignored
         QVERIFY(r.fallback() != nullptr);
         QCOMPARE(firstColor(r.symbolFor(featureWithKind(QStringLiteral("foo")), {})),
                  QStringLiteral("#aaaaaa"));
@@ -162,9 +166,9 @@ private slots:
     void kinds_returnsSortedKeys()
     {
         MultiKindRenderer r;
-        r.setRendererFor(QStringLiteral("Conduits"),     makeColored(QStringLiteral("#000001")));
-        r.setRendererFor(QStringLiteral("Junctions"),    makeColored(QStringLiteral("#000002")));
-        r.setRendererFor(QStringLiteral("Subcatchments"),makeColored(QStringLiteral("#000003")));
+        r.setRendererFor(QStringLiteral("Conduits"), makeColored(QStringLiteral("#000001")));
+        r.setRendererFor(QStringLiteral("Junctions"), makeColored(QStringLiteral("#000002")));
+        r.setRendererFor(QStringLiteral("Subcatchments"), makeColored(QStringLiteral("#000003")));
 
         const auto k = r.kinds();
         QCOMPARE(k.size(), size_t(3));
@@ -180,14 +184,13 @@ private slots:
         MultiKindRenderer r;
         r.setRendererFor(QStringLiteral("Junctions"),
                          makeColored(QStringLiteral("#aabbcc"), QStringLiteral("Inflow Pt")));
-        r.setRendererFor(QStringLiteral("Conduits"),
-                         makeColored(QStringLiteral("#ddeeff")));
+        r.setRendererFor(QStringLiteral("Conduits"), makeColored(QStringLiteral("#ddeeff")));
 
         const auto items = r.legendSymbolItems();
         QCOMPARE(items.size(), 2);
 
         // Sorted: "Conduits" first, "Junctions" second.
-        QCOMPARE(items[0].userLabel, QStringLiteral("Conduits"));   // inner label was empty
+        QCOMPARE(items[0].userLabel, QStringLiteral("Conduits")); // inner label was empty
         QCOMPARE(items[1].userLabel, QStringLiteral("Junctions / Inflow Pt"));
     }
 
@@ -197,7 +200,7 @@ private slots:
     {
         MultiKindRenderer a;
         a.setRendererFor(QStringLiteral("Junctions"), makeColored(QStringLiteral("#aabbcc")));
-        a.setRendererFor(QStringLiteral("Conduits"),  makeColored(QStringLiteral("#ddeeff")));
+        a.setRendererFor(QStringLiteral("Conduits"), makeColored(QStringLiteral("#ddeeff")));
         a.setFallback(makeColored(QStringLiteral("#112233")));
 
         const QJsonObject j = a.toJson();
@@ -219,7 +222,7 @@ private slots:
     void fromJson_emptyOrMalformed_silentDefaults()
     {
         MultiKindRenderer r;
-        r.fromJson(QJsonObject{});            // empty JSON → no kinds, default fallback
+        r.fromJson(QJsonObject{}); // empty JSON → no kinds, default fallback
         QCOMPARE(r.kindCount(), 0);
         QVERIFY(r.fallback() != nullptr);
         QCOMPARE(r.fallback()->rendererId(), QStringLiteral("single"));
@@ -236,7 +239,7 @@ private slots:
         root.insert(QStringLiteral("id"), QStringLiteral("multikind"));
         root.insert(QStringLiteral("kinds"), kindsObj);
         r.fromJson(root);
-        QCOMPARE(r.kindCount(), 0);   // unknown id factories to nullptr, entry skipped
+        QCOMPARE(r.kindCount(), 0); // unknown id factories to nullptr, entry skipped
     }
 
     // ---- Clone independence ----------------------------------------------
@@ -248,7 +251,7 @@ private slots:
         a.setFallback(makeColored(QStringLiteral("#112233")));
 
         auto bUp = a.clone();
-        auto *b  = dynamic_cast<MultiKindRenderer *>(bUp.get());
+        auto *b = dynamic_cast<MultiKindRenderer *>(bUp.get());
         QVERIFY(b);
         QCOMPARE(b->kindCount(), 1);
 

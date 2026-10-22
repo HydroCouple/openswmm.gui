@@ -1,7 +1,12 @@
-/*!
- * \file   test_timeseries_registry.cpp
- * \brief  Slice BQ Phase 6.7.3.2 — registry uniqueness + lifecycle signals.
+/**
+ * @file      test_timeseries_registry.cpp
+ * @brief     Slice BQ Phase 6.7.3.2 — registry uniqueness + lifecycle signals.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include "timeseries/timeseriesprovider.h"
@@ -12,6 +17,11 @@
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 
+/**
+ *
+ * @brief Reject empty series name without creating a provider.
+ *
+ */
 TEST(TimeseriesRegistry, CreateEmptyNameReturnsNull)
 {
     TimeseriesRegistry reg;
@@ -19,6 +29,12 @@ TEST(TimeseriesRegistry, CreateEmptyNameReturnsNull)
     EXPECT_EQ(reg.providerCount(), 0);
 }
 
+/**
+ *
+ * @brief Require successful provider creation to add exactly one row and emit one addition
+ * signal.
+ *
+ */
 TEST(TimeseriesRegistry, CreateEmitsProviderAdded)
 {
     TimeseriesRegistry reg;
@@ -29,6 +45,11 @@ TEST(TimeseriesRegistry, CreateEmitsProviderAdded)
     EXPECT_EQ(spy.count(), 1);
 }
 
+/**
+ *
+ * @brief Reject exact and case-only duplicate names while retaining one registered provider.
+ *
+ */
 TEST(TimeseriesRegistry, CreateRejectsDuplicateNameCaseInsensitive)
 {
     TimeseriesRegistry reg;
@@ -38,6 +59,11 @@ TEST(TimeseriesRegistry, CreateRejectsDuplicateNameCaseInsensitive)
     EXPECT_EQ(reg.providerCount(), 1);
 }
 
+/**
+ *
+ * @brief Resolve existing series in either case and return null for a different name.
+ *
+ */
 TEST(TimeseriesRegistry, FindByNameIsCaseInsensitive)
 {
     TimeseriesRegistry reg;
@@ -47,6 +73,11 @@ TEST(TimeseriesRegistry, FindByNameIsCaseInsensitive)
     EXPECT_EQ(reg.findByName(QStringLiteral("rain_b")), nullptr);
 }
 
+/**
+ *
+ * @brief Reject case-insensitive collision on rename and retain the old provider name.
+ *
+ */
 TEST(TimeseriesRegistry, RenameRejectsCollision)
 {
     TimeseriesRegistry reg;
@@ -57,6 +88,11 @@ TEST(TimeseriesRegistry, RenameRejectsCollision)
     EXPECT_EQ(a->name(), QStringLiteral("A"));
 }
 
+/**
+ *
+ * @brief Permit case-only rename while preserving case-insensitive lookup identity.
+ *
+ */
 TEST(TimeseriesRegistry, RenameSameNameDifferentCaseSucceeds)
 {
     TimeseriesRegistry reg;
@@ -66,6 +102,11 @@ TEST(TimeseriesRegistry, RenameSameNameDifferentCaseSucceeds)
     EXPECT_EQ(reg.findByName(QStringLiteral("RAIN_A")), a);
 }
 
+/**
+ *
+ * @brief Require a successful rename to remove the old key and resolve the new key.
+ *
+ */
 TEST(TimeseriesRegistry, RenameUpdatesLookupIndex)
 {
     TimeseriesRegistry reg;
@@ -75,6 +116,12 @@ TEST(TimeseriesRegistry, RenameUpdatesLookupIndex)
     EXPECT_EQ(reg.findByName(QStringLiteral("X")), a);
 }
 
+/**
+ *
+ * @brief Require direct provider rename to emit registry notification and update both lookup
+ * keys.
+ *
+ */
 TEST(TimeseriesRegistry, DirectSetNameStillReachesProviderRenamedSignal)
 {
     TimeseriesRegistry reg;
@@ -87,6 +134,11 @@ TEST(TimeseriesRegistry, DirectSetNameStillReachesProviderRenamedSignal)
     EXPECT_EQ(reg.findByName(QStringLiteral("Y")), a);
 }
 
+/**
+ *
+ * @brief Require removal notification, zero remaining providers and absence of the old lookup.
+ *
+ */
 TEST(TimeseriesRegistry, RemoveEmitsAboutToBeRemovedAndDrops)
 {
     TimeseriesRegistry reg;
@@ -109,9 +161,16 @@ TEST(TimeseriesRegistry, RemoveEmitsAboutToBeRemovedAndDrops)
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_tables.h>
 
+/**
+ *
+ * @brief Round-trip mixed relative-prefix count and UTC anchor through an owned test engine.
+ * Requires relative metadata to survive table clear/re-add; invalid anchor downgrades
+ * saved series to absolute with zero count/anchor. Test destroys engine on success.
+ *
+ */
 TEST(TimeseriesRegistryEngine, RelativeInfoRoundTripsThroughLoadAndSave)
 {
-    SWMM_Engine eng = swmm_engine_new();   // BUILDING state
+    SWMM_Engine eng = swmm_engine_new(); // BUILDING state
     ASSERT_NE(eng, nullptr);
 
     // Series with 2 relative head rows + 1 dated row (a loaded Mixed form).

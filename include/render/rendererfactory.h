@@ -1,9 +1,9 @@
-/*!
- * \file   rendererfactory.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  One renderer construction path, archetype-seeded (gap A1.3).
+/**
+ * @file      rendererfactory.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     One renderer construction path, archetype-seeded (gap A1.3).
  *
  *         Historically four call sites constructed renderers when the
  *         user (or a default) picked a renderer class — SymbologyTab's
@@ -18,6 +18,7 @@
  *         renderer leaves it with an archetype-appropriate, fully-keyed
  *         base/fallback symbol and (when resolvable) a seeded classify
  *         attribute.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_RENDERERFACTORY_H
@@ -43,23 +44,29 @@ namespace RendererFactory
 /*! Fully-keyed default SymbolStyle for an archetype, built from the typed
  *  spec defaults (MarkerSymbolLayerSpec / LineSymbolLayerSpec /
  *  FillSymbolLayerSpec). Guarantees every grammar colour/size/width slot
- *  exists so per-class and per-bin overrides always have a slot to write. */
-[[nodiscard]] SymbolStyle defaultSymbolForArchetype(
-    FeatureSublayer::Archetype archetype);
+ *  exists so per-class and per-bin overrides always have a slot to write.
+ * @param archetype Point, Line or Polygon geometry family.
+ * @return Owned one-pass default symbol; unknown enum values produce an empty stack. */
+[[nodiscard]] SymbolStyle defaultSymbolForArchetype(FeatureSublayer::Archetype archetype);
 
 /*! Infer the archetype from a symbol's first layer kind (SimpleMarker →
  *  Point, SimpleLine/MarkerLine → Line, SimpleFill/HatchFill/PatternFill →
  *  Polygon). Used by contexts that hold a renderer but no category (e.g.
  *  Rule::setRendererById). Returns \a fallback when the style is empty or
- *  the kind is not a vector-feature kind. */
-[[nodiscard]] FeatureSublayer::Archetype archetypeFromSymbol(
-    const SymbolStyle &style,
-    FeatureSublayer::Archetype fallback = FeatureSublayer::Archetype::Point);
+ *  the kind is not a vector-feature kind.
+ * @param style Style inspected without mutation; only its first pass is considered.
+ * @param fallback Geometry family returned for empty/unrecognized first-pass kinds.
+ * @return Inferred family; SVG and font markers also select Point. */
+[[nodiscard]] FeatureSublayer::Archetype
+archetypeFromSymbol(const SymbolStyle &style,
+                    FeatureSublayer::Archetype fallback = FeatureSublayer::Archetype::Point);
 
 /*! The base/fallback symbol a renderer would carry into a class swap
  *  (SingleSymbol → symbol(), Graduated/Unclassed → baseSymbol(),
  *  Categorized/RuleBased → fallbackSymbol()). Empty style for nullptr or
- *  renderer classes without a base-symbol concept. */
+ *  renderer classes without a base-symbol concept.
+ * @param renderer Optional borrowed renderer, inspected by concrete dynamic type.
+ * @return Owned copy of its base/fallback template, or empty for null/unsupported types. */
 [[nodiscard]] SymbolStyle baseSymbolOf(const IFeatureRenderer *renderer);
 
 /*!
@@ -78,12 +85,15 @@ namespace RendererFactory
  *                    when \a previous has none: Graduated/Unclassed prefer
  *                    the first non-string field, Categorized prefers the
  *                    first string field.
+ * @return Sole ownership of the new renderer, or nullptr for an unknown exact
+ * case-sensitive ID. Carries only a compatible base symbol/attribute, not bins,
+ * categories, rules, channel settings or other renderer-specific state. Neither
+ * previous nor fields is retained or mutated; single-mode legend labels reset.
  */
-[[nodiscard]] std::unique_ptr<IFeatureRenderer> makeRenderer(
-    const QString &rendererId,
-    FeatureSublayer::Archetype archetype,
-    const IFeatureRenderer *previous = nullptr,
-    const QVector<AttributeField> *fields = nullptr);
+[[nodiscard]] std::unique_ptr<IFeatureRenderer>
+makeRenderer(const QString &rendererId, FeatureSublayer::Archetype archetype,
+             const IFeatureRenderer *previous = nullptr,
+             const QVector<AttributeField> *fields = nullptr);
 
 } // namespace RendererFactory
 

@@ -1,18 +1,19 @@
-/*!
- * \file   test_linesymbollayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.5 — Line Symbol Layer + arrow spec.
+/**
+ * @file      test_linesymbollayer.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.5 — Line Symbol Layer + arrow spec.
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.5):
- *           - All Qt::PenStyle / PenCapStyle / PenJoinStyle combos
+ *           - Representative Qt pen/cap/join styles and typed fields
  *             round-trip through SymbolLayer.
  *           - All 5 arrow placement modes round-trip through string.
- *           - drawArrowsAlongPolyline places arrows at the expected
- *             arc-length positions for each placement mode.
+ *           - Arrow placement produces representative pixel coverage;
+ *             end/both/centred cases also check coarse spatial distribution.
  *           - Custom dash patterns survive round-trip.
  *           - Reverse flag flips arrow direction.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QImage>
@@ -32,52 +33,184 @@ class TestLineSymbolLayer : public QObject
 
 private slots:
     // ArrowPlacement enum
+    /**
+     *
+     * @brief Require all five arrow placement modes to have nonempty reversible string tokens.
+     *
+     */
     void arrowPlacement_allValuesRoundTripThroughString();
+    /**
+     *
+     * @brief Require an unknown arrow-placement token to resolve to End.
+     *
+     */
     void arrowPlacement_unknownStringFallsBackToEnd();
 
     // QPen composition
+    /**
+     *
+     * @brief Require line color, fractional logical-pixel width, dash style, cap and join to
+     * compose into QPen.
+     *
+     */
     void toQPen_composesEveryField();
+    /**
+     *
+     * @brief Require explicit custom dash lengths to populate QPen when custom style is selected.
+     *
+     */
     void toQPen_customDashAppliedWhenStyleIsCustomDashLine();
+    /**
+     *
+     * @brief Require a stored dash pattern not to override SolidLine style.
+     *
+     */
     void toQPen_customDashIgnoredWhenStyleIsSolid();
+    /**
+     *
+     * @brief Pin current empty-pattern behavior: QPen retains CustomDashLine style without
+     * crashing.
+     * Despite the method name this does not require a SolidLine fallback.
+     *
+     */
     void toQPen_emptyCustomDashFallsBackToSolid();
 
     // SymbolLayer round-trip
+    /**
+     *
+     * @brief Require drawArrows to select MarkerLine kind and ordinary stroke to select
+     * SimpleLine.
+     *
+     */
     void spec_toSymbolLayerSetsCorrectKind();
+    /**
+     *
+     * @brief Require typed line color/width/style/cap/join/offset to write canonical properties.
+     *
+     */
     void spec_toSymbolLayerWritesAllCanonicalProps();
+    /**
+     *
+     * @brief Round-trip all assigned line fields, custom dash and nested arrow
+     * color/dimensions/placement/spacing/reversal.
+     *
+     */
     void spec_roundTripPreservesEveryField();
+    /**
+     *
+     * @brief Require explicit width to survive while absent color/style/cap fields use defaults.
+     *
+     */
     void spec_partialPropsFallBackToDefaults();
+    /**
+     *
+     * @brief Require a six-element fractional custom dash vector to round-trip unchanged.
+     *
+     */
     void spec_dashPatternRoundTripPreservesValues();
+    /**
+     *
+     * @brief Require repeated-arrow placement, pixel spacing and reverse flag to survive typed
+     * conversion.
+     *
+     */
     void spec_arrowSubSpecRoundTrips();
 
     // Arrow painting
+    /**
+     *
+     * @brief Require zero-length arrows to leave the transparent fixture unchanged.
+     *
+     */
     void drawArrows_zeroLengthIsNoop();
+    /**
+     *
+     * @brief Require empty polyline arrow drawing to paint no pixels.
+     *
+     */
     void drawArrows_emptyPolylineIsNoop();
+    /**
+     *
+     * @brief Require one-point polyline arrow drawing to paint no pixels.
+     *
+     */
     void drawArrows_singleVertexPolylineIsNoop();
+    /**
+     *
+     * @brief Require nontrivial arrow pixels concentrated in the end half at over ten times the
+     * start-half count.
+     *
+     */
     void drawArrows_endPlacementPaintsOneArrowNearEnd();
+    /**
+     *
+     * @brief Require more than five nontransparent pixels in each outer image quarter for Both
+     * placement.
+     *
+     */
     void drawArrows_bothPlacementPaintsArrowsNearBothEnds();
+    /**
+     *
+     * @brief Require centered arrow pixels to concentrate in a 40-pixel midpoint band at over
+     * five times outside count.
+     *
+     */
     void drawArrows_centeredPlacementPaintsNearMidpoint();
+    /**
+     *
+     * @brief Require repeated placement to paint more than eighty pixels.
+     * This case does not measure individual arrow count, cluster positions or exact spacing.
+     *
+     */
     void drawArrows_repeatPlacementSpacesArrowsAlongLine();
+    /**
+     *
+     * @brief Require interior-vertex placement on a four-point line to paint more than twenty
+     * pixels; positions are not separately measured.
+     *
+     */
     void drawArrows_atVerticesPaintsAtInteriorVertices();
+    /**
+     *
+     * @brief Require forward/reversed end arrows to produce different raster images.
+     *
+     */
     void drawArrows_reverseFlagChangesPixelCoverage();
 
 private:
-    static int    nonTransparentPixelCount(const QImage &img);
-    static QImage paintArrows(const QPolygonF &poly,
-                              const LineArrowSpec &spec,
-                              int w = 200, int h = 100);
+    /**
+     *
+     * @brief Count alpha-bearing pixels in a controlled 32-bit image.
+     * @param img Borrowed QRgb-compatible image, normally ARGB32_Premultiplied; no format
+     * conversion or validation.
+     * @return Count of pixels with alpha>0, fitting int for these small fixtures. Reads
+     * scanlines without mutation; no spatial clustering or alpha-weighted area analysis.
+     *
+     */
+    static int nonTransparentPixelCount(const QImage &img);
+    /**
+     *
+     * @brief Render production arrows into a transparent fixture raster.
+     * @param poly Borrowed polyline in logical-pixel coordinates; invalid/short inputs
+     * are deliberately passed to production handling.
+     * @param spec Borrowed arrow style, dimensions and placement policy.
+     * @param w Positive output width in pixels, default 200.
+     * @param h Positive height in pixels, default 100.
+     * @return Owned ARGB32_Premultiplied image after painter completion. Does not save/
+     * upload pixels, validate allocation or draw the underlying stroke.
+     *
+     */
+    static QImage paintArrows(const QPolygonF &poly, const LineArrowSpec &spec, int w = 200,
+                              int h = 100);
 };
 
 // ── ArrowPlacement enum ─────────────────────────────────────────────
 
 void TestLineSymbolLayer::arrowPlacement_allValuesRoundTripThroughString()
 {
-    const ArrowPlacement all[] = {
-        ArrowPlacement::End,
-        ArrowPlacement::Both,
-        ArrowPlacement::Centered,
-        ArrowPlacement::RepeatEveryNPx,
-        ArrowPlacement::AtVertices
-    };
+    const ArrowPlacement all[] = {ArrowPlacement::End, ArrowPlacement::Both,
+                                  ArrowPlacement::Centered, ArrowPlacement::RepeatEveryNPx,
+                                  ArrowPlacement::AtVertices};
     for (ArrowPlacement p : all) {
         const QString tok = arrowPlacementToString(p);
         QVERIFY(!tok.isEmpty());
@@ -87,8 +220,7 @@ void TestLineSymbolLayer::arrowPlacement_allValuesRoundTripThroughString()
 
 void TestLineSymbolLayer::arrowPlacement_unknownStringFallsBackToEnd()
 {
-    QCOMPARE(arrowPlacementFromString(QStringLiteral("nonexistent")),
-             ArrowPlacement::End);
+    QCOMPARE(arrowPlacementFromString(QStringLiteral("nonexistent")), ArrowPlacement::End);
 }
 
 // ── QPen composition ────────────────────────────────────────────────
@@ -96,10 +228,10 @@ void TestLineSymbolLayer::arrowPlacement_unknownStringFallsBackToEnd()
 void TestLineSymbolLayer::toQPen_composesEveryField()
 {
     LineSymbolLayerSpec s;
-    s.color     = QColor(10, 20, 30);
-    s.width     = 2.5;
-    s.penStyle  = Qt::DashDotLine;
-    s.capStyle  = Qt::RoundCap;
+    s.color = QColor(10, 20, 30);
+    s.width = 2.5;
+    s.penStyle = Qt::DashDotLine;
+    s.capStyle = Qt::RoundCap;
     s.joinStyle = Qt::MiterJoin;
 
     const QPen pen = s.toQPen();
@@ -114,7 +246,7 @@ void TestLineSymbolLayer::toQPen_customDashAppliedWhenStyleIsCustomDashLine()
 {
     LineSymbolLayerSpec s;
     s.penStyle = Qt::CustomDashLine;
-    s.customDash = { 5.0, 2.0, 1.0, 2.0 };
+    s.customDash = {5.0, 2.0, 1.0, 2.0};
     const QPen pen = s.toQPen();
     QCOMPARE(pen.style(), Qt::CustomDashLine);
     QCOMPARE(pen.dashPattern(), QVector<qreal>({5.0, 2.0, 1.0, 2.0}));
@@ -124,7 +256,7 @@ void TestLineSymbolLayer::toQPen_customDashIgnoredWhenStyleIsSolid()
 {
     LineSymbolLayerSpec s;
     s.penStyle = Qt::SolidLine;
-    s.customDash = { 5.0, 2.0 };
+    s.customDash = {5.0, 2.0};
     const QPen pen = s.toQPen();
     QCOMPARE(pen.style(), Qt::SolidLine);
 }
@@ -133,7 +265,7 @@ void TestLineSymbolLayer::toQPen_emptyCustomDashFallsBackToSolid()
 {
     LineSymbolLayerSpec s;
     s.penStyle = Qt::CustomDashLine;
-    s.customDash = {};  // empty
+    s.customDash = {}; // empty
     const QPen pen = s.toQPen();
     // Falls back to penStyle's literal value (CustomDashLine); the
     // default pattern is applied implicitly. Just check no crash + style
@@ -155,19 +287,17 @@ void TestLineSymbolLayer::spec_toSymbolLayerSetsCorrectKind()
 void TestLineSymbolLayer::spec_toSymbolLayerWritesAllCanonicalProps()
 {
     LineSymbolLayerSpec s;
-    s.color     = QColor(99, 88, 77);
-    s.width     = 3.0;
-    s.penStyle  = Qt::DotLine;
-    s.capStyle  = Qt::SquareCap;
+    s.color = QColor(99, 88, 77);
+    s.width = 3.0;
+    s.penStyle = Qt::DotLine;
+    s.capStyle = Qt::SquareCap;
     s.joinStyle = Qt::RoundJoin;
-    s.offsetPx  = 2.5;
+    s.offsetPx = 2.5;
 
     SymbolLayer layer = s.toSymbolLayer();
-    QCOMPARE(layer.props.value(QStringLiteral("color")).value<QColor>(),
-             QColor(99, 88, 77));
+    QCOMPARE(layer.props.value(QStringLiteral("color")).value<QColor>(), QColor(99, 88, 77));
     QCOMPARE(layer.props.value(QStringLiteral("width")).toDouble(), 3.0);
-    QCOMPARE(layer.props.value(QStringLiteral("penStyle")).toInt(),
-             static_cast<int>(Qt::DotLine));
+    QCOMPARE(layer.props.value(QStringLiteral("penStyle")).toInt(), static_cast<int>(Qt::DotLine));
     QCOMPARE(layer.props.value(QStringLiteral("capStyle")).toInt(),
              static_cast<int>(Qt::SquareCap));
     QCOMPARE(layer.props.value(QStringLiteral("joinStyle")).toInt(),
@@ -178,38 +308,38 @@ void TestLineSymbolLayer::spec_toSymbolLayerWritesAllCanonicalProps()
 void TestLineSymbolLayer::spec_roundTripPreservesEveryField()
 {
     LineSymbolLayerSpec s;
-    s.color     = QColor(12, 34, 56);
-    s.width     = 1.75;
-    s.penStyle  = Qt::DashLine;
-    s.capStyle  = Qt::RoundCap;
+    s.color = QColor(12, 34, 56);
+    s.width = 1.75;
+    s.penStyle = Qt::DashLine;
+    s.capStyle = Qt::RoundCap;
     s.joinStyle = Qt::MiterJoin;
-    s.customDash = { 3.0, 2.0 };
-    s.offsetPx  = -1.5;
+    s.customDash = {3.0, 2.0};
+    s.offsetPx = -1.5;
     s.drawArrows = true;
-    s.arrows.color     = QColor(255, 0, 0);
-    s.arrows.lengthPx  = 12.0;
-    s.arrows.widthPx   = 9.0;
+    s.arrows.color = QColor(255, 0, 0);
+    s.arrows.lengthPx = 12.0;
+    s.arrows.widthPx = 9.0;
     s.arrows.placement = ArrowPlacement::Centered;
     s.arrows.spacingPx = 33.0;
-    s.arrows.reverse   = true;
+    s.arrows.reverse = true;
 
     SymbolLayer layer = s.toSymbolLayer();
     LineSymbolLayerSpec back = LineSymbolLayerSpec::fromSymbolLayer(layer);
 
-    QCOMPARE(back.color,     s.color);
-    QCOMPARE(back.width,     s.width);
-    QCOMPARE(back.penStyle,  s.penStyle);
-    QCOMPARE(back.capStyle,  s.capStyle);
+    QCOMPARE(back.color, s.color);
+    QCOMPARE(back.width, s.width);
+    QCOMPARE(back.penStyle, s.penStyle);
+    QCOMPARE(back.capStyle, s.capStyle);
     QCOMPARE(back.joinStyle, s.joinStyle);
     QCOMPARE(back.customDash, s.customDash);
-    QCOMPARE(back.offsetPx,  s.offsetPx);
+    QCOMPARE(back.offsetPx, s.offsetPx);
     QCOMPARE(back.drawArrows, s.drawArrows);
-    QCOMPARE(back.arrows.color,     s.arrows.color);
-    QCOMPARE(back.arrows.lengthPx,  s.arrows.lengthPx);
-    QCOMPARE(back.arrows.widthPx,   s.arrows.widthPx);
+    QCOMPARE(back.arrows.color, s.arrows.color);
+    QCOMPARE(back.arrows.lengthPx, s.arrows.lengthPx);
+    QCOMPARE(back.arrows.widthPx, s.arrows.widthPx);
     QCOMPARE(back.arrows.placement, s.arrows.placement);
     QCOMPARE(back.arrows.spacingPx, s.arrows.spacingPx);
-    QCOMPARE(back.arrows.reverse,   s.arrows.reverse);
+    QCOMPARE(back.arrows.reverse, s.arrows.reverse);
 }
 
 void TestLineSymbolLayer::spec_partialPropsFallBackToDefaults()
@@ -221,7 +351,7 @@ void TestLineSymbolLayer::spec_partialPropsFallBackToDefaults()
     LineSymbolLayerSpec back = LineSymbolLayerSpec::fromSymbolLayer(layer);
     QCOMPARE(back.width, 4.0);
     LineSymbolLayerSpec defaults;
-    QCOMPARE(back.color,    defaults.color);
+    QCOMPARE(back.color, defaults.color);
     QCOMPARE(back.penStyle, defaults.penStyle);
     QCOMPARE(back.capStyle, defaults.capStyle);
 }
@@ -230,7 +360,7 @@ void TestLineSymbolLayer::spec_dashPatternRoundTripPreservesValues()
 {
     LineSymbolLayerSpec s;
     s.penStyle = Qt::CustomDashLine;
-    s.customDash = { 8.5, 3.5, 1.0, 1.5, 4.0, 2.0 };
+    s.customDash = {8.5, 3.5, 1.0, 1.5, 4.0, 2.0};
 
     SymbolLayer layer = s.toSymbolLayer();
     LineSymbolLayerSpec back = LineSymbolLayerSpec::fromSymbolLayer(layer);
@@ -243,13 +373,13 @@ void TestLineSymbolLayer::spec_arrowSubSpecRoundTrips()
     s.drawArrows = true;
     s.arrows.placement = ArrowPlacement::RepeatEveryNPx;
     s.arrows.spacingPx = 50.0;
-    s.arrows.reverse   = true;
+    s.arrows.reverse = true;
 
     SymbolLayer layer = s.toSymbolLayer();
     LineSymbolLayerSpec back = LineSymbolLayerSpec::fromSymbolLayer(layer);
     QCOMPARE(back.arrows.placement, ArrowPlacement::RepeatEveryNPx);
     QCOMPARE(back.arrows.spacingPx, 50.0);
-    QCOMPARE(back.arrows.reverse,   true);
+    QCOMPARE(back.arrows.reverse, true);
 }
 
 // ── Arrow paint ─────────────────────────────────────────────────────
@@ -266,9 +396,8 @@ int TestLineSymbolLayer::nonTransparentPixelCount(const QImage &img)
     return count;
 }
 
-QImage TestLineSymbolLayer::paintArrows(const QPolygonF &poly,
-                                         const LineArrowSpec &spec,
-                                         int w, int h)
+QImage TestLineSymbolLayer::paintArrows(const QPolygonF &poly, const LineArrowSpec &spec, int w,
+                                        int h)
 {
     QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
@@ -309,7 +438,7 @@ void TestLineSymbolLayer::drawArrows_endPlacementPaintsOneArrowNearEnd()
     LineArrowSpec s;
     s.placement = ArrowPlacement::End;
     s.lengthPx = 12.0;
-    s.widthPx  = 10.0;
+    s.widthPx = 10.0;
     QPolygonF poly;
     poly << QPointF(10, 50) << QPointF(190, 50);
 
@@ -322,8 +451,10 @@ void TestLineSymbolLayer::drawArrows_endPlacementPaintsOneArrowNearEnd()
         const QRgb *row = reinterpret_cast<const QRgb *>(img.scanLine(y));
         for (int x = 0; x < img.width(); ++x) {
             if (qAlpha(row[x]) > 0) {
-                if (x < img.width() / 2) ++leftHalf;
-                else                     ++rightHalf;
+                if (x < img.width() / 2)
+                    ++leftHalf;
+                else
+                    ++rightHalf;
             }
         }
     }
@@ -336,7 +467,7 @@ void TestLineSymbolLayer::drawArrows_bothPlacementPaintsArrowsNearBothEnds()
     LineArrowSpec s;
     s.placement = ArrowPlacement::Both;
     s.lengthPx = 12.0;
-    s.widthPx  = 10.0;
+    s.widthPx = 10.0;
     QPolygonF poly;
     poly << QPointF(10, 50) << QPointF(190, 50);
 
@@ -346,13 +477,14 @@ void TestLineSymbolLayer::drawArrows_bothPlacementPaintsArrowsNearBothEnds()
         const QRgb *row = reinterpret_cast<const QRgb *>(img.scanLine(y));
         for (int x = 0; x < img.width(); ++x) {
             if (qAlpha(row[x]) > 0) {
-                if (x < img.width() / 4)        ++leftQuarter;
-                else if (x > 3 * img.width() / 4) ++rightQuarter;
+                if (x < img.width() / 4)
+                    ++leftQuarter;
+                else if (x > 3 * img.width() / 4)
+                    ++rightQuarter;
             }
         }
     }
-    QVERIFY2(leftQuarter > 5 && rightQuarter > 5,
-             "Both-placement should paint at start AND end");
+    QVERIFY2(leftQuarter > 5 && rightQuarter > 5, "Both-placement should paint at start AND end");
 }
 
 void TestLineSymbolLayer::drawArrows_centeredPlacementPaintsNearMidpoint()
@@ -360,7 +492,7 @@ void TestLineSymbolLayer::drawArrows_centeredPlacementPaintsNearMidpoint()
     LineArrowSpec s;
     s.placement = ArrowPlacement::Centered;
     s.lengthPx = 12.0;
-    s.widthPx  = 10.0;
+    s.widthPx = 10.0;
     QPolygonF poly;
     poly << QPointF(10, 50) << QPointF(190, 50);
 
@@ -371,13 +503,14 @@ void TestLineSymbolLayer::drawArrows_centeredPlacementPaintsNearMidpoint()
         const QRgb *row = reinterpret_cast<const QRgb *>(img.scanLine(y));
         for (int x = 0; x < img.width(); ++x) {
             if (qAlpha(row[x]) > 0) {
-                if (std::abs(x - midX) < 20) ++midBand;
-                else                          ++outerBand;
+                if (std::abs(x - midX) < 20)
+                    ++midBand;
+                else
+                    ++outerBand;
             }
         }
     }
-    QVERIFY2(midBand > 5 * outerBand,
-             "Centered-placement should cluster near the midpoint");
+    QVERIFY2(midBand > 5 * outerBand, "Centered-placement should cluster near the midpoint");
 }
 
 void TestLineSymbolLayer::drawArrows_repeatPlacementSpacesArrowsAlongLine()
@@ -385,8 +518,8 @@ void TestLineSymbolLayer::drawArrows_repeatPlacementSpacesArrowsAlongLine()
     LineArrowSpec s;
     s.placement = ArrowPlacement::RepeatEveryNPx;
     s.spacingPx = 40.0;
-    s.lengthPx  = 10.0;
-    s.widthPx   = 8.0;
+    s.lengthPx = 10.0;
+    s.widthPx = 8.0;
     // 180-pixel-long horizontal line; spacing 40 → arrows at ~50, ~90,
     // ~130, ~170 (approx — first arrow at spacing 40 from start ≈ x 50).
     QPolygonF poly;
@@ -396,8 +529,7 @@ void TestLineSymbolLayer::drawArrows_repeatPlacementSpacesArrowsAlongLine()
     // Just verify multiple distinct arrows were painted (count clusters
     // in the band y = 40..60).
     int totalPainted = nonTransparentPixelCount(img);
-    QVERIFY2(totalPainted > 80,
-             "RepeatEveryNPx should paint multiple arrows across the line");
+    QVERIFY2(totalPainted > 80, "RepeatEveryNPx should paint multiple arrows across the line");
 }
 
 void TestLineSymbolLayer::drawArrows_atVerticesPaintsAtInteriorVertices()
@@ -405,12 +537,9 @@ void TestLineSymbolLayer::drawArrows_atVerticesPaintsAtInteriorVertices()
     LineArrowSpec s;
     s.placement = ArrowPlacement::AtVertices;
     s.lengthPx = 10.0;
-    s.widthPx  = 8.0;
+    s.widthPx = 8.0;
     QPolygonF poly;
-    poly << QPointF(10, 30)
-         << QPointF(70, 30)
-         << QPointF(130, 30)
-         << QPointF(190, 30);
+    poly << QPointF(10, 30) << QPointF(70, 30) << QPointF(130, 30) << QPointF(190, 30);
     // 2 interior vertices → 2 arrows.
 
     QImage img = paintArrows(poly, s);
@@ -421,11 +550,11 @@ void TestLineSymbolLayer::drawArrows_reverseFlagChangesPixelCoverage()
 {
     LineArrowSpec a, b;
     a.placement = ArrowPlacement::End;
-    a.lengthPx  = 15.0;
-    a.widthPx   = 10.0;
-    a.reverse   = false;
+    a.lengthPx = 15.0;
+    a.widthPx = 10.0;
+    a.reverse = false;
     b = a;
-    b.reverse   = true;
+    b.reverse = true;
 
     QPolygonF poly;
     poly << QPointF(50, 50) << QPointF(150, 50);

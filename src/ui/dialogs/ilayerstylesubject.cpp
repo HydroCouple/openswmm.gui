@@ -1,9 +1,12 @@
-/*!
- * \file   ilayerstylesubject.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      ilayerstylesubject.cpp
+ * @brief     Slice U-2.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/ilayerstylesubject.h"
 #include "render/sublayerstyle.h"
 
@@ -15,9 +18,11 @@
 #include <QVariant>
 #include <QColor>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 // Convert a QVariant into something JSON-serialisable. Colours go through
 // .name(HexArgb), Qt::PenStyle/enum values go to int, everything else
@@ -34,21 +39,29 @@ QJsonValue variantToJson(const QVariant &v)
         return v.value<QFont>().toString();
     }
     switch (v.userType()) {
-        case QMetaType::Bool:        return v.toBool();
-        case QMetaType::Int:         return v.toInt();
-        case QMetaType::UInt:        return int(v.toUInt());
-        case QMetaType::LongLong:    return double(v.toLongLong());
-        case QMetaType::Double:      return v.toDouble();
-        case QMetaType::Float:       return v.toFloat();
-        case QMetaType::QString:     return v.toString();
-        default: {
-            // Q_ENUM / Qt::PenStyle / other small enumerations come back
-            // as int via QVariant after toInt(); fall through.
-            bool ok = false;
-            const int as_int = v.toInt(&ok);
-            if (ok) return as_int;
-            return v.toString();
-        }
+    case QMetaType::Bool:
+        return v.toBool();
+    case QMetaType::Int:
+        return v.toInt();
+    case QMetaType::UInt:
+        return int(v.toUInt());
+    case QMetaType::LongLong:
+        return double(v.toLongLong());
+    case QMetaType::Double:
+        return v.toDouble();
+    case QMetaType::Float:
+        return v.toFloat();
+    case QMetaType::QString:
+        return v.toString();
+    default: {
+        // Q_ENUM / Qt::PenStyle / other small enumerations come back
+        // as int via QVariant after toInt(); fall through.
+        bool ok = false;
+        const int as_int = v.toInt(&ok);
+        if (ok)
+            return as_int;
+        return v.toString();
+    }
     }
 }
 
@@ -61,20 +74,26 @@ QVariant jsonToVariant(const QJsonValue &val, int targetType)
     }
     if (targetType == qMetaTypeId<QFont>()) {
         QFont f;
-        return f.fromString(val.toString()) ? QVariant::fromValue(f)
-                                            : QVariant();
+        return f.fromString(val.toString()) ? QVariant::fromValue(f) : QVariant();
     }
     switch (targetType) {
-        case QMetaType::Bool:    return val.toBool();
-        case QMetaType::Int:     return val.toInt();
-        case QMetaType::UInt:    return uint(val.toInt());
-        case QMetaType::Double:
-        case QMetaType::Float:   return val.toDouble();
-        case QMetaType::QString: return val.toString();
-        default:
-            if (val.isDouble()) return QVariant(val.toInt());
-            if (val.isString()) return val.toString();
-            return val.toVariant();
+    case QMetaType::Bool:
+        return val.toBool();
+    case QMetaType::Int:
+        return val.toInt();
+    case QMetaType::UInt:
+        return uint(val.toInt());
+    case QMetaType::Double:
+    case QMetaType::Float:
+        return val.toDouble();
+    case QMetaType::QString:
+        return val.toString();
+    default:
+        if (val.isDouble())
+            return QVariant(val.toInt());
+        if (val.isString())
+            return val.toString();
+        return val.toVariant();
     }
 }
 
@@ -83,7 +102,8 @@ QVariant jsonToVariant(const QJsonValue &val, int targetType)
 QJsonObject ILayerStyleSubject::snapshot() const
 {
     QObject *obj = propertyObject();
-    if (!obj) return {};
+    if (!obj)
+        return {};
 
     // SublayerStyle subclasses already have a JSON schema for .oswp
     // persistence; defer to them so the snapshot matches what disk
@@ -96,9 +116,9 @@ QJsonObject ILayerStyleSubject::snapshot() const
     // Skip objectName (QObject base) — never user-edited via the dialog.
     for (int i = mo->propertyOffset(); i < mo->propertyCount(); ++i) {
         const QMetaProperty mp = mo->property(i);
-        if (!mp.isReadable() || !mp.isWritable()) continue;
-        out.insert(QString::fromLatin1(mp.name()),
-                   variantToJson(mp.read(obj)));
+        if (!mp.isReadable() || !mp.isWritable())
+            continue;
+        out.insert(QString::fromLatin1(mp.name()), variantToJson(mp.read(obj)));
     }
     return out;
 }
@@ -106,7 +126,8 @@ QJsonObject ILayerStyleSubject::snapshot() const
 void ILayerStyleSubject::restore(const QJsonObject &snap)
 {
     QObject *obj = propertyObject();
-    if (!obj) return;
+    if (!obj)
+        return;
 
     if (auto *st = qobject_cast<OpenSWMM::Render::SublayerStyle *>(obj)) {
         st->fromJson(snap);
@@ -116,9 +137,11 @@ void ILayerStyleSubject::restore(const QJsonObject &snap)
     const QMetaObject *mo = obj->metaObject();
     for (int i = mo->propertyOffset(); i < mo->propertyCount(); ++i) {
         const QMetaProperty mp = mo->property(i);
-        if (!mp.isWritable()) continue;
+        if (!mp.isWritable())
+            continue;
         const QString name = QString::fromLatin1(mp.name());
-        if (!snap.contains(name)) continue;
+        if (!snap.contains(name))
+            continue;
         const QVariant v = jsonToVariant(snap.value(name), mp.userType());
         if (v.isValid())
             mp.write(obj, v);

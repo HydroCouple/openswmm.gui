@@ -1,4 +1,14 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+
+/**
+ * @file      initialbedqualitydialog.h
+ * @brief     Editing of initial bed and porewater species conditions.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   Apache-2.0
+ */
+
 #ifndef OPENSWMM_UI_DIALOGS_INITIALBEDQUALITYDIALOG_H
 #define OPENSWMM_UI_DIALOGS_INITIALBEDQUALITYDIALOG_H
 
@@ -10,12 +20,14 @@ class QLabel;
 class QPushButton;
 class QTableWidget;
 
-namespace OpenSWMMVis {
+namespace OpenSWMMVis
+{
 
-class InitialBedQualityDialog final : public QDialog {
+class InitialBedQualityDialog final : public QDialog
+{
     Q_OBJECT
 public:
-    explicit InitialBedQualityDialog(SWMM_Engine engine, QWidget* parent = nullptr);
+    explicit InitialBedQualityDialog(SWMM_Engine engine, QWidget *parent = nullptr);
     bool wroteAnyChanges() const noexcept { return wrote_any_changes_; }
     int lastWriteCount() const noexcept { return last_write_count_; }
 
@@ -33,13 +45,12 @@ private slots:
 private:
     void buildUi();
     void readFromEngine();
-    void appendRow(int scope, const QString& target,
-                   const QString& species, double concentration);
+    void appendRow(int scope, const QString &target, const QString &species, double concentration);
     void setEditable(bool editable);
     SWMM_Engine engine_ = nullptr;
-    QTableWidget* table_ = nullptr;
-    QLabel* status_ = nullptr;
-    QPushButton* remove_ = nullptr;
+    QTableWidget *table_ = nullptr;
+    QLabel *status_ = nullptr;
+    QPushButton *remove_ = nullptr;
     bool wrote_any_changes_ = false;
     int last_write_count_ = 0;
 };

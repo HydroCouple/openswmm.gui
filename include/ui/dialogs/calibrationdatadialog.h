@@ -1,16 +1,18 @@
-/*!
- * \file   calibrationdatadialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BK — Calibration data registration dialog.
+/**
+ * @file      calibrationdatadialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BK — Calibration data registration dialog.
  *
  * Maintains a table of (object, attribute, observed-CSV path) bindings.
  * Persisted in the active project window's .oswp under the
  * "calibrationData" key. When the user opens the Comparison Plot Dialog
  * for a calibrated object, the matching observed CSV is automatically
  * added as an Observed RunSource via BL-Polish.2's ObservedCsvRunLayer.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_CALIBRATIONDATADIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_CALIBRATIONDATADIALOG_H
 
@@ -23,22 +25,22 @@
 class QTableWidget;
 class SWMMVisProjectWindow;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 struct CalibrationEntry {
-    QString                        objectName;
-    QString                        objectKind;   // "Node" / "Link" / "Subcatch"
+    QString objectName;
+    QString objectKind; // "Node" / "Link" / "Subcatch"
     openswmmvis::plot::PlotAttribute attribute = openswmmvis::plot::PlotAttribute::Unknown;
-    QString                        observedPath;
-    QString                        observedColumn;   // column name in the CSV
+    QString observedPath;
+    QString observedColumn; // column name in the CSV
 };
 
 class CalibrationDataDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit CalibrationDataDialog(SWMMVisProjectWindow *projectWindow,
-                                    QWidget *parent = nullptr);
+    explicit CalibrationDataDialog(SWMMVisProjectWindow *projectWindow, QWidget *parent = nullptr);
     ~CalibrationDataDialog() override;
 
     /*! \brief Static helper to read the calibration entries persisted in
@@ -57,7 +59,7 @@ private:
     void saveToProject();
 
     QPointer<SWMMVisProjectWindow> m_projectWindow;
-    QTableWidget                  *m_table = nullptr;
+    QTableWidget *m_table = nullptr;
 };
 
 } // namespace openswmmvis::ui

@@ -1,10 +1,15 @@
-/*!
- * \file   test_externalcolumnfile.cpp
- * \brief  Shared external-column-file util (spec §4 task 1,
+/**
+ * @file      test_externalcolumnfile.cpp
+ * @brief     Shared external-column-file util (spec §4 task 1,
  *         workplans/MULTICOLUMN_SERIES_SINGLE_READ_2026-08-17.md) —
  *         readHeaders / readColumn over CSV, TSV and PCSWMM .tsf fixtures
  *         (tests/unit/data/extcol_*). QtCore + engine datetime only.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include "core/swmmdatetime.h"
@@ -17,7 +22,20 @@
 namespace eu = openswmmvis::ui;
 namespace ec = openswmmvis::ui::extcol;
 
-namespace {
+namespace
+{
+/**
+ *
+ * @brief Convert a controlled UTC calendar instant to engine day representation.
+ * @param y Calendar year accepted by QDate, used with valid fixture dates.
+ * @param mo Month 1..12.
+ * @param d Valid day of that month/year.
+ * @param h Hour 0..23.
+ * @param mi Minute 0..59; seconds are fixed at zero.
+ * @return SWMM DateTime day count from the shared conversion helper, with fractional
+ * day for time. No timezone-local interpretation, validity assertion or file mutation.
+ *
+ */
 double j(int y, int mo, int d, int h, int mi)
 {
     return openswmmvis::core::qDateTimeToSwmmDateTime(
@@ -55,8 +73,7 @@ TEST(ExternalColumnFile, ReadHeaders_HeaderlessFileFabricatesColN)
 {
     QString err;
     bool fabricated = false;
-    const QStringList h =
-        eu::readHeaders(QStringLiteral("extcol_noheader.csv"), &err, &fabricated);
+    const QStringList h = eu::readHeaders(QStringLiteral("extcol_noheader.csv"), &err, &fabricated);
     ASSERT_EQ(h.size(), 2);
     EXPECT_EQ(h[0], QStringLiteral("col_1"));
     EXPECT_EQ(h[1], QStringLiteral("col_2"));
@@ -77,8 +94,7 @@ TEST(ExternalColumnFile, ReadHeaders_RealHeadersAreNotFlaggedFabricated)
 TEST(ExternalColumnFile, ReadHeaders_MissingFileReportsError)
 {
     QString err;
-    const QStringList h =
-        eu::readHeaders(QStringLiteral("extcol_does_not_exist.csv"), &err);
+    const QStringList h = eu::readHeaders(QStringLiteral("extcol_does_not_exist.csv"), &err);
     EXPECT_TRUE(h.isEmpty());
     EXPECT_FALSE(err.isEmpty());
 }
@@ -90,8 +106,8 @@ TEST(ExternalColumnFile, ReadColumn_ByName_SkipsEmptyCells)
     QVector<eu::ExternalSeriesPoint> pts;
     QStringList headers;
     // RG_WEST's last row has an empty cell — skipped, engine parity.
-    const int n = eu::readColumn(QStringLiteral("extcol_rain_multi.csv"),
-                                 QStringLiteral("RG_WEST"), pts, &headers);
+    const int n = eu::readColumn(QStringLiteral("extcol_rain_multi.csv"), QStringLiteral("RG_WEST"),
+                                 pts, &headers);
     ASSERT_EQ(n, 2);
     ASSERT_EQ(headers.size(), 2);
     EXPECT_DOUBLE_EQ(pts[0].value, 0.10);
@@ -103,8 +119,8 @@ TEST(ExternalColumnFile, ReadColumn_ByName_SkipsEmptyCells)
 TEST(ExternalColumnFile, ReadColumn_CaseInsensitiveSelector)
 {
     QVector<eu::ExternalSeriesPoint> pts;
-    const int n = eu::readColumn(QStringLiteral("extcol_rain_multi.csv"),
-                                 QStringLiteral("rg_east"), pts);
+    const int n =
+        eu::readColumn(QStringLiteral("extcol_rain_multi.csv"), QStringLiteral("rg_east"), pts);
     ASSERT_EQ(n, 3);
     EXPECT_DOUBLE_EQ(pts[2].value, 0.50);
 }
@@ -112,9 +128,8 @@ TEST(ExternalColumnFile, ReadColumn_CaseInsensitiveSelector)
 TEST(ExternalColumnFile, ReadColumn_EmptySelectorUsesFirstColumn)
 {
     QVector<eu::ExternalSeriesPoint> ptsEmpty;
-    ASSERT_EQ(eu::readColumn(QStringLiteral("extcol_rain_multi.tsv"),
-                             QString(), ptsEmpty), 3);
-    EXPECT_DOUBLE_EQ(ptsEmpty[1].value, 0.25);     // RG_EAST
+    ASSERT_EQ(eu::readColumn(QStringLiteral("extcol_rain_multi.tsv"), QString(), ptsEmpty), 3);
+    EXPECT_DOUBLE_EQ(ptsEmpty[1].value, 0.25); // RG_EAST
 }
 
 TEST(ExternalColumnFile, ReadColumn_UnmatchedSelectorFailsInsteadOfFirstColumn)
@@ -128,8 +143,7 @@ TEST(ExternalColumnFile, ReadColumn_UnmatchedSelectorFailsInsteadOfFirstColumn)
     QStringList headers;
     QString err;
     EXPECT_EQ(eu::readColumn(QStringLiteral("extcol_rain_multi.tsv"),
-                             QStringLiteral("NO_SUCH_COLUMN"), pts, &headers,
-                             &err),
+                             QStringLiteral("NO_SUCH_COLUMN"), pts, &headers, &err),
               -1);
     EXPECT_TRUE(pts.isEmpty());
     EXPECT_EQ(headers.size(), 2);
@@ -140,8 +154,8 @@ TEST(ExternalColumnFile, ReadColumn_Tsf_AmPmDatetimesAndColumns)
 {
     QVector<eu::ExternalSeriesPoint> pts;
     QStringList headers;
-    const int n = eu::readColumn(QStringLiteral("extcol_sample.tsf"),
-                                 QStringLiteral("RG2"), pts, &headers);
+    const int n =
+        eu::readColumn(QStringLiteral("extcol_sample.tsf"), QStringLiteral("RG2"), pts, &headers);
     ASSERT_EQ(n, 3);
     ASSERT_EQ(headers.size(), 2);
     EXPECT_EQ(headers[0], QStringLiteral("RG1"));
@@ -163,8 +177,8 @@ TEST(ExternalColumnFile, ReadColumn_HeaderlessFirstLineIsSpentAsHeader)
     // is what the GUI persists for one.
     QVector<eu::ExternalSeriesPoint> pts;
     bool fabricated = false;
-    const int n = eu::readColumn(QStringLiteral("extcol_noheader.csv"),
-                                 QString(), pts, nullptr, nullptr, &fabricated);
+    const int n = eu::readColumn(QStringLiteral("extcol_noheader.csv"), QString(), pts, nullptr,
+                                 nullptr, &fabricated);
     ASSERT_EQ(n, 2);
     EXPECT_TRUE(fabricated);
     EXPECT_DOUBLE_EQ(pts[0].timeJulian, j(2007, 1, 1, 1, 0));
@@ -180,8 +194,8 @@ TEST(ExternalColumnFile, ReadColumn_HeaderlessRejectsAnyNamedColumn)
     // name from being previewed as if it were bindable (review B-4 / R1).
     QVector<eu::ExternalSeriesPoint> pts;
     QString err;
-    EXPECT_EQ(eu::readColumn(QStringLiteral("extcol_noheader.csv"),
-                             QStringLiteral("col_2"), pts, nullptr, &err),
+    EXPECT_EQ(eu::readColumn(QStringLiteral("extcol_noheader.csv"), QStringLiteral("col_2"), pts,
+                             nullptr, &err),
               -1);
     EXPECT_TRUE(pts.isEmpty());
     EXPECT_FALSE(err.isEmpty());
@@ -245,7 +259,7 @@ TEST(ExternalColumnFileCore, SniffDelimiter_IgnoresDelimitersInsideQuotes)
     // commas used to sniff as comma and mis-split every row.
     EXPECT_EQ(ec::sniffDelimiter("Date\t\"a,b,c\""), '\t');
     EXPECT_EQ(ec::sniffDelimiter("Date,\"Rain, North\",R2"), ',');
-    EXPECT_EQ(ec::sniffDelimiter("a\tb,c"), '\t');   // tie → tab (engine rule)
+    EXPECT_EQ(ec::sniffDelimiter("a\tb,c"), '\t'); // tie → tab (engine rule)
 }
 
 TEST(ExternalColumnFileCore, ComposePathColumn_RoundTrip)
@@ -283,8 +297,7 @@ TEST(ExternalColumnFile, Reconcile_PicksTheFirstColumnWhenUnboundOrStale)
 {
     // An unbound multi-column file is the case that made the gage write the
     // station grammar for a file with no station column (R3).
-    EXPECT_EQ(eu::reconcileColumnSelector(QStringLiteral("extcol_rain_multi.csv"),
-                                          QString()),
+    EXPECT_EQ(eu::reconcileColumnSelector(QStringLiteral("extcol_rain_multi.csv"), QString()),
               QStringLiteral("RG_EAST"));
     // A name carried over from a different file would fail the run.
     EXPECT_EQ(eu::reconcileColumnSelector(QStringLiteral("extcol_rain_multi.csv"),
@@ -300,12 +313,10 @@ TEST(ExternalColumnFile, Reconcile_HeaderlessAndUnreadableResolveToEmpty)
     EXPECT_EQ(eu::reconcileColumnSelector(QStringLiteral("extcol_noheader.csv"),
                                           QStringLiteral("RG_EAST")),
               QString());
-    EXPECT_EQ(eu::reconcileColumnSelector(QStringLiteral("extcol_noheader.csv"),
-                                          QString()),
+    EXPECT_EQ(eu::reconcileColumnSelector(QStringLiteral("extcol_noheader.csv"), QString()),
               QString());
     EXPECT_EQ(eu::reconcileColumnSelector(QStringLiteral("extcol_does_not_exist.csv"),
                                           QStringLiteral("RG_EAST")),
               QString());
-    EXPECT_EQ(eu::reconcileColumnSelector(QString(), QStringLiteral("RG_EAST")),
-              QString());
+    EXPECT_EQ(eu::reconcileColumnSelector(QString(), QStringLiteral("RG_EAST")), QString());
 }

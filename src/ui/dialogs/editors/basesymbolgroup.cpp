@@ -1,9 +1,12 @@
-/*!
- * \file   basesymbolgroup.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      basesymbolgroup.cpp
+ * @brief     label controls, mountable under any renderer panel.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/basesymbolgroup.h"
 
 #include "layers/swmmmodellayer.h"
@@ -17,7 +20,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 QObject *baseSymbolStyleFor(OpenSWMMVisLayer *host, OpenSWMMVis::SwmmCategory category)
 {
@@ -33,18 +37,30 @@ QObject *baseSymbolStyleFor(OpenSWMMVisLayer *host, OpenSWMMVis::SwmmCategory ca
     if (auto *swmm = qobject_cast<SWMMModelLayer *>(host)) {
         const QString suffix = [&]() -> QString {
             switch (category) {
-                case OpenSWMMVis::CatJunctions:     return QStringLiteral("junctions");
-                case OpenSWMMVis::CatOutfalls:      return QStringLiteral("outfalls");
-                case OpenSWMMVis::CatStorage:       return QStringLiteral("storage");
-                case OpenSWMMVis::CatDividers:      return QStringLiteral("dividers");
-                case OpenSWMMVis::CatConduits:      return QStringLiteral("conduits");
-                case OpenSWMMVis::CatPumps:         return QStringLiteral("pumps");
-                case OpenSWMMVis::CatOrifices:      return QStringLiteral("orifices");
-                case OpenSWMMVis::CatWeirs:         return QStringLiteral("weirs");
-                case OpenSWMMVis::CatOutlets:       return QStringLiteral("outlets");
-                case OpenSWMMVis::CatSubcatchments: return QStringLiteral("subcatchments");
-                case OpenSWMMVis::CatRainGages:     return QStringLiteral("raingages");
-                default:                            return QString();
+            case OpenSWMMVis::CatJunctions:
+                return QStringLiteral("junctions");
+            case OpenSWMMVis::CatOutfalls:
+                return QStringLiteral("outfalls");
+            case OpenSWMMVis::CatStorage:
+                return QStringLiteral("storage");
+            case OpenSWMMVis::CatDividers:
+                return QStringLiteral("dividers");
+            case OpenSWMMVis::CatConduits:
+                return QStringLiteral("conduits");
+            case OpenSWMMVis::CatPumps:
+                return QStringLiteral("pumps");
+            case OpenSWMMVis::CatOrifices:
+                return QStringLiteral("orifices");
+            case OpenSWMMVis::CatWeirs:
+                return QStringLiteral("weirs");
+            case OpenSWMMVis::CatOutlets:
+                return QStringLiteral("outlets");
+            case OpenSWMMVis::CatSubcatchments:
+                return QStringLiteral("subcatchments");
+            case OpenSWMMVis::CatRainGages:
+                return QStringLiteral("raingages");
+            default:
+                return QString();
             }
         }();
         if (!suffix.isEmpty())
@@ -55,9 +71,11 @@ QObject *baseSymbolStyleFor(OpenSWMMVisLayer *host, OpenSWMMVis::SwmmCategory ca
 
 QWidget *createBaseSymbolGroup(const RendererPanelContext &ctx, QWidget *parent)
 {
-    if (!ctx.hostLayer || !ctx.category.has_value()) return nullptr;
+    if (!ctx.hostLayer || !ctx.category.has_value())
+        return nullptr;
     QObject *style = baseSymbolStyleFor(ctx.hostLayer, *ctx.category);
-    if (!style) return nullptr;
+    if (!style)
+        return nullptr;
 
     auto *group = new QWidget(parent);
     group->setObjectName(QStringLiteral("baseSymbolGroup"));
@@ -68,9 +86,9 @@ QWidget *createBaseSymbolGroup(const RendererPanelContext &ctx, QWidget *parent)
     auto *toggle = new QToolButton(group);
     toggle->setObjectName(QStringLiteral("baseSymbolToggle"));
     toggle->setText(QObject::tr("Base symbol && labels"));
-    toggle->setToolTip(QObject::tr(
-        "Size / line width, outline, marker shape and labels for this kind. "
-        "Colour comes from the classes below."));
+    toggle->setToolTip(
+        QObject::tr("Size / line width, outline, marker shape and labels for this kind. "
+                    "Colour comes from the classes below."));
     toggle->setCheckable(true);
     toggle->setChecked(false);
     toggle->setArrowType(Qt::RightArrow);
@@ -95,11 +113,10 @@ QWidget *createBaseSymbolGroup(const RendererPanelContext &ctx, QWidget *parent)
     content->setVisible(false);
     lay->addWidget(content);
 
-    QObject::connect(toggle, &QToolButton::toggled, content,
-                     [toggle, content](bool on) {
-                         content->setVisible(on);
-                         toggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
-                     });
+    QObject::connect(toggle, &QToolButton::toggled, content, [toggle, content](bool on) {
+        content->setVisible(on);
+        toggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+    });
     return group;
 }
 

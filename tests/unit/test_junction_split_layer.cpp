@@ -1,6 +1,6 @@
-/*!
- * \file   test_junction_split_layer.cpp
- * \brief  Engine-level contract behind the GUI's plain-junction split
+/**
+ * @file      test_junction_split_layer.cpp
+ * @brief     Engine-level contract behind the GUI's plain-junction split
  *         (OpenSWMMVisMapToolAddNode on a conduit / InsertJunctionSplitCommand).
  *
  * Scope note: SWMMModelLayer cannot be linked headlessly (nanoflann, GDAL, the
@@ -22,7 +22,12 @@
  * rather than duplicated) and every artefact is written to
  * tests/output/junction_split/ so it can be reviewed (CLAUDE.md §4.1), never
  * to a temp dir.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QByteArray>
@@ -38,21 +43,36 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
-namespace {
+namespace
+{
 
 #ifndef SWMMVIS_JSPLIT_FIXTURE_DIR
-#  define SWMMVIS_JSPLIT_FIXTURE_DIR "."
+#define SWMMVIS_JSPLIT_FIXTURE_DIR "."
 #endif
 #ifndef SWMMVIS_JSPLIT_OUTPUT_DIR
-#  define SWMMVIS_JSPLIT_OUTPUT_DIR "."
+#define SWMMVIS_JSPLIT_OUTPUT_DIR "."
 #endif
 
+/**
+ *
+ * @brief Resolve an input under the configured plain-junction fixture directory.
+ * @param name Borrowed null-terminated Latin-1 filename under SWMMVIS_JSPLIT_FIXTURE_DIR.
+ * @return Owned joined path, default relative to cwd; no opening/existence check.
+ *
+ */
 QString fixturePath(const char *name)
 {
-    return QDir(QStringLiteral(SWMMVIS_JSPLIT_FIXTURE_DIR)).filePath(
-        QString::fromLatin1(name));
+    return QDir(QStringLiteral(SWMMVIS_JSPLIT_FIXTURE_DIR)).filePath(QString::fromLatin1(name));
 }
 
+/**
+ *
+ * @brief Resolve a persistent plain-junction test output filename.
+ * @param name Borrowed null-terminated Latin-1 name under SWMMVIS_JSPLIT_OUTPUT_DIR.
+ * @return Owned joined path after unchecked directory creation, default cwd. Does
+ * not remove prior output or open a handle.
+ *
+ */
 QString outputPath(const char *name)
 {
     QDir dir(QStringLiteral(SWMMVIS_JSPLIT_OUTPUT_DIR));
@@ -60,24 +80,39 @@ QString outputPath(const char *name)
     return dir.filePath(QString::fromLatin1(name));
 }
 
+/**
+ *
+ * @brief Read a fixture/report as UTF-8 text for assertions.
+ * @param path Borrowed existing filename, opened read-only in Qt text mode.
+ * @return Owned decoded text, or empty on open failure (indistinguishable from empty
+ * content). Read/decoding errors are not qualified; handle closes on return.
+ *
+ */
 QString readAll(const QString &path)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     return QString::fromUtf8(f.readAll());
 }
 
-/*! Open the fixture in the editable OPENED state — deliberately NOT
- *  initialized: swmm_conduit_split is BUILDING/OPENED-only. */
+/**
+ *
+ * @brief Create/open an editable street-inlet engine for plain split/fuse cases.
+ * @return Owned OPENED engine requiring swmm_engine_destroy, or null after create/
+ * open failure; failed opens destroy the partial engine. Does not initialize a run.
+ * Writes persistent junction_split report/output under the configured directory.
+ *
+ */
 SWMM_Engine openFixture()
 {
     SWMM_Engine e = swmm_engine_create();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
     const QString inp = fixturePath("street_inlet.inp");
     const QString rpt = outputPath("junction_split.rpt");
     const QString out = outputPath("junction_split.out");
-    if (swmm_engine_open(e, inp.toUtf8().constData(),
-                         rpt.toUtf8().constData(),
+    if (swmm_engine_open(e, inp.toUtf8().constData(), rpt.toUtf8().constData(),
                          out.toUtf8().constData(), nullptr) != SWMM_OK) {
         swmm_engine_destroy(e);
         return nullptr;
@@ -85,11 +120,22 @@ SWMM_Engine openFixture()
     return e;
 }
 
-/*! The undo path of InsertJunctionSplitCommand, spelled out. */
+/**
+ *
+ * @brief Apply the plain-split undo sequence using the virtual-junction inverse.
+ * @param e Borrowed editable BUILDING/OPENED engine.
+ * @param nodeIdx Valid zero-based inserted plain-junction index to mark virtual/fuse.
+ * @param surviving Output surviving link index as required by the engine fuse API.
+ * @return First set-virtual error, otherwise fuse status. Mutates engine topology on
+ * success; if fuse fails after flagging, the virtual flag is not rolled back. Engine
+ * ownership remains with caller; surviving is not assigned by this helper on first error.
+ *
+ */
 int fuseAsGuiUndoDoes(SWMM_Engine e, int nodeIdx, int *surviving)
 {
     const int rc = swmm_node_set_virtual(e, nodeIdx, 1);
-    if (rc != SWMM_OK) return rc;
+    if (rc != SWMM_OK)
+        return rc;
     return swmm_virtual_junction_fuse(e, nodeIdx, surviving);
 }
 
@@ -118,8 +164,7 @@ TEST(JunctionSplitLayer, SplitInsertsAPlainJunctionNotAVirtualOne)
 
     int isVirtual = 1;
     ASSERT_EQ(swmm_node_is_virtual(e, newNode, &isVirtual), SWMM_OK);
-    EXPECT_EQ(isVirtual, 0)
-        << "a junction split must NOT produce a virtual junction";
+    EXPECT_EQ(isVirtual, 0) << "a junction split must NOT produce a virtual junction";
 
     int isInlet = 1;
     ASSERT_EQ(swmm_node_is_inlet(e, newNode, &isInlet), SWMM_OK);
@@ -153,8 +198,7 @@ TEST(JunctionSplitLayer, SplitHalvesSumToTheOriginalLength)
     ASSERT_EQ(swmm_link_get_length(e, swmm_link_index(e, "C1"), &up), SWMM_OK);
     ASSERT_EQ(swmm_link_get_length(e, swmm_link_index(e, "C1_B"), &dn), SWMM_OK);
 
-    EXPECT_NEAR(up + dn, original, 1.0e-6)
-        << "split lost or invented conduit length";
+    EXPECT_NEAR(up + dn, original, 1.0e-6) << "split lost or invented conduit length";
     // t = 0.25 puts a quarter of the run upstream; the tool's status text and
     // the marker preview both promise the break lands where the user clicked.
     EXPECT_NEAR(up, 0.25 * original, 1.0e-6);
@@ -188,8 +232,7 @@ TEST(JunctionSplitLayer, FuseUndoesSplitByteIdentically)
     ASSERT_EQ(fuseAsGuiUndoDoes(e, newNode, &surviving), SWMM_OK)
         << "the GUI's undo path (set_virtual then fuse) was refused";
     EXPECT_LT(swmm_node_index(e, "J9"), 0) << "the fuse must delete the node";
-    EXPECT_LT(swmm_link_index(e, "C1_B"), 0)
-        << "the fuse must retire the new conduit";
+    EXPECT_LT(swmm_link_index(e, "C1_B"), 0) << "the fuse must retire the new conduit";
 
     const QString afterPath = outputPath("junction_split_after_fuse.inp");
     ASSERT_EQ(swmm_model_write(e, afterPath.toUtf8().constData()), SWMM_OK);

@@ -1,3 +1,12 @@
+/**
+ * @file      meshassignmentsampling.cpp
+ * @brief     Shared raster and vector sampling for mesh parameter assignments.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "assignment/meshassignmentsampling.h"
 #include "mesh/dtmsampler.h"
 #include <gdal_priv.h>
@@ -15,21 +24,39 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-namespace openswmmvis::assignment {
-namespace {
+namespace openswmmvis::assignment
+{
+namespace
+{
 struct SamplingProgress {
- std::function<bool()> cancel;
- std::function<void(int,int)> report;
- int total=0;
- bool isCanceled() const{return cancel&&cancel();}
- void setProgressRange(int,int maximum){total=maximum;}
- void setProgressValue(int value){if(report)report(value,total);}
+    std::function<bool()> cancel;
+    std::function<void(int, int)> report;
+    int total = 0;
+    /**
+     * @brief Poll the optional cancellation callback on the sampling thread.
+     * @return True only when a callback exists and requests cancellation.
+     */
+    bool isCanceled() const { return cancel && cancel(); }
+    /**
+     * @brief Store the total used by subsequent progress callbacks.
+     * @param[in] maximum Total work count; the unused first argument is a compatibility placeholder for QPromise's minimum.
+     */
+    void setProgressRange(int, int maximum) { total = maximum; }
+    /**
+     * @brief Publish completed work to the optional synchronous callback.
+     * @param[in] value Completed cell/work count paired with the stored total.
+     */
+    void setProgressValue(int value)
+    {
+        if (report)
+            report(value, total);
+    }
 };
-using Job          = MeshAssignmentSampling::Job;
+using Job = MeshAssignmentSampling::Job;
 using SampleResult = MeshAssignmentSampling::SampleResult;
-using Mode         = MeshAssignmentSampling::Mode;
-using Sampling     = MeshAssignmentSampling::Sampling;
-using SourceKind   = MeshAssignmentSampling::Source;
+using Mode = MeshAssignmentSampling::Mode;
+using Sampling = MeshAssignmentSampling::Sampling;
+using SourceKind = MeshAssignmentSampling::Source;
 
 /*! Cancellation / progress are checked every this many cells. */
 constexpr int kProgressChunk = 256;
@@ -39,7 +66,7 @@ constexpr int kProgressChunk = 256;
  *  does the decimation) rather than pixel-by-pixel — the mean/majority of a
  *  regular subsample of a cell is the same statistic, and it keeps a coarse
  *  mesh over a fine raster from allocating gigabytes per cell. */
-constexpr qint64 kMaxPixelsPerCell = 65536;   // 256 x 256
+constexpr qint64 kMaxPixelsPerCell = 65536; // 256 x 256
 
 // ---------------------------------------------------------------------------
 // Worker-thread helpers. Everything here runs OFF the GUI thread and touches
@@ -47,63 +74,102 @@ constexpr qint64 kMaxPixelsPerCell = 65536;   // 256 x 256
 // ---------------------------------------------------------------------------
 
 /*! Closes a GDALDataset on scope exit. */
-struct DatasetGuard
-{
+struct DatasetGuard {
     GDALDataset *ds = nullptr;
-    ~DatasetGuard() { if (ds) GDALClose(ds); }
+    /**
+     * @brief Close the owned GDAL dataset on scope exit when present.
+     */
+    ~DatasetGuard()
+    {
+        if (ds)
+            GDALClose(ds);
+    }
 };
 
 /*! Build an OGRSpatialReference from WKT in traditional (x = easting / lon)
  *  axis order. Returns null for an empty or unparsable WKT, which callers
- *  treat as "no reprojection". */
+ *  treat as "no reprojection". * @param[in] wkt CRS definition in WKT; empty or malformed input is treated as absent.
+ * @return Newly owned spatial reference in traditional GIS axis order, or nullptr.
+ */
 std::unique_ptr<OGRSpatialReference> srsFromWkt(const QString &wkt)
 {
-    if (wkt.isEmpty()) return {};
+    if (wkt.isEmpty())
+        return {};
     auto srs = std::make_unique<OGRSpatialReference>();
-    if (srs->importFromWkt(wkt.toUtf8().constData()) != OGRERR_NONE) return {};
+    if (srs->importFromWkt(wkt.toUtf8().constData()) != OGRERR_NONE)
+        return {};
     srs->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     return srs;
 }
 
-/*! Clone a dataset's CRS into traditional axis order. Null when absent. */
+/*! Clone a dataset's CRS into traditional axis order. Null when absent. * @param[in] src Borrowed dataset CRS, or nullptr when absent.
+ * @return Independently owned clone using traditional GIS axes, or nullptr.
+ */
 std::unique_ptr<OGRSpatialReference> cloneSrs(const OGRSpatialReference *src)
 {
-    if (!src) return {};
+    if (!src)
+        return {};
     std::unique_ptr<OGRSpatialReference> out(src->Clone());
-    if (out) out->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    if (out)
+        out->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     return out;
 }
 
 /*! Reproject \p pts from \p from to \p to in place. No-op when either CRS is
  *  missing or they already match — the common case (mesh authored in the same
- *  CRS as the source). */
-void transformPoints(QVector<QPointF> &pts,
-                     OGRSpatialReference *from,
-                     OGRSpatialReference *to, bool strict=false)
+ *  CRS as the source). * @param[in,out] pts Source coordinates replaced with target coordinates on a completed transform.
+ * @param[in] from Borrowed source CRS.
+ * @param[in] to Borrowed destination CRS.
+ * @param[in] strict True rejects absent CRS, transform creation/failures and nonfinite output; false tolerates absent CRS and does not inspect per-point success.
+ * @throws std::runtime_error When strict CRS requirements fail; pts is unchanged on those failures.
+ */
+void transformPoints(QVector<QPointF> &pts, OGRSpatialReference *from, OGRSpatialReference *to,
+                     bool strict = false)
 {
-    if (pts.isEmpty())return;
-    if(!from||!to){if(strict)throw std::runtime_error("Both mesh and source require a valid assigned CRS.");return;}
-    if(from->IsSame(to))return;
+    if (pts.isEmpty())
+        return;
+    if (!from || !to) {
+        if (strict)
+            throw std::runtime_error("Both mesh and source require a valid assigned CRS.");
+        return;
+    }
+    if (from->IsSame(to))
+        return;
     OGRCoordinateTransformation *ct = OGRCreateCoordinateTransformation(from, to);
-    if (!ct) {if(strict)throw std::runtime_error("Cannot create source CRS transformation.");return;}
+    if (!ct) {
+        if (strict)
+            throw std::runtime_error("Cannot create source CRS transformation.");
+        return;
+    }
     QVector<double> xs(pts.size()), ys(pts.size());
-    for (int i = 0; i < pts.size(); ++i) { xs[i] = pts[i].x(); ys[i] = pts[i].y(); }
+    for (int i = 0; i < pts.size(); ++i) {
+        xs[i] = pts[i].x();
+        ys[i] = pts[i].y();
+    }
     QVector<int> success(pts.size());
-    const bool transformed=ct->Transform(pts.size(),xs.data(),ys.data(),nullptr,success.data());
-    if(strict && (!transformed || std::any_of(success.begin(),success.end(),[](int value){return !value;})
-       || std::any_of(xs.begin(),xs.end(),[](double v){return !std::isfinite(v);})
-       || std::any_of(ys.begin(),ys.end(),[](double v){return !std::isfinite(v);}))) {
+    const bool transformed =
+        ct->Transform(pts.size(), xs.data(), ys.data(), nullptr, success.data());
+    if (strict && (!transformed ||
+                   std::any_of(success.begin(), success.end(), [](int value) { return !value; }) ||
+                   std::any_of(xs.begin(), xs.end(), [](double v) { return !std::isfinite(v); }) ||
+                   std::any_of(ys.begin(), ys.end(), [](double v) { return !std::isfinite(v); }))) {
         OGRCoordinateTransformation::DestroyCT(ct);
         throw std::runtime_error("A cell could not be transformed into the source CRS.");
     }
-    for (int i = 0; i < pts.size(); ++i) pts[i] = QPointF(xs[i], ys[i]);
+    for (int i = 0; i < pts.size(); ++i)
+        pts[i] = QPointF(xs[i], ys[i]);
     OGRCoordinateTransformation::DestroyCT(ct);
 }
 
 /*! Barycentric sign test — true when (px,py) is inside or on triangle abc,
- *  either winding. */
-bool pointInTri(double px, double py,
-                const QPointF &a, const QPointF &b, const QPointF &c)
+ *  either winding. * @param[in] px Query x coordinate.
+ * @param[in] py Query y coordinate.
+ * @param[in] a First triangle vertex.
+ * @param[in] b Second triangle vertex.
+ * @param[in] c Third triangle vertex, in the same frame.
+ * @return True when oriented edge signs do not mix, including boundaries; degenerate triangles are not separately rejected.
+ */
+bool pointInTri(double px, double py, const QPointF &a, const QPointF &b, const QPointF &c)
 {
     const double d1 = (px - b.x()) * (a.y() - b.y()) - (a.x() - b.x()) * (py - b.y());
     const double d2 = (px - c.x()) * (b.y() - c.y()) - (b.x() - c.x()) * (py - c.y());
@@ -115,15 +181,23 @@ bool pointInTri(double px, double py,
 
 /*! Planar area of an OGR geometry. Only the surface types can carry area;
  *  an Intersection() that degenerates to a touching line or point returns 0,
- *  which is exactly the weight it should get. */
+ *  which is exactly the weight it should get. * @brief Read OGR area only for areal/collection geometry types.
+ * @param[in] g Borrowed geometry, possibly nullptr.
+ * @return OGR area in squared geometry coordinate units, or zero for null/unsupported types.
+ */
 double geomArea(const OGRGeometry *g)
 {
-    if (!g) return 0.0;
+    if (!g)
+        return 0.0;
     switch (wkbFlatten(g->getGeometryType())) {
-    case wkbPolygon:            return g->toPolygon()->get_Area();
-    case wkbMultiPolygon:       return g->toMultiPolygon()->get_Area();
-    case wkbGeometryCollection: return g->toGeometryCollection()->get_Area();
-    default:                    return 0.0;
+    case wkbPolygon:
+        return g->toPolygon()->get_Area();
+    case wkbMultiPolygon:
+        return g->toMultiPolygon()->get_Area();
+    case wkbGeometryCollection:
+        return g->toGeometryCollection()->get_Area();
+    default:
+        return 0.0;
     }
 }
 
@@ -132,8 +206,14 @@ double geomArea(const OGRGeometry *g)
  *  repeats its first corner in slot 3 (mesh::kEdgeStride). */
 constexpr int kFootprintStride = 4; // Fixed triangle/quad footprint representation.
 
-void buildTriPolygon(const QVector<QPointF> &verts, int t,
-                     OGRLinearRing &ring, OGRPolygon &poly)
+/**
+ * @brief Replace scratch OGR geometry with one triangle or quadrilateral footprint.
+ * @param[in] verts Four-corner-per-cell coordinate buffer; triangles repeat corner zero in slot three.
+ * @param[in] t Zero-based cell position, requiring four accessible entries.
+ * @param[out] ring Cleared and filled with a closed boundary.
+ * @param[out] poly Cleared and given a cloned copy of ring; no ownership transfer of either scratch object occurs.
+ */
+void buildTriPolygon(const QVector<QPointF> &verts, int t, OGRLinearRing &ring, OGRPolygon &poly)
 {
     const QPointF &a = verts[kFootprintStride * t];
     const QPointF &b = verts[kFootprintStride * t + 1];
@@ -143,15 +223,20 @@ void buildTriPolygon(const QVector<QPointF> &verts, int t,
     ring.addPoint(a.x(), a.y());
     ring.addPoint(b.x(), b.y());
     ring.addPoint(c.x(), c.y());
-    if (d != a) ring.addPoint(d.x(), d.y());   // quad: true 4-corner boundary
+    if (d != a)
+        ring.addPoint(d.x(), d.y()); // quad: true 4-corner boundary
     ring.addPoint(a.x(), a.y());
     poly.empty();
-    poly.addRing(&ring);          // addRing clones
+    poly.addRing(&ring); // addRing clones
 }
 
 /*! Read one field as a double. \p ok is false for unset, null and
  *  non-numeric text — the caller reports those separately, exactly as the
- *  original QVariant::toDouble(&ok) path did. */
+ *  original QVariant::toDouble(&ok) path did. * @param[in] f Borrowed feature, possibly nullptr.
+ * @param[in] idx Field index; negative indexes indicate an unavailable field.
+ * @param[out] ok Non-null conversion-status destination.
+ * @return Numeric field value or parsed trimmed text; NaN for null/unset/unconvertible fields. Finiteness is checked separately by callers.
+ */
 double fieldAsDouble(OGRFeature *f, int idx, bool *ok)
 {
     *ok = false;
@@ -163,17 +248,20 @@ double fieldAsDouble(OGRFeature *f, int idx, bool *ok)
         return f->GetFieldAsDouble(idx);
     }
     bool conv = false;
-    const double v = QString::fromUtf8(f->GetFieldAsString(idx)).trimmed()
-                         .toDouble(&conv);
+    const double v = QString::fromUtf8(f->GetFieldAsString(idx)).trimmed().toDouble(&conv);
     *ok = conv;
     return conv ? v : std::numeric_limits<double>::quiet_NaN();
 }
 
 /*! Key text for the classified lookup — trimmed verbatim, because the lookup
- *  compares case-insensitively against the table's own key strings. */
+ *  compares case-insensitively against the table's own key strings. * @param[in] f Borrowed feature, possibly nullptr.
+ * @param[in] idx Field index; negative indexes are treated as missing.
+ * @return Trimmed UTF-8 field text, or empty for missing/null values.
+ */
 QString fieldAsKey(OGRFeature *f, int idx)
 {
-    if (!f || idx < 0 || !f->IsFieldSetAndNotNull(idx)) return {};
+    if (!f || idx < 0 || !f->IsFieldSetAndNotNull(idx))
+        return {};
     return QString::fromUtf8(f->GetFieldAsString(idx)).trimmed();
 }
 
@@ -182,22 +270,24 @@ QString fieldAsKey(OGRFeature *f, int idx)
  *  field value that a human typed. */
 const QChar kKeySep = QChar(0x1f);
 
-/*! A categorical raster value formatted the way a lookup table spells it. */
+/*! A categorical raster value formatted the way a lookup table spells it. * @param[in] v Categorical sample; finite values must round into qlonglong range.
+ * @return Nearest-integer decimal text (llround), or empty for a nonfinite value.
+ */
 QString rasterKeyText(double v)
 {
-    if (!std::isfinite(v)) return {};
+    if (!std::isfinite(v))
+        return {};
     return QString::number(static_cast<qlonglong>(std::llround(v)));
 }
 
 /*! Per-cell accumulator shared by the area-weighted and majority overlays. */
-struct Overlay
-{
-    double            sum   = 0.0;   //!< Σ weight · value
-    double            wsum  = 0.0;   //!< Σ weight
-    double            bestW = 0.0;   //!< largest single share seen
-    double            bestV = std::numeric_limits<double>::quiet_NaN();
-    QString           bestKey;
-    bool              bestValid = false;
+struct Overlay {
+    double sum = 0.0;   //!< Σ weight · value
+    double wsum = 0.0;  //!< Σ weight
+    double bestW = 0.0; //!< largest single share seen
+    double bestV = std::numeric_limits<double>::quiet_NaN();
+    QString bestKey;
+    bool bestValid = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -205,7 +295,9 @@ struct Overlay
 // ---------------------------------------------------------------------------
 
 /*! True for the integer band types, which is what "declared categorical"
- *  means for a raster. */
+ *  means for a raster. * @param[in] t GDAL band data type.
+ * @return True for recognized signed/unsigned integer types; false for floating/complex/unknown types.
+ */
 bool isCategoricalType(GDALDataType t)
 {
     switch (t) {
@@ -222,9 +314,15 @@ bool isCategoricalType(GDALDataType t)
 
 /*! Centroid (bilinear) raster sampling — the original code path, moved onto
  *  the worker. mesh::DTMSampler owns its own GDAL handle and is opened here,
- *  on this thread. */
-void sampleRasterCentroid(SamplingProgress &promise, const Job &job,
-                          const QVector<int> &channels, SampleResult &r)
+ *  on this thread. * @brief Sample selected raster bands at transformed cell centroids.
+ * @param[in,out] promise Cancellation/progress adapter invoked on the calling sampling thread.
+ * @param[in] job Value-only scope, source path, CRS, targets and classification settings.
+ * @param[in] channels One-based raster bands used as numeric channels or categorical keys.
+ * @param[in,out] r Receives aligned values/rows/keys, skips, cancellation or error.
+ * @details Opens per-band DTMSampler instances locally; no GUI layer handles cross threads.
+ */
+void sampleRasterCentroid(SamplingProgress &promise, const Job &job, const QVector<int> &channels,
+                          SampleResult &r)
 {
     QVector<QPointF> pts = job.centroids;
     // DTMSampler is non-copyable (it owns a GDAL handle), hence the pointers.
@@ -243,59 +341,88 @@ void sampleRasterCentroid(SamplingProgress &promise, const Job &job,
     // Centroids are in the mesh CRS; the sampler expects raster CRS.
     if (job.strictCrs || !samplers.front()->crsWkt().isEmpty()) {
         auto meshSrs = srsFromWkt(job.meshCrsWkt);
-        auto rasSrs  = srsFromWkt(job.assignedSourceCrsWkt.isEmpty()?samplers.front()->crsWkt():job.assignedSourceCrsWkt);
-        transformPoints(pts, meshSrs.get(), rasSrs.get(),job.strictCrs);
+        auto rasSrs = srsFromWkt(job.assignedSourceCrsWkt.isEmpty() ? samplers.front()->crsWkt()
+                                                                    : job.assignedSourceCrsWkt);
+        transformPoints(pts, meshSrs.get(), rasSrs.get(), job.strictCrs);
     }
-    if (promise.isCanceled()) { r.cancelled = true; return; }
+    if (promise.isCanceled()) {
+        r.cancelled = true;
+        return;
+    }
 
     QVector<QVector<double>> raw(channels.size());
     for (int c = 0; c < channels.size(); ++c) {
         raw[c] = samplers[size_t(c)]->sampleBulk(pts);
-        if (promise.isCanceled()) { r.cancelled = true; return; }
+        if (promise.isCanceled()) {
+            r.cancelled = true;
+            return;
+        }
     }
 
     const int n = int(job.triangles.size());
     const bool classified = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory);
-    if (!classified) r.values.resize(channels.size());
+    if (!classified)
+        r.values.resize(channels.size());
 
     for (int i = 0; i < n; ++i) {
         if ((i % kProgressChunk) == 0) {
-            if (promise.isCanceled()) { r.cancelled = true; return; }
+            if (promise.isCanceled()) {
+                r.cancelled = true;
+                return;
+            }
             promise.setProgressValue(i);
         }
         if (classified) {
-            const double v1 = i < raw[0].size() ? raw[0][i] : std::numeric_limits<double>::quiet_NaN();
-            if (!std::isfinite(v1)) { ++r.skippedNoData; continue; }
+            const double v1 =
+                i < raw[0].size() ? raw[0][i] : std::numeric_limits<double>::quiet_NaN();
+            if (!std::isfinite(v1)) {
+                ++r.skippedNoData;
+                continue;
+            }
             const QString k1 = rasterKeyText(v1);
             QString k2;
             if (channels.size() > 1 && i < raw[1].size())
                 k2 = rasterKeyText(raw[1][i]);
-            if(job.mode==Mode::SingleCategory){r.triangles.append(job.triangles[i]);r.keys.append(k1);continue;}
+            if (job.mode == Mode::SingleCategory) {
+                r.triangles.append(job.triangles[i]);
+                r.keys.append(k1);
+                continue;
+            }
             bool matched = false;
             const mesh::InfilRow row = job.table.lookup(k1, k2, &matched);
-            if (!matched) ++r.unmatchedKeys;
-            if (row.isNone()) { ++r.skippedNoData; continue; }
+            if (!matched)
+                ++r.unmatchedKeys;
+            if (row.isNone()) {
+                ++r.skippedNoData;
+                continue;
+            }
             r.triangles.append(job.triangles[i]);
             r.rows.append(row);
             r.keys.append(job.table.twoKey ? (k1 + QLatin1Char('/') + k2) : k1);
             continue;
         }
         bool any = false;
-        QVector<double> cell(channels.size(),
-                             std::numeric_limits<double>::quiet_NaN());
+        QVector<double> cell(channels.size(), std::numeric_limits<double>::quiet_NaN());
         for (int c = 0; c < channels.size(); ++c) {
-            const double rawV = i < raw[c].size()
-                                    ? raw[c][i]
-                                    : std::numeric_limits<double>::quiet_NaN();
-            if (!std::isfinite(rawV)) { ++r.skippedNoData; continue; }
+            const double rawV =
+                i < raw[c].size() ? raw[c][i] : std::numeric_limits<double>::quiet_NaN();
+            if (!std::isfinite(rawV)) {
+                ++r.skippedNoData;
+                continue;
+            }
             const double v = rawV * job.scale + job.offset;
-            if (v < job.targetMin[c] || v > job.targetMax[c]) { ++r.skippedRange; continue; }
+            if (v < job.targetMin[c] || v > job.targetMax[c]) {
+                ++r.skippedRange;
+                continue;
+            }
             cell[c] = v;
             any = true;
         }
-        if (!any) continue;
+        if (!any)
+            continue;
         r.triangles.append(job.triangles[i]);
-        for (int c = 0; c < channels.size(); ++c) r.values[c].append(cell[c]);
+        for (int c = 0; c < channels.size(); ++c)
+            r.values[c].append(cell[c]);
     }
 }
 
@@ -309,23 +436,28 @@ void sampleRasterCentroid(SamplingProgress &promise, const Job &job,
  *
  *  A cell smaller than one pixel catches no centre at all; those fall back to
  *  the nearest pixel under the centroid so a fine mesh over a coarse raster
- *  still gets values rather than a wall of NoData. */
-void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
-                         const QVector<int> &channels, SampleResult &r)
+ *  still gets values rather than a wall of NoData. * @brief Compute footprint-weighted raster means or categorical majorities.
+ * @param[in,out] promise Calling-thread cancellation/progress adapter.
+ * @param[in] job Scope, source CRS/path, four-corner footprints and target policy.
+ * @param[in] channels One-based raster bands supplying numeric values or classification keys.
+ * @param[in,out] r Receives valid assignments, resolved auto mode, skip counts and errors.
+ * @details Bounds large cell reads by decimating to kMaxPixelsPerCell; this is assignment sampling rather than exact full-resolution flux integration.
+ */
+void sampleRasterOverlay(SamplingProgress &promise, const Job &job, const QVector<int> &channels,
+                         SampleResult &r)
 {
     DatasetGuard g;
-    g.ds = GDALDataset::Open(job.rasterPath.toUtf8().constData(),
-                             GDAL_OF_RASTER | GDAL_OF_READONLY);
+    g.ds =
+        GDALDataset::Open(job.rasterPath.toUtf8().constData(), GDAL_OF_RASTER | GDAL_OF_READONLY);
     if (!g.ds) {
-        r.error = QObject::tr("Could not open %1.")
-                      .arg(QFileInfo(job.rasterPath).fileName());
+        r.error = QObject::tr("Could not open %1.").arg(QFileInfo(job.rasterPath).fileName());
         return;
     }
     QVector<GDALRasterBand *> bands;
     for (int c : channels) {
         if (c < 1 || c > g.ds->GetRasterCount()) {
-            r.error = QObject::tr("%1 has no band %2.")
-                          .arg(QFileInfo(job.rasterPath).fileName()).arg(c);
+            r.error =
+                QObject::tr("%1 has no band %2.").arg(QFileInfo(job.rasterPath).fileName()).arg(c);
             return;
         }
         bands.append(g.ds->GetRasterBand(c));
@@ -337,21 +469,26 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
     // nonsense, which is why it is reported back to the user.
     Sampling mode = job.sampling;
     if (mode == Sampling::OverlayAuto) {
-        const bool categorical = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory)
-                                 || isCategoricalType(bands[0]->GetRasterDataType());
+        const bool categorical =
+            (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory) ||
+            isCategoricalType(bands[0]->GetRasterDataType());
         mode = categorical ? Sampling::Majority : Sampling::AreaWeightedMean;
-        r.resolvedSampling = categorical
-            ? QObject::tr("majority (categorical %1 band)")
-                  .arg(QString::fromUtf8(
-                      GDALGetDataTypeName(bands[0]->GetRasterDataType())))
-            : QObject::tr("area-weighted mean (continuous %1 band)")
-                  .arg(QString::fromUtf8(
-                      GDALGetDataTypeName(bands[0]->GetRasterDataType())));
+        r.resolvedSampling =
+            categorical
+                ? QObject::tr("majority (categorical %1 band)")
+                      .arg(QString::fromUtf8(GDALGetDataTypeName(bands[0]->GetRasterDataType())))
+                : QObject::tr("area-weighted mean (continuous %1 band)")
+                      .arg(QString::fromUtf8(GDALGetDataTypeName(bands[0]->GetRasterDataType())));
     }
 
     double geo[6] = {0, 1, 0, 0, 0, 1};
     if (g.ds->GetGeoTransform(geo) != CE_None) {
-        geo[0] = 0; geo[1] = 1; geo[2] = 0; geo[3] = 0; geo[4] = 0; geo[5] = 1;
+        geo[0] = 0;
+        geo[1] = 1;
+        geo[2] = 0;
+        geo[3] = 0;
+        geo[4] = 0;
+        geo[5] = 1;
     }
     double inv[6] = {0, 1, 0, 0, 0, 1};
     if (!GDALInvGeoTransform(geo, inv)) {
@@ -363,31 +500,36 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
     const int ny = g.ds->GetRasterYSize();
 
     QVector<double> noData(channels.size(), 0.0);
-    QVector<bool>   hasNoData(channels.size(), false);
+    QVector<bool> hasNoData(channels.size(), false);
     for (int c = 0; c < bands.size(); ++c) {
         int has = 0;
-        noData[c]    = bands[c]->GetNoDataValue(&has);
+        noData[c] = bands[c]->GetNoDataValue(&has);
         hasNoData[c] = has != 0;
     }
 
     QVector<QPointF> verts = job.triVerts;
     {
         auto meshSrs = srsFromWkt(job.meshCrsWkt);
-        auto rasSrs  = (job.assignedSourceCrsWkt.isEmpty()?cloneSrs(g.ds->GetSpatialRef()):srsFromWkt(job.assignedSourceCrsWkt));
-        transformPoints(verts, meshSrs.get(), rasSrs.get(),job.strictCrs);
+        auto rasSrs = (job.assignedSourceCrsWkt.isEmpty() ? cloneSrs(g.ds->GetSpatialRef())
+                                                          : srsFromWkt(job.assignedSourceCrsWkt));
+        transformPoints(verts, meshSrs.get(), rasSrs.get(), job.strictCrs);
     }
 
-    const int  n          = int(job.triangles.size());
+    const int n = int(job.triangles.size());
     const bool classified = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory);
-    if (!classified) r.values.resize(channels.size());
+    if (!classified)
+        r.values.resize(channels.size());
 
-    QVector<double>                buf;
-    QVector<Overlay>               acc(channels.size());
+    QVector<double> buf;
+    QVector<Overlay> acc(channels.size());
     QVector<QHash<qint64, double>> hist(channels.size());
 
     for (int i = 0; i < n; ++i) {
         if ((i % kProgressChunk) == 0) {
-            if (promise.isCanceled()) { r.cancelled = true; return; }
+            if (promise.isCanceled()) {
+                r.cancelled = true;
+                return;
+            }
             promise.setProgressValue(i);
         }
         for (int ch = 0; ch < channels.size(); ++ch) {
@@ -398,23 +540,31 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
         const QPointF &b = verts[kFootprintStride * i + 1];
         const QPointF &c = verts[kFootprintStride * i + 2];
         const QPointF &d = verts[kFootprintStride * i + 3];
-        const bool quad = (d != a);   // a triangle repeats its first corner
+        const bool quad = (d != a); // a triangle repeats its first corner
 
         auto toPix = [&](const QPointF &p, double *px, double *py) {
             *px = inv[0] + p.x() * inv[1] + p.y() * inv[2];
             *py = inv[3] + p.x() * inv[4] + p.y() * inv[5];
         };
         double ax, ay, bx, by, cx, cy, dx, dy;
-        toPix(a, &ax, &ay); toPix(b, &bx, &by); toPix(c, &cx, &cy); toPix(d, &dx, &dy);
+        toPix(a, &ax, &ay);
+        toPix(b, &bx, &by);
+        toPix(c, &cx, &cy);
+        toPix(d, &dx, &dy);
 
         int x0 = int(std::floor(std::min({ax, bx, cx, dx})));
-        int x1 = int(std::ceil (std::max({ax, bx, cx, dx})));
+        int x1 = int(std::ceil(std::max({ax, bx, cx, dx})));
         int y0 = int(std::floor(std::min({ay, by, cy, dy})));
-        int y1 = int(std::ceil (std::max({ay, by, cy, dy})));
-        x0 = std::max(0, x0); y0 = std::max(0, y0);
-        x1 = std::min(nx, x1); y1 = std::min(ny, y1);
+        int y1 = int(std::ceil(std::max({ay, by, cy, dy})));
+        x0 = std::max(0, x0);
+        y0 = std::max(0, y0);
+        x1 = std::min(nx, x1);
+        y1 = std::min(ny, y1);
         const int w = x1 - x0, h = y1 - y0;
-        if (w <= 0 || h <= 0) { ++r.skippedNoData; continue; }
+        if (w <= 0 || h <= 0) {
+            ++r.skippedNoData;
+            continue;
+        }
 
         int bufW = w, bufH = h;
         const qint64 total = qint64(w) * qint64(h);
@@ -427,8 +577,8 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
         buf.resize(qsizetype(bufW) * bufH);
 
         for (int ch = 0; ch < bands.size(); ++ch) {
-            if (bands[ch]->RasterIO(GF_Read, x0, y0, w, h, buf.data(),
-                                    bufW, bufH, GDT_Float64, 0, 0) != CE_None)
+            if (bands[ch]->RasterIO(GF_Read, x0, y0, w, h, buf.data(), bufW, bufH, GDT_Float64, 0,
+                                    0) != CE_None)
                 continue;
             for (int jy = 0; jy < bufH; ++jy) {
                 const int sy = y0 + int((qint64(jy) * h) / bufH);
@@ -438,21 +588,22 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
                     const double wy = geo[3] + (sx + 0.5) * geo[4] + (sy + 0.5) * geo[5];
                     // A convex quad is covered by the (a,b,c) + (a,c,d)
                     // split — any diagonal works for point-in-convex-polygon.
-                    if (!pointInTri(wx, wy, a, b, c)
-                        && !(quad && pointInTri(wx, wy, a, c, d))) continue;
+                    if (!pointInTri(wx, wy, a, b, c) && !(quad && pointInTri(wx, wy, a, c, d)))
+                        continue;
                     const double v = buf[qsizetype(jy) * bufW + ix];
-                    if (!std::isfinite(v)) continue;
+                    if (!std::isfinite(v))
+                        continue;
                     if (hasNoData[ch] && qFuzzyCompare(v + 1.0, noData[ch] + 1.0))
                         continue;
-                    acc[ch].sum  += v;
+                    acc[ch].sum += v;
                     acc[ch].wsum += 1.0;
                     if (mode == Sampling::Majority) {
                         const qint64 code = qint64(std::llround(v));
-                        const double cnt  = hist[ch][code] + 1.0;
+                        const double cnt = hist[ch][code] + 1.0;
                         hist[ch][code] = cnt;
                         if (cnt > acc[ch].bestW) {
-                            acc[ch].bestW     = cnt;
-                            acc[ch].bestV     = double(code);
+                            acc[ch].bestW = cnt;
+                            acc[ch].bestV = double(code);
                             acc[ch].bestValid = true;
                         }
                     }
@@ -464,19 +615,18 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
                 double px = 0.0, py = 0.0;
                 toPix(quad ? QPointF((a.x() + b.x() + c.x() + d.x()) / 4.0,
                                      (a.y() + b.y() + c.y() + d.y()) / 4.0)
-                           : QPointF((a.x() + b.x() + c.x()) / 3.0,
-                                     (a.y() + b.y() + c.y()) / 3.0), &px, &py);
+                           : QPointF((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0),
+                      &px, &py);
                 const int sx = std::clamp(int(std::floor(px)), 0, nx - 1);
                 const int sy = std::clamp(int(std::floor(py)), 0, ny - 1);
                 double one = std::numeric_limits<double>::quiet_NaN();
-                if (bands[ch]->RasterIO(GF_Read, sx, sy, 1, 1, &one, 1, 1,
-                                        GDT_Float64, 0, 0) == CE_None
-                    && std::isfinite(one)
-                    && !(hasNoData[ch] && qFuzzyCompare(one + 1.0, noData[ch] + 1.0)))
-                {
-                    acc[ch].sum       = one;
-                    acc[ch].wsum      = 1.0;
-                    acc[ch].bestV     = double(qint64(std::llround(one)));
+                if (bands[ch]->RasterIO(GF_Read, sx, sy, 1, 1, &one, 1, 1, GDT_Float64, 0, 0) ==
+                        CE_None &&
+                    std::isfinite(one) &&
+                    !(hasNoData[ch] && qFuzzyCompare(one + 1.0, noData[ch] + 1.0))) {
+                    acc[ch].sum = one;
+                    acc[ch].wsum = 1.0;
+                    acc[ch].bestV = double(qint64(std::llround(one)));
                     acc[ch].bestValid = true;
                 }
             }
@@ -485,11 +635,13 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
         auto channelValue = [&](int ch, bool *ok) -> double {
             *ok = false;
             if (mode == Sampling::Majority) {
-                if (!acc[ch].bestValid) return 0.0;
+                if (!acc[ch].bestValid)
+                    return 0.0;
                 *ok = true;
                 return acc[ch].bestV;
             }
-            if (acc[ch].wsum <= 0.0) return 0.0;
+            if (acc[ch].wsum <= 0.0)
+                return 0.0;
             *ok = true;
             return acc[ch].sum / acc[ch].wsum;
         };
@@ -497,19 +649,31 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
         if (classified) {
             bool ok1 = false;
             const double v1 = channelValue(0, &ok1);
-            if (!ok1) { ++r.skippedNoData; continue; }
+            if (!ok1) {
+                ++r.skippedNoData;
+                continue;
+            }
             const QString k1 = rasterKeyText(v1);
             QString k2;
             if (channels.size() > 1) {
                 bool ok2 = false;
                 const double v2 = channelValue(1, &ok2);
-                if (ok2) k2 = rasterKeyText(v2);
+                if (ok2)
+                    k2 = rasterKeyText(v2);
             }
-            if(job.mode==Mode::SingleCategory){r.triangles.append(job.triangles[i]);r.keys.append(k1);continue;}
+            if (job.mode == Mode::SingleCategory) {
+                r.triangles.append(job.triangles[i]);
+                r.keys.append(k1);
+                continue;
+            }
             bool matched = false;
             const mesh::InfilRow row = job.table.lookup(k1, k2, &matched);
-            if (!matched) ++r.unmatchedKeys;
-            if (row.isNone()) { ++r.skippedNoData; continue; }
+            if (!matched)
+                ++r.unmatchedKeys;
+            if (row.isNone()) {
+                ++r.skippedNoData;
+                continue;
+            }
             r.triangles.append(job.triangles[i]);
             r.rows.append(row);
             r.keys.append(job.table.twoKey ? (k1 + QLatin1Char('/') + k2) : k1);
@@ -517,20 +681,27 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
         }
 
         bool any = false;
-        QVector<double> cell(channels.size(),
-                             std::numeric_limits<double>::quiet_NaN());
+        QVector<double> cell(channels.size(), std::numeric_limits<double>::quiet_NaN());
         for (int ch = 0; ch < channels.size(); ++ch) {
             bool ok = false;
             const double rawV = channelValue(ch, &ok);
-            if (!ok) { ++r.skippedNoData; continue; }
+            if (!ok) {
+                ++r.skippedNoData;
+                continue;
+            }
             const double v = rawV * job.scale + job.offset;
-            if (v < job.targetMin[ch] || v > job.targetMax[ch]) { ++r.skippedRange; continue; }
+            if (v < job.targetMin[ch] || v > job.targetMax[ch]) {
+                ++r.skippedRange;
+                continue;
+            }
             cell[ch] = v;
             any = true;
         }
-        if (!any) continue;
+        if (!any)
+            continue;
         r.triangles.append(job.triangles[i]);
-        for (int ch = 0; ch < channels.size(); ++ch) r.values[ch].append(cell[ch]);
+        for (int ch = 0; ch < channels.size(); ++ch)
+            r.values[ch].append(cell[ch]);
     }
 }
 
@@ -539,24 +710,26 @@ void sampleRasterOverlay(SamplingProgress &promise, const Job &job,
 // ---------------------------------------------------------------------------
 
 /*! Open the job's vector source on THIS thread and resolve the layer.
- *  \returns nullptr with \p err set on failure. */
+ *  \returns nullptr with \p err set on failure. * @brief Open a vector dataset and select/filter its requested layer.
+ * @param[in] job Dataset path, optional layer name and attribute filter expression.
+ * @param[out] g Takes ownership of the opened dataset, including when layer lookup subsequently fails.
+ * @param[out] err Non-null diagnostic destination on open/layer failure.
+ * @return Borrowed layer valid until g closes the dataset, or nullptr on failure. Attribute-filter return status is not checked here.
+ */
 OGRLayer *openVectorLayer(const Job &job, DatasetGuard &g, QString *err)
 {
-    g.ds = GDALDataset::Open(job.vectorPath.toUtf8().constData(),
-                             GDAL_OF_VECTOR | GDAL_OF_READONLY);
+    g.ds =
+        GDALDataset::Open(job.vectorPath.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY);
     if (!g.ds) {
-        *err = QObject::tr("Could not open %1.")
-                   .arg(QFileInfo(job.vectorPath).fileName());
+        *err = QObject::tr("Could not open %1.").arg(QFileInfo(job.vectorPath).fileName());
         return nullptr;
     }
     OGRLayer *ol = job.vectorLayerName.isEmpty()
                        ? g.ds->GetLayer(0)
-                       : g.ds->GetLayerByName(
-                             job.vectorLayerName.toUtf8().constData());
+                       : g.ds->GetLayerByName(job.vectorLayerName.toUtf8().constData());
     if (!ol) {
         *err = QObject::tr("Layer \"%1\" not found in %2.")
-                   .arg(job.vectorLayerName,
-                        QFileInfo(job.vectorPath).fileName());
+                   .arg(job.vectorLayerName, QFileInfo(job.vectorPath).fileName());
         return nullptr;
     }
     // Mirror the layer's own attribute filter so the assignment sees exactly
@@ -568,24 +741,29 @@ OGRLayer *openVectorLayer(const Job &job, DatasetGuard &g, QString *err)
 
 /*! Natural-neighbour interpolation of N numeric fields from a scattered point
  *  source. One triangulation serves every target: weightsAt() exposes the
- *  natural-neighbour coordinates, so the same weights blend each field. */
-void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job,
-                                  OGRLayer *ol, SampleResult &r)
+ *  natural-neighbour coordinates, so the same weights blend each field. * @param[in,out] promise Calling-thread cancellation/progress adapter.
+ * @param[in] job Point-source field names, scope, CRS, interpolation variant and target limits.
+ * @param[in] ol Non-null borrowed OGR layer, read through the dataset owned by this worker.
+ * @param[in,out] r Receives numeric assignments/skips and any interpolation error.
+ * @details Reads source features, builds one shared triangulation, then reuses point weights for all target channels.
+ */
+void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job, OGRLayer *ol,
+                                  SampleResult &r)
 {
     OGRFeatureDefn *defn = ol->GetLayerDefn();
     QVector<int> fieldIdx;
     for (const QString &f : job.fields)
         fieldIdx.append(defn->GetFieldIndex(f.toUtf8().constData()));
 
-    QVector<QPointF>         seeds;
+    QVector<QPointF> seeds;
     QVector<QVector<double>> seedVals(job.fields.size());
 
     ol->SetSpatialFilter(nullptr);
     ol->ResetReading();
     OGRFeature *f = nullptr;
     while ((f = ol->GetNextFeature()) != nullptr) {
-        const bool keep = !job.filterBySelection
-                          || job.selectedIds.contains(static_cast<long long>(f->GetFID()));
+        const bool keep =
+            !job.filterBySelection || job.selectedIds.contains(static_cast<long long>(f->GetFID()));
         const OGRGeometry *geom = f->GetGeometryRef();
         if (keep && geom && !geom->IsEmpty()) {
             // Envelope centre — exact for points, and a sane stand-in for the
@@ -593,28 +771,31 @@ void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job,
             OGREnvelope env;
             geom->getEnvelope(&env);
             bool anyVal = false;
-            QVector<double> vals(job.fields.size(),
-                                 std::numeric_limits<double>::quiet_NaN());
+            QVector<double> vals(job.fields.size(), std::numeric_limits<double>::quiet_NaN());
             for (int k = 0; k < fieldIdx.size(); ++k) {
                 bool ok = false;
                 vals[k] = fieldAsDouble(f, fieldIdx[k], &ok);
-                if (ok) anyVal = true;
+                if (ok)
+                    anyVal = true;
             }
             if (anyVal) {
-                seeds.append(QPointF(0.5 * (env.MinX + env.MaxX),
-                                     0.5 * (env.MinY + env.MaxY)));
+                seeds.append(QPointF(0.5 * (env.MinX + env.MaxX), 0.5 * (env.MinY + env.MaxY)));
                 for (int k = 0; k < fieldIdx.size(); ++k)
                     seedVals[k].append(vals[k]);
             }
         }
         OGRFeature::DestroyFeature(f);
-        if (promise.isCanceled()) { r.cancelled = true; return; }
+        if (promise.isCanceled()) {
+            r.cancelled = true;
+            return;
+        }
     }
 
     if (seeds.size() < 3) {
         r.error = QObject::tr("Natural-neighbour interpolation needs at least "
                               "3 point features carrying the value field; "
-                              "found %1.").arg(seeds.size());
+                              "found %1.")
+                      .arg(seeds.size());
         return;
     }
 
@@ -623,15 +804,17 @@ void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job,
     QString nnErr;
     if (!nn.build(seeds, &nnErr)) {
         r.error = QObject::tr("Natural-neighbour interpolation is unavailable "
-                              "for this point set: %1").arg(nnErr);
+                              "for this point set: %1")
+                      .arg(nnErr);
         return;
     }
 
     QVector<QPointF> pts = job.centroids;
     {
         auto meshSrs = srsFromWkt(job.meshCrsWkt);
-        auto laySrs  = (job.assignedSourceCrsWkt.isEmpty()?cloneSrs(ol->GetSpatialRef()):srsFromWkt(job.assignedSourceCrsWkt));
-        transformPoints(pts, meshSrs.get(), laySrs.get(),job.strictCrs);
+        auto laySrs = (job.assignedSourceCrsWkt.isEmpty() ? cloneSrs(ol->GetSpatialRef())
+                                                          : srsFromWkt(job.assignedSourceCrsWkt));
+        transformPoints(pts, meshSrs.get(), laySrs.get(), job.strictCrs);
     }
 
     const int n = int(job.triangles.size());
@@ -639,7 +822,10 @@ void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job,
     QVector<QPair<int, double>> weights;
     for (int i = 0; i < n; ++i) {
         if ((i % kProgressChunk) == 0) {
-            if (promise.isCanceled()) { r.cancelled = true; return; }
+            if (promise.isCanceled()) {
+                r.cancelled = true;
+                return;
+            }
             promise.setProgressValue(i);
         }
         // Outside the seed convex hull the coordinates are undefined; the
@@ -651,49 +837,60 @@ void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job,
             continue;
         }
         bool any = false;
-        QVector<double> cell(job.fields.size(),
-                             std::numeric_limits<double>::quiet_NaN());
+        QVector<double> cell(job.fields.size(), std::numeric_limits<double>::quiet_NaN());
         for (int k = 0; k < job.fields.size(); ++k) {
             double sum = 0.0, wsum = 0.0;
             for (const QPair<int, double> &w : std::as_const(weights)) {
                 const double sv = seedVals[k][w.first];
-                if (!std::isfinite(sv)) continue;
-                sum  += w.second * sv;
+                if (!std::isfinite(sv))
+                    continue;
+                sum += w.second * sv;
                 wsum += w.second;
             }
-            if (wsum <= 0.0) { ++r.skippedNoData; continue; }
+            if (wsum <= 0.0) {
+                ++r.skippedNoData;
+                continue;
+            }
             const double v = sum / wsum;
-            if (v < job.targetMin[k] || v > job.targetMax[k]) { ++r.skippedRange; continue; }
+            if (v < job.targetMin[k] || v > job.targetMax[k]) {
+                ++r.skippedRange;
+                continue;
+            }
             cell[k] = v;
             any = true;
         }
-        if (!any) continue;
+        if (!any)
+            continue;
         r.triangles.append(job.triangles[i]);
-        for (int k = 0; k < job.fields.size(); ++k) r.values[k].append(cell[k]);
+        for (int k = 0; k < job.fields.size(); ++k)
+            r.values[k].append(cell[k]);
     }
 }
 
-/*! Centroid / area-weighted / majority sampling against a polygon coverage. */
-void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
-                          OGRLayer *ol, SampleResult &r)
+/*! Centroid / area-weighted / majority sampling against a polygon coverage. * @brief Assign vector values by centroid coverage, area mean or largest-share category.
+ * @param[in,out] promise Calling-thread cancellation/progress adapter.
+ * @param[in] job Numeric/classified targets, selection filter, scope geometry and sampling policy.
+ * @param[in] ol Non-null borrowed layer whose sequential cursor/spatial filter may be modified.
+ * @param[in,out] r Receives aligned assignments, skip counts and overlap/field/CRS diagnostics.
+ */
+void sampleVectorCoverage(SamplingProgress &promise, const Job &job, OGRLayer *ol, SampleResult &r)
 {
     OGRFeatureDefn *defn = ol->GetLayerDefn();
     const bool classified = (job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory);
 
-    QVector<int> valueIdx;      // numeric modes, parallel to targetKeys
+    QVector<int> valueIdx; // numeric modes, parallel to targetKeys
     int key1Idx = -1, key2Idx = -1;
     if (classified) {
         key1Idx = defn->GetFieldIndex(job.keyField1.toUtf8().constData());
         if (key1Idx < 0) {
-            r.error = QObject::tr("Field \"%1\" is not in the source layer.")
-                          .arg(job.keyField1);
+            r.error = QObject::tr("Field \"%1\" is not in the source layer.").arg(job.keyField1);
             return;
         }
         if (!job.keyField2.isEmpty()) {
             key2Idx = defn->GetFieldIndex(job.keyField2.toUtf8().constData());
             if (key2Idx < 0) {
-                r.error = QObject::tr("Field \"%1\" is not in the source layer.")
-                              .arg(job.keyField2);
+                r.error =
+                    QObject::tr("Field \"%1\" is not in the source layer.").arg(job.keyField2);
                 return;
             }
         }
@@ -701,8 +898,7 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
         for (const QString &f : job.fields) {
             const int idx = defn->GetFieldIndex(f.toUtf8().constData());
             if (idx < 0) {
-                r.error = QObject::tr("Field \"%1\" is not in the source layer.")
-                              .arg(f);
+                r.error = QObject::tr("Field \"%1\" is not in the source layer.").arg(f);
                 return;
             }
             valueIdx.append(idx);
@@ -720,38 +916,42 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
             categorical = (t != OFTReal);
         }
         mode = categorical ? Sampling::Majority : Sampling::AreaWeightedMean;
-        r.resolvedSampling = categorical
-            ? QObject::tr("majority (categorical field)")
-            : QObject::tr("area-weighted mean (continuous field)");
+        r.resolvedSampling = categorical ? QObject::tr("majority (categorical field)")
+                                         : QObject::tr("area-weighted mean (continuous field)");
     }
 
-    QVector<QPointF> pts   = job.centroids;
+    QVector<QPointF> pts = job.centroids;
     QVector<QPointF> verts = job.triVerts;
     {
         auto meshSrs = srsFromWkt(job.meshCrsWkt);
-        auto laySrs  = (job.assignedSourceCrsWkt.isEmpty()?cloneSrs(ol->GetSpatialRef()):srsFromWkt(job.assignedSourceCrsWkt));
-        transformPoints(pts, meshSrs.get(), laySrs.get(),job.strictCrs);
-        transformPoints(verts, meshSrs.get(), laySrs.get(),job.strictCrs);
+        auto laySrs = (job.assignedSourceCrsWkt.isEmpty() ? cloneSrs(ol->GetSpatialRef())
+                                                          : srsFromWkt(job.assignedSourceCrsWkt));
+        transformPoints(pts, meshSrs.get(), laySrs.get(), job.strictCrs);
+        transformPoints(verts, meshSrs.get(), laySrs.get(), job.strictCrs);
     }
 
     const bool overlay = mode != Sampling::Centroid;
-    const int  n       = int(job.triangles.size());
+    const int n = int(job.triangles.size());
 
     // Hoisted out of the cell loop: a million cells must not mean a million
     // container allocations.
-    OGRLinearRing   ring;
-    OGRPolygon      triPoly;
-    OGRPoint        pt;
+    OGRLinearRing ring;
+    OGRPolygon triPoly;
+    OGRPoint pt;
     QVector<Overlay> acc(classified ? 1 : valueIdx.size());
-    QVector<double>  centroidVals(classified ? 0 : valueIdx.size(),
-                                  std::numeric_limits<double>::quiet_NaN());
+    QVector<double> centroidVals(classified ? 0 : valueIdx.size(),
+                                 std::numeric_limits<double>::quiet_NaN());
 
     for (int i = 0; i < n; ++i) {
         if ((i % kProgressChunk) == 0) {
-            if (promise.isCanceled()) { r.cancelled = true; return; }
+            if (promise.isCanceled()) {
+                r.cancelled = true;
+                return;
+            }
             promise.setProgressValue(i);
         }
-        for (Overlay &o : acc) o = Overlay();
+        for (Overlay &o : acc)
+            o = Overlay();
         centroidVals.fill(std::numeric_limits<double>::quiet_NaN());
         pt.setX(pts[i].x());
         pt.setY(pts[i].y());
@@ -762,27 +962,38 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
             triPoly.getEnvelope(&env);
             ol->SetSpatialFilterRect(env.MinX, env.MinY, env.MaxX, env.MaxY);
         } else {
-            ol->SetSpatialFilterRect(pts[i].x(), pts[i].y(),
-                                     pts[i].x(), pts[i].y());
+            ol->SetSpatialFilterRect(pts[i].x(), pts[i].y(), pts[i].x(), pts[i].y());
         }
         ol->ResetReading();
 
-        bool    hit        = false;
-        bool    nonNumeric = false;
+        bool hit = false;
+        bool nonNumeric = false;
         QString centroidKey;
 
         OGRFeature *f = nullptr;
         while ((f = ol->GetNextFeature()) != nullptr) {
             const OGRGeometry *geom = f->GetGeometryRef();
-            const bool selected = !job.filterBySelection
-                                  || job.selectedIds.contains(
-                                         static_cast<long long>(f->GetFID()));
-            if (!geom || !selected) { OGRFeature::DestroyFeature(f); continue; }
+            const bool selected = !job.filterBySelection ||
+                                  job.selectedIds.contains(static_cast<long long>(f->GetFID()));
+            if (!geom || !selected) {
+                OGRFeature::DestroyFeature(f);
+                continue;
+            }
 
             if (!overlay) {
                 // First containing polygon wins — the original semantics.
-                if (!geom->Contains(&pt)) { OGRFeature::DestroyFeature(f); continue; }
-                if(hit&&job.rejectOverlaps){OGRFeature::DestroyFeature(f);r.error=QObject::tr("Cell %1 intersects overlapping source polygons. Resolve the conflict before assigning.").arg(job.triangles[i]+1);return;}
+                if (!geom->Contains(&pt)) {
+                    OGRFeature::DestroyFeature(f);
+                    continue;
+                }
+                if (hit && job.rejectOverlaps) {
+                    OGRFeature::DestroyFeature(f);
+                    r.error =
+                        QObject::tr(
+                            "Cell %1 intersects overlapping source polygons. Resolve the conflict before assigning.")
+                            .arg(job.triangles[i] + 1);
+                    return;
+                }
                 hit = true;
                 if (classified) {
                     centroidKey = fieldAsKey(f, key1Idx);
@@ -792,18 +1003,24 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
                     for (int k = 0; k < valueIdx.size(); ++k) {
                         bool ok = false;
                         centroidVals[k] = fieldAsDouble(f, valueIdx[k], &ok);
-                        if (!ok) nonNumeric = true;
+                        if (!ok)
+                            nonNumeric = true;
                     }
                 }
                 OGRFeature::DestroyFeature(f);
-                if(job.rejectOverlaps)continue;
+                if (job.rejectOverlaps)
+                    continue;
                 break;
             }
 
             OGRGeometry *inter = geom->Intersection(&triPoly);
             const double share = geomArea(inter);
-            if (inter) OGRGeometryFactory::destroyGeometry(inter);
-            if (share <= 0.0) { OGRFeature::DestroyFeature(f); continue; }
+            if (inter)
+                OGRGeometryFactory::destroyGeometry(inter);
+            if (share <= 0.0) {
+                OGRFeature::DestroyFeature(f);
+                continue;
+            }
             hit = true;
 
             if (classified) {
@@ -818,12 +1035,15 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
                 for (int k = 0; k < valueIdx.size(); ++k) {
                     bool ok = false;
                     const double v = fieldAsDouble(f, valueIdx[k], &ok);
-                    if (!ok) { nonNumeric = true; continue; }
-                    acc[k].sum  += share * v;
+                    if (!ok) {
+                        nonNumeric = true;
+                        continue;
+                    }
+                    acc[k].sum += share * v;
                     acc[k].wsum += share;
                     if (share > acc[k].bestW) {
-                        acc[k].bestW     = share;
-                        acc[k].bestV     = v;
+                        acc[k].bestW = share;
+                        acc[k].bestV = v;
                         acc[k].bestValid = true;
                     }
                 }
@@ -831,20 +1051,37 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
             OGRFeature::DestroyFeature(f);
         }
 
-        if (!hit) { ++r.skippedNoData; continue; }
+        if (!hit) {
+            ++r.skippedNoData;
+            continue;
+        }
 
         if (classified) {
             const QString combined = overlay ? acc[0].bestKey : centroidKey;
-            if (overlay && !acc[0].bestValid) { ++r.skippedNoData; continue; }
+            if (overlay && !acc[0].bestValid) {
+                ++r.skippedNoData;
+                continue;
+            }
             const qsizetype sep = combined.indexOf(kKeySep);
             const QString k1 = sep < 0 ? combined : combined.left(sep);
             const QString k2 = sep < 0 ? QString() : combined.mid(sep + 1);
-            if (k1.isEmpty()) { ++r.skippedNoData; continue; }
-            if(job.mode==Mode::SingleCategory){r.triangles.append(job.triangles[i]);r.keys.append(k1);continue;}
+            if (k1.isEmpty()) {
+                ++r.skippedNoData;
+                continue;
+            }
+            if (job.mode == Mode::SingleCategory) {
+                r.triangles.append(job.triangles[i]);
+                r.keys.append(k1);
+                continue;
+            }
             bool matched = false;
             const mesh::InfilRow row = job.table.lookup(k1, k2, &matched);
-            if (!matched) ++r.unmatchedKeys;
-            if (row.isNone()) { ++r.skippedNoData; continue; }
+            if (!matched)
+                ++r.unmatchedKeys;
+            if (row.isNone()) {
+                ++r.skippedNoData;
+                continue;
+            }
             r.triangles.append(job.triangles[i]);
             r.rows.append(row);
             r.keys.append(job.table.twoKey ? (k1 + QLatin1Char('/') + k2) : k1);
@@ -852,28 +1089,34 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
         }
 
         bool any = false;
-        QVector<double> cell(valueIdx.size(),
-                             std::numeric_limits<double>::quiet_NaN());
+        QVector<double> cell(valueIdx.size(), std::numeric_limits<double>::quiet_NaN());
         for (int k = 0; k < valueIdx.size(); ++k) {
             double v = std::numeric_limits<double>::quiet_NaN();
             if (!overlay) {
                 v = centroidVals[k];
             } else if (mode == Sampling::Majority) {
-                if (acc[k].bestValid) v = acc[k].bestV;
+                if (acc[k].bestValid)
+                    v = acc[k].bestV;
             } else if (acc[k].wsum > 0.0) {
                 v = acc[k].sum / acc[k].wsum;
             }
-            if (!std::isfinite(v)) continue;
-            if (v < job.targetMin[k] || v > job.targetMax[k]) { ++r.skippedRange; continue; }
+            if (!std::isfinite(v))
+                continue;
+            if (v < job.targetMin[k] || v > job.targetMax[k]) {
+                ++r.skippedRange;
+                continue;
+            }
             cell[k] = v;
             any = true;
         }
         if (!any) {
-            if (nonNumeric) ++r.skippedNonNumeric;
+            if (nonNumeric)
+                ++r.skippedNonNumeric;
             continue;
         }
         r.triangles.append(job.triangles[i]);
-        for (int k = 0; k < valueIdx.size(); ++k) r.values[k].append(cell[k]);
+        for (int k = 0; k < valueIdx.size(); ++k)
+            r.values[k].append(cell[k]);
     }
     ol->SetSpatialFilter(nullptr);
 }
@@ -882,15 +1125,33 @@ void sampleVectorCoverage(SamplingProgress &promise, const Job &job,
 // Worker entry point
 // ---------------------------------------------------------------------------
 
-void runSamplingImpl(SamplingProgress &promise, const Job &job,
-                     SampleResult &r)
+/**
+ * @brief Validate scope and dispatch to the selected raster/vector sampling path.
+ * @param[in,out] promise Receives total/progress updates and supplies cancellation.
+ * @param[in] job Worker-owned value job; strictCrs enables coordinate/schema preflight.
+ * @param[in,out] r Receives scanned count, sampled data or refusal diagnostic.
+ * @details Exceptions are intentionally handled by runSampling(); no engine or GUI object is accessed.
+ */
+void runSamplingImpl(SamplingProgress &promise, const Job &job, SampleResult &r)
 {
-    if(job.strictCrs && (!srsFromWkt(job.meshCrsWkt))) {r.error=QObject::tr("A valid mesh CRS is required for spatial assignment.");return;}
-    if(job.strictCrs && job.centroids.size()!=job.triangles.size()) {r.error=QObject::tr("Cell centroid count does not match the assignment scope.");return;}
-    if(job.strictCrs)for(const auto&p:job.centroids)if(!std::isfinite(p.x())||!std::isfinite(p.y())){r.error=QObject::tr("Cell coordinates must be finite.");return;}
+    if (job.strictCrs && (!srsFromWkt(job.meshCrsWkt))) {
+        r.error = QObject::tr("A valid mesh CRS is required for spatial assignment.");
+        return;
+    }
+    if (job.strictCrs && job.centroids.size() != job.triangles.size()) {
+        r.error = QObject::tr("Cell centroid count does not match the assignment scope.");
+        return;
+    }
+    if (job.strictCrs)
+        for (const auto &p : job.centroids)
+            if (!std::isfinite(p.x()) || !std::isfinite(p.y())) {
+                r.error = QObject::tr("Cell coordinates must be finite.");
+                return;
+            }
     r.scanned = int(job.triangles.size());
     promise.setProgressRange(0, std::max(1, r.scanned));
-    if (job.triangles.isEmpty()) return;
+    if (job.triangles.isEmpty())
+        return;
 
     if (job.source == SourceKind::Raster) {
         if (job.sampling == Sampling::NaturalNeighbour) {
@@ -901,7 +1162,8 @@ void runSamplingImpl(SamplingProgress &promise, const Job &job,
         QVector<int> channels;
         if ((job.mode == Mode::ClassifiedInfil || job.mode == Mode::SingleCategory)) {
             channels.append(job.keyBand1);
-            if (job.keyBand2 > 0) channels.append(job.keyBand2);
+            if (job.keyBand2 > 0)
+                channels.append(job.keyBand2);
         } else {
             channels = job.bands;
         }
@@ -925,14 +1187,16 @@ void runSamplingImpl(SamplingProgress &promise, const Job &job,
     DatasetGuard g;
     QString err;
     OGRLayer *ol = openVectorLayer(job, g, &err);
-    if (!ol) { r.error = err; return; }
+    if (!ol) {
+        r.error = err;
+        return;
+    }
 
     if (job.sampling == Sampling::NaturalNeighbour) {
         sampleVectorNaturalNeighbour(promise, job, ol, r);
     } else {
-        if (job.sampling != Sampling::Centroid
-            && job.triVerts.size() < job.triangles.size() * kFootprintStride)
-        {
+        if (job.sampling != Sampling::Centroid &&
+            job.triVerts.size() < job.triangles.size() * kFootprintStride) {
             r.error = QObject::tr("Overlay sampling needs the cell footprints, "
                                   "which were not collected.");
             return;
@@ -944,7 +1208,10 @@ void runSamplingImpl(SamplingProgress &promise, const Job &job,
 /*! QtConcurrent stores a thrown exception in the future and rethrows it on the
  *  GUI thread at result(); uncaught that terminates the application. Convert
  *  everything into a failed SampleResult, exactly as the mesh generation
- *  worker does. */
+ *  worker does. * @param[in,out] promise Calling-thread progress/cancellation adapter.
+ * @param[in] job Immutable source/scope/target job.
+ * @return Complete result; allocation and other exceptions become a new empty errored result so future result() does not rethrow them.
+ */
 SampleResult runSampling(SamplingProgress &promise, const Job &job)
 {
     SampleResult r;
@@ -964,14 +1231,22 @@ SampleResult runSampling(SamplingProgress &promise, const Job &job)
     return r;
 }
 
-
 } // namespace
 MeshAssignmentSampling::SampleResult sampleMeshAssignment(const MeshAssignmentSampling::Job &job,
-    std::function<bool()> cancelled,std::function<void(int,int)> progress)
-{ SamplingProgress p{std::move(cancelled),std::move(progress)};return runSampling(p,job); }
-void runMeshAssignmentSampling(QPromise<MeshAssignmentSampling::SampleResult> &promise,MeshAssignmentSampling::Job job)
+                                                          std::function<bool()> cancelled,
+                                                          std::function<void(int, int)> progress)
 {
- promise.addResult(sampleMeshAssignment(job,[&]{return promise.isCanceled();},
-    [&](int value,int total){promise.setProgressRange(0,std::max(1,total));promise.setProgressValue(value);}));
+    SamplingProgress p{std::move(cancelled), std::move(progress)};
+    return runSampling(p, job);
+}
+void runMeshAssignmentSampling(QPromise<MeshAssignmentSampling::SampleResult> &promise,
+                               MeshAssignmentSampling::Job job)
+{
+    promise.addResult(sampleMeshAssignment(
+        job, [&] { return promise.isCanceled(); },
+        [&](int value, int total) {
+            promise.setProgressRange(0, std::max(1, total));
+            promise.setProgressValue(value);
+        }));
 }
 } // namespace

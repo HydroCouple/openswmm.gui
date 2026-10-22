@@ -1,8 +1,10 @@
-/*!
- * \file   intervalbinner.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      intervalbinner.cpp
+ * @brief     Drives GraduatedRenderer's bin assignment.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/intervalbinner.h"
@@ -20,10 +22,19 @@ namespace OpenSWMM::Render
 namespace
 {
 
+/**
+ * @brief Form equally spaced interior cuts of a supplied numeric range.
+ * @param[in] mn Lower endpoint in the source attribute's unit.
+ * @param[in] mx Upper endpoint in the same unit.
+ * @param[in] nBins Requested number of bins.
+ * @return nBins-1 values mn+i*(mx-mn)/nBins, or an empty vector when nBins<=1.
+ * @pre The caller supplies an increasing finite range for ordinary classification.
+ */
 QVector<double> equalIntervalBreaks(double mn, double mx, int nBins)
 {
     QVector<double> out;
-    if (nBins <= 1) return out;
+    if (nBins <= 1)
+        return out;
     out.reserve(nBins - 1);
     const double step = (mx - mn) / static_cast<double>(nBins);
     for (int i = 1; i < nBins; ++i)
@@ -33,6 +44,12 @@ QVector<double> equalIntervalBreaks(double mn, double mx, int nBins)
 
 // Fallback for empty or constant-valued samples — returns nBins-1 evenly
 // spaced sentinels in {0.5, 1.5, ..., n-1.5} so binFor is still defined.
+/**
+ * @brief Produce deterministic synthetic cuts when finite sample values do not vary.
+ * @param[in] nBins Positive configured bin count; callers clamp it before reaching here.
+ * @return nBins-1 values starting at 0.5 with spacing one; empty for one bin.
+ * @note These are classification sentinels, not bounds inferred from an attribute's unit.
+ */
 QVector<double> sentinelBreaks(int nBins)
 {
     QVector<double> out;
@@ -42,6 +59,14 @@ QVector<double> sentinelBreaks(int nBins)
     return out;
 }
 
+/**
+ * @brief Interpolate equal-probability cuts in an already sorted finite sample.
+ * @param[in] sortedFinite Ascending finite samples, passed by value; duplicates are retained.
+ * @param[in] nBins Desired class count.
+ * @return nBins-1 interpolated quantiles at i*(sampleCount-1)/nBins, or no cuts for
+ *         empty samples or nBins<=1. Cuts may coincide when many sample values are equal.
+ * @pre sortedFinite is sorted; this internal helper does not perform its own sort.
+ */
 QVector<double> quantileBreaks(QVector<double> sortedFinite, int nBins)
 {
     if (sortedFinite.isEmpty() || nBins <= 1)
@@ -49,13 +74,13 @@ QVector<double> quantileBreaks(QVector<double> sortedFinite, int nBins)
     QVector<double> out;
     out.reserve(nBins - 1);
     const int n = sortedFinite.size();
-    for (int i = 1; i < nBins; ++i)
-    {
+    for (int i = 1; i < nBins; ++i) {
         // Linear-interpolated quantile: idx = i*(n-1)/nBins
-        const double idxD = static_cast<double>(i) * static_cast<double>(n - 1) / static_cast<double>(nBins);
-        const int   lo   = static_cast<int>(std::floor(idxD));
-        const int   hi   = std::min(lo + 1, n - 1);
-        const double f   = idxD - static_cast<double>(lo);
+        const double idxD =
+            static_cast<double>(i) * static_cast<double>(n - 1) / static_cast<double>(nBins);
+        const int lo = static_cast<int>(std::floor(idxD));
+        const int hi = std::min(lo + 1, n - 1);
+        const double f = idxD - static_cast<double>(lo);
         out.append(sortedFinite[lo] + f * (sortedFinite[hi] - sortedFinite[lo]));
     }
     return out;
@@ -65,6 +90,16 @@ QVector<double> quantileBreaks(QVector<double> sortedFinite, int nBins)
 // formulation minimising the total within-class sum of squared deviations.
 // Returns the (nBins-1) interior break values (global min/max excluded).
 // Large inputs are stride-downsampled to keep the O(n²·k) DP bounded.
+/**
+ * @brief Minimize within-class squared deviation using a bounded Fisher-Jenks solve.
+ * @param[in] sortedFinite Ascending finite samples, copied so reduction can replace them.
+ * @param[in] nBins Requested class count.
+ * @return nBins-1 interior boundaries; empty for empty input or nBins<=1. If the count
+ *         reaches the working sample count, equal-interval cuts are returned instead.
+ * @details At most 1,500 evenly strided sorted values are retained, including endpoints.
+ *          The dynamic program uses O(n*n*nBins) work and O(n*nBins) storage after reduction.
+ * @pre Samples are sorted and expressed in a common unit; the caller handles constant input.
+ */
 QVector<double> jenksBreaks(QVector<double> sortedFinite, int nBins)
 {
     if (nBins <= 1 || sortedFinite.isEmpty())
@@ -78,8 +113,8 @@ QVector<double> jenksBreaks(QVector<double> sortedFinite, int nBins)
         QVector<double> reduced;
         reduced.reserve(kJenksCap);
         for (int i = 0; i < kJenksCap; ++i) {
-            const int idx = static_cast<int>(
-                static_cast<long long>(i) * (n0 - 1) / (kJenksCap - 1));
+            const int idx =
+                static_cast<int>(static_cast<long long>(i) * (n0 - 1) / (kJenksCap - 1));
             reduced.append(sortedFinite[idx]);
         }
         sortedFinite = std::move(reduced);
@@ -87,42 +122,41 @@ QVector<double> jenksBreaks(QVector<double> sortedFinite, int nBins)
 
     const int n = sortedFinite.size();
     const int k = nBins;
-    if (k >= n)  // more classes than distinct samples — fall back gracefully
+    if (k >= n) // more classes than distinct samples — fall back gracefully
         return equalIntervalBreaks(sortedFinite.front(), sortedFinite.back(), nBins);
 
     // 1-indexed DP matrices, dimensions (n+1) x (k+1).
-    std::vector<std::vector<int>> lowerClass(
-        n + 1, std::vector<int>(k + 1, 0));
+    std::vector<std::vector<int>> lowerClass(n + 1, std::vector<int>(k + 1, 0));
     std::vector<std::vector<double>> variance(
         n + 1, std::vector<double>(k + 1, std::numeric_limits<double>::infinity()));
 
     for (int j = 1; j <= k; ++j) {
         lowerClass[1][j] = 1;
-        variance[1][j]   = 0.0;
+        variance[1][j] = 0.0;
     }
 
     for (int l = 2; l <= n; ++l) {
         double s1 = 0.0, s2 = 0.0;
-        int    w  = 0;
+        int w = 0;
         for (int m = 1; m <= l; ++m) {
-            const int    i3  = l - m + 1;            // 1-indexed lower bound
+            const int i3 = l - m + 1; // 1-indexed lower bound
             const double val = sortedFinite[i3 - 1];
             s2 += val * val;
             s1 += val;
             ++w;
             const double var = s2 - (s1 * s1) / static_cast<double>(w);
-            const int    i4  = i3 - 1;
+            const int i4 = i3 - 1;
             if (i4 != 0) {
                 for (int j = 2; j <= k; ++j) {
                     if (variance[l][j] >= var + variance[i4][j - 1]) {
                         lowerClass[l][j] = i3;
-                        variance[l][j]   = var + variance[i4][j - 1];
+                        variance[l][j] = var + variance[i4][j - 1];
                     }
                 }
             }
         }
         lowerClass[l][1] = 1;
-        variance[l][1]   = s2 - (s1 * s1) / static_cast<double>(w);
+        variance[l][1] = s2 - (s1 * s1) / static_cast<double>(w);
     }
 
     // Walk the back-pointers to recover the (k-1) interior boundaries.
@@ -131,11 +165,12 @@ QVector<double> jenksBreaks(QVector<double> sortedFinite, int nBins)
     int kClass = n;
     QVector<double> bounds(k + 1, 0.0);
     for (int j = k; j >= 2; --j) {
-        const int id = lowerClass[kClass][j] - 1;    // last 1-indexed elem of class j-1
+        const int id = lowerClass[kClass][j] - 1; // last 1-indexed elem of class j-1
         if (id >= 1 && id <= n)
             bounds[j - 1] = sortedFinite[id - 1];
         kClass = lowerClass[kClass][j] - 1;
-        if (kClass < 1) kClass = 1;
+        if (kClass < 1)
+            kClass = 1;
     }
     for (int j = 1; j <= k - 1; ++j)
         interior.append(bounds[j]);
@@ -143,18 +178,29 @@ QVector<double> jenksBreaks(QVector<double> sortedFinite, int nBins)
 }
 
 // VS.3 — breaks at mean ± k·σ, symmetric about the mean (one σ per band).
+/**
+ * @brief Place cuts around the arithmetic mean at population-standard-deviation spacing.
+ * @param[in] finite Finite samples in a common unit; sorting is not required.
+ * @param[in] nBins Desired class count.
+ * @return nBins-1 values mean+sigma*(i-nBins/2), or no cuts for empty input/nBins<=1.
+ *         Zero variance uses sentinelBreaks() rather than repeated mean-valued cuts.
+ */
 QVector<double> stdDevBreaks(const QVector<double> &finite, int nBins)
 {
     const int n = finite.size();
-    if (n == 0 || nBins <= 1) return {};
+    if (n == 0 || nBins <= 1)
+        return {};
     double mean = 0.0;
-    for (double v : finite) mean += v;
+    for (double v : finite)
+        mean += v;
     mean /= static_cast<double>(n);
     double var = 0.0;
-    for (double v : finite) var += (v - mean) * (v - mean);
+    for (double v : finite)
+        var += (v - mean) * (v - mean);
     var /= static_cast<double>(n);
     const double sd = std::sqrt(var);
-    if (sd == 0.0) return sentinelBreaks(nBins);
+    if (sd == 0.0)
+        return sentinelBreaks(nBins);
 
     QVector<double> out;
     out.reserve(nBins - 1);
@@ -166,13 +212,22 @@ QVector<double> stdDevBreaks(const QVector<double> &finite, int nBins)
 
 // VS.3 — equal spacing in log10 space. Caller guarantees mn > 0; otherwise
 // returns empty so computeBreaks() can fall back to equal interval.
+/**
+ * @brief Generate equal spacing in base-ten logarithmic coordinates.
+ * @param[in] mn Positive lower endpoint in the source attribute's unit.
+ * @param[in] mx Upper endpoint in the same unit; ordinarily greater than mn.
+ * @param[in] nBins Desired number of classes.
+ * @return nBins-1 cuts transformed back to source units, or an empty vector for
+ *         mn<=0 or nBins<=1 so the caller can apply its equal-interval fallback.
+ */
 QVector<double> logBreaks(double mn, double mx, int nBins)
 {
-    if (mn <= 0.0 || nBins <= 1) return {};
+    if (mn <= 0.0 || nBins <= 1)
+        return {};
     QVector<double> out;
     out.reserve(nBins - 1);
-    const double lmn  = std::log10(mn);
-    const double lmx  = std::log10(mx);
+    const double lmn = std::log10(mn);
+    const double lmx = std::log10(mx);
     const double step = (lmx - lmn) / static_cast<double>(nBins);
     for (int i = 1; i < nBins; ++i)
         out.append(std::pow(10.0, lmn + step * static_cast<double>(i)));
@@ -180,9 +235,17 @@ QVector<double> logBreaks(double mn, double mx, int nBins)
 }
 
 // VS.3 — geometric (base-2) growth: each band is ~twice the previous.
+/**
+ * @brief Generate interior cuts whose adjacent band widths grow geometrically.
+ * @param[in] mn Finite lower range endpoint in the source attribute's unit.
+ * @param[in] mx Finite upper endpoint in the same unit.
+ * @param[in] nBins Desired class count; ordinarily small enough for powers of two to fit.
+ * @return nBins-1 cuts at mn+(mx-mn)*(2^i-1)/(2^nBins-1), or none when nBins<=1.
+ */
 QVector<double> exponentialBreaks(double mn, double mx, int nBins)
 {
-    if (nBins <= 1) return {};
+    if (nBins <= 1)
+        return {};
     QVector<double> out;
     out.reserve(nBins - 1);
     const double denom = std::pow(2.0, static_cast<double>(nBins)) - 1.0;
@@ -209,37 +272,35 @@ QVector<double> IntervalBinner::computeBreaks(const QVector<double> &samples) co
     // Collect finite values + min/max.
     QVector<double> finite;
     finite.reserve(samples.size());
-    double mn =  std::numeric_limits<double>::infinity();
+    double mn = std::numeric_limits<double>::infinity();
     double mx = -std::numeric_limits<double>::infinity();
-    for (double v : samples)
-    {
-        if (!std::isfinite(v)) continue;
+    for (double v : samples) {
+        if (!std::isfinite(v))
+            continue;
         finite.append(v);
-        if (v < mn) mn = v;
-        if (v > mx) mx = v;
+        if (v < mn)
+            mn = v;
+        if (v > mx)
+            mx = v;
     }
 
     if (finite.isEmpty() || mn == mx)
         return sentinelBreaks(m_nBins);
 
-    switch (m_method)
-    {
+    switch (m_method) {
     case BinMethod::EqualInterval:
         return equalIntervalBreaks(mn, mx, m_nBins);
-    case BinMethod::Quantile:
-    {
+    case BinMethod::Quantile: {
         std::sort(finite.begin(), finite.end());
         return quantileBreaks(std::move(finite), m_nBins);
     }
-    case BinMethod::NaturalBreaks:
-    {
+    case BinMethod::NaturalBreaks: {
         std::sort(finite.begin(), finite.end());
         return jenksBreaks(std::move(finite), m_nBins);
     }
     case BinMethod::StdDev:
         return stdDevBreaks(finite, m_nBins);
-    case BinMethod::Logarithmic:
-    {
+    case BinMethod::Logarithmic: {
         QVector<double> br = logBreaks(mn, mx, m_nBins);
         // Non-positive minimum: log is undefined — fall back to equal interval.
         return br.isEmpty() ? equalIntervalBreaks(mn, mx, m_nBins) : br;
@@ -255,16 +316,21 @@ QVector<double> IntervalBinner::computeBreaks(const QVector<double> &samples) co
 
 int IntervalBinner::binFor(double value, const QVector<double> &breaks) const
 {
-    if (m_nBins <= 1) return 0;
-    if (!std::isfinite(value)) return 0;
-    if (breaks.isEmpty())      return 0;
+    if (m_nBins <= 1)
+        return 0;
+    if (!std::isfinite(value))
+        return 0;
+    if (breaks.isEmpty())
+        return 0;
 
     // breaks is sorted ascending. The bin index is the count of break
     // values strictly less than `value`, clamped to [0, nBins-1].
     auto it = std::lower_bound(breaks.cbegin(), breaks.cend(), value);
     const int idx = static_cast<int>(std::distance(breaks.cbegin(), it));
-    if (idx < 0)              return 0;
-    if (idx >= m_nBins)       return m_nBins - 1;
+    if (idx < 0)
+        return 0;
+    if (idx >= m_nBins)
+        return m_nBins - 1;
     return idx;
 }
 
@@ -272,9 +338,10 @@ QJsonObject IntervalBinner::toJson() const
 {
     QJsonObject obj;
     obj.insert(QStringLiteral("method"), static_cast<int>(m_method));
-    obj.insert(QStringLiteral("nBins"),  m_nBins);
+    obj.insert(QStringLiteral("nBins"), m_nBins);
     QJsonArray jb;
-    for (double b : m_manualBreaks) jb.append(b);
+    for (double b : m_manualBreaks)
+        jb.append(b);
     obj.insert(QStringLiteral("manualBreaks"), jb);
     return obj;
 }
@@ -283,22 +350,37 @@ IntervalBinner IntervalBinner::fromJson(const QJsonObject &j)
 {
     IntervalBinner b;
     const int m = j.value(QStringLiteral("method")).toInt(0);
-    switch (m)
-    {
-    case 1: b.m_method = BinMethod::Quantile; break;
-    case 2: b.m_method = BinMethod::Manual; break;
-    case 3: b.m_method = BinMethod::NaturalBreaks; break;
-    case 4: b.m_method = BinMethod::StdDev; break;
-    case 5: b.m_method = BinMethod::Logarithmic; break;
-    case 6: b.m_method = BinMethod::Exponential; break;
-    default: b.m_method = BinMethod::EqualInterval; break;
+    switch (m) {
+    case 1:
+        b.m_method = BinMethod::Quantile;
+        break;
+    case 2:
+        b.m_method = BinMethod::Manual;
+        break;
+    case 3:
+        b.m_method = BinMethod::NaturalBreaks;
+        break;
+    case 4:
+        b.m_method = BinMethod::StdDev;
+        break;
+    case 5:
+        b.m_method = BinMethod::Logarithmic;
+        break;
+    case 6:
+        b.m_method = BinMethod::Exponential;
+        break;
+    default:
+        b.m_method = BinMethod::EqualInterval;
+        break;
     }
     b.m_nBins = j.value(QStringLiteral("nBins")).toInt(5);
-    if (b.m_nBins < 1) b.m_nBins = 1;
+    if (b.m_nBins < 1)
+        b.m_nBins = 1;
     QVector<double> br;
     const QJsonArray arr = j.value(QStringLiteral("manualBreaks")).toArray();
     br.reserve(arr.size());
-    for (const QJsonValue &v : arr) br.append(v.toDouble());
+    for (const QJsonValue &v : arr)
+        br.append(v.toDouble());
     std::sort(br.begin(), br.end());
     b.m_manualBreaks = br;
     return b;

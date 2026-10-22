@@ -1,9 +1,9 @@
-/*!
- * \file   rainfallvisualizationdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Modeless dialog visualizing and comparing every rain gage's
+/**
+ * @file      rainfallvisualizationdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Modeless dialog visualizing and comparing every rain gage's
  *         rainfall series — inline [TIMESERIES], standard SWMM rain files
  *         and multi-column CSV/TSF files alike.
  *
@@ -23,7 +23,9 @@
  * Launched (as a raise-or-create singleton parented to the main window)
  * from the Analysis menu, the object browser's Rain Gages context menu,
  * and the rain gage property editor's "Plot Rainfall…" button.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_RAINFALLVISUALIZATIONDIALOG_H
 #define OPENSWMMVIS_UI_RAINFALLVISUALIZATIONDIALOG_H
 
@@ -36,7 +38,10 @@
 
 class QChart;
 class QComboBox;
-namespace openswmmvis::plot { class UtcTimeAxis; }
+namespace openswmmvis::plot
+{
+class UtcTimeAxis;
+}
 class QLabel;
 class QSplitter;
 class QTableWidget;
@@ -48,7 +53,8 @@ class QValueAxis;
 
 class SWMMModelLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class InteractiveChartView;
 class ChartAxisFormatController;
@@ -58,8 +64,7 @@ class RainfallVisualizationDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit RainfallVisualizationDialog(SWMMModelLayer *layer,
-                                         QWidget *parent = nullptr);
+    explicit RainfallVisualizationDialog(SWMMModelLayer *layer, QWidget *parent = nullptr);
     ~RainfallVisualizationDialog() override;
 
     /*! \brief Re-bind to a different project's model layer (project-window
@@ -88,7 +93,8 @@ public:
     QVector<QChart *> panelCharts() const
     {
         QVector<QChart *> out;
-        for (const auto &p : m_panels) out.push_back(p.chart);
+        for (const auto &p : m_panels)
+            out.push_back(p.chart);
         return out;
     }
 
@@ -96,7 +102,8 @@ public:
     QVector<openswmmvis::plot::UtcTimeAxis *> panelTimeAxes() const
     {
         QVector<openswmmvis::plot::UtcTimeAxis *> out;
-        for (const auto &p : m_panels) out.push_back(p.axisX);
+        for (const auto &p : m_panels)
+            out.push_back(p.axisX);
         return out;
     }
 
@@ -115,43 +122,43 @@ private:
     void rebuildCharts_();
     void rebuildStatsTable_();
     void applyMode_();
-    QString rainUnitLabel_() const;   ///< "in" or "mm" from FLOW_UNITS system.
+    QString rainUnitLabel_() const; ///< "in" or "mm" from FLOW_UNITS system.
     QString basisAxisTitle_() const;
 
     struct GagePanel {
-        QChart                    *chart = nullptr;
-        openswmmvis::plot::UtcTimeAxis  *axisX = nullptr;
-        QValueAxis                *axisY = nullptr;
-        InteractiveChartView      *view  = nullptr;
-        ChartAxisFormatController *fmt   = nullptr;
+        QChart *chart = nullptr;
+        openswmmvis::plot::UtcTimeAxis *axisX = nullptr;
+        QValueAxis *axisY = nullptr;
+        InteractiveChartView *view = nullptr;
+        ChartAxisFormatController *fmt = nullptr;
     };
 
-    QPointer<SWMMModelLayer>            m_layer;
+    QPointer<SWMMModelLayer> m_layer;
     openswmmvis::plot::RainfallSeriesModel m_model;
 
-    QToolBar     *m_toolbar    = nullptr;
-    QComboBox    *m_basisCombo = nullptr;
-    QTabWidget   *m_tabs       = nullptr;
-    QSplitter    *m_mainSplit  = nullptr;
+    QToolBar *m_toolbar = nullptr;
+    QComboBox *m_basisCombo = nullptr;
+    QTabWidget *m_tabs = nullptr;
+    QSplitter *m_mainSplit = nullptr;
     QTableWidget *m_statsTable = nullptr;
-    QLabel       *m_emptyLabel = nullptr;
+    QLabel *m_emptyLabel = nullptr;
 
     // Overlay tab.
-    GagePanel     m_overlay;
+    GagePanel m_overlay;
 
     // Per-gage tab (rebuilt per refresh).
-    QWidget      *m_panelsHost = nullptr;   ///< Scroll-area content widget.
+    QWidget *m_panelsHost = nullptr; ///< Scroll-area content widget.
     QVector<GagePanel> m_panels;
-    bool          m_syncingX = false;       ///< Re-entry guard for X mirroring.
+    bool m_syncingX = false; ///< Re-entry guard for X mirroring.
 
     /*! Gages currently plotted. Defaults to the focused / first gage only;
      *  the stats table's checkboxes toggle the rest on. */
     QSet<QString> m_visibleGages;
 
-    QTimer       *m_refreshDebounce = nullptr;
+    QTimer *m_refreshDebounce = nullptr;
 
-    QAction *m_actSelect = nullptr, *m_actPan = nullptr,
-            *m_actZoomIn = nullptr, *m_actZoomOut = nullptr;
+    QAction *m_actSelect = nullptr, *m_actPan = nullptr, *m_actZoomIn = nullptr,
+            *m_actZoomOut = nullptr;
 };
 
 } // namespace openswmmvis::ui

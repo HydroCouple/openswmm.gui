@@ -1,7 +1,12 @@
-/*!
- * \file   meshfillsublayer.cpp
- * \brief  Slice S5.1 — static mesh terrain sublayer.
+/**
+ * @file      meshfillsublayer.cpp
+ * @brief     Slice S5.1 — static mesh terrain sublayer.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "render/sublayers/meshfillsublayer.h"
 
 #include "mesh/meshcellparams.h"
@@ -15,7 +20,8 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 /*! The one place CellAttribute meets mesh::cellParamSpecs(). Index is the
  *  enum ordinal; entry 0 is the elevation sentinel. Order mirrors the
@@ -23,11 +29,10 @@ namespace {
  *  without breaking saved styles — but it must stay in lockstep with the
  *  CellAttribute enumerators, which are what indexes it. */
 constexpr const char *kAttrKeys[] = {
-    "elevation", "mannings", "initDepth",
-    "infil.method",
-    "infil.f0", "infil.fmin", "infil.decay", "infil.dryTime", "infil.Fmax",
-    "infil.suction", "infil.Ks", "infil.IMD", "infil.CN", "infil.rate",
-    "gw.Ks", "gw.zs", "gw.thetaS", "gw.hu0", "gw.hg0", "infil.owner", "infil.conflict",
+    "elevation",   "mannings",      "initDepth",      "infil.method",  "infil.f0",  "infil.fmin",
+    "infil.decay", "infil.dryTime", "infil.Fmax",     "infil.suction", "infil.Ks",  "infil.IMD",
+    "infil.CN",    "infil.rate",    "gw.Ks",          "gw.zs",         "gw.thetaS", "gw.hu0",
+    "gw.hg0",      "infil.owner",   "infil.conflict",
 };
 constexpr int kAttrKeyCount = int(std::size(kAttrKeys));
 static_assert(kAttrKeyCount == int(MeshFillStyle::CellAttribute::InfilConflict) + 1,
@@ -44,7 +49,8 @@ QByteArray MeshFillStyle::attributeKey(CellAttribute a)
 MeshFillStyle::CellAttribute MeshFillStyle::attributeFromKey(const QByteArray &key)
 {
     for (int i = 0; i < kAttrKeyCount; ++i)
-        if (key == kAttrKeys[i]) return CellAttribute(i);
+        if (key == kAttrKeys[i])
+            return CellAttribute(i);
     return CellAttribute::Elevation;
 }
 
@@ -64,37 +70,44 @@ MeshFillStyle::MeshFillStyle(QObject *parent) : SublayerStyle(parent)
 
 void MeshFillStyle::setScheme(const ClassificationScheme &s)
 {
-    if (m_scheme == s) return;
+    if (m_scheme == s)
+        return;
     m_scheme = s;
     setDirty();
 }
 
 void MeshFillStyle::setFillColor(const QColor &v)
 {
-    if (m_fillColor == v) return;
+    if (m_fillColor == v)
+        return;
     m_fillColor = v;
     setDirty();
 }
 
 void MeshFillStyle::setHillshadeStrength(double v)
 {
-    if (v < 0.0) v = 0.0;
-    if (v > 1.0) v = 1.0;
-    if (qFuzzyCompare(m_hillshadeStrength + 1.0, v + 1.0)) return;
+    if (v < 0.0)
+        v = 0.0;
+    if (v > 1.0)
+        v = 1.0;
+    if (qFuzzyCompare(m_hillshadeStrength + 1.0, v + 1.0))
+        return;
     m_hillshadeStrength = v;
     setDirty();
 }
 
 void MeshFillStyle::setUseElevationRamp(bool v)
 {
-    if (m_useElevationRamp == v) return;
+    if (m_useElevationRamp == v)
+        return;
     m_useElevationRamp = v;
     setDirty();
 }
 
 void MeshFillStyle::setColorByAttribute(CellAttribute v)
 {
-    if (m_colorByAttribute == v) return;
+    if (m_colorByAttribute == v)
+        return;
     m_colorByAttribute = v;
 
     // Drop any pinned range: attributes differ by orders of magnitude
@@ -111,14 +124,16 @@ void MeshFillStyle::setColorByAttribute(CellAttribute v)
 
 void MeshFillStyle::setNoDataColor(const QColor &v)
 {
-    if (m_noDataColor == v) return;
+    if (m_noDataColor == v)
+        return;
     m_noDataColor = v;
     setDirty();
 }
 
 void MeshFillStyle::setCategoryPalette(const QString &v)
 {
-    if (m_categoryPalette == v) return;
+    if (m_categoryPalette == v)
+        return;
     // Unknown names fall back to Tab10 inside CategoricalPalette::byName, so
     // no validation is needed here.
     m_categoryPalette = v;
@@ -127,7 +142,8 @@ void MeshFillStyle::setCategoryPalette(const QString &v)
 
 bool MeshFillStyle::colorsByCategory() const
 {
-    if (colorsByElevation()) return false;
+    if (colorsByElevation())
+        return false;
     const mesh::CellParamSpec *s = mesh::cellParamSpec(colorByAttributeKey());
     return s && s->kind == mesh::CellParamSpec::Kind::Enum;
 }
@@ -136,39 +152,47 @@ QColor MeshFillStyle::categoryColorForValue(int v) const
 {
     const QList<QColor> pal = ::CategoricalPalette::byName(m_categoryPalette);
     const int n = int(pal.size());
-    if (n <= 0) return m_fillColor;
+    if (n <= 0)
+        return m_fillColor;
     // The enumeration's first value is the spec's min (mesh::InfilMethod::None
     // is -1), so shift it to a 0-based palette index before wrapping.
     const mesh::CellParamSpec *s = mesh::cellParamSpec(colorByAttributeKey());
     const int base = s ? int(std::lround(s->min)) : 0;
     int i = (v - base) % n;
-    if (i < 0) i += n;
+    if (i < 0)
+        i += n;
     return pal.at(i);
 }
 
 QJsonObject MeshFillStyle::toJson() const
 {
     QJsonObject obj;
-    obj.insert(QStringLiteral("fillColor"),         m_fillColor.name(QColor::HexArgb));
+    obj.insert(QStringLiteral("fillColor"), m_fillColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("hillshadeStrength"), m_hillshadeStrength);
-    obj.insert(QStringLiteral("useElevationRamp"),  m_useElevationRamp);
+    obj.insert(QStringLiteral("useElevationRamp"), m_useElevationRamp);
     // Persisted by key, not ordinal, so CellAttribute can be reordered.
     obj.insert(QStringLiteral("colorByAttribute"),
                QString::fromUtf8(attributeKey(m_colorByAttribute)));
-    obj.insert(QStringLiteral("noDataColor"),       m_noDataColor.name(QColor::HexArgb));
-    obj.insert(QStringLiteral("categoryPalette"),   m_categoryPalette);
-    obj.insert(QStringLiteral("classification"),    m_scheme.toJson());
+    obj.insert(QStringLiteral("noDataColor"), m_noDataColor.name(QColor::HexArgb));
+    obj.insert(QStringLiteral("categoryPalette"), m_categoryPalette);
+    obj.insert(QStringLiteral("classification"), m_scheme.toJson());
     return obj;
 }
 
 void MeshFillStyle::fromJson(const QJsonObject &j)
 {
     const QString tok = j.value(QStringLiteral("fillColor")).toString();
-    if (!tok.isEmpty()) { const QColor c(tok); if (c.isValid()) m_fillColor = c; }
+    if (!tok.isEmpty()) {
+        const QColor c(tok);
+        if (c.isValid())
+            m_fillColor = c;
+    }
 
     double h = j.value(QStringLiteral("hillshadeStrength")).toDouble(m_hillshadeStrength);
-    if (h < 0.0) h = 0.0;
-    if (h > 1.0) h = 1.0;
+    if (h < 0.0)
+        h = 0.0;
+    if (h > 1.0)
+        h = 1.0;
     m_hillshadeStrength = h;
 
     m_useElevationRamp = j.value(QStringLiteral("useElevationRamp")).toBool(m_useElevationRamp);
@@ -176,21 +200,28 @@ void MeshFillStyle::fromJson(const QJsonObject &j)
     // Absent in pre-change style files → stays Elevation → historic render.
     {
         const QString a = j.value(QStringLiteral("colorByAttribute")).toString();
-        if (!a.isEmpty()) m_colorByAttribute = attributeFromKey(a.toUtf8());
+        if (!a.isEmpty())
+            m_colorByAttribute = attributeFromKey(a.toUtf8());
     }
     {
         const QString tokNd = j.value(QStringLiteral("noDataColor")).toString();
-        if (!tokNd.isEmpty()) { const QColor c(tokNd); if (c.isValid()) m_noDataColor = c; }
+        if (!tokNd.isEmpty()) {
+            const QColor c(tokNd);
+            if (c.isValid())
+                m_noDataColor = c;
+        }
     }
     {
         // Absent in pre-change style files → stays Tab10, which only matters
         // once a categorical attribute is selected.
         const QString p = j.value(QStringLiteral("categoryPalette")).toString();
-        if (!p.isEmpty()) m_categoryPalette = p;
+        if (!p.isEmpty())
+            m_categoryPalette = p;
     }
 
     if (j.contains(QStringLiteral("classification")))
-        m_scheme = ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
+        m_scheme =
+            ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
 
     setDirty();
 }
@@ -203,30 +234,36 @@ MeshFillSublayer::MeshFillSublayer(QString id_, QObject *parent)
 
 void MeshFillSublayer::setVisible(bool v)
 {
-    if (m_visible == v) return;
+    if (m_visible == v)
+        return;
     m_visible = v;
     emit invalidated();
 }
 
 void MeshFillSublayer::setOpacity(qreal o)
 {
-    if (o < 0.0) o = 0.0;
-    if (o > 1.0) o = 1.0;
-    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0)) return;
+    if (o < 0.0)
+        o = 0.0;
+    if (o > 1.0)
+        o = 1.0;
+    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0))
+        return;
     m_opacity = o;
     emit invalidated();
 }
 
 void MeshFillSublayer::setAttributeHasData(bool hasData)
 {
-    if (m_attributeHasData == hasData) return;
+    if (m_attributeHasData == hasData)
+        return;
     m_attributeHasData = hasData;
     emit invalidated();
 }
 
 void MeshFillSublayer::setCategoriesPresent(const QVector<int> &values)
 {
-    if (m_categoriesPresent == values) return;
+    if (m_categoriesPresent == values)
+        return;
     m_categoriesPresent = values;
     emit invalidated();
 }
@@ -238,16 +275,14 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
     // single ramp swatch would say nothing about which methods are in play,
     // which is the entire reason to colour by method before a run.
     if (m_style->useElevationRamp() && m_style->colorsByCategory()) {
-        const mesh::CellParamSpec *spec =
-            mesh::cellParamSpec(m_style->colorByAttributeKey());
+        const mesh::CellParamSpec *spec = mesh::cellParamSpec(m_style->colorByAttributeKey());
         QList<LegendSymbolItem> out;
         for (int v : m_categoriesPresent) {
             LegendSymbolItem row;
             row.sublayerId = m_id;
             const int li = spec ? v - int(spec->min) : -1;
-            row.label = (spec && li >= 0 && li < spec->enumLabels.size())
-                            ? spec->enumLabels.at(li)
-                            : QString::number(v);
+            row.label = (spec && li >= 0 && li < spec->enumLabels.size()) ? spec->enumLabels.at(li)
+                                                                          : QString::number(v);
 
             SymbolLayer fill;
             fill.kind = SymbolLayerKind::SimpleFill;
@@ -255,11 +290,12 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
                                     m_style->categoryColorForValue(v));
             row.symbol.layers.append(fill);
             row.symbol.opacity = m_opacity;
-            row.classKey  = QString::number(v);
+            row.classKey = QString::number(v);
             row.sortIndex = v;
             out.append(row);
         }
-        if (!out.isEmpty()) return out;
+        if (!out.isEmpty())
+            return out;
         // Nothing present yet (no defaults, no overrides) — fall through to
         // the no-data swatch below rather than emitting an empty legend.
     }
@@ -274,8 +310,7 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
     } else {
         // cellParamLabel() carries the registry's translated label; the unit
         // suffix needs the project depth unit, which the layer pushes in.
-        item.label = mesh::cellParamLabel(m_style->colorByAttributeKey(),
-                                          m_depthUnitLabel);
+        item.label = mesh::cellParamLabel(m_style->colorByAttributeKey(), m_depthUnitLabel);
     }
 
     SymbolLayer fill;
@@ -285,16 +320,14 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
     // not render as a plausible-looking uniform fill — say so.
     if (m_style->useElevationRamp() && !m_style->colorsByElevation() && !m_attributeHasData) {
         item.label = tr("%1 — no data (engine support pending)").arg(item.label);
-        SymbolProps::writeColor(fill.props, QStringLiteral("color"),
-                                m_style->noDataColor());
+        SymbolProps::writeColor(fill.props, QStringLiteral("color"), m_style->noDataColor());
     } else {
-        SymbolProps::writeColor(fill.props, QStringLiteral("color"),
-                                m_style->fillColor());
+        SymbolProps::writeColor(fill.props, QStringLiteral("color"), m_style->fillColor());
     }
 
     item.symbol.layers.append(fill);
     item.symbol.opacity = m_opacity;
-    return { item };
+    return {item};
 }
 
 QSGNode *MeshFillSublayer::buildOrUpdateNode(QSGNode *existing, const SublayerContext &ctx)

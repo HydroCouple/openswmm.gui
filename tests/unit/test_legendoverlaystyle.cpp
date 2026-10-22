@@ -1,9 +1,14 @@
 /**
- * @file test_legendoverlaystyle.cpp
- * @brief Slice BB Phase 8.6.16 — LegendOverlayStyle JSON round-trip,
+ * @file      test_legendoverlaystyle.cpp
+ * @brief     Slice BB Phase 8.6.16 — LegendOverlayStyle JSON round-trip,
  *        defaults, anchor / background-mode enum handling, and the
  *        signal-emission contract that downstream views rely on.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include "render/legendoverlaystyle.h"
@@ -14,17 +19,25 @@
 
 using OpenSWMM::Render::LegendOverlayStyle;
 
-namespace {
+namespace
+{
 
 // Each test instance needs a QCoreApplication for Qt meta-system + signals.
-struct QtAppFixture : public ::testing::Test
-{
+struct QtAppFixture : public ::testing::Test {
+    /**
+     *
+     * @brief Ensure a persistent core application exists for Qt signal assertions.
+     * Creates one only when absent, with static argument storage kept valid for its
+     * lifetime. Intentionally retains the application for this binary; does not create
+     * GUI widgets, change application names or reset existing application state.
+     *
+     */
     static void SetUpTestSuite()
     {
         if (!QCoreApplication::instance()) {
             static int argc = 1;
-            static char  arg0[] = "test_legendoverlaystyle";
-            static char *argv[] = { arg0, nullptr };
+            static char arg0[] = "test_legendoverlaystyle";
+            static char *argv[] = {arg0, nullptr};
             new QCoreApplication(argc, argv);
         }
     }
@@ -69,7 +82,9 @@ TEST_F(QtAppFixture, JsonRoundTrip_PreservesAllFields)
     src.setBackgroundColor(QColor(255, 255, 255, 220));
     src.setGradientEndColor(QColor(200, 220, 255, 220));
     src.setGradientOrientation(Qt::Horizontal);
-    QFont tf; tf.setPointSize(13); tf.setBold(true);
+    QFont tf;
+    tf.setPointSize(13);
+    tf.setBold(true);
     src.setTitleFont(tf);
     src.setItemColor(QColor(50, 60, 70));
     // Slice US.B1 — size / position.
@@ -113,8 +128,8 @@ TEST_F(QtAppFixture, JsonRoundTrip_PreservesAllFields)
 TEST_F(QtAppFixture, AnchorEnum_AllValuesRoundTrip)
 {
     using A = LegendOverlayStyle::Anchor;
-    for (auto a : { A::TopLeft, A::Top, A::TopRight, A::Right,
-                    A::BottomRight, A::Bottom, A::BottomLeft, A::Left, A::Free }) {
+    for (auto a : {A::TopLeft, A::Top, A::TopRight, A::Right, A::BottomRight, A::Bottom,
+                   A::BottomLeft, A::Left, A::Free}) {
         LegendOverlayStyle src;
         src.setAnchor(a);
         LegendOverlayStyle dst;
@@ -179,21 +194,21 @@ TEST_F(QtAppFixture, ResetToDefaults_RestoresAllFields)
 TEST_F(QtAppFixture, ExplicitSize_ClampsToUsableMinimumOrAuto)
 {
     LegendOverlayStyle style;
-    EXPECT_EQ(style.explicitWidth(), 0);   // 0 = auto by default
+    EXPECT_EQ(style.explicitWidth(), 0); // 0 = auto by default
     EXPECT_EQ(style.explicitHeight(), 0);
     EXPECT_EQ(style.maxLabelWidth(), 220);
 
-    style.setExplicitWidth(20);            // below floor → 80
+    style.setExplicitWidth(20); // below floor → 80
     EXPECT_EQ(style.explicitWidth(), 80);
-    style.setExplicitHeight(5);            // below floor → 48
+    style.setExplicitHeight(5); // below floor → 48
     EXPECT_EQ(style.explicitHeight(), 48);
-    style.setExplicitWidth(0);             // auto sentinel passes through
+    style.setExplicitWidth(0); // auto sentinel passes through
     EXPECT_EQ(style.explicitWidth(), 0);
-    style.setExplicitWidth(-10);           // negative → auto
+    style.setExplicitWidth(-10); // negative → auto
     EXPECT_EQ(style.explicitWidth(), 0);
 
-    style.setMaxLabelWidth(10);            // clamps up to 60
+    style.setMaxLabelWidth(10); // clamps up to 60
     EXPECT_EQ(style.maxLabelWidth(), 60);
-    style.setMaxLabelWidth(5000);          // clamps down to 1200
+    style.setMaxLabelWidth(5000); // clamps down to 1200
     EXPECT_EQ(style.maxLabelWidth(), 1200);
 }

@@ -1,8 +1,9 @@
-/*!
- * \file   assignraingagesdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      assignraingagesdialog.h
+ * @brief     Bind rain gages to subcatchments and RDII inflows spatially, in one undoable step.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Bind rain gages to subcatchments and RDII inflows spatially, in one undoable
  * step.
@@ -25,6 +26,7 @@
  * Cancel), and a computed plan is reused by Apply until the model or an option
  * changes. Everything is computed before any mutation, so the volume gate can
  * abort with nothing written; the whole assignment is one undo step.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMMVIS_UI_DIALOGS_ASSIGNRAINGAGESDIALOG_H
@@ -51,17 +53,16 @@ class QTimer;
 class SelectionManager;
 class SWMMModelLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class AssignRainGagesDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    AssignRainGagesDialog(SWMMModelLayer   *layer,
-                          MapCanvas        *canvas,
-                          SelectionManager *selection,
-                          QWidget          *parent = nullptr);
+    AssignRainGagesDialog(SWMMModelLayer *layer, MapCanvas *canvas, SelectionManager *selection,
+                          QWidget *parent = nullptr);
     ~AssignRainGagesDialog() override;
 
     /*! \brief True while a plan is being computed. Tests and the perf harness
@@ -85,34 +86,34 @@ private:
     void applyPlan(const assignment::raingage::Plan &plan);
     void showPlan(const assignment::raingage::Plan &plan, bool applied);
 
-    QPointer<SWMMModelLayer>   m_layer;
-    QPointer<MapCanvas>        m_canvas;
+    QPointer<SWMMModelLayer> m_layer;
+    QPointer<MapCanvas> m_canvas;
     QPointer<SelectionManager> m_selection;
 
-    QRadioButton   *m_methodProximity = nullptr;
-    QRadioButton   *m_methodInterp    = nullptr;
-    QComboBox      *m_variantCombo    = nullptr;
-    QDoubleSpinBox *m_tolSpin         = nullptr;
-    QCheckBox      *m_targetSubcatch  = nullptr;
-    QCheckBox      *m_targetRdii      = nullptr;
-    QRadioButton   *m_scopeAll        = nullptr;
-    QRadioButton   *m_scopeSelected   = nullptr;
-    QLabel         *m_gageCountLbl    = nullptr;
-    QTableWidget   *m_preview         = nullptr;
-    QLabel         *m_statusLbl       = nullptr;
-    QProgressBar   *m_progressBar     = nullptr;
-    QPushButton    *m_previewBtn      = nullptr;
-    QPushButton    *m_applyBtn        = nullptr;
-    QPushButton    *m_cancelBtn       = nullptr;
+    QRadioButton *m_methodProximity = nullptr;
+    QRadioButton *m_methodInterp = nullptr;
+    QComboBox *m_variantCombo = nullptr;
+    QDoubleSpinBox *m_tolSpin = nullptr;
+    QCheckBox *m_targetSubcatch = nullptr;
+    QCheckBox *m_targetRdii = nullptr;
+    QRadioButton *m_scopeAll = nullptr;
+    QRadioButton *m_scopeSelected = nullptr;
+    QLabel *m_gageCountLbl = nullptr;
+    QTableWidget *m_preview = nullptr;
+    QLabel *m_statusLbl = nullptr;
+    QProgressBar *m_progressBar = nullptr;
+    QPushButton *m_previewBtn = nullptr;
+    QPushButton *m_applyBtn = nullptr;
+    QPushButton *m_cancelBtn = nullptr;
 
     // ── Background compute + plan cache ─────────────────────────────────
     QFutureWatcher<assignment::raingage::Plan> m_watcher;
     std::shared_ptr<assignment::raingage::Progress> m_progress;
     QTimer *m_progressTimer = nullptr;
-    bool    m_applyWhenDone = false;
-    bool    m_computing     = false;   ///< Until onComputeFinished() has run.
-    bool    m_havePlan      = false;   ///< m_plan matches the current model + options.
-    quint64 m_generation    = 0;       ///< Bumped by every invalidating change.
+    bool m_applyWhenDone = false;
+    bool m_computing = false; ///< Until onComputeFinished() has run.
+    bool m_havePlan = false;  ///< m_plan matches the current model + options.
+    quint64 m_generation = 0; ///< Bumped by every invalidating change.
     quint64 m_computeGeneration = 0;
     assignment::raingage::Plan m_plan;
 };

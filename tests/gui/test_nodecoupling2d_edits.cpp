@@ -1,11 +1,16 @@
-/*!
- * \file   test_nodecoupling2d_edits.cpp
- * \brief  1D↔2D node coupling edits (fine-scale coupling plan §7.1–7.2):
+/**
+ * @file      test_nodecoupling2d_edits.cpp
+ * @brief     1D↔2D node coupling edits (fine-scale coupling plan §7.1–7.2):
  *         the coupling selector's staged bulk edits and their Apply as one
  *         undoable step through SWMMModelLayer, read back from the engine.
  *
  * Fixture: tests/gui/data/mini_2d.inp (junction J1, an outfall, a 2D mesh).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
@@ -18,7 +23,8 @@
 #include <QObject>
 #include <QTest>
 
-namespace {
+namespace
+{
 
 QString fixturePath()
 {
@@ -26,21 +32,21 @@ QString fixturePath()
         .filePath(QStringLiteral("mini_2d.inp"));
 }
 
-struct Harness
-{
-    OpenSWMMVisWorkspace *ws     = nullptr;
+struct Harness {
+    OpenSWMMVisWorkspace *ws = nullptr;
     SWMMVisProjectWindow *window = nullptr;
-    MapCanvas            *canvas = nullptr;
-    SWMMModelLayer       *layer  = nullptr;
+    MapCanvas *canvas = nullptr;
+    SWMMModelLayer *layer = nullptr;
 
     bool open()
     {
         ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
         window = new SWMMVisProjectWindow(ws, fixturePath(), nullptr);
         QList<QString> warnings, errors;
-        if (!window->loadModel(warnings, errors)) return false;
+        if (!window->loadModel(warnings, errors))
+            return false;
         canvas = window->canvas();
-        layer  = window->modelLayer();
+        layer = window->modelLayer();
         return canvas && layer && canvas->undoStack();
     }
     ~Harness()
@@ -76,16 +82,17 @@ private slots:
         QVERIFY(!before.authored);
         QCOMPARE(before.type, int(nodecoupling2d::Manhole));
         const int all = model.rowCount();
-        QCOMPARE(model.coupleableCount(), all);   // no inlet / virtual junctions
+        QCOMPARE(model.coupleableCount(), all); // no inlet / virtual junctions
 
         model.setCoupleable({j1}, false);
         QCOMPARE(model.coupleableCount(), all - 1);
-        QCOMPARE(h.state(QStringLiteral("J1")), before);   // staged only
+        QCOMPARE(h.state(QStringLiteral("J1")), before); // staged only
 
         const int depth = h.canvas->undoStack()->count();
         QString error;
-        QVERIFY2(h.layer->pushNodeCoupling2DEdits(model.changedStates(), QStringLiteral("t"), &error),
-                 qPrintable(error));
+        QVERIFY2(
+            h.layer->pushNodeCoupling2DEdits(model.changedStates(), QStringLiteral("t"), &error),
+            qPrintable(error));
         QCOMPARE(h.canvas->undoStack()->count(), depth + 1);
         QCOMPARE(h.state(QStringLiteral("J1")).type, int(nodecoupling2d::None));
         QVERIFY(h.state(QStringLiteral("J1")).authored);
@@ -114,14 +121,15 @@ private slots:
         NodeCouplingTableModel model;
         model.load(h.layer);
         const int j1 = model.rowOf(QStringLiteral("J1"));
-        model.setType({j1}, nodecoupling2d::Outfall);   // not allowed: ignored
+        model.setType({j1}, nodecoupling2d::Outfall); // not allowed: ignored
         QVERIFY(model.changedStates().isEmpty());
         model.setType({j1}, nodecoupling2d::Grate);
         auto staged = model.changedStates();
         QCOMPARE(staged.size(), 1);
         staged[0].params.insert(QStringLiteral("AREA"), QStringLiteral("0.18"));
         QVERIFY(h.layer->pushNodeCoupling2DEdits(staged, QStringLiteral("t"), &error));
-        QCOMPARE(h.state(QStringLiteral("J1")).params.value(QStringLiteral("AREA")), QStringLiteral("0.18"));
+        QCOMPARE(h.state(QStringLiteral("J1")).params.value(QStringLiteral("AREA")),
+                 QStringLiteral("0.18"));
         model.load(h.layer);
         model.setType({j1}, nodecoupling2d::Manhole);
         QVERIFY(model.changedStates().value(0).params.isEmpty());
@@ -146,7 +154,8 @@ private slots:
             j1.params = {{QStringLiteral("AREA"), QStringLiteral("0.18")},
                          {QStringLiteral("PERIMETER"), QStringLiteral("1.8")}};
             QString error;
-            QVERIFY2(h.layer->pushNodeCoupling2DEdits({j1}, QStringLiteral("t"), &error), qPrintable(error));
+            QVERIFY2(h.layer->pushNodeCoupling2DEdits({j1}, QStringLiteral("t"), &error),
+                     qPrintable(error));
             QVERIFY2(h.window->saveAs(saved, &error), qPrintable(error));
         }
         QFile f(saved);

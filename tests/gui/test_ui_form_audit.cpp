@@ -7,6 +7,16 @@
 // like "Copy" parse to hardware media keys such as Qt::Key_Copy, which
 // never fire on a normal keyboard) and against silent shortcut
 // collisions as the catalog grows.
+
+/**
+ * @file      test_ui_form_audit.cpp
+ * @brief     Tests for ui form audit.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QAction>
@@ -69,11 +79,10 @@ QList<QAction *> TestUiFormAudit::formActions() const
 void TestUiFormAudit::actionsHaveText()
 {
     const auto actions = formActions();
-    QVERIFY(actions.size() >= 76);   // the .ui action table; grows, never shrinks silently
+    QVERIFY(actions.size() >= 76); // the .ui action table; grows, never shrinks silently
     for (const QAction *a : actions) {
         QVERIFY2(!a->text().isEmpty(),
-                 qPrintable(QStringLiteral("QAction '%1' has empty text")
-                                .arg(a->objectName())));
+                 qPrintable(QStringLiteral("QAction '%1' has empty text").arg(a->objectName())));
     }
 }
 
@@ -82,36 +91,33 @@ void TestUiFormAudit::noMediaKeyShortcuts()
     // The exact keys the historical bug produced, plus the rest of the
     // device/media-key family a bare-word shortcut string can parse into.
     static const QSet<int> kDeviceKeys = {
-        Qt::Key_Copy,    Qt::Key_Cut,     Qt::Key_Paste,   Qt::Key_Search,
-        Qt::Key_Execute, Qt::Key_Select,  Qt::Key_ZoomIn,  Qt::Key_ZoomOut,
-        Qt::Key_Zoom,    Qt::Key_Open,    Qt::Key_Save,    Qt::Key_New,
-        Qt::Key_Undo,    Qt::Key_Redo,    Qt::Key_Print,   Qt::Key_Play,
-        Qt::Key_Find,    Qt::Key_Close,   Qt::Key_Exit,    Qt::Key_Cancel,
+        Qt::Key_Copy,   Qt::Key_Cut,    Qt::Key_Paste,   Qt::Key_Search, Qt::Key_Execute,
+        Qt::Key_Select, Qt::Key_ZoomIn, Qt::Key_ZoomOut, Qt::Key_Zoom,   Qt::Key_Open,
+        Qt::Key_Save,   Qt::Key_New,    Qt::Key_Undo,    Qt::Key_Redo,   Qt::Key_Print,
+        Qt::Key_Play,   Qt::Key_Find,   Qt::Key_Close,   Qt::Key_Exit,   Qt::Key_Cancel,
     };
     for (const QAction *a : formActions()) {
         const QKeySequence seq = a->shortcut();
         for (int i = 0; i < seq.count(); ++i) {
             const int key = seq[i].key();
             QVERIFY2(!kDeviceKeys.contains(key),
-                     qPrintable(QStringLiteral(
-                         "QAction '%1' shortcut '%2' resolves to a hardware "
-                         "media key and will never fire on a normal keyboard")
-                             .arg(a->objectName(), seq.toString())));
+                     qPrintable(QStringLiteral("QAction '%1' shortcut '%2' resolves to a hardware "
+                                               "media key and will never fire on a normal keyboard")
+                                    .arg(a->objectName(), seq.toString())));
         }
     }
 }
 
 void TestUiFormAudit::noDuplicateShortcuts()
 {
-    QHash<QString, QString> seen;   // portable sequence -> objectName
+    QHash<QString, QString> seen; // portable sequence -> objectName
     for (const QAction *a : formActions()) {
         const QString seq = a->shortcut().toString(QKeySequence::PortableText);
         if (seq.isEmpty())
             continue;
         QVERIFY2(!seen.contains(seq),
-                 qPrintable(QStringLiteral(
-                     "Shortcut '%1' bound to both '%2' and '%3'")
-                         .arg(seq, seen.value(seq), a->objectName())));
+                 qPrintable(QStringLiteral("Shortcut '%1' bound to both '%2' and '%3'")
+                                .arg(seq, seen.value(seq), a->objectName())));
         seen.insert(seq, a->objectName());
     }
 }
@@ -121,34 +127,33 @@ void TestUiFormAudit::repairedShortcutsAnchor()
     // Regression anchors for the six shortcuts repaired in P0. Qt maps
     // Ctrl to Cmd on macOS at runtime, so string-built sequences compare
     // consistently across platforms.
-    QCOMPARE(mUi.actionCopy->shortcut(),    QKeySequence(QStringLiteral("Ctrl+C")));
-    QCOMPARE(mUi.actionSearch->shortcut(),  QKeySequence(QStringLiteral("Ctrl+F")));
+    QCOMPARE(mUi.actionCopy->shortcut(), QKeySequence(QStringLiteral("Ctrl+C")));
+    QCOMPARE(mUi.actionSearch->shortcut(), QKeySequence(QStringLiteral("Ctrl+F")));
     QCOMPARE(mUi.actionExecute->shortcut(), QKeySequence(QStringLiteral("Ctrl+R")));
-    QCOMPARE(mUi.actionZoomIn->shortcut(),  QKeySequence(QStringLiteral("Ctrl++")));
+    QCOMPARE(mUi.actionZoomIn->shortcut(), QKeySequence(QStringLiteral("Ctrl++")));
     QCOMPARE(mUi.actionZoomOut->shortcut(), QKeySequence(QStringLiteral("Ctrl+-")));
     QVERIFY(mUi.actionSelect->shortcut().isEmpty());
 
     // The seven that always worked stay pinned too.
-    QCOMPARE(mUi.actionNew->shortcut(),      QKeySequence(QStringLiteral("Ctrl+N")));
-    QCOMPARE(mUi.actionOpen->shortcut(),     QKeySequence(QStringLiteral("Ctrl+O")));
-    QCOMPARE(mUi.actionSave->shortcut(),     QKeySequence(QStringLiteral("Ctrl+S")));
-    QCOMPARE(mUi.actionSaveAs->shortcut(),   QKeySequence(QStringLiteral("Ctrl+Shift+S")));
-    QCOMPARE(mUi.actionPrint->shortcut(),    QKeySequence(QStringLiteral("Ctrl+P")));
+    QCOMPARE(mUi.actionNew->shortcut(), QKeySequence(QStringLiteral("Ctrl+N")));
+    QCOMPARE(mUi.actionOpen->shortcut(), QKeySequence(QStringLiteral("Ctrl+O")));
+    QCOMPARE(mUi.actionSave->shortcut(), QKeySequence(QStringLiteral("Ctrl+S")));
+    QCOMPARE(mUi.actionSaveAs->shortcut(), QKeySequence(QStringLiteral("Ctrl+Shift+S")));
+    QCOMPARE(mUi.actionPrint->shortcut(), QKeySequence(QStringLiteral("Ctrl+P")));
     QCOMPARE(mUi.actionSettings->shortcut(), QKeySequence(QStringLiteral("Ctrl+,")));
-    QCOMPARE(mUi.actionExit->shortcut(),     QKeySequence(QStringLiteral("Ctrl+Q")));
+    QCOMPARE(mUi.actionExit->shortcut(), QKeySequence(QStringLiteral("Ctrl+Q")));
 }
 
 void TestUiFormAudit::menuBarTitlesHaveMnemonics()
 {
     // P5 — every top-level menu is Alt-key reachable.
     const auto topActions = mUi.menubarMain->actions();
-    QVERIFY(topActions.size() >= 8);   // File Edit View Model Analysis Results Tools Help
+    QVERIFY(topActions.size() >= 8); // File Edit View Model Analysis Results Tools Help
     for (const QAction *a : topActions) {
         if (a->isSeparator())
             continue;
         QVERIFY2(a->text().contains(QLatin1Char('&')),
-                 qPrintable(QStringLiteral("menu '%1' has no mnemonic")
-                                .arg(a->text())));
+                 qPrintable(QStringLiteral("menu '%1' has no mnemonic").arg(a->text())));
     }
 }
 
@@ -177,9 +182,9 @@ void TestUiFormAudit::everyActionIsMenuReachable()
                 break;
             }
         }
-        QVERIFY2(inMenu,
-                 qPrintable(QStringLiteral("QAction '%1' is not in any menu")
-                                .arg(a->objectName())));
+        QVERIFY2(
+            inMenu,
+            qPrintable(QStringLiteral("QAction '%1' is not in any menu").arg(a->objectName())));
     }
 }
 
@@ -190,8 +195,7 @@ void TestUiFormAudit::actionsHaveTooltips()
     // site explicitly cleared it).
     for (const QAction *a : formActions()) {
         QVERIFY2(!a->toolTip().isEmpty(),
-                 qPrintable(QStringLiteral("QAction '%1' has empty tooltip")
-                                .arg(a->objectName())));
+                 qPrintable(QStringLiteral("QAction '%1' has empty tooltip").arg(a->objectName())));
     }
 }
 

@@ -1,9 +1,18 @@
-/*!
- * \file ribboncompactor.cpp
+/**
+ * @file      ribboncompactor.cpp
+ * @brief     UI redesign iteration 2 (R2/R5) — watches one group-bearing QToolBar and drives
+ *            per-group RibbonMode from the solver whenever the bar resizes or first shows:
+ *            trailing groups shed detail first, and promotions only land past a 32 px dead band
+ *            (applyRibbonHysteresis) so a window dragged across a boundary doesn't flap.
  *
  * UI redesign iteration 2 (R2/R5) — responsive ribbon mode driver.
  * See ribboncompactor.h for the design contract.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "ui/toolbars/ribboncompactor.h"
 
 #include <QEvent>
@@ -15,11 +24,11 @@
 
 #include "ui/toolbars/ribbongroup.h"
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 RibbonCompactor::RibbonCompactor(QToolBar *bar, const QList<RibbonGroup *> &groups)
-    : QObject(bar)
-    , mBar(bar)
+    : QObject(bar), mBar(bar)
 {
     for (RibbonGroup *group : groups)
         mGroups.append(QPointer<RibbonGroup>(group));
@@ -78,12 +87,10 @@ void RibbonCompactor::relayoutNow()
     // The trailing left-pack spacer (see initializeCompactToolbar) is
     // zero-width at minimum but still costs one inter-item spacing the
     // solver doesn't know about.
-    if (mBar->findChild<QWidget *>(QStringLiteral("ribbonBarSpacer"),
-                                   Qt::FindDirectChildrenOnly))
+    if (mBar->findChild<QWidget *>(QStringLiteral("ribbonBarSpacer"), Qt::FindDirectChildrenOnly))
         available -= spacing;
 
-    const QVector<RibbonMode> modes =
-        applyRibbonHysteresis(mModes, available, widths, spacing);
+    const QVector<RibbonMode> modes = applyRibbonHysteresis(mModes, available, widths, spacing);
     mModes = modes;
     bool changed = false;
     for (int i = 0; i < groups.size(); ++i) {
@@ -105,4 +112,4 @@ void RibbonCompactor::relayoutNow()
     }
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

@@ -1,8 +1,10 @@
-/*!
- * \file   rasterrendererfactory.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rasterrendererfactory.cpp
+ * @brief     of RendererFactory::makeRenderer.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/rasterrendererfactory.h"

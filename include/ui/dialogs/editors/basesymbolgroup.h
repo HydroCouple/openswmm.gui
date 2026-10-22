@@ -1,9 +1,9 @@
-/*!
- * \file   basesymbolgroup.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  "Base symbol & labels" — the kind's size / outline / marker /
+/**
+ * @file      basesymbolgroup.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     "Base symbol & labels" — the kind's size / outline / marker /
  *         label controls, mountable under any renderer panel.
  *
  *         Feedback C2: those controls lived only in the Single Symbol
@@ -14,7 +14,9 @@
  *         panel uses to the same persistent per-kind style object, so
  *         the dialog's Cancel snapshot covers it and nothing is
  *         duplicated.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_BASESYMBOLGROUP_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_BASESYMBOLGROUP_H
 
@@ -24,7 +26,8 @@
 
 class OpenSWMMVisLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 struct RendererPanelContext;
 
@@ -39,8 +42,7 @@ struct RendererPanelContext;
  *  carry the object name "baseSymbolSize" so a Graduated panel can grey
  *  them while "Size by value" is on. Returns nullptr when the context has
  *  no kind or the host has no base-symbol channel. */
-[[nodiscard]] QWidget *createBaseSymbolGroup(const RendererPanelContext &ctx,
-                                             QWidget *parent);
+[[nodiscard]] QWidget *createBaseSymbolGroup(const RendererPanelContext &ctx, QWidget *parent);
 
 } // namespace openswmmvis::ui
 

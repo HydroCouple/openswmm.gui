@@ -1,15 +1,17 @@
-/*!
- * \file   test_plotvariablepickerdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Pins the PlotVariablePickerDialog (the Plot Time Series toolbar
+/**
+ * @file      test_plotvariablepickerdialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Pins the PlotVariablePickerDialog (the Plot Time Series toolbar
  *         dialog) and the shared canonical attribute lists it is built on.
  *
  * Engine-free: the dialog takes pre-mapped plot::ObjectRefs plus an
  * optional IRunLayer availability probe, so a stub layer with a blacklist
  * exercises the supportsAttribute gating without touching a .out file.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/plotvariablepickerdialog.h"
 #include "plot/irunlayer.h"
 #include "plot/plotattribute.h"
@@ -26,21 +28,25 @@
 using namespace openswmmvis::plot;
 using openswmmvis::ui::PlotVariablePickerDialog;
 
-namespace {
+namespace
+{
 
 // Stub layer that rejects a fixed blacklist — models a .out that lacks
 // e.g. PET and link volume.
 class StubRunLayer : public IRunLayer
 {
 public:
-    QString    scenarioName()      const override { return QStringLiteral("Stub"); }
-    UnitSystem unitSystem()        const override { return UnitSystem::SI; }
-    double     startDateJulian()   const override { return 0.0; }
-    int        periodCount()       const override { return 0; }
-    int        reportStepSeconds() const override { return 0; }
-    void       getSeriesAt(const ObjectRef&, PlotAttribute, SeriesData& out) const override
-    { out.ok = false; out.errorMessage = QStringLiteral("stub"); }
-    bool       supportsAttribute(PlotAttribute a) const override
+    QString scenarioName() const override { return QStringLiteral("Stub"); }
+    UnitSystem unitSystem() const override { return UnitSystem::SI; }
+    double startDateJulian() const override { return 0.0; }
+    int periodCount() const override { return 0; }
+    int reportStepSeconds() const override { return 0; }
+    void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
+    {
+        out.ok = false;
+        out.errorMessage = QStringLiteral("stub");
+    }
+    bool supportsAttribute(PlotAttribute a) const override
     {
         return a != PlotAttribute::SystemPET && a != PlotAttribute::LinkVolume;
     }
@@ -52,8 +58,7 @@ public:
 class SpeciesStubRunLayer : public StubRunLayer
 {
 public:
-    QVector<ResultDescriptor> resultDescriptorsForKind(
-        ObjectRef::Kind kind) const override
+    QVector<ResultDescriptor> resultDescriptorsForKind(ObjectRef::Kind kind) const override
     {
         return openswmmvis::plot::resultDescriptorsForKind(
             kind, QStringList{QStringLiteral("TSS"), QStringLiteral("Lead"),
@@ -79,7 +84,8 @@ QPushButton *pushButtonNamed(PlotVariablePickerDialog &dlg, const QString &text)
 {
     const auto buttons = dlg.findChildren<QPushButton *>();
     for (QPushButton *b : buttons)
-        if (b->text() == text) return b;
+        if (b->text() == text)
+            return b;
     return nullptr;
 }
 
@@ -109,12 +115,13 @@ private slots:
 
 void TestPlotVariablePickerDialog::attributeListsPinned()
 {
-    QCOMPARE(nodePlotAttributes().size(),     6);
-    QCOMPARE(linkPlotAttributes().size(),     5);
+    QCOMPARE(nodePlotAttributes().size(), 6);
+    QCOMPARE(linkPlotAttributes().size(), 5);
     QCOMPARE(subcatchPlotAttributes().size(), 17);
-    QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSWE,UnitSystem::US),QStringLiteral("m"));
-    QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSurfaceTemp,UnitSystem::US),QStringLiteral("°C"));
-    QCOMPARE(systemPlotAttributes().size(),  15);
+    QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSWE, UnitSystem::US), QStringLiteral("m"));
+    QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSurfaceTemp, UnitSystem::US),
+             QStringLiteral("°C"));
+    QCOMPARE(systemPlotAttributes().size(), 15);
 
     // No duplicates within any list, and every system entry really is one.
     for (const auto *list : {&nodePlotAttributes(), &linkPlotAttributes(),
@@ -128,21 +135,21 @@ void TestPlotVariablePickerDialog::attributeListsPinned()
 
     // Canonical order anchors (user-facing menu order).
     QCOMPARE(systemPlotAttributes().first(), PlotAttribute::SystemRainfall);
-    QCOMPARE(systemPlotAttributes().last(),  PlotAttribute::SystemTemperature);
-    QCOMPARE(nodePlotAttributes().first(),   PlotAttribute::NodeDepth);
-    QCOMPARE(linkPlotAttributes().first(),   PlotAttribute::LinkFlow);
+    QCOMPARE(systemPlotAttributes().last(), PlotAttribute::SystemTemperature);
+    QCOMPARE(nodePlotAttributes().first(), PlotAttribute::NodeDepth);
+    QCOMPARE(linkPlotAttributes().first(), PlotAttribute::LinkFlow);
     QCOMPARE(subcatchPlotAttributes().first(), PlotAttribute::SubcatchRainfall);
 }
 
 void TestPlotVariablePickerDialog::attributesForKindDispatch()
 {
-    QCOMPARE(&attributesForKind(ObjectRef::Kind::Node),     &nodePlotAttributes());
-    QCOMPARE(&attributesForKind(ObjectRef::Kind::Link),     &linkPlotAttributes());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::Node), &nodePlotAttributes());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::Link), &linkPlotAttributes());
     QCOMPARE(&attributesForKind(ObjectRef::Kind::Subcatch), &subcatchPlotAttributes());
-    QCOMPARE(&attributesForKind(ObjectRef::Kind::System),   &systemPlotAttributes());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::System), &systemPlotAttributes());
     QVERIFY(attributesForKind(ObjectRef::Kind::Unknown).isEmpty());
-    QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DCell),   &mesh2DCellPlotAttributes());
-    QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DEdge),   &mesh2DEdgePlotAttributes());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DCell), &mesh2DCellPlotAttributes());
+    QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DEdge), &mesh2DEdgePlotAttributes());
     QCOMPARE(&attributesForKind(ObjectRef::Kind::Mesh2DVertex), &mesh2DVertexPlotAttributes());
     QVERIFY(attributesForKind(ObjectRef::Kind::Observed).isEmpty());
 }
@@ -166,11 +173,11 @@ void TestPlotVariablePickerDialog::groupsPerSelectedFeature()
     };
     PlotVariablePickerDialog dlg(features, nullptr, UnitSystem::US);
     QTreeWidget *tree = treeOf(dlg);
-    QCOMPARE(tree->topLevelItemCount(), 4);          // System + 3 features
+    QCOMPARE(tree->topLevelItemCount(), 4); // System + 3 features
     QCOMPARE(tree->topLevelItem(0)->childCount(), 15);
-    QCOMPARE(tree->topLevelItem(1)->childCount(), 6);   // Node J1
-    QCOMPARE(tree->topLevelItem(2)->childCount(), 5);   // Link C1
-    QCOMPARE(tree->topLevelItem(3)->childCount(), 17);   // Subcatchment S1
+    QCOMPARE(tree->topLevelItem(1)->childCount(), 6);  // Node J1
+    QCOMPARE(tree->topLevelItem(2)->childCount(), 5);  // Link C1
+    QCOMPARE(tree->topLevelItem(3)->childCount(), 17); // Subcatchment S1
     QVERIFY(tree->topLevelItem(1)->text(0).contains(QStringLiteral("J1")));
 }
 
@@ -183,7 +190,7 @@ void TestPlotVariablePickerDialog::groupCheckCascadesToLeaves()
     QTreeWidget *tree = treeOf(dlg);
 
     QTreeWidgetItem *nodeGroup = tree->topLevelItem(1);
-    nodeGroup->setCheckState(0, Qt::Checked);        // AutoTristate cascade
+    nodeGroup->setCheckState(0, Qt::Checked); // AutoTristate cascade
 
     const auto entries = dlg.checkedEntries();
     QCOMPARE(entries.size(), nodePlotAttributes().size());
@@ -216,8 +223,7 @@ void TestPlotVariablePickerDialog::unsupportedAttributesDisabledWithTooltip()
         const QTreeWidgetItem *group = tree->topLevelItem(g);
         for (int i = 0; i < group->childCount(); ++i) {
             const QTreeWidgetItem *leaf = group->child(i);
-            const auto attr = static_cast<PlotAttribute>(
-                leaf->data(0, Qt::UserRole).toInt());
+            const auto attr = static_cast<PlotAttribute>(leaf->data(0, Qt::UserRole).toInt());
             const bool enabled = leaf->flags() & Qt::ItemIsEnabled;
             QCOMPARE(enabled, probe.supportsAttribute(attr));
             if (!enabled) {
@@ -226,7 +232,7 @@ void TestPlotVariablePickerDialog::unsupportedAttributesDisabledWithTooltip()
             }
         }
     }
-    QCOMPARE(disabled, 2);   // SystemPET + LinkVolume
+    QCOMPARE(disabled, 2); // SystemPET + LinkVolume
 }
 
 void TestPlotVariablePickerDialog::selectAllSkipsDisabled()
@@ -242,7 +248,7 @@ void TestPlotVariablePickerDialog::selectAllSkipsDisabled()
     all->click();
 
     const auto entries = dlg.checkedEntries();
-    QCOMPARE(entries.size(), 15 + 5 - 2);   // minus SystemPET + LinkVolume
+    QCOMPARE(entries.size(), 15 + 5 - 2); // minus SystemPET + LinkVolume
     for (const auto &e : entries) {
         QVERIFY(e.attribute != PlotAttribute::SystemPET);
         QVERIFY(e.attribute != PlotAttribute::LinkVolume);
@@ -266,7 +272,7 @@ void TestPlotVariablePickerDialog::invertFlipsCheckedState()
     invert->click();
 
     const auto entries = dlg.checkedEntries();
-    QCOMPARE(entries.size(), 14);   // everything except the one that was checked
+    QCOMPARE(entries.size(), 14); // everything except the one that was checked
     for (const auto &e : entries)
         QVERIFY(e.attribute != systemPlotAttributes().first());
 }
@@ -282,13 +288,15 @@ void TestPlotVariablePickerDialog::filterHidesNonMatchingLeaves()
     const QTreeWidgetItem *sys = tree->topLevelItem(0);
     int visible = 0;
     for (int i = 0; i < sys->childCount(); ++i)
-        if (!sys->child(i)->isHidden()) ++visible;
-    QCOMPARE(visible, 1);   // only "Rainfall (mm/hr)"
+        if (!sys->child(i)->isHidden())
+            ++visible;
+    QCOMPARE(visible, 1); // only "Rainfall (mm/hr)"
 
     filter->clear();
     visible = 0;
     for (int i = 0; i < sys->childCount(); ++i)
-        if (!sys->child(i)->isHidden()) ++visible;
+        if (!sys->child(i)->isHidden())
+            ++visible;
     QCOMPARE(visible, 15);
 }
 
@@ -315,17 +323,16 @@ void TestPlotVariablePickerDialog::speciesLeavesComeFromTheRun()
     const QVector<ObjectRef> features{ObjectRef::forNode(QStringLiteral("J1"))};
     PlotVariablePickerDialog dlg(features, &probe, UnitSystem::SI);
     QTreeWidget *tree = treeOf(dlg);
-    QCOMPARE(tree->topLevelItemCount(), 2);   // System + J1
+    QCOMPARE(tree->topLevelItemCount(), 2); // System + J1
 
-    const QTreeWidgetItem *sys  = tree->topLevelItem(0);
+    const QTreeWidgetItem *sys = tree->topLevelItem(0);
     const QTreeWidgetItem *node = tree->topLevelItem(1);
     QCOMPARE(sys->childCount(), systemPlotAttributes().size());
     QCOMPARE(node->childCount(), nodePlotAttributes().size() + 3);
 
     // The age leaf reads in HOURS through the Y2a authorities — a picker
     // that offered "__WATER_AGE__ (mg/L)" would mislabel the axis.
-    const QTreeWidgetItem *ageLeaf =
-        node->child(node->childCount() - 1);
+    const QTreeWidgetItem *ageLeaf = node->child(node->childCount() - 1);
     QVERIFY(ageLeaf->text(0).contains(QStringLiteral("Water age")));
     QVERIFY(ageLeaf->text(0).contains(QStringLiteral("(h)")));
 
@@ -341,8 +348,8 @@ void TestPlotVariablePickerDialog::speciesLeavesComeFromTheRun()
 
 void TestPlotVariablePickerDialog::dialogA11y()
 {
-    PlotVariablePickerDialog dlg({ObjectRef::forNode(QStringLiteral("J1"))},
-                                 nullptr, UnitSystem::SI);
+    PlotVariablePickerDialog dlg({ObjectRef::forNode(QStringLiteral("J1"))}, nullptr,
+                                 UnitSystem::SI);
     swmmvis_test::assertDialogA11y(&dlg);
 }
 

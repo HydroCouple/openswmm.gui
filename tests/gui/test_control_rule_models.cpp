@@ -1,6 +1,6 @@
-/*!
- * \file   test_control_rule_models.cpp
- * \brief  Slice BR Phase 6.8.1 — Qt-contract tests for the control-rule MVC
+/**
+ * @file      test_control_rule_models.cpp
+ * @brief     Slice BR Phase 6.8.1 — Qt-contract tests for the control-rule MVC
  *         layer (ControlRuleProvider + ControlRuleRegistry + RuleListModel).
  *
  * Tests focus on the surface verifiable without instantiating a full
@@ -23,6 +23,10 @@
  * remove through the model's setData / removeRows) are covered by the
  * dialog-level + engine round-trip tests; pinning them here would require
  * a layer instance which drags in the full GUI link surface.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QObject>
@@ -49,8 +53,9 @@ private slots:
 
     void providerNameSetterEmitsSignal()
     {
-        ControlRuleProvider p(QStringLiteral("R1"),
-                              QStringLiteral("RULE R1\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"));
+        ControlRuleProvider p(
+            QStringLiteral("R1"),
+            QStringLiteral("RULE R1\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"));
         QSignalSpy spy(&p, &ControlRuleProvider::nameChanged);
         p.setName(QStringLiteral("R1Renamed"));
         QCOMPARE(p.name(), QStringLiteral("R1Renamed"));
@@ -66,13 +71,13 @@ private slots:
         p.setValidation(ValidationState::Valid);
         QCOMPARE(p.validationState(), ValidationState::Valid);
         QSignalSpy bodySpy(&p, &ControlRuleProvider::bodyChanged);
-        QSignalSpy valSpy (&p, &ControlRuleProvider::validationChanged);
+        QSignalSpy valSpy(&p, &ControlRuleProvider::validationChanged);
         p.setBody(QStringLiteral("RULE R\nIF NODE J1 DEPTH > 0\nTHEN PUMP P1 STATUS = OFF"));
         QCOMPARE(bodySpy.count(), 1);
-        QCOMPARE(valSpy.count(),  1);
+        QCOMPARE(valSpy.count(), 1);
         QCOMPARE(p.validationState(), ValidationState::Pending);
-        QCOMPARE(p.lastError(),       QString());
-        QCOMPARE(p.lastErrorLine(),   -1);
+        QCOMPARE(p.lastError(), QString());
+        QCOMPARE(p.lastErrorLine(), -1);
     }
 
     void providerValidationCacheRoundTrips()
@@ -82,8 +87,8 @@ private slots:
         p.setValidation(ValidationState::Invalid, QStringLiteral("missing THEN"), 3);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(p.validationState(), ValidationState::Invalid);
-        QCOMPARE(p.lastError(),       QStringLiteral("missing THEN"));
-        QCOMPARE(p.lastErrorLine(),   3);
+        QCOMPARE(p.lastError(), QStringLiteral("missing THEN"));
+        QCOMPARE(p.lastErrorLine(), 3);
         // Setting the same verdict + message is a no-op.
         p.setValidation(ValidationState::Invalid, QStringLiteral("missing THEN"), 3);
         QCOMPARE(spy.count(), 1);
@@ -95,13 +100,14 @@ private slots:
     {
         ControlRuleRegistry reg;
         QSignalSpy addSpy(&reg, &ControlRuleRegistry::providerAdded);
-        auto *p = reg.create(QStringLiteral("PumpOn"),
-                              QStringLiteral("RULE PumpOn\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"));
+        auto *p = reg.create(
+            QStringLiteral("PumpOn"),
+            QStringLiteral("RULE PumpOn\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"));
         QVERIFY(p != nullptr);
         QCOMPARE(addSpy.count(), 1);
         QCOMPARE(reg.providerCount(), 1);
         QVERIFY(reg.hasName(QStringLiteral("PumpOn")));
-        QVERIFY(reg.hasName(QStringLiteral("pumpon")));   // case-insensitive lookup
+        QVERIFY(reg.hasName(QStringLiteral("pumpon"))); // case-insensitive lookup
         QCOMPARE(reg.findByName(QStringLiteral("PumpOn")), p);
         QVERIFY(!reg.hasName(QStringLiteral("Other")));
     }
@@ -110,9 +116,9 @@ private slots:
     {
         ControlRuleRegistry reg;
         QVERIFY(reg.create(QStringLiteral("R1"), QStringLiteral("RULE R1\n")) != nullptr);
-        QCOMPARE(reg.create(QStringLiteral("R1"),  QStringLiteral("RULE R1\n")), nullptr);
-        QCOMPARE(reg.create(QStringLiteral("r1"),  QStringLiteral("RULE r1\n")), nullptr);
-        QCOMPARE(reg.create(QStringLiteral(""),    QStringLiteral("")),           nullptr);
+        QCOMPARE(reg.create(QStringLiteral("R1"), QStringLiteral("RULE R1\n")), nullptr);
+        QCOMPARE(reg.create(QStringLiteral("r1"), QStringLiteral("RULE r1\n")), nullptr);
+        QCOMPARE(reg.create(QStringLiteral(""), QStringLiteral("")), nullptr);
         QCOMPARE(reg.providerCount(), 1);
     }
 
@@ -131,8 +137,8 @@ private slots:
         // Collision is rejected.
         auto *q = reg.create(QStringLiteral("Other"), QStringLiteral("RULE Other\n"));
         QVERIFY(q != nullptr);
-        QVERIFY(!reg.rename(p, QStringLiteral("Other")));   // q already owns it
-        QCOMPARE(p->name(), QStringLiteral("r1renamed"));   // unchanged
+        QVERIFY(!reg.rename(p, QStringLiteral("Other"))); // q already owns it
+        QCOMPARE(p->name(), QStringLiteral("r1renamed")); // unchanged
     }
 
     void registryRemoveEmitsAboutToBeRemoved()
@@ -200,48 +206,94 @@ private slots:
 
 // Empty stand-in for the kd-tree pimpl member (nanoflann pulled in by
 // the real definition is excessive for this test).
-struct SWMMKdTrees {};
+struct SWMMKdTrees {
+};
 
 // SpatialReferenceSystem dtor — full impl lives in
 // spatialreferencesystem.cpp and would pull GDAL into the test link.
 SpatialReferenceSystem::~SpatialReferenceSystem() = default;
 
-SWMM_Engine SWMMModelLayer::engine() const { return nullptr; }
-QObject *SWMMModelLayer::ensureControlRuleRegistry() { return nullptr; }
-bool SWMMModelLayer::applyControlRuleRename(const QString&, const QString&, QString*) { return false; }
-bool SWMMModelLayer::applyControlRuleRemove(const QString&, QString*) { return false; }
+SWMM_Engine SWMMModelLayer::engine() const
+{
+    return nullptr;
+}
+QObject *SWMMModelLayer::ensureControlRuleRegistry()
+{
+    return nullptr;
+}
+bool SWMMModelLayer::applyControlRuleRename(const QString &, const QString &, QString *)
+{
+    return false;
+}
+bool SWMMModelLayer::applyControlRuleRemove(const QString &, QString *)
+{
+    return false;
+}
 
 // Slice Z (RENDERING_RULE_MODEL_PLAN) — vtable stubs. Tests pass
 // nullptr for the layer so these are never invoked at runtime; they
 // exist solely to satisfy the linker against the MOC vtable.
 SWMMModelLayer::~SWMMModelLayer() = default;
 
-QString SWMMModelLayer::modelFilePath()      const { return {}; }
-bool    SWMMModelLayer::showNodes()          const { return false; }
-bool    SWMMModelLayer::showLinks()          const { return false; }
-bool    SWMMModelLayer::showSubcatchments()  const { return false; }
-bool    SWMMModelLayer::showRainGages()      const { return false; }
-bool    SWMMModelLayer::showLabels()         const { return false; }
-void    SWMMModelLayer::setShowNodes(bool)         {}
-void    SWMMModelLayer::setShowLinks(bool)         {}
-void    SWMMModelLayer::setShowSubcatchments(bool) {}
-void    SWMMModelLayer::setShowRainGages(bool)     {}
-void    SWMMModelLayer::setShowLabels(bool)        {}
+QString SWMMModelLayer::modelFilePath() const
+{
+    return {};
+}
+bool SWMMModelLayer::showNodes() const
+{
+    return false;
+}
+bool SWMMModelLayer::showLinks() const
+{
+    return false;
+}
+bool SWMMModelLayer::showSubcatchments() const
+{
+    return false;
+}
+bool SWMMModelLayer::showRainGages() const
+{
+    return false;
+}
+bool SWMMModelLayer::showLabels() const
+{
+    return false;
+}
+void SWMMModelLayer::setShowNodes(bool) {}
+void SWMMModelLayer::setShowLinks(bool) {}
+void SWMMModelLayer::setShowSubcatchments(bool) {}
+void SWMMModelLayer::setShowRainGages(bool) {}
+void SWMMModelLayer::setShowLabels(bool) {}
 
-OpenSWMM::Render::IFeatureRenderer *SWMMModelLayer::renderer() const { return nullptr; }
+OpenSWMM::Render::IFeatureRenderer *SWMMModelLayer::renderer() const
+{
+    return nullptr;
+}
 void SWMMModelLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>) {}
 
-OpenSWMM::Render::RuleList       *SWMMModelLayer::ruleList()       { return nullptr; }
-const OpenSWMM::Render::RuleList *SWMMModelLayer::ruleList() const { return nullptr; }
+OpenSWMM::Render::RuleList *SWMMModelLayer::ruleList()
+{
+    return nullptr;
+}
+const OpenSWMM::Render::RuleList *SWMMModelLayer::ruleList() const
+{
+    return nullptr;
+}
 
-std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
-SWMMModelLayer::styleSubjects() { return {}; }
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMMModelLayer::styleSubjects()
+{
+    return {};
+}
 
 void SWMMModelLayer::populateScene(QGraphicsScene *, const MapExtent &,
-                                    const SpatialReferenceSystem *) {}
+                                   const SpatialReferenceSystem *)
+{
+}
 void SWMMModelLayer::depopulateScene(QGraphicsScene *) {}
 void SWMMModelLayer::refreshScene(QGraphicsScene *, const MapExtent &,
-                                   const SpatialReferenceSystem *) {}
+                                  const SpatialReferenceSystem *)
+{
+}
 void SWMMModelLayer::onCanvasCRSChanged(const SpatialReferenceSystem *) {}
 
 QTEST_GUILESS_MAIN(TestControlRuleModels)

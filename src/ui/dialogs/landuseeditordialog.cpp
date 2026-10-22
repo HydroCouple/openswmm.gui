@@ -1,15 +1,18 @@
-/*!
- * \file   landuseeditordialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      landuseeditordialog.cpp
+ * @brief     [WASHOFF]) — iteration 4.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/landuseeditordialog.h"
 #include "core/swmmidentifier.h"
 
 #include "landuse/landuseprovider.h"
 #include "landuse/landuseregistry.h"
-#include "layers/swmmmodellayer.h"   // complete type for QPointer<SWMMModelLayer>
+#include "layers/swmmmodellayer.h" // complete type for QPointer<SWMMModelLayer>
 #include "pollutant/pollutantregistry.h"
 #include "ui/models/landuselistmodel.h"
 #include "ui/models/qualityfunctiontablemodels.h"
@@ -34,32 +37,29 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::landuse::LandUseProvider;
 using openswmmvis::landuse::LandUseRegistry;
 
-LandUseEditorDialog::LandUseEditorDialog(LandUseRegistry *registry,
-                                         SWMMModelLayer *layer,
+LandUseEditorDialog::LandUseEditorDialog(LandUseRegistry *registry, SWMMModelLayer *layer,
                                          QWidget *parent)
-    : QDialog(parent),
-      m_registry(registry),
-      m_layer(layer)
+    : QDialog(parent), m_registry(registry), m_layer(layer)
 {
     setWindowTitle(tr("Land Uses"));
     resize(760, 460);
     buildUi_();
 
     if (m_registry) {
-        connect(m_registry, &LandUseRegistry::providerRenamed,
-                this, &LandUseEditorDialog::onProviderRenamed_);
+        connect(m_registry, &LandUseRegistry::providerRenamed, this,
+                &LandUseEditorDialog::onProviderRenamed_);
         m_listModel->setRegistry(m_registry);
         if (m_registry->providerCount() > 0)
             selectProviderInList_(m_registry->providers().first());
         else
             bindProvider_(nullptr);
     }
-
 }
 
 void LandUseEditorDialog::trackPollutantRegistry(
@@ -69,16 +69,15 @@ void LandUseEditorDialog::trackPollutantRegistry(
     // "sections dynamically added and removed" as pollutants change. The
     // launch site (ComprehensiveEditorRegistry) passes the model layer's
     // pollutant registry; tests may call refreshPollutants() directly.
-    if (!registry) return;
+    if (!registry)
+        return;
     using openswmmvis::pollutant::PollutantRegistry;
     connect(registry, &PollutantRegistry::providerAdded, this,
             [this](auto *) { refreshPollutants(); });
     connect(registry, &PollutantRegistry::providerAboutToBeRemoved, this,
             [this](auto *) { refreshPollutants(); });
     connect(registry, &PollutantRegistry::providerRenamed, this,
-            [this](auto *, const QString &, const QString &) {
-                refreshPollutants();
-            });
+            [this](auto *, const QString &, const QString &) { refreshPollutants(); });
 }
 
 LandUseEditorDialog::~LandUseEditorDialog() = default;
@@ -88,8 +87,10 @@ void LandUseEditorDialog::openForLandUse(const QString &name)
     show();
     raise();
     activateWindow();
-    if (!m_registry || name.isEmpty()) return;
-    if (auto *p = m_registry->findByName(name)) selectProviderInList_(p);
+    if (!m_registry || name.isEmpty())
+        return;
+    if (auto *p = m_registry->findByName(name))
+        selectProviderInList_(p);
 }
 
 LandUseProvider *LandUseEditorDialog::currentProvider() const noexcept
@@ -109,18 +110,18 @@ void LandUseEditorDialog::buildUi_()
 
     // ── Left pane: list + add/delete ────────────────────────────────────────
     auto *leftPane = new QWidget(m_splitter);
-    auto *leftLay  = new QVBoxLayout(leftPane);
+    auto *leftLay = new QVBoxLayout(leftPane);
     leftLay->setContentsMargins(0, 0, 0, 0);
-    m_listView  = new QListView(leftPane);
+    m_listView = new QListView(leftPane);
     m_listModel = new LandUseListModel(this);
     m_listView->setModel(m_listModel);
-    m_listView->setEditTriggers(QAbstractItemView::DoubleClicked
-                                | QAbstractItemView::EditKeyPressed);
+    m_listView->setEditTriggers(QAbstractItemView::DoubleClicked |
+                                QAbstractItemView::EditKeyPressed);
     leftLay->addWidget(m_listView, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
-                               tr("New"), leftPane);
+    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), tr("New"),
+                               leftPane);
     m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
                                tr("Delete"), leftPane);
     btnRow->addWidget(m_addBtn);
@@ -134,7 +135,7 @@ void LandUseEditorDialog::buildUi_()
     m_tabs = new QTabWidget(m_splitter);
 
     auto *formPane = new QWidget(m_tabs);
-    auto *form     = new QFormLayout(formPane);
+    auto *form = new QFormLayout(formPane);
 
     m_nameEdit = new QLineEdit(formPane);
     form->addRow(tr("N&ame"), m_nameEdit);
@@ -151,9 +152,9 @@ void LandUseEditorDialog::buildUi_()
     m_removalSpin->setSingleStep(0.05);
     form->addRow(tr("S&weep Removal (fraction)"), m_removalSpin);
 
-    auto *sweepNote = new QLabel(
-        tr("Per-pollutant sweeping removal efficiency is the Sweep Effic "
-           "column on the Washoff tab."), formPane);
+    auto *sweepNote = new QLabel(tr("Per-pollutant sweeping removal efficiency is the Sweep Effic "
+                                    "column on the Washoff tab."),
+                                 formPane);
     sweepNote->setWordWrap(true);
     form->addRow(QString(), sweepNote);
     m_tabs->addTab(formPane, tr("General && Sweeping"));
@@ -162,26 +163,25 @@ void LandUseEditorDialog::buildUi_()
         auto *view = new QTableView(m_tabs);
         view->setModel(model);
         view->setItemDelegate(new EnumComboDelegate(view));
-        view->horizontalHeader()->setSectionResizeMode(
-            QHeaderView::Interactive);
+        view->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         view->horizontalHeader()->setStretchLastSection(false);
         view->verticalHeader()->setVisible(false);
         view->setSelectionMode(QAbstractItemView::SingleSelection);
         return view;
     };
     m_buildupModel = new BuildupTableModel(this);
-    m_buildupView  = makeGrid(m_buildupModel);
+    m_buildupView = makeGrid(m_buildupModel);
     m_tabs->addTab(m_buildupView, tr("Buildup"));
 
     m_washoffModel = new WashoffTableModel(this);
-    m_washoffView  = makeGrid(m_washoffModel);
+    m_washoffView = makeGrid(m_washoffModel);
     m_tabs->addTab(m_washoffView, tr("Washoff"));
 
     m_splitter->addWidget(leftPane);
     m_splitter->addWidget(m_tabs);
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 2);
-    m_splitter->setSizes({ 180, 420 });
+    m_splitter->setSizes({180, 420});
 
     outer->addWidget(m_splitter, 1);
 
@@ -191,17 +191,13 @@ void LandUseEditorDialog::buildUi_()
     outer->addWidget(bb);
 
     // ── Wiring ──────────────────────────────────────────────────────────────
-    connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &LandUseEditorDialog::onListSelectionChanged_);
-    connect(m_addBtn, &QPushButton::clicked,
-            this, &LandUseEditorDialog::onAddClicked_);
-    connect(m_delBtn, &QPushButton::clicked,
-            this, &LandUseEditorDialog::onDeleteClicked_);
-    connect(m_nameEdit, &QLineEdit::editingFinished,
-            this, &LandUseEditorDialog::onNameEdited_);
-    for (QDoubleSpinBox *s : { m_intervalSpin, m_removalSpin })
-        connect(s, &QDoubleSpinBox::valueChanged,
-                this, &LandUseEditorDialog::onFieldEdited_);
+    connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            &LandUseEditorDialog::onListSelectionChanged_);
+    connect(m_addBtn, &QPushButton::clicked, this, &LandUseEditorDialog::onAddClicked_);
+    connect(m_delBtn, &QPushButton::clicked, this, &LandUseEditorDialog::onDeleteClicked_);
+    connect(m_nameEdit, &QLineEdit::editingFinished, this, &LandUseEditorDialog::onNameEdited_);
+    for (QDoubleSpinBox *s : {m_intervalSpin, m_removalSpin})
+        connect(s, &QDoubleSpinBox::valueChanged, this, &LandUseEditorDialog::onFieldEdited_);
 }
 
 void LandUseEditorDialog::bindProvider_(LandUseProvider *p)
@@ -212,9 +208,8 @@ void LandUseEditorDialog::bindProvider_(LandUseProvider *p)
     m_suppressFieldSync = true;
 
     const bool enabled = (p != nullptr);
-    for (QWidget *w : { static_cast<QWidget*>(m_nameEdit),
-                        static_cast<QWidget*>(m_intervalSpin),
-                        static_cast<QWidget*>(m_removalSpin) })
+    for (QWidget *w : {static_cast<QWidget *>(m_nameEdit), static_cast<QWidget *>(m_intervalSpin),
+                       static_cast<QWidget *>(m_removalSpin)})
         w->setEnabled(enabled);
 
     if (p) {
@@ -233,29 +228,37 @@ void LandUseEditorDialog::bindProvider_(LandUseProvider *p)
     void *engine = m_registry ? m_registry->engineHandle() : nullptr;
     int luIndex = -1;
     if (engine && p) {
-        luIndex = swmm_landuse_index(static_cast<SWMM_Engine>(engine),
-                                     p->name().toUtf8().constData());
+        luIndex =
+            swmm_landuse_index(static_cast<SWMM_Engine>(engine), p->name().toUtf8().constData());
     }
-    if (m_buildupModel) m_buildupModel->bind(engine, luIndex);
-    if (m_washoffModel) m_washoffModel->bind(engine, luIndex);
+    if (m_buildupModel)
+        m_buildupModel->bind(engine, luIndex);
+    if (m_washoffModel)
+        m_washoffModel->bind(engine, luIndex);
 }
 
 void LandUseEditorDialog::refreshPollutants()
 {
-    if (m_buildupModel) m_buildupModel->refresh();
-    if (m_washoffModel) m_washoffModel->refresh();
+    if (m_buildupModel)
+        m_buildupModel->refresh();
+    if (m_washoffModel)
+        m_washoffModel->refresh();
 }
 
 void LandUseEditorDialog::selectProviderInList_(LandUseProvider *p)
 {
-    if (!p || !m_listModel) { bindProvider_(p); return; }
-    const auto provs = m_registry ? m_registry->providers()
-                                   : QVector<LandUseProvider*>{};
+    if (!p || !m_listModel) {
+        bindProvider_(p);
+        return;
+    }
+    const auto provs = m_registry ? m_registry->providers() : QVector<LandUseProvider *>{};
     const int row = provs.indexOf(p);
-    if (row < 0) { bindProvider_(p); return; }
+    if (row < 0) {
+        bindProvider_(p);
+        return;
+    }
     const QModelIndex idx = m_listModel->index(row);
-    m_listView->selectionModel()->setCurrentIndex(
-        idx, QItemSelectionModel::ClearAndSelect);
+    m_listView->selectionModel()->setCurrentIndex(idx, QItemSelectionModel::ClearAndSelect);
 }
 
 QString LandUseEditorDialog::suggestUniqueName_() const
@@ -276,9 +279,11 @@ void LandUseEditorDialog::onListSelectionChanged_()
 
 void LandUseEditorDialog::onAddClicked_()
 {
-    if (!m_registry) return;
+    if (!m_registry)
+        return;
     LandUseProvider *p = m_registry->create(suggestUniqueName_());
-    if (!p) return;
+    if (!p)
+        return;
     // Materialise in the engine right away so the Buildup/Washoff tables
     // (which edit the engine matrices directly) are live for the new row.
     m_registry->saveToEngine();
@@ -287,17 +292,18 @@ void LandUseEditorDialog::onAddClicked_()
 
 void LandUseEditorDialog::onDeleteClicked_()
 {
-    if (!m_registry || !m_current) return;
+    if (!m_registry || !m_current)
+        return;
     // Impact-aware confirmation (iteration 4): list what the engine will
     // cascade (buildup/washoff rows) or clear (subcatchment coverages).
     const QString impact = m_registry->impactSummary(m_current);
     const QString detail = impact.isEmpty()
-        ? tr("Delete land use \"%1\"?").arg(m_current->name())
-        : tr("Delete land use \"%1\"?\n\nThis also removes: %2.")
-              .arg(m_current->name(), impact);
-    const auto answer = QMessageBox::question(
-        this, tr("Delete Land Use"), detail);
-    if (answer != QMessageBox::Yes) return;
+                               ? tr("Delete land use \"%1\"?").arg(m_current->name())
+                               : tr("Delete land use \"%1\"?\n\nThis also removes: %2.")
+                                     .arg(m_current->name(), impact);
+    const auto answer = QMessageBox::question(this, tr("Delete Land Use"), detail);
+    if (answer != QMessageBox::Yes)
+        return;
 
     LandUseProvider *victim = m_current;
     m_current = nullptr;
@@ -310,30 +316,33 @@ void LandUseEditorDialog::onDeleteClicked_()
 
 void LandUseEditorDialog::onNameEdited_()
 {
-    if (m_suppressFieldSync || !m_registry || !m_current) return;
+    if (m_suppressFieldSync || !m_registry || !m_current)
+        return;
     const QString newName = m_nameEdit->text().trimmed();
-    if (newName.isEmpty() || newName == m_current->name()) return;
+    if (newName.isEmpty() || newName == m_current->name())
+        return;
     if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
-        QMessageBox::warning(this, tr("Rename Land Use"), why);   // feedback C10
+        QMessageBox::warning(this, tr("Rename Land Use"), why); // feedback C10
         m_nameEdit->setText(m_current->name());
         return;
     }
     if (!m_registry->rename(m_current, newName)) {
         QMessageBox::warning(this, tr("Rename Land Use"),
-            tr("A land use named \"%1\" already exists.").arg(newName));
+                             tr("A land use named \"%1\" already exists.").arg(newName));
         m_nameEdit->setText(m_current->name());
     }
 }
 
 void LandUseEditorDialog::onFieldEdited_()
 {
-    if (m_suppressFieldSync || !m_current) return;
+    if (m_suppressFieldSync || !m_current)
+        return;
     m_current->setSweepInterval(m_intervalSpin->value());
     m_current->setSweepRemoval(m_removalSpin->value());
 }
 
-void LandUseEditorDialog::onProviderRenamed_(LandUseProvider *p,
-                                             const QString &, const QString &now)
+void LandUseEditorDialog::onProviderRenamed_(LandUseProvider *p, const QString &,
+                                             const QString &now)
 {
     if (p == m_current && m_nameEdit->text() != now) {
         const bool prev = m_suppressFieldSync;
@@ -353,8 +362,7 @@ void LandUseEditorDialog::invokeNew()
 // ─────────────────────────────────────────────────────────────────────────────
 
 LandUseEditorDialog *LandUseEditorDialog::createNew(LandUseRegistry *registry,
-                                                    SWMMModelLayer *layer,
-                                                    QWidget *parent)
+                                                    SWMMModelLayer *layer, QWidget *parent)
 {
     auto *dlg = new LandUseEditorDialog(registry, layer, parent);
     dlg->m_mode = Mode::CreateNew;
@@ -363,12 +371,11 @@ LandUseEditorDialog *LandUseEditorDialog::createNew(LandUseRegistry *registry,
     return dlg;
 }
 
-QString LandUseEditorDialog::pickLandUse(LandUseRegistry *registry,
-                                         SWMMModelLayer *layer,
-                                         const QString  &initialName,
-                                         QWidget        *parent)
+QString LandUseEditorDialog::pickLandUse(LandUseRegistry *registry, SWMMModelLayer *layer,
+                                         const QString &initialName, QWidget *parent)
 {
-    if (!registry) return {};
+    if (!registry)
+        return {};
 
     LandUseEditorDialog dlg(registry, layer, parent);
     dlg.setModal(true);

@@ -1,7 +1,11 @@
-/*!
- * \file   subcatchcompoundeditbutton.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      subcatchcompoundeditbutton.cpp
+ * @brief     custom cell editor widget for compound subcatchment attributes (land-use coverage /
+ *            groundwater / LID usage).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/subcatchcompoundeditbutton.h"
@@ -41,7 +45,8 @@ void SubcatchCompoundEditButton::refreshLabel()
 
 void SubcatchCompoundEditButton::onClicked()
 {
-    if (!m_ref.engine || m_ref.subName.isEmpty()) return;
+    if (!m_ref.engine || m_ref.subName.isEmpty())
+        return;
 
     // Groundwater has its own modeless editor (AQUIFER_GROUNDWATER_EXCHANGE
     // plan D2); the summary refreshes on every Apply rather than on close.

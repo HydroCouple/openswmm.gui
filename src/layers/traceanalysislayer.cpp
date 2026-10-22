@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      traceanalysislayer.cpp
+ * @brief     Map rendering and styling of saved flow analysis results.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "layers/traceanalysislayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/spatialreferencesystem.h"
@@ -19,6 +29,11 @@ using namespace OpenSWMM::Render;
 namespace
 {
 constexpr double missing = std::numeric_limits<double>::quiet_NaN();
+/**
+ * @param[in] v Raw scalar, expected finite.
+ * @param[in] t Exact sqrt/log key selects sqrt(max(0,v)) or log1p(max(0,v)); other keys are identity.
+ * @return Transformed scalar; no source mutation.
+ */
 double transform(double v, const QString &t)
 {
     if (t == "sqrt")
@@ -27,6 +42,12 @@ double transform(double v, const QString &t)
         return std::log1p(std::max(0., v));
     return v;
 }
+/**
+ * @param[in] v Raw metric, possibly NaN.
+ * @param[in] c Field/transform policy; uniform bypasses v/r and returns one.
+ * @param[in] r Raw scaling bounds before transformation.
+ * @return NaN for nonfinite nonuniform value, clamped0..1 normalized position for increasing transformed bounds, otherwise0.5.
+ */
 double position(double v, const Channel &c, QPair<double, double> r)
 {
     if (c.field == "uniform")
@@ -36,6 +57,13 @@ double position(double v, const Channel &c, QPair<double, double> r)
     double lo = transform(r.first, c.transform), hi = transform(r.second, c.transform);
     return hi > lo ? std::clamp((transform(v, c.transform) - lo) / (hi - lo), 0., 1.) : .5;
 }
+/**
+ * @param[in] v Raw metric; nonfinite normalized position substitutes zero.
+ * @param[in] node True interpolates squared diameter then square root, false interpolates width linearly.
+ * @param[in] c Finite nonnegative size bounds in logical pixels and transform/field policy.
+ * @param[in] r Raw value range.
+ * @return Pixel diameter/width; no bound-order validation occurs.
+ */
 double symbolSize(double v, bool node, const Channel &c, QPair<double, double> r)
 {
     double t = position(v, c, r);
@@ -47,40 +75,81 @@ double symbolSize(double v, bool node, const Channel &c, QPair<double, double> r
 }
 class Part final : public ISublayer
 {
-  public:
+public:
+    /**
+ * @param[in] p Required borrowed owner, also QObject parent.
+ * @param[in] id Stable internal part key copied by value.
+ * @param[in] title Display title copied by value.
+ * @param[in] kind Immutable visual-channel kind.
+ * @param[in] visible Initial visibility, with opacity one.
+ */
     Part(TraceAnalysisLayer *p, QString id, QString title, Kind kind, bool visible)
         : ISublayer(p), owner(p), key(id), name(title), type(kind), shown(visible)
     {
     }
+    /**
+     * @return Stored immutable visual kind.
+     */
     Kind kind() const override { return type; }
+    /**
+     * @return Copied stable internal part key.
+     */
     QString id() const override { return key; }
+    /**
+     * @return Copied display title.
+     */
     QString displayName() const override { return name; }
+    /**
+     * @return Stored channel visibility, independent of parent layer visibility.
+     */
     bool isVisible() const override { return shown; }
+    /**
+     * @param[in] v New local channel visibility.
+     * @note Equality is a no-op; effective change calls invalidate(), forwarded by owner into repaintRequested().
+     */
     void setVisible(bool v) override
     {
-        if (shown != v)
-        {
+        if (shown != v) {
             shown = v;
             invalidate();
         }
     }
+    /**
+     * @return Stored channel opacity, initially one.
+     */
     qreal opacity() const override { return alpha; }
+    /**
+     * @param[in] v Finite requested opacity clamped0..1.
+     * @note Always invalidates, including equal normalized values; no validation of NaN beyond std::clamp.
+     */
     void setOpacity(qreal v) override
     {
         alpha = std::clamp(v, 0., 1.);
         invalidate();
     }
+    /**
+     * @return False; trace estimates do not vary with animation.
+     */
     bool isDynamic() const override { return false; }
+    /**
+     * @return Borrowed owner TraceStyle shared by all four internal parts; lifetime follows owner.
+     */
     SublayerStyle *style() override { return owner->traceStyle(); }
+    /**
+     * @return Owner link/node legend for those internal keys, empty for arrow/label parts. Values are owned copies.
+     */
     QList<LegendSymbolItem> legendSymbolItems() const override
     {
         return key == "links"   ? owner->legend(false)
                : key == "nodes" ? owner->legend(true)
                                 : QList<LegendSymbolItem>{};
     }
+    /**
+     * @return Null; unnamed prior-node/context arguments are unused. Existing node ownership is unchanged; analysis paints through QGraphicsItem.
+     */
     QSGNode *buildOrUpdateNode(QSGNode *, const SublayerContext &) override { return nullptr; }
 
-  private:
+private:
     TraceAnalysisLayer *owner;
     QString key, name;
     Kind type;
@@ -89,19 +158,29 @@ class Part final : public ISublayer
 };
 class Item final : public QGraphicsItem
 {
-  public:
+public:
     TraceAnalysisLayer *layer;
     QVector<QPointF> nodes;
     QVector<QVector<QPointF>> links;
     QRectF bounds;
+    /**
+     * @return Precomputed scene-map rectangle padded during population; no geometry/style-size recomputation occurs.
+     */
     QRectF boundingRect() const override { return bounds; }
+    /**
+     * @param[in] p Required active borrowed scene painter.
+     * @note Unnamed style-option/widget inputs are unused. Delegates cached node/link geometry to the borrowed live layer; neither geometry nor layer is owned by this method.
+     */
     void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) override
     {
         layer->paint(p, nodes, links);
     }
 };
 } // namespace
-Channel::Channel() { colors.setMode(ClassificationScheme::ClassMode::Continuous); }
+Channel::Channel()
+{
+    colors.setMode(ClassificationScheme::ClassMode::Continuous);
+}
 QJsonObject Channel::toJson() const
 {
     return {{"field", field},
@@ -127,15 +206,13 @@ Channel Channel::fromJson(const QJsonObject &j)
     c.proportional = j.value("proportional").toBool(true);
     if (j.contains("colors"))
         c.colors = ClassificationScheme::fromJson(j.value("colors").toObject());
-    else
-    {
+    else {
         // Migrate the original compact theme without losing its range or ramp.
         c.colors.setUseCustomRange(!c.automatic);
         c.colors.setRangeMin(c.minimum);
         c.colors.setRangeMax(c.maximum);
         int classes = j.value("classes").toInt();
-        if (classes > 1)
-        {
+        if (classes > 1) {
             c.colors.setMode(ClassificationScheme::ClassMode::Classified);
             c.colors.setClassCount(classes);
         }
@@ -170,16 +247,14 @@ TraceLabels TraceLabels::fromJson(const QJsonObject &j)
 void TraceStyle::setTaper(double v)
 {
     v = std::clamp(v, .05, 1.);
-    if (v != m_taper)
-    {
+    if (v != m_taper) {
         m_taper = v;
         setDirty();
     }
 }
 void TraceStyle::setArrows(bool v)
 {
-    if (v != m_arrows)
-    {
+    if (v != m_arrows) {
         m_arrows = v;
         setDirty();
     }
@@ -187,16 +262,14 @@ void TraceStyle::setArrows(bool v)
 void TraceStyle::setMinContribution(double v)
 {
     v = std::clamp(std::isfinite(v) ? v : 0., 0., 1.);
-    if (v != m_minContribution)
-    {
+    if (v != m_minContribution) {
         m_minContribution = v;
         setDirty();
     }
 }
 void TraceStyle::setLabels(bool v)
 {
-    if (v != labels())
-    {
+    if (v != labels()) {
         nodeLabels.appearance.enabled = v;
         setDirty();
     }
@@ -228,8 +301,7 @@ void TraceStyle::fromJson(const QJsonObject &j)
     m_minContribution = std::clamp(j.value("minContribution").toDouble(0.001), 0., 1.);
     linkLabels = TraceLabels::fromJson(j.value("linkLabels").toObject());
     nodeLabels = TraceLabels::fromJson(j.value("nodeLabels").toObject());
-    if (!j.contains("nodeLabels"))
-    {
+    if (!j.contains("nodeLabels")) {
         nodeLabels.appearance.enabled = j.value("labels").toBool(false);
         nodeLabels.appearance.fieldName = "id";
     }
@@ -251,8 +323,7 @@ QPainterPath taperedPath(const QVector<QPointF> &input, double start, double end
     if (d.last() <= 0)
         return path;
     path.setFillRule(Qt::WindingFill);
-    for (int i = 1; i < p.size(); ++i)
-    {
+    for (int i = 1; i < p.size(); ++i) {
         auto delta = p[i] - p[i - 1];
         double length = QLineF(p[i - 1], p[i]).length();
         QPointF normal(-delta.y() / length, delta.x() / length);
@@ -296,14 +367,11 @@ TraceAnalysisLayer::TraceAnalysisLayer(std::shared_ptr<Result> r, OpenSWMMVisWor
         setSRS(SpatialReferenceSystem::fromWktOrProj(s.wkt), true);
     bool first = true;
     MapExtent ext;
-    auto add = [&](QPointF p)
-    {
-        if (first)
-        {
+    auto add = [&](QPointF p) {
+        if (first) {
             ext = MapExtent(p.x(), p.y(), p.x(), p.y());
             first = false;
-        }
-        else
+        } else
             ext.expandToInclude(p.x(), p.y());
     };
     for (const auto &n : s.nodes)
@@ -322,13 +390,11 @@ TraceAnalysisLayer::TraceAnalysisLayer(std::shared_ptr<Result> r, OpenSWMMVisWor
                new Part(this, "labels", tr("Labels"), ISublayer::MarkerKind, true)};
     for (auto *p : m_parts)
         connect(p, &ISublayer::invalidated, this, &OpenSWMMVisLayer::repaintRequested);
-    connect(m_style, &TraceStyle::styleChanged, this,
-            [this]
-            {
-                m_result->style = savedStyle();
-                for (auto *p : m_parts)
-                    p->invalidate();
-            });
+    connect(m_style, &TraceStyle::styleChanged, this, [this] {
+        m_result->style = savedStyle();
+        for (auto *p : m_parts)
+            p->invalidate();
+    });
     restoreStyle(m_result->style);
 }
 QJsonObject TraceAnalysisLayer::savedStyle() const
@@ -344,18 +410,19 @@ QJsonObject TraceAnalysisLayer::savedStyle() const
 void TraceAnalysisLayer::restoreStyle(const QJsonObject &j)
 {
     m_style->fromJson(j);
-    for (auto v : j.value("parts").toArray())
-    {
+    for (auto v : j.value("parts").toArray()) {
         auto o = v.toObject();
         for (auto *p : m_parts)
-            if (p->id() == o.value("id").toString())
-            {
+            if (p->id() == o.value("id").toString()) {
                 p->setVisible(o.value("visible").toBool(true));
                 p->setOpacity(o.value("opacity").toDouble(1));
             }
     }
 }
-QString TraceAnalysisLayer::sourceDescription() const { return m_result->dataset->packagePath; }
+QString TraceAnalysisLayer::sourceDescription() const
+{
+    return m_result->dataset->packagePath;
+}
 bool TraceAnalysisLayer::contributes(bool node, int i) const
 {
     if (node && i == m_result->seed)
@@ -371,7 +438,8 @@ bool TraceAnalysisLayer::contributes(bool node, int i) const
 }
 void TraceAnalysisLayer::setResult(std::shared_ptr<Result> result)
 {
-    if (!result || result->dataset->snapshot.nodes.size() != m_result->dataset->snapshot.nodes.size() ||
+    if (!result ||
+        result->dataset->snapshot.nodes.size() != m_result->dataset->snapshot.nodes.size() ||
         result->dataset->snapshot.links.size() != m_result->dataset->snapshot.links.size())
         return;
     const auto style = savedStyle();
@@ -404,13 +472,11 @@ void TraceAnalysisLayer::populateScene(QGraphicsScene *scene, const MapExtent &,
     if (srs() && canvas)
         ct = srs()->createTransformationTo(*canvas);
     const bool mustTransform = srs() && canvas && !srs()->equals(*canvas);
-    if (mustTransform && !ct)
-    {
+    if (mustTransform && !ct) {
         delete item;
         return;
     }
-    auto point = [&](QPointF p)
-    {
+    auto point = [&](QPointF p) {
         double x = p.x(), y = p.y();
         if (ct && !ct->Transform(1, &x, &y))
             return QPointF(missing, missing);
@@ -418,8 +484,7 @@ void TraceAnalysisLayer::populateScene(QGraphicsScene *scene, const MapExtent &,
     };
     for (auto n : s.nodes)
         item->nodes.append(n.hasGeometry ? point(n.point) : QPointF(missing, missing));
-    for (auto l : s.links)
-    {
+    for (auto l : s.links) {
         QVector<QPointF> p;
         for (auto v : l.points)
             p.append(point(v));
@@ -430,16 +495,13 @@ void TraceAnalysisLayer::populateScene(QGraphicsScene *scene, const MapExtent &,
     if (ct)
         OGRCoordinateTransformation::DestroyCT(ct);
     bool first = true;
-    auto include = [&](QPointF p)
-    {
+    auto include = [&](QPointF p) {
         if (!std::isfinite(p.x()) || !std::isfinite(p.y()))
             return;
-        if (first)
-        {
+        if (first) {
             item->bounds = QRectF(p, QSizeF(0, 0));
             first = false;
-        }
-        else
+        } else
             item->bounds = item->bounds.united(QRectF(p, QSizeF(1e-9, 1e-9)));
     };
     for (auto p : item->nodes)
@@ -447,8 +509,7 @@ void TraceAnalysisLayer::populateScene(QGraphicsScene *scene, const MapExtent &,
     for (auto l : item->links)
         for (auto p : l)
             include(p);
-    if (first)
-    {
+    if (first) {
         delete item;
         return;
     }
@@ -485,8 +546,7 @@ QPair<double, double> TraceAnalysisLayer::range(bool node, const Channel &c) con
         return {c.minimum, c.maximum};
     double lo = missing, hi = missing;
     int count = node ? m_result->nodes.size() : m_result->links.size();
-    for (int i = 0; i < count; ++i)
-    {
+    for (int i = 0; i < count; ++i) {
         const auto &v = node ? m_result->nodes[i] : m_result->links[i];
         if (!contributes(node, i))
             continue;
@@ -516,8 +576,7 @@ QVector<double> TraceAnalysisLayer::colorEdges(bool node, const Channel &channel
     // The saved dataset is immutable. Reclassify only after a field or scheme
     // edit, so data-driven methods do not rerun on every pan and repaint.
     auto &cache = node ? m_nodeColorCache : m_linkColorCache;
-    if (cache.field != channel.field || cache.revision != channel.colors.revision())
-    {
+    if (cache.field != channel.field || cache.revision != channel.colors.revision()) {
         auto c = channel;
         c.automatic = true;
         const auto data = range(node, c);
@@ -536,11 +595,10 @@ QVector<QColor> TraceAnalysisLayer::colors(bool node) const
     const bool classified = c.colors.mode() == ClassificationScheme::ClassMode::Classified;
     const auto edges = classified ? colorEdges(node, c) : QVector<double>{};
     QVector<QColor> out(node ? m_result->nodes.size() : m_result->links.size());
-    for (int i = 0; i < out.size(); ++i)
-    {
+    for (int i = 0; i < out.size(); ++i) {
         double v = value(node, i, c.field);
         out[i] = !std::isfinite(v) ? QColor("#94999f")
-                 : v < r.first ? QColor(Qt::transparent)
+                 : v < r.first     ? QColor(Qt::transparent)
                  : classified
                      ? c.colors.colorForClass(ClassificationScheme::classIndexFor(v, edges),
                                               std::max(1, int(edges.size()) - 1))
@@ -566,8 +624,7 @@ QString TraceAnalysisLayer::labelText(bool node, int i) const
         unit = " min";
     else if (field == "volume")
         unit = " m³";
-    else if ((field == "ratio" || field == "coverage") && labels.percent)
-    {
+    else if ((field == "ratio" || field == "coverage") && labels.percent) {
         v *= 100;
         unit = "%";
     }
@@ -595,24 +652,20 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
     const auto &d = *m_result->dataset;
     const auto linkColors = colors(false), nodeColors = colors(true);
     const auto widths = linkWidths(), diameters = nodeSizes();
-    struct PendingLabel
-    {
+    struct PendingLabel {
         QPointF anchor;
         bool node;
         int index;
     };
     QVector<PendingLabel> labels;
     double alpha = p->opacity();
-    for (int i = 0; i < links.size(); ++i)
-    {
+    for (int i = 0; i < links.size(); ++i) {
         if (!contributes(false, i) || links[i].size() < 2)
             continue;
         QVector<QPointF> line;
         bool valid = true;
-        for (auto point : links[i])
-        {
-            if (!std::isfinite(point.x()) || !std::isfinite(point.y()))
-            {
+        for (auto point : links[i]) {
+            if (!std::isfinite(point.x()) || !std::isfinite(point.y())) {
                 valid = false;
                 break;
             }
@@ -625,15 +678,13 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
         double width = widths[i];
         QColor c = linkColors[i];
         auto polygon = taperedPath(line, width, width);
-        if (m_parts[0]->isVisible())
-        {
+        if (m_parts[0]->isVisible()) {
             p->setOpacity(alpha * m_parts[0]->opacity());
             p->setPen(m_highlight == i && !m_highlightNode ? QPen(QColor("#ffb000"), 3)
                                                            : Qt::NoPen);
             p->setBrush(c);
             p->drawPath(polygon);
-            if (!std::isfinite(value(false, i, s.linkColor.field)))
-            {
+            if (!std::isfinite(value(false, i, s.linkColor.field))) {
                 QPainterPath center;
                 center.moveTo(line.first());
                 for (int k = 1; k < line.size(); ++k)
@@ -642,19 +693,16 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
                 p->drawPath(center);
             }
         }
-        if (m_parts[0]->isVisible() && s.linkLabels.appearance.enabled)
-        {
+        if (m_parts[0]->isVisible() && s.linkLabels.appearance.enabled) {
             double total = 0;
             for (int k = 1; k < line.size(); ++k)
                 total += QLineF(line[k - 1], line[k]).length();
             double remaining = total * .5;
-            for (int k = 1; k < line.size(); ++k)
-            {
+            for (int k = 1; k < line.size(); ++k) {
                 QLineF segment(line[k - 1], line[k]);
                 if (segment.length() <= 1e-8)
                     continue;
-                if (remaining <= segment.length())
-                {
+                if (remaining <= segment.length()) {
                     labels.append({segment.pointAt(remaining / segment.length()) +
                                        QPointF(0, -width * .5 - 4),
                                    false, i});
@@ -663,10 +711,8 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
                 remaining -= segment.length();
             }
         }
-        if (m_parts[2]->isVisible() && s.arrows())
-        {
-            for (int k = line.size() - 1; k > 0; --k)
-            {
+        if (m_parts[2]->isVisible() && s.arrows()) {
+            for (int k = line.size() - 1; k > 0; --k) {
                 QLineF last(line[k - 1], line[k]);
                 if (last.length() < 2)
                     continue;
@@ -686,14 +732,12 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
             }
         }
     }
-    for (int i = 0; i < nodes.size(); ++i)
-    {
+    for (int i = 0; i < nodes.size(); ++i) {
         if (!contributes(true, i) || !std::isfinite(nodes[i].x()))
             continue;
         auto pt = tx.map(nodes[i]);
         double diameter = diameters[i];
-        if (m_parts[1]->isVisible())
-        {
+        if (m_parts[1]->isVisible()) {
             p->setOpacity(alpha * m_parts[1]->opacity());
             p->setBrush(nodeColors[i]);
             p->setPen(QPen(i == m_highlight && m_highlightNode ? QColor("#ffb000")
@@ -708,8 +752,7 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
     // Paint text last so downstream symbols cannot cover it. A glyph halo
     // keeps numeric values legible over the colored network and basemap.
     if (m_parts[3]->isVisible())
-        for (const auto &label : labels)
-        {
+        for (const auto &label : labels) {
             const auto &cfg = label.node ? s.nodeLabels.appearance : s.linkLabels.appearance;
             QPainterPath text;
             text.addText(QPointF(), cfg.effectiveFont(), labelText(label.node, label.index));
@@ -731,8 +774,7 @@ void TraceAnalysisLayer::paint(QPainter *p, const QVector<QPointF> &nodes,
 QList<LegendSymbolItem> TraceAnalysisLayer::legend(bool node) const
 {
     QList<LegendSymbolItem> out;
-    for (bool size : {false, true})
-    {
+    for (bool size : {false, true}) {
         auto c = size ? (node ? m_style->nodeSize : m_style->linkWidth)
                       : (node ? m_style->nodeColor : m_style->linkColor);
         if (!size)
@@ -741,25 +783,24 @@ QList<LegendSymbolItem> TraceAnalysisLayer::legend(bool node) const
         if (!size)
             r = c.colors.effectiveRange(r.first, r.second);
         bool proportional = size && !node && c.proportional;
-        if (proportional)
-        {
+        if (proportional) {
             r = {0, widthReference()};
             c.transform = "linear";
         }
         LegendSymbolItem heading;
         heading.sublayerId = node ? "nodes" : "links";
-        heading.label = QStringLiteral("%1 · %2")
-                            .arg(size ? (node ? tr("Node area") : tr("Link width"))
-                                      : (node ? tr("Node color") : tr("Link color")),
-                                 fieldLabel(c.field, node));
+        heading.label =
+            QStringLiteral("%1 · %2").arg(size ? (node ? tr("Node area") : tr("Link width"))
+                                               : (node ? tr("Node color") : tr("Link color")),
+                                          fieldLabel(c.field, node));
         out.append(heading);
-        auto add = [&](QString text, QColor color, double pixels)
-        {
+        auto add = [&](QString text, QColor color, double pixels) {
             LegendSymbolItem item;
             item.sublayerId = node ? "nodes" : "links";
-            const QString unit = c.field == "flow" || c.field == "gross" ? " m³/s"
+            const QString unit = c.field == "flow" || c.field == "gross"   ? " m³/s"
                                  : c.field == "time" || c.field == "local" ? " min"
-                                 : c.field == "volume" ? " m³" : QString();
+                                 : c.field == "volume"                     ? " m³"
+                                                                           : QString();
             item.label = text + unit;
             SymbolLayer sl;
             sl.kind = node ? SymbolLayerKind::SimpleMarker : SymbolLayerKind::SimpleLine;
@@ -768,23 +809,19 @@ QList<LegendSymbolItem> TraceAnalysisLayer::legend(bool node) const
             item.symbol.layers.append(sl);
             out.append(item);
         };
-        if (!size && c.colors.mode() == ClassificationScheme::ClassMode::Classified)
-        {
+        if (!size && c.colors.mode() == ClassificationScheme::ClassMode::Classified) {
             const auto edges = colorEdges(node, c);
             if (edges.size() < 2)
                 add(c.colors.formatValue(r.first), c.colors.colorForClass(0, 1), node ? 8 : 4);
-            for (int k = 0; k + 1 < edges.size(); ++k)
-            {
+            for (int k = 0; k + 1 < edges.size(); ++k) {
                 QString text = c.colors.labelOverride(k);
                 if (text.isEmpty())
                     text =
                         c.colors.formatValue(edges[k]) + " – " + c.colors.formatValue(edges[k + 1]);
                 add(text, c.colors.colorForClass(k, edges.size() - 1), node ? 8 : 4);
             }
-        }
-        else
-            for (int step = 0; step < (c.field == "uniform" ? 1 : 3); ++step)
-            {
+        } else
+            for (int step = 0; step < (c.field == "uniform" ? 1 : 3); ++step) {
                 double t = step * .5;
                 double scaled =
                     transform(r.first, c.transform) +
@@ -816,15 +853,13 @@ bool TraceAnalysisLayer::hitTest(QPointF pixel, const QTransform &mapToPixel,
         srs() && canvas ? srs()->createTransformationTo(*canvas) : nullptr;
     if (srs() && canvas && !srs()->equals(*canvas) && !ct)
         return false;
-    auto convert = [&](QPointF p)
-    {
+    auto convert = [&](QPointF p) {
         double x = p.x(), y = p.y();
         if (ct && !ct->Transform(1, &x, &y))
             return QPointF(missing, missing);
         return mapToPixel.map(QPointF(x, y));
     };
-    auto finish = [&](bool hit)
-    {
+    auto finish = [&](bool hit) {
         if (ct)
             OGRCoordinateTransformation::DestroyCT(ct);
         return hit;
@@ -833,21 +868,18 @@ bool TraceAnalysisLayer::hitTest(QPointF pixel, const QTransform &mapToPixel,
     const auto widths = linkWidths();
     const auto diameters = nodeSizes();
     if (m_parts[1]->isVisible())
-        for (int i = 0; i < snapshot.nodes.size(); ++i)
-        {
+        for (int i = 0; i < snapshot.nodes.size(); ++i) {
             if (!snapshot.nodes[i].hasGeometry || !contributes(true, i))
                 continue;
             double diameter = diameters[i];
-            if (QLineF(pixel, convert(snapshot.nodes[i].point)).length() <= diameter * .5 + 3)
-            {
+            if (QLineF(pixel, convert(snapshot.nodes[i].point)).length() <= diameter * .5 + 3) {
                 *node = true;
                 *index = i;
                 return finish(true);
             }
         }
     if (m_parts[0]->isVisible())
-        for (int i = 0; i < snapshot.links.size(); ++i)
-        {
+        for (int i = 0; i < snapshot.links.size(); ++i) {
             if (!contributes(false, i))
                 continue;
             const auto &link = snapshot.links[i];
@@ -861,8 +893,7 @@ bool TraceAnalysisLayer::hitTest(QPointF pixel, const QTransform &mapToPixel,
             if (m_result->dataset->links[i].direction < 0)
                 std::reverse(points.begin(), points.end());
             double width = widths[i];
-            if (taperedPath(points, width + 6, width + 6).contains(pixel))
-            {
+            if (taperedPath(points, width + 6, width + 6).contains(pixel)) {
                 *node = false;
                 *index = i;
                 return finish(true);
@@ -877,8 +908,7 @@ double TraceAnalysisLayer::widthReference(const Channel &c) const
     QVector<double> in(m_result->nodes.size()), out(in.size());
     const auto &d = *m_result->dataset;
     double maximum = 0;
-    for (int i = 0; i < d.links.size(); ++i)
-    {
+    for (int i = 0; i < d.links.size(); ++i) {
         if (!contributes(false, i))
             continue;
         double v = value(false, i, c.field);
@@ -899,8 +929,7 @@ QVector<double> TraceAnalysisLayer::linkWidths() const
     double reference = widthReference();
     const auto r = range(false, c);
     QVector<double> result(m_result->links.size());
-    for (int i = 0; i < result.size(); ++i)
-    {
+    for (int i = 0; i < result.size(); ++i) {
         double v = value(false, i, c.field);
         result[i] = c.field == "uniform" ? c.maximumSize
                     : !c.proportional    ? symbolSize(v, false, c, r)
@@ -924,8 +953,7 @@ TraceSublayer::TraceSublayer(SWMMResultsLayer *owner, std::shared_ptr<Result> re
     // Flow and time views share immutable numbers, but have independent themes.
     m_layer = new TraceAnalysisLayer(std::make_shared<Result>(*result), owner->workspace());
     m_layer->setParent(this);
-    if (result->style.isEmpty() && travel)
-    {
+    if (result->style.isEmpty() && travel) {
         m_layer->traceStyle()->linkColor.field = "time";
         m_layer->traceStyle()->nodeColor.field = "time";
         m_layer->traceStyle()->linkLabels.appearance.fieldName = "time";

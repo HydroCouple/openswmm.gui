@@ -1,9 +1,16 @@
-/*!
- * \file   inletdrawingview.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      inletdrawingview.cpp
+ * @brief     `InletSceneBuilder::build` is a pure function of (provider, unit system, theme,
+ *            optional custom-curve points) → a fresh QGraphicsScene, so it is unit-testable
+ *            without a widget and reusable by the property panel and the identify popup.
+ *            `InletDrawingView` is the interactive host: wheel-zoom about the cursor,
+ *            middle-button drag pan, fit-on-first-show, and `render(QPainter*)` for copy / export.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/inletdrawingview.h"
 
 #include "core/unitsystem.h"
@@ -28,7 +35,8 @@
 #include <algorithm>
 #include <cmath>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::inlet::GrateType;
 using openswmmvis::inlet::InletCurveKind;
@@ -45,11 +53,11 @@ InletTheme InletTheme::fromPalette(const QPalette &pal)
 {
     InletTheme t;
     t.background = pal.base().color();
-    t.outline    = pal.windowText().color();
-    t.pavement   = pal.mid().color();
-    t.accent     = pal.highlight().color();
-    t.dimension  = pal.mid().color();
-    t.text       = pal.windowText().color();
+    t.outline = pal.windowText().color();
+    t.pavement = pal.mid().color();
+    t.accent = pal.highlight().color();
+    t.dimension = pal.mid().color();
+    t.text = pal.windowText().color();
     return t;
 }
 
@@ -57,44 +65,70 @@ InletTheme InletTheme::fromPalette(const QPalette &pal)
 // Scene-building primitives
 // ─────────────────────────────────────────────────────────────────────────────
 
-namespace {
+namespace
+{
 
-constexpr double kTargetSpanPx = 260.0;  ///< Longest model dimension in scene px.
-constexpr double kMinScale     = 6.0;
-constexpr double kMaxScale     = 4000.0;
-constexpr double kMinExtentPx  = 18.0;   ///< Minimum on-screen extent of any dimension.
-constexpr double kPanelGap     = 96.0;
-constexpr double kDimOffset    = 30.0;
-constexpr double kArrow        = 6.0;
-constexpr double kLabelPt      = 9.0;
+constexpr double kTargetSpanPx = 260.0; ///< Longest model dimension in scene px.
+constexpr double kMinScale = 6.0;
+constexpr double kMaxScale = 4000.0;
+constexpr double kMinExtentPx = 18.0; ///< Minimum on-screen extent of any dimension.
+constexpr double kPanelGap = 96.0;
+constexpr double kDimOffset = 30.0;
+constexpr double kArrow = 6.0;
+constexpr double kLabelPt = 9.0;
 
+/**
+ * @brief Translate scene-builder labels independently of a widget instance.
+ * @param[in] text Translation source literal in InletSceneBuilder context.
+ * @return Translated string.
+ */
 QString trs(const char *text)
 {
     return QCoreApplication::translate("InletSceneBuilder", text);
 }
 
-struct Ctx
-{
+struct Ctx {
     QGraphicsScene *scene = nullptr;
-    InletTheme      theme;
-    QString         lengthLabel   = QStringLiteral("ft");
-    QString         velocityLabel = QStringLiteral("ft/s");
-    double          s = 1.0;          ///< Scene px per model length unit.
+    InletTheme theme;
+    QString lengthLabel = QStringLiteral("ft");
+    QString velocityLabel = QStringLiteral("ft/s");
+    double s = 1.0; ///< Scene px per model length unit.
 };
 
+/**
+ * @brief Convert one existing-unit length to a readable scene extent.
+ * @param[in] c Drawing context containing scene pixels per model length unit.
+ * @param[in] v Raw model length.
+ * @param[in] minPx Minimum visual scene-pixel extent, normally eighteen.
+ * @return Maximum of scaled length and minPx; does not validate physical inputs.
+ */
 double px(const Ctx &c, double v, double minPx = kMinExtentPx)
 {
     return std::max(v * c.s, minPx);
 }
 
+/**
+ * @brief Normalize a scene-space direction with a horizontal fallback.
+ * @param[in] v Direction vector.
+ * @return Unit vector for norm above 1e-9, otherwise (1,0).
+ */
 QPointF unitVec(const QPointF &v)
 {
     const double len = std::hypot(v.x(), v.y());
     return (len > 1e-9) ? QPointF(v.x() / len, v.y() / len) : QPointF(1.0, 0.0);
 }
 
-QGraphicsSimpleTextItem *addText(Ctx &c, const QPointF &pos, const QString &s,
-                                  const QColor &colour, bool centred = false)
+/**
+ * @brief Add a nine-point plain text item to the drawing scene.
+ * @param[in,out] c Context with a required scene owning the new item.
+ * @param[in] pos Scene position (centre when centred, otherwise top-left).
+ * @param[in] s Display text.
+ * @param[in] colour Text brush colour.
+ * @param[in] centred Centre the item bounding box around pos when true.
+ * @return Borrowed scene-owned text item.
+ */
+QGraphicsSimpleTextItem *addText(Ctx &c, const QPointF &pos, const QString &s, const QColor &colour,
+                                 bool centred = false)
 {
     QGraphicsSimpleTextItem *t = c.scene->addSimpleText(s);
     QFont f = t->font();
@@ -111,35 +145,50 @@ QGraphicsSimpleTextItem *addText(Ctx &c, const QPointF &pos, const QString &s,
 }
 
 /*! \brief A label that participates in the callout count (tagged with
- *  `InletSceneBuilder::CalloutRole`). */
+ *  `InletSceneBuilder::CalloutRole`).
+ * @param[in,out] c Drawing context/scene receiving the new text item.
+ * @param[in] pos Scene label position.
+ * @param[in] label Callout text also stored under CalloutRole.
+ * @param[in] centred Centre the text bounding box around pos when true.
+ * @return Borrowed scene-owned item, coloured with theme.text.
+ */
 QGraphicsSimpleTextItem *addNote(Ctx &c, const QPointF &pos, const QString &label,
-                                  bool centred = false)
+                                 bool centred = false)
 {
     QGraphicsSimpleTextItem *t = addText(c, pos, label, c.theme.text, centred);
     t->setData(InletSceneBuilder::CalloutRole, label);
     return t;
 }
 
+/**
+ * @brief Add a filled six-pixel dimension arrowhead at a scene point.
+ * @param[in,out] c Context/scene owning the added polygon.
+ * @param[in] tip Arrow tip in scene coordinates.
+ * @param[in] dir Arrow direction, normalized with unitVec().
+ */
 void addArrowHead(Ctx &c, const QPointF &tip, const QPointF &dir)
 {
     const QPointF d = unitVec(dir);
     const QPointF n(-d.y(), d.x());
     QPolygonF poly;
-    poly << tip
-         << tip - d * kArrow + n * (kArrow * 0.35)
-         << tip - d * kArrow - n * (kArrow * 0.35);
+    poly << tip << tip - d * kArrow + n * (kArrow * 0.35) << tip - d * kArrow - n * (kArrow * 0.35);
     c.scene->addPolygon(poly, QPen(Qt::NoPen), QBrush(c.theme.dimension));
 }
 
 /*! \brief Extension lines + dimension line with arrowheads + a callout label.
  *  \p offset is signed: the dimension line sits that far along the left-hand
- *  normal of a→b (positive) or the right-hand normal (negative). */
-void addDimension(Ctx &c, const QPointF &a, const QPointF &b,
-                   double offset, const QString &label)
+ *  normal of a→b (positive) or the right-hand normal (negative).
+ * @param[in,out] c Context/scene receiving lines, arrows and tagged text.
+ * @param[in] a First measured scene point.
+ * @param[in] b Second measured scene point.
+ * @param[in] offset Signed scene-pixel perpendicular displacement.
+ * @param[in] label Preformatted dimension text; no value/unit calculation occurs here.
+ */
+void addDimension(Ctx &c, const QPointF &a, const QPointF &b, double offset, const QString &label)
 {
     const QPointF d = unitVec(b - a);
     const QPointF n(-d.y(), d.x());
-    const double  sgn = (offset >= 0.0) ? 1.0 : -1.0;
+    const double sgn = (offset >= 0.0) ? 1.0 : -1.0;
     const QPointF a2 = a + n * offset;
     const QPointF b2 = b + n * offset;
 
@@ -153,28 +202,44 @@ void addDimension(Ctx &c, const QPointF &a, const QPointF &b,
     addNote(c, (a2 + b2) / 2.0 + n * (11.0 * sgn), label, /*centred*/ true);
 }
 
+/**
+ * @brief Format a raw model length for a dimension callout.
+ * @param[in] c Context whose lengthLabel supplies the suffix.
+ * @param[in] symbol Dimension symbol such as L/W/h.
+ * @param[in] value Length in the already selected provider-unit convention.
+ * @return Symbol, two-decimal value and suffix; no unit conversion.
+ */
 QString lenLabel(const Ctx &c, const QString &symbol, double value)
 {
-    return QStringLiteral("%1 = %2 %3")
-        .arg(symbol)
-        .arg(value, 0, 'f', 2)
-        .arg(c.lengthLabel);
+    return QStringLiteral("%1 = %2 %3").arg(symbol).arg(value, 0, 'f', 2).arg(c.lengthLabel);
 }
 
-/*! \brief Hatched body: pavement / subgrade fill under an outline. */
+/*! \brief Hatched body: pavement / subgrade fill under an outline.
+ * @param[in,out] c Context/scene owning the polygon.
+ * @param[in] poly Scene-space body outline rendered with theme outline and diagonal pavement hatching.
+ */
 void addHatchedPolygon(Ctx &c, const QPolygonF &poly)
 {
     c.scene->addPolygon(poly, QPen(c.theme.outline, 1.6),
                         QBrush(c.theme.pavement, Qt::BDiagPattern));
 }
 
+/**
+ * @brief Add a hatched outlined pavement/subgrade rectangle.
+ * @param[in,out] c Context/scene owning the rectangle.
+ * @param[in] r Scene-space rectangle.
+ */
 void addHatchedRect(Ctx &c, const QRectF &r)
 {
-    c.scene->addRect(r, QPen(c.theme.outline, 1.6),
-                     QBrush(c.theme.pavement, Qt::BDiagPattern));
+    c.scene->addRect(r, QPen(c.theme.outline, 1.6), QBrush(c.theme.pavement, Qt::BDiagPattern));
 }
 
-/*! \brief Section title above a panel. */
+/*! \brief Section title above a panel.
+ * @param[in,out] c Context/scene receiving bold text.
+ * @param[in] y Top scene Y coordinate for the title at X zero.
+ * @param[in] title Translated panel label.
+ * @return Y below the title bounding box plus ten scene pixels.
+ */
 double addPanelTitle(Ctx &c, double y, const QString &title)
 {
     QGraphicsSimpleTextItem *t = addText(c, QPointF(0.0, y), title, c.theme.text);
@@ -186,14 +251,20 @@ double addPanelTitle(Ctx &c, double y, const QString &title)
 
 // ── Grate bar patterns (HEC-22) ──────────────────────────────────────────────
 
+/**
+ * @brief Draw a representative bar-family pattern and untagged family label.
+ * @param[in,out] c Context/scene receiving lines/paths/clipped marker children.
+ * @param[in] r Scene-space grate frame.
+ * @param[in] g Grate family selecting parallel/curved/tilted/reticuline/generic symbolic geometry, rather than exact bar fabrication spacing.
+ */
 void drawGrateBars(Ctx &c, const QRectF &r, GrateType g)
 {
     const QPen bar(c.theme.accent, 1.2);
 
     // Bar-family note (Inlets plan §2.3). Descriptive, not a dimension, so it
     // is deliberately NOT tagged as a callout.
-    addText(c, QPointF(r.right() + 14.0, r.top() - 18.0),
-            openswmmvis::inlet::grateTypeLabel(g), c.theme.text);
+    addText(c, QPointF(r.right() + 14.0, r.top() - 18.0), openswmmvis::inlet::grateTypeLabel(g),
+            c.theme.text);
 
     switch (g) {
     case GrateType::PBar50:
@@ -219,8 +290,7 @@ void drawGrateBars(Ctx &c, const QRectF &r, GrateType g)
         for (int i = 0; i < n; ++i) {
             const double x = r.left() + r.width() * (i + 0.5) / n;
             QPainterPath p(QPointF(x - bow * 0.6, r.top()));
-            p.quadTo(QPointF(x + bow, r.center().y()),
-                     QPointF(x - bow * 0.6, r.bottom()));
+            p.quadTo(QPointF(x + bow, r.center().y()), QPointF(x - bow * 0.6, r.bottom()));
             c.scene->addPath(p, bar);
         }
         break;
@@ -231,15 +301,13 @@ void drawGrateBars(Ctx &c, const QRectF &r, GrateType g)
     case GrateType::Generic: {
         // Patterns that would spill outside the frame are drawn as children
         // of a clipping frame item instead of being clipped by hand.
-        QGraphicsRectItem *clip =
-            c.scene->addRect(r, QPen(Qt::NoPen), QBrush(Qt::NoBrush));
+        QGraphicsRectItem *clip = c.scene->addRect(r, QPen(Qt::NoPen), QBrush(Qt::NoBrush));
         clip->setFlag(QGraphicsItem::ItemClipsChildrenToShape, true);
 
         if (g == GrateType::Generic) {
             for (double y = r.top() + 4.0; y < r.bottom(); y += 7.0)
                 for (double x = r.left() + 4.0; x < r.right(); x += 7.0) {
-                    auto *dot = new QGraphicsEllipseItem(
-                        QRectF(x - 1.0, y - 1.0, 2.0, 2.0), clip);
+                    auto *dot = new QGraphicsEllipseItem(QRectF(x - 1.0, y - 1.0, 2.0, 2.0), clip);
                     dot->setPen(QPen(Qt::NoPen));
                     dot->setBrush(c.theme.accent);
                 }
@@ -247,15 +315,11 @@ void drawGrateBars(Ctx &c, const QRectF &r, GrateType g)
             const double deg = (g == GrateType::TiltBar30) ? 30.0 : 45.0;
             const double tangent = std::tan(qDegreesToRadians(deg));
             const double dx = r.height() / std::max(tangent, 1e-6);
-            for (double x = r.left() - std::fabs(dx);
-                 x < r.right() + std::fabs(dx); x += 9.0)
-            {
-                auto *l = new QGraphicsLineItem(
-                    QLineF(x, r.bottom(), x + dx, r.top()), clip);
+            for (double x = r.left() - std::fabs(dx); x < r.right() + std::fabs(dx); x += 9.0) {
+                auto *l = new QGraphicsLineItem(QLineF(x, r.bottom(), x + dx, r.top()), clip);
                 l->setPen(bar);
                 if (g == GrateType::Reticuline) {
-                    auto *m = new QGraphicsLineItem(
-                        QLineF(x, r.top(), x + dx, r.bottom()), clip);
+                    auto *m = new QGraphicsLineItem(QLineF(x, r.top(), x + dx, r.bottom()), clip);
                     m->setPen(bar);
                 }
             }
@@ -266,62 +330,80 @@ void drawGrateBars(Ctx &c, const QRectF &r, GrateType g)
 }
 
 /*! \brief GENERIC grates carry two extra callouts (open fraction, splash-over
- *  velocity) — the two parameters that only apply to that family. */
+ *  velocity) — the two parameters that only apply to that family.
+ * @param[in,out] c Context/scene receiving tagged callout notes.
+ * @param[in] d Design whose Generic grate uses openArea as a fraction and splashVeloc in existing velocity units. Other grate families add nothing.
+ * @param[in] at First note's scene position; second note is fifteen pixels below.
+ */
 void addGenericGrateNotes(Ctx &c, const InletDesignData &d, const QPointF &at)
 {
-    if (d.grateType != GrateType::Generic) return;
-    addNote(c, at,
-            trs("Open area = %1 %").arg(d.openArea * 100.0, 0, 'f', 0));
+    if (d.grateType != GrateType::Generic)
+        return;
+    addNote(c, at, trs("Open area = %1 %").arg(d.openArea * 100.0, 0, 'f', 0));
     addNote(c, at + QPointF(0.0, 15.0),
             trs("V₀ = %1 %2").arg(d.splashVeloc, 0, 'f', 2).arg(c.velocityLabel));
 }
 
 /*! \brief Curb + pavement + subgrade body of a gutter section. Returns the
- *  gutter invert (foot of the curb face). */
-QPointF drawGutterSection(Ctx &c, double x0, double y0,
-                           double widthPx, double curbHeightPx)
+ *  gutter invert (foot of the curb face).
+ * @param[in,out] c Context/scene receiving a hatched curb/gutter body.
+ * @param[in] x0 Invert X in scene coordinates.
+ * @param[in] y0 Invert Y in scene coordinates.
+ * @param[in] widthPx Pavement width in scene pixels; schematic cross slope is eight percent.
+ * @param[in] curbHeightPx Curb height in scene pixels.
+ * @return Gutter invert point (x0,y0).
+ */
+QPointF drawGutterSection(Ctx &c, double x0, double y0, double widthPx, double curbHeightPx)
 {
-    const double rise  = widthPx * 0.08;
+    const double rise = widthPx * 0.08;
     const double depth = 30.0;
     const QPointF invert(x0, y0);
 
     QPolygonF body;
-    body << QPointF(x0 - 16.0, y0 - curbHeightPx)   // back of curb, top
-         << QPointF(x0,        y0 - curbHeightPx)   // curb face, top
-         << invert                                   // gutter invert
-         << QPointF(x0 + widthPx, y0 - rise)         // pavement crown side
-         << QPointF(x0 + widthPx, y0 + depth)        // subgrade
-         << QPointF(x0 - 16.0,    y0 + depth);
+    body << QPointF(x0 - 16.0, y0 - curbHeightPx) // back of curb, top
+         << QPointF(x0, y0 - curbHeightPx)        // curb face, top
+         << invert                                // gutter invert
+         << QPointF(x0 + widthPx, y0 - rise)      // pavement crown side
+         << QPointF(x0 + widthPx, y0 + depth)     // subgrade
+         << QPointF(x0 - 16.0, y0 + depth);
     addHatchedPolygon(c, body);
     return invert;
 }
 
 /*! \brief Trapezoidal channel section for the DROP types. Returns the
- *  invert-left / invert-right pair of the channel bottom. */
-QPair<QPointF, QPointF> drawChannelSection(Ctx &c, double x0, double y0,
-                                             double bottomPx, double depthPx)
+ *  invert-left / invert-right pair of the channel bottom.
+ * @param[in,out] c Context/scene receiving a schematic trapezoidal section.
+ * @param[in] x0 Left bottom X in scene coordinates.
+ * @param[in] y0 Bottom Y in scene coordinates.
+ * @param[in] bottomPx Bottom width in scene pixels.
+ * @param[in] depthPx Channel depth in scene pixels; schematic flare is 0.6 times depth.
+ * @return Left/right channel bottom scene points.
+ */
+QPair<QPointF, QPointF> drawChannelSection(Ctx &c, double x0, double y0, double bottomPx,
+                                           double depthPx)
 {
     const double flare = depthPx * 0.6;
     const QPointF bl(x0, y0);
     const QPointF br(x0 + bottomPx, y0);
 
     QPolygonF body;
-    body << QPointF(x0 - flare - 14.0, y0 - depthPx - 12.0)
-         << QPointF(x0 - flare,        y0 - depthPx)
-         << bl
-         << br
-         << QPointF(x0 + bottomPx + flare,        y0 - depthPx)
+    body << QPointF(x0 - flare - 14.0, y0 - depthPx - 12.0) << QPointF(x0 - flare, y0 - depthPx)
+         << bl << br << QPointF(x0 + bottomPx + flare, y0 - depthPx)
          << QPointF(x0 + bottomPx + flare + 14.0, y0 - depthPx - 12.0)
          << QPointF(x0 + bottomPx + flare + 14.0, y0 + 26.0)
-         << QPointF(x0 - flare - 14.0,            y0 + 26.0);
+         << QPointF(x0 - flare - 14.0, y0 + 26.0);
     addHatchedPolygon(c, body);
-    return { bl, br };
+    return {bl, br};
 }
 
 // ── Per-type drawings ────────────────────────────────────────────────────────
 
 /*! \brief GRATE and DROP GRATE: plan with the bar pattern, section in the
- *  gutter (or in a trapezoidal channel for the drop variant). */
+ *  gutter (or in a trapezoidal channel for the drop variant).
+ * @param[in,out] c Context/scene receiving plan, section and dimension callouts.
+ * @param[in] d Raw inlet design, scaled in existing model length units.
+ * @param[in] drop True draws a channel variant, false a curb/gutter variant.
+ */
 void buildGrate(Ctx &c, const InletDesignData &d, bool drop)
 {
     const double L = px(c, d.grateLength);
@@ -333,12 +415,10 @@ void buildGrate(Ctx &c, const InletDesignData &d, bool drop)
     addHatchedRect(c, QRectF(-56.0, y - 30.0, L + 112.0, W + 60.0));
     if (!drop) {
         // Curb line along the top edge of the pavement band.
-        c.scene->addLine(QLineF(-56.0, y - 30.0, L + 56.0, y - 30.0),
-                         QPen(c.theme.outline, 2.4));
+        c.scene->addLine(QLineF(-56.0, y - 30.0, L + 56.0, y - 30.0), QPen(c.theme.outline, 2.4));
     } else {
         // Channel walls converge on the grate in plan.
-        c.scene->addLine(QLineF(-56.0, y - 16.0, L + 56.0, y - 16.0),
-                         QPen(c.theme.outline, 1.4));
+        c.scene->addLine(QLineF(-56.0, y - 16.0, L + 56.0, y - 16.0), QPen(c.theme.outline, 1.4));
         c.scene->addLine(QLineF(-56.0, y + W + 16.0, L + 56.0, y + W + 16.0),
                          QPen(c.theme.outline, 1.4));
     }
@@ -364,23 +444,25 @@ void buildGrate(Ctx &c, const InletDesignData &d, bool drop)
                          QPen(c.theme.outline, 1.4), QBrush(c.theme.accent));
     } else {
         const QPointF invert =
-            drawGutterSection(c, 0.0, sectionY, std::max(W * 2.0, 150.0),
-                              px(c, 0.5, 26.0));
-        c.scene->addRect(QRectF(invert.x(), sectionY - 5.0, W, 5.0),
-                         QPen(c.theme.outline, 1.4), QBrush(c.theme.accent));
+            drawGutterSection(c, 0.0, sectionY, std::max(W * 2.0, 150.0), px(c, 0.5, 26.0));
+        c.scene->addRect(QRectF(invert.x(), sectionY - 5.0, W, 5.0), QPen(c.theme.outline, 1.4),
+                         QBrush(c.theme.accent));
     }
 }
 
 /*! \brief CURB OPENING and DROP CURB: elevation of the curb face with the
- *  opening, plus a section showing the throat orientation. */
+ *  opening, plus a section showing the throat orientation.
+ * @param[in,out] c Context/scene receiving opening/throat geometry and callouts.
+ * @param[in] d Raw curb design dimensions.
+ * @param[in] drop True draws a four-sided drop opening/channel; false draws a curb face and 0/45/90-degree throat note.
+ */
 void buildCurb(Ctx &c, const InletDesignData &d, bool drop)
 {
     const double L = px(c, d.curbLength);
     const double H = px(c, d.curbHeight);
     const double faceHeight = std::max(H * 2.2, 54.0);
 
-    double y = addPanelTitle(c, 0.0, drop ? trs("Plan — opening")
-                                          : trs("Elevation — curb face"));
+    double y = addPanelTitle(c, 0.0, drop ? trs("Plan — opening") : trs("Elevation — curb face"));
 
     // Curb face band (or, for a drop curb, the surrounding channel bank).
     addHatchedRect(c, QRectF(-48.0, y, L + 96.0, faceHeight));
@@ -396,8 +478,7 @@ void buildCurb(Ctx &c, const InletDesignData &d, bool drop)
     }
 
     addDimension(c, opening.bottomLeft(), opening.bottomRight(), kDimOffset,
-                 drop ? trs("L = %1 %2 (×4 sides)")
-                            .arg(d.curbLength, 0, 'f', 2).arg(c.lengthLabel)
+                 drop ? trs("L = %1 %2 (×4 sides)").arg(d.curbLength, 0, 'f', 2).arg(c.lengthLabel)
                       : lenLabel(c, QStringLiteral("L"), d.curbLength));
     addDimension(c, opening.bottomLeft(), opening.topLeft(), -kDimOffset,
                  lenLabel(c, QStringLiteral("h"), d.curbHeight));
@@ -409,11 +490,10 @@ void buildCurb(Ctx &c, const InletDesignData &d, bool drop)
     const double sectionY = y + 80.0;
     if (drop) {
         const auto invert = drawChannelSection(c, 0.0, sectionY, L, 62.0);
-        c.scene->addRect(QRectF(invert.first.x(), sectionY - H, L, H),
-                         QPen(c.theme.outline, 1.4), QBrush(c.theme.background));
+        c.scene->addRect(QRectF(invert.first.x(), sectionY - H, L, H), QPen(c.theme.outline, 1.4),
+                         QBrush(c.theme.background));
     } else {
-        const QPointF invert =
-            drawGutterSection(c, 0.0, sectionY, 150.0, H + 24.0);
+        const QPointF invert = drawGutterSection(c, 0.0, sectionY, 150.0, H + 24.0);
 
         // Inlet box behind the curb.
         const QRectF box(invert.x() - 62.0, sectionY - H - 6.0, 62.0, H + 46.0);
@@ -422,17 +502,22 @@ void buildCurb(Ctx &c, const InletDesignData &d, bool drop)
         // Throat: horizontal (0°), inclined (45°) or vertical (90°).
         double angleDeg = 90.0;
         QString throatWord = trs("VERTICAL");
-        if (d.throat == ThroatType::Inclined)        { angleDeg = 45.0; throatWord = trs("INCLINED"); }
-        else if (d.throat == ThroatType::Horizontal) { angleDeg =  0.0; throatWord = trs("HORIZONTAL"); }
+        if (d.throat == ThroatType::Inclined) {
+            angleDeg = 45.0;
+            throatWord = trs("INCLINED");
+        } else if (d.throat == ThroatType::Horizontal) {
+            angleDeg = 0.0;
+            throatWord = trs("HORIZONTAL");
+        }
 
         const double rad = qDegreesToRadians(angleDeg);
         const QPointF mouth(invert.x(), sectionY - H);
         const QPointF back(mouth.x() - std::cos(rad) * 46.0 - 8.0,
                            mouth.y() + std::sin(rad) * 46.0);
         c.scene->addLine(QLineF(mouth, back), QPen(c.theme.accent, 2.0));
-        c.scene->addLine(QLineF(QPointF(mouth.x(), sectionY),
-                                 QPointF(back.x(), back.y() + H * 0.4)),
-                         QPen(c.theme.accent, 2.0));
+        c.scene->addLine(
+            QLineF(QPointF(mouth.x(), sectionY), QPointF(back.x(), back.y() + H * 0.4)),
+            QPen(c.theme.accent, 2.0));
 
         addNote(c, QPointF(box.left(), box.bottom() + 12.0),
                 trs("Throat: %1 (%2°)").arg(throatWord).arg(angleDeg, 0, 'f', 0));
@@ -440,23 +525,24 @@ void buildCurb(Ctx &c, const InletDesignData &d, bool drop)
 }
 
 /*! \brief COMBINATION: grate plan with the curb opening alongside; the part
- *  of the curb opening upstream of the grate is the shaded "sweeper". */
+ *  of the curb opening upstream of the grate is the shaded "sweeper".
+ * @param[in,out] c Context/scene receiving combined grate/curb plan and gutter section.
+ * @param[in] d Raw design dimensions; symbolic sweeper region represents the curb opening preceding the grate.
+ */
 void buildCombo(Ctx &c, const InletDesignData &d)
 {
     const double Lg = px(c, d.grateLength);
-    const double W  = px(c, d.grateWidth);
+    const double W = px(c, d.grateWidth);
     const double Lc = px(c, d.curbLength);
-    const double H  = px(c, d.curbHeight);
+    const double H = px(c, d.curbHeight);
     const double sweeper = std::max(Lc - Lg, 0.0);
 
     double y = addPanelTitle(c, 0.0, trs("Plan"));
 
     const double bandTop = y;
     const double curbBand = std::max(H, 16.0);
-    addHatchedRect(c, QRectF(-56.0, bandTop - 30.0,
-                             std::max(Lc, Lg) + 112.0, W + curbBand + 60.0));
-    c.scene->addLine(QLineF(-56.0, bandTop - 30.0,
-                             std::max(Lc, Lg) + 56.0, bandTop - 30.0),
+    addHatchedRect(c, QRectF(-56.0, bandTop - 30.0, std::max(Lc, Lg) + 112.0, W + curbBand + 60.0));
+    c.scene->addLine(QLineF(-56.0, bandTop - 30.0, std::max(Lc, Lg) + 56.0, bandTop - 30.0),
                      QPen(c.theme.outline, 2.4));
 
     // Curb opening strip, drawn from the downstream end (x = Lc) backwards so
@@ -466,8 +552,7 @@ void buildCombo(Ctx &c, const InletDesignData &d)
     if (sweeper > 0.0) {
         QColor shade = c.theme.accent;
         shade.setAlpha(70);
-        c.scene->addRect(QRectF(0.0, bandTop, sweeper, curbBand),
-                         QPen(Qt::NoPen), QBrush(shade));
+        c.scene->addRect(QRectF(0.0, bandTop, sweeper, curbBand), QPen(Qt::NoPen), QBrush(shade));
     }
 
     // Grate sits at the downstream end of the curb opening.
@@ -492,20 +577,21 @@ void buildCombo(Ctx &c, const InletDesignData &d)
     y = addPanelTitle(c, y, trs("Section — gutter"));
 
     const double sectionY = y + 80.0;
-    const QPointF invert =
-        drawGutterSection(c, 0.0, sectionY, std::max(W * 2.0, 150.0), H + 24.0);
-    c.scene->addRect(QRectF(invert.x(), sectionY - 5.0, W, 5.0),
-                     QPen(c.theme.outline, 1.4), QBrush(c.theme.accent));
+    const QPointF invert = drawGutterSection(c, 0.0, sectionY, std::max(W * 2.0, 150.0), H + 24.0);
+    c.scene->addRect(QRectF(invert.x(), sectionY - 5.0, W, 5.0), QPen(c.theme.outline, 1.4),
+                     QBrush(c.theme.accent));
 
     const QRectF box(invert.x() - 62.0, sectionY - H - 6.0, 62.0, H + 46.0);
     c.scene->addRect(box, QPen(c.theme.outline, 1.4), QBrush(c.theme.background));
-    addDimension(c, QPointF(box.left() - 14.0, sectionY),
-                 QPointF(box.left() - 14.0, sectionY - H), -kDimOffset * 0.6,
-                 lenLabel(c, QStringLiteral("h"), d.curbHeight));
+    addDimension(c, QPointF(box.left() - 14.0, sectionY), QPointF(box.left() - 14.0, sectionY - H),
+                 -kDimOffset * 0.6, lenLabel(c, QStringLiteral("h"), d.curbHeight));
 }
 
 /*! \brief SLOTTED DRAIN: plan of the slot in the pavement plus the section
- *  through it. */
+ *  through it.
+ * @param[in,out] c Context/scene receiving slot plan, pavement section and length/width callouts.
+ * @param[in] d Raw slotted-drain design dimensions in existing model units.
+ */
 void buildSlotted(Ctx &c, const InletDesignData &d)
 {
     const double L = px(c, d.slotLength);
@@ -514,8 +600,7 @@ void buildSlotted(Ctx &c, const InletDesignData &d)
     double y = addPanelTitle(c, 0.0, trs("Plan"));
 
     addHatchedRect(c, QRectF(-56.0, y - 34.0, L + 112.0, w + 68.0));
-    c.scene->addLine(QLineF(-56.0, y - 34.0, L + 56.0, y - 34.0),
-                     QPen(c.theme.outline, 2.4));
+    c.scene->addLine(QLineF(-56.0, y - 34.0, L + 56.0, y - 34.0), QPen(c.theme.outline, 2.4));
 
     const QRectF slot(0.0, y, L, w);
     c.scene->addRect(slot, QPen(c.theme.outline, 1.6), QBrush(c.theme.accent));
@@ -530,15 +615,18 @@ void buildSlotted(Ctx &c, const InletDesignData &d)
     y = addPanelTitle(c, y, trs("Section — pavement"));
 
     const double sectionY = y + 70.0;
-    const QPointF invert =
-        drawGutterSection(c, 0.0, sectionY, 150.0, px(c, 0.5, 26.0));
+    const QPointF invert = drawGutterSection(c, 0.0, sectionY, 150.0, px(c, 0.5, 26.0));
     // The slot itself: a narrow notch through the pavement into the pipe.
-    c.scene->addRect(QRectF(invert.x() + 26.0, sectionY - 3.0, w, 30.0),
-                     QPen(c.theme.outline, 1.2), QBrush(c.theme.background));
+    c.scene->addRect(QRectF(invert.x() + 26.0, sectionY - 3.0, w, 30.0), QPen(c.theme.outline, 1.2),
+                     QBrush(c.theme.background));
 }
 
 /*! \brief CUSTOM: the referenced capture curve plotted with axes labelled
- *  per the curve kind. */
+ *  per the curve kind.
+ * @param[in,out] c Context/scene receiving curve axes/path and identity/kind callouts.
+ * @param[in] d Design selecting Rating (depth) or Diversion (approach-flow) X meaning.
+ * @param[in] pts Ordered raw curve points; axes scale independently by positive maxima (one fallback) without sorting or finite checks.
+ */
 void buildCustom(Ctx &c, const InletDesignData &d, const QVector<QPointF> &pts)
 {
     const double y = addPanelTitle(c, 0.0, trs("Capture curve"));
@@ -547,14 +635,12 @@ void buildCustom(Ctx &c, const InletDesignData &d, const QVector<QPointF> &pts)
     c.scene->addRect(box, QPen(c.theme.outline, 1.4), QBrush(c.theme.background));
 
     // Axes.
-    c.scene->addLine(QLineF(box.bottomLeft(), box.bottomRight()),
-                     QPen(c.theme.outline, 1.6));
-    c.scene->addLine(QLineF(box.bottomLeft(), box.topLeft()),
-                     QPen(c.theme.outline, 1.6));
+    c.scene->addLine(QLineF(box.bottomLeft(), box.bottomRight()), QPen(c.theme.outline, 1.6));
+    c.scene->addLine(QLineF(box.bottomLeft(), box.topLeft()), QPen(c.theme.outline, 1.6));
 
     const bool rating = (d.curveKind == InletCurveKind::Rating);
-    const QString xAxis = rating ? trs("Water depth (%1)").arg(c.lengthLabel)
-                                 : trs("Approach flow");
+    const QString xAxis =
+        rating ? trs("Water depth (%1)").arg(c.lengthLabel) : trs("Approach flow");
     const QString yAxis = trs("Captured flow");
     addText(c, QPointF(box.center().x() - 50.0, box.bottom() + 24.0), xAxis, c.theme.text);
     addText(c, QPointF(box.left(), box.top() - 18.0), yAxis, c.theme.text);
@@ -565,34 +651,44 @@ void buildCustom(Ctx &c, const InletDesignData &d, const QVector<QPointF> &pts)
             xMax = std::max(xMax, p.x());
             yMax = std::max(yMax, p.y());
         }
-        if (xMax <= 0.0) xMax = 1.0;
-        if (yMax <= 0.0) yMax = 1.0;
+        if (xMax <= 0.0)
+            xMax = 1.0;
+        if (yMax <= 0.0)
+            yMax = 1.0;
 
         QPainterPath path;
         for (int i = 0; i < pts.size(); ++i) {
-            const QPointF sp(box.left()   + box.width()  * pts.at(i).x() / xMax,
+            const QPointF sp(box.left() + box.width() * pts.at(i).x() / xMax,
                              box.bottom() - box.height() * pts.at(i).y() / yMax);
-            if (i == 0) path.moveTo(sp); else path.lineTo(sp);
+            if (i == 0)
+                path.moveTo(sp);
+            else
+                path.lineTo(sp);
         }
         c.scene->addPath(path, QPen(c.theme.accent, 2.0));
     } else {
-        addText(c, box.center() - QPointF(60.0, 8.0),
-                trs("No curve points"), c.theme.dimension);
+        addText(c, box.center() - QPointF(60.0, 8.0), trs("No curve points"), c.theme.dimension);
     }
 
     addNote(c, QPointF(box.left(), box.bottom() + 44.0),
             trs("Curve: %1").arg(d.curveId.isEmpty() ? trs("(none)") : d.curveId));
     addNote(c, QPointF(box.left(), box.bottom() + 60.0),
-            trs("Kind: %1").arg(rating ? trs("Rating (captured vs depth)")
-                                       : trs("Diversion (captured vs approach flow)")));
+            trs("Kind: %1")
+                .arg(rating ? trs("Rating (captured vs depth)")
+                            : trs("Diversion (captured vs approach flow)")));
 }
 
+/**
+ * @brief Choose readable scene pixels per raw model length unit.
+ * @param[in] d Design whose maximum nonnegative grate/curb/slot dimension sets the scale.
+ * @return 260/max dimension clamped to [6,4000], or 120 when span <=1e-6.
+ */
 double scaleFor(const InletDesignData &d)
 {
-    const double span = std::max({ d.grateLength, d.grateWidth,
-                                    d.curbLength, d.curbHeight,
-                                    d.slotLength, d.slotWidth, 0.0 });
-    if (span <= 1e-6) return 120.0;
+    const double span = std::max(
+        {d.grateLength, d.grateWidth, d.curbLength, d.curbHeight, d.slotLength, d.slotWidth, 0.0});
+    if (span <= 1e-6)
+        return 120.0;
     return qBound(kMinScale, kTargetSpanPx / span, kMaxScale);
 }
 
@@ -602,10 +698,9 @@ double scaleFor(const InletDesignData &d)
 // InletSceneBuilder
 // ─────────────────────────────────────────────────────────────────────────────
 
-QGraphicsScene *InletSceneBuilder::build(const InletProvider &design,
-                                          const UnitSystem *units,
-                                          const InletTheme &theme,
-                                          const QVector<QPointF> &customCurve)
+QGraphicsScene *InletSceneBuilder::build(const InletProvider &design, const UnitSystem *units,
+                                         const InletTheme &theme,
+                                         const QVector<QPointF> &customCurve)
 {
     auto *scene = new QGraphicsScene;
     scene->setBackgroundBrush(theme.background);
@@ -614,7 +709,7 @@ QGraphicsScene *InletSceneBuilder::build(const InletProvider &design,
     c.scene = scene;
     c.theme = theme;
     if (units) {
-        c.lengthLabel   = units->lengthLabel();
+        c.lengthLabel = units->lengthLabel();
         c.velocityLabel = units->velocityLabel();
     }
 
@@ -622,13 +717,27 @@ QGraphicsScene *InletSceneBuilder::build(const InletProvider &design,
     c.s = scaleFor(d);
 
     switch (d.type) {
-    case InletType::Grate:     buildGrate(c, d, /*drop*/ false); break;
-    case InletType::DropGrate: buildGrate(c, d, /*drop*/ true);  break;
-    case InletType::Curb:      buildCurb(c, d, /*drop*/ false);  break;
-    case InletType::DropCurb:  buildCurb(c, d, /*drop*/ true);   break;
-    case InletType::Combo:     buildCombo(c, d);                 break;
-    case InletType::Slotted:   buildSlotted(c, d);               break;
-    case InletType::Custom:    buildCustom(c, d, customCurve);   break;
+    case InletType::Grate:
+        buildGrate(c, d, /*drop*/ false);
+        break;
+    case InletType::DropGrate:
+        buildGrate(c, d, /*drop*/ true);
+        break;
+    case InletType::Curb:
+        buildCurb(c, d, /*drop*/ false);
+        break;
+    case InletType::DropCurb:
+        buildCurb(c, d, /*drop*/ true);
+        break;
+    case InletType::Combo:
+        buildCombo(c, d);
+        break;
+    case InletType::Slotted:
+        buildSlotted(c, d);
+        break;
+    case InletType::Custom:
+        buildCustom(c, d, customCurve);
+        break;
     }
 
     scene->setSceneRect(scene->itemsBoundingRect().adjusted(-28.0, -28.0, 28.0, 28.0));
@@ -639,8 +748,7 @@ QGraphicsScene *InletSceneBuilder::build(const InletProvider &design,
 // InletDrawingView
 // ─────────────────────────────────────────────────────────────────────────────
 
-InletDrawingView::InletDrawingView(QWidget *parent)
-    : QGraphicsView(parent)
+InletDrawingView::InletDrawingView(QWidget *parent) : QGraphicsView(parent)
 {
     setRenderHint(QPainter::Antialiasing, true);
     setRenderHint(QPainter::TextAntialiasing, true);
@@ -655,12 +763,13 @@ InletDrawingView::~InletDrawingView() = default;
 
 void InletDrawingView::setProvider(InletProvider *p)
 {
-    if (m_provider.data() == p) return;
-    if (m_provider) m_provider->disconnect(this);
+    if (m_provider.data() == p)
+        return;
+    if (m_provider)
+        m_provider->disconnect(this);
     m_provider = QPointer<InletProvider>(p);
     if (m_provider)
-        connect(m_provider, &InletProvider::paramsChanged,
-                this, &InletDrawingView::rebuild);
+        connect(m_provider, &InletProvider::paramsChanged, this, &InletDrawingView::rebuild);
     rebuild();
 }
 
@@ -671,7 +780,8 @@ InletProvider *InletDrawingView::provider() const noexcept
 
 void InletDrawingView::setCustomCurve(const QVector<QPointF> &points)
 {
-    if (points == m_customCurve) return;
+    if (points == m_customCurve)
+        return;
     m_customCurve = points;
     rebuild();
 }
@@ -682,10 +792,8 @@ void InletDrawingView::rebuild()
 
     QGraphicsScene *built = nullptr;
     if (m_provider) {
-        built = InletSceneBuilder::build(*m_provider,
-                                          UnitSystem::instance(),
-                                          InletTheme::fromPalette(palette()),
-                                          m_customCurve);
+        built = InletSceneBuilder::build(*m_provider, UnitSystem::instance(),
+                                         InletTheme::fromPalette(palette()), m_customCurve);
     } else {
         built = new QGraphicsScene;
         built->setBackgroundBrush(palette().base());
@@ -701,7 +809,8 @@ void InletDrawingView::rebuild()
 
 void InletDrawingView::zoomToExtent()
 {
-    if (!scene()) return;
+    if (!scene())
+        return;
     fitInView(scene()->sceneRect(), Qt::KeepAspectRatio);
     m_fitted = true;
 }
@@ -719,7 +828,10 @@ void InletDrawingView::zoomOut()
 void InletDrawingView::wheelEvent(QWheelEvent *event)
 {
     const int delta = event->angleDelta().y();
-    if (delta == 0) { QGraphicsView::wheelEvent(event); return; }
+    if (delta == 0) {
+        QGraphicsView::wheelEvent(event);
+        return;
+    }
     // AnchorUnderMouse (set in the ctor) keeps the point under the cursor put.
     const double factor = (delta > 0) ? 1.15 : (1.0 / 1.15);
     scale(factor, factor);
@@ -733,9 +845,8 @@ void InletDrawingView::mousePressEvent(QMouseEvent *event)
         // press is forwarded as a synthetic left press while it is held.
         m_middlePanning = true;
         setDragMode(QGraphicsView::ScrollHandDrag);
-        QMouseEvent synthetic(QEvent::MouseButtonPress, event->position(),
-                              event->globalPosition(), Qt::LeftButton,
-                              Qt::LeftButton, event->modifiers());
+        QMouseEvent synthetic(QEvent::MouseButtonPress, event->position(), event->globalPosition(),
+                              Qt::LeftButton, Qt::LeftButton, event->modifiers());
         QGraphicsView::mousePressEvent(&synthetic);
         event->accept();
         return;
@@ -747,8 +858,8 @@ void InletDrawingView::mouseReleaseEvent(QMouseEvent *event)
 {
     if (m_middlePanning && event->button() == Qt::MiddleButton) {
         QMouseEvent synthetic(QEvent::MouseButtonRelease, event->position(),
-                              event->globalPosition(), Qt::LeftButton,
-                              Qt::NoButton, event->modifiers());
+                              event->globalPosition(), Qt::LeftButton, Qt::NoButton,
+                              event->modifiers());
         QGraphicsView::mouseReleaseEvent(&synthetic);
         setDragMode(QGraphicsView::NoDrag);
         m_middlePanning = false;
@@ -761,7 +872,8 @@ void InletDrawingView::mouseReleaseEvent(QMouseEvent *event)
 void InletDrawingView::showEvent(QShowEvent *event)
 {
     QGraphicsView::showEvent(event);
-    if (!m_fitted) zoomToExtent();
+    if (!m_fitted)
+        zoomToExtent();
 }
 
 void InletDrawingView::resizeEvent(QResizeEvent *event)

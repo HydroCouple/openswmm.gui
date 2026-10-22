@@ -1,9 +1,12 @@
 #include "ui/dialogs/traceanalysisdialog.h"
 #include <QInputDialog>
-/*!
- * \file   maptoolselect.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptoolselect.cpp
+ * @brief     Tool that selects features in vector and SWMM model layers.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptoolselect.h"
@@ -50,7 +53,7 @@
 #include <QWidget>
 
 #include <openswmm/engine/openswmm_links.h>
-#include <openswmm/engine/openswmm_edit.h>   // SWMM_ImpactReport — cascade lookup
+#include <openswmm/engine/openswmm_edit.h> // SWMM_ImpactReport — cascade lookup
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <algorithm>
@@ -61,45 +64,75 @@
 // same name). Enable with QT_LOGGING_RULES="openswmm.bulkdelete=true".
 Q_LOGGING_CATEGORY(lcBulkDelTool, "openswmm.bulkdelete")
 
-namespace {
+namespace
+{
 // identifyAt "elementType" string → SWMMModelLayer kind bit. SWMM names
 // are per-type namespaces, so selection carries the kind of the object
 // that was actually hit. Unknown strings fall back to all kinds (legacy
 // name-wide behaviour) rather than silently selecting nothing.
+/**
+ * @param[in] t Exact identify elementType string; Node/Link/Subcatchment/RainGage recognized.
+ * @return Corresponding typed selection bit, kKindAll unknown/empty for legacy name-wide behavior.
+ *   No mutation or type validation against engine.
+ */
 quint8 kindBitForElementType(const QString &t)
 {
-    if (t == QLatin1String("Node"))         return SWMMModelLayer::kKindNode;
-    if (t == QLatin1String("Link"))         return SWMMModelLayer::kKindLink;
-    if (t == QLatin1String("Subcatchment")) return SWMMModelLayer::kKindCatch;
-    if (t == QLatin1String("RainGage"))     return SWMMModelLayer::kKindGage;
+    if (t == QLatin1String("Node"))
+        return SWMMModelLayer::kKindNode;
+    if (t == QLatin1String("Link"))
+        return SWMMModelLayer::kKindLink;
+    if (t == QLatin1String("Subcatchment"))
+        return SWMMModelLayer::kKindCatch;
+    if (t == QLatin1String("RainGage"))
+        return SWMMModelLayer::kKindGage;
     return SWMMModelLayer::kKindAll;
 }
 
 // SWMMObjectRef::ObjectType → kind bit (context-menu paths hold typed refs).
+/**
+ * @param[in] objectType SWMMObjectRef enum value supplied as int.
+ * @return Node/Link/Subcatchment/RainGage kind bit, kKindAll otherwise. No engine query or
+ *   mutation.
+ */
 quint8 kindBitForObjectType(int objectType)
 {
     switch (objectType) {
-    case SWMMObjectRef::Node:         return SWMMModelLayer::kKindNode;
-    case SWMMObjectRef::Link:         return SWMMModelLayer::kKindLink;
-    case SWMMObjectRef::Subcatchment: return SWMMModelLayer::kKindCatch;
-    case SWMMObjectRef::RainGage:     return SWMMModelLayer::kKindGage;
-    default:                          return SWMMModelLayer::kKindAll;
+    case SWMMObjectRef::Node:
+        return SWMMModelLayer::kKindNode;
+    case SWMMObjectRef::Link:
+        return SWMMModelLayer::kKindLink;
+    case SWMMObjectRef::Subcatchment:
+        return SWMMModelLayer::kKindCatch;
+    case SWMMObjectRef::RainGage:
+        return SWMMModelLayer::kKindGage;
+    default:
+        return SWMMModelLayer::kKindAll;
     }
 }
 
 // G5 — delete-prompt sentence for nodes that receive groundwater from
 // subcatchments ([GROUNDWATER] Node). Empty when none of `nodeIdxs` does.
+/**
+ * @param[in] eng Borrowed current engine handle passed to groundwater source query.
+ * @param[in] nodeIdxs Current node indices; duplicates not removed.
+ * @return Empty when summed source count0, otherwise translated singular/plural deletion note
+ *   chosen by requested node-list size. Count sums every node query, so duplicate indices can
+ *   double-count. No engine mutation; callers append to confirmation prompts.
+ */
 QString groundwaterSourcesNote(SWMM_Engine eng, const QList<int> &nodeIdxs)
 {
     int n = 0;
     for (int ni : nodeIdxs)
         n += OpenSWMMVis::Groundwater::groundwaterSourceSubcatchments(eng, ni).size();
-    if (n == 0) return {};
+    if (n == 0)
+        return {};
     return (nodeIdxs.size() == 1)
-        ? QObject::tr("%n subcatchment(s) discharge groundwater to this node "
-                      "and will lose their receiving node.", nullptr, n)
-        : QObject::tr("%n subcatchment(s) discharge groundwater to the selected "
-                      "nodes and will lose their receiving node.", nullptr, n);
+               ? QObject::tr("%n subcatchment(s) discharge groundwater to this node "
+                             "and will lose their receiving node.",
+                             nullptr, n)
+               : QObject::tr("%n subcatchment(s) discharge groundwater to the selected "
+                             "nodes and will lose their receiving node.",
+                             nullptr, n);
 }
 } // namespace
 
@@ -109,18 +142,20 @@ OpenSWMMVisMapToolSelect::OpenSWMMVisMapToolSelect(MapCanvas *canvas, QObject *p
     m_textEditor = new OpenSWMMVisMapToolAddText(canvas, nullptr, this);
     if (auto *project = canvas ? qobject_cast<SWMMVisProjectWindow *>(canvas->parent()) : nullptr) {
         connect(project, &SWMMVisProjectWindow::editSessionChanged, this, [this](bool active) {
-            if (!active && m_textGesture) m_textEditor->deactivate();
+            if (!active && m_textGesture)
+                m_textEditor->deactivate();
         });
     }
     // Slice V wiring — the hard-coded `m_pixelTol` / `m_dragThreshPx`
     // stay as fall-backs, but live usage prefers the PreferencesManager
     // value so Tools → Preferences takes effect without a restart.
     auto *prefs = PreferencesManager::instance();
-    m_pixelTol      = prefs->clickTolerancePx();
-    m_dragThreshPx  = prefs->dragThresholdPx();
+    m_pixelTol = prefs->clickTolerancePx();
+    m_dragThreshPx = prefs->dragThresholdPx();
     connect(prefs, &PreferencesManager::preferenceChanged, this,
             [this, prefs](const QString &grp, const QString &key) {
-                if (grp != QStringLiteral("Selection")) return;
+                if (grp != QStringLiteral("Selection"))
+                    return;
                 if (key == QStringLiteral("ClickTolerancePx"))
                     m_pixelTol = prefs->clickTolerancePx();
                 else if (key == QStringLiteral("DragThresholdPx"))
@@ -133,23 +168,27 @@ QCursor OpenSWMMVisMapToolSelect::cursor() const
     return Qt::ArrowCursor;
 }
 
-int OpenSWMMVisMapToolSelect::pixelTolerance() const { return m_pixelTol; }
+int OpenSWMMVisMapToolSelect::pixelTolerance() const
+{
+    return m_pixelTol;
+}
 
 void OpenSWMMVisMapToolSelect::setPixelTolerance(int pixels)
 {
-    if (m_pixelTol != pixels)
-    {
+    if (m_pixelTol != pixels) {
         m_pixelTol = pixels;
         emit pixelToleranceChanged(pixels);
     }
 }
 
-QColor OpenSWMMVisMapToolSelect::rubberBandColor() const { return m_rubberColor; }
+QColor OpenSWMMVisMapToolSelect::rubberBandColor() const
+{
+    return m_rubberColor;
+}
 
 void OpenSWMMVisMapToolSelect::setRubberBandColor(const QColor &color)
 {
-    if (m_rubberColor != color)
-    {
+    if (m_rubberColor != color) {
         m_rubberColor = color;
         emit rubberBandColorChanged(color);
     }
@@ -170,16 +209,20 @@ void OpenSWMMVisMapToolSelect::deactivate()
     OpenSWMMVisMapTool::deactivate();
 }
 
-OpenSWMMVisAnnotationLayer *OpenSWMMVisMapToolSelect::editableTextLayerAt(const QPointF &pixel) const
+OpenSWMMVisAnnotationLayer *
+OpenSWMMVisMapToolSelect::editableTextLayerAt(const QPointF &pixel) const
 {
-    if (!m_canvas) return nullptr;
+    if (!m_canvas)
+        return nullptr;
     const auto *project = qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent());
-    if (!project || !project->isEditSessionActive()) return nullptr;
+    if (!project || !project->isEditSessionActive())
+        return nullptr;
     // Match painting order: text in the highest visible layer gets the click.
     const auto layers = m_canvas->layers();
     for (auto it = layers.crbegin(); it != layers.crend(); ++it) {
         auto *text = qobject_cast<OpenSWMMVisAnnotationLayer *>(*it);
-        if (text && text->annotationAtPixel(pixel)) return text;
+        if (text && text->annotationAtPixel(pixel))
+            return text;
     }
     return nullptr;
 }
@@ -200,27 +243,22 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
         }
     }
     // ── Edit sub-mode intercept ───────────────────────────────────────────
-    if (m_editKind != EditKind::None)
-    {
-        if (event->button() == Qt::LeftButton)
-        {
+    if (m_editKind != EditKind::None) {
+        if (event->button() == Qt::LeftButton) {
             const int h = hitTestEditHandle(event->pos());
-            if (h >= 0)
-            {
+            if (h >= 0) {
                 // Starting a group drag when multiple handles are selected
                 // and this handle is one of them; otherwise select just this
                 // one and do a single-handle drag.
-                const bool groupDrag = m_editSelectedHandles.size() > 1
-                                       && m_editSelectedHandles.contains(h)
-                                       && m_editKind != EditKind::Node
-                                       && m_editKind != EditKind::Gage;
-                if (!groupDrag)
-                {
+                const bool groupDrag = m_editSelectedHandles.size() > 1 &&
+                                       m_editSelectedHandles.contains(h) &&
+                                       m_editKind != EditKind::Node && m_editKind != EditKind::Gage;
+                if (!groupDrag) {
                     m_editSelectedHandles.clear();
                     m_editSelectedHandles.insert(h);
                 }
 
-                m_editDragging   = true;
+                m_editDragging = true;
                 m_editDragHandle = h;
 
                 // Record the pre-drag position so snap can exclude this exact
@@ -233,46 +271,36 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
                 toMapCoords(event->pos().x(), event->pos().y(), mgx, mgy);
                 m_editGroupDragPrev = QPointF(mgx, mgy);
 
-                if (m_editKind == EditKind::Node
-                    || m_editKind == EditKind::Gage)
-                {
+                if (m_editKind == EditKind::Node || m_editKind == EditKind::Gage) {
                     m_editNodeOrigX = m_editHandles[h].x();
                     m_editNodeOrigY = m_editHandles[h].y();
-                }
-                else if (m_editKind == EditKind::Subcatch)
-                {
+                } else if (m_editKind == EditKind::Subcatch) {
                     m_editCentroidPrev = m_editHandles[0];
                 }
                 event->accept();
                 return;
             }
             // No handle hit: begin potential rubber-band vertex selection.
-            m_editPressedEmpty   = true;
-            m_editRubberbanding  = false;
-            m_editRubberStart    = event->pos();
-            m_editRubberCurrent  = event->pos();
+            m_editPressedEmpty = true;
+            m_editRubberbanding = false;
+            m_editRubberStart = event->pos();
+            m_editRubberCurrent = event->pos();
             m_editSelectedHandles.clear();
             event->accept();
             return;
-        }
-        else if (event->button() == Qt::RightButton
-                 && m_editLayer && m_editSoaIdx >= 0
-                 && (m_editKind == EditKind::Link || m_editKind == EditKind::Subcatch))
-        {
+        } else if (event->button() == Qt::RightButton && m_editLayer && m_editSoaIdx >= 0 &&
+                   (m_editKind == EditKind::Link || m_editKind == EditKind::Subcatch)) {
             const int h = hitTestEditHandle(event->pos());
 
-            if (m_editKind == EditKind::Link)
-            {
+            if (m_editKind == EditKind::Link) {
                 // Link: right-click handle → delete vertex/vertices.
                 //       right-click segment → insert vertex.
                 QMenu menu;
-                if (h >= 0)
-                {
+                if (h >= 0) {
                     // Multi-selection: offer batch delete when this handle is selected.
-                    const bool multiSel = m_editSelectedHandles.size() > 1
-                                         && m_editSelectedHandles.contains(h);
-                    if (multiSel)
-                    {
+                    const bool multiSel =
+                        m_editSelectedHandles.size() > 1 && m_editSelectedHandles.contains(h);
+                    if (multiSel) {
                         QAction *delSel = menu.addAction(
                             tr("Delete %1 selected vertices").arg(m_editSelectedHandles.size()));
                         menu.addSeparator();
@@ -282,58 +310,47 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
                             deleteSelectedEditHandles();
                         else if (chosen == delOne)
                             commitLinkDrag(EditGeometry::removedAt(m_editHandles, h));
-                    }
-                    else
-                    {
+                    } else {
                         QAction *del = menu.addAction(tr("Delete vertex"));
                         if (menu.exec(event->globalPosition().toPoint()) == del)
                             commitLinkDrag(EditGeometry::removedAt(m_editHandles, h));
                     }
-                }
-                else
-                {
+                } else {
                     double mx = 0.0, my = 0.0;
                     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
-                    const QVector<QPointF> full =
-                        m_editLayer->cachedLinkPolyline(m_editSoaIdx);
+                    const QVector<QPointF> full = m_editLayer->cachedLinkPolyline(m_editSoaIdx);
                     int seg = -1;
                     QPointF proj;
-                    const double d =
-                        EditGeometry::distanceToPolyline(full, {mx, my}, &seg, &proj);
+                    const double d = EditGeometry::distanceToPolyline(full, {mx, my}, &seg, &proj);
                     const double px2m = m_canvas && m_canvas->width() > 0
-                        ? m_canvas->extent().width() / m_canvas->width() : 1.0;
-                    if (d <= 10.0 * px2m && seg >= 0)
-                    {
+                                            ? m_canvas->extent().width() / m_canvas->width()
+                                            : 1.0;
+                    if (d <= 10.0 * px2m && seg >= 0) {
                         QAction *ins = menu.addAction(tr("Insert vertex here"));
-                        if (menu.exec(event->globalPosition().toPoint()) == ins)
-                        {
-                            const int idx = std::clamp(seg, 0,
-                                                       (int)m_editHandles.size());
-                            commitLinkDrag(
-                                EditGeometry::insertedAt(m_editHandles, idx, proj));
+                        if (menu.exec(event->globalPosition().toPoint()) == ins) {
+                            const int idx = std::clamp(seg, 0, (int)m_editHandles.size());
+                            commitLinkDrag(EditGeometry::insertedAt(m_editHandles, idx, proj));
                         }
                     }
                 }
-            }
-            else // EditKind::Subcatch
+            } else // EditKind::Subcatch
             {
                 // Subcatch: right-click a vertex handle → delete (min 3 vertices).
                 //           right-click a polygon edge   → insert vertex.
                 // Handle 0 is the centroid (not a polygon vertex) — skip it.
                 QMenu menu;
-                if (h > 0)
-                {
-                    const bool multiSel = m_editSelectedHandles.size() > 1
-                                         && m_editSelectedHandles.contains(h);
-                    if (multiSel)
-                    {
+                if (h > 0) {
+                    const bool multiSel =
+                        m_editSelectedHandles.size() > 1 && m_editSelectedHandles.contains(h);
+                    if (multiSel) {
                         // Count how many polygon vertices will actually be removed
                         // (ignore centroid handle 0 if somehow selected).
                         int numVerts = 0;
                         for (int s : std::as_const(m_editSelectedHandles))
-                            if (s > 0) ++numVerts;
-                        QAction *delSel = menu.addAction(
-                            tr("Delete %1 selected vertices").arg(numVerts));
+                            if (s > 0)
+                                ++numVerts;
+                        QAction *delSel =
+                            menu.addAction(tr("Delete %1 selected vertices").arg(numVerts));
                         menu.addSeparator();
                         const bool canDeleteOne = m_editSubcatchVerts.size() > 3;
                         QAction *delOne = menu.addAction(tr("Delete this vertex"));
@@ -343,55 +360,57 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
                         const auto chosen = menu.exec(event->globalPosition().toPoint());
                         if (chosen == delSel)
                             deleteSelectedEditHandles();
-                        else if (chosen == delOne && canDeleteOne)
-                        {
+                        else if (chosen == delOne && canDeleteOne) {
                             const int vi = h - 1;
                             QVector<QPointF> newVerts =
                                 EditGeometry::removedAt(m_editSubcatchVerts, vi);
                             commitSubcatchDrag(newVerts);
                             m_editSubcatchVerts = newVerts;
                             double cx = 0.0, cy = 0.0;
-                            for (const QPointF &p : newVerts) { cx += p.x(); cy += p.y(); }
-                            cx /= newVerts.size(); cy /= newVerts.size();
+                            for (const QPointF &p : newVerts) {
+                                cx += p.x();
+                                cy += p.y();
+                            }
+                            cx /= newVerts.size();
+                            cy /= newVerts.size();
                             m_editHandles.clear();
                             m_editHandles.reserve(1 + newVerts.size());
                             m_editHandles.append(QPointF(cx, cy));
                             m_editHandles.append(newVerts);
                         }
-                    }
-                    else
-                    {
-                    const bool canDelete = m_editSubcatchVerts.size() > 3;
-                    QAction *del = menu.addAction(tr("Delete vertex"));
-                    del->setEnabled(canDelete);
-                    if (!canDelete)
-                        del->setToolTip(tr("A subcatchment must have at least 3 vertices"));
-                    if (menu.exec(event->globalPosition().toPoint()) == del && canDelete)
-                    {
-                        // h is 1-based (handle 0 = centroid), vi is 0-based vertex index
-                        const int vi = h - 1;
-                        QVector<QPointF> newVerts =
-                            EditGeometry::removedAt(m_editSubcatchVerts, vi);
-                        commitSubcatchDrag(newVerts);
-                        // Recompute handles from the committed vertices
-                        m_editSubcatchVerts = newVerts;
-                        double cx = 0.0, cy = 0.0;
-                        for (const QPointF &p : newVerts) { cx += p.x(); cy += p.y(); }
-                        cx /= newVerts.size(); cy /= newVerts.size();
-                        m_editHandles.clear();
-                        m_editHandles.reserve(1 + newVerts.size());
-                        m_editHandles.append(QPointF(cx, cy));
-                        m_editHandles.append(newVerts);
-                    }
+                    } else {
+                        const bool canDelete = m_editSubcatchVerts.size() > 3;
+                        QAction *del = menu.addAction(tr("Delete vertex"));
+                        del->setEnabled(canDelete);
+                        if (!canDelete)
+                            del->setToolTip(tr("A subcatchment must have at least 3 vertices"));
+                        if (menu.exec(event->globalPosition().toPoint()) == del && canDelete) {
+                            // h is 1-based (handle 0 = centroid), vi is 0-based vertex index
+                            const int vi = h - 1;
+                            QVector<QPointF> newVerts =
+                                EditGeometry::removedAt(m_editSubcatchVerts, vi);
+                            commitSubcatchDrag(newVerts);
+                            // Recompute handles from the committed vertices
+                            m_editSubcatchVerts = newVerts;
+                            double cx = 0.0, cy = 0.0;
+                            for (const QPointF &p : newVerts) {
+                                cx += p.x();
+                                cy += p.y();
+                            }
+                            cx /= newVerts.size();
+                            cy /= newVerts.size();
+                            m_editHandles.clear();
+                            m_editHandles.reserve(1 + newVerts.size());
+                            m_editHandles.append(QPointF(cx, cy));
+                            m_editHandles.append(newVerts);
+                        }
                     } // closes else (non-multiSel single delete)
-                }     // closes if (h > 0)
-                else
-                {
+                } // closes if (h > 0)
+                else {
                     // Right-click on the polygon body/edge — insert a vertex on the
                     // nearest polygon edge.  Close the polygon by appending the first
                     // vertex so distanceToPolyline tests the closing edge too.
-                    if (m_editSubcatchVerts.size() >= 2)
-                    {
+                    if (m_editSubcatchVerts.size() >= 2) {
                         double mx = 0.0, my = 0.0;
                         toMapCoords(event->pos().x(), event->pos().y(), mx, my);
 
@@ -400,34 +419,34 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
 
                         int seg = -1;
                         QPointF proj;
-                        const double d = EditGeometry::distanceToPolyline(
-                            closed, {mx, my}, &seg, &proj);
+                        const double d =
+                            EditGeometry::distanceToPolyline(closed, {mx, my}, &seg, &proj);
 
                         const double px2m = m_canvas && m_canvas->width() > 0
-                            ? m_canvas->extent().width() / m_canvas->width() : 1.0;
-                        if (d <= 10.0 * px2m && seg >= 0)
-                        {
+                                                ? m_canvas->extent().width() / m_canvas->width()
+                                                : 1.0;
+                        if (d <= 10.0 * px2m && seg >= 0) {
                             QAction *ins = menu.addAction(tr("Insert vertex here"));
-                            if (menu.exec(event->globalPosition().toPoint()) == ins)
-                            {
+                            if (menu.exec(event->globalPosition().toPoint()) == ins) {
                                 // seg is an index into `closed`; since closed has one
                                 // extra point at the end, a hit on the closing edge
                                 // (seg == verts.size()-1) means we insert AFTER the last
                                 // vertex, which wraps to the front — correct for a
                                 // polygon.  clamp to [0, verts.size()].
                                 const int insertIdx = std::clamp(
-                                    seg + 1, 0,
-                                    static_cast<int>(m_editSubcatchVerts.size()));
+                                    seg + 1, 0, static_cast<int>(m_editSubcatchVerts.size()));
                                 QVector<QPointF> newVerts =
-                                    EditGeometry::insertedAt(
-                                        m_editSubcatchVerts, insertIdx, proj);
+                                    EditGeometry::insertedAt(m_editSubcatchVerts, insertIdx, proj);
                                 commitSubcatchDrag(newVerts);
                                 // Rebuild handles
                                 m_editSubcatchVerts = newVerts;
                                 double cx = 0.0, cy = 0.0;
-                                for (const QPointF &p : newVerts)
-                                    { cx += p.x(); cy += p.y(); }
-                                cx /= newVerts.size(); cy /= newVerts.size();
+                                for (const QPointF &p : newVerts) {
+                                    cx += p.x();
+                                    cy += p.y();
+                                }
+                                cx /= newVerts.size();
+                                cy /= newVerts.size();
                                 m_editHandles.clear();
                                 m_editHandles.reserve(1 + newVerts.size());
                                 m_editHandles.append(QPointF(cx, cy));
@@ -443,14 +462,11 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
     }
 
     // ── Normal select-tool behaviour ─────────────────────────────────────
-    if (event->button() == Qt::LeftButton)
-    {
-        m_dragging     = false;
-        m_startPixel   = event->pos();
+    if (event->button() == Qt::LeftButton) {
+        m_dragging = false;
+        m_startPixel = event->pos();
         m_currentPixel = event->pos();
-    }
-    else if (event->button() == Qt::RightButton)
-    {
+    } else if (event->button() == Qt::RightButton) {
         showContextMenu(event->pos());
         event->accept();
     }
@@ -464,18 +480,14 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
         return;
     }
     // ── Edit sub-mode drag ────────────────────────────────────────────────
-    if (m_editDragging && m_editDragHandle >= 0
-        && m_editDragHandle < m_editHandles.size())
-    {
+    if (m_editDragging && m_editDragHandle >= 0 && m_editDragHandle < m_editHandles.size()) {
         double mx = 0.0, my = 0.0;
         toMapCoords(event->pos().x(), event->pos().y(), mx, my);
 
-        const bool groupDrag = m_editSelectedHandles.size() > 1
-                               && m_editSelectedHandles.contains(m_editDragHandle)
-                               && m_editKind != EditKind::Node
-                               && m_editKind != EditKind::Gage;
-        const bool centroidTranslate =
-            m_editKind == EditKind::Subcatch && m_editDragHandle == 0;
+        const bool groupDrag = m_editSelectedHandles.size() > 1 &&
+                               m_editSelectedHandles.contains(m_editDragHandle) &&
+                               m_editKind != EditKind::Node && m_editKind != EditKind::Gage;
+        const bool centroidTranslate = m_editKind == EditKind::Subcatch && m_editDragHandle == 0;
 
         // Snap single-handle drags to the nearest node or link interior vertex.
         // Group drags and centroid-translate are excluded because their delta
@@ -492,41 +504,39 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
             if (m_editLayer->snapNearestPoint(mx, my, mapRadius, snapPt, m_editDragOrigPt)) {
                 sx = snapPt.x();
                 sy = snapPt.y();
-                m_snapPt  = snapPt;
+                m_snapPt = snapPt;
                 m_snapping = true;
             }
         }
 
-        if (groupDrag)
-        {
+        if (groupDrag) {
             const double dx = mx - m_editGroupDragPrev.x();
             const double dy = my - m_editGroupDragPrev.y();
             m_editGroupDragPrev = QPointF(mx, my);
             applyGroupDragDelta(dx, dy);
-        }
-        else if (centroidTranslate)
-        {
+        } else if (centroidTranslate) {
             // Centroid handle → translate entire polygon.
             const double dx = mx - m_editCentroidPrev.x();
             const double dy = my - m_editCentroidPrev.y();
             m_editCentroidPrev = QPointF(mx, my);
-            for (QPointF &v : m_editSubcatchVerts) v += QPointF(dx, dy);
+            for (QPointF &v : m_editSubcatchVerts)
+                v += QPointF(dx, dy);
             m_editHandles[0] = QPointF(mx, my);
             for (int i = 0; i < m_editSubcatchVerts.size(); ++i)
                 m_editHandles[i + 1] = m_editSubcatchVerts[i];
-        }
-        else if (m_editKind == EditKind::Subcatch && m_editDragHandle > 0)
-        {
+        } else if (m_editKind == EditKind::Subcatch && m_editDragHandle > 0) {
             const int vi = m_editDragHandle - 1;
             m_editSubcatchVerts[vi] = QPointF(sx, sy);
             m_editHandles[m_editDragHandle] = QPointF(sx, sy);
             double cx = 0.0, cy = 0.0;
-            for (const QPointF &p : m_editSubcatchVerts) { cx += p.x(); cy += p.y(); }
-            cx /= m_editSubcatchVerts.size(); cy /= m_editSubcatchVerts.size();
+            for (const QPointF &p : m_editSubcatchVerts) {
+                cx += p.x();
+                cy += p.y();
+            }
+            cx /= m_editSubcatchVerts.size();
+            cy /= m_editSubcatchVerts.size();
             m_editHandles[0] = QPointF(cx, cy);
-        }
-        else
-        {
+        } else {
             m_editHandles[m_editDragHandle] = QPointF(sx, sy);
         }
 
@@ -542,53 +552,45 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
     }
 
     // ── Edit rubber-band build ────────────────────────────────────────────
-    if (m_editPressedEmpty && (event->buttons() & Qt::LeftButton))
-    {
+    if (m_editPressedEmpty && (event->buttons() & Qt::LeftButton)) {
         const QPoint delta = event->pos() - m_editRubberStart;
-        if (!m_editRubberbanding
-            && (std::abs(delta.x()) > m_dragThreshPx
-             || std::abs(delta.y()) > m_dragThreshPx))
+        if (!m_editRubberbanding &&
+            (std::abs(delta.x()) > m_dragThreshPx || std::abs(delta.y()) > m_dragThreshPx))
             m_editRubberbanding = true;
 
-        if (m_editRubberbanding)
-        {
+        if (m_editRubberbanding) {
             m_editRubberCurrent = event->pos();
             if (m_canvas)
-                m_canvas->invalidate(MapCanvas::Overlay,
-                                     QStringLiteral("edit-rubberband"));
+                m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("edit-rubberband"));
         }
         return;
     }
 
     // ── Rubber-band drag ──────────────────────────────────────────────────
-    if (event->buttons() & Qt::LeftButton)
-    {
+    if (event->buttons() & Qt::LeftButton) {
         m_currentPixel = event->pos();
-        QPoint delta   = m_currentPixel - m_startPixel;
+        QPoint delta = m_currentPixel - m_startPixel;
 
-        if (!m_dragging
-            && (std::abs(delta.x()) > m_dragThreshPx
-             || std::abs(delta.y()) > m_dragThreshPx))
+        if (!m_dragging &&
+            (std::abs(delta.x()) > m_dragThreshPx || std::abs(delta.y()) > m_dragThreshPx))
             m_dragging = true;
 
         if (m_dragging && m_canvas)
-            m_canvas->invalidate(MapCanvas::Overlay,
-                                 QStringLiteral("select-tool-rubberband"));
+            m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("select-tool-rubberband"));
         return;
     }
 
     // ── Hover cursor feedback ─────────────────────────────────────────────
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     // Show a size-all cursor when hovering over an edit handle.
     if (editableTextLayerAt(event->position())) {
         m_canvas->setCursor(Qt::PointingHandCursor);
         return;
     }
-    if (m_editKind != EditKind::None)
-    {
-        if (hitTestEditHandle(event->pos()) >= 0)
-        {
+    if (m_editKind != EditKind::None) {
+        if (hitTestEditHandle(event->pos()) >= 0) {
             m_canvas->setCursor(Qt::SizeAllCursor);
             return;
         }
@@ -604,10 +606,15 @@ void OpenSWMMVisMapToolSelect::mouseMoveEvent(QMouseEvent *event)
 
     bool hovering = false;
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if (!l->isVisible()) continue;
+        if (!l->isVisible())
+            continue;
         auto *sl = qobject_cast<SWMMModelLayer *>(l);
-        if (!sl) continue;
-        if (sl->pickAt(mx, my, tol).valid) { hovering = true; break; }
+        if (!sl)
+            continue;
+        if (sl->pickAt(mx, my, tol).valid) {
+            hovering = true;
+            break;
+        }
     }
     m_canvas->setCursor(hovering ? Qt::PointingHandCursor : cursor());
 }
@@ -625,34 +632,29 @@ void OpenSWMMVisMapToolSelect::mouseReleaseEvent(QMouseEvent *event)
     }
 
     // ── Complete edit rubber-band selection ───────────────────────────────
-    if (m_editRubberbanding)
-    {
+    if (m_editRubberbanding) {
         m_editRubberbanding = false;
-        m_editPressedEmpty  = false;
+        m_editPressedEmpty = false;
         selectHandlesInRect(QRect(m_editRubberStart, event->pos()).normalized());
         if (m_canvas)
-            m_canvas->invalidate(MapCanvas::Overlay,
-                                 QStringLiteral("edit-rubberband-commit"));
+            m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("edit-rubberband-commit"));
         return;
     }
 
     // ── Click on empty space → exit edit mode ─────────────────────────────
-    if (m_editPressedEmpty)
-    {
+    if (m_editPressedEmpty) {
         m_editPressedEmpty = false;
         clearEditMode();
         return;
     }
 
     // ── Commit edit handle drag ───────────────────────────────────────────
-    if (m_editDragging)
-    {
-        m_editDragging   = false;
-        const int h      = m_editDragHandle;
+    if (m_editDragging) {
+        m_editDragging = false;
+        const int h = m_editDragHandle;
         m_editDragHandle = -1;
 
-        if (h >= 0 && m_editLayer && m_editSoaIdx >= 0)
-        {
+        if (h >= 0 && m_editLayer && m_editSoaIdx >= 0) {
             if (m_editKind == EditKind::Node)
                 commitNodeDrag(m_editHandles[0].x(), m_editHandles[0].y());
             else if (m_editKind == EditKind::Gage)
@@ -666,13 +668,10 @@ void OpenSWMMVisMapToolSelect::mouseReleaseEvent(QMouseEvent *event)
     }
 
     // ── Normal rubber-band / click-select ─────────────────────────────────
-    if (m_dragging)
-    {
+    if (m_dragging) {
         QRect rect = QRect(m_startPixel, event->pos()).normalized();
         selectInRect(rect, event->modifiers());
-    }
-    else
-    {
+    } else {
         selectAtPoint(event->pos(), event->modifiers());
     }
 
@@ -686,34 +685,30 @@ void OpenSWMMVisMapToolSelect::mouseReleaseEvent(QMouseEvent *event)
 void OpenSWMMVisMapToolSelect::keyPressEvent(QKeyEvent *event)
 {
     if (m_textGesture) {
-        if (event->key() == Qt::Key_Escape) m_textEditor->deactivate();
+        if (event->key() == Qt::Key_Escape)
+            m_textEditor->deactivate();
         // Consume the remaining gesture after cancellation, including release.
         event->accept();
         return;
     }
-    if (event->key() == Qt::Key_Escape && m_editKind != EditKind::None)
-    {
+    if (event->key() == Qt::Key_Escape && m_editKind != EditKind::None) {
         // Cancel any in-flight drag, then exit edit mode.
         if (m_editDragging && m_editLayer && m_editSoaIdx >= 0) {
             if (m_editKind == EditKind::Node)
-                m_editLayer->previewNodeMove(m_editSoaIdx,
-                                             m_editNodeOrigX, m_editNodeOrigY);
+                m_editLayer->previewNodeMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
             else if (m_editKind == EditKind::Gage)
-                m_editLayer->previewGageMove(m_editSoaIdx,
-                                             m_editNodeOrigX, m_editNodeOrigY);
+                m_editLayer->previewGageMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
         }
-        m_editDragging   = false;
+        m_editDragging = false;
         m_editDragHandle = -1;
         clearEditMode();
         event->accept();
         return;
     }
 
-    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)
-    {
+    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
         // In edit mode with vertex handles selected → delete those vertices.
-        if (m_editKind != EditKind::None && !m_editSelectedHandles.isEmpty())
-        {
+        if (m_editKind != EditKind::None && !m_editSelectedHandles.isEmpty()) {
             deleteSelectedEditHandles();
             event->accept();
             return;
@@ -722,12 +717,9 @@ void OpenSWMMVisMapToolSelect::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    if (event->key() == Qt::Key_Escape && m_canvas)
-    {
-        for (OpenSWMMVisLayer *l : m_canvas->layers())
-        {
-            if (auto *vl = qobject_cast<GISVectorLayer *>(l))
-            {
+    if (event->key() == Qt::Key_Escape && m_canvas) {
+        for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+            if (auto *vl = qobject_cast<GISVectorLayer *>(l)) {
                 QSet<long long> empty;
                 vl->setSelectedFeatureIds(empty);
                 emit selectionChanged(vl);
@@ -740,16 +732,20 @@ void OpenSWMMVisMapToolSelect::keyPressEvent(QKeyEvent *event)
 
 void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     SWMMModelLayer *sl = nullptr;
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if ((sl = qobject_cast<SWMMModelLayer *>(l))) break;
+        if ((sl = qobject_cast<SWMMModelLayer *>(l)))
+            break;
     }
-    if (!sl) return;
+    if (!sl)
+        return;
 
     const QVector<SWMMModelLayer::SelectedElement> selected = sl->selectedElements();
-    if (selected.isEmpty()) return;
+    if (selected.isEmpty())
+        return;
 
     // Perf-plan Phase 0: split the delete pipeline — cascade/classify
     // (impact analysis per node), then command build + execution (the
@@ -762,18 +758,23 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     // a single-keyed hash) could delete a same-named object of the wrong
     // kind. Each kind bit is validated against the engine/SoA so stale or
     // legacy all-kind entries never enqueue phantom deletes.
-    struct ObjInfo { QString name; DeleteObjectCommand::TargetKind kind; };
+    struct ObjInfo {
+        QString name;
+        DeleteObjectCommand::TargetKind kind;
+    };
     QList<ObjInfo> toDelete;
-    QSet<QString> nodeNames;   // names of selected (existing) nodes
-    QSet<QString> skipLinks;   // link names that will cascade-delete
+    QSet<QString> nodeNames; // names of selected (existing) nodes
+    QSet<QString> skipLinks; // link names that will cascade-delete
 
     SWMM_Engine eng = sl->engine();
 
     // First pass: identify nodes and their cascade links.
     for (const auto &e : selected) {
-        if (!(e.kinds & SWMMModelLayer::kKindNode)) continue;
+        if (!(e.kinds & SWMMModelLayer::kKindNode))
+            continue;
         const int ni = sl->nodeIndex(e.name);
-        if (ni < 0) continue;
+        if (ni < 0)
+            continue;
         nodeNames.insert(e.name);
         // Find cascade links. This loop is nested inside the per-node loop,
         // so the old full scan was O(K*L) with two engine getters per link:
@@ -785,7 +786,8 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
         if (swmm_node_analyze_impact(eng, ni, &report) == 0) {
             for (int i = 0; i < report.n_entries; ++i) {
                 const SWMM_ImpactEntry &en = report.entries[i];
-                if (en.obj_type != SWMM_REF_LINK || !en.cascaded) continue;
+                if (en.obj_type != SWMM_REF_LINK || !en.cascaded)
+                    continue;
                 if (const char *lid = swmm_link_id(eng, en.obj_idx))
                     skipLinks.insert(QString::fromUtf8(lid));
             }
@@ -798,25 +800,24 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
         const QByteArray id = e.name.toUtf8();
         if ((e.kinds & SWMMModelLayer::kKindNode) && nodeNames.contains(e.name))
             toDelete.append({e.name, DeleteObjectCommand::DeleteNode});
-        if ((e.kinds & SWMMModelLayer::kKindLink)
-            && !skipLinks.contains(e.name)
-            && sl->linkIndex(e.name) >= 0)
+        if ((e.kinds & SWMMModelLayer::kKindLink) && !skipLinks.contains(e.name) &&
+            sl->linkIndex(e.name) >= 0)
             toDelete.append({e.name, DeleteObjectCommand::DeleteLink});
-        if ((e.kinds & SWMMModelLayer::kKindGage)
-            && eng && swmm_gage_index(eng, id.constData()) >= 0)
+        if ((e.kinds & SWMMModelLayer::kKindGage) && eng &&
+            swmm_gage_index(eng, id.constData()) >= 0)
             toDelete.append({e.name, DeleteObjectCommand::DeleteGage});
-        if ((e.kinds & SWMMModelLayer::kKindCatch)
-            && eng && swmm_subcatch_index(eng, id.constData()) >= 0)
+        if ((e.kinds & SWMMModelLayer::kKindCatch) && eng &&
+            swmm_subcatch_index(eng, id.constData()) >= 0)
             toDelete.append({e.name, DeleteObjectCommand::DeleteSubcatch});
     }
 
-    if (toDelete.isEmpty()) return;
+    if (toDelete.isEmpty())
+        return;
 
     // Virtual junction: the default delete RE-FUSES the two conduits back
     // into one (the node only exists as a split); cascade delete of node +
     // both conduits remains available as the explicit alternative.
-    if (toDelete.size() == 1
-        && toDelete.first().kind == DeleteObjectCommand::DeleteNode) {
+    if (toDelete.size() == 1 && toDelete.first().kind == DeleteObjectCommand::DeleteNode) {
         const int ni = sl->nodeIndex(toDelete.first().name);
         if (ni >= 0 && sl->nodeIsVirtual(ni)) {
             // An inlet junction is also virtual; it gets the same three
@@ -825,18 +826,15 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             const bool isInlet = sl->nodeIsInlet(ni);
             auto *widget = qobject_cast<QWidget *>(m_canvas);
             QMessageBox box(widget);
-            box.setWindowTitle(isInlet
-                ? QObject::tr("Delete Inlet Junction")
-                : QObject::tr("Delete Virtual Junction"));
-            box.setText(isInlet
-                ? QObject::tr("\"%1\" is an inlet junction.")
-                      .arg(toDelete.first().name)
-                : QObject::tr("\"%1\" is a virtual junction.")
-                      .arg(toDelete.first().name));
-            QString info = QObject::tr(
-                "Re-fuse merges its two conduits back into one (the upstream "
-                "conduit's name survives). Delete removes the node and both "
-                "conduits.");
+            box.setWindowTitle(isInlet ? QObject::tr("Delete Inlet Junction")
+                                       : QObject::tr("Delete Virtual Junction"));
+            box.setText(
+                isInlet ? QObject::tr("\"%1\" is an inlet junction.").arg(toDelete.first().name)
+                        : QObject::tr("\"%1\" is a virtual junction.").arg(toDelete.first().name));
+            QString info =
+                QObject::tr("Re-fuse merges its two conduits back into one (the upstream "
+                            "conduit's name survives). Delete removes the node and both "
+                            "conduits.");
             if (isInlet) {
                 // Both choices drop the usage row, so name what is lost.
                 SWMM_InletUsage u{};
@@ -846,23 +844,22 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                         design = QString::fromUtf8(d);
                     if (const char *c = swmm_node_id(eng, u.capture_node_idx))
                         capture = QString::fromUtf8(c);
-                    info += QLatin1Char(' ')
-                        + QObject::tr("Inlet %1 → %2 will be removed.")
-                              .arg(design, capture);
+                    info += QLatin1Char(' ') +
+                            QObject::tr("Inlet %1 → %2 will be removed.").arg(design, capture);
                 }
             }
             // A fed virtual junction loses its sources either way (engine
             // node-delete cascade) — say so before the choice is made.
-            const QString sources =
-                OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, ni);
-            if (!sources.isEmpty()) info += QLatin1Char(' ') + sources;
+            const QString sources = OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, ni);
+            if (!sources.isEmpty())
+                info += QLatin1Char(' ') + sources;
             const QString gw = groundwaterSourcesNote(eng, {ni});
-            if (!gw.isEmpty()) info += QLatin1Char(' ') + gw;
+            if (!gw.isEmpty())
+                info += QLatin1Char(' ') + gw;
             box.setInformativeText(info);
-            auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
-                                          QMessageBox::AcceptRole);
-            auto *delBtn  = box.addButton(QObject::tr("Delete Node && Conduits"),
-                                          QMessageBox::DestructiveRole);
+            auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"), QMessageBox::AcceptRole);
+            auto *delBtn =
+                box.addButton(QObject::tr("Delete Node && Conduits"), QMessageBox::DestructiveRole);
             box.addButton(QMessageBox::Cancel);
             box.setDefaultButton(fuseBtn);
             box.exec();
@@ -874,14 +871,18 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                 // brings the inlet back with the node.
                 QUndoCommand *cmd = nullptr;
                 if (isInlet) {
-                    auto *ic = new FuseInletJunctionCommand(
-                        sl, toDelete.first().name, m_canvas);
-                    if (!ic->valid()) { delete ic; return; }
+                    auto *ic = new FuseInletJunctionCommand(sl, toDelete.first().name, m_canvas);
+                    if (!ic->valid()) {
+                        delete ic;
+                        return;
+                    }
                     cmd = ic;
                 } else {
-                    auto *vc = new FuseVirtualJunctionCommand(
-                        sl, toDelete.first().name, m_canvas);
-                    if (!vc->valid()) { delete vc; return; }
+                    auto *vc = new FuseVirtualJunctionCommand(sl, toDelete.first().name, m_canvas);
+                    if (!vc->valid()) {
+                        delete vc;
+                        return;
+                    }
                     cmd = vc;
                 }
                 if (m_canvas->undoStack())
@@ -891,13 +892,12 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                 return;
             }
             if (box.clickedButton() != delBtn)
-                return;   // cancelled
+                return; // cancelled
             // Explicit cascade delete chosen — skip the generic confirm.
             sl->setSelectedElementNames({});
             emit selectionChanged(sl);
             auto *macro = new BulkEditCommand(sl, QObject::tr("Delete Objects"));
-            new DeleteObjectCommand(sl, toDelete.first().name,
-                                    DeleteObjectCommand::DeleteNode,
+            new DeleteObjectCommand(sl, toDelete.first().name, DeleteObjectCommand::DeleteNode,
                                     m_canvas, macro);
             if (m_canvas->undoStack())
                 m_canvas->undoStack()->push(macro);
@@ -910,35 +910,34 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     // Deleting one conduit of a virtual-junction pair breaks the pair rule.
     // Offer re-fusing instead, or demote the node to a regular junction and
     // proceed with the deletion.
-    if (toDelete.size() == 1
-        && toDelete.first().kind == DeleteObjectCommand::DeleteLink && eng) {
+    if (toDelete.size() == 1 && toDelete.first().kind == DeleteObjectCommand::DeleteLink && eng) {
         const int li = sl->linkIndex(toDelete.first().name);
         int vjNode = -1;
         if (li >= 0) {
             int n1 = -1, n2 = -1;
             swmm_link_get_from_node(eng, li, &n1);
             swmm_link_get_to_node(eng, li, &n2);
-            if (n1 >= 0 && sl->nodeIsVirtual(n1)) vjNode = n1;
-            if (n2 >= 0 && sl->nodeIsVirtual(n2)) vjNode = n2;
+            if (n1 >= 0 && sl->nodeIsVirtual(n1))
+                vjNode = n1;
+            if (n2 >= 0 && sl->nodeIsVirtual(n2))
+                vjNode = n2;
         }
         if (vjNode >= 0) {
             const bool vjIsInlet = sl->nodeIsInlet(vjNode);
             const QString vjName = QString::fromUtf8(swmm_node_id(eng, vjNode));
             auto *widget = qobject_cast<QWidget *>(m_canvas);
             QMessageBox box(widget);
-            box.setWindowTitle(vjIsInlet
-                ? QObject::tr("Conduit Belongs to an Inlet Junction")
-                : QObject::tr("Conduit Belongs to a Virtual Junction"));
-            box.setText(vjIsInlet
-                ? QObject::tr("\"%1\" is one of the two conduits of "
-                              "inlet junction \"%2\".")
-                      .arg(toDelete.first().name, vjName)
-                : QObject::tr("\"%1\" is one of the two conduits of "
-                              "virtual junction \"%2\".")
-                      .arg(toDelete.first().name, vjName));
-            QString info = QObject::tr(
-                "Re-fuse merges the pair back into one conduit. Delete removes "
-                "this conduit and demotes \"%1\" to a regular junction.")
+            box.setWindowTitle(vjIsInlet ? QObject::tr("Conduit Belongs to an Inlet Junction")
+                                         : QObject::tr("Conduit Belongs to a Virtual Junction"));
+            box.setText(vjIsInlet ? QObject::tr("\"%1\" is one of the two conduits of "
+                                                "inlet junction \"%2\".")
+                                        .arg(toDelete.first().name, vjName)
+                                  : QObject::tr("\"%1\" is one of the two conduits of "
+                                                "virtual junction \"%2\".")
+                                        .arg(toDelete.first().name, vjName));
+            QString info =
+                QObject::tr("Re-fuse merges the pair back into one conduit. Delete removes "
+                            "this conduit and demotes \"%1\" to a regular junction.")
                     .arg(vjName);
             if (vjIsInlet) {
                 SWMM_InletUsage u{};
@@ -948,23 +947,22 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                         design = QString::fromUtf8(d);
                     if (const char *c = swmm_node_id(eng, u.capture_node_idx))
                         capture = QString::fromUtf8(c);
-                    info += QLatin1Char(' ')
-                        + QObject::tr("Inlet %1 → %2 will be removed.")
-                              .arg(design, capture);
+                    info += QLatin1Char(' ') +
+                            QObject::tr("Inlet %1 → %2 will be removed.").arg(design, capture);
                 }
             }
             // Re-fusing drops the node's sources (engine node-delete
             // cascade); demoting keeps them on the regular junction.
-            const QString sources =
-                OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, vjNode);
-            if (!sources.isEmpty()) info += QLatin1Char(' ') + sources;
+            const QString sources = OpenSWMMVis::VirtualJunction::lateralSourceSummary(eng, vjNode);
+            if (!sources.isEmpty())
+                info += QLatin1Char(' ') + sources;
             const QString gw = groundwaterSourcesNote(eng, {vjNode});
-            if (!gw.isEmpty()) info += QLatin1Char(' ') + gw;
+            if (!gw.isEmpty())
+                info += QLatin1Char(' ') + gw;
             box.setInformativeText(info);
-            auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
-                                          QMessageBox::AcceptRole);
-            auto *delBtn  = box.addButton(QObject::tr("Delete Conduit"),
-                                          QMessageBox::DestructiveRole);
+            auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"), QMessageBox::AcceptRole);
+            auto *delBtn =
+                box.addButton(QObject::tr("Delete Conduit"), QMessageBox::DestructiveRole);
             box.addButton(QMessageBox::Cancel);
             box.setDefaultButton(fuseBtn);
             box.exec();
@@ -975,11 +973,17 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                 QUndoCommand *cmd = nullptr;
                 if (vjIsInlet) {
                     auto *ic = new FuseInletJunctionCommand(sl, vjName, m_canvas);
-                    if (!ic->valid()) { delete ic; return; }
+                    if (!ic->valid()) {
+                        delete ic;
+                        return;
+                    }
                     cmd = ic;
                 } else {
                     auto *vc = new FuseVirtualJunctionCommand(sl, vjName, m_canvas);
-                    if (!vc->valid()) { delete vc; return; }
+                    if (!vc->valid()) {
+                        delete vc;
+                        return;
+                    }
                     cmd = vc;
                 }
                 if (m_canvas->undoStack())
@@ -989,12 +993,13 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                 return;
             }
             if (box.clickedButton() != delBtn)
-                return;   // cancelled
+                return; // cancelled
             // Demote the node so the model stays valid, then fall through to
             // the standard confirm + delete path. The inlet role has to go
             // first: swmm_node_set_virtual(0) on an inlet junction would
             // leave a usage row pointing at a plain junction.
-            if (vjIsInlet) sl->applySetInlet(vjName, false);
+            if (vjIsInlet)
+                sl->applySetInlet(vjName, false);
             sl->applySetVirtual(vjName, false);
         }
     }
@@ -1003,10 +1008,10 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     const qint64 classifyMs = deleteTimer.elapsed();
 
     const int n = toDelete.size();
-    QString msg = (n == 1)
-        ? QObject::tr("Delete \"%1\"? This cannot be undone by simple Ctrl+Z "
-                      "if other edits follow.").arg(toDelete.first().name)
-        : QObject::tr("Delete %1 selected objects?").arg(n);
+    QString msg = (n == 1) ? QObject::tr("Delete \"%1\"? This cannot be undone by simple Ctrl+Z "
+                                         "if other edits follow.")
+                                 .arg(toDelete.first().name)
+                           : QObject::tr("Delete %1 selected objects?").arg(n);
     // G5 — a node that receives groundwater: the engine nulls the
     // subcatchments' gw_node on delete, so say so up front.
     {
@@ -1015,14 +1020,15 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             if (obj.kind == DeleteObjectCommand::DeleteNode)
                 nodeIdxs.append(sl->nodeIndex(obj.name));
         const QString gw = groundwaterSourcesNote(eng, nodeIdxs);
-        if (!gw.isEmpty()) msg += QLatin1Char(' ') + gw;
+        if (!gw.isEmpty())
+            msg += QLatin1Char(' ') + gw;
     }
 
     auto *widget = qobject_cast<QWidget *>(m_canvas);
-    const auto btn = QMessageBox::question(
-        widget, QObject::tr("Confirm Delete"), msg,
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (btn != QMessageBox::Yes) return;
+    const auto btn = QMessageBox::question(widget, QObject::tr("Confirm Delete"), msg,
+                                           QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (btn != QMessageBox::Yes)
+        return;
 
     // Clear selection before deletion so stale names don't linger.
     sl->setSelectedElementNames({});
@@ -1040,9 +1046,7 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     targets.reserve(toDelete.size());
     for (const ObjInfo &obj : toDelete)
         targets.append({obj.name, obj.kind});
-    auto *macro =
-        new BatchDeleteCommand(sl, targets, m_canvas,
-                               QObject::tr("Delete Objects"));
+    auto *macro = new BatchDeleteCommand(sl, targets, m_canvas, QObject::tr("Delete Objects"));
     const qint64 snapshotMs = execTimer.elapsed();
 
     if (m_canvas->undoStack())
@@ -1050,19 +1054,15 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     else
         delete macro;
     qCInfo(lcBulkDelTool) << "deleteSelectedObjects:" << n << "object(s) —"
-                          << "classify" << classifyMs
-                          << "ms, snapshots" << snapshotMs
-                          << "ms, execute+close"
-                          << (execTimer.elapsed() - snapshotMs) << "ms";
+                          << "classify" << classifyMs << "ms, snapshots" << snapshotMs
+                          << "ms, execute+close" << (execTimer.elapsed() - snapshotMs) << "ms";
 }
 
-void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
-                                  const MapExtent &,
-                                  const SpatialReferenceSystem *)
+void OpenSWMMVisMapToolSelect::paint(QPainter *painter, const MapExtent &,
+                                     const SpatialReferenceSystem *)
 {
     // ── Rubber-band ───────────────────────────────────────────────────────
-    if (m_dragging)
-    {
+    if (m_dragging) {
         QRect rect = QRect(m_startPixel, m_currentPixel).normalized();
         painter->save();
         painter->setPen(QPen(m_rubberColor.darker(130), 1));
@@ -1072,8 +1072,7 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
     }
 
     // ── Edit rubber-band (vertex selection) ───────────────────────────────
-    if (m_editRubberbanding)
-    {
+    if (m_editRubberbanding) {
         QRect rect = QRect(m_editRubberStart, m_editRubberCurrent).normalized();
         painter->save();
         painter->setPen(QPen(QColor(255, 140, 0, 200), 1, Qt::DashLine));
@@ -1089,19 +1088,15 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing);
 
-    if (m_editKind == EditKind::Link)
-    {
+    if (m_editKind == EditKind::Link) {
         // Highlight the full link polyline.
-        const QVector<QPointF> full =
-            m_editLayer->cachedLinkPolyline(m_editSoaIdx);
-        if (full.size() >= 2)
-        {
+        const QVector<QPointF> full = m_editLayer->cachedLinkPolyline(m_editSoaIdx);
+        if (full.size() >= 2) {
             QPainterPath path;
             int px = 0, py = 0;
             toPixelCoords(full[0].x(), full[0].y(), px, py);
             path.moveTo(px, py);
-            for (int i = 1; i < full.size(); ++i)
-            {
+            for (int i = 1; i < full.size(); ++i) {
                 toPixelCoords(full[i].x(), full[i].y(), px, py);
                 path.lineTo(px, py);
             }
@@ -1113,20 +1108,17 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
         }
 
         // Interior vertex handles — squares; filled blue when selected.
-        for (int i = 0; i < m_editHandles.size(); ++i)
-        {
+        for (int i = 0; i < m_editHandles.size(); ++i) {
             const bool sel = m_editSelectedHandles.contains(i);
             painter->setBrush(sel ? QColor(0, 80, 200) : QColor(Qt::white));
             painter->setPen(QPen(QColor(0, 80, 200), 1.5));
             int px = 0, py = 0;
             toPixelCoords(m_editHandles[i].x(), m_editHandles[i].y(), px, py);
-            painter->drawRect(px - kEditHandlePx, py - kEditHandlePx,
-                              kEditHandlePx * 2, kEditHandlePx * 2);
+            painter->drawRect(px - kEditHandlePx, py - kEditHandlePx, kEditHandlePx * 2,
+                              kEditHandlePx * 2);
         }
-    }
-    else if ((m_editKind == EditKind::Node || m_editKind == EditKind::Gage)
-             && !m_editHandles.isEmpty())
-    {
+    } else if ((m_editKind == EditKind::Node || m_editKind == EditKind::Gage) &&
+               !m_editHandles.isEmpty()) {
         // Node / rain-gage handle — circle with crosshair.
         int px = 0, py = 0;
         toPixelCoords(m_editHandles[0].x(), m_editHandles[0].y(), px, py);
@@ -1139,22 +1131,15 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
         painter->setPen(QPen(QColor(0, 80, 200), 1.5));
         painter->drawLine(px - r + 3, py, px + r - 3, py);
         painter->drawLine(px, py - r + 3, px, py + r - 3);
-    }
-    else if (m_editKind == EditKind::Subcatch
-             && m_editHandles.size() >= 1)
-    {
+    } else if (m_editKind == EditKind::Subcatch && m_editHandles.size() >= 1) {
         // Draw polygon outline.
-        if (m_editSubcatchVerts.size() >= 2)
-        {
+        if (m_editSubcatchVerts.size() >= 2) {
             QPainterPath poly;
             int px = 0, py = 0;
-            toPixelCoords(m_editSubcatchVerts[0].x(),
-                          m_editSubcatchVerts[0].y(), px, py);
+            toPixelCoords(m_editSubcatchVerts[0].x(), m_editSubcatchVerts[0].y(), px, py);
             poly.moveTo(px, py);
-            for (int i = 1; i < m_editSubcatchVerts.size(); ++i)
-            {
-                toPixelCoords(m_editSubcatchVerts[i].x(),
-                              m_editSubcatchVerts[i].y(), px, py);
+            for (int i = 1; i < m_editSubcatchVerts.size(); ++i) {
+                toPixelCoords(m_editSubcatchVerts[i].x(), m_editSubcatchVerts[i].y(), px, py);
                 poly.lineTo(px, py);
             }
             poly.closeSubpath();
@@ -1166,15 +1151,14 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
         }
 
         // Vertex handles — circles (indices 1..N); filled blue when selected.
-        for (int i = 1; i < m_editHandles.size(); ++i)
-        {
+        for (int i = 1; i < m_editHandles.size(); ++i) {
             const bool sel = m_editSelectedHandles.contains(i);
             painter->setBrush(sel ? QColor(0, 80, 200) : QColor(Qt::white));
             painter->setPen(QPen(QColor(0, 80, 200), 1.5));
             int px = 0, py = 0;
             toPixelCoords(m_editHandles[i].x(), m_editHandles[i].y(), px, py);
-            painter->drawEllipse(px - kEditHandlePx, py - kEditHandlePx,
-                                 kEditHandlePx * 2, kEditHandlePx * 2);
+            painter->drawEllipse(px - kEditHandlePx, py - kEditHandlePx, kEditHandlePx * 2,
+                                 kEditHandlePx * 2);
         }
 
         // Centroid handle — filled square (index 0, move-all).
@@ -1211,8 +1195,7 @@ void OpenSWMMVisMapToolSelect::paint(QPainter *painter,
 // Private helpers
 // ---------------------------------------------------------------------------
 
-void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
-                                          Qt::KeyboardModifiers mods)
+void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel, Qt::KeyboardModifiers mods)
 {
     if (!m_canvas)
         return;
@@ -1231,72 +1214,80 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) {
             if (l->isVisible())
-                markerFloorPx = std::max(markerFloorPx,
-                                          sl->maxMarkerHalfBoundPx());
+                markerFloorPx = std::max(markerFloorPx, sl->maxMarkerHalfBoundPx());
         }
     }
-    const double effectivePx = std::max(double(m_pixelTol),
-                                         markerFloorPx + 4.0);
+    const double effectivePx = std::max(double(m_pixelTol), markerFloorPx + 4.0);
 
     double mapX2, mapY2;
-    toMapCoords(pixel.x() + effectivePx, pixel.y() + effectivePx,
-                mapX2, mapY2);
+    toMapCoords(pixel.x() + effectivePx, pixel.y() + effectivePx, mapX2, mapY2);
     const double tolX = std::abs(mapX2 - mapX);
     const double tolY = std::abs(mapY2 - mapY);
-    const double tol  = std::max(tolX, tolY);
+    const double tol = std::max(tolX, tolY);
 
     const auto outputHit = openswmmvis::pickNetworkForPlot(m_canvas, mapX, mapY, tol);
     auto layers = m_canvas->layers();
-    if (outputHit.results) layers.prepend(outputHit.results);
-    for (OpenSWMMVisLayer *l : layers)
-    {
+    if (outputHit.results)
+        layers.prepend(outputHit.results);
+    for (OpenSWMMVisLayer *l : layers) {
         if (!l->isVisible())
             continue;
 
         auto *output = qobject_cast<SWMMResultsLayer *>(l);
         auto *sl = output ? output->modelLayer() : qobject_cast<SWMMModelLayer *>(l);
-        if (sl)
-        {
-            if (output && output != outputHit.results) continue;
+        if (sl) {
+            if (output && output != outputHit.results)
+                continue;
             // SWMM network click-pick. identifyAt returns the nearest
             // node / link / subcatchment / gage within the tolerance.
             // Note the lower-case keys "elementName" / "elementType"
             // — identifyByName uses capitalised "Name" / "Type"; the
             // two methods are historically inconsistent, and selection
             // has to key on the layer's SoA name exactly.
-            const QVariantMap hit = output ? QVariantMap{} : sl->identifyAt(mapX, mapY, nullptr, tol);
-            const QString name = output ? outputHit.object.name : hit.value(QStringLiteral("elementName")).toString();
-            if (name.isEmpty()) continue;
+            const QVariantMap hit =
+                output ? QVariantMap{} : sl->identifyAt(mapX, mapY, nullptr, tol);
+            const QString name = output ? outputHit.object.name
+                                        : hit.value(QStringLiteral("elementName")).toString();
+            if (name.isEmpty())
+                continue;
             // Typed pick: the hit knows WHICH kind was clicked, and SWMM
             // names are per-type namespaces (a gage and a subcatchment may
             // share a name) — carrying the kind keeps a subcatchment click
             // from also selecting its same-named gage.
-            const quint8 kind = output ? kindBitForObjectType(outputHit.ref().objectType)
-                : kindBitForElementType(hit.value(QStringLiteral("elementType")).toString());
-            if (output) emit resultsLayerPicked(output);
+            const quint8 kind =
+                output ? kindBitForObjectType(outputHit.ref().objectType)
+                       : kindBitForElementType(hit.value(QStringLiteral("elementType")).toString());
+            if (output)
+                emit resultsLayerPicked(output);
 
             QVector<SWMMModelLayer::SelectedElement> sel = sl->selectedElements();
             if (mods & Qt::ShiftModifier) {
                 bool merged = false;
                 for (auto &e : sel)
-                    if (e.name == name) { e.kinds |= kind; merged = true; break; }
-                if (!merged) sel.append({name, kind});
+                    if (e.name == name) {
+                        e.kinds |= kind;
+                        merged = true;
+                        break;
+                    }
+                if (!merged)
+                    sel.append({name, kind});
             } else if (mods & Qt::ControlModifier) {
                 for (int i = sel.size() - 1; i >= 0; --i) {
-                    if (sel[i].name != name) continue;
+                    if (sel[i].name != name)
+                        continue;
                     sel[i].kinds &= ~kind;
-                    if (sel[i].kinds == 0) sel.remove(i);
+                    if (sel[i].kinds == 0)
+                        sel.remove(i);
                 }
             } else {
-                sel = { {name, kind} };
+                sel = {{name, kind}};
             }
             sl->setSelectedElements(sel);
             emit selectionChanged(sl);
-            return;   // one click selects one object across all layers
+            return; // one click selects one object across all layers
         }
 
-        if (auto *vl = qobject_cast<GISVectorLayer *>(l))
-        {
+        if (auto *vl = qobject_cast<GISVectorLayer *>(l)) {
             // Identify nearest feature
             QList<QVariantMap> features = vl->identifyAt(mapX, mapY, tol);
             if (features.isEmpty())
@@ -1309,15 +1300,14 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
                 ids.insert(fid);
             else if (mods & Qt::ControlModifier)
                 ids.remove(fid);
-            else
-            {
+            else {
                 ids.clear();
                 ids.insert(fid);
             }
 
             vl->setSelectedFeatureIds(ids);
             emit selectionChanged(vl);
-            return;   // one click selects one object across all layers
+            return; // one click selects one object across all layers
         }
     }
 
@@ -1325,8 +1315,7 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
     // all SWMM and GIS layers so the Attribute Panel / Table empty out.
     // Ignore when Shift/Ctrl is held so partial selections don't vanish
     // on a miss.
-    if (!(mods & (Qt::ShiftModifier | Qt::ControlModifier)))
-    {
+    if (!(mods & (Qt::ShiftModifier | Qt::ControlModifier))) {
         for (OpenSWMMVisLayer *l : m_canvas->layers()) {
             if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) {
                 if (!sl->selectedElementNames().isEmpty()) {
@@ -1343,8 +1332,7 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
     }
 }
 
-void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
-                                         Qt::KeyboardModifiers mods)
+void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect, Qt::KeyboardModifiers mods)
 {
     if (!m_canvas)
         return;
@@ -1356,27 +1344,24 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
     // — nodes + their incident links together. Users expect
     // small-drag-near-a-node to behave like a click on the node.
     const int smallRectLimit = 2 * m_dragThreshPx;
-    if (pixelRect.width() <= smallRectLimit
-     && pixelRect.height() <= smallRectLimit) {
+    if (pixelRect.width() <= smallRectLimit && pixelRect.height() <= smallRectLimit) {
         selectAtPoint(pixelRect.center(), mods);
         return;
     }
 
     double x1, y1, x2, y2;
-    toMapCoords(pixelRect.left(),  pixelRect.top(),    x1, y1);
+    toMapCoords(pixelRect.left(), pixelRect.top(), x1, y1);
     toMapCoords(pixelRect.right(), pixelRect.bottom(), x2, y2);
 
     const double minX = std::min(x1, x2), maxX = std::max(x1, x2);
     const double minY = std::min(y1, y2), maxY = std::max(y1, y2);
     MapExtent selection(minX, minY, maxX, maxY);
 
-    for (OpenSWMMVisLayer *l : m_canvas->layers())
-    {
+    for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         if (!l->isVisible())
             continue;
 
-        if (auto *sl = qobject_cast<SWMMModelLayer *>(l))
-        {
+        if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) {
             // SWMM rubber-band select. All four kinds use accelerated
             // layer-side rect queries so a big-model rubber-band stays
             // interactive:
@@ -1390,7 +1375,8 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
             // SWMM names are per-type namespaces, so a rect over a
             // subcatchment must not also select its same-named gage
             // unless the gage point itself is inside the rect.
-            QElapsedTimer t; t.start();
+            QElapsedTimer t;
+            t.start();
             const auto nh = sl->nodesInRect(minX, minY, maxX, maxY);
             const qint64 t_n = t.elapsed();
             const auto gh = sl->gagesInRect(minX, minY, maxX, maxY);
@@ -1402,7 +1388,7 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
             qDebug().noquote() << "[selectInRect] nodes=" << nh.size() << "(" << t_n << "ms)"
                                << " gages=" << gh.size() << "(" << t_g << "ms)"
                                << " links=" << lh.size() << "(" << t_l << "ms)"
-                               << " subc="  << sh.size() << "(" << t_s << "ms)";
+                               << " subc=" << sh.size() << "(" << t_s << "ms)";
 
             QVector<SWMMModelLayer::SelectedElement> sel;
             if (mods & Qt::ControlModifier) {
@@ -1410,7 +1396,8 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
                 // selection (entries emptied of every kind drop out).
                 QHash<QString, quint8> hitBits;
                 const auto collect = [&hitBits](const QStringList &names, quint8 kind) {
-                    for (const QString &n : names) hitBits[n] |= kind;
+                    for (const QString &n : names)
+                        hitBits[n] |= kind;
                 };
                 collect(nh, SWMMModelLayer::kKindNode);
                 collect(gh, SWMMModelLayer::kKindGage);
@@ -1418,18 +1405,23 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
                 collect(sh, SWMMModelLayer::kKindCatch);
                 for (const auto &e : sl->selectedElements()) {
                     const quint8 kinds = e.kinds & ~hitBits.value(e.name, 0);
-                    if (kinds) sel.append({e.name, kinds});
+                    if (kinds)
+                        sel.append({e.name, kinds});
                 }
             } else {
                 if (mods & Qt::ShiftModifier)
                     sel = sl->selectedElements();
-                QHash<QString, int> at;   // name → index in sel
+                QHash<QString, int> at; // name → index in sel
                 at.reserve(sel.size());
-                for (int i = 0; i < sel.size(); ++i) at.insert(sel[i].name, i);
+                for (int i = 0; i < sel.size(); ++i)
+                    at.insert(sel[i].name, i);
                 const auto merge = [&sel, &at](const QStringList &names, quint8 kind) {
                     for (const QString &n : names) {
                         const auto it = at.constFind(n);
-                        if (it != at.constEnd()) { sel[it.value()].kinds |= kind; continue; }
+                        if (it != at.constEnd()) {
+                            sel[it.value()].kinds |= kind;
+                            continue;
+                        }
                         at.insert(n, sel.size());
                         sel.append({n, kind});
                     }
@@ -1444,8 +1436,7 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
             continue;
         }
 
-        if (auto *vl = qobject_cast<GISVectorLayer *>(l))
-        {
+        if (auto *vl = qobject_cast<GISVectorLayer *>(l)) {
             // Precise geometry hit-test in the layer (bbox prefilter via
             // OGR spatial filter, then OGRGeometry::Intersects), with the
             // SWMM modifier semantics: Shift = union, Ctrl = subtract,
@@ -1468,14 +1459,14 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
 
 void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     double mapX, mapY;
     toMapCoords(pixel.x(), pixel.y(), mapX, mapY);
     double mapX2, mapY2;
     toMapCoords(pixel.x() + m_pixelTol, pixel.y() + m_pixelTol, mapX2, mapY2);
-    const double tol = std::max(std::abs(mapX2 - mapX),
-                                 std::abs(mapY2 - mapY));
+    const double tol = std::max(std::abs(mapX2 - mapX), std::abs(mapY2 - mapY));
 
     const auto plotHit = openswmmvis::pickNetworkForPlot(m_canvas, mapX, mapY, tol);
     const SWMMObjectRef ref = plotHit.ref();
@@ -1483,8 +1474,7 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     auto *widget = qobject_cast<QWidget *>(m_canvas);
     const QPoint globalPt = widget ? widget->mapToGlobal(pixel) : pixel;
 
-    if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
-    {
+    if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty()) {
         QMenu bgMenu(widget);
 
         // A feature layer in an edit session offers Delete on its current
@@ -1503,9 +1493,9 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         QAction *actDeleteFeat = nullptr;
         if (editing) {
             const int n = editing->selectedFeatureIds().size();
-            actDeleteFeat = bgMenu.addAction(
-                QIcon(QStringLiteral(":/swmmvis/Delete")),
-                QObject::tr("Delete %n selected feature(s)", nullptr, n));
+            actDeleteFeat =
+                bgMenu.addAction(QIcon(QStringLiteral(":/swmmvis/Delete")),
+                                 QObject::tr("Delete %n selected feature(s)", nullptr, n));
             bgMenu.addSeparator();
         }
 
@@ -1517,7 +1507,7 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             bgMenu.addMenu(sysMenu);
         }
         if (!sysMenu && !actDeleteFeat)
-            return;                        // nothing to show
+            return; // nothing to show
 
         QAction *picked = bgMenu.exec(globalPt);
         if (actDeleteFeat && picked == actDeleteFeat) {
@@ -1536,8 +1526,8 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     // ref directly without going through `setSelectedElementNames`.
 
     QMenu menu(widget);
-    QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
-                                      QObject::tr("Zoom to Object"));
+    QAction *actZoom =
+        menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")), QObject::tr("Zoom to Object"));
 
     // Rain gage — its "plot" is the shared Rainfall Visualization dialog,
     // opened focused on this gage (same funnel as the Object Browser's
@@ -1560,10 +1550,17 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     using PlotKind = openswmmvis::plot::ObjectRef::Kind;
     PlotKind plotKind = PlotKind::Unknown;
     switch (ref.objectType) {
-    case SWMMObjectRef::Node:         plotKind = PlotKind::Node;     break;
-    case SWMMObjectRef::Link:         plotKind = PlotKind::Link;     break;
-    case SWMMObjectRef::Subcatchment: plotKind = PlotKind::Subcatch; break;
-    default: break;
+    case SWMMObjectRef::Node:
+        plotKind = PlotKind::Node;
+        break;
+    case SWMMObjectRef::Link:
+        plotKind = PlotKind::Link;
+        break;
+    case SWMMObjectRef::Subcatchment:
+        plotKind = PlotKind::Subcatch;
+        break;
+    default:
+        break;
     }
 
     QList<SWMMResultsLayer *> resultsLayers;
@@ -1574,17 +1571,17 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         }
     }
 
-    if (plotHit.results) resultsLayers = {plotHit.results};
+    if (plotHit.results)
+        resultsLayers = {plotHit.results};
 
-    QMenu *plotSubmenu = nullptr;                                 // flat case
-    QList<QMenu *> perLayerSubmenus;                              // 2+ case
-    QHash<QMenu *, SWMMResultsLayer *> submenuToLayer;            // 2+ case
+    QMenu *plotSubmenu = nullptr;                      // flat case
+    QList<QMenu *> perLayerSubmenus;                   // 2+ case
+    QHash<QMenu *, SWMMResultsLayer *> submenuToLayer; // 2+ case
     if (plotKind != PlotKind::Unknown) {
         if (resultsLayers.size() <= 1) {
             plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
                 plotKind, openswmmvis::plot::UnitSystem::US, &menu,
-                resultsLayers.isEmpty() ? QStringList()
-                                        : resultsLayers.first()->speciesNames());
+                resultsLayers.isEmpty() ? QStringList() : resultsLayers.first()->speciesNames());
             if (plotSubmenu) {
                 plotSubmenu->setTitle(QObject::tr("Plot Time Series…"));
                 plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
@@ -1592,12 +1589,12 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             }
         } else {
             QMenu *topPlot = menu.addMenu(QIcon(QStringLiteral(":/swmmvis/Chart")),
-                                           QObject::tr("Plot Time Series"));
+                                          QObject::tr("Plot Time Series"));
             for (SWMMResultsLayer *r : resultsLayers) {
                 QMenu *attrMenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot,
-                    r->speciesNames());
-                if (!attrMenu) continue;
+                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot, r->speciesNames());
+                if (!attrMenu)
+                    continue;
                 attrMenu->setTitle(r->name());
                 topPlot->addMenu(attrMenu);
                 perLayerSubmenus.push_back(attrMenu);
@@ -1617,16 +1614,15 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     QHash<QAction *, int> convertTargets;
     int currentType = -1;
     if (hitLayer && hitLayer->engine() &&
-        (ref.objectType == SWMMObjectRef::Node ||
-         ref.objectType == SWMMObjectRef::Link)) {
+        (ref.objectType == SWMMObjectRef::Node || ref.objectType == SWMMObjectRef::Link)) {
         SWMM_Engine eng = hitLayer->engine();
         const bool isNode = (ref.objectType == SWMMObjectRef::Node);
         const QByteArray id = ref.name.toUtf8();
-        const int idx = isNode ? swmm_node_index(eng, id.constData())
-                               : swmm_link_index(eng, id.constData());
+        const int idx =
+            isNode ? swmm_node_index(eng, id.constData()) : swmm_link_index(eng, id.constData());
         const int rcT = (idx < 0) ? -1
-            : (isNode ? swmm_node_get_type(eng, idx, &currentType)
-                      : swmm_link_get_type(eng, idx, &currentType));
+                                  : (isNode ? swmm_node_get_type(eng, idx, &currentType)
+                                            : swmm_link_get_type(eng, idx, &currentType));
         if (rcT == SWMM_OK) {
             // Virtual junctions surface as their own node kind: a flagged
             // node reports kVirtualNodeType so "Junction" (demote) becomes
@@ -1647,8 +1643,10 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                 swmm_node_is_inlet(eng, idx, &isInlet);
                 int isVirtual = 0;
                 swmm_node_is_virtual(eng, idx, &isVirtual);
-                if      (isInlet)   currentType = kIJ;
-                else if (isVirtual) currentType = kVJ;
+                if (isInlet)
+                    currentType = kIJ;
+                else if (isVirtual)
+                    currentType = kVJ;
                 swmm_node_virtual_eligible(eng, idx, &vjRule);
                 swmm_node_inlet_eligible(eng, idx, /*for_drop_inlet=*/0, &ijRule);
             }
@@ -1658,10 +1656,11 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             // engine supports it, and only for nodes).
             const int nKinds = (isNode && inletSupported) ? 6 : 5;
             for (int t = 0; t < nKinds; ++t) {
-                if (t == currentType) continue;
+                if (t == currentType)
+                    continue;
                 const QString label = isNode
-                    ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
-                    : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t);
+                                          ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
+                                          : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t);
                 QAction *act = convertMenu->addAction(label);
                 if (isNode && t == kVJ && vjRule != 0) {
                     act->setEnabled(false);
@@ -1684,34 +1683,50 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 
     if (ref.objectType == SWMMObjectRef::Node || ref.objectType == SWMMObjectRef::Link) {
         auto *traceMenu = menu.addMenu(tr("Flow Balance and Travel Time"));
-        for (bool upstream : {false, true}) for (bool travel : {false, true}) {
-            const QString title = travel ? (upstream ? tr("Travel Time Upstream…") : tr("Travel Time Downstream…"))
-                                         : (upstream ? tr("Flow Balance Upstream…") : tr("Flow Balance Downstream…"));
-            connect(traceMenu->addAction(title), &QAction::triggered, this, [this, ref, hitLayer, upstream, travel] {
-                auto *pw = qobject_cast<SWMMVisProjectWindow*>(m_canvas->parent());
-                if (!pw) return;
-                QString seed = ref.name;
-                if (ref.objectType == SWMMObjectRef::Link) {
-                    // Endpoint IDs straight from the engine; a whole-model
-                    // snapshot is not needed to offer two node names.
-                    const int link = hitLayer->linkIndex(ref.name);
-                    const char *from = link >= 0 ? swmm_node_id(hitLayer->engine(), hitLayer->linkFromNodeIdx(link)) : nullptr;
-                    const char *to = link >= 0 ? swmm_node_id(hitLayer->engine(), hitLayer->linkToNodeIdx(link)) : nullptr;
-                    if (from && to) {
-                        bool ok = false;
-                        seed = QInputDialog::getItem(m_canvas, tr("Choose seed endpoint"), ref.name,
-                            {QString::fromUtf8(from), QString::fromUtf8(to)}, 0, false, &ok);
-                        if (!ok) return;
-                    }
-                }
-                openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, travel, seed);
-            });
-        }
+        for (bool upstream : {false, true})
+            for (bool travel : {false, true}) {
+                const QString title = travel ? (upstream ? tr("Travel Time Upstream…")
+                                                         : tr("Travel Time Downstream…"))
+                                             : (upstream ? tr("Flow Balance Upstream…")
+                                                         : tr("Flow Balance Downstream…"));
+                connect(traceMenu->addAction(title), &QAction::triggered, this,
+                        [this, ref, hitLayer, upstream, travel] {
+                            auto *pw = qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent());
+                            if (!pw)
+                                return;
+                            QString seed = ref.name;
+                            if (ref.objectType == SWMMObjectRef::Link) {
+                                // Endpoint IDs straight from the engine; a whole-model
+                                // snapshot is not needed to offer two node names.
+                                const int link = hitLayer->linkIndex(ref.name);
+                                const char *from =
+                                    link >= 0 ? swmm_node_id(hitLayer->engine(),
+                                                             hitLayer->linkFromNodeIdx(link))
+                                              : nullptr;
+                                const char *to = link >= 0
+                                                     ? swmm_node_id(hitLayer->engine(),
+                                                                    hitLayer->linkToNodeIdx(link))
+                                                     : nullptr;
+                                if (from && to) {
+                                    bool ok = false;
+                                    seed = QInputDialog::getItem(
+                                        m_canvas, tr("Choose seed endpoint"), ref.name,
+                                        {QString::fromUtf8(from), QString::fromUtf8(to)}, 0, false,
+                                        &ok);
+                                    if (!ok)
+                                        return;
+                                }
+                            }
+                            openswmmvis::trace::TraceAnalysisDialog::showFor(pw, upstream, travel,
+                                                                             seed);
+                        });
+            }
     }
     QAction *actDelete = menu.addAction(QObject::tr("Delete…"));
 
     QAction *picked = menu.exec(globalPt);
-    if (!picked) return;
+    if (!picked)
+        return;
 
     if (actRainViz && picked == actRainViz) {
         emit rainfallVisualizationRequested(ref);
@@ -1727,8 +1742,7 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         // Promoting to an inlet junction needs an inlet design and a capture
         // node up front (D-G6), so it takes the setup dialog and its own
         // entry point rather than the generic flow.
-        if (isNode
-            && target == openswmmvis::ui::TypeConversionFlow::kInletNodeType) {
+        if (isNode && target == openswmmvis::ui::TypeConversionFlow::kInletNodeType) {
             // Non-modal floating panel (the capture node can be picked on
             // the map); the conversion runs from accepted(), which also
             // keeps the confirm prompt out of this mouse handler.
@@ -1739,12 +1753,12 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             dlg->setAttribute(Qt::WA_DeleteOnClose);
             QPointer<SWMMModelLayer> layer(hitLayer);
             const QString name = ref.name;
-            connect(dlg, &QDialog::accepted, this,
-                    [this, dlg, layer, name, currentType, widget]() {
-                if (!layer || layer->nodeIndex(name) < 0) return;
+            connect(dlg, &QDialog::accepted, this, [this, dlg, layer, name, currentType, widget]() {
+                if (!layer || layer->nodeIndex(name) < 0)
+                    return;
                 if (openswmmvis::ui::TypeConversionFlow::runToInletJunction(
-                        widget, layer, name, currentType,
-                        dlg->inletDesign(), dlg->captureNode(), dlg->placement())) {
+                        widget, layer, name, currentType, dlg->inletDesign(), dlg->captureNode(),
+                        dlg->placement())) {
                     if (m_editKind != EditKind::None && m_editName == name)
                         clearEditMode();
                 }
@@ -1754,9 +1768,8 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             dlg->activateWindow();
             return;
         }
-        if (openswmmvis::ui::TypeConversionFlow::run(
-                widget, hitLayer, isNode, ref.name,
-                currentType, target)) {
+        if (openswmmvis::ui::TypeConversionFlow::run(widget, hitLayer, isNode, ref.name,
+                                                     currentType, target)) {
             if (m_editKind != EditKind::None && m_editName == ref.name)
                 clearEditMode();
         }
@@ -1770,8 +1783,7 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (actFlip && picked == actFlip && hitLayer && m_canvas) {
         const int linkIdx = hitLayer->linkIndex(ref.name);
         if (linkIdx >= 0) {
-            m_canvas->undoStack()->push(
-                new FlipLinkCommand(hitLayer, linkIdx, m_canvas));
+            m_canvas->undoStack()->push(new FlipLinkCommand(hitLayer, linkIdx, m_canvas));
             if (m_editKind != EditKind::None && m_editName == ref.name)
                 clearEditMode();
         }
@@ -1804,24 +1816,24 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         }
     }
 
-    if (picked == actZoom && hitLayer)
-    {
+    if (picked == actZoom && hitLayer) {
         // If the right-clicked object is part of the current selection,
         // zoom to the combined canvas-CRS extent of all selected objects;
         // otherwise zoom to just the object under the cursor.
         const QStringList sel = hitLayer->selectedElementNames();
-        const QStringList targets = (sel.size() > 1 && sel.contains(ref.name))
-                                        ? sel
-                                        : QStringList{ref.name};
+        const QStringList targets =
+            (sel.size() > 1 && sel.contains(ref.name)) ? sel : QStringList{ref.name};
 
         MapExtent combined;
         for (const QString &name : targets) {
-            const MapExtent obj = m_canvas->extentInCanvasCRS(
-                hitLayer, hitLayer->objectExtent(name));
-            if (!std::isfinite(obj.xMin())) continue;
+            const MapExtent obj =
+                m_canvas->extentInCanvasCRS(hitLayer, hitLayer->objectExtent(name));
+            if (!std::isfinite(obj.xMin()))
+                continue;
             combined = combined.isValid() ? combined.united(obj) : obj;
         }
-        if (!combined.isValid()) return;
+        if (!combined.isValid())
+            return;
 
         double x0 = combined.xMin(), y0 = combined.yMin();
         double x1 = combined.xMax(), y1 = combined.yMax();
@@ -1833,23 +1845,25 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                 const double dy = le.yMax() - le.yMin();
                 buffer = std::max(25.0, 0.005 * std::max(dx, dy));
             }
-            x0 -= buffer; y0 -= buffer;
-            x1 += buffer; y1 += buffer;
+            x0 -= buffer;
+            y0 -= buffer;
+            x1 += buffer;
+            y1 += buffer;
         } else {
-            const double padX = std::max(1e-6, combined.width()  * 0.25);
+            const double padX = std::max(1e-6, combined.width() * 0.25);
             const double padY = std::max(1e-6, combined.height() * 0.25);
-            x0 -= padX; y0 -= padY;
-            x1 += padX; y1 += padY;
+            x0 -= padX;
+            y0 -= padY;
+            x1 += padX;
+            y1 += padY;
         }
         MapExtent zoom(x0, y0, x1, y1);
-        if (zoom.isValid()) m_canvas->setExtent(zoom);
-    }
-    else if (picked == actDelete && hitLayer)
-    {
+        if (zoom.isValid())
+            m_canvas->setExtent(zoom);
+    } else if (picked == actDelete && hitLayer) {
         // Select only the right-clicked object then delegate to the
         // shared delete handler (which confirms and builds the command).
-        hitLayer->setSelectedElements(
-            { {ref.name, kindBitForObjectType(ref.objectType)} });
+        hitLayer->setSelectedElements({{ref.name, kindBitForObjectType(ref.objectType)}});
         emit selectionChanged(hitLayer);
         deleteSelectedObjects();
     }
@@ -1861,7 +1875,8 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 
 void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton || !m_canvas) return;
+    if (event->button() != Qt::LeftButton || !m_canvas)
+        return;
     if (editableTextLayerAt(event->position())) {
         event->accept();
         return;
@@ -1870,58 +1885,51 @@ void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
     // Vertex editing requires an active edit session — without it, a
     // double-click is treated as a plain select with no edit side-effect.
     if (auto *pw = qobject_cast<SWMMVisProjectWindow *>(m_canvas->parent()))
-        if (!pw->isEditSessionActive()) return;
+        if (!pw->isEditSessionActive())
+            return;
 
     double mapX = 0.0, mapY = 0.0;
     toMapCoords(event->pos().x(), event->pos().y(), mapX, mapY);
     double mapX2 = 0.0, mapY2 = 0.0;
-    toMapCoords(event->pos().x() + m_pixelTol, event->pos().y() + m_pixelTol,
-                mapX2, mapY2);
+    toMapCoords(event->pos().x() + m_pixelTol, event->pos().y() + m_pixelTol, mapX2, mapY2);
     const double tol = std::max(std::abs(mapX2 - mapX), std::abs(mapY2 - mapY));
 
-    for (OpenSWMMVisLayer *l : m_canvas->layers())
-    {
-        if (!l->isVisible()) continue;
+    for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+        if (!l->isVisible())
+            continue;
         auto *sl = qobject_cast<SWMMModelLayer *>(l);
-        if (!sl) continue;
+        if (!sl)
+            continue;
 
         const auto r = sl->pickAt(mapX, mapY, tol);
-        if (!r.valid) continue;
+        if (!r.valid)
+            continue;
 
         // Double-clicking the already-active feature exits edit mode (toggle).
-        if (m_editLayer == sl && m_editName == r.name)
-        {
+        if (m_editLayer == sl && m_editName == r.name) {
             clearEditMode();
             return;
         }
 
-        if (r.cat == SWMMModelLayer::CatJunctions
-         || r.cat == SWMMModelLayer::CatOutfalls
-         || r.cat == SWMMModelLayer::CatStorage
-         || r.cat == SWMMModelLayer::CatDividers)
-        {
+        if (r.cat == SWMMModelLayer::CatJunctions || r.cat == SWMMModelLayer::CatOutfalls ||
+            r.cat == SWMMModelLayer::CatStorage || r.cat == SWMMModelLayer::CatDividers) {
             enterEditMode(sl, r.name, EditKind::Node, r.soaIndex);
             return;
         }
 
-        if (r.cat == SWMMModelLayer::CatRainGages)
-        {
+        if (r.cat == SWMMModelLayer::CatRainGages) {
             enterEditMode(sl, r.name, EditKind::Gage, r.soaIndex);
             return;
         }
 
-        if (r.cat == SWMMModelLayer::CatConduits
-         || r.cat == SWMMModelLayer::CatPumps
-         || r.cat == SWMMModelLayer::CatOrifices
-         || r.cat == SWMMModelLayer::CatWeirs
-         || r.cat == SWMMModelLayer::CatOutlets)
-        {
+        if (r.cat == SWMMModelLayer::CatConduits || r.cat == SWMMModelLayer::CatPumps ||
+            r.cat == SWMMModelLayer::CatOrifices || r.cat == SWMMModelLayer::CatWeirs ||
+            r.cat == SWMMModelLayer::CatOutlets) {
             enterEditMode(sl, r.name, EditKind::Link, r.soaIndex);
             return;
         }
 
-        if (r.cat == SWMMModelLayer::CatSubcatchments)
-        {
+        if (r.cat == SWMMModelLayer::CatSubcatchments) {
             enterEditMode(sl, r.name, EditKind::Subcatch, r.soaIndex);
             return;
         }
@@ -1931,44 +1939,38 @@ void OpenSWMMVisMapToolSelect::mouseDoubleClickEvent(QMouseEvent *event)
     clearEditMode();
 }
 
-void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer,
-                                              const QString  &name,
-                                              EditKind        kind,
-                                              int             soaIndex)
+void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer, const QString &name,
+                                             EditKind kind, int soaIndex)
 {
     clearEditMode();
 
-    m_editLayer  = layer;
-    m_editName   = name;
-    m_editKind   = kind;
+    m_editLayer = layer;
+    m_editName = name;
+    m_editKind = kind;
     m_editSoaIdx = soaIndex;
 
-    if (kind == EditKind::Node)
-    {
+    if (kind == EditKind::Node) {
         double x = 0.0, y = 0.0;
         layer->cachedNodeCoord(soaIndex, &x, &y);
-        m_editHandles   = { QPointF(x, y) };
+        m_editHandles = {QPointF(x, y)};
         m_editNodeOrigX = x;
         m_editNodeOrigY = y;
-    }
-    else if (kind == EditKind::Gage)
-    {
+    } else if (kind == EditKind::Gage) {
         double x = 0.0, y = 0.0;
         layer->cachedGageCoord(soaIndex, &x, &y);
-        m_editHandles   = { QPointF(x, y) };
+        m_editHandles = {QPointF(x, y)};
         m_editNodeOrigX = x;
         m_editNodeOrigY = y;
-    }
-    else if (kind == EditKind::Link)
-    {
+    } else if (kind == EditKind::Link) {
         m_editHandles = layer->cachedLinkInteriorVertices(soaIndex);
-    }
-    else if (kind == EditKind::Subcatch)
-    {
+    } else if (kind == EditKind::Subcatch) {
         m_editSubcatchVerts = layer->cachedSubcatchVertices(soaIndex);
         // Handle 0 = centroid (square), handles 1..N = polygon vertices (circles)
         double cx = 0.0, cy = 0.0;
-        for (const QPointF &p : m_editSubcatchVerts) { cx += p.x(); cy += p.y(); }
+        for (const QPointF &p : m_editSubcatchVerts) {
+            cx += p.x();
+            cy += p.y();
+        }
         if (!m_editSubcatchVerts.isEmpty()) {
             cx /= m_editSubcatchVerts.size();
             cy /= m_editSubcatchVerts.size();
@@ -1980,8 +1982,7 @@ void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer,
     }
 
     if (m_canvas)
-        m_canvas->invalidate(MapCanvas::Overlay,
-                             QStringLiteral("select-edit-enter"));
+        m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("select-edit-enter"));
 }
 
 void OpenSWMMVisMapToolSelect::clearEditMode()
@@ -1989,25 +1990,23 @@ void OpenSWMMVisMapToolSelect::clearEditMode()
     // Roll back any live node/gage-drag preview.
     if (m_editDragging && m_editLayer && m_editSoaIdx >= 0) {
         if (m_editKind == EditKind::Node)
-            m_editLayer->previewNodeMove(m_editSoaIdx,
-                                         m_editNodeOrigX, m_editNodeOrigY);
+            m_editLayer->previewNodeMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
         else if (m_editKind == EditKind::Gage)
-            m_editLayer->previewGageMove(m_editSoaIdx,
-                                         m_editNodeOrigX, m_editNodeOrigY);
+            m_editLayer->previewGageMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
     }
 
-    m_editKind             = EditKind::None;
-    m_editLayer            = nullptr;
+    m_editKind = EditKind::None;
+    m_editLayer = nullptr;
     m_editName.clear();
-    m_editSoaIdx           = -1;
+    m_editSoaIdx = -1;
     m_editHandles.clear();
     m_editSubcatchVerts.clear();
     m_editSelectedHandles.clear();
-    m_editDragging         = false;
-    m_editDragHandle       = -1;
-    m_editRubberbanding    = false;
-    m_editPressedEmpty     = false;
-    m_snapping             = false;
+    m_editDragging = false;
+    m_editDragHandle = -1;
+    m_editRubberbanding = false;
+    m_editPressedEmpty = false;
+    m_snapping = false;
 
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay | MapCanvas::Scene,
@@ -2016,8 +2015,7 @@ void OpenSWMMVisMapToolSelect::clearEditMode()
 
 int OpenSWMMVisMapToolSelect::hitTestEditHandle(const QPoint &pixel) const
 {
-    for (int i = 0; i < m_editHandles.size(); ++i)
-    {
+    for (int i = 0; i < m_editHandles.size(); ++i) {
         int hx = 0, hy = 0;
         toPixelCoords(m_editHandles[i].x(), m_editHandles[i].y(), hx, hy);
         const int dx = pixel.x() - hx;
@@ -2030,28 +2028,27 @@ int OpenSWMMVisMapToolSelect::hitTestEditHandle(const QPoint &pixel) const
 
 void OpenSWMMVisMapToolSelect::commitNodeDrag(double newX, double newY)
 {
-    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas) return;
+    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas)
+        return;
 
     // Collect attached conduits and compute new lengths only when the
     // status-bar "Auto Length" toggle is on.
-    const bool autoLength = m_canvas
-        && m_canvas->property("autoLength").toBool();
+    const bool autoLength = m_canvas && m_canvas->property("autoLength").toBool();
 
     QVector<MoveNodeCommand::LengthRec> recs;
-    if (autoLength)
-    {
+    if (autoLength) {
         const QVector<int> attached = m_editLayer->linksAttachedToNode(m_editSoaIdx);
-        for (int linkIdx : attached)
-        {
-            if (!m_editLayer->isConduit(linkIdx)) continue;
+        for (int linkIdx : attached) {
+            if (!m_editLayer->isConduit(linkIdx))
+                continue;
             const double oldLen = m_editLayer->engineLinkLength(linkIdx);
             QVector<QPointF> poly = m_editLayer->cachedLinkPolyline(linkIdx);
             const int end = m_editLayer->linkEndForNode(linkIdx, m_editSoaIdx);
-            if (end < 0 || poly.isEmpty()) continue;
+            if (end < 0 || poly.isEmpty())
+                continue;
             const int slot = (end == 0) ? 0 : (poly.size() - 1);
             poly = EditGeometry::replacedAt(poly, slot, QPointF(newX, newY));
-            recs.append({linkIdx, oldLen,
-                         m_editLayer->polylineLengthInModelUnits(poly)});
+            recs.append({linkIdx, oldLen, m_editLayer->polylineLengthInModelUnits(poly)});
         }
     }
 
@@ -2059,8 +2056,7 @@ void OpenSWMMVisMapToolSelect::commitNodeDrag(double newX, double newY)
     // the correct original coord to revert to.
     m_editLayer->previewNodeMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
 
-    auto *cmd = new MoveNodeCommand(m_editLayer, m_editSoaIdx,
-                                    m_editNodeOrigX, m_editNodeOrigY,
+    auto *cmd = new MoveNodeCommand(m_editLayer, m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY,
                                     newX, newY, recs, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
@@ -2069,8 +2065,8 @@ void OpenSWMMVisMapToolSelect::commitNodeDrag(double newX, double newY)
 
     // Update handle and snapshot so subsequent drags in the same session work.
     m_editHandles[0] = QPointF(newX, newY);
-    m_editNodeOrigX  = newX;
-    m_editNodeOrigY  = newY;
+    m_editNodeOrigX = newX;
+    m_editNodeOrigY = newY;
 
     m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                          QStringLiteral("select-edit-node-commit"));
@@ -2078,15 +2074,15 @@ void OpenSWMMVisMapToolSelect::commitNodeDrag(double newX, double newY)
 
 void OpenSWMMVisMapToolSelect::commitGageDrag(double newX, double newY)
 {
-    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas) return;
+    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas)
+        return;
 
     // Restore cached state before pushing so MoveGageCommand::undo has
     // the correct original coord to revert to. No auto-length leg —
     // gages have no attached links.
     m_editLayer->previewGageMove(m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY);
 
-    auto *cmd = new MoveGageCommand(m_editLayer, m_editSoaIdx,
-                                    m_editNodeOrigX, m_editNodeOrigY,
+    auto *cmd = new MoveGageCommand(m_editLayer, m_editSoaIdx, m_editNodeOrigX, m_editNodeOrigY,
                                     newX, newY, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
@@ -2095,8 +2091,8 @@ void OpenSWMMVisMapToolSelect::commitGageDrag(double newX, double newY)
 
     // Update handle and snapshot so subsequent drags in the same session work.
     m_editHandles[0] = QPointF(newX, newY);
-    m_editNodeOrigX  = newX;
-    m_editNodeOrigY  = newY;
+    m_editNodeOrigX = newX;
+    m_editNodeOrigY = newY;
 
     m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                          QStringLiteral("select-edit-gage-commit"));
@@ -2104,34 +2100,32 @@ void OpenSWMMVisMapToolSelect::commitGageDrag(double newX, double newY)
 
 void OpenSWMMVisMapToolSelect::commitLinkDrag(QVector<QPointF> newInterior)
 {
-    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas) return;
+    if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas)
+        return;
 
-    const QVector<QPointF> oldInterior =
-        m_editLayer->cachedLinkInteriorVertices(m_editSoaIdx);
+    const QVector<QPointF> oldInterior = m_editLayer->cachedLinkInteriorVertices(m_editSoaIdx);
 
     // Recompute conduit length only when the status-bar "Auto Length" toggle is on.
-    const bool autoLength = m_canvas
-        && m_canvas->property("autoLength").toBool();
+    const bool autoLength = m_canvas && m_canvas->property("autoLength").toBool();
 
     bool applyLength = false;
     double oldLen = 0.0, newLen = 0.0;
-    if (autoLength && m_editLayer->isConduit(m_editSoaIdx))
-    {
+    if (autoLength && m_editLayer->isConduit(m_editSoaIdx)) {
         oldLen = m_editLayer->engineLinkLength(m_editSoaIdx);
-        const QVector<QPointF> cached =
-            m_editLayer->cachedLinkPolyline(m_editSoaIdx);
+        const QVector<QPointF> cached = m_editLayer->cachedLinkPolyline(m_editSoaIdx);
         QVector<QPointF> full;
         full.reserve(newInterior.size() + 2);
-        if (!cached.isEmpty())  full.append(cached.first());
+        if (!cached.isEmpty())
+            full.append(cached.first());
         full.append(newInterior);
-        if (cached.size() >= 2) full.append(cached.last());
+        if (cached.size() >= 2)
+            full.append(cached.last());
         newLen = m_editLayer->polylineLengthInModelUnits(full);
         applyLength = true;
     }
 
-    auto *cmd = new EditVertexCommand(m_editLayer, m_editSoaIdx,
-                                      oldInterior, newInterior,
-                                      oldLen, newLen, applyLength, m_canvas);
+    auto *cmd = new EditVertexCommand(m_editLayer, m_editSoaIdx, oldInterior, newInterior, oldLen,
+                                      newLen, applyLength, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else
@@ -2149,40 +2143,39 @@ void OpenSWMMVisMapToolSelect::selectHandlesInRect(const QRect &pixelRect)
     m_editSelectedHandles.clear();
     // For subcatch, start at 1 (skip centroid handle at 0).
     const int first = (m_editKind == EditKind::Subcatch) ? 1 : 0;
-    for (int i = first; i < m_editHandles.size(); ++i)
-    {
+    for (int i = first; i < m_editHandles.size(); ++i) {
         int hx = 0, hy = 0;
         toPixelCoords(m_editHandles[i].x(), m_editHandles[i].y(), hx, hy);
         if (pixelRect.contains(QPoint(hx, hy)))
             m_editSelectedHandles.insert(i);
     }
     if (m_canvas)
-        m_canvas->invalidate(MapCanvas::Overlay,
-                             QStringLiteral("edit-select-handles"));
+        m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("edit-select-handles"));
 }
 
 void OpenSWMMVisMapToolSelect::applyGroupDragDelta(double dx, double dy)
 {
-    if (m_editKind == EditKind::Link)
-    {
-        for (int i : std::as_const(m_editSelectedHandles))
-        {
-            if (i < 0 || i >= m_editHandles.size()) continue;
+    if (m_editKind == EditKind::Link) {
+        for (int i : std::as_const(m_editSelectedHandles)) {
+            if (i < 0 || i >= m_editHandles.size())
+                continue;
             m_editHandles[i] += QPointF(dx, dy);
         }
-    }
-    else if (m_editKind == EditKind::Subcatch)
-    {
-        for (int i : std::as_const(m_editSelectedHandles))
-        {
-            if (i <= 0 || i >= m_editHandles.size()) continue; // skip centroid
+    } else if (m_editKind == EditKind::Subcatch) {
+        for (int i : std::as_const(m_editSelectedHandles)) {
+            if (i <= 0 || i >= m_editHandles.size())
+                continue; // skip centroid
             m_editHandles[i] += QPointF(dx, dy);
             m_editSubcatchVerts[i - 1] += QPointF(dx, dy);
         }
         // Recompute centroid handle from the updated polygon.
         double cx = 0.0, cy = 0.0;
-        for (const QPointF &p : m_editSubcatchVerts) { cx += p.x(); cy += p.y(); }
-        cx /= m_editSubcatchVerts.size(); cy /= m_editSubcatchVerts.size();
+        for (const QPointF &p : m_editSubcatchVerts) {
+            cx += p.x();
+            cy += p.y();
+        }
+        cx /= m_editSubcatchVerts.size();
+        cy /= m_editSubcatchVerts.size();
         m_editHandles[0] = QPointF(cx, cy);
     }
 }
@@ -2192,27 +2185,24 @@ void OpenSWMMVisMapToolSelect::commitSubcatchDrag(QVector<QPointF> newVertices)
     if (!m_editLayer || m_editSoaIdx < 0 || !m_canvas || newVertices.isEmpty())
         return;
 
-    const QVector<QPointF> oldVertices =
-        m_editLayer->cachedSubcatchVertices(m_editSoaIdx);
+    const QVector<QPointF> oldVertices = m_editLayer->cachedSubcatchVertices(m_editSoaIdx);
 
     // Compute old and new area when the status-bar auto-length toggle is on.
     const bool autoLength = m_canvas->property("autoLength").toBool();
     double oldArea = 0.0, newArea = 0.0;
-    if (autoLength)
-    {
+    if (autoLength) {
         const bool isSI = UnitSystem::instance()->isSI();
-        const double conv = isSI ? 10000.0 : 43560.0;  // m²→ha or ft²→ac
+        const double conv = isSI ? 10000.0 : 43560.0; // m²→ha or ft²→ac
         // Old area from engine
         SWMM_Engine eng = m_editLayer->engine();
-        if (eng) swmm_subcatch_get_area(eng, m_editSoaIdx, &oldArea);
+        if (eng)
+            swmm_subcatch_get_area(eng, m_editSoaIdx, &oldArea);
         // New area from updated polygon geometry
         newArea = EditGeometry::polygonArea(newVertices) / conv;
     }
 
-    auto *cmd = new EditSubcatchCommand(m_editLayer, m_editSoaIdx,
-                                        oldVertices, newVertices,
-                                        oldArea, newArea, autoLength,
-                                        m_canvas);
+    auto *cmd = new EditSubcatchCommand(m_editLayer, m_editSoaIdx, oldVertices, newVertices,
+                                        oldArea, newArea, autoLength, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else
@@ -2229,79 +2219,73 @@ void OpenSWMMVisMapToolSelect::deleteSelectedEditHandles()
     if (m_editSelectedHandles.isEmpty() || !m_editLayer || !m_canvas)
         return;
 
-    if (m_editKind == EditKind::Link)
-    {
+    if (m_editKind == EditKind::Link) {
         // Build new interior list by skipping every selected index.
         QVector<QPointF> newInterior;
         newInterior.reserve(m_editHandles.size());
-        for (int i = 0; i < m_editHandles.size(); ++i)
-        {
+        for (int i = 0; i < m_editHandles.size(); ++i) {
             if (!m_editSelectedHandles.contains(i))
                 newInterior.append(m_editHandles[i]);
         }
         m_editSelectedHandles.clear();
         commitLinkDrag(newInterior);
-    }
-    else if (m_editKind == EditKind::Subcatch)
-    {
+    } else if (m_editKind == EditKind::Subcatch) {
         // Handle indices are 1-based (0 = centroid).  Collect 0-based vertex indices.
         QSet<int> vertexIndices;
         for (int h : std::as_const(m_editSelectedHandles))
-            if (h > 0) vertexIndices.insert(h - 1);
+            if (h > 0)
+                vertexIndices.insert(h - 1);
 
-        if (vertexIndices.isEmpty()) return;
+        if (vertexIndices.isEmpty())
+            return;
 
         QVector<QPointF> newVerts;
         newVerts.reserve(m_editSubcatchVerts.size());
-        for (int vi = 0; vi < m_editSubcatchVerts.size(); ++vi)
-        {
+        for (int vi = 0; vi < m_editSubcatchVerts.size(); ++vi) {
             if (!vertexIndices.contains(vi))
                 newVerts.append(m_editSubcatchVerts[vi]);
         }
 
-        if (newVerts.size() >= 3)
-        {
+        if (newVerts.size() >= 3) {
             m_editSelectedHandles.clear();
             commitSubcatchDrag(newVerts);
             // Rebuild handles from the new vertex list.
             double cx = 0.0, cy = 0.0;
-            for (const QPointF &p : newVerts) { cx += p.x(); cy += p.y(); }
-            cx /= newVerts.size(); cy /= newVerts.size();
+            for (const QPointF &p : newVerts) {
+                cx += p.x();
+                cy += p.y();
+            }
+            cx /= newVerts.size();
+            cy /= newVerts.size();
             m_editHandles.clear();
             m_editHandles.reserve(1 + newVerts.size());
             m_editHandles.append(QPointF(cx, cy));
             m_editHandles.append(newVerts);
-        }
-        else
-        {
+        } else {
             // Deletion would leave too few vertices — ask whether to delete the object.
             const int remaining = newVerts.size();
-            const QString msg = tr(
-                "Removing the %1 selected %2 would leave only %3 %4 — "
-                "a subcatchment polygon requires at least 3.\n\n"
-                "Delete the entire subcatchment \"%5\" instead?")
-                .arg(vertexIndices.size())
-                .arg(vertexIndices.size() == 1 ? tr("vertex") : tr("vertices"))
-                .arg(remaining)
-                .arg(remaining == 1 ? tr("vertex") : tr("vertices"))
-                .arg(m_editName);
+            const QString msg = tr("Removing the %1 selected %2 would leave only %3 %4 — "
+                                   "a subcatchment polygon requires at least 3.\n\n"
+                                   "Delete the entire subcatchment \"%5\" instead?")
+                                    .arg(vertexIndices.size())
+                                    .arg(vertexIndices.size() == 1 ? tr("vertex") : tr("vertices"))
+                                    .arg(remaining)
+                                    .arg(remaining == 1 ? tr("vertex") : tr("vertices"))
+                                    .arg(m_editName);
 
-            const auto btn = QMessageBox::warning(
-                m_canvas, tr("Cannot delete vertices"), msg,
-                QMessageBox::Yes | QMessageBox::Cancel,
-                QMessageBox::Cancel);
+            const auto btn =
+                QMessageBox::warning(m_canvas, tr("Cannot delete vertices"), msg,
+                                     QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
 
-            if (btn != QMessageBox::Yes) return;
+            if (btn != QMessageBox::Yes)
+                return;
 
             // Delete the whole subcatchment.  Wrapped in a BulkEditCommand
             // (the previously unguarded delete site — perf-plan Phase A2):
             // the macro is what keeps a later Ctrl+Z from replaying the
             // restore storm unguarded.
-            auto *macro =
-                new BulkEditCommand(m_editLayer,
-                                    QObject::tr("Delete Subcatchment"));
-            new DeleteObjectCommand(m_editLayer, m_editName,
-                                    DeleteObjectCommand::DeleteSubcatch,
+            auto *macro = new BulkEditCommand(m_editLayer, QObject::tr("Delete Subcatchment"));
+            new DeleteObjectCommand(m_editLayer, m_editName, DeleteObjectCommand::DeleteSubcatch,
                                     m_canvas, macro);
             clearEditMode(); // exit edit mode before the object disappears
             if (m_canvas->undoStack())

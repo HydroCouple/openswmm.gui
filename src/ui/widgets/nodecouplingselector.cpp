@@ -1,9 +1,14 @@
-/*!
- * \file   nodecouplingselector.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      nodecouplingselector.cpp
+ * @brief     The node coupling selector: every 1D node with its 2D coupling structure type and a
+ *            "coupleable" switch, edited in bulk (by category, map selection, search) and applied
+ *            as one undoable step through SWMMModelLayer::pushNodeCoupling2DEdits.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/nodecouplingselector.h"
 
 #include "layers/swmmmodellayer.h"
@@ -30,10 +35,7 @@ using nodecoupling2d::State;
 // NodeCouplingTableModel
 // ---------------------------------------------------------------------------
 
-NodeCouplingTableModel::NodeCouplingTableModel(QObject *parent)
-    : QAbstractTableModel(parent)
-{
-}
+NodeCouplingTableModel::NodeCouplingTableModel(QObject *parent) : QAbstractTableModel(parent) {}
 
 void NodeCouplingTableModel::load(SWMMModelLayer *layer)
 {
@@ -47,7 +49,8 @@ void NodeCouplingTableModel::load(SWMMModelLayer *layer)
             for (int i = 0; i < layer->categoryCount(cat); ++i) {
                 const QString name = layer->objectNameAt(cat, i);
                 Row r;
-                if (name.isEmpty() || !nodecoupling2d::read(e, name, &r.original)) continue;
+                if (name.isEmpty() || !nodecoupling2d::read(e, name, &r.original))
+                    continue;
                 r.edited = r.original;
                 r.category = c;
                 r.defaultType = nodecoupling2d::defaultType(e, name);
@@ -55,11 +58,18 @@ void NodeCouplingTableModel::load(SWMMModelLayer *layer)
                 switch (c) {
                 case SWMMModelLayer::CatJunctions:
                     r.categoryLabel = r.defaultType == nodecoupling2d::None
-                                          ? tr("Junction (inlet / virtual)") : tr("Junction");
+                                          ? tr("Junction (inlet / virtual)")
+                                          : tr("Junction");
                     break;
-                case SWMMModelLayer::CatOutfalls: r.categoryLabel = tr("Outfall"); break;
-                case SWMMModelLayer::CatStorage:  r.categoryLabel = tr("Storage"); break;
-                default:                          r.categoryLabel = tr("Divider"); break;
+                case SWMMModelLayer::CatOutfalls:
+                    r.categoryLabel = tr("Outfall");
+                    break;
+                case SWMMModelLayer::CatStorage:
+                    r.categoryLabel = tr("Storage");
+                    break;
+                default:
+                    r.categoryLabel = tr("Divider");
+                    break;
                 }
                 r.extra.resize(m_extraHeaders.size());
                 m_index.insert(name, m_rows.size());
@@ -75,14 +85,16 @@ void NodeCouplingTableModel::setExtraColumns(const QStringList &headers)
 {
     beginResetModel();
     m_extraHeaders = headers;
-    for (Row &r : m_rows) r.extra.resize(headers.size());
+    for (Row &r : m_rows)
+        r.extra.resize(headers.size());
     endResetModel();
 }
 
 void NodeCouplingTableModel::setExtraValues(const QString &node, const QStringList &values)
 {
     const int r = rowOf(node);
-    if (r < 0) return;
+    if (r < 0)
+        return;
     for (int i = 0; i < m_extraHeaders.size(); ++i)
         m_rows[r].extra[i] = values.value(i);
     emit dataChanged(index(r, ColFirstExtra), index(r, columnCount() - 1));
@@ -100,33 +112,43 @@ int NodeCouplingTableModel::columnCount(const QModelIndex &parent) const
 
 QVariant NodeCouplingTableModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() >= m_rows.size()) return {};
+    if (!index.isValid() || index.row() >= m_rows.size())
+        return {};
     const Row &r = m_rows[index.row()];
     const bool changed = r.edited != r.original;
-    if (role == CategoryRole) return r.category;
-    if (role == AllowedTypesRole) return QVariant::fromValue(r.allowed);
+    if (role == CategoryRole)
+        return r.category;
+    if (role == AllowedTypesRole)
+        return QVariant::fromValue(r.allowed);
     if (role == Qt::FontRole && changed && index.column() <= ColCoupleable) {
-        QFont f; f.setBold(true); return f;
+        QFont f;
+        f.setBold(true);
+        return f;
     }
     switch (index.column()) {
     case ColName:
-        if (role == Qt::DisplayRole) return r.edited.node;
+        if (role == Qt::DisplayRole)
+            return r.edited.node;
         break;
     case ColCategory:
-        if (role == Qt::DisplayRole) return r.categoryLabel;
+        if (role == Qt::DisplayRole)
+            return r.categoryLabel;
         break;
     case ColType:
         if (role == Qt::DisplayRole)
-            return r.edited.authored ? nodecoupling2d::typeLabel(r.edited.type)
-                                     : tr("%1 (default)").arg(nodecoupling2d::typeLabel(r.edited.type));
-        if (role == Qt::EditRole) return r.edited.type;
+            return r.edited.authored
+                       ? nodecoupling2d::typeLabel(r.edited.type)
+                       : tr("%1 (default)").arg(nodecoupling2d::typeLabel(r.edited.type));
+        if (role == Qt::EditRole)
+            return r.edited.type;
         break;
     case ColCoupleable:
         if (role == Qt::CheckStateRole)
             return r.edited.type != nodecoupling2d::None ? Qt::Checked : Qt::Unchecked;
         break;
     default:
-        if (role == Qt::DisplayRole) return r.extra.value(index.column() - ColFirstExtra);
+        if (role == Qt::DisplayRole)
+            return r.extra.value(index.column() - ColFirstExtra);
         break;
     }
     return {};
@@ -134,7 +156,8 @@ QVariant NodeCouplingTableModel::data(const QModelIndex &index, int role) const
 
 bool NodeCouplingTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
-    if (!index.isValid() || index.row() >= m_rows.size()) return false;
+    if (!index.isValid() || index.row() >= m_rows.size())
+        return false;
     if (index.column() == ColCoupleable && role == Qt::CheckStateRole) {
         setCoupleable({index.row()}, value.toInt() == Qt::Checked);
         return true;
@@ -149,26 +172,35 @@ bool NodeCouplingTableModel::setData(const QModelIndex &index, const QVariant &v
 Qt::ItemFlags NodeCouplingTableModel::flags(const QModelIndex &index) const
 {
     Qt::ItemFlags f = QAbstractTableModel::flags(index);
-    if (index.column() == ColCoupleable) f |= Qt::ItemIsUserCheckable;
-    if (index.column() == ColType) f |= Qt::ItemIsEditable;
+    if (index.column() == ColCoupleable)
+        f |= Qt::ItemIsUserCheckable;
+    if (index.column() == ColType)
+        f |= Qt::ItemIsEditable;
     return f;
 }
 
 QVariant NodeCouplingTableModel::headerData(int section, Qt::Orientation o, int role) const
 {
-    if (o != Qt::Horizontal || role != Qt::DisplayRole) return {};
+    if (o != Qt::Horizontal || role != Qt::DisplayRole)
+        return {};
     switch (section) {
-    case ColName:       return tr("Node");
-    case ColCategory:   return tr("Category");
-    case ColType:       return tr("2D coupling");
-    case ColCoupleable: return tr("Coupleable");
-    default:            return m_extraHeaders.value(section - ColFirstExtra);
+    case ColName:
+        return tr("Node");
+    case ColCategory:
+        return tr("Category");
+    case ColType:
+        return tr("2D coupling");
+    case ColCoupleable:
+        return tr("Coupleable");
+    default:
+        return m_extraHeaders.value(section - ColFirstExtra);
     }
 }
 
 void NodeCouplingTableModel::stage(int row, const State &s)
 {
-    if (m_rows[row].edited == s) return;
+    if (m_rows[row].edited == s)
+        return;
     m_rows[row].edited = s;
     emit dataChanged(index(row, 0), index(row, ColCoupleable));
 }
@@ -176,9 +208,11 @@ void NodeCouplingTableModel::stage(int row, const State &s)
 void NodeCouplingTableModel::setCoupleable(const QList<int> &rows, bool on)
 {
     for (int r : rows) {
-        if (r < 0 || r >= m_rows.size()) continue;
+        if (r < 0 || r >= m_rows.size())
+            continue;
         State s = m_rows[r].edited;
-        if (on == (s.type != nodecoupling2d::None)) continue;
+        if (on == (s.type != nodecoupling2d::None))
+            continue;
         if (!on) {
             s.authored = true;
             s.type = nodecoupling2d::None;
@@ -186,8 +220,8 @@ void NodeCouplingTableModel::setCoupleable(const QList<int> &rows, bool on)
         } else if (m_rows[r].defaultType != nodecoupling2d::None) {
             // Back to the class default — an unauthored row when that is all
             // the original row said.
-            s.authored = m_rows[r].original.authored
-                         && m_rows[r].original.type != nodecoupling2d::None;
+            s.authored =
+                m_rows[r].original.authored && m_rows[r].original.type != nodecoupling2d::None;
             s.type = s.authored ? m_rows[r].original.type : m_rows[r].defaultType;
             s.params = s.authored ? m_rows[r].original.params : QMap<QString, QString>{};
         } else {
@@ -203,11 +237,14 @@ void NodeCouplingTableModel::setCoupleable(const QList<int> &rows, bool on)
 void NodeCouplingTableModel::setType(const QList<int> &rows, int type)
 {
     for (int r : rows) {
-        if (r < 0 || r >= m_rows.size() || !m_rows[r].allowed.contains(type)) continue;
+        if (r < 0 || r >= m_rows.size() || !m_rows[r].allowed.contains(type))
+            continue;
         State s = m_rows[r].edited;
-        if (s.authored && s.type == type) continue;
+        if (s.authored && s.type == type)
+            continue;
         // Parameters belong to a structure type; a new type starts bare.
-        if (s.type != type) s.params.clear();
+        if (s.type != type)
+            s.params.clear();
         s.authored = true;
         s.type = type;
         stage(r, s);
@@ -218,7 +255,8 @@ void NodeCouplingTableModel::setType(const QList<int> &rows, int type)
 void NodeCouplingTableModel::resetToDefault(const QList<int> &rows)
 {
     for (int r : rows) {
-        if (r < 0 || r >= m_rows.size()) continue;
+        if (r < 0 || r >= m_rows.size())
+            continue;
         State s;
         s.node = m_rows[r].edited.node;
         s.authored = false;
@@ -237,7 +275,8 @@ bool NodeCouplingTableModel::isCoupleable(const QString &node) const
 int NodeCouplingTableModel::coupleableCount() const
 {
     int n = 0;
-    for (const Row &r : m_rows) n += r.edited.type != nodecoupling2d::None;
+    for (const Row &r : m_rows)
+        n += r.edited.type != nodecoupling2d::None;
     return n;
 }
 
@@ -245,7 +284,8 @@ QVector<State> NodeCouplingTableModel::changedStates() const
 {
     QVector<State> out;
     for (const Row &r : m_rows)
-        if (r.edited != r.original) out.append(r.edited);
+        if (r.edited != r.original)
+            out.append(r.edited);
     return out;
 }
 
@@ -253,26 +293,46 @@ QVector<State> NodeCouplingTableModel::changedStates() const
 // Editor pieces
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 /*! Combo of the row's allowed types for the "2D coupling" column. */
 class CouplingTypeDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
+    /**
+     * @brief Create a type combo from this row's AllowedTypesRole payload.
+     * @param[in] parent Owner of the new combo.
+     * @param[in] index Cell whose allowed list is enumerated; style-options argument is unused.
+     * @return New parent-owned combo with type enums stored as item payloads.
+     */
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
                           const QModelIndex &index) const override
     {
         auto *combo = new QComboBox(parent);
-        const auto allowed = index.data(NodeCouplingTableModel::AllowedTypesRole).value<QList<int>>();
-        for (int t : allowed) combo->addItem(nodecoupling2d::typeLabel(t), t);
+        const auto allowed =
+            index.data(NodeCouplingTableModel::AllowedTypesRole).value<QList<int>>();
+        for (int t : allowed)
+            combo->addItem(nodecoupling2d::typeLabel(t), t);
         return combo;
     }
+    /**
+     * @brief Select the combo item matching a cell's EditRole type.
+     * @param[in,out] editor Required QComboBox created by this delegate.
+     * @param[in] index Source model cell.
+     */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override
     {
         auto *combo = static_cast<QComboBox *>(editor);
         combo->setCurrentIndex(combo->findData(index.data(Qt::EditRole)));
     }
+    /**
+     * @brief Submit the combo's type payload through EditRole.
+     * @param[in] editor Required QComboBox created by this delegate.
+     * @param[in,out] model Required target model; acceptance is not separately reported.
+     * @param[in] index Target cell.
+     */
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &index) const override
     {
@@ -286,8 +346,23 @@ class CouplingFilterProxy : public QSortFilterProxyModel
 public:
     using QSortFilterProxyModel::QSortFilterProxyModel;
     int category = -1;
-    void setCategory(int c) { category = c; invalidateFilter(); }
+    /**
+     * @brief Store a source category filter and invalidate visible proxy rows.
+     * @param[in] c Negative accepts all categories; nonnegative matches CategoryRole exactly.
+     */
+    void setCategory(int c)
+    {
+        category = c;
+        invalidateFilter();
+    }
+
 protected:
+    /**
+     * @brief Combine exact category filtering with the inherited case-insensitive name query.
+     * @param[in] row Source-model row.
+     * @param[in] parent Source parent index.
+     * @return True when category and base text filtering both pass; requires a bound source model.
+     */
     bool filterAcceptsRow(int row, const QModelIndex &parent) const override
     {
         const QModelIndex i = sourceModel()->index(row, 0, parent);
@@ -326,8 +401,9 @@ QTableView *NodeCouplingSelectorDialog::buildEditor(QWidget *host, NodeCouplingT
     proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
     QObject::connect(search, &QLineEdit::textChanged, proxy,
                      [proxy](const QString &t) { proxy->setFilterFixedString(t); });
-    QObject::connect(category, &QComboBox::currentIndexChanged, proxy,
-                     [proxy, category](int) { proxy->setCategory(category->currentData().toInt()); });
+    QObject::connect(category, &QComboBox::currentIndexChanged, proxy, [proxy, category](int) {
+        proxy->setCategory(category->currentData().toInt());
+    });
 
     auto *view = new QTableView(host);
     view->setModel(proxy);
@@ -372,33 +448,42 @@ QTableView *NodeCouplingSelectorDialog::buildEditor(QWidget *host, NodeCouplingT
         bulk->addWidget(w);
     bulk->addStretch();
     lay->addLayout(bulk);
-    QObject::connect(on, &QPushButton::clicked, host, [model, selectedRows] { model->setCoupleable(selectedRows(), true); });
-    QObject::connect(off, &QPushButton::clicked, host, [model, selectedRows] { model->setCoupleable(selectedRows(), false); });
-    QObject::connect(reset, &QPushButton::clicked, host, [model, selectedRows] { model->resetToDefault(selectedRows()); });
+    QObject::connect(on, &QPushButton::clicked, host,
+                     [model, selectedRows] { model->setCoupleable(selectedRows(), true); });
+    QObject::connect(off, &QPushButton::clicked, host,
+                     [model, selectedRows] { model->setCoupleable(selectedRows(), false); });
+    QObject::connect(reset, &QPushButton::clicked, host,
+                     [model, selectedRows] { model->resetToDefault(selectedRows()); });
     QObject::connect(fromMap, &QPushButton::clicked, host, [view, proxy, model, mapSelection] {
         QItemSelection sel;
         for (const QString &n : mapSelection) {
             const int r = model->rowOf(n);
-            if (r < 0) continue;
+            if (r < 0)
+                continue;
             const QModelIndex i = proxy->mapFromSource(model->index(r, 0));
-            if (i.isValid()) sel.select(i, i);
+            if (i.isValid())
+                sel.select(i, i);
         }
-        view->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        view->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect |
+                                                QItemSelectionModel::Rows);
     });
     QObject::connect(invert, &QPushButton::clicked, host, [view, proxy] {
         QItemSelection all(proxy->index(0, 0), proxy->index(proxy->rowCount() - 1, 0));
-        view->selectionModel()->select(all, QItemSelectionModel::Toggle | QItemSelectionModel::Rows);
+        view->selectionModel()->select(all,
+                                       QItemSelectionModel::Toggle | QItemSelectionModel::Rows);
     });
 
     auto *label = new QLabel(host);
     auto refresh = [label, model] {
         label->setText(QObject::tr("%1 of %2 nodes coupleable")
-                           .arg(model->coupleableCount()).arg(model->rowCount()));
+                           .arg(model->coupleableCount())
+                           .arg(model->rowCount()));
     };
     QObject::connect(model, &NodeCouplingTableModel::countsChanged, label, refresh);
     refresh();
     lay->addWidget(label);
-    if (readout) *readout = label;
+    if (readout)
+        *readout = label;
     return view;
 }
 
@@ -418,7 +503,8 @@ NodeCouplingSelectorDialog::NodeCouplingSelectorDialog(SWMMModelLayer *layer,
     auto *lay = new QVBoxLayout(this);
     auto *intro = new QLabel(tr("Which 1D nodes may exchange water with the 2D surface, and "
                                 "through what structure. Nodes that are not coupleable get no "
-                                "mesh coupling when the mesh is generated or remapped."), this);
+                                "mesh coupling when the mesh is generated or remapped."),
+                             this);
     intro->setWordWrap(true);
     lay->addWidget(intro);
     auto *host = new QWidget(this);
@@ -431,21 +517,27 @@ NodeCouplingSelectorDialog::NodeCouplingSelectorDialog(SWMMModelLayer *layer,
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(buttons->button(QDialogButtonBox::Apply), &QPushButton::clicked, this, [this] {
         QString error;
-        if (!applyEdits(&error)) QMessageBox::warning(this, windowTitle(), error);
+        if (!applyEdits(&error))
+            QMessageBox::warning(this, windowTitle(), error);
     });
     connect(buttons, &QDialogButtonBox::accepted, this, [this] {
         QString error;
-        if (applyEdits(&error)) accept();
-        else QMessageBox::warning(this, windowTitle(), error);
+        if (applyEdits(&error))
+            accept();
+        else
+            QMessageBox::warning(this, windowTitle(), error);
     });
 }
 
 bool NodeCouplingSelectorDialog::applyEdits(QString *error)
 {
-    if (!m_layer) return false;
+    if (!m_layer)
+        return false;
     const auto changed = m_model->changedStates();
-    if (changed.isEmpty()) return true;
-    if (!m_layer->pushNodeCoupling2DEdits(changed, tr("Set Node Coupling"), error)) return false;
+    if (changed.isEmpty())
+        return true;
+    if (!m_layer->pushNodeCoupling2DEdits(changed, tr("Set Node Coupling"), error))
+        return false;
     m_model->load(m_layer);
     return true;
 }

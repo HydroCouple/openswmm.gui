@@ -1,8 +1,11 @@
-/*!
- * \file   featurelayerpanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featurelayerpanel.cpp
+ * @brief     The Features dock: pick the edit target, edit the schema, edit the Z policy
+ *            (workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §5.3).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/panels/featurelayerpanel.h"
@@ -58,27 +61,32 @@ using openswmmvis::map::RenameFieldCommand;
 using openswmmvis::map::ResampleZCommand;
 using openswmmvis::map::SetFieldMetadataCommand;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 enum FieldColumn { ColName = 0, ColType = 1, ColDescription = 2, ColCount };
 
 //! Columns of the vertex grid.
-enum VertexColumn { VColPart = 0, VColRing, VColIndex, VColX, VColY, VColZ,
-                    VColCount };
+enum VertexColumn { VColPart = 0, VColRing, VColIndex, VColX, VColY, VColZ, VColCount };
 
 // The (part, ring, vertex) address rides on each row's first item, so a
 // rebuild or a sort cannot desynchronise row number from vertex — the same
 // guarantee the feature grid gets from stashing the id on column 0.
-constexpr int kPartRole  = Qt::UserRole;
-constexpr int kRingRole  = Qt::UserRole + 1;
+constexpr int kPartRole = Qt::UserRole;
+constexpr int kRingRole = Qt::UserRole + 1;
 constexpr int kIndexRole = Qt::UserRole + 2;
 
 /*! Fixed-point with enough digits for projected metres (sub-micron) and for
  *  degrees (~0.1 mm). Display only — an untouched coordinate is never written
  *  back from its formatted text, so this rounding cannot creep into the
- *  geometry. */
+ *  geometry.
+ * @param[in] v Native stored ordinate; no finite-value check, NaN/inf follow QString formatting.
+ * @return Fixed decimal string with six fractional places, no locale/unit conversion. Editing this
+ *   text affects only the selected axis; untouched axes are read from geometry.
+ */
 QString formatOrdinate(double v)
 {
     return QString::number(v, 'f', 6);
@@ -87,19 +95,29 @@ QString formatOrdinate(double v)
 /*! Above this the grid refuses to populate; see refreshVertexTable(). */
 constexpr int kMaxVertexRows = 10000;
 
-/*! The schema table's Type column: "Choice" for a Fixed list. */
+/*! The schema table's Type column: "Choice" for a Fixed list.
+ * @param[in] f Borrowed editor field schema, read only.
+ * @return Translated Choice for Fixed choice source, otherwise fieldTypeLabel of stored type; empty
+ *   fixed list still labeled Choice.
+ */
 QString fieldTypeText(const FieldDef &f)
 {
     return f.choiceSource == ChoiceSource::Fixed ? FeatureLayerPanel::tr("Choice")
                                                  : fieldTypeLabel(f.type);
 }
 
-/*! The SWMM model on \p canvas, for the time-series / curve dropdowns. */
+/*! The SWMM model on \p canvas, for the time-series / curve dropdowns.
+ * @param[in] canvas Optional borrowed canvas; null gives null.
+ * @return Borrowed first SWMMModelLayer in canvas order, regardless of visibility, or null. No
+ *   ownership pin, active-project validation or model mutation.
+ */
 SWMMModelLayer *modelLayerOn(const MapCanvas *canvas)
 {
-    if (!canvas) return nullptr;
+    if (!canvas)
+        return nullptr;
     for (OpenSWMMVisLayer *l : canvas->layers())
-        if (auto *m = qobject_cast<SWMMModelLayer *>(l)) return m;
+        if (auto *m = qobject_cast<SWMMModelLayer *>(l))
+            return m;
     return nullptr;
 }
 
@@ -112,33 +130,42 @@ SWMMModelLayer *modelLayerOn(const MapCanvas *canvas)
  *          Z the user had typed into the other rows. Only the vertex that
  *          actually moved is over new ground. Structure is identical because
  *          the caller samples with densify = false, so no vertices appear.
+ * @param[in,out] to Geometry whose existing aligned Z arrays are overwritten except selected
+ *   address; XY/structure untouched.
+ * @param[in] from Borrowed pre-sampling geometry providing restored Z, including NaN; never
+ *   modified.
+ * @param[in] keepPart Zero-based part to preserve from sampled destination; out-of-range means no
+ *   preserved match.
+ * @param[in] keepRing Zero for exterior, one-based hole ordinal; no address validation/error.
+ * @param[in] keepIndex Zero-based vertex to preserve in matching destination ring.
+ * @note Iterate only common parts/rings; skip ring unless both carry Z and Z sizes match. Does not
+ *   create arrays or report structural mismatch. Caller uses densify=false to retain identical
+ *   structure. No layer write/undo/sampling here.
  */
-void restoreZExcept(FeatureGeometry &to, const FeatureGeometry &from,
-                    int keepPart, int keepRing, int keepIndex)
+void restoreZExcept(FeatureGeometry &to, const FeatureGeometry &from, int keepPart, int keepRing,
+                    int keepIndex)
 {
     QVector<Part> &toParts = to.parts();
     const QVector<Part> &fromParts = from.parts();
     for (int p = 0; p < toParts.size() && p < fromParts.size(); ++p) {
-        const int ringCount =
-            std::min(toParts[p].holes.size(), fromParts.at(p).holes.size()) + 1;
+        const int ringCount = std::min(toParts[p].holes.size(), fromParts.at(p).holes.size()) + 1;
         for (int r = 0; r < ringCount; ++r) {
             Ring &dst = (r == 0) ? toParts[p].exterior : toParts[p].holes[r - 1];
-            const Ring &src = (r == 0) ? fromParts.at(p).exterior
-                                       : fromParts.at(p).holes.at(r - 1);
+            const Ring &src = (r == 0) ? fromParts.at(p).exterior : fromParts.at(p).holes.at(r - 1);
             if (!src.hasZ() || !dst.hasZ() || src.z.size() != dst.z.size())
                 continue;
             for (int i = 0; i < dst.z.size(); ++i) {
-                if (p == keepPart && r == keepRing && i == keepIndex) continue;
+                if (p == keepPart && r == keepRing && i == keepIndex)
+                    continue;
                 dst.z[i] = src.z.at(i);
             }
         }
     }
 }
 
-}   // namespace
+} // namespace
 
-FeatureLayerPanel::FeatureLayerPanel(QWidget *parent)
-    : QWidget(parent)
+FeatureLayerPanel::FeatureLayerPanel(QWidget *parent) : QWidget(parent)
 {
     setObjectName(QStringLiteral("FeatureLayerPanel"));
     buildUi();
@@ -159,17 +186,16 @@ void FeatureLayerPanel::buildUi()
 
         m_layerList = new QListWidget(g);
         m_layerList->setObjectName(QStringLiteral("featureLayerList"));
-        m_layerList->setToolTip(
-            tr("The selected layer is the one the drawing and editing tools "
-               "write into."));
+        m_layerList->setToolTip(tr("The selected layer is the one the drawing and editing tools "
+                                   "write into."));
         m_layerList->setMinimumHeight(90);
         lay->addWidget(m_layerList);
 
         auto *btns = new QHBoxLayout();
-        m_newBtn    = new QPushButton(tr("New…"),    g);
+        m_newBtn = new QPushButton(tr("New…"), g);
         m_importBtn = new QPushButton(tr("Import…"), g);
         m_exportBtn = new QPushButton(tr("Export…"), g);
-        m_removeBtn = new QPushButton(tr("Remove"),  g);
+        m_removeBtn = new QPushButton(tr("Remove"), g);
         m_importBtn->setToolTip(tr("Copy an existing vector layer or a SWMM "
                                    "object class into this editable layer."));
         m_removeBtn->setToolTip(tr("Remove the layer from the map. The table "
@@ -200,7 +226,7 @@ void FeatureLayerPanel::buildUi()
         lay->addWidget(m_fieldTable);
 
         auto *btns = new QHBoxLayout();
-        m_addFieldBtn    = new QPushButton(tr("Add column…"), g);
+        m_addFieldBtn = new QPushButton(tr("Add column…"), g);
         m_removeFieldBtn = new QPushButton(tr("Remove column"), g);
         m_updateFieldsBtn = new QPushButton(tr("Update fields to role…"), g);
         m_updateFieldsBtn->setObjectName(QStringLiteral("featureUpdateFieldsButton"));
@@ -233,9 +259,8 @@ void FeatureLayerPanel::buildUi()
         m_featureTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
         m_featureTable->setContextMenuPolicy(Qt::CustomContextMenu);
         m_featureTable->setMinimumHeight(140);
-        m_featureTable->setToolTip(
-            tr("Every feature in this layer. Selecting rows selects them on "
-               "the map; open an edit session to change values or delete."));
+        m_featureTable->setToolTip(tr("Every feature in this layer. Selecting rows selects them on "
+                                      "the map; open an edit session to change values or delete."));
         lay->addWidget(m_featureTable);
 
         auto *btns = new QHBoxLayout();
@@ -251,22 +276,21 @@ void FeatureLayerPanel::buildUi()
 
         vbox->addWidget(g);
 
-        connect(m_featureTable, &QTableWidget::cellChanged,
-                this, &FeatureLayerPanel::onFeatureCellChanged);
-        connect(m_featureTable, &QTableWidget::itemSelectionChanged,
-                this, &FeatureLayerPanel::onFeatureSelectionChanged);
-        connect(m_featureTable, &QWidget::customContextMenuRequested,
-                this, &FeatureLayerPanel::onFeatureTableContextMenu);
-        connect(m_deleteFeatBtn, &QPushButton::clicked,
-                this, &FeatureLayerPanel::onDeleteSelectedFeatureRows);
+        connect(m_featureTable, &QTableWidget::cellChanged, this,
+                &FeatureLayerPanel::onFeatureCellChanged);
+        connect(m_featureTable, &QTableWidget::itemSelectionChanged, this,
+                &FeatureLayerPanel::onFeatureSelectionChanged);
+        connect(m_featureTable, &QWidget::customContextMenuRequested, this,
+                &FeatureLayerPanel::onFeatureTableContextMenu);
+        connect(m_deleteFeatBtn, &QPushButton::clicked, this,
+                &FeatureLayerPanel::onDeleteSelectedFeatureRows);
 
         // Del while the grid has focus. Scoped to the widget so it cannot
         // shadow the Features toolbar's own Del, which acts on the map
         // selection.
         auto *del = new QShortcut(QKeySequence::Delete, m_featureTable);
         del->setContext(Qt::WidgetWithChildrenShortcut);
-        connect(del, &QShortcut::activated,
-                this, &FeatureLayerPanel::onDeleteSelectedFeatureRows);
+        connect(del, &QShortcut::activated, this, &FeatureLayerPanel::onDeleteSelectedFeatureRows);
     }
 
     // ----- Vertex grid ----------------------------------------------------
@@ -290,10 +314,9 @@ void FeatureLayerPanel::buildUi()
         m_vertexTable->setMinimumHeight(140);
         m_vertexTable->setHorizontalHeaderLabels(
             {tr("Part"), tr("Ring"), tr("#"), tr("X"), tr("Y"), tr("Z")});
-        m_vertexTable->setToolTip(
-            tr("Coordinates of the selected feature, in the layer's own CRS. "
-               "Ring 'exterior' is the outline; 'hole N' are interior rings. "
-               "Open an edit session to type new values."));
+        m_vertexTable->setToolTip(tr("Coordinates of the selected feature, in the layer's own CRS. "
+                                     "Ring 'exterior' is the outline; 'hole N' are interior rings. "
+                                     "Open an edit session to type new values."));
         lay->addWidget(m_vertexTable);
 
         m_vertexHintLabel = new QLabel(g);
@@ -303,8 +326,8 @@ void FeatureLayerPanel::buildUi()
 
         vbox->addWidget(g);
 
-        connect(m_vertexTable, &QTableWidget::cellChanged,
-                this, &FeatureLayerPanel::onVertexCellChanged);
+        connect(m_vertexTable, &QTableWidget::cellChanged, this,
+                &FeatureLayerPanel::onVertexCellChanged);
     }
 
     // ----- Z -------------------------------------------------------------
@@ -313,10 +336,10 @@ void FeatureLayerPanel::buildUi()
         auto *f = new QFormLayout(g);
 
         m_zSourceCombo = new QComboBox(g);
-        m_zSourceCombo->addItem(tr("None — 2D layer"),  static_cast<int>(ZPolicy::Source::None));
-        m_zSourceCombo->addItem(tr("Constant value"),   static_cast<int>(ZPolicy::Source::Constant));
-        m_zSourceCombo->addItem(tr("Raster (DEM)"),     static_cast<int>(ZPolicy::Source::Raster));
-        m_zSourceCombo->addItem(tr("2D mesh"),          static_cast<int>(ZPolicy::Source::Mesh));
+        m_zSourceCombo->addItem(tr("None — 2D layer"), static_cast<int>(ZPolicy::Source::None));
+        m_zSourceCombo->addItem(tr("Constant value"), static_cast<int>(ZPolicy::Source::Constant));
+        m_zSourceCombo->addItem(tr("Raster (DEM)"), static_cast<int>(ZPolicy::Source::Raster));
+        m_zSourceCombo->addItem(tr("2D mesh"), static_cast<int>(ZPolicy::Source::Mesh));
         f->addRow(tr("Source:"), m_zSourceCombo);
 
         m_zLayerCombo = new QComboBox(g);
@@ -346,10 +369,9 @@ void FeatureLayerPanel::buildUi()
         f->addRow(QString(), m_zResampleBox);
 
         m_resampleBtn = new QPushButton(tr("Resample Z now"), g);
-        m_resampleBtn->setToolTip(
-            tr("Re-sample every feature. One undo step reverts the whole "
-               "resample — a partial revert would leave the layer with mixed "
-               "vintages of terrain."));
+        m_resampleBtn->setToolTip(tr("Re-sample every feature. One undo step reverts the whole "
+                                     "resample — a partial revert would leave the layer with mixed "
+                                     "vintages of terrain."));
         f->addRow(QString(), m_resampleBtn);
 
         vbox->addWidget(g);
@@ -363,37 +385,31 @@ void FeatureLayerPanel::buildUi()
     vbox->addStretch();
     root->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, this), 1);
 
-    connect(m_layerList, &QListWidget::currentRowChanged,
-            this, &FeatureLayerPanel::onLayerRowChanged);
-    connect(m_newBtn,    &QPushButton::clicked,
-            this, [this] { emit newLayerRequested(); });
-    connect(m_importBtn, &QPushButton::clicked,
-            this, [this] { emit importRequested(m_active.data()); });
-    connect(m_exportBtn, &QPushButton::clicked,
-            this, [this] { emit exportRequested(m_active.data()); });
-    connect(m_removeBtn, &QPushButton::clicked,
-            this, &FeatureLayerPanel::onRemoveLayer);
-    connect(m_addFieldBtn,    &QPushButton::clicked,
-            this, &FeatureLayerPanel::onAddField);
-    connect(m_removeFieldBtn, &QPushButton::clicked,
-            this, &FeatureLayerPanel::onRemoveField);
-    connect(m_updateFieldsBtn, &QPushButton::clicked,
-            this, &FeatureLayerPanel::onUpdateFieldsToRole);
-    connect(m_resampleBtn,    &QPushButton::clicked,
-            this, &FeatureLayerPanel::onResampleZ);
+    connect(m_layerList, &QListWidget::currentRowChanged, this,
+            &FeatureLayerPanel::onLayerRowChanged);
+    connect(m_newBtn, &QPushButton::clicked, this, [this] { emit newLayerRequested(); });
+    connect(m_importBtn, &QPushButton::clicked, this,
+            [this] { emit importRequested(m_active.data()); });
+    connect(m_exportBtn, &QPushButton::clicked, this,
+            [this] { emit exportRequested(m_active.data()); });
+    connect(m_removeBtn, &QPushButton::clicked, this, &FeatureLayerPanel::onRemoveLayer);
+    connect(m_addFieldBtn, &QPushButton::clicked, this, &FeatureLayerPanel::onAddField);
+    connect(m_removeFieldBtn, &QPushButton::clicked, this, &FeatureLayerPanel::onRemoveField);
+    connect(m_updateFieldsBtn, &QPushButton::clicked, this,
+            &FeatureLayerPanel::onUpdateFieldsToRole);
+    connect(m_resampleBtn, &QPushButton::clicked, this, &FeatureLayerPanel::onResampleZ);
 
-    for (QWidget *w : {static_cast<QWidget *>(m_zSourceCombo),
-                       static_cast<QWidget *>(m_zLayerCombo)}) {
-        connect(qobject_cast<QComboBox *>(w), qOverload<int>(&QComboBox::currentIndexChanged),
-                this, [this](int) { onZPolicyEdited(); });
+    for (QWidget *w :
+         {static_cast<QWidget *>(m_zSourceCombo), static_cast<QWidget *>(m_zLayerCombo)}) {
+        connect(qobject_cast<QComboBox *>(w), qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [this](int) { onZPolicyEdited(); });
     }
-    connect(m_zBandSpin,     qOverload<int>(&QSpinBox::valueChanged),
-            this, [this](int)    { onZPolicyEdited(); });
+    connect(m_zBandSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int) { onZPolicyEdited(); });
     for (QDoubleSpinBox *s : {m_zConstantSpin, m_zScaleSpin, m_zDensifySpin})
-        connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                this, [this](double) { onZPolicyEdited(); });
-    connect(m_zResampleBox, &QCheckBox::toggled,
-            this, [this](bool) { onZPolicyEdited(); });
+        connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [this](double) { onZPolicyEdited(); });
+    connect(m_zResampleBox, &QCheckBox::toggled, this, [this](bool) { onZPolicyEdited(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -402,18 +418,20 @@ void FeatureLayerPanel::buildUi()
 
 void FeatureLayerPanel::setCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas) return;
+    if (m_canvas == canvas)
+        return;
 
-    if (m_canvas) disconnect(m_canvas.data(), nullptr, this, nullptr);
+    if (m_canvas)
+        disconnect(m_canvas.data(), nullptr, this, nullptr);
     m_canvas = canvas;
 
     if (m_canvas) {
         // The list must follow the canvas, or a layer added from the ribbon
         // would not appear here until something else forced a refresh.
-        connect(m_canvas.data(), &MapCanvas::layerAdded,
-                this, [this](OpenSWMMVisLayer *) { refreshLayerList(); });
-        connect(m_canvas.data(), &MapCanvas::layerRemoved,
-                this, [this](OpenSWMMVisLayer *) { refreshLayerList(); });
+        connect(m_canvas.data(), &MapCanvas::layerAdded, this,
+                [this](OpenSWMMVisLayer *) { refreshLayerList(); });
+        connect(m_canvas.data(), &MapCanvas::layerRemoved, this,
+                [this](OpenSWMMVisLayer *) { refreshLayerList(); });
     }
     refreshLayerList();
 }
@@ -428,10 +446,10 @@ void FeatureLayerPanel::refreshLayerList()
     if (m_canvas) {
         for (OpenSWMMVisLayer *l : m_canvas->layers()) {
             auto *fl = qobject_cast<FeatureLayer *>(l);
-            if (!fl) continue;
+            if (!fl)
+                continue;
             auto *item = new QListWidgetItem(
-                QStringLiteral("%1  —  %2").arg(fl->name(),
-                                                featureLayerRoleLabel(fl->role())));
+                QStringLiteral("%1  —  %2").arg(fl->name(), featureLayerRoleLabel(fl->role())));
             item->setData(Qt::UserRole, fl->layerId());
             m_layerList->addItem(item);
         }
@@ -441,16 +459,22 @@ void FeatureLayerPanel::refreshLayerList()
     // Restore the previous selection when the layer survived.
     int row = -1;
     for (int i = 0; i < m_layerList->count(); ++i) {
-        if (m_layerList->item(i)->data(Qt::UserRole).toString() == keepId) { row = i; break; }
+        if (m_layerList->item(i)->data(Qt::UserRole).toString() == keepId) {
+            row = i;
+            break;
+        }
     }
-    if (row < 0 && m_layerList->count() > 0) row = 0;
+    if (row < 0 && m_layerList->count() > 0)
+        row = 0;
     m_layerList->setCurrentRow(row);
-    if (row < 0) onLayerRowChanged(-1);
+    if (row < 0)
+        onLayerRowChanged(-1);
 }
 
 void FeatureLayerPanel::selectLayer(FeatureLayer *layer)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
     for (int i = 0; i < m_layerList->count(); ++i) {
         if (m_layerList->item(i)->data(Qt::UserRole).toString() == layer->layerId()) {
             m_layerList->setCurrentRow(i);
@@ -465,9 +489,15 @@ void FeatureLayerPanel::onLayerRowChanged(int row)
     if (row >= 0 && row < m_layerList->count() && m_canvas) {
         const QString id = m_layerList->item(row)->data(Qt::UserRole).toString();
         for (OpenSWMMVisLayer *l : m_canvas->layers())
-            if (l && l->layerId() == id) { next = qobject_cast<FeatureLayer *>(l); break; }
+            if (l && l->layerId() == id) {
+                next = qobject_cast<FeatureLayer *>(l);
+                break;
+            }
     }
-    if (next == m_active.data()) { refreshDetails(); return; }
+    if (next == m_active.data()) {
+        refreshDetails();
+        return;
+    }
 
     bindActiveLayer(next);
     refreshDetails();
@@ -476,24 +506,25 @@ void FeatureLayerPanel::onLayerRowChanged(int row)
 
 void FeatureLayerPanel::bindActiveLayer(FeatureLayer *layer)
 {
-    if (m_active) disconnect(m_active.data(), nullptr, this, nullptr);
+    if (m_active)
+        disconnect(m_active.data(), nullptr, this, nullptr);
     m_active = layer;
-    if (!m_active) return;
+    if (!m_active)
+        return;
 
-    connect(m_active.data(), &FeatureLayer::schemaChanged,
-            this, &FeatureLayerPanel::refreshDetails);
-    connect(m_active.data(), &FeatureLayer::zPolicyChanged,
-            this, &FeatureLayerPanel::refreshDetails);
+    connect(m_active.data(), &FeatureLayer::schemaChanged, this,
+            &FeatureLayerPanel::refreshDetails);
+    connect(m_active.data(), &FeatureLayer::zPolicyChanged, this,
+            &FeatureLayerPanel::refreshDetails);
     // A feature write changes the counters AND the grid's contents.
-    connect(m_active.data(), &FeatureLayer::featuresChanged,
-            this, [this](const QVector<qint64> &) {
-                refreshStatus();
-                refreshFeatureTable();
-            });
+    connect(m_active.data(), &FeatureLayer::featuresChanged, this, [this](const QVector<qint64> &) {
+        refreshStatus();
+        refreshFeatureTable();
+    });
     // Opening or closing the session flips every value cell between
     // editable and read-only, so the grid is rebuilt rather than patched.
-    connect(m_active.data(), &FeatureLayer::editingChanged,
-            this, [this](bool) { refreshFeatureTable(); });
+    connect(m_active.data(), &FeatureLayer::editingChanged, this,
+            [this](bool) { refreshFeatureTable(); });
     // Map selection → grid rows. The inverse direction is
     // onFeatureSelectionChanged(); both funnel through setSelectedFeatureIds,
     // and the QSignalBlocker in each stops the pair from ping-ponging.
@@ -508,15 +539,17 @@ void FeatureLayerPanel::bindActiveLayer(FeatureLayer *layer)
 void FeatureLayerPanel::populateZSourceLayers()
 {
     m_zLayerCombo->clear();
-    if (!m_canvas || !m_active) return;
+    if (!m_canvas || !m_active)
+        return;
 
     const auto src = static_cast<ZPolicy::Source>(m_zSourceCombo->currentData().toInt());
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if (!l) continue;
-        const bool wanted =
-            (src == ZPolicy::Source::Raster && qobject_cast<GISRasterLayer *>(l))
-         || (src == ZPolicy::Source::Mesh   && qobject_cast<SWMM2DMeshLayer *>(l));
-        if (wanted) m_zLayerCombo->addItem(l->name(), l->layerId());
+        if (!l)
+            continue;
+        const bool wanted = (src == ZPolicy::Source::Raster && qobject_cast<GISRasterLayer *>(l)) ||
+                            (src == ZPolicy::Source::Mesh && qobject_cast<SWMM2DMeshLayer *>(l));
+        if (wanted)
+            m_zLayerCombo->addItem(l->name(), l->layerId());
     }
 }
 
@@ -544,8 +577,8 @@ void FeatureLayerPanel::refreshDetails()
         for (const FieldDef &f : s.fields()) {
             const int row = m_fieldTable->rowCount();
             m_fieldTable->insertRow(row);
-            m_fieldTable->setItem(row, ColName,        new QTableWidgetItem(f.name));
-            m_fieldTable->setItem(row, ColType,        new QTableWidgetItem(fieldTypeText(f)));
+            m_fieldTable->setItem(row, ColName, new QTableWidgetItem(f.name));
+            m_fieldTable->setItem(row, ColType, new QTableWidgetItem(fieldTypeText(f)));
             m_fieldTable->setItem(row, ColDescription, new QTableWidgetItem(f.description));
         }
     }
@@ -554,10 +587,12 @@ void FeatureLayerPanel::refreshDetails()
     m_suppressZEdits = true;
     const ZPolicy p = has ? l->zPolicy() : ZPolicy{};
     const int srcIdx = m_zSourceCombo->findData(static_cast<int>(p.source));
-    if (srcIdx >= 0) m_zSourceCombo->setCurrentIndex(srcIdx);
+    if (srcIdx >= 0)
+        m_zSourceCombo->setCurrentIndex(srcIdx);
     populateZSourceLayers();
     const int layerIdx = m_zLayerCombo->findData(p.sourceLayerId);
-    if (layerIdx >= 0) m_zLayerCombo->setCurrentIndex(layerIdx);
+    if (layerIdx >= 0)
+        m_zLayerCombo->setCurrentIndex(layerIdx);
     m_zBandSpin->setValue(p.rasterBand);
     m_zConstantSpin->setValue(p.constant);
     m_zScaleSpin->setValue(p.zScale);
@@ -570,8 +605,8 @@ void FeatureLayerPanel::refreshDetails()
     // read-only for a 2D layer rather than offering a change that cannot be
     // honoured.
     m_zSourceCombo->setEnabled(is3D);
-    m_zLayerCombo->setEnabled(is3D && (p.source == ZPolicy::Source::Raster
-                                    || p.source == ZPolicy::Source::Mesh));
+    m_zLayerCombo->setEnabled(
+        is3D && (p.source == ZPolicy::Source::Raster || p.source == ZPolicy::Source::Mesh));
     m_zBandSpin->setEnabled(is3D && p.source == ZPolicy::Source::Raster);
     m_zConstantSpin->setEnabled(is3D && p.source == ZPolicy::Source::Constant);
     m_zScaleSpin->setEnabled(is3D);
@@ -594,9 +629,8 @@ void FeatureLayerPanel::refreshStatus()
     QString text = tr("%n feature(s)", nullptr, n);
     if (l->isThreeD()) {
         const int unsampled = l->unsampledZCount();
-        text += unsampled > 0
-                    ? tr(" · %n vertex(es) with no elevation", nullptr, unsampled)
-                    : tr(" · all vertices sampled");
+        text += unsampled > 0 ? tr(" · %n vertex(es) with no elevation", nullptr, unsampled)
+                              : tr(" · all vertices sampled");
     }
     text += tr(" · %1").arg(geometryTypeLabel(l->geometryType()));
     m_statusLabel->setText(text);
@@ -639,7 +673,8 @@ void FeatureLayerPanel::refreshFeatureTable()
 
     // Column 0 is the feature id: identity, never editable.
     QStringList headers{tr("id")};
-    for (const FieldDef &f : schema.fields()) headers << f.name;
+    for (const FieldDef &f : schema.fields())
+        headers << f.name;
     m_featureTable->setColumnCount(headers.size());
     m_featureTable->setHorizontalHeaderLabels(headers);
     m_featureTable->horizontalHeader()->setStretchLastSection(false);
@@ -649,7 +684,8 @@ void FeatureLayerPanel::refreshFeatureTable()
     m_featureTable->setRowCount(ids.size());
     for (int row = 0; row < ids.size(); ++row) {
         Feature f;
-        if (!l->feature(ids.at(row), f)) continue;
+        if (!l->feature(ids.at(row), f))
+            continue;
 
         auto *idItem = new QTableWidgetItem(QString::number(f.id));
         idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
@@ -663,8 +699,7 @@ void FeatureLayerPanel::refreshFeatureTable()
             const QVariant v = f.attributes.value(fd.name);
             auto *item = new QTableWidgetItem(v.toString());
             if (fd.type == FieldType::Boolean) {
-                item->setData(Qt::CheckStateRole,
-                              v.toBool() ? Qt::Checked : Qt::Unchecked);
+                item->setData(Qt::CheckStateRole, v.toBool() ? Qt::Checked : Qt::Unchecked);
                 item->setText(QString());
             }
             // Values are editable only inside an edit session.
@@ -678,8 +713,7 @@ void FeatureLayerPanel::refreshFeatureTable()
     }
 
     m_deleteFeatBtn->setEnabled(editing);
-    m_featHintLabel->setText(editing ? QString()
-                                     : tr("Read-only — turn on Edit Mode."));
+    m_featHintLabel->setText(editing ? QString() : tr("Read-only — turn on Edit Mode."));
     m_suppressFeatureEdits = false;
 
     // Reflect whatever is selected on the map into the grid.
@@ -692,34 +726,40 @@ void FeatureLayerPanel::installGridDelegates()
     const Schema schema = l ? l->editorSchema() : Schema{};
     // Rebuilt only when the columns' definitions change: the grid itself is
     // rebuilt on every feature write, often from inside a delegate's commit.
-    const QString key = l ? l->layerId() + QLatin1Char('|')
-                                + QString::fromUtf8(QJsonDocument(schema.toJson())
-                                                        .toJson(QJsonDocument::Compact))
-                          : QString();
-    if (key == m_gridDelegateKey) return;
+    const QString key =
+        l ? l->layerId() + QLatin1Char('|') +
+                QString::fromUtf8(QJsonDocument(schema.toJson()).toJson(QJsonDocument::Compact))
+          : QString();
+    if (key == m_gridDelegateKey)
+        return;
     m_gridDelegateKey = key;
 
     for (int c = 0; c < m_featureTable->columnCount(); ++c)
         m_featureTable->setItemDelegateForColumn(c, nullptr);
     for (const QPointer<QStyledItemDelegate> &d : std::as_const(m_gridDelegates))
-        if (d) d->deleteLater();   // an editor may still be committing
+        if (d)
+            d->deleteLater(); // an editor may still be committing
     m_gridDelegates.clear();
-    if (!l) return;
+    if (!l)
+        return;
 
     const int bcCol = (l->role() == FeatureLayerRole::BoundaryCondition)
-                          ? schema.indexOf(QStringLiteral("bc_type")) : -1;
-    const QString lengthUnit = UnitSystem::instance()
-                                   ? UnitSystem::instance()->lengthLabel() : QString();
+                          ? schema.indexOf(QStringLiteral("bc_type"))
+                          : -1;
+    const QString lengthUnit =
+        UnitSystem::instance() ? UnitSystem::instance()->lengthLabel() : QString();
     for (int i = 0; i < schema.count(); ++i) {
         const FieldDef f = schema.at(i);
-        if (f.type == FieldType::Boolean) continue;   // the grid's own checkbox
+        if (f.type == FieldType::Boolean)
+            continue; // the grid's own checkbox
         auto *del = new FeatureFieldDelegate(f, this);
         del->setLengthUnit(lengthUnit);
         del->setBcTypeColumn(bcCol >= 0 ? bcCol + 1 : -1);
         del->setWarningColor(ThemeManager::instance()->colors().warning);
         del->setModelNamesProvider([this](ModelList list) {
             SWMMModelLayer *model = modelLayerOn(m_canvas.data());
-            if (!model) return QStringList();
+            if (!model)
+                return QStringList();
             // 0 = time series; -1 = every curve kind (a 2D rating curve may
             // reference any curve).
             return model->tableIdsOfType(list == ModelList::TimeSeries ? 0 : -1);
@@ -732,7 +772,8 @@ void FeatureLayerPanel::installGridDelegates()
 void FeatureLayerPanel::onFeatureSelectionChangedFromLayer()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || !m_featureTable) return;
+    if (!l || !m_featureTable)
+        return;
     const QSignalBlocker block(m_featureTable);
     const QSet<long long> sel = l->selectedFeatureIds();
     m_featureTable->clearSelection();
@@ -749,36 +790,45 @@ void FeatureLayerPanel::onFeatureSelectionChangedFromLayer()
 
 void FeatureLayerPanel::onFeatureCellChanged(int row, int column)
 {
-    if (m_suppressFeatureEdits || column <= 0) return;   // 0 is the id
+    if (m_suppressFeatureEdits || column <= 0)
+        return; // 0 is the id
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas || !l->isEditing()) return;
+    if (!l || !m_canvas || !l->isEditing())
+        return;
 
     const QTableWidgetItem *idItem = m_featureTable->item(row, 0);
     QTableWidgetItem *cell = m_featureTable->item(row, column);
-    if (!idItem || !cell) return;
+    if (!idItem || !cell)
+        return;
 
     const auto id = static_cast<FeatureId>(idItem->data(Qt::UserRole).toLongLong());
     Feature f;
-    if (!l->feature(id, f)) return;
+    if (!l->feature(id, f))
+        return;
 
     const Schema schema = l->editorSchema();
-    if (column - 1 >= schema.count()) return;
+    if (column - 1 >= schema.count())
+        return;
     const FieldDef fd = schema.at(column - 1);
 
-    const QVariant typed =
-        fd.type == FieldType::Boolean
-            ? QVariant(cell->checkState() == Qt::Checked)
-            : coerceToFieldType(QVariant(cell->text()), fd.type);
+    const QVariant typed = fd.type == FieldType::Boolean
+                               ? QVariant(cell->checkState() == Qt::Checked)
+                               : coerceToFieldType(QVariant(cell->text()), fd.type);
 
     QVariantMap next = f.attributes;
     next.insert(fd.name, typed);
-    if (next == f.attributes) return;   // nothing actually moved
+    if (next == f.attributes)
+        return; // nothing actually moved
 
-    auto *cmd = new map::EditFeatureAttributesCommand(l, id, f.attributes, next,
-                                                 m_canvas.data());
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       { delete cmd; return; }
-    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
+    auto *cmd = new map::EditFeatureAttributesCommand(l, id, f.attributes, next, m_canvas.data());
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else {
+        delete cmd;
+        return;
+    }
+    if (!cmd->lastError().isEmpty())
+        emit message(cmd->lastError());
 
     // Re-read: coercion may have normalised what the user typed ("3.50" for
     // a Real becomes 3.5), and showing the raw text would be a lie.
@@ -788,7 +838,8 @@ void FeatureLayerPanel::onFeatureCellChanged(int row, int column)
 void FeatureLayerPanel::onFeatureSelectionChanged()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || m_suppressFeatureEdits) return;
+    if (!l || m_suppressFeatureEdits)
+        return;
 
     QSet<long long> ids;
     const auto rows = m_featureTable->selectionModel()
@@ -813,12 +864,14 @@ void FeatureLayerPanel::onFeatureSelectionChanged()
 
 void FeatureLayerPanel::refreshVertexTable()
 {
-    if (!m_vertexTable) return;
+    if (!m_vertexTable)
+        return;
     // A write from onVertexCellChanged() re-enters here through
     // featuresChanged while Qt is still delivering cellChanged. Rebuilding now
     // would destroy the item being committed; the handler queues one rebuild
     // when it returns instead.
-    if (m_vertexEditInFlight) return;
+    if (m_vertexEditInFlight)
+        return;
 
     // Every setItem below would otherwise return through cellChanged as a
     // user edit, exactly as in refreshFeatureTable().
@@ -828,8 +881,8 @@ void FeatureLayerPanel::refreshVertexTable()
 
     // Keep the user's place: an edit rebuilds the grid, and a ring of 400
     // vertices is unusable if every keystroke scrolls back to the top.
-    const qint64 previousId  = m_vertexFeatureId;
-    const int    previousRow = m_vertexTable->currentRow();
+    const qint64 previousId = m_vertexFeatureId;
+    const int previousRow = m_vertexTable->currentRow();
 
     m_vertexTable->clearContents();
     m_vertexTable->setRowCount(0);
@@ -846,11 +899,11 @@ void FeatureLayerPanel::refreshVertexTable()
     // feature was picked in the grid above or on the map.
     const QSet<long long> sel = l->selectedFeatureIds();
     if (sel.size() != 1) {
-        m_vertexHintLabel->setText(
-            sel.isEmpty()
-                ? tr("Select one feature to see its coordinates.")
-                : tr("%n features selected — select exactly one to edit "
-                     "coordinates.", nullptr, static_cast<int>(sel.size())));
+        m_vertexHintLabel->setText(sel.isEmpty()
+                                       ? tr("Select one feature to see its coordinates.")
+                                       : tr("%n features selected — select exactly one to edit "
+                                            "coordinates.",
+                                            nullptr, static_cast<int>(sel.size())));
         return;
     }
 
@@ -862,8 +915,8 @@ void FeatureLayerPanel::refreshVertexTable()
     }
     m_vertexFeatureId = id;
 
-    const bool editing  = l->isEditing();
-    const bool threeD   = l->isThreeD();
+    const bool editing = l->isEditing();
+    const bool threeD = l->isThreeD();
     const QVector<Part> &parts = f.geometry.parts();
 
     // Six QTableWidgetItems per vertex: an imported boundary with tens of
@@ -874,7 +927,9 @@ void FeatureLayerPanel::refreshVertexTable()
         m_vertexFeatureId = -1;
         m_vertexHintLabel->setText(
             tr("Feature %1 has %2 vertices — too many to list. Use the vertex "
-               "tools on the map to edit it.").arg(id).arg(total));
+               "tools on the map to edit it.")
+                .arg(id)
+                .arg(total));
         return;
     }
 
@@ -894,13 +949,13 @@ void FeatureLayerPanel::refreshVertexTable()
             for (int i = 0; i < ring.size(); ++i, ++row) {
                 auto *partItem = new QTableWidgetItem(QString::number(p + 1));
                 partItem->setFlags(partItem->flags() & ~Qt::ItemIsEditable);
-                partItem->setData(kPartRole,  p);
-                partItem->setData(kRingRole,  r);
+                partItem->setData(kPartRole, p);
+                partItem->setData(kRingRole, r);
                 partItem->setData(kIndexRole, i);
                 m_vertexTable->setItem(row, VColPart, partItem);
 
-                auto *ringItem = new QTableWidgetItem(
-                    r == 0 ? tr("exterior") : tr("hole %1").arg(r));
+                auto *ringItem =
+                    new QTableWidgetItem(r == 0 ? tr("exterior") : tr("hole %1").arg(r));
                 ringItem->setFlags(ringItem->flags() & ~Qt::ItemIsEditable);
                 m_vertexTable->setItem(row, VColRing, ringItem);
 
@@ -926,7 +981,8 @@ void FeatureLayerPanel::refreshVertexTable()
                 // "NaN is the honest value" rule.
                 const double zv = ring.zAt(i);
                 QString zText = QStringLiteral("—");
-                if (ring.hasZ()) zText = std::isnan(zv) ? QString() : formatOrdinate(zv);
+                if (ring.hasZ())
+                    zText = std::isnan(zv) ? QString() : formatOrdinate(zv);
                 auto *zItem = new QTableWidgetItem(zText);
                 Qt::ItemFlags zf = zItem->flags();
                 zf.setFlag(Qt::ItemIsEditable, zEditable);
@@ -941,8 +997,7 @@ void FeatureLayerPanel::refreshVertexTable()
     if (previousId == m_vertexFeatureId) {
         // Same feature, so the rows mean the same thing: put the cursor back.
         if (previousRow >= 0 && previousRow < m_vertexTable->rowCount())
-            m_vertexTable->setCurrentCell(previousRow, VColX,
-                                          QItemSelectionModel::NoUpdate);
+            m_vertexTable->setCurrentCell(previousRow, VColX, QItemSelectionModel::NoUpdate);
     } else {
         // A different feature: widths are re-fitted once, not on every edit,
         // so a column the user widened survives their typing.
@@ -958,8 +1013,7 @@ void FeatureLayerPanel::refreshVertexTable()
         hints << tr("2D layer — no Z is stored.");
     } else {
         const ZPolicy zp = l->zPolicy();
-        if (zp.source == ZPolicy::Source::Raster
-            || zp.source == ZPolicy::Source::Mesh) {
+        if (zp.source == ZPolicy::Source::Raster || zp.source == ZPolicy::Source::Mesh) {
             hints << tr("Z is sampled from this layer's Z source: a typed Z is "
                         "kept, but the next resample overwrites it.");
             if (zp.resampleOnEdit)
@@ -971,8 +1025,10 @@ void FeatureLayerPanel::refreshVertexTable()
 
 void FeatureLayerPanel::onVertexCellChanged(int row, int column)
 {
-    if (m_suppressVertexEdits) return;
-    if (column != VColX && column != VColY && column != VColZ) return;
+    if (m_suppressVertexEdits)
+        return;
+    if (column != VColX && column != VColY && column != VColZ)
+        return;
 
     // Every path below ends by re-reading the geometry: the typed text may have
     // been rejected, rounded, or followed by a Z resample. The rebuild is
@@ -988,15 +1044,18 @@ void FeatureLayerPanel::onVertexCellChanged(int row, int column)
     });
 
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas || !l->isEditing() || m_vertexFeatureId < 0) return;
+    if (!l || !m_canvas || !l->isEditing() || m_vertexFeatureId < 0)
+        return;
 
     const QTableWidgetItem *addr = m_vertexTable->item(row, VColPart);
     const QTableWidgetItem *cell = m_vertexTable->item(row, column);
-    if (!addr || !cell) return;
+    if (!addr || !cell)
+        return;
 
     const auto id = static_cast<FeatureId>(m_vertexFeatureId);
     Feature f;
-    if (!l->feature(id, f)) return;
+    if (!l->feature(id, f))
+        return;
 
     const FeatureGeometry oldGeom = f.geometry;
     FeatureGeometry next = oldGeom;
@@ -1008,16 +1067,20 @@ void FeatureLayerPanel::onVertexCellChanged(int row, int column)
     const int p = addr->data(kPartRole).toInt();
     const int r = addr->data(kRingRole).toInt();
     const int i = addr->data(kIndexRole).toInt();
-    if (p < 0 || p >= next.parts().size()) return;
+    if (p < 0 || p >= next.parts().size())
+        return;
     Part &part = next.parts()[p];
-    if (r < 0 || r > part.holes.size())    return;
+    if (r < 0 || r > part.holes.size())
+        return;
     Ring &ring = (r == 0) ? part.exterior : part.holes[r - 1];
-    if (i < 0 || i >= ring.size())         return;
+    if (i < 0 || i >= ring.size())
+        return;
 
     const QString text = cell->text().trimmed();
 
     if (column == VColZ) {
-        if (!l->isThreeD() || !ring.hasZ()) return;
+        if (!l->isThreeD() || !ring.hasZ())
+            return;
         // Blank clears the sample back to NaN, the inverse of how an
         // unsampled Z is displayed.
         double zv = std::numeric_limits<double>::quiet_NaN();
@@ -1030,7 +1093,8 @@ void FeatureLayerPanel::onVertexCellChanged(int row, int column)
             }
         }
         const double cur = ring.z.at(i);
-        if (std::isnan(zv) ? std::isnan(cur) : (zv == cur)) return;
+        if (std::isnan(zv) ? std::isnan(cur) : (zv == cur))
+            return;
         ring.z[i] = zv;
     } else {
         bool ok = false;
@@ -1047,10 +1111,10 @@ void FeatureLayerPanel::onVertexCellChanged(int row, int column)
         // compare, whose relative tolerance at a northing of 5e6 is ~5e-6 —
         // coarser than the 1e-6 this grid invites the user to type, so a real
         // edit would vanish with no message.
-        if (v == ((column == VColX) ? cur.x() : cur.y())) return;
+        if (v == ((column == VColX) ? cur.x() : cur.y()))
+            return;
 
-        ring.moveVertex(i, (column == VColX) ? QPointF(v, cur.y())
-                                             : QPointF(cur.x(), v));
+        ring.moveVertex(i, (column == VColX) ? QPointF(v, cur.y()) : QPointF(cur.x(), v));
 
         // Moving a vertex can break the ring — self-intersection, or a hole
         // escaping its exterior. Same gate the draw tools apply on commit.
@@ -1058,7 +1122,7 @@ void FeatureLayerPanel::onVertexCellChanged(int row, int column)
         QString reason;
         if (!next.validate(l->geometryType(), &reason)) {
             emit message(tr("Cannot move that vertex: %1").arg(reason));
-            return;                 // the queued rebuild restores the cell
+            return; // the queued rebuild restores the cell
         }
 
         // A moved vertex is over new ground, so its Z is re-sampled when the
@@ -1074,18 +1138,23 @@ void FeatureLayerPanel::onVertexCellChanged(int row, int column)
     // Not mergeable: a typed coordinate is a discrete edit that should stand
     // as its own undo step, unlike the drag it shares a command with.
     auto *cmd = new map::EditFeatureGeometryCommand(
-        l, id, oldGeom, next,
-        column == VColZ ? tr("Edit vertex Z") : tr("Edit vertex position"),
+        l, id, oldGeom, next, column == VColZ ? tr("Edit vertex Z") : tr("Edit vertex position"),
         /*mergeable=*/false, m_canvas.data());
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       { delete cmd; return; }
-    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else {
+        delete cmd;
+        return;
+    }
+    if (!cmd->lastError().isEmpty())
+        emit message(cmd->lastError());
 }
 
 void FeatureLayerPanel::onDeleteSelectedFeatureRows()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas) return;
+    if (!l || !m_canvas)
+        return;
     if (!l->isEditing()) {
         emit message(tr("Turn on Edit Mode before deleting features."));
         return;
@@ -1105,28 +1174,33 @@ void FeatureLayerPanel::onDeleteSelectedFeatureRows()
     std::sort(ids.begin(), ids.end());
 
     auto *cmd = new map::DeleteFeaturesCommand(l, ids, m_canvas.data());
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       { delete cmd; return; }
-    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
-    else emit message(tr("Deleted %n feature(s).", nullptr, ids.size()));
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else {
+        delete cmd;
+        return;
+    }
+    if (!cmd->lastError().isEmpty())
+        emit message(cmd->lastError());
+    else
+        emit message(tr("Deleted %n feature(s).", nullptr, ids.size()));
 }
 
 void FeatureLayerPanel::onFeatureTableContextMenu(const QPoint &pos)
 {
     FeatureLayer *l = m_active.data();
-    if (!l) return;
+    if (!l)
+        return;
 
-    const bool haveRows =
-        m_featureTable->selectionModel() &&
-        !m_featureTable->selectionModel()->selectedRows().isEmpty();
+    const bool haveRows = m_featureTable->selectionModel() &&
+                          !m_featureTable->selectionModel()->selectedRows().isEmpty();
 
     QMenu menu(this);
     QAction *del = menu.addAction(tr("Delete feature(s)"));
     del->setShortcut(QKeySequence::Delete);
     del->setEnabled(l->isEditing() && haveRows);
     if (!l->isEditing())
-        menu.addAction(tr("(turn on Edit Mode to change this layer)"))
-            ->setEnabled(false);
+        menu.addAction(tr("(turn on Edit Mode to change this layer)"))->setEnabled(false);
 
     if (menu.exec(m_featureTable->viewport()->mapToGlobal(pos)) == del)
         onDeleteSelectedFeatureRows();
@@ -1135,45 +1209,60 @@ void FeatureLayerPanel::onFeatureTableContextMenu(const QPoint &pos)
 void FeatureLayerPanel::onAddField()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas) return;
+    if (!l || !m_canvas)
+        return;
 
     // The same editor the New Feature Layer dialog uses for a custom field,
     // so a Choice column can be added here too (plan §5).
     FeatureFieldEditor editor(this);
     editor.setWindowTitle(tr("Add column"));
     editor.setExistingNames(l->schema().names());
-    if (editor.exec() != QDialog::Accepted || m_active.data() != l || !m_canvas) return;
+    if (editor.exec() != QDialog::Accepted || m_active.data() != l || !m_canvas)
+        return;
 
     auto *cmd = new AddFieldCommand(l, editor.field(), m_canvas.data());
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       { delete cmd; return; }
-    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else {
+        delete cmd;
+        return;
+    }
+    if (!cmd->lastError().isEmpty())
+        emit message(cmd->lastError());
 }
 
 void FeatureLayerPanel::onRemoveField()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas) return;
+    if (!l || !m_canvas)
+        return;
     const int row = m_fieldTable->currentRow();
-    if (row < 0) return;
+    if (row < 0)
+        return;
     const QTableWidgetItem *item = m_fieldTable->item(row, ColName);
-    if (!item) return;
+    if (!item)
+        return;
 
     const QString name = item->text();
     const auto answer = QMessageBox::question(
         this, tr("Remove column"),
         tr("Remove the column \"%1\" and its values from every feature?").arg(name),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
+    if (answer != QMessageBox::Yes)
+        return;
 
     auto *cmd = new RemoveFieldCommand(l, name, m_canvas.data());
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       { delete cmd; return; }
-    if (!cmd->lastError().isEmpty()) emit message(cmd->lastError());
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else {
+        delete cmd;
+        return;
+    }
+    if (!cmd->lastError().isEmpty())
+        emit message(cmd->lastError());
 }
 
-QString FeatureLayerPanel::applyFieldUpdate(const FieldUpdatePlan &plan,
-                                           const QStringList &drop)
+QString FeatureLayerPanel::applyFieldUpdate(const FieldUpdatePlan &plan, const QStringList &drop)
 {
     FeatureLayer *l = m_active.data();
     if (!l || !m_canvas || !m_canvas->undoStack())
@@ -1197,14 +1286,16 @@ QString FeatureLayerPanel::applyFieldUpdate(const FieldUpdatePlan &plan,
     }
     m_canvas->undoStack()->push(macro);
     for (const auto *c : std::as_const(children))
-        if (!c->lastError().isEmpty()) return c->lastError();
+        if (!c->lastError().isEmpty())
+            return c->lastError();
     return {};
 }
 
 void FeatureLayerPanel::onUpdateFieldsToRole()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas) return;
+    if (!l || !m_canvas)
+        return;
 
     const Schema stored = l->schema();
     const FeatureRoleSpec &spec = featureRoleSpec(l->role());
@@ -1212,17 +1303,19 @@ void FeatureLayerPanel::onUpdateFieldsToRole()
     const QVector<Feature> feats = l->allFeatures();
     for (const QString &name : spec.retiredFields) {
         const FieldDef *f = stored.field(name);
-        if (!f) continue;
+        if (!f)
+            continue;
         int n = 0;
         for (const Feature &ft : feats)
-            if (isNonEmptyValue(ft.attributes.value(f->name))) ++n;
+            if (isNonEmptyValue(ft.attributes.value(f->name)))
+                ++n;
         counts.insert(f->name, n);
     }
     const FieldUpdatePlan plan = planFieldUpdate(l->role(), stored, counts);
     if (plan.isEmpty()) {
         QMessageBox::information(this, tr("Update fields to role"),
-            tr("\"%1\" already has the fields of the %2 role.")
-                .arg(l->name(), featureLayerRoleLabel(l->role())));
+                                 tr("\"%1\" already has the fields of the %2 role.")
+                                     .arg(l->name(), featureLayerRoleLabel(l->role())));
         return;
     }
 
@@ -1230,10 +1323,11 @@ void FeatureLayerPanel::onUpdateFieldsToRole()
     QDialog dlg(this);
     dlg.setWindowTitle(tr("Update fields to role"));
     auto *lay = new QVBoxLayout(&dlg);
-    auto *intro = new QLabel(
-        tr("These changes bring \"%1\" in line with the %2 role. Tick a retired "
-           "field to drop it with its values. One Undo reverts all of it.")
-            .arg(l->name(), featureLayerRoleLabel(l->role())), &dlg);
+    auto *intro =
+        new QLabel(tr("These changes bring \"%1\" in line with the %2 role. Tick a retired "
+                      "field to drop it with its values. One Undo reverts all of it.")
+                       .arg(l->name(), featureLayerRoleLabel(l->role())),
+                   &dlg);
     intro->setWordWrap(true);
     lay->addWidget(intro);
     auto *tree = new QTreeWidget(&dlg);
@@ -1245,17 +1339,17 @@ void FeatureLayerPanel::onUpdateFieldsToRole()
     for (const FieldDef &f : plan.add)
         new QTreeWidgetItem(tree, {tr("Add %1 (%2)").arg(f.name, fieldTypeText(f))});
     for (const FieldDef &f : plan.attach)
-        new QTreeWidgetItem(tree, {f.hasFixedChoices()
-                                       ? tr("Attach the value list, default and description to %1")
-                                             .arg(f.name)
-                                       : tr("Attach the default and description to %1").arg(f.name)});
+        new QTreeWidgetItem(
+            tree, {f.hasFixedChoices()
+                       ? tr("Attach the value list, default and description to %1").arg(f.name)
+                       : tr("Attach the default and description to %1").arg(f.name)});
     QList<QTreeWidgetItem *> dropItems;
     for (const auto &r : plan.retired) {
         auto *it = new QTreeWidgetItem(
-            tree, {r.second > 0
-                       ? tr("Drop %1 — %n feature(s) have a value in it", nullptr, r.second)
-                             .arg(r.first)
-                       : tr("Drop %1 — empty").arg(r.first)});
+            tree,
+            {r.second > 0
+                 ? tr("Drop %1 — %n feature(s) have a value in it", nullptr, r.second).arg(r.first)
+                 : tr("Drop %1 — empty").arg(r.first)});
         it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
         // Dropping loses data only where there is some: empty ones are ticked.
         it->setCheckState(0, r.second > 0 ? Qt::Unchecked : Qt::Checked);
@@ -1271,11 +1365,13 @@ void FeatureLayerPanel::onUpdateFieldsToRole()
     dlg.resize(520, 360);
     // The plan was made for this layer: drop it if the layer went or the
     // selection moved while the preview was open.
-    if (dlg.exec() != QDialog::Accepted || m_active.data() != l || !m_canvas) return;
+    if (dlg.exec() != QDialog::Accepted || m_active.data() != l || !m_canvas)
+        return;
 
     QStringList drop;
     for (const QTreeWidgetItem *it : std::as_const(dropItems))
-        if (it->checkState(0) == Qt::Checked) drop << it->data(0, Qt::UserRole).toString();
+        if (it->checkState(0) == Qt::Checked)
+            drop << it->data(0, Qt::UserRole).toString();
 
     const QString err = applyFieldUpdate(plan, drop);
     emit message(err.isEmpty() ? tr("Updated the fields of \"%1\".").arg(l->name()) : err);
@@ -1284,11 +1380,16 @@ void FeatureLayerPanel::onUpdateFieldsToRole()
 void FeatureLayerPanel::onResampleZ()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas) return;
+    if (!l || !m_canvas)
+        return;
 
     auto *cmd = new ResampleZCommand(l, {}, m_canvas.data());
-    if (m_canvas->undoStack()) m_canvas->undoStack()->push(cmd);
-    else                       { delete cmd; return; }
+    if (m_canvas->undoStack())
+        m_canvas->undoStack()->push(cmd);
+    else {
+        delete cmd;
+        return;
+    }
 
     if (!cmd->lastError().isEmpty()) {
         emit message(cmd->lastError());
@@ -1304,16 +1405,18 @@ void FeatureLayerPanel::onResampleZ()
 
 void FeatureLayerPanel::onZPolicyEdited()
 {
-    if (m_suppressZEdits) return;
+    if (m_suppressZEdits)
+        return;
     FeatureLayer *l = m_active.data();
-    if (!l) return;
+    if (!l)
+        return;
 
     ZPolicy p = l->zPolicy();
-    p.source         = static_cast<ZPolicy::Source>(m_zSourceCombo->currentData().toInt());
-    p.sourceLayerId  = m_zLayerCombo->currentData().toString();
-    p.rasterBand     = m_zBandSpin->value();
-    p.constant       = m_zConstantSpin->value();
-    p.zScale         = m_zScaleSpin->value();
+    p.source = static_cast<ZPolicy::Source>(m_zSourceCombo->currentData().toInt());
+    p.sourceLayerId = m_zLayerCombo->currentData().toString();
+    p.rasterBand = m_zBandSpin->value();
+    p.constant = m_zConstantSpin->value();
+    p.zScale = m_zScaleSpin->value();
     p.densifySpacing = m_zDensifySpin->value();
     p.resampleOnEdit = m_zResampleBox->isChecked();
 
@@ -1325,22 +1428,26 @@ void FeatureLayerPanel::onZPolicyEdited()
 void FeatureLayerPanel::onRemoveLayer()
 {
     FeatureLayer *l = m_active.data();
-    if (!l || !m_canvas) return;
+    if (!l || !m_canvas)
+        return;
 
-    const auto answer = QMessageBox::question(
-        this, tr("Remove layer"),
-        tr("Remove \"%1\" from the map?\n\nThe table stays in the project "
-           "GeoPackage and can be added again.").arg(l->name()),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
+    const auto answer =
+        QMessageBox::question(this, tr("Remove layer"),
+                              tr("Remove \"%1\" from the map?\n\nThe table stays in the project "
+                                 "GeoPackage and can be added again.")
+                                  .arg(l->name()),
+                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes)
+        return;
 
     // takeLayer is index-based and pushes its own RemoveLayerCommand, so the
     // removal is undoable and the layer must NOT be deleted here — the command
     // owns it while it is off the canvas.
     const int index = m_canvas->layers().indexOf(static_cast<OpenSWMMVisLayer *>(l));
-    if (index < 0) return;
+    if (index < 0)
+        return;
     m_canvas->takeLayer(index, /*pushUndo=*/true);
     refreshLayerList();
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

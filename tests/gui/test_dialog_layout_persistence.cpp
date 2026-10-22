@@ -7,6 +7,16 @@
 //
 // QSettings are fully isolated into a per-run QTemporaryDir (IniFormat)
 // so nothing bleeds to or from the developer's real preferences.
+
+/**
+ * @file      test_dialog_layout_persistence.cpp
+ * @brief     Tests for dialog layout persistence.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QAction>
@@ -31,17 +41,18 @@ using openswmmvis::ui::kNoLayoutPersistenceProp;
 using openswmmvis::ui::restoreDialogLayout;
 using openswmmvis::ui::saveDialogLayout;
 
-namespace {
+namespace
+{
 
 // A dialog with one of every persistable state kind.
 struct Fixture {
     QDialog dialog;
-    QSplitter *split = nullptr;         // named "main"
-    QSplitter *anonSplit = nullptr;     // unnamed — must never persist
-    QTableWidget *table = nullptr;      // named "grid"
-    QTabWidget *tabs = nullptr;         // named "tabs"
-    QStackedWidget *pages = nullptr;    // named "pages"
-    QAction *toggle = nullptr;          // named "showDetail", checkable
+    QSplitter *split = nullptr;      // named "main"
+    QSplitter *anonSplit = nullptr;  // unnamed — must never persist
+    QTableWidget *table = nullptr;   // named "grid"
+    QTabWidget *tabs = nullptr;      // named "tabs"
+    QStackedWidget *pages = nullptr; // named "pages"
+    QAction *toggle = nullptr;       // named "showDetail", checkable
 
     explicit Fixture(const QString &dialogName)
     {
@@ -83,7 +94,7 @@ struct Fixture {
     }
 };
 
-}   // namespace
+} // namespace
 
 class TestDialogLayoutPersistence : public QObject
 {
@@ -111,7 +122,7 @@ private slots:
     void watcherRestoresOncePerInstance();
 
 private:
-    QTemporaryDir mSettingsDir;   // member: path must outlive every test
+    QTemporaryDir mSettingsDir; // member: path must outlive every test
 };
 
 void TestDialogLayoutPersistence::initTestCase()
@@ -120,8 +131,7 @@ void TestDialogLayoutPersistence::initTestCase()
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("dialoglayout-test"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                       mSettingsDir.path());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, mSettingsDir.path());
 }
 
 void TestDialogLayoutPersistence::init()
@@ -156,8 +166,7 @@ void TestDialogLayoutPersistence::namedSplitterOptInOnly()
         saveDialogLayout(&f.dialog);
     }
     QSettings settings;
-    QVERIFY(settings.contains(
-        QStringLiteral("Dialogs/SplitDialog/splitter/main")));
+    QVERIFY(settings.contains(QStringLiteral("Dialogs/SplitDialog/splitter/main")));
     // The unnamed splitter must have left no trace.
     settings.beginGroup(QStringLiteral("Dialogs/SplitDialog/splitter"));
     QCOMPARE(settings.childKeys().size(), 1);
@@ -169,7 +178,9 @@ void TestDialogLayoutPersistence::namedSplitterOptInOnly()
     const QList<int> sizes = fresh.split->sizes();
     QVERIFY2(sizes.first() < sizes.last(),
              qPrintable(QStringLiteral("expected restored 100/300 split, got "
-                                       "%1/%2").arg(sizes.first()).arg(sizes.last())));
+                                       "%1/%2")
+                            .arg(sizes.first())
+                            .arg(sizes.last())));
 }
 
 void TestDialogLayoutPersistence::headerStateRoundTrips()
@@ -195,7 +206,8 @@ void TestDialogLayoutPersistence::legacySizingModesBecomeResizable()
     Fixture fresh(QStringLiteral("LegacyHeader"));
     QVERIFY(restoreDialogLayout(&fresh.dialog));
     for (int column = 0; column < fresh.table->columnCount(); ++column) {
-        QCOMPARE(fresh.table->horizontalHeader()->sectionResizeMode(column), QHeaderView::Interactive);
+        QCOMPARE(fresh.table->horizontalHeader()->sectionResizeMode(column),
+                 QHeaderView::Interactive);
         fresh.table->setColumnWidth(column, 137 + column);
         QCOMPARE(fresh.table->columnWidth(column), 137 + column);
     }
@@ -239,7 +251,7 @@ void TestDialogLayoutPersistence::toggleRestoreFiresToggled()
     QSignalSpy spy(fresh.toggle, &QAction::toggled);
     QVERIFY(restoreDialogLayout(&fresh.dialog));
     QVERIFY(fresh.toggle->isChecked());
-    QCOMPARE(spy.count(), 1);   // dependent views get their update
+    QCOMPARE(spy.count(), 1); // dependent views get their update
 }
 
 void TestDialogLayoutPersistence::emptyObjectNameIsNoOp()
@@ -255,8 +267,7 @@ void TestDialogLayoutPersistence::emptyObjectNameIsNoOp()
 void TestDialogLayoutPersistence::offscreenRectGetsClamped()
 {
     QSettings settings;
-    settings.setValue(QStringLiteral("Dialogs/ClampDialog/geometry"),
-                      QRect(5000, 5000, 400, 300));
+    settings.setValue(QStringLiteral("Dialogs/ClampDialog/geometry"), QRect(5000, 5000, 400, 300));
     Fixture fresh(QStringLiteral("ClampDialog"));
     QVERIFY(restoreDialogLayout(&fresh.dialog));
     const QRect got = fresh.dialog.geometry();
@@ -265,7 +276,9 @@ void TestDialogLayoutPersistence::offscreenRectGetsClamped()
     for (const QScreen *screen : screens)
         onScreen = onScreen || screen->availableGeometry().contains(got.center());
     QVERIFY2(onScreen, qPrintable(QStringLiteral("clamped rect still off-screen: "
-                                                 "%1,%2").arg(got.x()).arg(got.y())));
+                                                 "%1,%2")
+                                      .arg(got.x())
+                                      .arg(got.y())));
 }
 
 // ── clampToVisibleScreen() — the rules the old center-point test missed ────
@@ -284,8 +297,7 @@ void TestDialogLayoutPersistence::clampKeepsUsableRectUntouched()
     const QRect avail = primary->availableGeometry();
 
     // Comfortably inside, well clear of every edge including the title strip.
-    const QRect fine(avail.x() + 120, avail.y() + 120,
-                     qMin(400, avail.width()  / 2),
+    const QRect fine(avail.x() + 120, avail.y() + 120, qMin(400, avail.width() / 2),
                      qMin(300, avail.height() / 2));
     QCOMPARE(clampToVisibleScreen(fine, 28), fine);
 }
@@ -302,10 +314,8 @@ void TestDialogLayoutPersistence::clampShrinksRectTooBigForItsScreen()
     huge.moveCenter(avail.center());
 
     const QRect got = clampToVisibleScreen(huge, 28);
-    QVERIFY2(got.width()  <= avail.width(),
-             "clamped rect is still wider than its screen");
-    QVERIFY2(got.height() <= avail.height(),
-             "clamped rect is still taller than its screen");
+    QVERIFY2(got.width() <= avail.width(), "clamped rect is still wider than its screen");
+    QVERIFY2(got.height() <= avail.height(), "clamped rect is still taller than its screen");
     QVERIFY2(avail.contains(got.adjusted(0, -28, 0, 0)),
              "clamped rect (incl. title bar) is not fully on screen");
 }
@@ -326,7 +336,8 @@ void TestDialogLayoutPersistence::clampKeepsTitleBarReachable()
     QVERIFY2(got.top() - 28 >= avail.top(),
              qPrintable(QStringLiteral("title bar still above the available "
                                        "area: top=%1 avail.top=%2")
-                            .arg(got.top()).arg(avail.top())));
+                            .arg(got.top())
+                            .arg(avail.top())));
 }
 
 void TestDialogLayoutPersistence::clampRescuesBarelyOverlappingRect()
@@ -342,7 +353,7 @@ void TestDialogLayoutPersistence::clampRescuesBarelyOverlappingRect()
     const QRect got = clampToVisibleScreen(sliver, 28);
     const QRect visible = avail.intersected(got);
 
-    QVERIFY2(visible.width()  >= qMin(got.width(),  160),
+    QVERIFY2(visible.width() >= qMin(got.width(), 160),
              "too little of the window is horizontally reachable");
     QVERIFY2(visible.height() >= qMin(got.height(), 60),
              "too little of the window is vertically reachable");
@@ -375,9 +386,8 @@ void TestDialogLayoutPersistence::clampLeavesRectUsableOnSomeScreen()
     for (const QScreen *s : screens) {
         const QRect a = s->availableGeometry();
         const QRect vis = a.intersected(got);
-        if (vis.width() >= qMin(got.width(), 160)
-            && vis.height() >= qMin(got.height(), 60)
-            && got.top() - 28 >= a.top())
+        if (vis.width() >= qMin(got.width(), 160) && vis.height() >= qMin(got.height(), 60) &&
+            got.top() - 28 >= a.top())
             usable = true;
     }
     QVERIFY2(usable, "clamped rect is not usable on any connected screen");
@@ -394,11 +404,11 @@ void TestDialogLayoutPersistence::watcherPersistsAcrossInstances()
         QVERIFY(QTest::qWaitForWindowExposed(&f.dialog));
         f.dialog.setGeometry(rect);
         f.tabs->setCurrentIndex(1);
-        f.dialog.hide();   // the watcher saves here
+        f.dialog.hide(); // the watcher saves here
     }
     {
         Fixture fresh(QStringLiteral("WatchedDialog"));
-        fresh.dialog.show();   // the watcher restores here, pre-map
+        fresh.dialog.show(); // the watcher restores here, pre-map
         QVERIFY(QTest::qWaitForWindowExposed(&fresh.dialog));
         QCOMPARE(fresh.dialog.geometry(), rect);
         QCOMPARE(fresh.tabs->currentIndex(), 1);
@@ -419,8 +429,7 @@ void TestDialogLayoutPersistence::watcherRespectsOptOutProperty()
         f.dialog.hide();
     }
     QSettings settings;
-    QVERIFY(!settings.contains(
-        QStringLiteral("Dialogs/OptedOutDialog/geometry")));
+    QVERIFY(!settings.contains(QStringLiteral("Dialogs/OptedOutDialog/geometry")));
     qApp->removeEventFilter(&watcher);
 }
 
@@ -437,8 +446,7 @@ void TestDialogLayoutPersistence::watcherRestoresOncePerInstance()
     // Sneak a different geometry into the store; a RE-show of the same
     // live instance must NOT snap to it (only first show restores).
     QSettings settings;
-    settings.setValue(QStringLiteral("Dialogs/OnceDialog/geometry"),
-                      QRect(200, 210, 350, 250));
+    settings.setValue(QStringLiteral("Dialogs/OnceDialog/geometry"), QRect(200, 210, 350, 250));
     const QRect before = f.dialog.geometry();
     f.dialog.show();
     QVERIFY(QTest::qWaitForWindowExposed(&f.dialog));

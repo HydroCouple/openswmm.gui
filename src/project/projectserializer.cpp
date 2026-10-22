@@ -3,10 +3,13 @@
 #include "output/tracecontroller.h"
 #include "layers/traceanalysislayer.h"
 #include "ui/dialogs/traceanalysisdialog.h"
-/*!
- * \file   projectserializer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      projectserializer.cpp
+ * @brief     `.oswp` sidecar serializer.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "project/projectserializer.h"
@@ -31,7 +34,7 @@
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 
-#include <openswmm/engine/openswmm_model.h>   // swmm_get_crs
+#include <openswmm/engine/openswmm_model.h> // swmm_get_crs
 #include "project/swmmvisproject.h"
 #include "swmmvisprojectwindow.h"
 
@@ -79,23 +82,24 @@
 #include <QPointer>
 #include <QScopeGuard>
 
-namespace {
+namespace
+{
 
 // Keys — centralised so the schema is easy to audit in one place
 // and the same strings aren't repeated across serialize/parse paths.
 // QString-typed so QJsonObject::operator[] / .value() accept them
 // across Qt versions without overload ambiguity.
 const QString kSchemaVersion = QStringLiteral("schemaVersion");
-const QString kInpPath       = QStringLiteral("inpPath");
+const QString kInpPath = QStringLiteral("inpPath");
 const QString kEngineVersion = QStringLiteral("engineVersion");
-const QString kLayer         = QStringLiteral("layer");
-const QString kCrsAuthority  = QStringLiteral("crsAuthority");
-const QString kCrsCode       = QStringLiteral("crsCode");
+const QString kLayer = QStringLiteral("layer");
+const QString kCrsAuthority = QStringLiteral("crsAuthority");
+const QString kCrsCode = QStringLiteral("crsCode");
 const QString kCategoryOrder = QStringLiteral("categoryOrder");
-const QString kObjectOrder   = QStringLiteral("objectOrder");
+const QString kObjectOrder = QStringLiteral("objectOrder");
 const QString kHiddenObjects = QStringLiteral("hiddenObjects");
-const QString kCanvas        = QStringLiteral("canvas");
-const QString kExtent        = QStringLiteral("extent");
+const QString kCanvas = QStringLiteral("canvas");
+const QString kExtent = QStringLiteral("extent");
 // Slice LTR-2026-09-19 — layer-tree ordering, both inside the canvas block
 // and purely additive (older readers ignore them; files without them load
 // with the default group order and the section-by-section stack order).
@@ -105,8 +109,8 @@ const QString kExtent        = QStringLiteral("extent");
 //                     (applied incrementally by addLayer() as layers
 //                     arrive — see MapCanvas::setPendingLayerOrder).
 const QString kLayerGroupOrder = QStringLiteral("layerGroupOrder");
-const QString kLayerOrder      = QStringLiteral("layerOrder");
-const QString kResultLayers  = QStringLiteral("resultLayers");
+const QString kLayerOrder = QStringLiteral("layerOrder");
+const QString kResultLayers = QStringLiteral("resultLayers");
 // Slice S6.1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — companion to kResultLayers.
 // Object keyed by the same relative path as each entry in kResultLayers;
 // value is `ISublayerHost::saveSublayersToJson(*host)`. Purely additive —
@@ -128,41 +132,41 @@ const QString kResultLayerKindRenderers = QStringLiteral("resultLayerKindRendere
 const QString kResultLayerReports = QStringLiteral("resultLayerReports");
 
 // Schema v4 — multi-instance project (Slice AA-3.2)
-const QString kSessions      = QStringLiteral("sessions");
-const QString kSessionId     = QStringLiteral("id");
-const QString kSessionTitle  = QStringLiteral("title");
-const QString kNotesHtml     = QStringLiteral("notesHtml");
+const QString kSessions = QStringLiteral("sessions");
+const QString kSessionId = QStringLiteral("id");
+const QString kSessionTitle = QStringLiteral("title");
+const QString kNotesHtml = QStringLiteral("notesHtml");
 
 // Terrain editing state (schema v5+)
-const QString kTerrain            = QStringLiteral("terrain");
-const QString kTerrainLayer       = QStringLiteral("activeLayerPath");
-const QString kTerrainNodeOffset  = QStringLiteral("nodeOffsetM");
-const QString kTerrainLinkOffset  = QStringLiteral("linkOffsetM");
-const QString kTerrainVertUnit    = QStringLiteral("verticalUnit");
+const QString kTerrain = QStringLiteral("terrain");
+const QString kTerrainLayer = QStringLiteral("activeLayerPath");
+const QString kTerrainNodeOffset = QStringLiteral("nodeOffsetM");
+const QString kTerrainLinkOffset = QStringLiteral("linkOffsetM");
+const QString kTerrainVertUnit = QStringLiteral("verticalUnit");
 
 // 2D mesh layer display state — Slice AZ.3.7 (schema v5+, additive).
 // Mesh layers are auto-loaded by openSingleINP from the [2D_MESH_FILE]
 // referenced in the .inp; this block carries only display state and is
 // matched back to the live layer by resolved sourcePath.
-const QString kMeshLayers           = QStringLiteral("meshLayers");
-const QString kChannelBurn          = QStringLiteral("channelBurn");
-const QString kMeshCorridors        = QStringLiteral("meshCorridors");
-const QString kMeshSourcePath       = QStringLiteral("sourcePath");
-const QString kMeshActive           = QStringLiteral("active");
-const QString kMeshShowNodes        = QStringLiteral("showMeshNodes");
-const QString kMeshShowEdges        = QStringLiteral("showEdges");
-const QString kMeshHillshade        = QStringLiteral("hillshade");
-const QString kMeshHsAzimuth        = QStringLiteral("azimuth");
-const QString kMeshHsAltitude       = QStringLiteral("altitude");
-const QString kMeshHsZExag          = QStringLiteral("zExag");
-const QString kMeshHsMinLit         = QStringLiteral("minLit");
-const QString kMeshContours         = QStringLiteral("contours");
-const QString kMeshContShow         = QStringLiteral("show");
-const QString kMeshContIntervals    = QStringLiteral("intervals");
-const QString kMeshContColor        = QStringLiteral("color");
-const QString kMeshContWidth        = QStringLiteral("width");
-const QString kMeshContFilled       = QStringLiteral("filled");      // BJ.2-filled
-const QString kMeshContFilledAlpha  = QStringLiteral("filledOpacity");// BJ.2-filled
+const QString kMeshLayers = QStringLiteral("meshLayers");
+const QString kChannelBurn = QStringLiteral("channelBurn");
+const QString kMeshCorridors = QStringLiteral("meshCorridors");
+const QString kMeshSourcePath = QStringLiteral("sourcePath");
+const QString kMeshActive = QStringLiteral("active");
+const QString kMeshShowNodes = QStringLiteral("showMeshNodes");
+const QString kMeshShowEdges = QStringLiteral("showEdges");
+const QString kMeshHillshade = QStringLiteral("hillshade");
+const QString kMeshHsAzimuth = QStringLiteral("azimuth");
+const QString kMeshHsAltitude = QStringLiteral("altitude");
+const QString kMeshHsZExag = QStringLiteral("zExag");
+const QString kMeshHsMinLit = QStringLiteral("minLit");
+const QString kMeshContours = QStringLiteral("contours");
+const QString kMeshContShow = QStringLiteral("show");
+const QString kMeshContIntervals = QStringLiteral("intervals");
+const QString kMeshContColor = QStringLiteral("color");
+const QString kMeshContWidth = QStringLiteral("width");
+const QString kMeshContFilled = QStringLiteral("filled");             // BJ.2-filled
+const QString kMeshContFilledAlpha = QStringLiteral("filledOpacity"); // BJ.2-filled
 
 // Full sublayer state (visibility, opacity, and each SublayerStyle's toJson)
 // for the mesh layer's fill / edge / node / band / isoline sublayers — the
@@ -174,27 +178,27 @@ const QString kMeshContFilledAlpha  = QStringLiteral("filledOpacity");// BJ.2-fi
 // Without this, style bag settings that have no hand-rolled field — the
 // fill ClassificationScheme, colorByAttribute, and the edge BC colours —
 // are lost on project reopen.
-const QString kMeshSublayers        = QStringLiteral("sublayers");
+const QString kMeshSublayers = QStringLiteral("sublayers");
 
 // Per-layer IFeatureRenderer JSON (BI-MK.3, schema v5+, additive).
 // Holds whatever rendererId the layer's renderer() returns — typically
 // "single", "graduated", "categorized", "rule" or "multikind". Empty /
 // missing → keep the layer's compiled default renderer.
-const QString kRenderer             = QStringLiteral("renderer");
+const QString kRenderer = QStringLiteral("renderer");
 
 // 2D results layers (schema additive). Each entry reopens a previous
 // run's HDF5 2D output on project load with its saved styling. The
 // layer itself is created by the async 2D auto-load in SWMMVis
 // (maybeLoad2DResults) — applySession only stashes these entries on the
 // project window; the auto-load consumes them once the .h5 is open.
-const QString kResults2D          = QStringLiteral("results2DLayers");
-const QString kResults2DPath      = QStringLiteral("path");
-const QString kResults2DName      = QStringLiteral("name");
-const QString kResults2DVisible   = QStringLiteral("visible");
-const QString kResults2DOpacity   = QStringLiteral("opacity");
-const QString kResults2DDryDepth  = QStringLiteral("dryDepth");
-const QString kResults2DMaxDepth  = QStringLiteral("maxDepth");
-const QString kResults2DMaxVel    = QStringLiteral("maxVelocity");
+const QString kResults2D = QStringLiteral("results2DLayers");
+const QString kResults2DPath = QStringLiteral("path");
+const QString kResults2DName = QStringLiteral("name");
+const QString kResults2DVisible = QStringLiteral("visible");
+const QString kResults2DOpacity = QStringLiteral("opacity");
+const QString kResults2DDryDepth = QStringLiteral("dryDepth");
+const QString kResults2DMaxDepth = QStringLiteral("maxDepth");
+const QString kResults2DMaxVel = QStringLiteral("maxVelocity");
 const QString kResults2DSublayers = QStringLiteral("sublayers");
 
 // Slice X.14 — per-kind IFeatureRenderer JSON for SWMMModelLayer /
@@ -203,48 +207,52 @@ const QString kResults2DSublayers = QStringLiteral("sublayers");
 // is the renderer's `toJson()` payload.  Schema purely additive —
 // older readers ignore this key, and a saved project without it falls
 // back to the layer's compiled default renderers.
-const QString kKindRenderers        = QStringLiteral("kindRenderers");
+const QString kKindRenderers = QStringLiteral("kindRenderers");
 // Slice B.7 — Rule-level metadata (name/filter/blend/rebinPerFrame/
 // symbolLevelsEnabled) that the existing kindRenderers block doesn't
 // cover. Keyed by the Rule's name in the layer's RuleList.
-const QString kRuleMetadata         = QStringLiteral("ruleMetadata");
+const QString kRuleMetadata = QStringLiteral("ruleMetadata");
 
 // Slice X.18 — full label config JSON.  Schema additive; older readers
 // ignore it and the legacy `showLabels` bool elsewhere keeps working.
-const QString kLabelConfig          = QStringLiteral("labelConfig");
+const QString kLabelConfig = QStringLiteral("labelConfig");
 
 // Slice Z.13-attach — per-layer TemporalSpec. Default-constructed
 // TemporalSpec (enabled=false) elides to keep JSON minimal for projects
 // that never touched the Temporal tab.
-const QString kTemporalSpec         = QStringLiteral("temporal");
+const QString kTemporalSpec = QStringLiteral("temporal");
 
 // Slice Z.14-attach — per-layer MaskSpec. Same elide-on-default behaviour.
-const QString kMaskSpec             = QStringLiteral("mask");
+const QString kMaskSpec = QStringLiteral("mask");
 
 // Slice Z.15-attach — per-layer AuxiliaryStorageSpec.
-const QString kAuxStorageSpec       = QStringLiteral("auxStorage");
+const QString kAuxStorageSpec = QStringLiteral("auxStorage");
 
 // Slice Z.16-attach — per-layer external-table joins (array).
-const QString kJoins                = QStringLiteral("joins");
+const QString kJoins = QStringLiteral("joins");
 
 // Slice Z.12-attach — per-layer embedded chart diagram.
-const QString kDiagramSpec          = QStringLiteral("diagram");
+const QString kDiagramSpec = QStringLiteral("diagram");
 
 // Slice BB Phase 8.6.16 — on-canvas legend overlay chrome (font / frame /
 // background / anchor / opacity). Per-session; missing key ⇒ defaults.
-const QString kLegendOverlay        = QStringLiteral("legendOverlay");
+const QString kLegendOverlay = QStringLiteral("legendOverlay");
 
 // Text annotation layer — array of styled text items placed on the map.
 // Schema additive; missing key ⇒ no annotations were saved.
-const QString kAnnotations          = QStringLiteral("annotations");
+const QString kAnnotations = QStringLiteral("annotations");
 
 // Factory: construct a concrete IFeatureRenderer from a JSON object whose
 // "id" field discriminates the renderer kind. Mirrors the local factory
 // in multikindrenderer.cpp; kept duplicate here so projectserializer
 // doesn't need a header-promoted version. Returns nullptr on missing or
 // unknown id so callers can keep the layer's compiled default.
-std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>
-makeRendererFromJson(const QJsonObject &j)
+/**
+ * @brief Construct and hydrate a renderer selected by its persisted id discriminator.
+ * @param[in] j Renderer JSON for single, graduated, categorized, rule or multikind.
+ * @return Unique renderer ownership, or null for a missing/unknown id. The concrete fromJson() routine controls field defaults.
+ */
+std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> makeRendererFromJson(const QJsonObject &j)
 {
     using namespace OpenSWMM::Render;
     const QString id = j.value(QStringLiteral("id")).toString();
@@ -259,55 +267,68 @@ makeRendererFromJson(const QJsonObject &j)
         r = std::make_unique<RuleBasedRenderer>();
     else if (id == QLatin1String("multikind"))
         r = std::make_unique<MultiKindRenderer>();
-    if (r) r->fromJson(j);
+    if (r)
+        r->fromJson(j);
     return r;
 }
 
 // Basemap keys (schema v3+)
-const QString kBasemaps      = QStringLiteral("basemaps");
-const QString kBmType        = QStringLiteral("type");
-const QString kBmName        = QStringLiteral("name");
-const QString kBmUrl         = QStringLiteral("url");
-const QString kBmHeaders     = QStringLiteral("headers");
+const QString kBasemaps = QStringLiteral("basemaps");
+const QString kBmType = QStringLiteral("type");
+const QString kBmName = QStringLiteral("name");
+const QString kBmUrl = QStringLiteral("url");
+const QString kBmHeaders = QStringLiteral("headers");
 const QString kBmTilePixRatio = QStringLiteral("tilePixelRatio");
-const QString kBmAxisOrder   = QStringLiteral("axisOrder");
+const QString kBmAxisOrder = QStringLiteral("axisOrder");
 // WMS/WMTS
-const QString kBmLayer       = QStringLiteral("layerName");
-const QString kBmStyle       = QStringLiteral("style");
-const QString kBmFormat      = QStringLiteral("imageFormat");
-const QString kBmCrs         = QStringLiteral("crs");
-const QString kBmTms         = QStringLiteral("tileMatrixSet");
-const QString kBmDpiMode     = QStringLiteral("dpiMode");
+const QString kBmLayer = QStringLiteral("layerName");
+const QString kBmStyle = QStringLiteral("style");
+const QString kBmFormat = QStringLiteral("imageFormat");
+const QString kBmCrs = QStringLiteral("crs");
+const QString kBmTms = QStringLiteral("tileMatrixSet");
+const QString kBmDpiMode = QStringLiteral("dpiMode");
 // Local raster basemaps ("localraster")
-const QString kBmPath        = QStringLiteral("path");        // relative to the .oswp
+const QString kBmPath = QStringLiteral("path"); // relative to the .oswp
 
 // GIS data-layer keys (schema v4+) — loaded raster (GDAL) and vector (OGR)
 // layers persisted by source path so they reopen on project load.
-const QString kGisLayers     = QStringLiteral("gisLayers");
-const QString kGisType       = QStringLiteral("type");        // "raster" | "vector"
-const QString kGisPath       = QStringLiteral("path");        // relative to the .oswp
-const QString kGisName       = QStringLiteral("name");
-const QString kGisVisible    = QStringLiteral("visible");
-const QString kGisOpacity    = QStringLiteral("opacity");
+const QString kGisLayers = QStringLiteral("gisLayers");
+const QString kGisType = QStringLiteral("type"); // "raster" | "vector"
+const QString kGisPath = QStringLiteral("path"); // relative to the .oswp
+const QString kGisName = QStringLiteral("name");
+const QString kGisVisible = QStringLiteral("visible");
+const QString kGisOpacity = QStringLiteral("opacity");
 // Raster symbology (renderBand / hillshade / rasterRenderer) — the same
 // block StyleFileIO::rasterStyleToJson emits, nested under one key on both
 // the GIS-layer record and the "localraster" basemap record. Additive; a
 // record without it restores the open-time default renderer.
-const QString kRasterStyle   = QStringLiteral("rasterStyle");
-const QString kGisLayerName  = QStringLiteral("layerName");   // vector sublayer (OGR layer)
+const QString kRasterStyle = QStringLiteral("rasterStyle");
+const QString kGisLayerName = QStringLiteral("layerName"); // vector sublayer (OGR layer)
 
+/**
+ * @brief Preserve integer order in a JSON array.
+ * @param[in] v Ordered integer values.
+ * @return Value array with one numeric entry per input.
+ */
 QJsonArray toJsonInts(const QVector<int> &v)
 {
     QJsonArray a;
-    for (int x : v) a.append(x);
+    for (int x : v)
+        a.append(x);
     return a;
 }
 
+/**
+ * @brief Convert JSON entries to integer ordering metadata.
+ * @param[in] a Ordered JSON array; entries unsupported by QJsonValue::toInt() become zero.
+ * @return Integer vector of the same length; category/permutation validation is the caller's responsibility.
+ */
 QVector<int> fromJsonInts(const QJsonArray &a)
 {
     QVector<int> v;
     v.reserve(a.size());
-    for (const QJsonValue &x : a) v.append(x.toInt());
+    for (const QJsonValue &x : a)
+        v.append(x.toInt());
     return v;
 }
 
@@ -325,26 +346,29 @@ QVector<int> fromJsonInts(const QJsonArray &a)
 // engineVersion, layer CRS, category/object order, hidden objects.
 // ---------------------------------------------------------------------------
 
-QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
-                                                 const QString &oswpFile)
+QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const QString &oswpFile)
 {
     QJsonObject obj;
-    if (!pw) return obj;
+    if (!pw)
+        return obj;
 
     auto *layer = pw->modelLayer();
-    if (!layer) return obj;
+    if (!layer)
+        return obj;
 
     if (auto *store = ProfileSectionStore::forOwner(pw, false)) {
         QJsonArray sections;
         // writeRootJson validates before writing any session.
         store->serialize(QFileInfo(oswpFile).absolutePath(), sections);
-        if (!sections.isEmpty()) obj[QStringLiteral("profileSections")] = sections;
+        if (!sections.isEmpty())
+            obj[QStringLiteral("profileSections")] = sections;
     }
 
     if (auto *store = GroundwaterRecipeStore::forOwner(pw, false)) {
         QJsonArray history;
         store->serialize(QFileInfo(oswpFile).absolutePath(), history);
-        if (!history.isEmpty()) obj[QStringLiteral("groundwaterAssignmentHistory")] = history;
+        if (!history.isEmpty())
+            obj[QStringLiteral("groundwaterAssignmentHistory")] = history;
     }
 
     QJsonArray traceRuns = pw->statsRegistry()->saveRuns(QFileInfo(oswpFile).absolutePath());
@@ -354,40 +378,58 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         const auto original = pw->statsRegistry()->run(run.value("id").toString());
         QString package = original.packagePath;
         if (package.contains("/analysis/" + original.id + "/")) {
-            package = QDir(QFileInfo(oswpFile).absolutePath()).filePath(
-                "analysis/" + original.id + "/" + QFileInfo(package).fileName());
+            package =
+                QDir(QFileInfo(oswpFile).absolutePath())
+                    .filePath("analysis/" + original.id + "/" + QFileInfo(package).fileName());
             run["package"] = toRelativePath(package, oswpFile);
             if (!original.retainedPath.isEmpty())
-                run["retained"] = toRelativePath(QDir(QFileInfo(package).absolutePath()).filePath(QFileInfo(original.retainedPath).fileName()), oswpFile);
+                run["retained"] =
+                    toRelativePath(QDir(QFileInfo(package).absolutePath())
+                                       .filePath(QFileInfo(original.retainedPath).fileName()),
+                                   oswpFile);
             traceRuns[i] = run;
         }
         tracePaths.insert(original.id, package);
     }
-    if (!traceRuns.isEmpty()) obj["analysisRuns"] = traceRuns;
-    if (auto *dialog = pw->findChild<openswmmvis::trace::TraceAnalysisDialog*>())
+    if (!traceRuns.isEmpty())
+        obj["analysisRuns"] = traceRuns;
+    if (auto *dialog = pw->findChild<openswmmvis::trace::TraceAnalysisDialog *>())
         obj["tracePanel"] = dialog->state();
-    else obj["tracePanel"] = pw->property("tracePanelState").toJsonObject();
-    obj["traceKeepPreviousRaw"] = !pw->property("traceKeepPreviousRaw").isValid()
-        || pw->property("traceKeepPreviousRaw").toBool();
+    else
+        obj["tracePanel"] = pw->property("tracePanelState").toJsonObject();
+    obj["traceKeepPreviousRaw"] = !pw->property("traceKeepPreviousRaw").isValid() ||
+                                  pw->property("traceKeepPreviousRaw").toBool();
     QJsonArray traces;
-    if (pw->canvas()) for (auto *mapLayer : pw->canvas()->layers()) {
-        auto *output = qobject_cast<SWMMResultsLayer *>(mapLayer);
-        if (!output) continue;
-        for (auto *sub : output->sublayers()) {
-            auto *part = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub);
-            if (!part || !part->layer()->result()->saved) continue;
-            auto *trace = part->layer();
-            const auto result = trace->result();
-            traces.append(QJsonObject{{"id", result->id}, {"runId", result->dataset->runId},
-                {"package", toRelativePath(tracePaths.value(result->dataset->runId, result->dataset->packagePath), oswpFile)},
-                {"name", part->displayName()}, {"visible", part->isVisible()}, {"opacity", part->opacity()},
-                {"travel", part->travel()}, {"outputVisible", output->isVisible()},
-                {"outputOpacity", output->opacity()}, {"style", trace->savedStyle()}});
+    if (pw->canvas())
+        for (auto *mapLayer : pw->canvas()->layers()) {
+            auto *output = qobject_cast<SWMMResultsLayer *>(mapLayer);
+            if (!output)
+                continue;
+            for (auto *sub : output->sublayers()) {
+                auto *part = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub);
+                if (!part || !part->layer()->result()->saved)
+                    continue;
+                auto *trace = part->layer();
+                const auto result = trace->result();
+                traces.append(QJsonObject{
+                    {"id", result->id},
+                    {"runId", result->dataset->runId},
+                    {"package", toRelativePath(tracePaths.value(result->dataset->runId,
+                                                                result->dataset->packagePath),
+                                               oswpFile)},
+                    {"name", part->displayName()},
+                    {"visible", part->isVisible()},
+                    {"opacity", part->opacity()},
+                    {"travel", part->travel()},
+                    {"outputVisible", output->isVisible()},
+                    {"outputOpacity", output->opacity()},
+                    {"style", trace->savedStyle()}});
+            }
         }
-    }
-    if (!traces.isEmpty()) obj["traceLayers"] = traces;
+    if (!traces.isEmpty())
+        obj["traceLayers"] = traces;
 
-    obj[kInpPath]       = toRelativePath(layer->modelFilePath(), oswpFile);
+    obj[kInpPath] = toRelativePath(layer->modelFilePath(), oswpFile);
     obj[kEngineVersion] = pw->engineVersion();
     if (!pw->meshGenerationOptions().isEmpty())
         obj[QStringLiteral("meshGenerationOptions")] = pw->meshGenerationOptions();
@@ -413,10 +455,10 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     // provisional after one save.
     if (auto *srs = layer->crsAssigned() ? layer->srs() : nullptr) {
         const QString auth = srs->authName();
-        const int     code = srs->code();
+        const int code = srs->code();
         if (!auth.isEmpty() && code > 0) {
             layerObj[kCrsAuthority] = auth;
-            layerObj[kCrsCode]      = code;
+            layerObj[kCrsCode] = code;
         }
     }
 
@@ -425,11 +467,15 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     const auto order = layer->categoryOrder();
     bool catOrderIsDefault = true;
     for (int i = 0; i < order.size(); ++i) {
-        if (int(order[i]) != i) { catOrderIsDefault = false; break; }
+        if (int(order[i]) != i) {
+            catOrderIsDefault = false;
+            break;
+        }
     }
     if (!catOrderIsDefault) {
         QJsonArray a;
-        for (auto c : order) a.append(int(c));
+        for (auto c : order)
+            a.append(int(c));
         layerObj[kCategoryOrder] = a;
     }
 
@@ -448,7 +494,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     const QSet<QString> hidden = layer->hiddenObjects();
     if (!hidden.isEmpty()) {
         QJsonArray a;
-        for (const QString &n : hidden) a.append(n);
+        for (const QString &n : hidden)
+            a.append(n);
         layerObj[kHiddenObjects] = a;
     }
 
@@ -470,14 +517,16 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
             const auto cat = static_cast<SWMMModelLayer::Category>(i);
             const auto *kr = layer->kindRenderer(cat);
-            if (!kr) continue;
+            if (!kr)
+                continue;
             // Skip vanilla SingleSymbolRenderer slots that carry no edits —
             // keeps the JSON compact and means the .oswp diff stays minimal
             // for users who never touch the symbology.
             if (kr->rendererId() == QStringLiteral("single")) {
                 const QJsonObject j = kr->toJson();
                 const QJsonObject sym = j.value(QStringLiteral("symbol")).toObject();
-                if (sym.isEmpty()) continue;
+                if (sym.isEmpty())
+                    continue;
             }
             kindObj[SWMMModelLayer::kindKey(cat)] = kr->toJson();
         }
@@ -493,17 +542,23 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         QJsonObject ruleObj;
         for (int i = 0; i < rl->count(); ++i) {
             const OpenSWMM::Render::Rule *r = rl->at(i);
-            if (!r) continue;
+            if (!r)
+                continue;
             QJsonObject meta;
-            if (!r->isVisible())               meta[QStringLiteral("isVisible")] = false;
+            if (!r->isVisible())
+                meta[QStringLiteral("isVisible")] = false;
             if (!r->filterExpression().isEmpty())
                 meta[QStringLiteral("filterExpression")] = r->filterExpression();
-            if (r->minScale() != 0.0)          meta[QStringLiteral("minScale")] = r->minScale();
-            if (r->maxScale() != 0.0)          meta[QStringLiteral("maxScale")] = r->maxScale();
+            if (r->minScale() != 0.0)
+                meta[QStringLiteral("minScale")] = r->minScale();
+            if (r->maxScale() != 0.0)
+                meta[QStringLiteral("maxScale")] = r->maxScale();
             if (r->blendMode() != QStringLiteral("Normal"))
                 meta[QStringLiteral("blendMode")] = r->blendMode();
-            if (r->rebinPerFrame())            meta[QStringLiteral("rebinPerFrame")] = true;
-            if (r->symbolLevelsEnabled())      meta[QStringLiteral("symbolLevelsEnabled")] = true;
+            if (r->rebinPerFrame())
+                meta[QStringLiteral("rebinPerFrame")] = true;
+            if (r->symbolLevelsEnabled())
+                meta[QStringLiteral("symbolLevelsEnabled")] = true;
             if (!meta.isEmpty())
                 ruleObj[r->name()] = meta;
         }
@@ -550,7 +605,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         const auto &js = layer->joins();
         if (!js.isEmpty()) {
             QJsonArray arr;
-            for (const auto &j : js) arr.append(j.toJson());
+            for (const auto &j : js)
+                arr.append(j.toJson());
             layerObj[kJoins] = arr;
         }
     }
@@ -579,20 +635,20 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         QJsonObject reportMap;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
             if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
-                if (!rl->property("traceStoredRunId").toString().isEmpty()) continue;
+                if (!rl->property("traceStoredRunId").toString().isEmpty())
+                    continue;
                 const QString rel = toRelativePath(rl->resultsFilePath(), oswpFile);
                 if (!rel.isEmpty()) {
                     resultArr.append(rel);
                     if (!rl->reportFilePath().isEmpty())
-                        reportMap.insert(rel,
-                            toRelativePath(rl->reportFilePath(), oswpFile));
+                        reportMap.insert(rel, toRelativePath(rl->reportFilePath(), oswpFile));
                     // S2.4 adopted ISublayerHost on SWMMResultsLayer. The
                     // dynamic_cast tolerates layers that haven't adopted
                     // yet (or future variants); they simply skip the
                     // sublayer map entry.
                     if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(rl))
-                        sublayerMap.insert(rel,
-                            OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*host));
+                        sublayerMap.insert(
+                            rel, OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*host));
 
                     // Per-kind renderers — every non-default slot survives
                     // a save/reload.  Default detection mirrors the model
@@ -606,12 +662,15 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
                     for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
                         const auto cat = static_cast<SWMMModelLayer::Category>(i);
                         const auto *kr = rl->kindRenderer(cat);
-                        if (!kr) continue;
-                        if (rl->kindRendererIsDefault(cat)) continue;
+                        if (!kr)
+                            continue;
+                        if (rl->kindRendererIsDefault(cat))
+                            continue;
                         const QJsonObject j = kr->toJson();
                         if (kr->rendererId() == QStringLiteral("single")) {
                             const QJsonObject sym = j.value(QStringLiteral("symbol")).toObject();
-                            if (sym.isEmpty()) continue;
+                            if (sym.isEmpty())
+                                continue;
                         }
                         kindObj[SWMMModelLayer::kindKey(cat)] = j;
                     }
@@ -638,10 +697,13 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
             terrainObj[kTerrainLayer] = toRelativePath(layerPath, oswpFile);
         const double nodeOff = pw->terrainNodeOffset();
         const double linkOff = pw->terrainLinkOffset();
-        if (nodeOff != 0.0) terrainObj[kTerrainNodeOffset] = nodeOff;
-        if (linkOff != 0.0) terrainObj[kTerrainLinkOffset] = linkOff;
+        if (nodeOff != 0.0)
+            terrainObj[kTerrainNodeOffset] = nodeOff;
+        if (linkOff != 0.0)
+            terrainObj[kTerrainLinkOffset] = linkOff;
         const QString vertUnit = pw->terrainVerticalUnit();
-        if (!vertUnit.isEmpty()) terrainObj[kTerrainVertUnit] = vertUnit;
+        if (!vertUnit.isEmpty())
+            terrainObj[kTerrainVertUnit] = vertUnit;
         if (!terrainObj.isEmpty())
             obj[kTerrain] = terrainObj;
     }
@@ -655,34 +717,34 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         QJsonArray meshArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
             auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!ml) continue;
+            if (!ml)
+                continue;
             QJsonObject m;
             const QString rel = toRelativePath(ml->sourcePath(), oswpFile);
             if (!rel.isEmpty())
                 m[kMeshSourcePath] = rel;
-            m[kMeshActive]      = ml->isActiveMesh();
-            m[kMeshShowNodes]   = ml->showMeshNodes();
-            m[kMeshShowEdges]   = ml->showEdges();
+            m[kMeshActive] = ml->isActiveMesh();
+            m[kMeshShowNodes] = ml->showMeshNodes();
+            m[kMeshShowEdges] = ml->showEdges();
 
             QJsonObject hs;
-            hs[kMeshHsAzimuth]  = ml->hillshadeAzimuth();
+            hs[kMeshHsAzimuth] = ml->hillshadeAzimuth();
             hs[kMeshHsAltitude] = ml->hillshadeAltitude();
-            hs[kMeshHsZExag]    = ml->hillshadeZExag();
-            hs[kMeshHsMinLit]   = ml->hillshadeMinLit();
-            m[kMeshHillshade]   = hs;
+            hs[kMeshHsZExag] = ml->hillshadeZExag();
+            hs[kMeshHsMinLit] = ml->hillshadeMinLit();
+            m[kMeshHillshade] = hs;
 
             QJsonObject c;
-            c[kMeshContShow]        = ml->showContours();
-            c[kMeshContIntervals]   = ml->contourIntervalCount();
+            c[kMeshContShow] = ml->showContours();
+            c[kMeshContIntervals] = ml->contourIntervalCount();
             // QColor::name(HexArgb) preserves alpha; setNamedColor parses it.
-            c[kMeshContColor]       = ml->contourColor().name(QColor::HexArgb);
-            c[kMeshContWidth]       = ml->contourLineWidth();
-            c[kMeshContFilled]      = ml->filledContours();
+            c[kMeshContColor] = ml->contourColor().name(QColor::HexArgb);
+            c[kMeshContWidth] = ml->contourLineWidth();
+            c[kMeshContFilled] = ml->filledContours();
             c[kMeshContFilledAlpha] = ml->filledContoursOpacity();
-            m[kMeshContours]        = c;
+            m[kMeshContours] = c;
 
-            m[kMeshSublayers] =
-                OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*ml);
+            m[kMeshSublayers] = OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*ml);
 
             meshArr.append(m);
         }
@@ -697,25 +759,27 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         QJsonArray r2dArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
             auto *rl = qobject_cast<SWMM2DResultsLayer *>(l);
-            if (!rl) continue;
+            if (!rl)
+                continue;
             // Both creation paths (post-run swap and model-open auto-load)
             // tag the layer with its backing .h5; a layer without the tag
             // has nothing on disk to reopen.
-            const QString h5Abs =
-                rl->property("snoopy_h5_path").toString();
-            if (h5Abs.isEmpty() || !QFileInfo::exists(h5Abs)) continue;
+            const QString h5Abs = rl->property("snoopy_h5_path").toString();
+            if (h5Abs.isEmpty() || !QFileInfo::exists(h5Abs))
+                continue;
             const QString rel = toRelativePath(h5Abs, oswpFile);
-            if (rel.isEmpty()) continue;
+            if (rel.isEmpty())
+                continue;
 
             QJsonObject r;
-            r[kResults2DPath]     = rel;
-            r[kResults2DName]     = rl->name();
-            r[kResults2DVisible]  = rl->isVisible();
-            r[kResults2DOpacity]  = rl->opacity();
+            r[kResults2DPath] = rel;
+            r[kResults2DName] = rl->name();
+            r[kResults2DVisible] = rl->isVisible();
+            r[kResults2DOpacity] = rl->opacity();
             r[kResults2DDryDepth] = rl->dryDepth();
             r[QStringLiteral("waterDisplayPolicy")] = rl->waterDisplayPolicyToJson();
             r[kResults2DMaxDepth] = rl->maxDepth();
-            r[kResults2DMaxVel]   = rl->maxVelocity();
+            r[kResults2DMaxVel] = rl->maxVelocity();
             if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(rl))
                 r[kResults2DSublayers] =
                     OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*host);
@@ -746,30 +810,33 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
                 textLayers.append(text->layerJson());
         obj["textLayers"] = textLayers; // Includes empty layers and their settings.
     }
-    if (pw->modelLayer()) obj["modelLayerId"] = pw->modelLayer()->layerId();
+    if (pw->modelLayer())
+        obj["modelLayerId"] = pw->modelLayer()->layerId();
 
     return obj;
 }
 
-bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
-                                      SWMMVisProjectWindow *pw,
-                                      const QString &oswpFile,
-                                      QStringList *warningsOut)
+bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProjectWindow *pw,
+                                     const QString &oswpFile, QStringList *warningsOut)
 {
-    if (!pw) return false;
+    if (!pw)
+        return false;
 
     pw->statsRegistry()->restoreRuns(sessionObj.value("analysisRuns").toArray(),
-        QFileInfo(oswpFile).absolutePath());
+                                     QFileInfo(oswpFile).absolutePath());
     pw->setProperty("tracePanelState", sessionObj.value("tracePanel").toObject());
     pw->setProperty("traceKeepPreviousRaw", sessionObj.value("traceKeepPreviousRaw").toBool(true));
-    pw->setMeshGenerationOptions(sessionObj.value(QStringLiteral("meshGenerationOptions")).toObject());
+    pw->setMeshGenerationOptions(
+        sessionObj.value(QStringLiteral("meshGenerationOptions")).toObject());
 
     {
         QString error;
         if (!ProfileSectionStore::forOwner(pw)->restore(
                 sessionObj.contains(QStringLiteral("profileSections"))
-                    ? sessionObj.value(QStringLiteral("profileSections")) : QJsonValue(QJsonArray{}),
-                QFileInfo(oswpFile).absolutePath(), &error) && warningsOut)
+                    ? sessionObj.value(QStringLiteral("profileSections"))
+                    : QJsonValue(QJsonArray{}),
+                QFileInfo(oswpFile).absolutePath(), &error) &&
+            warningsOut)
             warningsOut->append(error);
     }
 
@@ -777,8 +844,10 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         QString error;
         if (!GroundwaterRecipeStore::forOwner(pw)->restore(
                 sessionObj.contains(QStringLiteral("groundwaterAssignmentHistory"))
-                    ? sessionObj.value(QStringLiteral("groundwaterAssignmentHistory")) : QJsonValue(QJsonArray{}),
-                QFileInfo(oswpFile).absolutePath(), &error) && warningsOut)
+                    ? sessionObj.value(QStringLiteral("groundwaterAssignmentHistory"))
+                    : QJsonValue(QJsonArray{}),
+                QFileInfo(oswpFile).absolutePath(), &error) &&
+            warningsOut)
             warningsOut->append(error);
     }
 
@@ -789,7 +858,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         pw->setNotesHtml(sessionObj.value(kNotesHtml).toString());
 
     auto *layer = pw->modelLayer();
-    if (!layer) return true;
+    if (!layer)
+        return true;
 
     const QJsonObject layerObj = sessionObj.value(kLayer).toObject();
 
@@ -803,13 +873,12 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
     // (or reprojected) to a different CRS.
     const bool inpHasCrs = [&] {
         char buf[8] = {};
-        return layer->engine()
-            && swmm_get_crs(layer->engine(), buf, sizeof buf) == 0 && buf[0] != '\0';
+        return layer->engine() && swmm_get_crs(layer->engine(), buf, sizeof buf) == 0 &&
+               buf[0] != '\0';
     }();
-    if (!inpHasCrs
-        && layerObj.contains(kCrsAuthority) && layerObj.contains(kCrsCode)) {
+    if (!inpHasCrs && layerObj.contains(kCrsAuthority) && layerObj.contains(kCrsCode)) {
         const QString auth = layerObj.value(kCrsAuthority).toString();
-        const int     code = layerObj.value(kCrsCode).toInt();
+        const int code = layerObj.value(kCrsCode).toInt();
         if (!auth.isEmpty() && code > 0) {
             if (auto *srs = SpatialReferenceSystem::fromAuthCode(auth, code, layer))
                 layer->setSRS(srs, true);
@@ -868,7 +937,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
             const auto cat = static_cast<SWMMModelLayer::Category>(i);
             const QString key = SWMMModelLayer::kindKey(cat);
-            if (!kindObj.contains(key)) continue;
+            if (!kindObj.contains(key))
+                continue;
             if (auto r = makeRendererFromJson(kindObj.value(key).toObject()))
                 layer->setKindRenderer(cat, std::move(r));
         }
@@ -882,9 +952,11 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         if (auto *rl = layer->ruleList()) {
             for (int i = 0; i < rl->count(); ++i) {
                 OpenSWMM::Render::Rule *r = rl->at(i);
-                if (!r) continue;
+                if (!r)
+                    continue;
                 const QJsonObject meta = ruleObj.value(r->name()).toObject();
-                if (meta.isEmpty()) continue;
+                if (meta.isEmpty())
+                    continue;
                 if (meta.contains(QStringLiteral("isVisible")))
                     r->setVisible(meta.value(QStringLiteral("isVisible")).toBool(true));
                 if (meta.contains(QStringLiteral("filterExpression")))
@@ -919,22 +991,21 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
     // projects authored before this slice keep their existing animation
     // behavior driven by the legacy toolbar.
     if (layerObj.contains(kTemporalSpec)) {
-        layer->setTemporalSpec(OpenSWMM::Render::TemporalSpec::fromJson(
-            layerObj.value(kTemporalSpec).toObject()));
+        layer->setTemporalSpec(
+            OpenSWMM::Render::TemporalSpec::fromJson(layerObj.value(kTemporalSpec).toObject()));
     }
 
     // Slice Z.14-attach — restore MaskSpec if persisted. Missing key
     // leaves the layer unmasked.
     if (layerObj.contains(kMaskSpec)) {
-        layer->setMaskSpec(OpenSWMM::Render::MaskSpec::fromJson(
-            layerObj.value(kMaskSpec).toObject()));
+        layer->setMaskSpec(
+            OpenSWMM::Render::MaskSpec::fromJson(layerObj.value(kMaskSpec).toObject()));
     }
 
     // Slice Z.15-attach — restore AuxiliaryStorageSpec if persisted.
     if (layerObj.contains(kAuxStorageSpec)) {
-        layer->setAuxStorageSpec(
-            OpenSWMM::Render::AuxiliaryStorageSpec::fromJson(
-                layerObj.value(kAuxStorageSpec).toObject()));
+        layer->setAuxStorageSpec(OpenSWMM::Render::AuxiliaryStorageSpec::fromJson(
+            layerObj.value(kAuxStorageSpec).toObject()));
     }
 
     // Slice Z.16-attach — restore joins list if persisted. We tolerate
@@ -945,16 +1016,18 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         QVector<OpenSWMM::Render::JoinSpec> js;
         js.reserve(arr.size());
         for (const auto &v : arr) {
-            if (!v.isObject()) continue;
+            if (!v.isObject())
+                continue;
             js.append(OpenSWMM::Render::JoinSpec::fromJson(v.toObject()));
         }
-        if (!js.isEmpty()) layer->setJoins(js);
+        if (!js.isEmpty())
+            layer->setJoins(js);
     }
 
     // Slice Z.12-attach — restore DiagramSpec if persisted.
     if (layerObj.contains(kDiagramSpec)) {
-        layer->setDiagramSpec(OpenSWMM::Render::DiagramSpec::fromJson(
-            layerObj.value(kDiagramSpec).toObject()));
+        layer->setDiagramSpec(
+            OpenSWMM::Render::DiagramSpec::fromJson(layerObj.value(kDiagramSpec).toObject()));
     }
 
     // Result layers — reopen each persisted output file.
@@ -962,20 +1035,18 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         // Slice S6.1 — sublayer state map (path → host JSON). Looked up
         // by rel path right after each layer is constructed so the JSON
         // helpers can re-apply visibility / opacity / per-sublayer style.
-        const QJsonObject sublayerMap =
-            sessionObj.value(kResultLayerSublayers).toObject();
-        const QJsonObject kindRendererMap =
-            sessionObj.value(kResultLayerKindRenderers).toObject();
-        const QJsonObject reportMap =
-            sessionObj.value(kResultLayerReports).toObject();
+        const QJsonObject sublayerMap = sessionObj.value(kResultLayerSublayers).toObject();
+        const QJsonObject kindRendererMap = sessionObj.value(kResultLayerKindRenderers).toObject();
+        const QJsonObject reportMap = sessionObj.value(kResultLayerReports).toObject();
         for (const QJsonValue &v : sessionObj.value(kResultLayers).toArray()) {
             const QString relPath = v.toString();
-            if (relPath.isEmpty()) continue;
+            if (relPath.isEmpty())
+                continue;
             const QString absPath = resolveStoredPath(relPath, oswpFile);
             if (!QFile::exists(absPath)) {
                 if (warningsOut)
-                    *warningsOut << QObject::tr(
-                        "Results file not found — layer skipped: %1").arg(absPath);
+                    *warningsOut
+                        << QObject::tr("Results file not found — layer skipped: %1").arg(absPath);
                 continue;
             }
             auto *rl = new SWMMResultsLayer(absPath, pw->modelLayer());
@@ -1010,7 +1081,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             for (int i = 0; !kindObj.isEmpty() && i < int(SWMMModelLayer::NumCategories); ++i) {
                 const auto cat = static_cast<SWMMModelLayer::Category>(i);
                 const QString key = SWMMModelLayer::kindKey(cat);
-                if (!kindObj.contains(key)) continue;
+                if (!kindObj.contains(key))
+                    continue;
                 if (auto r = makeRendererFromJson(kindObj.value(key).toObject()))
                     rl->setKindRenderer(cat, std::move(r));
             }
@@ -1021,17 +1093,24 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         const auto row = value.toObject();
         QString error;
         auto result = openswmmvis::trace::AnalysisStore::read(
-            resolveStoredPath(row.value("package").toString(), oswpFile), row.value("id").toString(), &error);
+            resolveStoredPath(row.value("package").toString(), oswpFile),
+            row.value("id").toString(), &error);
         if (!result || result->dataset->runId != row.value("runId").toString()) {
-            if (warningsOut) warningsOut->append(QObject::tr("Cannot restore analysis %1: %2")
-                .arg(row.value("name").toString(), error.isEmpty() ? QObject::tr("Run identity mismatch") : error));
+            if (warningsOut)
+                warningsOut->append(
+                    QObject::tr("Cannot restore analysis %1: %2")
+                        .arg(row.value("name").toString(),
+                             error.isEmpty() ? QObject::tr("Run identity mismatch") : error));
             continue;
         }
         result->style = row.value("style").toObject();
         auto *controller = openswmmvis::trace::TraceController::forProject(pw);
-        auto *trace = controller->attachResult(result, row.value("travel").toBool(
-            result->style.value("linkColor").toObject().value("field").toString() == "time"));
-        if (!trace) continue;
+        auto *trace = controller->attachResult(
+            result,
+            row.value("travel").toBool(
+                result->style.value("linkColor").toObject().value("field").toString() == "time"));
+        if (!trace)
+            continue;
         trace->setVisible(row.value("visible").toBool(true));
         trace->setOpacity(row.value("opacity").toDouble(1));
         if (auto *output = qobject_cast<SWMMResultsLayer *>(trace->parent())) {
@@ -1044,11 +1123,10 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
     if (sessionObj.contains(kTerrain)) {
         const QJsonObject t = sessionObj.value(kTerrain).toObject();
         const QString relLayer = t.value(kTerrainLayer).toString();
-        const QString absLayer = relLayer.isEmpty()
-                                     ? QString()
-                                     : resolveStoredPath(relLayer, oswpFile);
-        const double nodeOff  = t.value(kTerrainNodeOffset).toDouble(0.0);
-        const double linkOff  = t.value(kTerrainLinkOffset).toDouble(0.0);
+        const QString absLayer =
+            relLayer.isEmpty() ? QString() : resolveStoredPath(relLayer, oswpFile);
+        const double nodeOff = t.value(kTerrainNodeOffset).toDouble(0.0);
+        const double linkOff = t.value(kTerrainLinkOffset).toDouble(0.0);
         const QString vertUnit = t.value(kTerrainVertUnit).toString();
         pw->restoreTerrainState(absLayer, nodeOff, linkOff, vertUnit);
     }
@@ -1071,44 +1149,56 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         QHash<QString, SWMM2DMeshLayer *> bySource;
         for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
             auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!ml) continue;
+            if (!ml)
+                continue;
             QFileInfo fi(ml->sourcePath());
-            const QString key = fi.canonicalFilePath().isEmpty()
-                                    ? fi.absoluteFilePath()
-                                    : fi.canonicalFilePath();
+            const QString key =
+                fi.canonicalFilePath().isEmpty() ? fi.absoluteFilePath() : fi.canonicalFilePath();
             bySource.insert(key, ml);
         }
 
         for (const QJsonValue &v : sessionObj.value(kMeshLayers).toArray()) {
             const QJsonObject m = v.toObject();
             const QString rel = m.value(kMeshSourcePath).toString();
-            if (rel.isEmpty()) continue;
+            if (rel.isEmpty())
+                continue;
             const QString abs = resolveStoredPath(rel, oswpFile);
             QFileInfo fi(abs);
-            const QString key = fi.canonicalFilePath().isEmpty()
-                                    ? fi.absoluteFilePath()
-                                    : fi.canonicalFilePath();
+            const QString key =
+                fi.canonicalFilePath().isEmpty() ? fi.absoluteFilePath() : fi.canonicalFilePath();
             SWMM2DMeshLayer *ml = bySource.value(key, nullptr);
-            if (!ml) continue;   // mesh wasn't loaded this open — skip silently
+            if (!ml)
+                continue; // mesh wasn't loaded this open — skip silently
 
-            if (m.contains(kMeshActive))    ml->setActiveMesh(m.value(kMeshActive).toBool());
-            if (m.contains(kMeshShowNodes)) ml->setShowMeshNodes(m.value(kMeshShowNodes).toBool());
-            if (m.contains(kMeshShowEdges)) ml->setShowEdges(m.value(kMeshShowEdges).toBool());
+            if (m.contains(kMeshActive))
+                ml->setActiveMesh(m.value(kMeshActive).toBool());
+            if (m.contains(kMeshShowNodes))
+                ml->setShowMeshNodes(m.value(kMeshShowNodes).toBool());
+            if (m.contains(kMeshShowEdges))
+                ml->setShowEdges(m.value(kMeshShowEdges).toBool());
 
             const QJsonObject hs = m.value(kMeshHillshade).toObject();
-            if (hs.contains(kMeshHsAzimuth))  ml->setHillshadeAzimuth(hs.value(kMeshHsAzimuth).toDouble());
-            if (hs.contains(kMeshHsAltitude)) ml->setHillshadeAltitude(hs.value(kMeshHsAltitude).toDouble());
-            if (hs.contains(kMeshHsZExag))    ml->setHillshadeZExag(hs.value(kMeshHsZExag).toDouble());
-            if (hs.contains(kMeshHsMinLit))   ml->setHillshadeMinLit(hs.value(kMeshHsMinLit).toDouble());
+            if (hs.contains(kMeshHsAzimuth))
+                ml->setHillshadeAzimuth(hs.value(kMeshHsAzimuth).toDouble());
+            if (hs.contains(kMeshHsAltitude))
+                ml->setHillshadeAltitude(hs.value(kMeshHsAltitude).toDouble());
+            if (hs.contains(kMeshHsZExag))
+                ml->setHillshadeZExag(hs.value(kMeshHsZExag).toDouble());
+            if (hs.contains(kMeshHsMinLit))
+                ml->setHillshadeMinLit(hs.value(kMeshHsMinLit).toDouble());
 
             const QJsonObject c = m.value(kMeshContours).toObject();
-            if (c.contains(kMeshContShow))      ml->setShowContours(c.value(kMeshContShow).toBool());
-            if (c.contains(kMeshContIntervals)) ml->setContourIntervalCount(c.value(kMeshContIntervals).toInt());
+            if (c.contains(kMeshContShow))
+                ml->setShowContours(c.value(kMeshContShow).toBool());
+            if (c.contains(kMeshContIntervals))
+                ml->setContourIntervalCount(c.value(kMeshContIntervals).toInt());
             if (c.contains(kMeshContColor)) {
                 const QColor col = QColor::fromString(c.value(kMeshContColor).toString());
-                if (col.isValid()) ml->setContourColor(col);
+                if (col.isValid())
+                    ml->setContourColor(col);
             }
-            if (c.contains(kMeshContWidth)) ml->setContourLineWidth(c.value(kMeshContWidth).toDouble());
+            if (c.contains(kMeshContWidth))
+                ml->setContourLineWidth(c.value(kMeshContWidth).toDouble());
             if (c.contains(kMeshContFilled))
                 ml->setFilledContours(c.value(kMeshContFilled).toBool());
             if (c.contains(kMeshContFilledAlpha))
@@ -1134,7 +1224,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         for (const QJsonValue &v : sessionObj.value(kResults2D).toArray()) {
             QJsonObject r = v.toObject();
             const QString rel = r.value(kResults2DPath).toString();
-            if (rel.isEmpty()) continue;
+            if (rel.isEmpty())
+                continue;
             r[kResults2DPath] = resolveStoredPath(rel, oswpFile);
             stash.append(r);
         }
@@ -1162,7 +1253,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         pw->modelLayer()->restoreLayerId(sessionObj.value("modelLayerId").toString());
     if (sessionObj.contains("textLayers")) {
         for (const auto &value : sessionObj.value("textLayers").toArray()) {
-            if (!value.isObject()) continue;
+            if (!value.isObject())
+                continue;
             auto *layer = new OpenSWMMVisAnnotationLayer;
             layer->setParent(pw->canvas());
             layer->restoreLayer(value.toObject());
@@ -1170,7 +1262,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
         }
     } else if (sessionObj.contains(kAnnotations)) {
         const auto items = sessionObj.value(kAnnotations).toArray();
-        if (!items.isEmpty()) pw->ensureAnnotationLayer()->fromJson(items);
+        if (!items.isEmpty())
+            pw->ensureAnnotationLayer()->fromJson(items);
     }
 
     return true;
@@ -1181,29 +1274,40 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
 // ---------------------------------------------------------------------------
 
 bool ProjectSerializer::writeRootJson(const QString &oswpPath,
-                                       const QVector<SWMMVisProjectWindow *> &windows,
-                                       QString *errorOut)
+                                      const QVector<SWMMVisProjectWindow *> &windows,
+                                      QString *errorOut)
 {
-    auto setErr = [&](const QString &m) { if (errorOut) *errorOut = m; };
-    if (oswpPath.isEmpty())
-    { setErr(QObject::tr("Empty .oswp path")); return false; }
-    if (windows.isEmpty())
-    { setErr(QObject::tr("No project windows to serialize")); return false; }
+    auto setErr = [&](const QString &m) {
+        if (errorOut)
+            *errorOut = m;
+    };
+    if (oswpPath.isEmpty()) {
+        setErr(QObject::tr("Empty .oswp path"));
+        return false;
+    }
+    if (windows.isEmpty()) {
+        setErr(QObject::tr("No project windows to serialize"));
+        return false;
+    }
     for (auto *pw : windows) {
-        if (!pw) continue;
+        if (!pw)
+            continue;
         if (auto *controller = openswmmvis::trace::TraceController::forProject(pw, false)) {
             if (controller->busy()) {
-                setErr(QObject::tr("Wait for the analysis write to finish, or cancel it before saving the project."));
+                setErr(QObject::tr(
+                    "Wait for the analysis write to finish, or cancel it before saving the project."));
                 return false;
             }
         }
         for (auto *mapLayer : pw->canvas()->layers()) {
             auto *output = qobject_cast<SWMMResultsLayer *>(mapLayer);
-            if (!output) continue;
+            if (!output)
+                continue;
             for (auto *sub : output->sublayers()) {
                 auto *trace = dynamic_cast<openswmmvis::trace::TraceSublayer *>(sub);
                 if (trace && !trace->layer()->result()->saved) {
-                    setErr(QObject::tr("An analysis is not saved. Use its layer details to retry saving."));
+                    setErr(QObject::tr(
+                        "An analysis is not saved. Use its layer details to retry saving."));
                     return false;
                 }
             }
@@ -1211,12 +1315,16 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         // Managed analysis assets travel with Save As. Explicit external
         // destinations remain references; existing destinations are never overwritten.
         for (const auto &run : pw->statsRegistry()->runs()) {
-            if (!run.packagePath.contains("/analysis/" + run.id + "/")) continue;
+            if (!run.packagePath.contains("/analysis/" + run.id + "/"))
+                continue;
             QDir source(QFileInfo(run.packagePath).absolutePath());
-            QDir destination(QDir(QFileInfo(oswpPath).absolutePath()).filePath("analysis/" + run.id));
-            if (source.absolutePath() == destination.absolutePath()) continue;
+            QDir destination(
+                QDir(QFileInfo(oswpPath).absolutePath()).filePath("analysis/" + run.id));
+            if (source.absolutePath() == destination.absolutePath())
+                continue;
             if (!QDir().mkpath(destination.absolutePath())) {
-                setErr(QObject::tr("Cannot create saved analysis folder %1").arg(destination.absolutePath()));
+                setErr(QObject::tr("Cannot create saved analysis folder %1")
+                           .arg(destination.absolutePath()));
                 return false;
             }
             for (const auto &name : source.entryList(QDir::Files)) {
@@ -1225,33 +1333,45 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
                     bool matching = false;
                     if (name == QFileInfo(run.packagePath).fileName()) {
                         QString error;
-                        const auto data = openswmmvis::trace::AnalysisStore::readDataset(target, &error);
-                        matching = data && data->runId == run.id && data->fingerprint == run.fingerprint;
+                        const auto data =
+                            openswmmvis::trace::AnalysisStore::readDataset(target, &error);
+                        matching =
+                            data && data->runId == run.id && data->fingerprint == run.fingerprint;
                     } else {
                         QFile left(source.filePath(name)), right(target);
                         if (left.open(QIODevice::ReadOnly) && right.open(QIODevice::ReadOnly)) {
                             matching = left.size() == right.size();
-                            while (matching && !left.atEnd()) matching = left.read(1024*1024) == right.read(1024*1024);
+                            while (matching && !left.atEnd())
+                                matching = left.read(1024 * 1024) == right.read(1024 * 1024);
                         }
-                        if (matching) continue;
+                        if (matching)
+                            continue;
                     }
                     if (!matching) {
-                        setErr(QObject::tr("Analysis asset already exists: %1. Choose a new project folder.").arg(target));
+                        setErr(
+                            QObject::tr(
+                                "Analysis asset already exists: %1. Choose a new project folder.")
+                                .arg(target));
                         return false;
                     }
                 }
-                QFile input(source.filePath(name)); QSaveFile copy(target);
+                QFile input(source.filePath(name));
+                QSaveFile copy(target);
                 if (!input.open(QIODevice::ReadOnly) || !copy.open(QIODevice::WriteOnly)) {
-                    setErr(QObject::tr("Cannot copy analysis asset to %1").arg(target)); return false;
+                    setErr(QObject::tr("Cannot copy analysis asset to %1").arg(target));
+                    return false;
                 }
                 while (!input.atEnd()) {
-                    const auto bytes = input.read(1024*1024);
+                    const auto bytes = input.read(1024 * 1024);
                     if (input.error() != QFile::NoError || copy.write(bytes) != bytes.size()) {
-                        setErr(QObject::tr("Cannot copy analysis asset to %1").arg(target)); return false;
+                        setErr(QObject::tr("Cannot copy analysis asset to %1").arg(target));
+                        return false;
                     }
                 }
-                if (!copy.commit()) {setErr(QObject::tr("Cannot finish analysis copy %1").arg(target));return false;}
-
+                if (!copy.commit()) {
+                    setErr(QObject::tr("Cannot finish analysis copy %1").arg(target));
+                    return false;
+                }
             }
         }
         if (auto *store = ProfileSectionStore::forOwner(pw, false)) {
@@ -1287,7 +1407,8 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
     // Sessions[] — one entry per instance.
     QJsonArray sessionsArr;
     for (SWMMVisProjectWindow *pw : windows) {
-        if (!pw) continue;
+        if (!pw)
+            continue;
         const QJsonObject sessionObj = serializeSession(pw, oswpPath);
         if (!sessionObj.isEmpty())
             sessionsArr.append(sessionObj);
@@ -1303,17 +1424,19 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         QJsonObject canvasObj;
         if (auto *srs = canvas->canvasSRS()) {
             const QString auth = srs->authName();
-            const int code     = srs->code();
+            const int code = srs->code();
             if (!auth.isEmpty() && code > 0) {
                 canvasObj[kCrsAuthority] = auth;
-                canvasObj[kCrsCode]      = code;
+                canvasObj[kCrsCode] = code;
             }
         }
         const MapExtent e = canvas->extent();
         if (e.isValid()) {
             QJsonArray bbox;
-            bbox.append(e.xMin()); bbox.append(e.yMin());
-            bbox.append(e.xMax()); bbox.append(e.yMax());
+            bbox.append(e.xMin());
+            bbox.append(e.yMin());
+            bbox.append(e.xMax());
+            bbox.append(e.yMax());
             canvasObj[kExtent] = bbox;
         }
         {
@@ -1332,7 +1455,8 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
 
         QJsonArray basemapsArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
-            if (!l->isBasemapLayer()) continue;
+            if (!l->isBasemapLayer())
+                continue;
             const QJsonObject bm = serializeBasemapLayer(l, oswpPath);
             if (!bm.isEmpty())
                 basemapsArr.append(bm);
@@ -1345,7 +1469,8 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         // above; these are the non-basemap GDAL/OGR data layers.
         QJsonArray gisArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
-            if (l->isBasemapLayer()) continue;
+            if (l->isBasemapLayer())
+                continue;
             const QJsonObject g = serializeGisLayer(l, oswpPath);
             if (!g.isEmpty())
                 gisArr.append(g);
@@ -1374,30 +1499,43 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
 }
 
 // Public single-instance overload — for existing callers (Slice X / AA / AA-2).
-bool ProjectSerializer::saveToFile(const QString &oswpPath,
-                                    SWMMVisProjectWindow *pw,
-                                    QString *errorOut)
+bool ProjectSerializer::saveToFile(const QString &oswpPath, SWMMVisProjectWindow *pw,
+                                   QString *errorOut)
 {
-    auto setErr = [&](const QString &m) { if (errorOut) *errorOut = m; };
-    if (!pw) { setErr(QObject::tr("No project window")); return false; }
-    if (!pw->modelLayer())
-    { setErr(QObject::tr("No SWMM layer to serialize")); return false; }
+    auto setErr = [&](const QString &m) {
+        if (errorOut)
+            *errorOut = m;
+    };
+    if (!pw) {
+        setErr(QObject::tr("No project window"));
+        return false;
+    }
+    if (!pw->modelLayer()) {
+        setErr(QObject::tr("No SWMM layer to serialize"));
+        return false;
+    }
 
     QVector<SWMMVisProjectWindow *> windows{pw};
     return writeRootJson(oswpPath, windows, errorOut);
 }
 
 // Public multi-instance overload — Slice AA-3.4.
-bool ProjectSerializer::saveToFile(const QString &oswpPath,
-                                    SWMMVisProject *proj,
-                                    QString *errorOut)
+bool ProjectSerializer::saveToFile(const QString &oswpPath, SWMMVisProject *proj, QString *errorOut)
 {
-    auto setErr = [&](const QString &m) { if (errorOut) *errorOut = m; };
-    if (!proj) { setErr(QObject::tr("No project")); return false; }
+    auto setErr = [&](const QString &m) {
+        if (errorOut)
+            *errorOut = m;
+    };
+    if (!proj) {
+        setErr(QObject::tr("No project"));
+        return false;
+    }
 
     QVector<SWMMVisProjectWindow *> windows = proj->instances();
-    if (windows.isEmpty())
-    { setErr(QObject::tr("Project has no instances")); return false; }
+    if (windows.isEmpty()) {
+        setErr(QObject::tr("Project has no instances"));
+        return false;
+    }
 
     return writeRootJson(oswpPath, windows, errorOut);
 }
@@ -1406,14 +1544,21 @@ bool ProjectSerializer::saveToFile(const QString &oswpPath,
 // Apply
 // ---------------------------------------------------------------------------
 
-bool ProjectSerializer::applyFromFile(const QString &oswpPath,
-                                       SWMMVisProjectWindow *pw,
-                                       QString *errorOut,
-                                       QStringList *warningsOut)
+bool ProjectSerializer::applyFromFile(const QString &oswpPath, SWMMVisProjectWindow *pw,
+                                      QString *errorOut, QStringList *warningsOut)
 {
-    auto setErr = [&](const QString &m) { if (errorOut) *errorOut = m; };
-    if (oswpPath.isEmpty()) { setErr(QObject::tr("Empty .oswp path")); return false; }
-    if (!pw)                { setErr(QObject::tr("No project window")); return false; }
+    auto setErr = [&](const QString &m) {
+        if (errorOut)
+            *errorOut = m;
+    };
+    if (oswpPath.isEmpty()) {
+        setErr(QObject::tr("Empty .oswp path"));
+        return false;
+    }
+    if (!pw) {
+        setErr(QObject::tr("No project window"));
+        return false;
+    }
 
     QFile f(oswpPath);
     if (!f.open(QIODevice::ReadOnly)) {
@@ -1432,7 +1577,8 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
 
     // v0 = pre-Slice-X format (just a `layers` array of inp paths) —
     // nothing we apply from here; the caller's .inp is already open.
-    if (ver < 1) return true;
+    if (ver < 1)
+        return true;
 
     // ── Resolve the per-instance state ───────────────────────────────
     // v1/v2/v3:  inpPath / engineVersion / layer at root
@@ -1451,9 +1597,9 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         if (root.contains(kEngineVersion))
             sessionObj[kEngineVersion] = root.value(kEngineVersion);
         if (root.contains(kInpPath))
-            sessionObj[kInpPath]       = root.value(kInpPath);
+            sessionObj[kInpPath] = root.value(kInpPath);
         if (root.contains(kLayer))
-            sessionObj[kLayer]         = root.value(kLayer);
+            sessionObj[kLayer] = root.value(kLayer);
     }
 
     // Validate the recipe before changing any project/canvas state. Unknown
@@ -1462,7 +1608,7 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
     if (sessionObj.contains(kMeshCorridors)) {
         QString recipeError;
         if (!MeshCorridorRecipe::decode(sessionObj.value(kMeshCorridors), oswpPath,
-                                       &corridorSources, &recipeError)) {
+                                        &corridorSources, &recipeError)) {
             pw->setCorridorRecipeLoadError(recipeError);
             setErr(recipeError);
             return false;
@@ -1476,10 +1622,11 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
     const bool wasDirty = pw->hasChanges();
     const QPointer<SWMMVisProjectWindow> window(pw);
     const auto keepClean = qScopeGuard([wasDirty, window] {
-        if (!wasDirty && window) window->setHasChanges(false);
+        if (!wasDirty && window)
+            window->setHasChanges(false);
     });
 
-    auto *layer  = pw->modelLayer();
+    auto *layer = pw->modelLayer();
     auto *canvas = pw->canvas();
 
     // Slice LTR-2026-09-19 — ordering preferences must be on the canvas
@@ -1492,7 +1639,7 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
             QVector<int> order;
             for (const QJsonValue &v : canvasObj.value(kLayerGroupOrder).toArray())
                 order.append(v.toInt(-1));
-            canvas->setLayerGroupOrder(order);      // validates the permutation
+            canvas->setLayerGroupOrder(order); // validates the permutation
         }
         if (canvasObj.contains(kLayerOrder)) {
             QStringList keys;
@@ -1524,22 +1671,24 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         }
         const QJsonArray bbox = canvasObj.value(kExtent).toArray();
         if (bbox.size() == 4) {
-            const MapExtent e(bbox[0].toDouble(), bbox[1].toDouble(),
-                              bbox[2].toDouble(), bbox[3].toDouble());
+            const MapExtent e(bbox[0].toDouble(), bbox[1].toDouble(), bbox[2].toDouble(),
+                              bbox[3].toDouble());
             // Restoring the saved view is not a user navigation step.
-            if (e.isValid()) canvas->setExtent(e, /*pushUndo=*/false);
+            if (e.isValid())
+                canvas->setExtent(e, /*pushUndo=*/false);
         }
     }
 
-    if (canvas && !sessionObj.contains("textLayers") && sessionObj.contains(kAnnotations) && canvas->canvasSRS())
+    if (canvas && !sessionObj.contains("textLayers") && sessionObj.contains(kAnnotations) &&
+        canvas->canvasSRS())
         pw->ensureAnnotationLayer()->setSRS(new SpatialReferenceSystem(*canvas->canvasSRS()), true);
 
     // --- Basemap layers (schema v3+) ---------------------------------------
     if (ver >= 3 && canvas) {
         const QJsonArray basemapsArr = root.value(kBasemaps).toArray();
         for (const QJsonValue &v : basemapsArr) {
-            OpenSWMMVisLayer *bm = deserializeBasemapLayer(v.toObject(), canvas,
-                                                           oswpPath, warningsOut);
+            OpenSWMMVisLayer *bm =
+                deserializeBasemapLayer(v.toObject(), canvas, oswpPath, warningsOut);
             if (bm)
                 canvas->addLayer(bm, /*pushUndo=*/false);
         }
@@ -1562,6 +1711,11 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
 // Basemap helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Encode HTTP request-header names and values as a JSON object.
+ * @param[in] headers Header mapping; names and values are preserved verbatim.
+ * @return Value object with one string field per header.
+ */
 static QJsonObject headersToJson(const BasemapHttpHeaders &headers)
 {
     QJsonObject obj;
@@ -1570,6 +1724,11 @@ static QJsonObject headersToJson(const BasemapHttpHeaders &headers)
     return obj;
 }
 
+/**
+ * @brief Restore an HTTP header mapping from stored fields.
+ * @param[in] obj Header object; non-string values become empty strings.
+ * @return Header mapping without validating HTTP syntax or filtering credentials.
+ */
 static BasemapHttpHeaders headersFromJson(const QJsonObject &obj)
 {
     BasemapHttpHeaders headers;
@@ -1586,9 +1745,9 @@ QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer,
     // Checked first; GISRasterLayer is unrelated to the XYZ/WMTS/WMS service
     // types below so the qobject_casts can't collide. Georeferencing needs no
     // serialization — it lives in the .aux.xml PAM sidecar next to the image.
-    if (auto *r = qobject_cast<GISRasterLayer *>(layer);
-        r && r->isBasemapLayer()) {
-        if (r->filePath().isEmpty()) return obj;   // nothing to reopen from
+    if (auto *r = qobject_cast<GISRasterLayer *>(layer); r && r->isBasemapLayer()) {
+        if (r->filePath().isEmpty())
+            return obj; // nothing to reopen from
         obj[kBmType] = QStringLiteral("localraster");
         obj[kBmName] = r->name();
         obj[kBmPath] = toRelativePath(r->filePath(), oswpPath);
@@ -1596,34 +1755,37 @@ QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer,
         return obj;
     }
     if (auto *xyz = qobject_cast<XYZTileLayer *>(layer)) {
-        obj[kBmType]         = QStringLiteral("xyz");
-        obj[kBmName]         = xyz->name();
-        obj[kBmUrl]          = xyz->urlTemplate();
+        obj[kBmType] = QStringLiteral("xyz");
+        obj[kBmName] = xyz->name();
+        obj[kBmUrl] = xyz->urlTemplate();
         obj[kBmTilePixRatio] = xyz->tilePixelRatio();
-        obj[kBmAxisOrder]    = static_cast<int>(xyz->axisOrder());
+        obj[kBmAxisOrder] = static_cast<int>(xyz->axisOrder());
         const QJsonObject hdrs = headersToJson(xyz->httpHeaders());
-        if (!hdrs.isEmpty()) obj[kBmHeaders] = hdrs;
+        if (!hdrs.isEmpty())
+            obj[kBmHeaders] = hdrs;
     } else if (auto *wmts = qobject_cast<WMTSLayer *>(layer)) {
-        obj[kBmType]  = QStringLiteral("wmts");
-        obj[kBmName]  = wmts->name();
-        obj[kBmUrl]   = wmts->serviceUrl().toString();
+        obj[kBmType] = QStringLiteral("wmts");
+        obj[kBmName] = wmts->name();
+        obj[kBmUrl] = wmts->serviceUrl().toString();
         obj[kBmLayer] = wmts->activeLayerId();
         obj[kBmStyle] = wmts->activeStyle();
-        obj[kBmFormat]= wmts->imageFormat();
-        obj[kBmTms]   = wmts->activeTileMatrixSet();
+        obj[kBmFormat] = wmts->imageFormat();
+        obj[kBmTms] = wmts->activeTileMatrixSet();
         const QJsonObject hdrs = headersToJson(wmts->httpHeaders());
-        if (!hdrs.isEmpty()) obj[kBmHeaders] = hdrs;
+        if (!hdrs.isEmpty())
+            obj[kBmHeaders] = hdrs;
     } else if (auto *wms = qobject_cast<WMSLayer *>(layer)) {
-        obj[kBmType]   = QStringLiteral("wms");
-        obj[kBmName]   = wms->name();
-        obj[kBmUrl]    = wms->serviceUrl().toString();
-        obj[kBmLayer]  = wms->activeLayerName();
-        obj[kBmStyle]  = wms->activeStyle();
+        obj[kBmType] = QStringLiteral("wms");
+        obj[kBmName] = wms->name();
+        obj[kBmUrl] = wms->serviceUrl().toString();
+        obj[kBmLayer] = wms->activeLayerName();
+        obj[kBmStyle] = wms->activeStyle();
         obj[kBmFormat] = wms->imageFormat();
-        obj[kBmCrs]    = wms->crs();
-        obj[kBmDpiMode]= wms->dpiMode();
+        obj[kBmCrs] = wms->crs();
+        obj[kBmDpiMode] = wms->dpiMode();
         const QJsonObject hdrs = headersToJson(wms->httpHeaders());
-        if (!hdrs.isEmpty()) obj[kBmHeaders] = hdrs;
+        if (!hdrs.isEmpty())
+            obj[kBmHeaders] = hdrs;
     }
     return obj;
 }
@@ -1667,12 +1829,13 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
     }
     if (type == QStringLiteral("localraster")) {
         const QString rel = obj.value(kBmPath).toString();
-        if (rel.isEmpty()) return nullptr;
+        if (rel.isEmpty())
+            return nullptr;
         const QString path = resolveStoredPath(rel, oswpPath);
         if (!QFile::exists(path)) {
             if (warningsOut)
-                *warningsOut << QObject::tr(
-                    "Local basemap file not found — layer skipped: %1").arg(path);
+                *warningsOut
+                    << QObject::tr("Local basemap file not found — layer skipped: %1").arg(path);
             return nullptr;
         }
         // Async restore, mirroring deserializeGisLayer: the caller adds the
@@ -1687,7 +1850,8 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
             QObject::connect(
                 layer, &GISRasterLayer::openFinished, layer,
                 [layer, style](bool ok) {
-                    if (ok) OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(layer, style);
+                    if (ok)
+                        OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(layer, style);
                 },
                 static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
         }
@@ -1704,17 +1868,18 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
 // Layer path uses. See workplans/GIS_LAYER_PERSISTENCE_HANDOFF_2026-07-24.md.
 // ---------------------------------------------------------------------------
 
-QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
-                                                 const QString &oswpPath)
+QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer, const QString &oswpPath)
 {
     QJsonObject obj;
-    if (!layer) return obj;
+    if (!layer)
+        return obj;
 
     if (auto *r = qobject_cast<GISRasterLayer *>(layer)) {
-        if (r->filePath().isEmpty()) return obj;   // nothing to reopen from
-        obj[kGisType]    = QStringLiteral("raster");
-        obj[kGisPath]    = toRelativePath(r->filePath(), oswpPath);
-        obj[kGisName]    = r->name();
+        if (r->filePath().isEmpty())
+            return obj; // nothing to reopen from
+        obj[kGisType] = QStringLiteral("raster");
+        obj[kGisPath] = toRelativePath(r->filePath(), oswpPath);
+        obj[kGisName] = r->name();
         obj[kGisVisible] = r->isVisible();
         obj[kGisOpacity] = r->opacity();
         obj[kRasterStyle] = OpenSWMM::Render::StyleFileIO::rasterStyleToJson(r);
@@ -1724,12 +1889,13 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
         // otherwise claim it and the role / Z policy would be lost.
         // Geometry itself lives in the project GeoPackage, so this record is
         // still path-shaped like the other two.
-        if (f->gpkgPath().isEmpty()) return obj;
-        obj[kGisType]      = QStringLiteral("feature");
-        obj[kGisPath]      = toRelativePath(f->gpkgPath(), oswpPath);
-        obj[kGisName]      = f->name();
-        obj[kGisVisible]   = f->isVisible();
-        obj[kGisOpacity]   = f->opacity();
+        if (f->gpkgPath().isEmpty())
+            return obj;
+        obj[kGisType] = QStringLiteral("feature");
+        obj[kGisPath] = toRelativePath(f->gpkgPath(), oswpPath);
+        obj[kGisName] = f->name();
+        obj[kGisVisible] = f->isVisible();
+        obj[kGisOpacity] = f->opacity();
         obj[kGisLayerName] = f->tableName();
         // role / zPolicy / symbol
         const QJsonObject extra = f->toJson();
@@ -1737,52 +1903,54 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
             if (it.key() != QStringLiteral("layerName"))
                 obj[it.key()] = it.value();
     } else if (auto *v = qobject_cast<GISVectorLayer *>(layer)) {
-        if (v->filePath().isEmpty()) return obj;
-        obj[kGisType]      = QStringLiteral("vector");
-        obj[kGisPath]      = toRelativePath(v->filePath(), oswpPath);
-        obj[kGisName]      = v->name();
-        obj[kGisVisible]   = v->isVisible();
-        obj[kGisOpacity]   = v->opacity();
-        obj[kGisLayerName] = v->ogrLayerName();   // OGR sublayer (may be empty)
+        if (v->filePath().isEmpty())
+            return obj;
+        obj[kGisType] = QStringLiteral("vector");
+        obj[kGisPath] = toRelativePath(v->filePath(), oswpPath);
+        obj[kGisName] = v->name();
+        obj[kGisVisible] = v->isVisible();
+        obj[kGisOpacity] = v->opacity();
+        obj[kGisLayerName] = v->ogrLayerName(); // OGR sublayer (may be empty)
     }
-    if (!obj.isEmpty()) obj["id"] = layer->layerId();
+    if (!obj.isEmpty())
+        obj["id"] = layer->layerId();
     return obj;
 }
 
-void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
-                                            MapCanvas *canvas,
-                                            const QString &oswpPath,
-                                            QStringList *warningsOut)
+void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *canvas,
+                                            const QString &oswpPath, QStringList *warningsOut)
 {
-    if (!canvas) return;
+    if (!canvas)
+        return;
     const QString type = obj.value(kGisType).toString();
-    const QString rel  = obj.value(kGisPath).toString();
-    if (rel.isEmpty()) return;
+    const QString rel = obj.value(kGisPath).toString();
+    if (rel.isEmpty())
+        return;
     const QString path = resolveStoredPath(rel, oswpPath);
     if (!QFile::exists(path)) {
         if (warningsOut) {
             // The label used to read "Vector" for every non-raster type; with
             // a third type that would be actively wrong.
-            const QString kindLabel =
-                type == QStringLiteral("raster")  ? QObject::tr("Raster")
-              : type == QStringLiteral("feature") ? QObject::tr("Feature")
-                                                  : QObject::tr("Vector");
-            *warningsOut << QObject::tr(
-                "%1 layer file not found — layer skipped: %2")
-                   .arg(kindLabel, path);
+            const QString kindLabel = type == QStringLiteral("raster")    ? QObject::tr("Raster")
+                                      : type == QStringLiteral("feature") ? QObject::tr("Feature")
+                                                                          : QObject::tr("Vector");
+            *warningsOut
+                << QObject::tr("%1 layer file not found — layer skipped: %2").arg(kindLabel, path);
         }
         return;
     }
 
-    const QString name    = obj.value(kGisName).toString();
-    const bool    visible = obj.value(kGisVisible).toBool(true);
-    const double  opacity = obj.value(kGisOpacity).toDouble(1.0);
+    const QString name = obj.value(kGisName).toString();
+    const bool visible = obj.value(kGisVisible).toBool(true);
+    const double opacity = obj.value(kGisOpacity).toDouble(1.0);
 
     // Restore name/visibility/opacity as soon as the async open finishes, then
     // add the layer to the canvas — mirroring the File ▸ Add Layer flow.
-    auto applyCommon = [name, visible, opacity, id = obj.value("id").toString()](OpenSWMMVisLayer *l) {
+    auto applyCommon = [name, visible, opacity,
+                        id = obj.value("id").toString()](OpenSWMMVisLayer *l) {
         l->restoreLayerId(id);
-        if (!name.isEmpty()) l->setName(name);
+        if (!name.isEmpty())
+            l->setName(name);
         l->setVisible(visible);
         l->setOpacity(opacity);
     };
@@ -1801,8 +1969,9 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
                     if (!style.isEmpty())
                         OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(layer, style);
                     canvas->addLayer(layer, /*pushUndo=*/false);
+                } else {
+                    layer->deleteLater();
                 }
-                else    { layer->deleteLater(); }
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
         layer->openAsync(path);
@@ -1812,8 +1981,12 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
         QObject::connect(
             layer, &GISVectorLayer::openFinished, canvas,
             [canvas, layer, applyCommon](bool ok) {
-                if (ok) { applyCommon(layer); canvas->addLayer(layer, /*pushUndo=*/false); }
-                else    { layer->deleteLater(); }
+                if (ok) {
+                    applyCommon(layer);
+                    canvas->addLayer(layer, /*pushUndo=*/false);
+                } else {
+                    layer->deleteLater();
+                }
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
         layer->openAsync(path, layerName);
@@ -1830,12 +2003,12 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
         if (!layer->openTable(path, table, &err)) {
             if (warningsOut)
                 *warningsOut << QObject::tr(
-                    "Feature layer \"%1\" could not be opened — layer skipped: %2")
-                       .arg(table, err);
+                                    "Feature layer \"%1\" could not be opened — layer skipped: %2")
+                                    .arg(table, err);
             layer->deleteLater();
             return;
         }
-        layer->applyJson(obj);   // role, zPolicy, symbol
+        layer->applyJson(obj); // role, zPolicy, symbol
         applyCommon(layer);
         canvas->addLayer(layer, /*pushUndo=*/false);
     }

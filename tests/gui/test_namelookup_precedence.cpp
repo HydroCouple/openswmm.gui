@@ -1,9 +1,9 @@
-/*!
- * \file   test_namelookup_precedence.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Pins the name-resolution contract of identifyByName() / nodeIndex()
+/**
+ * @file      test_namelookup_precedence.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Pins the name-resolution contract of identifyByName() / nodeIndex()
  *         / linkIndex() after they were converted from linear scans to hash
  *         lookups (GUI load-perf Phase 1).
  *
@@ -26,7 +26,9 @@
  *
  *         Uses QTEST_MAIN (offscreen QPA) because SWMMModelLayer is a QObject
  *         layer that expects a QApplication.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 
 #include <QApplication>
@@ -36,7 +38,8 @@
 #include <QTest>
 #include <QVariantMap>
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -48,7 +51,7 @@ QString fixturePath()
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp"));
 }
 
-}  // namespace
+} // namespace
 
 class TestNameLookupPrecedence : public QObject
 {
@@ -94,8 +97,7 @@ void TestNameLookupPrecedence::subcatchmentWinsOverCollidingGage()
     QVERIFY(layer.loadModel(warnings, errors));
 
     const QVariantMap m = layer.identifyByName(QStringLiteral("S1"));
-    QCOMPARE(m.value(QStringLiteral("Type")).toString(),
-             QStringLiteral("Subcatchment"));
+    QCOMPARE(m.value(QStringLiteral("Type")).toString(), QStringLiteral("Subcatchment"));
     QCOMPARE(m.value(QStringLiteral("Name")).toString(), QStringLiteral("S1"));
 }
 
@@ -158,8 +160,7 @@ void TestNameLookupPrecedence::renameMovesOnlyTheRenamedKind()
     QCOMPARE(layer.linkIndex(QStringLiteral("X1")), linkBefore);
 
     // With the node gone from X1, identifyByName now falls through to the link.
-    QCOMPARE(layer.identifyByName(QStringLiteral("X1"))
-                 .value(QStringLiteral("Type")).toString(),
+    QCOMPARE(layer.identifyByName(QStringLiteral("X1")).value(QStringLiteral("Type")).toString(),
              QStringLiteral("Link"));
 }
 
@@ -187,8 +188,7 @@ void TestNameLookupPrecedence::incrementalAddsStayResolvable()
     QCOMPARE(sm.value(QStringLiteral("Type")).toString(), QStringLiteral("Subcatchment"));
 
     // Pre-existing entries must survive the incremental inserts.
-    QCOMPARE(layer.identifyByName(QStringLiteral("S1"))
-                 .value(QStringLiteral("Type")).toString(),
+    QCOMPARE(layer.identifyByName(QStringLiteral("S1")).value(QStringLiteral("Type")).toString(),
              QStringLiteral("Subcatchment"));
     QVERIFY(layer.linkIndex(QStringLiteral("C1")) >= 0);
 }
@@ -203,15 +203,17 @@ void TestNameLookupPrecedence::typedRefIdentifiesItsOwnKind()
     QVERIFY(layer.loadModel(warnings, errors));
 
     const auto typeOf = [&layer](const char *name, int objectType) {
-        return layer.identifyByName(QString::fromLatin1(name),
-                                    SWMMModelLayer::kindMaskForObjectType(objectType))
-            .value(QStringLiteral("Type")).toString();
+        return layer
+            .identifyByName(QString::fromLatin1(name),
+                            SWMMModelLayer::kindMaskForObjectType(objectType))
+            .value(QStringLiteral("Type"))
+            .toString();
     };
-    QCOMPARE(typeOf("X1", 2), QStringLiteral("Link"));          // SWMMObjectRef::Link
-    QCOMPARE(typeOf("X1", 1), QStringLiteral("Node"));          // SWMMObjectRef::Node
-    QCOMPARE(typeOf("S1", 3), QStringLiteral("Subcatchment"));  // SWMMObjectRef::Subcatchment
-    QCOMPARE(typeOf("S1", 4), QStringLiteral("Rain Gage"));      // SWMMObjectRef::RainGage
-    QCOMPARE(typeOf("X1", 0), QStringLiteral("Node"));          // unknown kind: legacy precedence
+    QCOMPARE(typeOf("X1", 2), QStringLiteral("Link"));         // SWMMObjectRef::Link
+    QCOMPARE(typeOf("X1", 1), QStringLiteral("Node"));         // SWMMObjectRef::Node
+    QCOMPARE(typeOf("S1", 3), QStringLiteral("Subcatchment")); // SWMMObjectRef::Subcatchment
+    QCOMPARE(typeOf("S1", 4), QStringLiteral("Rain Gage"));    // SWMMObjectRef::RainGage
+    QCOMPARE(typeOf("X1", 0), QStringLiteral("Node"));         // unknown kind: legacy precedence
 }
 
 QTEST_MAIN(TestNameLookupPrecedence)

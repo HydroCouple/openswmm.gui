@@ -1,7 +1,10 @@
-/*!
- * \file   maptoolselectprofile.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      maptoolselectprofile.cpp
+ * @brief     path.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptoolselectprofile.h"
@@ -32,18 +35,29 @@
 #include <QString>
 #include <QtConcurrent/QtConcurrent>
 
-namespace {
+namespace
+{
 
 constexpr int kTargetClickRadiusPx = 12;
 
 // True when the mouse event carries the "second endpoint" modifier
 // (Ctrl on Windows/Linux, Cmd on macOS).  Qt maps both to ControlModifier
 // in the platform-aware modifier set, so we just check that.
+/**
+ * @param[in] event Required borrowed event; no null guard.
+ * @return Whether Qt ControlModifier set (platform endpoint convention). Current mousePressEvent
+ *   does not call this helper or require Control for end pick; no mutation.
+ */
 bool hasEndpointModifier(QMouseEvent *event)
 {
     return event->modifiers().testFlag(Qt::ControlModifier);
 }
 
+/**
+ * @param[in] event Required borrowed event; no null guard.
+ * @return ShiftModifier set, without requiring Control. Used while awaiting end to append waypoint;
+ *   no mutation.
+ */
 bool hasWaypointModifier(QMouseEvent *event)
 {
     return event->modifiers().testFlag(Qt::ShiftModifier);
@@ -51,8 +65,7 @@ bool hasWaypointModifier(QMouseEvent *event)
 
 } // namespace
 
-OpenSWMMVisMapToolSelectProfile::OpenSWMMVisMapToolSelectProfile(
-    MapCanvas *canvas, QObject *parent)
+OpenSWMMVisMapToolSelectProfile::OpenSWMMVisMapToolSelectProfile(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("SelectProfile"), canvas, parent)
 {
 }
@@ -93,17 +106,22 @@ void OpenSWMMVisMapToolSelectProfile::activate()
     if (model) {
         const auto &sel = model->selectedElements();
         for (const auto &e : sel) {
-            if (!(e.kinds & SWMMModelLayer::kKindNode)) continue;
+            if (!(e.kinds & SWMMModelLayer::kKindNode))
+                continue;
             const int engIdx = ProfileNetworkAdapter::findNodeIndex(model, e.name);
-            if (engIdx < 0) continue;
-            if (seededNodes.contains(engIdx)) continue;  // dedupe
+            if (engIdx < 0)
+                continue;
+            if (seededNodes.contains(engIdx))
+                continue; // dedupe
             seededNodes.push_back(engIdx);
-            if (seededNodes.size() == 2) break;
+            if (seededNodes.size() == 2)
+                break;
         }
     }
 
     auto ensureOverlay = [this, model]() {
-        if (m_overlay) return;
+        if (m_overlay)
+            return;
         m_overlay = new ProfilePathOverlay(model);
         if (canvas() && canvas()->mapScene()) {
             m_overlayScene = canvas()->mapScene();
@@ -116,8 +134,8 @@ void OpenSWMMVisMapToolSelectProfile::activate()
         // previously-accepted path is replaced by the new routing result
         // (or restored if routing produces nothing).
         m_acceptedPath = ProfileRouter::Path{};
-        m_startNode    = seededNodes[0];
-        m_endNode      = seededNodes[1];
+        m_startNode = seededNodes[0];
+        m_endNode = seededNodes[1];
         ensureOverlay();
         m_overlay->setPaths({});
         m_overlay->setEndpoints(m_startNode, m_endNode);
@@ -125,8 +143,7 @@ void OpenSWMMVisMapToolSelectProfile::activate()
             canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                                  QStringLiteral("profile endpoints seeded"));
         m_state = State::PickingPath;
-        emit statusMessageChanged(
-            tr("Routing profile between the two selected nodes…"));
+        emit statusMessageChanged(tr("Routing profile between the two selected nodes…"));
         routeAndPick();
         return;
     }
@@ -134,25 +151,23 @@ void OpenSWMMVisMapToolSelectProfile::activate()
     if (seededNodes.size() == 1) {
         // Single pre-selected node → use as start, wait for end click.
         m_startNode = seededNodes[0];
-        m_endNode   = -1;
-        m_state     = State::AwaitingEnd;
+        m_endNode = -1;
+        m_state = State::AwaitingEnd;
         ensureOverlay();
         m_overlay->setPaths({});
         m_overlay->setEndpoints(m_startNode, -1);
         if (canvas())
             canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                                  QStringLiteral("profile start seeded"));
-        emit statusMessageChanged(
-            tr("Start node taken from current selection. "
-               "Click the end node or link to route."));
+        emit statusMessageChanged(tr("Start node taken from current selection. "
+                                     "Click the end node or link to route."));
         return;
     }
 
     if (!m_acceptedPath.linkIds.isEmpty()) {
-        emit statusMessageChanged(
-            tr("Showing selected profile (%1 links).  "
-               "Click to trace a new one.")
-                .arg(m_acceptedPath.linkIds.size()));
+        emit statusMessageChanged(tr("Showing selected profile (%1 links).  "
+                                     "Click to trace a new one.")
+                                      .arg(m_acceptedPath.linkIds.size()));
     } else {
         emit statusMessageChanged(
             tr("Click the profile start node or link, then Ctrl/⌘+click the end."));
@@ -174,12 +189,10 @@ ProfileRouter::Path OpenSWMMVisMapToolSelectProfile::acceptedPath() const
 
 void OpenSWMMVisMapToolSelectProfile::clearSelection()
 {
-    const bool hadAnything =
-        !m_acceptedPath.linkIds.isEmpty()
-        || m_state != State::Idle
-        || m_overlay
-        || !m_waypoints.isEmpty();
-    if (!hadAnything) return;
+    const bool hadAnything = !m_acceptedPath.linkIds.isEmpty() || m_state != State::Idle ||
+                             m_overlay || !m_waypoints.isEmpty();
+    if (!hadAnything)
+        return;
     resetState();
     if (canvas()) {
         canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
@@ -199,7 +212,8 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
         emit statusMessageChanged(tr("Profile selection cancelled."));
         return;
     }
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     SWMMModelLayer *model = activeModel();
     if (!model) {
@@ -234,9 +248,9 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
         // Starting a fresh selection — clear any persisted selected-path
         // highlight left from a previous successful selection.
         m_startNode = hitNode;
-        m_endNode   = -1;
+        m_endNode = -1;
         m_acceptedPath = ProfileRouter::Path{};
-        m_state     = State::AwaitingEnd;
+        m_state = State::AwaitingEnd;
         if (!m_overlay) {
             m_overlay = new ProfilePathOverlay(model);
             if (canvas() && canvas()->mapScene()) {
@@ -249,8 +263,7 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
         if (canvas())
             canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                                  QStringLiteral("profile start captured"));
-        emit statusMessageChanged(
-            tr("Start node captured. Click the end node or link to route."));
+        emit statusMessageChanged(tr("Start node captured. Click the end node or link to route."));
         break;
 
     case State::AwaitingEnd:
@@ -258,8 +271,7 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
             // Shift+click adds an intermediate waypoint (power-user shortcut).
             m_waypoints.push_back(hitNode);
             emit statusMessageChanged(
-                tr("Waypoint added (%1 total). Click the end to route.")
-                    .arg(m_waypoints.size()));
+                tr("Waypoint added (%1 total). Click the end to route.").arg(m_waypoints.size()));
         } else {
             // Plain click → second endpoint; route.
             if (hitNode == m_startNode) {
@@ -284,9 +296,8 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
             m_pendingPicker->raise();
             m_pendingPicker->activateWindow();
         }
-        emit statusMessageChanged(
-            tr("Confirm or cancel the profile-path picker dialog before "
-               "clicking another endpoint."));
+        emit statusMessageChanged(tr("Confirm or cancel the profile-path picker dialog before "
+                                     "clicking another endpoint."));
         break;
     }
 }
@@ -305,7 +316,8 @@ void OpenSWMMVisMapToolSelectProfile::keyPressEvent(QKeyEvent *event)
 
 double OpenSWMMVisMapToolSelectProfile::clickTolerance() const
 {
-    if (!canvas() || canvas()->width() <= 0) return 1.0;
+    if (!canvas() || canvas()->width() <= 0)
+        return 1.0;
 
     // Effective pixel tolerance mirrors the Select tool's policy
     // (maptoolselect.cpp:887-896): the user-preference click radius,
@@ -323,33 +335,30 @@ double OpenSWMMVisMapToolSelectProfile::clickTolerance() const
         for (OpenSWMMVisLayer *l : canvas()->layers()) {
             if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) {
                 if (l->isVisible())
-                    markerFloorPx = std::max(markerFloorPx,
-                                             sl->maxMarkerHalfBoundPx());
+                    markerFloorPx = std::max(markerFloorPx, sl->maxMarkerHalfBoundPx());
             }
         }
     }
-    const double effectivePx = std::max(double(prefPx),
-                                         markerFloorPx + 4.0);
+    const double effectivePx = std::max(double(prefPx), markerFloorPx + 4.0);
 
     double mx1 = 0.0, my1 = 0.0;
     double mx2 = 0.0, my2 = 0.0;
-    const_cast<OpenSWMMVisMapToolSelectProfile *>(this)
-        ->toMapCoords(0, 0, mx1, my1);
-    const_cast<OpenSWMMVisMapToolSelectProfile *>(this)
-        ->toMapCoords(effectivePx, effectivePx, mx2, my2);
+    const_cast<OpenSWMMVisMapToolSelectProfile *>(this)->toMapCoords(0, 0, mx1, my1);
+    const_cast<OpenSWMMVisMapToolSelectProfile *>(this)->toMapCoords(effectivePx, effectivePx, mx2,
+                                                                     my2);
     return std::max(std::abs(mx2 - mx1), std::abs(my2 - my1));
 }
 
-int OpenSWMMVisMapToolSelectProfile::resolveNodeAt(double mapX,
-                                                    double mapY,
-                                                    double tolerance)
+int OpenSWMMVisMapToolSelectProfile::resolveNodeAt(double mapX, double mapY, double tolerance)
 {
     SWMMModelLayer *model = activeModel();
-    if (!model) return -1;
+    if (!model)
+        return -1;
 
     const auto plotted = openswmmvis::pickNetworkForPlot(canvas(), mapX, mapY, tolerance);
     const auto hit = plotted.object;
-    if (plotted.results) emit resultsLayerPicked(plotted.results);
+    if (plotted.results)
+        emit resultsLayerPicked(plotted.results);
 
     // A geographic coordinate can have more than one longitude spelling:
     // the inverse projection returns -160 for a node authored at 200.
@@ -361,47 +370,53 @@ int OpenSWMMVisMapToolSelectProfile::resolveNodeAt(double mapX,
         int nearest = -1;
         for (int i = 0; i < model->cachedNodeCount(); ++i) {
             double x = 0.0, y = 0.0;
-            if (!model->cachedNodeCoord(i, &x, &y)
-                || !model->transformLayerToCanvas(x, y, x, y)) continue;
+            if (!model->cachedNodeCoord(i, &x, &y) || !model->transformLayerToCanvas(x, y, x, y))
+                continue;
             const double dx = x - mapX, dy = y - mapY;
             const double d2 = dx * dx + dy * dy;
-            if (!std::isfinite(d2) || d2 >= bestDist2) continue;
+            if (!std::isfinite(d2) || d2 >= bestDist2)
+                continue;
             const QString name = QString::fromUtf8(swmm_node_id(model->engine(), i));
             // All node categories share the typed node visibility bit.
-            if (!model->isObjectVisible(name, SWMMModelLayer::CatJunctions)) continue;
+            if (!model->isObjectVisible(name, SWMMModelLayer::CatJunctions))
+                continue;
             bestDist2 = d2;
             nearest = i;
         }
-        if (nearest >= 0) return nearest;
+        if (nearest >= 0)
+            return nearest;
     }
-    if (!hit.valid) return -1;
+    if (!hit.valid)
+        return -1;
 
     // Node hit: resolve by name → engine node index.
-    if (hit.cat == SWMMModelLayer::CatJunctions
-        || hit.cat == SWMMModelLayer::CatOutfalls
-        || hit.cat == SWMMModelLayer::CatStorage
-        || hit.cat == SWMMModelLayer::CatDividers) {
+    if (hit.cat == SWMMModelLayer::CatJunctions || hit.cat == SWMMModelLayer::CatOutfalls ||
+        hit.cat == SWMMModelLayer::CatStorage || hit.cat == SWMMModelLayer::CatDividers) {
         return ProfileNetworkAdapter::findNodeIndex(model, hit.name);
     }
 
     // Subcatchments / gages aren't routable endpoints.
-    if (hit.cat == SWMMModelLayer::CatSubcatchments
-        || hit.cat == SWMMModelLayer::CatRainGages) {
+    if (hit.cat == SWMMModelLayer::CatSubcatchments || hit.cat == SWMMModelLayer::CatRainGages) {
         return -1;
     }
 
     // Link hit: snap to the nearer endpoint of the link's polyline.
     const int linkIdx = ProfileNetworkAdapter::findLinkIndex(model, hit.name);
-    if (linkIdx < 0) return -1;
+    if (linkIdx < 0)
+        return -1;
     const int fromNode = model->linkFromNodeIdx(linkIdx);
-    const int toNode   = model->linkToNodeIdx(linkIdx);
-    if (fromNode < 0 && toNode < 0) return -1;
+    const int toNode = model->linkToNodeIdx(linkIdx);
+    if (fromNode < 0 && toNode < 0)
+        return -1;
     double fx = 0.0, fy = 0.0, tx = 0.0, ty = 0.0;
     const bool fromOk = (fromNode >= 0) && model->cachedNodeCoord(fromNode, &fx, &fy);
-    const bool toOk   = (toNode   >= 0) && model->cachedNodeCoord(toNode,   &tx, &ty);
-    if (!fromOk && !toOk) return -1;
-    if (!fromOk) return toNode;
-    if (!toOk)   return fromNode;
+    const bool toOk = (toNode >= 0) && model->cachedNodeCoord(toNode, &tx, &ty);
+    if (!fromOk && !toOk)
+        return -1;
+    if (!fromOk)
+        return toNode;
+    if (!toOk)
+        return fromNode;
     model->transformLayerToCanvas(fx, fy, fx, fy);
     model->transformLayerToCanvas(tx, ty, tx, ty);
     const double df2 = (fx - mapX) * (fx - mapX) + (fy - mapY) * (fy - mapY);
@@ -424,8 +439,7 @@ void OpenSWMMVisMapToolSelectProfile::routeAndPick()
     // Build the routing graph on the main thread — it touches the engine
     // and model layer, which aren't reentrant.  The Graph is a POD so we
     // can safely pass it by value to the worker thread.
-    ProfileRouter::Graph graph =
-        ProfileNetworkAdapter::buildGraphFromModel(model);
+    ProfileRouter::Graph graph = ProfileNetworkAdapter::buildGraphFromModel(model);
 
     ProfileRouter::Options opts;
     // Undirected so users picking endpoints think in terms of "is this
@@ -439,15 +453,15 @@ void OpenSWMMVisMapToolSelectProfile::routeAndPick()
     // enumerator on dense networks, and the result is already sorted
     // shortest-first.  k is user-tunable via Preferences.
     opts.undirected = true;
-    opts.k          = PreferencesManager::instance()->profileMaxPaths();
-    opts.softCapMs  = 0;     // no soft cap on background thread — UI stays responsive
+    opts.k = PreferencesManager::instance()->profileMaxPaths();
+    opts.softCapMs = 0; // no soft cap on background thread — UI stays responsive
     opts.maxIterations = std::numeric_limits<int>::max();
 
     // Snapshot routing inputs for the worker thread.  We do *not* capture
     // `this` inside the QtConcurrent lambda — only POD copies — so the
     // worker is safe even if the tool is destroyed mid-routing.
     const int startNode = m_startNode;
-    const int endNode   = m_endNode;
+    const int endNode = m_endNode;
     const QVector<int> waypoints = m_waypoints;
 
     // Endpoint halos and any in-progress overlay state should already be
@@ -476,8 +490,7 @@ void OpenSWMMVisMapToolSelectProfile::routeAndPick()
     // interactive while routing runs in the background.
     emit routingBusyChanged(true);
     emit statusMessageChanged(
-        tr("Computing up to %1 profile path(s) between selected endpoints…")
-            .arg(opts.k));
+        tr("Computing up to %1 profile path(s) between selected endpoints…").arg(opts.k));
 
     // QFutureWatcher signals completion on the main thread (Qt::AutoConnection
     // posts to the GUI event loop when the worker thread finishes).
@@ -486,47 +499,43 @@ void OpenSWMMVisMapToolSelectProfile::routeAndPick()
     const int graphNodes = graph.nodeCount;
     const int graphEdges = graph.edges.size();
 
-    QObject::connect(watcher, &QFutureWatcher<ProfileRouter::Result>::finished,
-                     this, [this, watcher, graphNodes, graphEdges]() {
-        if (m_routingWatcher != watcher) {
-            watcher->deleteLater();
-            return;  // superseded by newer routing
-        }
-        const ProfileRouter::Result result = watcher->result();
-        watcher->deleteLater();
-        m_routingWatcher = nullptr;
-        emit routingBusyChanged(false);
-        onRoutingComplete(result, graphNodes, graphEdges);
-    });
+    QObject::connect(watcher, &QFutureWatcher<ProfileRouter::Result>::finished, this,
+                     [this, watcher, graphNodes, graphEdges]() {
+                         if (m_routingWatcher != watcher) {
+                             watcher->deleteLater();
+                             return; // superseded by newer routing
+                         }
+                         const ProfileRouter::Result result = watcher->result();
+                         watcher->deleteLater();
+                         m_routingWatcher = nullptr;
+                         emit routingBusyChanged(false);
+                         onRoutingComplete(result, graphNodes, graphEdges);
+                     });
 
     // Kick off the worker thread.
     QFuture<ProfileRouter::Result> future;
     if (waypoints.isEmpty()) {
-        future = QtConcurrent::run(
-            [graph, startNode, endNode, opts]() {
-                return ProfileRouter::kShortestPaths(
-                    graph, startNode, endNode, opts);
-            });
+        future = QtConcurrent::run([graph, startNode, endNode, opts]() {
+            return ProfileRouter::kShortestPaths(graph, startNode, endNode, opts);
+        });
     } else {
         QVector<int> sequence;
         sequence.reserve(waypoints.size() + 2);
         sequence.push_back(startNode);
-        for (int w : waypoints) sequence.push_back(w);
+        for (int w : waypoints)
+            sequence.push_back(w);
         sequence.push_back(endNode);
-        future = QtConcurrent::run(
-            [graph, sequence, opts]() {
-                ProfileRouter::Options legOpts = opts;
-                legOpts.k = 1;
-                return ProfileRouter::kShortestPathsThrough(
-                    graph, sequence, legOpts);
-            });
+        future = QtConcurrent::run([graph, sequence, opts]() {
+            ProfileRouter::Options legOpts = opts;
+            legOpts.k = 1;
+            return ProfileRouter::kShortestPathsThrough(graph, sequence, legOpts);
+        });
     }
     watcher->setFuture(future);
 }
 
-void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(
-    const ProfileRouter::Result &result,
-    int graphNodes, int graphEdges)
+void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(const ProfileRouter::Result &result,
+                                                        int graphNodes, int graphEdges)
 {
     SWMMModelLayer *model = activeModel();
     if (!model) {
@@ -535,32 +544,33 @@ void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(
     }
 
     if (!result.error.isEmpty()) {
-        emit statusMessageChanged(
-            tr("Profile routing error: %1 (start=node #%2, end=node #%3, "
-               "graph nodes=%4 edges=%5)")
-                .arg(result.error)
-                .arg(m_startNode).arg(m_endNode)
-                .arg(graphNodes).arg(graphEdges));
+        emit statusMessageChanged(tr("Profile routing error: %1 (start=node #%2, end=node #%3, "
+                                     "graph nodes=%4 edges=%5)")
+                                      .arg(result.error)
+                                      .arg(m_startNode)
+                                      .arg(m_endNode)
+                                      .arg(graphNodes)
+                                      .arg(graphEdges));
         resetState();
         return;
     }
     if (result.paths.isEmpty()) {
-        emit statusMessageChanged(
-            tr("No connected path between start node #%1 and end node #%2 "
-               "(graph nodes=%3 edges=%4).")
-                .arg(m_startNode).arg(m_endNode)
-                .arg(graphNodes).arg(graphEdges));
+        emit statusMessageChanged(tr("No connected path between start node #%1 and end node #%2 "
+                                     "(graph nodes=%3 edges=%4).")
+                                      .arg(m_startNode)
+                                      .arg(m_endNode)
+                                      .arg(graphNodes)
+                                      .arg(graphEdges));
         resetState();
         return;
     }
     emit statusMessageChanged(
         tr("Profile routing complete: %1 path(s) found%2.")
             .arg(result.paths.size())
-            .arg(result.truncated
-                 ? tr(" (truncated — raise max paths to see more)")
-                 : QString()));
+            .arg(result.truncated ? tr(" (truncated — raise max paths to see more)") : QString()));
 
-    if (m_overlay) m_overlay->setPaths(result.paths);
+    if (m_overlay)
+        m_overlay->setPaths(result.paths);
     if (canvas())
         canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                              QStringLiteral("profile candidates rendered"));
@@ -573,7 +583,7 @@ void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(
         m_acceptedPath = p;
         if (m_overlay) {
             // Show only the accepted path on the overlay.
-            QVector<ProfileRouter::Path> just{ p };
+            QVector<ProfileRouter::Path> just{p};
             m_overlay->setPaths(just);
             m_overlay->setHighlightedPath(0);
             m_overlay->setEndpoints(m_startNode, m_endNode);
@@ -585,10 +595,9 @@ void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(
         m_state = State::Idle;
         m_waypoints.clear();
         emit profilePathSelected(m_acceptedPath);
-        emit statusMessageChanged(
-            tr("Profile path selected (%1 links). "
-               "Click again to trace another profile.")
-                .arg(m_acceptedPath.linkIds.size()));
+        emit statusMessageChanged(tr("Profile path selected (%1 links). "
+                                     "Click again to trace another profile.")
+                                      .arg(m_acceptedPath.linkIds.size()));
     };
 
     // Single path → accept immediately, no dialog.
@@ -617,46 +626,49 @@ void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(
                                             /*parent=*/parentTop);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setModal(false);
-    dlg->setWindowFlags(openswmmvis::ui::floatingPanelFlags()
-                        | Qt::CustomizeWindowHint
-                        | Qt::WindowTitleHint
-                        | Qt::WindowCloseButtonHint);
+    dlg->setWindowFlags(openswmmvis::ui::floatingPanelFlags() | Qt::CustomizeWindowHint |
+                        Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
     m_pendingPicker = dlg;
 
-    QObject::connect(dlg, &ProfilePathPickerDialog::hoveredPathChanged,
-                     this, [this](int idx) {
-        if (m_overlay) m_overlay->setHighlightedPath(idx);
+    QObject::connect(dlg, &ProfilePathPickerDialog::hoveredPathChanged, this, [this](int idx) {
+        if (m_overlay)
+            m_overlay->setHighlightedPath(idx);
         if (canvas())
             canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                                  QStringLiteral("profile path hover"));
     });
-    QObject::connect(dlg, &ProfilePathPickerDialog::zoomToPathRequested,
-                     this, [this, model](int idx) {
-        if (idx < 0 || idx >= m_pendingPaths.size()) return;
-        if (!canvas() || !model) return;
-        const auto &p = m_pendingPaths[idx];
-        double xMin =  std::numeric_limits<double>::infinity();
-        double yMin =  std::numeric_limits<double>::infinity();
-        double xMax = -std::numeric_limits<double>::infinity();
-        double yMax = -std::numeric_limits<double>::infinity();
-        auto extend = [&](double x, double y) {
-            xMin = std::min(xMin, x); yMin = std::min(yMin, y);
-            xMax = std::max(xMax, x); yMax = std::max(yMax, y);
-        };
-        for (int n : p.nodes) {
-            double x = 0, y = 0;
-            if (model->cachedNodeCoord(n, &x, &y)) extend(x, y);
-        }
-        for (int e : p.linkIds) {
-            for (const QPointF &v : model->cachedLinkPolyline(e))
-                extend(v.x(), v.y());
-        }
-        if (xMax <= xMin || yMax <= yMin) return;
-        const double padX = (xMax - xMin) * 0.15 + 1.0;
-        const double padY = (yMax - yMin) * 0.15 + 1.0;
-        canvas()->setExtent(MapExtent(xMin - padX, yMin - padY,
-                                      xMax + padX, yMax + padY));
-    });
+    QObject::connect(
+        dlg, &ProfilePathPickerDialog::zoomToPathRequested, this, [this, model](int idx) {
+            if (idx < 0 || idx >= m_pendingPaths.size())
+                return;
+            if (!canvas() || !model)
+                return;
+            const auto &p = m_pendingPaths[idx];
+            double xMin = std::numeric_limits<double>::infinity();
+            double yMin = std::numeric_limits<double>::infinity();
+            double xMax = -std::numeric_limits<double>::infinity();
+            double yMax = -std::numeric_limits<double>::infinity();
+            auto extend = [&](double x, double y) {
+                xMin = std::min(xMin, x);
+                yMin = std::min(yMin, y);
+                xMax = std::max(xMax, x);
+                yMax = std::max(yMax, y);
+            };
+            for (int n : p.nodes) {
+                double x = 0, y = 0;
+                if (model->cachedNodeCoord(n, &x, &y))
+                    extend(x, y);
+            }
+            for (int e : p.linkIds) {
+                for (const QPointF &v : model->cachedLinkPolyline(e))
+                    extend(v.x(), v.y());
+            }
+            if (xMax <= xMin || yMax <= yMin)
+                return;
+            const double padX = (xMax - xMin) * 0.15 + 1.0;
+            const double padY = (yMax - yMin) * 0.15 + 1.0;
+            canvas()->setExtent(MapExtent(xMin - padX, yMin - padY, xMax + padX, yMax + padY));
+        });
     QObject::connect(dlg, &QDialog::accepted, this, [this, dlg, acceptPath]() {
         const int idx = dlg->selectedPathIndex();
         if (idx >= 0 && idx < m_pendingPaths.size()) {
@@ -689,16 +701,16 @@ void OpenSWMMVisMapToolSelectProfile::resetState()
         if (m_overlayScene && m_overlay->scene() == m_overlayScene)
             m_overlayScene->removeItem(m_overlay);
         delete m_overlay;
-        m_overlay      = nullptr;
+        m_overlay = nullptr;
         m_overlayScene = nullptr;
     }
 }
 
 void OpenSWMMVisMapToolSelectProfile::clearInProgress()
 {
-    m_state     = State::Idle;
+    m_state = State::Idle;
     m_startNode = -1;
-    m_endNode   = -1;
+    m_endNode = -1;
     m_waypoints.clear();
     if (m_pendingPicker) {
         m_pendingPicker->close();
@@ -719,10 +731,13 @@ void OpenSWMMVisMapToolSelectProfile::clearInProgress()
 
 SWMMModelLayer *OpenSWMMVisMapToolSelectProfile::activeModel() const
 {
-    if (!canvas()) return nullptr;
+    if (!canvas())
+        return nullptr;
     for (OpenSWMMVisLayer *l : canvas()->layers()) {
-        if (!l) continue;
-        if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) return sl;
+        if (!l)
+            continue;
+        if (auto *sl = qobject_cast<SWMMModelLayer *>(l))
+            return sl;
     }
     return nullptr;
 }

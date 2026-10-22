@@ -1,9 +1,9 @@
-/*!
- * \file wateragesourcesdialog.h
- * \brief Editor for `[WATER_AGE_SOURCES]` — per-pathway initial water ages
+/**
+ * @file      wateragesourcesdialog.h
+ * @brief     Editor for `[WATER_AGE_SOURCES]` — per-pathway initial water ages
  *        (GUI plan §3.4 / G3g, subplan Y3).
  *
- * \details Water age enters the model at seven source pathways (rainfall,
+ * @details Water age enters the model at seven source pathways (rainfall,
  *          DWF, groundwater, RDII, external inflow, routing-interface file,
  *          and the initial network state). Each carries a GLOBAL age in
  *          hours, and the DWF / external-inflow pathways additionally take
@@ -25,9 +25,9 @@
  *          `SimulationOptionsDialog`, whose link closure no test can
  *          satisfy, `tests/gui/CMakeLists.txt:1996`).
  *
- * \author  Caleb Buahin <caleb.buahin@gmail.com>
- * \copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
- * \license Apache-2.0
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   Apache-2.0
  */
 
 #ifndef OPENSWMM_UI_DIALOGS_WATERAGESOURCESDIALOG_H
@@ -51,8 +51,7 @@ class WaterAgeSourcesDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit WaterAgeSourcesDialog(SWMM_Engine engine,
-                                   QWidget *parent = nullptr);
+    explicit WaterAgeSourcesDialog(SWMM_Engine engine, QWidget *parent = nullptr);
     ~WaterAgeSourcesDialog() override = default;
 
     /*! \brief True once OK has written at least one change to the engine.
@@ -80,16 +79,16 @@ private:
     void readFromEngine();
     bool validateOverrides();
     void refreshOverrideAccessibility();
-    int  writeToEngine();          ///< returns the number of writes made
+    int writeToEngine(); ///< returns the number of writes made
 
-    SWMM_Engine   m_engine          = nullptr;
-    QTableWidget *m_globalTable     = nullptr;
-    QTableWidget *m_overrideTable   = nullptr;
-    QLabel       *m_hintLabel       = nullptr;
-    QLabel       *m_validationError = nullptr;
-    bool          m_wroteAnyChanges = false;
-    bool          m_writeFailed = false;
-    int           m_lastWriteCount  = 0;
+    SWMM_Engine m_engine = nullptr;
+    QTableWidget *m_globalTable = nullptr;
+    QTableWidget *m_overrideTable = nullptr;
+    QLabel *m_hintLabel = nullptr;
+    QLabel *m_validationError = nullptr;
+    bool m_wroteAnyChanges = false;
+    bool m_writeFailed = false;
+    int m_lastWriteCount = 0;
 };
 
 } // namespace OpenSWMMVis

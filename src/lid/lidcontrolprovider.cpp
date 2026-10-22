@@ -1,12 +1,16 @@
-/*!
- * \file   lidcontrolprovider.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      lidcontrolprovider.cpp
+ * @brief     Owned by a project-scoped LidControlRegistry.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "lid/lidcontrolprovider.h"
 
-namespace openswmmvis::lid {
+namespace openswmmvis::lid
+{
 
 LidControlProvider::LidControlProvider(QString name, QObject *parent)
     : QObject(parent), m_name(std::move(name))
@@ -17,7 +21,8 @@ LidControlProvider::~LidControlProvider() = default;
 
 void LidControlProvider::setName(QString newName)
 {
-    if (newName == m_name) return;
+    if (newName == m_name)
+        return;
     const QString prev = m_name;
     m_name = std::move(newName);
     emit nameChanged(prev, m_name);
@@ -25,7 +30,8 @@ void LidControlProvider::setName(QString newName)
 
 void LidControlProvider::setType(int v)
 {
-    if (v == m_type) return;
+    if (v == m_type)
+        return;
     m_type = v;
     m_dirty = true;
     emit paramsChanged();
@@ -37,36 +43,41 @@ void LidControlProvider::setNodeLayers(QVector<SWMM_LidNodeLayer> layers)
     m_dirty = true;
     emit paramsChanged();
 }
-void LidControlProvider::setNodeFlow(SWMM_LidRichardsOptions options, QVector<SWMM_LidRichardsMaterial> materials)
+void LidControlProvider::setNodeFlow(SWMM_LidRichardsOptions options,
+                                     QVector<SWMM_LidRichardsMaterial> materials)
 {
-    flowOptions = options; retention = std::move(materials);
-    m_dirty = true; emit paramsChanged();
+    flowOptions = options;
+    retention = std::move(materials);
+    m_dirty = true;
+    emit paramsChanged();
 }
 
 // Double-field setters: change-detect, mark dirty, notify.
-#define LID_SET(method, member)                 \
-void LidControlProvider::method(double v) {     \
-    if (v == member) return;                    \
-    member = v;                                 \
-    m_dirty = true;                             \
-    emit paramsChanged();                       \
-}
+#define LID_SET(method, member)                                                                    \
+    void LidControlProvider::method(double v)                                                      \
+    {                                                                                              \
+        if (v == member)                                                                           \
+            return;                                                                                \
+        member = v;                                                                                \
+        m_dirty = true;                                                                            \
+        emit paramsChanged();                                                                      \
+    }
 
-LID_SET(setSurfStorage,   m_surfStorage)
+LID_SET(setSurfStorage, m_surfStorage)
 LID_SET(setSurfRoughness, m_surfRoughness)
-LID_SET(setSurfSlope,     m_surfSlope)
-LID_SET(setSoilThick,     m_soilThick)
-LID_SET(setSoilPorosity,  m_soilPorosity)
-LID_SET(setSoilFc,        m_soilFc)
-LID_SET(setSoilWp,        m_soilWp)
-LID_SET(setSoilKsat,      m_soilKsat)
-LID_SET(setSoilKslope,    m_soilKslope)
-LID_SET(setStorThick,     m_storThick)
-LID_SET(setStorVoidFrac,  m_storVoidFrac)
-LID_SET(setStorKsat,      m_storKsat)
-LID_SET(setDrainCoeff,    m_drainCoeff)
-LID_SET(setDrainExpon,    m_drainExpon)
-LID_SET(setDrainOffset,   m_drainOffset)
+LID_SET(setSurfSlope, m_surfSlope)
+LID_SET(setSoilThick, m_soilThick)
+LID_SET(setSoilPorosity, m_soilPorosity)
+LID_SET(setSoilFc, m_soilFc)
+LID_SET(setSoilWp, m_soilWp)
+LID_SET(setSoilKsat, m_soilKsat)
+LID_SET(setSoilKslope, m_soilKslope)
+LID_SET(setStorThick, m_storThick)
+LID_SET(setStorVoidFrac, m_storVoidFrac)
+LID_SET(setStorKsat, m_storKsat)
+LID_SET(setDrainCoeff, m_drainCoeff)
+LID_SET(setDrainExpon, m_drainExpon)
+LID_SET(setDrainOffset, m_drainOffset)
 
 #undef LID_SET
 

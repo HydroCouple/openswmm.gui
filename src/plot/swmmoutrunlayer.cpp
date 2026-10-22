@@ -1,9 +1,14 @@
-/*!
- * \file   swmmoutrunlayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      swmmoutrunlayer.cpp
+ * @brief     One `SwmmOutRunLayer` is the bridge between the Comparison Plot Dialog's model layer
+ *            (which thinks in terms of IRunLayer + ObjectRef) and the existing on-canvas
+ *            `SWMMResultsLayer` that already holds the open .out handle.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/swmmoutrunlayer.h"
 
 #include "plot/resultdescriptor.h"
@@ -16,11 +21,10 @@
 #include <algorithm>
 #include <vector>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
-SwmmOutRunLayer::SwmmOutRunLayer(SWMMResultsLayer *layer)
-    : m_layer(layer)
-{}
+SwmmOutRunLayer::SwmmOutRunLayer(SWMMResultsLayer *layer) : m_layer(layer) {}
 
 SWMMResultsLayer *SwmmOutRunLayer::layer() const
 {
@@ -76,15 +80,14 @@ bool SwmmOutRunLayer::supportsAttribute(PlotAttribute attr) const
     // 1D .out files don't carry 2D mesh quantities.
     if (isMesh2DAttribute(attr))
         return false;
-    const int code=variableCodeFor(attr,ObjectRef::Kind::Subcatch);
-    if(code>=SWMM_OUT_SUBCATCH_SNOW_SWE)
-        return m_layer && m_layer->outputHandle() && swmm_output_has_subcatch_variable(m_layer->outputHandle(),code)==1;
+    const int code = variableCodeFor(attr, ObjectRef::Kind::Subcatch);
+    if (code >= SWMM_OUT_SUBCATCH_SNOW_SWE)
+        return m_layer && m_layer->outputHandle() &&
+               swmm_output_has_subcatch_variable(m_layer->outputHandle(), code) == 1;
     return attr != PlotAttribute::Unknown;
 }
 
-void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
-                                  PlotAttribute attr,
-                                  SeriesData& out) const
+void SwmmOutRunLayer::getSeriesAt(const ObjectRef &ref, PlotAttribute attr, SeriesData &out) const
 {
     out.ok = false;
     out.errorMessage.clear();
@@ -108,15 +111,22 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
 /// bulk fetch + time axis, for an ALREADY-RESOLVED engine var code
 /// (fixed attribute or species column — Y2b-2). Preconditions checked by
 /// the callers: m_layer and its output handle are non-null.
-void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
-                                         SeriesData& out) const
+void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef &ref, int varCode, SeriesData &out) const
 {
     int objIdx = -1;
     switch (ref.kind) {
-    case ObjectRef::Kind::Node:     objIdx = m_layer->nodeOutputIndex(ref.name);     break;
-    case ObjectRef::Kind::Link:     objIdx = m_layer->linkOutputIndex(ref.name);     break;
-    case ObjectRef::Kind::Subcatch: objIdx = m_layer->subcatchOutputIndex(ref.name); break;
-    case ObjectRef::Kind::System:   objIdx = 0; break;  // No per-object index for system series
+    case ObjectRef::Kind::Node:
+        objIdx = m_layer->nodeOutputIndex(ref.name);
+        break;
+    case ObjectRef::Kind::Link:
+        objIdx = m_layer->linkOutputIndex(ref.name);
+        break;
+    case ObjectRef::Kind::Subcatch:
+        objIdx = m_layer->subcatchOutputIndex(ref.name);
+        break;
+    case ObjectRef::Kind::System:
+        objIdx = 0;
+        break; // No per-object index for system series
     default:
         out.errorMessage = QStringLiteral("Unsupported object kind for 1D .out");
         return;
@@ -137,29 +147,33 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
     // chart, only the new tail on a live tick (see SeriesData::firstPeriod).
     out.periodCount = n_periods;
     int from = out.firstPeriod;
-    if (from < 0) from = 0;
-    if (from > n_periods) from = n_periods;
+    if (from < 0)
+        from = 0;
+    if (from > n_periods)
+        from = n_periods;
     const int count = n_periods - from;
-    if (count == 0) { out.ok = true; return; }   // nothing new yet
+    if (count == 0) {
+        out.ok = true;
+        return;
+    } // nothing new yet
 
     std::vector<float> values(static_cast<std::size_t>(count));
     int rc = -1;
     switch (ref.kind) {
     case ObjectRef::Kind::Node:
-        rc = swmm_output_get_node_series(handle, objIdx, varCode,
-                                          from, n_periods - 1, values.data());
+        rc = swmm_output_get_node_series(handle, objIdx, varCode, from, n_periods - 1,
+                                         values.data());
         break;
     case ObjectRef::Kind::Link:
-        rc = swmm_output_get_link_series(handle, objIdx, varCode,
-                                          from, n_periods - 1, values.data());
+        rc = swmm_output_get_link_series(handle, objIdx, varCode, from, n_periods - 1,
+                                         values.data());
         break;
     case ObjectRef::Kind::Subcatch:
-        rc = swmm_output_get_subcatch_series(handle, objIdx, varCode,
-                                              from, n_periods - 1, values.data());
+        rc = swmm_output_get_subcatch_series(handle, objIdx, varCode, from, n_periods - 1,
+                                             values.data());
         break;
     case ObjectRef::Kind::System:
-        rc = swmm_output_get_system_series(handle, varCode,
-                                            from, n_periods - 1, values.data());
+        rc = swmm_output_get_system_series(handle, varCode, from, n_periods - 1, values.data());
         break;
     default:
         break;
@@ -178,10 +192,12 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
     }
 
     std::vector<float> snowTimes;
-    if(ref.kind==ObjectRef::Kind::Subcatch && varCode>=SWMM_OUT_SUBCATCH_SNOW_SWE) {
+    if (ref.kind == ObjectRef::Kind::Subcatch && varCode >= SWMM_OUT_SUBCATCH_SNOW_SWE) {
         snowTimes.resize(count);
-        if(swmm_output_get_subcatch_series(handle,objIdx,SWMM_OUT_SUBCATCH_SNOW_TIME,from,n_periods-1,snowTimes.data())!=0) {
-            out.errorMessage=QStringLiteral("Snow history has no accepted process clock");return;
+        if (swmm_output_get_subcatch_series(handle, objIdx, SWMM_OUT_SUBCATCH_SNOW_TIME, from,
+                                            n_periods - 1, snowTimes.data()) != 0) {
+            out.errorMessage = QStringLiteral("Snow history has no accepted process clock");
+            return;
         }
     }
     out.timesJulian.resize(static_cast<std::size_t>(count));
@@ -189,7 +205,8 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
     for (int i = 0; i < count; ++i) {
         const int p = from + i;
         double time = std::nan("");
-        if (!snowTimes.empty()) time = t0 + snowTimes[i] / 86400.;
+        if (!snowTimes.empty())
+            time = t0 + snowTimes[i] / 86400.;
         else if (swmm_output_get_period_time(handle, p, &time) != 0 || !std::isfinite(time)) {
             out.timesJulian.clear();
             out.values.clear();
@@ -197,14 +214,13 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
             return;
         }
         out.timesJulian[i] = time;
-        out.values[i]      = static_cast<double>(values[i]);
+        out.values[i] = static_cast<double>(values[i]);
     }
     out.ok = true;
 }
 
-void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
-                                  const ResultDescriptor& descriptor,
-                                  SeriesData& out) const
+void SwmmOutRunLayer::getSeriesAt(const ObjectRef &ref, const ResultDescriptor &descriptor,
+                                  SeriesData &out) const
 {
     // Fixed attributes take the enum path unchanged.
     if (!descriptor.isSpecies()) {
@@ -224,20 +240,18 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
     // NAME → index → POLLUT_BASE + index against the run's LIVE species
     // list (D-G1): a series saved against a reordered model resolves to
     // the right column or to a precise miss — never to a wrong column.
-    const int varCode = speciesVariableCodeFor(
-        descriptor.species, m_layer->speciesNames(), ref.kind);
+    const int varCode =
+        speciesVariableCodeFor(descriptor.species, m_layer->speciesNames(), ref.kind);
     if (varCode < 0) {
-        out.errorMessage =
-            QStringLiteral("Run does not carry species '%1' for this "
-                           "object kind")
-                .arg(descriptor.species);
+        out.errorMessage = QStringLiteral("Run does not carry species '%1' for this "
+                                          "object kind")
+                               .arg(descriptor.species);
         return;
     }
     fetchSeriesByCode_(ref, varCode, out);
 }
 
-QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(
-    ObjectRef::Kind kind) const
+QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(ObjectRef::Kind kind) const
 {
     // Y2b-1 (amendment D-Y4): the fixed set plus THIS run's species by
     // name. A destroyed or quality-free layer degrades to the fixed set —
@@ -245,10 +259,12 @@ QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(
     QStringList species;
     if (m_layer)
         species = m_layer->speciesNames();
-    auto result=plot::resultDescriptorsForKind(kind, species);
-    result.erase(std::remove_if(result.begin(),result.end(),[&](const auto& d){
-        return !d.isSpecies() && !supportsAttribute(d.attr);
-    }),result.end());return result;
+    auto result = plot::resultDescriptorsForKind(kind, species);
+    result.erase(
+        std::remove_if(result.begin(), result.end(),
+                       [&](const auto &d) { return !d.isSpecies() && !supportsAttribute(d.attr); }),
+        result.end());
+    return result;
 }
 
 } // namespace openswmmvis::plot

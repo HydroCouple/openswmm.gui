@@ -1,8 +1,11 @@
-/*!
- * \file   initialqualityeditbutton.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      initialqualityeditbutton.cpp
+ * @brief     Initial-quality UI round — custom cell editor widget for the per-element "Initial
+ *            Quality" row.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/initialqualityeditbutton.h"
@@ -21,8 +24,7 @@ InitialQualityEditButton::InitialQualityEditButton(QWidget *parent)
     lay->addWidget(m_btn);
     setFocusProxy(m_btn);
 
-    connect(m_btn, &QPushButton::clicked,
-            this, &InitialQualityEditButton::onClicked);
+    connect(m_btn, &QPushButton::clicked, this, &InitialQualityEditButton::onClicked);
     refreshLabel();
 }
 
@@ -44,7 +46,8 @@ void InitialQualityEditButton::refreshLabel()
 
 void InitialQualityEditButton::onClicked()
 {
-    if (!m_ref.engine || m_ref.elementName.isEmpty()) return;
+    if (!m_ref.engine || m_ref.elementName.isEmpty())
+        return;
 
     OpenSWMMVis::InitialQualityDialog dlg(m_ref.engine, this);
     dlg.setElementScope(m_ref.isLink, m_ref.elementName);
@@ -52,8 +55,7 @@ void InitialQualityEditButton::onClicked()
 
     // Pull the recomputed summary back regardless of accept/cancel so
     // the cell never shows a stale count.
-    m_ref.summary = initialQualitySummaryFor(m_ref.engine, m_ref.isLink,
-                                             m_ref.elementName);
+    m_ref.summary = initialQualitySummaryFor(m_ref.engine, m_ref.isLink, m_ref.elementName);
     refreshLabel();
     if (dlg.wroteAnyChanges()) {
         m_ref.wroteChanges = true;

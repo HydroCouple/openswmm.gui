@@ -1,8 +1,10 @@
-/*!
- * \file   featureroles.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featureroles.h
+ * @brief     The feature-layer role registry
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md P1, §4, §6).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * The feature-layer role registry
  * (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md P1, §4, §6).
@@ -20,6 +22,7 @@
  * accepts "a vector layer" keeps working.
  *
  * Leaf module: Qt Core + feature/featuretypes + mesh/meshbctype only.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef FEATUREROLES_H
@@ -41,62 +44,95 @@
  * Persisted by TOKEN (\ref featureLayerRoleToken), never by integer, so new
  * roles are appended at the end and existing .oswp files keep their meaning.
  */
-enum class FeatureLayerRole
-{
-    General = 0,      ///< No template beyond a name.
-    DomainBoundary,   ///< Mesh domain polygon(s); interior rings become holes.
-    Breakline,        ///< 3D constraint lines / hard points.
-    Region,           ///< Areas with their own cell size; four-sided ones become quads.
-    ParameterZone,    ///< Roughness, initial depth, land use, soil group.
-    SwmmDelineation,  ///< Source for Import Feature Layer → SWMM objects.
-    BoundaryCondition,///< Lines mapped onto 2D mesh boundary edges.
-    Corridor          ///< Lines with a width: quad strips (triangle engine D12.2).
+enum class FeatureLayerRole {
+    General = 0,       ///< No template beyond a name.
+    DomainBoundary,    ///< Mesh domain polygon(s); interior rings become holes.
+    Breakline,         ///< 3D constraint lines / hard points.
+    Region,            ///< Areas with their own cell size; four-sided ones become quads.
+    ParameterZone,     ///< Roughness, initial depth, land use, soil group.
+    SwmmDelineation,   ///< Source for Import Feature Layer → SWMM objects.
+    BoundaryCondition, ///< Lines mapped onto 2D mesh boundary edges.
+    Corridor           ///< Lines with a width: quad strips (triangle engine D12.2).
 };
 
+/**
+ * @brief Describe a layer role using current translations.
+ * @param[in] r Role enum; unknown values select General.
+ * @return Registry user-facing label.
+ */
 [[nodiscard]] QString featureLayerRoleLabel(FeatureLayerRole r);
+/**
+ * @brief Encode a role as a stable project-persistence token.
+ * @param[in] r Role enum; unknown values select General.
+ * @return Registry lowercase token.
+ */
 [[nodiscard]] QString featureLayerRoleToken(FeatureLayerRole r);
+/**
+ * @brief Decode a role token without relying on enum integer persistence.
+ * @param[in] token Trimmed, case-insensitive token.
+ * @return Matched role or General when unknown.
+ */
 [[nodiscard]] FeatureLayerRole featureLayerRoleFromToken(const QString &token);
 /*! \brief The fields a newly created layer of role \p r starts with: every
- *         role field, required and optional, in registry order. */
+ *         role field, required and optional, in registry order.
+ * @param[in] r Role whose complete template is requested; unknown maps to General.
+ * @return Owned schema with required and optional registry fields in display order.
+ */
 [[nodiscard]] openswmmvis::feature::Schema featureLayerRoleTemplate(FeatureLayerRole r);
 /*! \brief The geometry type a role implies, for the New-layer dialog's default.
- *         GeometryType::None when the role does not imply one. */
-[[nodiscard]] openswmmvis::feature::GeometryType
-    featureLayerRoleGeometry(FeatureLayerRole r);
+ *         GeometryType::None when the role does not imply one.
+ * @param[in] r Role enum; unknown maps to General.
+ * @return Default geometry kind, possibly None when the role leaves it to the user.
+ */
+[[nodiscard]] openswmmvis::feature::GeometryType featureLayerRoleGeometry(FeatureLayerRole r);
 
-namespace openswmmvis::feature {
+namespace openswmmvis::feature
+{
 
 /*!
  * \struct FeatureRoleSpec
  * \brief Everything the registry knows about one role.
  */
-struct FeatureRoleSpec
-{
-    FeatureLayerRole       role = FeatureLayerRole::General;
-    QString                token;          ///< Persisted in .oswp.
-    QString                label;          ///< Translated.
-    QString                summary;        ///< One line for the New dialog.
-    QVector<GeometryType>  geometries;     ///< Allowed kinds, in display order.
-    GeometryType           defaultGeometry = GeometryType::None;
-    bool                   wantsZ = false; ///< Expand the Z section; nudge to 3D.
-    QVector<FieldDef>      fields;         ///< Role fields, in display order.
+struct FeatureRoleSpec {
+    FeatureLayerRole role = FeatureLayerRole::General;
+    QString token;                    ///< Persisted in .oswp.
+    QString label;                    ///< Translated.
+    QString summary;                  ///< One line for the New dialog.
+    QVector<GeometryType> geometries; ///< Allowed kinds, in display order.
+    GeometryType defaultGeometry = GeometryType::None;
+    bool wantsZ = false;      ///< Expand the Z section; nudge to 3D.
+    QVector<FieldDef> fields; ///< Role fields, in display order.
     /*! Field names earlier versions of this role carried that nothing reads
      *  any more. "Update fields to role…" offers to drop them. */
-    QStringList            retiredFields;
+    QStringList retiredFields;
     /*! Old field name → current name. Readers accept both; "Update fields to
      *  role…" renames. */
     QHash<QString, QString> legacyAliases;
     /*! Shown under the role summary (e.g. "assign from Mesh Editing for now"). */
-    QString                note;
+    QString note;
 
+    /**
+     * @brief Find a field in this role's template.
+     * @param[in] name Case-insensitive current field name; aliases are handled separately by callers.
+     * @return Borrowed field pointer valid until this spec's fields mutate, or nullptr.
+     */
     [[nodiscard]] const FieldDef *field(const QString &name) const;
+    /**
+     * @param[in] t Geometry kind being considered.
+     * @return True for exact membership in the role's allowed-kind vector.
+     */
     [[nodiscard]] bool allowsGeometry(GeometryType t) const { return geometries.contains(t); }
 };
 
 /*! \brief Every role, in the New dialog's display order. Stable for the
- *         process lifetime. */
+ *         process lifetime.
+ * @return Borrowed immutable registry initialized on first use; translated text reflects the language at initialization.
+ */
 [[nodiscard]] const QVector<FeatureRoleSpec> &featureRoleSpecs();
-/*! \brief The spec for \p r (General when \p r is unknown). */
+/*! \brief The spec for \p r (General when \p r is unknown).
+ * @param[in] r Role enum to resolve.
+ * @return Borrowed process-lifetime spec; General for an unrecognized enum.
+ */
 [[nodiscard]] const FeatureRoleSpec &featureRoleSpec(FeatureLayerRole r);
 
 /*!
@@ -108,17 +144,34 @@ struct FeatureRoleSpec
  *          flag; and, when the table stores none, the choices and the
  *          description. Name, type and default always stay as stored. This is
  *          what gives an old layer dropdowns without changing it (plan P7).
+ * @param[in] role Role whose registry supplies editor hints/aliases.
+ * @param[in] stored Stored field definitions copied without mutation.
+ * @return Same ordered name/type/default definitions enriched only for matching-type registry fields or aliases; saved nonempty descriptions/custom choices are retained.
  */
 [[nodiscard]] Schema editorSchema(FeatureLayerRole role, const Schema &stored);
 
 // ----- What the mesh worker and its widgets read -----------------------------
 
-/*! Region size field, then its legacy alias (§4.3). */
+/*! Region size field, then its legacy alias (§4.3).
+ * @return Current region target-size key h followed by legacy quad_spacing, in reader precedence order.
+ */
 [[nodiscard]] QStringList regionSizeFieldNames();
-[[nodiscard]] QString regionCellsFieldName();      ///< "cells"
-[[nodiscard]] QString regionTagFieldName();        ///< "tag"
-[[nodiscard]] QString corridorWidthFieldName();    ///< "width"
-[[nodiscard]] QString corridorTagFieldName();      ///< "tag"
+/**
+ * @return Stable stored field name cells.
+ */
+[[nodiscard]] QString regionCellsFieldName(); ///< "cells"
+/**
+ * @return Stable stored field name tag for region cell labeling.
+ */
+[[nodiscard]] QString regionTagFieldName(); ///< "tag"
+/**
+ * @return Stable stored corridor width field name width; values are lengths in the source/project coordinate convention.
+ */
+[[nodiscard]] QString corridorWidthFieldName(); ///< "width"
+/**
+ * @return Stable stored corridor tag key tag.
+ */
+[[nodiscard]] QString corridorTagFieldName(); ///< "tag"
 
 /*! Values of the Region `cells` field. */
 enum class RegionCells { Auto, Triangles };
@@ -127,8 +180,15 @@ enum class RegionCells { Auto, Triangles };
  * \param known  Set false for a non-empty value that is not a token; the
  *               caller logs it and treats the region as Auto (§6).
  * An empty or null value is Auto and known.
+ * @param[in] value Trimmed case-insensitive cells token; empty means Auto.
+ * @return Triangles for triangles, Auto for auto/empty/unknown; optional known distinguishes the unknown case.
  */
 [[nodiscard]] RegionCells regionCellsFromValue(const QString &value, bool *known = nullptr);
+/**
+ * @brief Encode a region cell-generation preference.
+ * @param[in] c Preference enum.
+ * @return triangles for Triangles; auto for every other value.
+ */
 [[nodiscard]] QString regionCellsToken(RegionCells c);
 
 /*!
@@ -137,6 +197,9 @@ enum class RegionCells { Auto, Triangles };
  * \details Mirrors MeshAttributeTableModel's per-type masking: each type
  *          reads one parameter; `bc_type`, `group` and `conveyance` apply
  *          throughout. Fields of other roles always apply.
+ * @param[in] bcType Boundary-condition INP token interpreted by MeshBCTypes.
+ * @param[in] field Case-insensitive field name; unknown/nonparameter fields always apply.
+ * @return Whether the specific head/slope/flow/tseries/curve parameter is relevant; an unknown BC type keeps all fields enabled.
  */
 [[nodiscard]] bool bcFieldApplies(const QString &bcType, const QString &field);
 
@@ -147,8 +210,7 @@ enum class RegionCells { Auto, Triangles };
  * \brief What "Update fields to role…" would change. Pure data, so the
  *        preview and the test read the same thing.
  */
-struct FieldUpdatePlan
-{
+struct FieldUpdatePlan {
     /*! Role fields the layer lacks (name, type, default, description, choices). */
     QVector<FieldDef> add;
     /*! Legacy name → current name, when the current name is absent. */
@@ -160,8 +222,13 @@ struct FieldUpdatePlan
      *  differ from the registry: the registry's version, to attach. */
     QVector<FieldDef> attach;
 
+    /**
+     * @return True only when add, rename, retired and attach plans are all empty; does not inspect a live layer.
+     */
     [[nodiscard]] bool isEmpty() const
-    { return add.isEmpty() && rename.isEmpty() && retired.isEmpty() && attach.isEmpty(); }
+    {
+        return add.isEmpty() && rename.isEmpty() && retired.isEmpty() && attach.isEmpty();
+    }
 };
 
 /*!
@@ -169,14 +236,18 @@ struct FieldUpdatePlan
  * \param stored   The layer's stored schema (FeatureLayer::schema()).
  * \param nonEmpty Per stored field name, the number of features with a
  *                 non-empty value (only retired fields are looked up).
+ * @brief Compare a stored schema to a role template without applying changes.
+ * @return Owned add/rename/retired/metadata-attach proposals. Existing incompatible field types are not silently converted.
  */
-[[nodiscard]] FieldUpdatePlan planFieldUpdate(FeatureLayerRole role,
-                                              const Schema &stored,
+[[nodiscard]] FieldUpdatePlan planFieldUpdate(FeatureLayerRole role, const Schema &stored,
                                               const QHash<QString, int> &nonEmpty);
 
-/*! True when \p v counts as "holding a value" for \ref planFieldUpdate. */
+/*! True when \p v counts as "holding a value" for \ref planFieldUpdate.
+ * @param[in] v Stored attribute value to count.
+ * @return False for invalid/null or whitespace-only QString; true for every other value including numeric zero and false.
+ */
 [[nodiscard]] bool isNonEmptyValue(const QVariant &v);
 
-}   // namespace openswmmvis::feature
+} // namespace openswmmvis::feature
 
 #endif // FEATUREROLES_H

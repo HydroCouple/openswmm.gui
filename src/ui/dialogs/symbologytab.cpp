@@ -1,9 +1,13 @@
-/*!
- * \file   symbologytab.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      symbologytab.cpp
+ * @brief     Top row: a renderer-class dropdown populated from RendererPanelRegistry (Single /
+ *            Graduated / Categorized / …).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/theme/themehelpers.h"
 #include "ui/dialogs/symbologytab.h"
 
@@ -31,9 +35,11 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /*! Read the currently-installed renderer id for the context's target.
  *
@@ -50,7 +56,8 @@ QString currentRendererIdFor(const RendererPanelContext &ctx)
         return r ? r->rendererId() : QString();
     }
 
-    if (!ctx.hostLayer) return {};
+    if (!ctx.hostLayer)
+        return {};
     IFeatureRenderer *r = nullptr;
 
     if (ctx.category.has_value()) {
@@ -79,8 +86,7 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     // Gap A4.1 — ensure the capability snapshot is resolved even when the
     // caller hands us a bare (layer, category, rule) triple.
     if (m_ctx.fields.isEmpty())
-        m_ctx = RendererPanelContext::resolve(m_ctx.hostLayer, m_ctx.category,
-                                              m_ctx.rule);
+        m_ctx = RendererPanelContext::resolve(m_ctx.hostLayer, m_ctx.category, m_ctx.rule);
 
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
@@ -109,8 +115,7 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
         // which expose no numeric attributes) with a tooltip explaining why.
         if (entry.applicable && !entry.applicable(m_ctx)) {
             const int row = m_rendererCombo->count() - 1;
-            auto *model = qobject_cast<QStandardItemModel *>(
-                m_rendererCombo->model());
+            auto *model = qobject_cast<QStandardItemModel *>(m_rendererCombo->model());
             if (model) {
                 if (QStandardItem *item = model->item(row)) {
                     item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
@@ -119,19 +124,18 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
             }
         }
     }
-    m_rendererCombo->setToolTip(
-        tr("How this kind is painted. <b>Single Symbol</b> gives every "
-           "feature the same style; <b>Graduated</b> drives colour — and "
-           "marker size or line width — from an attribute's value."));
+    m_rendererCombo->setToolTip(tr("How this kind is painted. <b>Single Symbol</b> gives every "
+                                   "feature the same style; <b>Graduated</b> drives colour — and "
+                                   "marker size or line width — from an attribute's value."));
     topLay->addWidget(m_rendererCombo, 1);
     root->addWidget(topRow);
 
     // Says out loud where the data-driven controls live, so the absence of a
     // "width by attribute" control under Single Symbol reads as a mode
     // choice rather than a missing feature.
-    auto *rendererHint = new QLabel(
-        tr("Choose <b>Graduated</b> to size or colour features by an "
-           "attribute value."), this);
+    auto *rendererHint = new QLabel(tr("Choose <b>Graduated</b> to size or colour features by an "
+                                       "attribute value."),
+                                    this);
     rendererHint->setTextFormat(Qt::RichText);
     rendererHint->setWordWrap(true);
     rendererHint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
@@ -152,7 +156,8 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     // "front()" is not a deterministic default.
     const QString initialId = [&]() -> QString {
         const QString cur = currentRendererIdFor(m_ctx);
-        if (!cur.isEmpty()) return cur;
+        if (!cur.isEmpty())
+            return cur;
         if (RendererPanelRegistry::instance().find(QStringLiteral("single")))
             return QStringLiteral("single");
         if (!RendererPanelRegistry::instance().entries().empty())
@@ -167,12 +172,12 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
         }
         mountPanelForId(initialId);
     } else {
-        m_stack->addWidget(new QLabel(
-            tr("No renderer panels registered for this layer kind."), this));
+        m_stack->addWidget(
+            new QLabel(tr("No renderer panels registered for this layer kind."), this));
     }
 
-    connect(m_rendererCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &SymbologyTab::onRendererChanged);
+    connect(m_rendererCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &SymbologyTab::onRendererChanged);
 
     // Renderer swaps can also originate outside this combo — the embedded
     // Mode combo inside a mounted editor (KindRendererPanel), undo, style
@@ -181,33 +186,29 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     // currently-mounted panel, and remounting synchronously would delete
     // the emitting widget mid-signal.
     if (auto *swmm = qobject_cast<SWMMModelLayer *>(m_ctx.hostLayer))
-        connect(swmm, &SWMMModelLayer::rendererChanged,
-                this, &SymbologyTab::syncToInstalledRenderer,
-                Qt::QueuedConnection);
+        connect(swmm, &SWMMModelLayer::rendererChanged, this,
+                &SymbologyTab::syncToInstalledRenderer, Qt::QueuedConnection);
     else if (auto *res = qobject_cast<SWMMResultsLayer *>(m_ctx.hostLayer))
-        connect(res, &SWMMResultsLayer::rendererChanged,
-                this, &SymbologyTab::syncToInstalledRenderer,
-                Qt::QueuedConnection);
+        connect(res, &SWMMResultsLayer::rendererChanged, this,
+                &SymbologyTab::syncToInstalledRenderer, Qt::QueuedConnection);
     else if (auto *vec = qobject_cast<GISVectorLayer *>(m_ctx.hostLayer))
-        connect(vec, &GISVectorLayer::rendererChanged,
-                this, &SymbologyTab::syncToInstalledRenderer,
+        connect(vec, &GISVectorLayer::rendererChanged, this, &SymbologyTab::syncToInstalledRenderer,
                 Qt::QueuedConnection);
     else if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(m_ctx.hostLayer))
-        connect(mesh, &SWMM2DMeshLayer::rendererChanged,
-                this, &SymbologyTab::syncToInstalledRenderer,
-                Qt::QueuedConnection);
+        connect(mesh, &SWMM2DMeshLayer::rendererChanged, this,
+                &SymbologyTab::syncToInstalledRenderer, Qt::QueuedConnection);
     else if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(m_ctx.hostLayer))
-        connect(r2d, &SWMM2DResultsLayer::rendererChanged,
-                this, &SymbologyTab::syncToInstalledRenderer,
-                Qt::QueuedConnection);
+        connect(r2d, &SWMM2DResultsLayer::rendererChanged, this,
+                &SymbologyTab::syncToInstalledRenderer, Qt::QueuedConnection);
 }
 
 void SymbologyTab::syncToInstalledRenderer()
 {
-    if (!m_rendererCombo) return;
+    if (!m_rendererCombo)
+        return;
     const QString cur = currentRendererIdFor(m_ctx);
     if (cur.isEmpty() || cur == currentRendererId())
-        return;   // combo already truthful (or nothing installed)
+        return; // combo already truthful (or nothing installed)
     const int idx = m_rendererCombo->findData(cur);
     if (idx >= 0) {
         QSignalBlocker b(m_rendererCombo);
@@ -218,12 +219,11 @@ void SymbologyTab::syncToInstalledRenderer()
 
 QString SymbologyTab::currentRendererId() const
 {
-    return m_rendererCombo
-        ? m_rendererCombo->currentData().toString()
-        : QString();
+    return m_rendererCombo ? m_rendererCombo->currentData().toString() : QString();
 }
 
-namespace {
+namespace
+{
 
 /*! Install a fresh renderer of the picked class when the dropdown
  *  switches to a different class than the one currently installed.
@@ -239,10 +239,10 @@ namespace {
  *  EMPTY base symbol, which made paint silently fall back to the legacy
  *  colour ramp.
  */
-void installRendererClassIfChanged(const RendererPanelContext &ctx,
-                                   const QString &targetId)
+void installRendererClassIfChanged(const RendererPanelContext &ctx, const QString &targetId)
 {
-    if (targetId.isEmpty()) return;
+    if (targetId.isEmpty())
+        return;
     using namespace OpenSWMM::Render;
 
     // Z.3b — Rule path takes priority (Rule derives the archetype from
@@ -266,16 +266,17 @@ void installRendererClassIfChanged(const RendererPanelContext &ctx,
         cur = res->kindRenderer(*ctx.category);
 
     if (cur && cur->rendererId() == targetId)
-        return;     // already the right class — nothing to swap
+        return; // already the right class — nothing to swap
 
     QVector<AttributeField> fields;
     if (auto *provider = qobject_cast<IAttributeProvider *>(ctx.hostLayer))
         fields = provider->availableAttributes(*ctx.category);
 
-    auto next = RendererFactory::makeRenderer(
-        targetId, FeatureSublayer::archetypeFor(*ctx.category), cur,
-        fields.isEmpty() ? nullptr : &fields);
-    if (!next) return;
+    auto next =
+        RendererFactory::makeRenderer(targetId, FeatureSublayer::archetypeFor(*ctx.category), cur,
+                                      fields.isEmpty() ? nullptr : &fields);
+    if (!next)
+        return;
 
     if (auto *swmm = qobject_cast<SWMMModelLayer *>(ctx.hostLayer))
         swmm->setKindRenderer(*ctx.category, std::move(next));
@@ -294,7 +295,8 @@ void SymbologyTab::onRendererChanged(int)
 
 void SymbologyTab::mountPanelForId(const QString &rendererId)
 {
-    if (!m_stack) return;
+    if (!m_stack)
+        return;
     // Tear down whatever panel was previously mounted.
     while (m_stack->count() > 0) {
         QWidget *w = m_stack->widget(0);
@@ -304,9 +306,8 @@ void SymbologyTab::mountPanelForId(const QString &rendererId)
 
     const auto *entry = RendererPanelRegistry::instance().find(rendererId);
     if (!entry || !entry->factory) {
-        m_stack->addWidget(new QLabel(
-            tr("Renderer '%1' has no registered editor panel.").arg(rendererId),
-            this));
+        m_stack->addWidget(
+            new QLabel(tr("Renderer '%1' has no registered editor panel.").arg(rendererId), this));
         return;
     }
 

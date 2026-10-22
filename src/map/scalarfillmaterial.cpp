@@ -1,12 +1,15 @@
-/*!
- * \file   scalarfillmaterial.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      scalarfillmaterial.cpp
+ * @brief     Scene graph material for scalar-colored mesh fills.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * QSG-2D-1M Phase 8 — see scalarfillmaterial.h. The .qsb shaders are
  * compiled by qt_add_shaders from resources/shaders/scalarfill.{vert,frag}.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "map/scalarfillmaterial.h"
 
 #include <QSGMaterialShader>
@@ -17,31 +20,39 @@
 const QSGGeometry::AttributeSet &scalarFillAttributes()
 {
     static const QSGGeometry::Attribute attrs[] = {
-        QSGGeometry::Attribute::createWithAttributeType(
-            0, 2, QSGGeometry::FloatType, QSGGeometry::PositionAttribute),
-        QSGGeometry::Attribute::createWithAttributeType(
-            1, 1, QSGGeometry::FloatType, QSGGeometry::UnknownAttribute),
+        QSGGeometry::Attribute::createWithAttributeType(0, 2, QSGGeometry::FloatType,
+                                                        QSGGeometry::PositionAttribute),
+        QSGGeometry::Attribute::createWithAttributeType(1, 1, QSGGeometry::FloatType,
+                                                        QSGGeometry::UnknownAttribute),
     };
-    static const QSGGeometry::AttributeSet set = {2, sizeof(ScalarFillVertex),
-                                                  attrs};
+    static const QSGGeometry::AttributeSet set = {2, sizeof(ScalarFillVertex), attrs};
     return set;
 }
 
-namespace {
+namespace
+{
 
 class ScalarFillShader : public QSGMaterialShader
 {
 public:
+    /**
+     * @brief Select compiled scalarfill vertex/fragment resources; renderer manages shader
+     *   lifetime, no texture allocation.
+     */
     ScalarFillShader()
     {
-        setShaderFileName(VertexStage,
-                          QLatin1String(":/resources/shaders/scalarfill.vert.qsb"));
-        setShaderFileName(FragmentStage,
-                          QLatin1String(":/resources/shaders/scalarfill.frag.qsb"));
+        setShaderFileName(VertexStage, QLatin1String(":/resources/shaders/scalarfill.vert.qsb"));
+        setShaderFileName(FragmentStage, QLatin1String(":/resources/shaders/scalarfill.frag.qsb"));
     }
 
-    bool updateUniformData(RenderState &state,
-                           QSGMaterial *newMaterial, QSGMaterial *) override
+    /**
+     * @param[in,out] state Render uniform buffer (asserted>=76bytes), matrix/opacity dirty flags.
+     * @param[in] newMaterial Required actual ScalarFillMaterial, unchecked static cast.
+     * @return True always because range bytes68/72rewritten every call. Matrix bytes0..63and
+     *   opacity64written only dirty. Unnamed previous material ignored; render-thread only, no
+     *   geometry/texture mutation.
+     */
+    bool updateUniformData(RenderState &state, QSGMaterial *newMaterial, QSGMaterial *) override
     {
         // std140 layout of `buf`:
         //   0..63  mat4  qt_Matrix
@@ -62,17 +73,25 @@ public:
         }
         auto *mat = static_cast<ScalarFillMaterial *>(newMaterial);
         const float vMin = mat->vMin();
-        const float inv  = mat->invRange();
+        const float inv = mat->invRange();
         std::memcpy(buf->data() + 68, &vMin, 4);
         std::memcpy(buf->data() + 72, &inv, 4);
-        return changed || true;   // range is cheap; always push
+        return changed || true; // range is cheap; always push
     }
 
-    void updateSampledImage(RenderState &state, int binding,
-                            QSGTexture **texture,
+    /**
+     * @param[in,out] state RHI/resource-update batch used to commit ramp texture.
+     * @param[in] binding Only sampler1handled.
+     * @param[out] texture Required output slot for binding1; unchanged without ramp.
+     * @param[in] newMaterial Required ScalarFillMaterial, borrowed unchecked cast.
+     * @note Nonnull ramp texture committed then borrowed pointer returned; no fallback/ownership
+     *   transfer. Other bindings and unnamed previous material ignored. Render-thread only.
+     */
+    void updateSampledImage(RenderState &state, int binding, QSGTexture **texture,
                             QSGMaterial *newMaterial, QSGMaterial *) override
     {
-        if (binding != 1) return;
+        if (binding != 1)
+            return;
         auto *mat = static_cast<ScalarFillMaterial *>(newMaterial);
         if (QSGTexture *t = mat->rampTexture()) {
             t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
@@ -85,7 +104,7 @@ public:
 
 ScalarFillMaterial::ScalarFillMaterial()
 {
-    setFlag(Blending, true);   // LUT colors carry alpha (sublayer opacity)
+    setFlag(Blending, true); // LUT colors carry alpha (sublayer opacity)
 }
 
 ScalarFillMaterial::~ScalarFillMaterial()
@@ -111,21 +130,21 @@ int ScalarFillMaterial::compare(const QSGMaterial *other) const
     return 0;
 }
 
-QSGMaterialShader *
-ScalarFillMaterial::createShader(QSGRendererInterface::RenderMode) const
+QSGMaterialShader *ScalarFillMaterial::createShader(QSGRendererInterface::RenderMode) const
 {
     return new ScalarFillShader();
 }
 
 void ScalarFillMaterial::setRampTexture(QSGTexture *texture)
 {
-    if (m_texture == texture) return;
+    if (m_texture == texture)
+        return;
     delete m_texture;
     m_texture = texture;
 }
 
 void ScalarFillMaterial::setRange(float vMin, float vMax)
 {
-    m_vMin     = vMin;
+    m_vMin = vMin;
     m_invRange = (vMax > vMin) ? 1.0f / (vMax - vMin) : 0.0f;
 }

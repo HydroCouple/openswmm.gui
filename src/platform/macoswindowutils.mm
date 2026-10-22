@@ -1,10 +1,12 @@
-/*!
- * \file   macoswindowutils.mm
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  macOS implementation of attachAsChildWindow (see header).
+/**
+ * @file      macoswindowutils.mm
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     macOS implementation of attachAsChildWindow (see header).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "platform/macoswindowutils.h"
 
 #include <QDialog>
@@ -13,9 +15,11 @@
 
 #import <AppKit/AppKit.h>
 
-namespace openswmmvis::platform {
+namespace openswmmvis::platform
+{
 
-namespace {
+namespace
+{
 
 /*! True only when Qt is actually driving Cocoa.
  *
@@ -24,11 +28,13 @@ namespace {
  *  QPA. Under the offscreen / minimal platforms winId() still returns a
  *  NON-NULL synthetic id that is not an NSView*, so the null guards further
  *  down sail straight past it and the first property access crashes inside
- *  objc_msgSend. Gate on the platform name instead of pointer nullness. */
+ *  objc_msgSend. Gate on the platform name instead of pointer nullness.
+ * @return True only for the Cocoa QPA platform (case-insensitive), ensuring winId() is safe to interpret as NSView*.
+ */
 bool cocoaPlatform_()
 {
-    return QGuiApplication::platformName().compare(
-               QLatin1String("cocoa"), Qt::CaseInsensitive) == 0;
+    return QGuiApplication::platformName().compare(QLatin1String("cocoa"), Qt::CaseInsensitive) ==
+           0;
 }
 
 /*! Resolve the window a dialog should be ordered above.
@@ -46,25 +52,28 @@ bool cocoaPlatform_()
  *  while still being ordered above the application's own windows.
  *
  *  Returns nullptr when the chain contains nothing but dialogs; not attaching
- *  at all is preferable to re-creating the gluing. */
+ *  at all is preferable to re-creating the gluing.
+ * @param[in] dialog Borrowed dialog whose parent chain is inspected, or null.
+ * @return Borrowed first nondialog top-level ancestor within sixteen hops, or null for no valid host/self-parenting. Does not alter widget ownership.
+ */
 QWidget *stackingHostFor_(QWidget *dialog)
 {
     QWidget *parent = dialog ? dialog->parentWidget() : nullptr;
-    QWidget *top    = parent ? parent->window() : nullptr;
+    QWidget *top = parent ? parent->window() : nullptr;
 
     // Bounded walk — a pathological parent cycle must not spin forever.
     for (int hops = 0; top && hops < 16; ++hops) {
         if (top == dialog)
-            return nullptr;                     // self-parented; nothing to do
+            return nullptr; // self-parented; nothing to do
         if (!qobject_cast<QDialog *>(top))
-            return top;                         // real host window found
+            return top; // real host window found
         QWidget *next = top->parentWidget();
-        top = next ? next->window() : nullptr;  // dialog → keep climbing
+        top = next ? next->window() : nullptr; // dialog → keep climbing
     }
     return nullptr;
 }
 
-}   // namespace
+} // namespace
 
 void attachAsChildWindow(QWidget *dialog)
 {
@@ -77,12 +86,12 @@ void attachAsChildWindow(QWidget *dialog)
 
     // winId() returns the backing NSView* on macOS (creating the native window
     // if needed); its .window is the NSWindow we stack.
-    NSView *childView  = reinterpret_cast<NSView *>(dialog->winId());
+    NSView *childView = reinterpret_cast<NSView *>(dialog->winId());
     NSView *parentView = reinterpret_cast<NSView *>(parentTop->winId());
     if (!childView || !parentView)
         return;
 
-    NSWindow *childWindow  = childView.window;
+    NSWindow *childWindow = childView.window;
     NSWindow *parentWindow = parentView.window;
     if (!childWindow || !parentWindow || childWindow == parentWindow)
         return;
@@ -128,18 +137,19 @@ void detachFromParentWindow(QWidget *dialog)
         [childWindow orderOut:nil];
 }
 
-namespace {
-id<NSObject> g_simulationActivity     = nil;   // retained (this file is not ARC)
-int          g_simulationActivityRefs = 0;
-}   // namespace
+namespace
+{
+id<NSObject> g_simulationActivity = nil; // retained (this file is not ARC)
+int g_simulationActivityRefs = 0;
+} // namespace
 
 void beginSimulationActivity()
 {
     if (g_simulationActivityRefs++ > 0)
         return;
     g_simulationActivity = [[[NSProcessInfo processInfo]
-        beginActivityWithOptions:(NSActivityUserInitiatedAllowingIdleSystemSleep
-                                  | NSActivityLatencyCritical)
+        beginActivityWithOptions:(NSActivityUserInitiatedAllowingIdleSystemSleep |
+                                  NSActivityLatencyCritical)
                           reason:@"OpenSWMM simulation running"] retain];
 }
 

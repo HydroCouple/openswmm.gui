@@ -1,6 +1,10 @@
-/*!
- * \file   profileresultsources.h
- * \brief  Shared result-source discovery for profile plotting dialogs.
+/**
+ * @file      profileresultsources.h
+ * @brief     Shared result-source discovery for profile plotting dialogs.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #ifndef PROFILE_RESULT_SOURCES_H
@@ -15,17 +19,19 @@
 #include <QList>
 #include <QSet>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-inline QList<SWMMResultsLayer *> profileResultSources(AnimationController  *anim,
+inline QList<SWMMResultsLayer *> profileResultSources(AnimationController *anim,
                                                       SWMMVisProjectWindow *projectWindow,
-                                                      MapCanvas            *canvas = nullptr)
+                                                      MapCanvas *canvas = nullptr)
 {
     QList<SWMMResultsLayer *> result;
     QSet<SWMMResultsLayer *> seen;
 
     auto add = [&result, &seen](SWMMResultsLayer *layer) {
-        if (!layer || seen.contains(layer)) return;
+        if (!layer || seen.contains(layer))
+            return;
         seen.insert(layer);
         result.append(layer);
     };

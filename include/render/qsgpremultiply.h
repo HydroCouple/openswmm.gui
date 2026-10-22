@@ -1,8 +1,10 @@
-/*!
- * \file   qsgpremultiply.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      qsgpremultiply.h
+ * @brief     Premultiplied-alpha helper shared by the QSG map renderers (terrain mesh, 2D results,
+ *            1D network), which all emit vertex colours into QSGVertexColorMaterial.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Premultiplied-alpha helper shared by the QSG map renderers (terrain mesh,
  * 2D results, 1D network), which all emit vertex colours into
@@ -10,7 +12,9 @@
  *
  * Qt-Core-only so it can be unit-tested headlessly — see
  * tests/unit/test_qsgpremultiply.cpp.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_QSGPREMULTIPLY_H
 #define OPENSWMM_RENDER_QSGPREMULTIPLY_H
 
@@ -19,7 +23,9 @@
 namespace OpenSWMM::Render
 {
 
-/*! Premultiply one straight-alpha colour channel for QSGVertexColorMaterial,
+/**
+ * @brief Convert a straight-alpha color channel to the premultiplied representation.
+ * @details Premultiply one straight-alpha colour channel for QSGVertexColorMaterial,
  *  which samples vertex colours as PREMULTIPLIED alpha (Qt scene-graph
  *  contract). Feeding straight-alpha colours makes the compositor
  *  un-premultiply them on blend, clamping every semi-transparent fill toward
@@ -28,7 +34,13 @@ namespace OpenSWMM::Render
  *  being "truncated" at far zoom. At alpha 0 a straight-alpha colour blends
  *  ADDITIVELY (One / OneMinusSrcAlpha), painting its raw RGB over whatever
  *  is beneath — a fully transparent classification band must premultiply to
- *  (0,0,0,0) to disappear. */
+ *  (0,0,0,0) to disappear.
+ *
+ * @param[in] c Straight-alpha red, green, or blue channel in the byte range 0..255.
+ * @param[in] a Alpha coverage in the byte range 0..255; zero means transparent.
+ * @return The nearest integer to c*a/255, using the integer rounding bias 127.
+ *         Fully transparent input returns zero; fully opaque input preserves c.
+ */
 inline quint8 premul(quint8 c, quint8 a)
 {
     return quint8((uint(c) * uint(a) + 127u) / 255u);

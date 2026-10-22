@@ -1,9 +1,9 @@
-/*!
- * \file   test_featuregeometry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Unit tests for the editable-feature geometry value type and its OGR
+/**
+ * @file      test_featuregeometry.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Unit tests for the editable-feature geometry value type and its OGR
  *         bridge (MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07 §3.1;
  *         HANDOFF_FEATURE_LAYERS_VALIDATE_2026-09-07 §4).
  *
@@ -23,7 +23,9 @@
  *   - validate() rejects exactly the shapes a quad region would reject
  *     (self-intersection, a hole outside its exterior, overlapping holes) and
  *     accepts a clean polygon with two holes.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <gtest/gtest.h>
 
 #include "feature/featuregeometry.h"
@@ -41,36 +43,68 @@
 
 using namespace openswmmvis::feature;
 
-namespace {
+namespace
+{
 
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
 //! Owning handle for a geometry toOGR() hands back.
-struct OgrDeleter
-{
+struct OgrDeleter {
+    /**
+     *
+     * @brief Release the OGR geometry returned by a fixture conversion.
+     * @param g Owned nullable OGR geometry; destroyed with OGR's matching factory API.
+     * Called by unique_ptr cleanup, with no return value or ownership retained.
+     *
+     */
     void operator()(OGRGeometry *g) const { OGRGeometryFactory::destroyGeometry(g); }
 };
 using OgrPtr = std::unique_ptr<OGRGeometry, OgrDeleter>;
 
+/**
+ *
+ * @brief Copy ordered XY points into an otherwise empty fixture ring.
+ * @param pts Borrowed initializer-list coordinates in common arbitrary fixture units.
+ * @return Owned ring with identical order, no Z or implicit closing vertex. Empty,
+ * repeated and invalid coordinates are deliberately allowed for validation tests.
+ *
+ */
 Ring ringOf(std::initializer_list<QPointF> pts)
 {
     Ring r;
-    for (const QPointF &p : pts) r.pts.append(p);
+    for (const QPointF &p : pts)
+        r.pts.append(p);
     return r;
 }
 
-//! A CCW unit-ish square, open (no repeated closing vertex).
+/**
+ *
+ * @brief Build a four-corner unclosed fixture square.
+ * @param x Lower-left x in arbitrary common fixture coordinate units.
+ * @param y Lower-left y in those units.
+ * @param w Intended positive side length; not checked for finiteness/degeneracy.
+ * @return Owned XY-only ring counterclockwise for positive w, no repeated endpoint.
+ *
+ */
 Ring square(double x, double y, double w)
 {
-    return ringOf({QPointF(x, y), QPointF(x + w, y),
-                   QPointF(x + w, y + w), QPointF(x, y + w)});
+    return ringOf({QPointF(x, y), QPointF(x + w, y), QPointF(x + w, y + w), QPointF(x, y + w)});
 }
 
+/**
+ *
+ * @brief Wrap copied rings in a single-part polygon without validating them.
+ * @param ext Borrowed exterior in fixture coordinate units, copied with its Z array.
+ * @param holes Borrowed holes in the same units, default none; copied verbatim.
+ * @return Owned polygon retaining ring orientation, malformed inputs and Z values for
+ * later production validation. No OGR allocation or persistent state change.
+ *
+ */
 FeatureGeometry polygonWith(const Ring &ext, const QVector<Ring> &holes = {})
 {
     Part p;
     p.exterior = ext;
-    p.holes    = holes;
+    p.holes = holes;
     FeatureGeometry g(GeometryType::Polygon);
     g.addPart(p);
     return g;
@@ -118,8 +152,8 @@ TEST(FeatureGeometryRing, DensifyInsertsAndKeepsZAligned)
 TEST(FeatureGeometryRing, NormalizeCCWReversesZToo)
 {
     // Clockwise square, each vertex carrying a distinguishable Z.
-    Ring r = ringOf({QPointF(0.0, 0.0), QPointF(0.0, 10.0),
-                     QPointF(10.0, 10.0), QPointF(10.0, 0.0)});
+    Ring r =
+        ringOf({QPointF(0.0, 0.0), QPointF(0.0, 10.0), QPointF(10.0, 10.0), QPointF(10.0, 0.0)});
     r.z = {1.0, 2.0, 3.0, 4.0};
     ASSERT_LT(r.signedArea(), 0.0) << "fixture is not clockwise";
 
@@ -148,8 +182,7 @@ TEST(FeatureGeometryRing, NormalizeCCWReversesZToo)
 
 TEST(FeatureGeometryOgr, PolygonWithHoleRoundTrips)
 {
-    const FeatureGeometry g =
-        polygonWith(square(0.0, 0.0, 100.0), {square(20.0, 20.0, 20.0)});
+    const FeatureGeometry g = polygonWith(square(0.0, 0.0, 100.0), {square(20.0, 20.0, 20.0)});
 
     const OgrPtr ogr(g.toOGR());
     ASSERT_NE(ogr.get(), nullptr);
@@ -291,8 +324,7 @@ TEST(FeatureGeometryRing, MoveVertexOutOfRangeIsANoOp)
 
 TEST(FeatureGeometryValidate, MovingAHoleVertexOutOfTheExteriorIsRejected)
 {
-    FeatureGeometry g =
-        polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 10.0)});
+    FeatureGeometry g = polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 10.0)});
     ASSERT_TRUE(g.validate(GeometryType::Polygon, nullptr));
 
     // Drag one hole corner clean outside the exterior — the rejection the
@@ -320,14 +352,12 @@ TEST(FeatureGeometryValidate, MovingAVertexIntoSelfIntersectionIsRejected)
 
 TEST(FeatureGeometryValidate, AnOrdinaryVertexMoveStaysValid)
 {
-    FeatureGeometry g =
-        polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 10.0)});
+    FeatureGeometry g = polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 10.0)});
 
     g.parts()[0].exterior.moveVertex(2, QPointF(140.0, 120.0));
 
     QString reason;
-    EXPECT_TRUE(g.validate(GeometryType::Polygon, &reason))
-        << reason.toStdString();
+    EXPECT_TRUE(g.validate(GeometryType::Polygon, &reason)) << reason.toStdString();
 }
 
 // ---------------------------------------------------------------------------
@@ -336,9 +366,8 @@ TEST(FeatureGeometryValidate, AnOrdinaryVertexMoveStaysValid)
 
 TEST(FeatureGeometryValidate, AcceptsCleanPolygonWithTwoHoles)
 {
-    const FeatureGeometry g = polygonWith(
-        square(0.0, 0.0, 100.0),
-        {square(10.0, 10.0, 20.0), square(60.0, 60.0, 20.0)});
+    const FeatureGeometry g =
+        polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 20.0), square(60.0, 60.0, 20.0)});
 
     QString reason = QStringLiteral("untouched");
     EXPECT_TRUE(g.validate(GeometryType::Polygon, &reason)) << reason.toStdString();
@@ -347,33 +376,28 @@ TEST(FeatureGeometryValidate, AcceptsCleanPolygonWithTwoHoles)
 
 TEST(FeatureGeometryValidate, RejectsHoleOutsideExterior)
 {
-    const FeatureGeometry g =
-        polygonWith(square(0.0, 0.0, 100.0), {square(200.0, 200.0, 10.0)});
+    const FeatureGeometry g = polygonWith(square(0.0, 0.0, 100.0), {square(200.0, 200.0, 10.0)});
 
     QString reason;
     EXPECT_FALSE(g.validate(GeometryType::Polygon, &reason));
-    EXPECT_TRUE(reason.contains(QStringLiteral("not inside")))
-        << reason.toStdString();
+    EXPECT_TRUE(reason.contains(QStringLiteral("not inside"))) << reason.toStdString();
 }
 
 TEST(FeatureGeometryValidate, RejectsSelfIntersectingRing)
 {
     // Bow tie.
     const FeatureGeometry g = polygonWith(
-        ringOf({QPointF(0.0, 0.0), QPointF(10.0, 10.0),
-                QPointF(10.0, 0.0), QPointF(0.0, 10.0)}));
+        ringOf({QPointF(0.0, 0.0), QPointF(10.0, 10.0), QPointF(10.0, 0.0), QPointF(0.0, 10.0)}));
 
     QString reason;
     EXPECT_FALSE(g.validate(GeometryType::Polygon, &reason));
-    EXPECT_TRUE(reason.contains(QStringLiteral("self-intersects")))
-        << reason.toStdString();
+    EXPECT_TRUE(reason.contains(QStringLiteral("self-intersects"))) << reason.toStdString();
 }
 
 TEST(FeatureGeometryValidate, RejectsOverlappingHoles)
 {
-    const FeatureGeometry g = polygonWith(
-        square(0.0, 0.0, 100.0),
-        {square(10.0, 10.0, 30.0), square(20.0, 20.0, 30.0)});
+    const FeatureGeometry g =
+        polygonWith(square(0.0, 0.0, 100.0), {square(10.0, 10.0, 30.0), square(20.0, 20.0, 30.0)});
 
     QString reason;
     EXPECT_FALSE(g.validate(GeometryType::Polygon, &reason));
@@ -435,8 +459,8 @@ TEST(FeatureGeometryValidate, RejectsEmptyMultiPartAndStrayHoles)
 
 TEST(FeatureGeometryZ, UnsampledZCountCountsNaNOnly)
 {
-    Ring r = ringOf({QPointF(0.0, 0.0), QPointF(10.0, 0.0),
-                     QPointF(10.0, 10.0), QPointF(0.0, 10.0)});
+    Ring r =
+        ringOf({QPointF(0.0, 0.0), QPointF(10.0, 0.0), QPointF(10.0, 10.0), QPointF(0.0, 10.0)});
     r.z = {1.0, kNaN, 3.0, kNaN};
     FeatureGeometry g = polygonWith(r);
 
@@ -444,7 +468,7 @@ TEST(FeatureGeometryZ, UnsampledZCountCountsNaNOnly)
     EXPECT_EQ(g.vertexCount(), 4);
 
     double lo = 0.0, hi = 0.0;
-    ASSERT_TRUE(g.zRange(lo, hi));           // NaN entries are skipped
+    ASSERT_TRUE(g.zRange(lo, hi)); // NaN entries are skipped
     EXPECT_DOUBLE_EQ(lo, 1.0);
     EXPECT_DOUBLE_EQ(hi, 3.0);
 

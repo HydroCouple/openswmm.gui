@@ -1,8 +1,9 @@
-/*!
- * \file   meshreorder.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshreorder.h
+ * @brief     Hilbert-curve renumbering of a freshly generated mesh.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Hilbert-curve renumbering of a freshly generated mesh.
  *
@@ -22,21 +23,49 @@
  * coordinate-keyed, so ordering is free at that point).  It is a pure
  * permutation: the vertex/triangle multisets, orientation, and every
  * per-element attribute are unchanged.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_MESHREORDER_H
 #define OPENSWMMVIS_MESH_MESHREORDER_H
 
 #include "mesh/meshresult.h"
 
-namespace mesh {
+namespace mesh
+{
 
-/*! Renumber triangles along a Hilbert curve of their centroids and vertices
- *  by first appearance; remaps triangle/boundary-edge/cell-coupling indices.
- *  No-op on an empty mesh. */
+/**
+ * @brief Spatially permute cells within triangle/quad classes and renumber vertices by first
+ * use.
+ * @param[in,out] m Optional borrowed mesh, null or empty cells/vertices is a no-op. Requires
+ * every cell and boundary-edge vertex ID in range, finite representable geometry, and sizes
+ * fitting int.
+ * @note Uses 16-bit centroid Hilbert keys, stable-sorts ties, keeps triangles before quads and
+ * appends unused vertices in their original order. Moves complete vertex/cell records, remaps
+ * boundary endpoints and valid cellCouplings indices, preserving associated record attributes.
+ * Invalid coupling indices are retained. Other index-keyed metadata, including infiltration
+ * overrides and authoring-preview arrays, is not remapped: call before populating those or remap
+ * externally. Allocates temporary vectors, invalidates prior positional references/indices and
+ * offers no error result or failure rollback. No engine synchronization, file write or mesh
+ * ownership transfer; caller needs exclusive access.
+ *
+ * @details Renumber triangles along a Hilbert curve of their centroids and vertices by first
+ * appearance; remaps triangle/boundary-edge/cell-coupling indices. No-op on an empty mesh.
+ */
 void reorderMeshHilbert(MeshResult *m);
 
-/*! Cheap locality proxy: mean |vi − vj| over the three vertex-index pairs of
- *  every triangle.  O(nt), no allocation — safe to log on any mesh size. */
+/**
+ * @brief Compute mean absolute index jump across each cell's consecutive cyclic corner pairs.
+ * @param[in] m Borrowed mesh, unchanged; stored identifiers need not index coordinates, but each
+ * integer difference must fit int before absolute value. Handles triangles and quads,
+ * irrespective of validity.
+ * @return Dimensionless mean index spread, zero for no cells. Shared edges contribute once per
+ * incident cell, and no geometric distance/area weighting is used. Linear read-only traversal,
+ * no allocation.
+ *
+ * @details Cheap locality proxy: mean |vi − vj| over the three vertex-index pairs of every
+ * triangle.  O(nt), no allocation — safe to log on any mesh size.
+ */
 [[nodiscard]] double meanVertexIndexSpread(const MeshResult &m);
 
 } // namespace mesh

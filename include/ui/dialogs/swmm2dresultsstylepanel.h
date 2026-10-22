@@ -1,9 +1,9 @@
-/*!
- * \file   swmm2dresultsstylepanel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  O2-1 / VS.8 — styling panel for a SWMM2DResultsLayer.
+/**
+ * @file      swmm2dresultsstylepanel.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     O2-1 / VS.8 — styling panel for a SWMM2DResultsLayer.
  *
  *         One tab per sub-layer visualization type (Contour bands,
  *         Isolines, Velocity vectors), mirroring the
@@ -11,7 +11,9 @@
  *         the owning sublayer / its style bag — the single source of
  *         truth the paint passes consult — so edits repaint immediately
  *         and survive sublayer-JSON round-trips.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_SWMM2DRESULTSSTYLEPANEL_H
 #define OPENSWMMVIS_UI_DIALOGS_SWMM2DRESULTSSTYLEPANEL_H
 
@@ -23,12 +25,14 @@ class SWMM2DResultsLayer;
 class QListWidget;
 class QComboBox;
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 class ISublayer;
 class ScalarFillStyle;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class Swmm2DResultsStylePanel : public QWidget
 {
@@ -42,14 +46,13 @@ private:
      *  both sublayers carry the same ScalarFillStyle. */
     [[nodiscard]] QWidget *buildScalarFillTab(OpenSWMM::Render::ISublayer *sub,
                                               OpenSWMM::Render::ScalarFillStyle *st,
-                                              const QString &showLabel,
-                                              QWidget *parent);
+                                              const QString &showLabel, QWidget *parent);
     [[nodiscard]] QWidget *buildContourBandTab(QWidget *parent);
     [[nodiscard]] QWidget *buildIsolineTab(QWidget *parent);
     [[nodiscard]] QWidget *buildVelocityTab(QWidget *parent);
     [[nodiscard]] QWidget *buildFlowStreakTab(QWidget *parent);
-    [[nodiscard]] QWidget *buildMeshEdgeTab(QWidget *parent);   // Issue 6
-    [[nodiscard]] QWidget *buildMeshNodeTab(QWidget *parent);   // Issue 6
+    [[nodiscard]] QWidget *buildMeshEdgeTab(QWidget *parent); // Issue 6
+    [[nodiscard]] QWidget *buildMeshNodeTab(QWidget *parent); // Issue 6
 
     QWidget *buildAdditionalResultsTab(QWidget *parent);
     void refreshAdditionalResults();

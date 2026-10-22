@@ -1,6 +1,10 @@
-/*!
- * \file   test_aboutdialog.cpp
- * \brief  AboutDialog manifest parsing and embedded application license display.
+/**
+ * @file      test_aboutdialog.cpp
+ * @brief     AboutDialog manifest parsing and embedded application license display.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/aboutdialog.h"
@@ -38,6 +42,11 @@ private slots:
     void restoredPanelFillsAndScrolls();
 };
 
+/**
+ *
+ * @brief Require a valid two-row array manifest to parse without error and retain row name order.
+ *
+ */
 void TestAboutDialog::parsesValidManifest()
 {
     const QByteArray json = R"([
@@ -52,6 +61,11 @@ void TestAboutDialog::parsesValidManifest()
     QCOMPARE(rows[1].name, QStringLiteral("b"));
 }
 
+/**
+ *
+ * @brief Require an empty manifest array to return no rows and no error.
+ *
+ */
 void TestAboutDialog::emptyArrayIsEmpty()
 {
     QString err;
@@ -60,6 +74,11 @@ void TestAboutDialog::emptyArrayIsEmpty()
     QCOMPARE(rows.size(), 0);
 }
 
+/**
+ *
+ * @brief Require an object-root manifest to refuse with an error and no rows.
+ *
+ */
 void TestAboutDialog::rejectsNonArrayRoot()
 {
     QString err;
@@ -68,6 +87,11 @@ void TestAboutDialog::rejectsNonArrayRoot()
     QVERIFY(!err.isEmpty());
 }
 
+/**
+ *
+ * @brief Require unnamed manifest rows to be skipped while a valid named row remains.
+ *
+ */
 void TestAboutDialog::skipsRowsWithoutName()
 {
     const QByteArray json = R"([
@@ -79,6 +103,12 @@ void TestAboutDialog::skipsRowsWithoutName()
     QCOMPARE(rows[0].name, QStringLiteral("valid"));
 }
 
+/**
+ *
+ * @brief Require every dependency manifest field to map to its expected parsed member.
+ * Uses in-memory sample version/URL/license metadata without network or resource reads.
+ *
+ */
 void TestAboutDialog::copiesAllExpectedFields()
 {
     const QByteArray json = R"([{
@@ -95,34 +125,45 @@ void TestAboutDialog::copiesAllExpectedFields()
     auto rows = AboutDialog::parseManifest(json);
     QCOMPARE(rows.size(), 1);
     const auto &c = rows[0];
-    QCOMPARE(c.category,    QStringLiteral("Geospatial"));
-    QCOMPARE(c.name,        QStringLiteral("GDAL"));
-    QCOMPARE(c.version,     QStringLiteral("3.9.2"));
-    QCOMPARE(c.role,        QStringLiteral("vector / raster IO"));
-    QCOMPARE(c.homepage,    QStringLiteral("https://gdal.org"));
-    QCOMPARE(c.sourceUrl,   QStringLiteral("https://github.com/OSGeo/gdal"));
-    QCOMPARE(c.spdx,        QStringLiteral("MIT"));
-    QCOMPARE(c.provenance,  QStringLiteral("vcpkg"));
+    QCOMPARE(c.category, QStringLiteral("Geospatial"));
+    QCOMPARE(c.name, QStringLiteral("GDAL"));
+    QCOMPARE(c.version, QStringLiteral("3.9.2"));
+    QCOMPARE(c.role, QStringLiteral("vector / raster IO"));
+    QCOMPARE(c.homepage, QStringLiteral("https://gdal.org"));
+    QCOMPARE(c.sourceUrl, QStringLiteral("https://github.com/OSGeo/gdal"));
+    QCOMPARE(c.spdx, QStringLiteral("MIT"));
+    QCOMPARE(c.provenance, QStringLiteral("vcpkg"));
     QCOMPARE(c.licenseFile, QStringLiteral(":/licenses/gdal.txt"));
 }
 
+/**
+ *
+ * @brief Require the build timestamp to parse in the UTC-labeled display format and appear in
+ * copied environment text.
+ * Overwrites the application clipboard and compares the entire summary text with
+ * HTML line breaks converted to newlines.
+ *
+ */
 void TestAboutDialog::buildTimestampDisplayAndCopy()
 {
     const QString timestamp = QString::fromLatin1(openswmmvis::buildTimestamp());
     QVERIFY(timestamp.endsWith(QStringLiteral(" UTC")));
-    QVERIFY(QDateTime::fromString(timestamp, QStringLiteral("yyyy-MM-dd HH:mm:ss 'UTC'")).isValid());
+    QVERIFY(
+        QDateTime::fromString(timestamp, QStringLiteral("yyyy-MM-dd HH:mm:ss 'UTC'")).isValid());
     const QString buildLine = QStringLiteral("Build:    ") + timestamp;
 
     AboutDialog dialog;
     QLabel *summary = nullptr;
     for (auto *label : dialog.findChildren<QLabel *>())
-        if (label->text().contains(QStringLiteral("Build:"))) summary = label;
+        if (label->text().contains(QStringLiteral("Build:")))
+            summary = label;
     QVERIFY(summary);
     QVERIFY(summary->text().contains(buildLine));
 
     QPushButton *copy = nullptr;
     for (auto *button : dialog.findChildren<QPushButton *>())
-        if (button->text() == QStringLiteral("Copy environment")) copy = button;
+        if (button->text() == QStringLiteral("Copy environment"))
+            copy = button;
     QVERIFY(copy);
     copy->click();
     QCOMPARE(QApplication::clipboard()->text(),
@@ -130,6 +171,14 @@ void TestAboutDialog::buildTimestampDisplayAndCopy()
     QVERIFY(QApplication::clipboard()->text().contains(buildLine));
 }
 
+/**
+ *
+ * @brief Require the read-only embedded GUI license and copied text to equal the repository
+ * LICENSE, including after dependency selection.
+ * Reads the source-relative license, overwrites the application clipboard and
+ * optionally saves gui_license.png beneath nonempty SWMMVIS_ABOUT_TEST_OUTPUT.
+ *
+ */
 void TestAboutDialog::applicationLicenseDisplayAndCopy()
 {
     const QDir sourceDir = QFileInfo(QString::fromUtf8(__FILE__)).dir();
@@ -151,7 +200,8 @@ void TestAboutDialog::applicationLicenseDisplayAndCopy()
 
     QPushButton *copy = nullptr;
     for (auto *button : dialog.findChildren<QPushButton *>())
-        if (button->text() == QStringLiteral("Copy License")) copy = button;
+        if (button->text() == QStringLiteral("Copy License"))
+            copy = button;
     QVERIFY(copy && copy->isEnabled());
     copy->click();
     QCOMPARE(QApplication::clipboard()->text(), expected);
@@ -175,11 +225,23 @@ void TestAboutDialog::applicationLicenseDisplayAndCopy()
     }
 }
 
+/**
+ *
+ * @brief Require the layout watcher to restore the About panel, fill wide panes, scroll narrow
+ * panes and respond to splitter dragging.
+ * Writes wide/scrolled PNG evidence and redirects process-global INI settings to
+ * SWMMVIS_ABOUT_TEST_OUTPUT or the source-relative workplans artifact directory.
+ * Application identity/default settings format/path are not restored in this case;
+ * the stack-owned event filter removes itself when destroyed.
+ *
+ */
 void TestAboutDialog::restoredPanelFillsAndScrolls()
 {
     const QDir sourceDir = QFileInfo(QString::fromUtf8(__FILE__)).dir();
-    const QString outputDir = qEnvironmentVariable("SWMMVIS_ABOUT_TEST_OUTPUT",
-        sourceDir.filePath(QStringLiteral("../../workplans/artifacts/gui_about_license_2026-10-04/panel")));
+    const QString outputDir =
+        qEnvironmentVariable("SWMMVIS_ABOUT_TEST_OUTPUT",
+                             sourceDir.filePath(QStringLiteral(
+                                 "../../workplans/artifacts/gui_about_license_2026-10-04/panel")));
     QVERIFY(QDir().mkpath(outputDir));
     // Exercise the production Show filter without changing user settings.
     QSettings::setDefaultFormat(QSettings::IniFormat);

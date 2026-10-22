@@ -1,15 +1,17 @@
-/*!
- * \file   test_timeseries_editor_dialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.3.3 — smoke tests for the editor dialog shell.
+/**
+ * @file      test_timeseries_editor_dialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.3.3 — smoke tests for the editor dialog shell.
  *
  * Focus: dialog assembles grid + chart + toolbar, edits propagate through both
  * views via the shared TimeseriesProvider, undo round-trips. Mouse-event drag
  * simulation is covered by the chart-view smoke test; this exercises the
  * dialog-level wiring.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "dialog_a11y_checks.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
@@ -57,24 +59,53 @@ using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 using openswmmvis::ui::TimeseriesEditorDialog;
 
-namespace {
+namespace
+{
+/**
+ *
+ * @brief Construct an unchecked UTC fixture timestamp without normalizing invalid calendar/clock
+ * components.
+ * @param year Calendar year.
+ * @param month One-based calendar month.
+ * @param day One-based day of month.
+ * @param hour Hour from zero through 23.
+ * @param minute Minute from zero through 59, default zero.
+ * @return By-value UTC timestamp; invalid supplied components yield invalid Qt time.
+ *
+ */
 QDateTime t(int year, int month, int day, int hour, int minute = 0)
 {
     return QDateTime(QDate(year, month, day), QTime(hour, minute), Qt::UTC);
 }
+/**
+ *
+ * @brief Build the inline UTC time-series fixture.
+ * @return Owned three-point vector at 2026-01-01 00:00/06:00/12:00 UTC with
+ * unitless values one/two/three; no registry ownership or file IO.
+ *
+ */
 QVector<TimeseriesPoint> fixture()
 {
     return {
-        {t(2026, 1, 1, 0),  1.0},
-        {t(2026, 1, 1, 6),  2.0},
+        {t(2026, 1, 1, 0), 1.0},
+        {t(2026, 1, 1, 6), 2.0},
         {t(2026, 1, 1, 12), 3.0},
     };
 }
 
+/**
+ *
+ * @brief Copy points from the first line series in a chart.
+ * @param c Borrowed non-null chart whose series remain owned by it.
+ * @return Owned point list or empty when no line series exists; X/Y retain the
+ * chart series coordinate convention, with no conversion or chart mutation.
+ *
+ */
 QList<QPointF> linePointsFromChart(QChart *c)
 {
     for (auto *s : c->series())
-        if (auto *line = qobject_cast<QLineSeries *>(s)) return line->points();
+        if (auto *line = qobject_cast<QLineSeries *>(s))
+            return line->points();
     return {};
 }
 } // namespace
@@ -85,6 +116,13 @@ class TestTimeseriesEditorDialog : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require registry destruction inside the active delete-confirmation prompt to
+     * invalidate the editor before the prompt returns Yes.
+     * Checks disabled/hidden state and empty model after the nested modal event loop.
+     *
+     */
     void registryDeletedDuringDeleteConfirmation()
     {
         auto *registry = new TimeseriesRegistry;
@@ -96,7 +134,8 @@ private slots:
         bool sawConfirmation = false;
         QTimer::singleShot(0, &dialog, [&] {
             auto *question = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-            if (!question) return;
+            if (!question)
+                return;
             sawConfirmation = true;
             delete registry;
             registry = nullptr;
@@ -111,6 +150,12 @@ private slots:
         delete registry;
     }
 
+    /**
+     *
+     * @brief Require destroying the registry to disable/hide its editor and clear the table
+     * model.
+     *
+     */
     void ownerRegistryDeletionInvalidatesEditor()
     {
         auto *registry = new TimeseriesRegistry;
@@ -120,11 +165,18 @@ private slots:
         TimeseriesEditorDialog dialog(registry, &stack, provider);
         dialog.show();
         delete registry;
-        QVERIFY2(!dialog.isEnabled(), "A closed registry must disable the editor before stale callbacks can mutate it.");
+        QVERIFY2(!dialog.isEnabled(),
+                 "A closed registry must disable the editor before stale callbacks can mutate it.");
         QVERIFY(!dialog.isVisible());
         QCOMPARE(dialog.tableModel()->rowCount(), 0);
     }
 
+    /**
+     *
+     * @brief Require destroying the supplied project undo owner to invalidate the editor while
+     * retaining its provider in the registry.
+     *
+     */
     void undoOwnerDeletionInvalidatesEditor()
     {
         TimeseriesRegistry registry;
@@ -140,6 +192,12 @@ private slots:
         QVERIFY(registry.findByName(QStringLiteral("Owned")) == provider);
     }
 
+    /**
+     *
+     * @brief Require a named data table and dialog description explaining that closing does not
+     * undo live edits.
+     *
+     */
     void editorTableHasAccessiblePurpose()
     {
         TimeseriesRegistry registry;
@@ -148,10 +206,18 @@ private slots:
         TimeseriesEditorDialog dialog(&registry, &stack, provider);
         auto *table = dialog.findChild<QTableView *>();
         QVERIFY(table);
-        QVERIFY2(!table->accessibleName().isEmpty(), "Data tables need a specific accessible name, beyond their row/column cells.");
-        QVERIFY2(!dialog.accessibleDescription().isEmpty(), "Live editors must explain that Close does not undo applied edits.");
+        QVERIFY2(!table->accessibleName().isEmpty(),
+                 "Data tables need a specific accessible name, beyond their row/column cells.");
+        QVERIFY2(!dialog.accessibleDescription().isEmpty(),
+                 "Live editors must explain that Close does not undo applied edits.");
     }
 
+    /**
+     *
+     * @brief Require the opened fixture to bind three points into a two-column grid and line
+     * chart.
+     *
+     */
     void dialogOpens_BothViewsBound()
     {
         TimeseriesRegistry reg;
@@ -163,12 +229,18 @@ private slots:
         QTest::qWait(50);
 
         QVERIFY(dlg.tableModel() != nullptr);
-        QVERIFY(dlg.chartView()  != nullptr);
-        QCOMPARE(dlg.tableModel()->rowCount(),  3);
+        QVERIFY(dlg.chartView() != nullptr);
+        QCOMPARE(dlg.tableModel()->rowCount(), 3);
         QCOMPARE(dlg.tableModel()->columnCount(), 2);
         QCOMPARE(linePointsFromChart(dlg.chartView()->chart()).size(), 3);
     }
 
+    /**
+     *
+     * @brief Require editing the grid value to update provider/chart through one editor command
+     * and undo to restore both.
+     *
+     */
     void editFromGrid_RefreshesChart()
     {
         TimeseriesRegistry reg;
@@ -192,6 +264,14 @@ private slots:
 
     // Tutorial bug report (2026-10-17): the editor's Undo button was built
     // on the project's map stack, so it undid whatever map edit was last.
+    /**
+     *
+     * @brief Require editor toolbar Undo to use its own stack and leave a foreign project command
+     * untouched after repeated Undo.
+     * The local command borrows the enclosing foreignUndos counter; its undo increments
+     * it and redo is intentionally empty; the counter remains live during all triggers.
+     *
+     */
     void toolbarUndoNeverTouchesTheProjectStack()
     {
         TimeseriesRegistry reg;
@@ -211,15 +291,18 @@ private slots:
         QVERIFY(dlg.undoStack());
         QVERIFY(dlg.undoStack() != &projectStack);
         QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
-        QCOMPARE(projectStack.count(), 1);           // only the foreign edit
+        QCOMPARE(projectStack.count(), 1); // only the foreign edit
 
         QAction *undo = nullptr;
         for (QAction *a : dlg.findChildren<QAction *>())
-            if (a->text().startsWith(QStringLiteral("Undo"))) { undo = a; break; }
+            if (a->text().startsWith(QStringLiteral("Undo"))) {
+                undo = a;
+                break;
+            }
         QVERIFY2(undo, "the editor toolbar offers Undo");
         undo->trigger();
-        QCOMPARE(p.pointAt(1).value, 2.0);           // the editor's own edit
-        undo->trigger();                             // nothing more to undo here
+        QCOMPARE(p.pointAt(1).value, 2.0); // the editor's own edit
+        undo->trigger();                   // nothing more to undo here
         QCOMPARE(foreignUndos, 0);
     }
 
@@ -236,8 +319,7 @@ private slots:
         TimeseriesEditorDialog dlg(&reg, nullptr, &p);
 
         const QModelIndex idx = dlg.tableModel()->index(1, 0);
-        QCOMPARE(idx.data(Qt::DisplayRole).toString(),
-                 QStringLiteral("01/01/2026 06:00"));
+        QCOMPARE(idx.data(Qt::DisplayRole).toString(), QStringLiteral("01/01/2026 06:00"));
         QCOMPARE(idx.data(Qt::EditRole).userType(), QMetaType::QDateTime);
         QCOMPARE(idx.data(Qt::EditRole).toDateTime(), t(2026, 1, 1, 6));
     }
@@ -284,7 +366,7 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints({
             {QDateTime(QDate(2026, 1, 1), QTime(0, 15, 30), Qt::UTC), 1.0},
-            {QDateTime(QDate(2026, 1, 1), QTime(6, 0, 0),   Qt::UTC), 2.0},
+            {QDateTime(QDate(2026, 1, 1), QTime(6, 0, 0), Qt::UTC), 2.0},
         }));
         TimeseriesEditorDialog dlg(&reg, nullptr, &p);
 
@@ -305,11 +387,16 @@ private slots:
         // ...and survive a commit that only moved the minute.
         dte->setDateTime(dte->dateTime().addSecs(60));
         delegate->setModelData(dte, dlg.tableModel(), idx);
-        QCOMPARE(p.pointAt(0).time,
-                 QDateTime(QDate(2026, 1, 1), QTime(0, 16, 30), Qt::UTC));
+        QCOMPARE(p.pointAt(0).time, QDateTime(QDate(2026, 1, 1), QTime(0, 16, 30), Qt::UTC));
         delete editor;
     }
 
+    /**
+     *
+     * @brief Require an external provider value change to refresh both grid and chart
+     * synchronously.
+     *
+     */
     void editFromProvider_RefreshesGridAndChart()
     {
         TimeseriesRegistry reg;
@@ -324,6 +411,12 @@ private slots:
         QCOMPARE(linePointsFromChart(dlg.chartView()->chart()).first().y(), 99.0);
     }
 
+    /**
+     *
+     * @brief Require an out-of-order provider timestamp mutation to fail with a reason.
+     * The assertions do not inspect the dialog status bar or prove its displayed message.
+     *
+     */
     void mutationRejectedSurfacesInStatusBar()
     {
         TimeseriesRegistry reg;
@@ -343,6 +436,12 @@ private slots:
         // signal connection is what we verify here (above ok==false assertion).
     }
 
+    /**
+     *
+     * @brief Require at least one descendant action whose text contains Undo when a project stack
+     * is supplied.
+     *
+     */
     void undoRedoActionsExistWhenStackProvided()
     {
         TimeseriesRegistry reg;
@@ -353,10 +452,20 @@ private slots:
         // Dialog has a toolbar with at least one undo action when a stack is bound.
         const auto actions = dlg.findChildren<QAction *>();
         bool foundUndo = false;
-        for (auto *a : actions) if (a->text().contains(QStringLiteral("Undo"))) { foundUndo = true; break; }
+        for (auto *a : actions)
+            if (a->text().contains(QStringLiteral("Undo"))) {
+                foundUndo = true;
+                break;
+            }
         QVERIFY(foundUndo);
     }
 
+    /**
+     *
+     * @brief Require repeated Edit Points action triggers to toggle the chart between point-edit
+     * and no-edit modes.
+     *
+     */
     void editModeToggleFlipsChart()
     {
         TimeseriesRegistry reg;
@@ -367,7 +476,10 @@ private slots:
         // Find the "Edit Points" action and trigger it.
         QAction *editAct = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Edit Points")) { editAct = a; break; }
+            if (a->text() == QStringLiteral("Edit Points")) {
+                editAct = a;
+                break;
+            }
         QVERIFY(editAct != nullptr);
         QVERIFY(editAct->isCheckable());
 
@@ -384,17 +496,26 @@ private slots:
 
     // ── Row editing (Phase 6.7.3.4-followup) ────────────────────────────────
 
+    /**
+     *
+     * @brief Require Add Row to append six hours after the last fixture point, copy its value and
+     * undo the append.
+     *
+     */
     void addRowAppendsWithMedianInterval()
     {
         TimeseriesRegistry reg;
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
-        QVERIFY(p.setAllPoints(fixture()));   // 0h, 6h, 12h → 6h median
+        QVERIFY(p.setAllPoints(fixture())); // 0h, 6h, 12h → 6h median
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Add Row")) { add = a; break; }
+            if (a->text() == QStringLiteral("Add Row")) {
+                add = a;
+                break;
+            }
         QVERIFY(add != nullptr);
 
         add->trigger();
@@ -407,6 +528,12 @@ private slots:
         QCOMPARE(p.pointCount(), 3);
     }
 
+    /**
+     *
+     * @brief Require Add Row without simulation start to seed a whole UTC minute within the
+     * preceding 65 seconds.
+     *
+     */
     void addRowOnEmptyProviderUsesNow()
     {
         TimeseriesRegistry reg;
@@ -416,7 +543,10 @@ private slots:
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Add Row")) { add = a; break; }
+            if (a->text() == QStringLiteral("Add Row")) {
+                add = a;
+                break;
+            }
         QVERIFY(add != nullptr);
         add->trigger();
         QCOMPARE(p.pointCount(), 1);
@@ -430,6 +560,12 @@ private slots:
         QVERIFY2(ds >= 0 && ds < 65, qPrintable(QString::number(ds)));
     }
 
+    /**
+     *
+     * @brief Require deleting selected first/last rows to retain the middle timestamp and one
+     * undo to restore all three rows.
+     *
+     */
     void deleteRowsRemovesSelection()
     {
         TimeseriesRegistry reg;
@@ -443,20 +579,30 @@ private slots:
         QVERIFY(table != nullptr);
         table->selectRow(0);
         table->selectionModel()->select(dlg.tableModel()->index(2, 0),
-                                         QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
 
         QAction *del = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Delete Rows")) { del = a; break; }
+            if (a->text() == QStringLiteral("Delete Rows")) {
+                del = a;
+                break;
+            }
         QVERIFY(del != nullptr);
         del->trigger();
         QCOMPARE(p.pointCount(), 1);
-        QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 6));   // middle row kept
+        QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 6)); // middle row kept
 
         dlg.undoStack()->undo();
         QCOMPARE(p.pointCount(), 3);
     }
 
+    /**
+     *
+     * @brief Require copy-all to place three ISO-timestamp/tab-separated rows on the application
+     * clipboard.
+     * Checks first timestamp and final value text; overwrites global clipboard contents.
+     *
+     */
     void copyPopulatesClipboard()
     {
         TimeseriesRegistry reg;
@@ -468,7 +614,10 @@ private slots:
         // No explicit selection → copy-all.
         QAction *copy = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Copy")) { copy = a; break; }
+            if (a->text() == QStringLiteral("Copy")) {
+                copy = a;
+                break;
+            }
         QVERIFY(copy != nullptr);
         copy->trigger();
 
@@ -479,6 +628,13 @@ private slots:
         QVERIFY(lines.last().endsWith(QStringLiteral("\t3")));
     }
 
+    /**
+     *
+     * @brief Require two clipboard TSV rows to insert in time order with their values and undo as
+     * one paste operation.
+     * Overwrites the application clipboard.
+     *
+     */
     void pasteInsertsRowsFromTsv()
     {
         TimeseriesRegistry reg;
@@ -494,7 +650,10 @@ private slots:
 
         QAction *paste = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Paste")) { paste = a; break; }
+            if (a->text() == QStringLiteral("Paste")) {
+                paste = a;
+                break;
+            }
         QVERIFY(paste != nullptr);
         paste->trigger();
 
@@ -509,11 +668,19 @@ private slots:
         QCOMPARE(p.pointCount(), 3);
     }
 
+    /**
+     *
+     * @brief Require a duplicate clipboard timestamp to be skipped while the novel row is
+     * inserted in sorted order.
+     * Checks count and inserted time, without an explicit comparison of the original duplicate
+     * value.
+     *
+     */
     void pasteDuplicateTimesAreSkipped()
     {
         TimeseriesRegistry reg;
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
-        QVERIFY(p.setAllPoints(fixture()));   // already has 0h / 6h / 12h
+        QVERIFY(p.setAllPoints(fixture())); // already has 0h / 6h / 12h
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
@@ -523,7 +690,10 @@ private slots:
 
         QAction *paste = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Paste")) { paste = a; break; }
+            if (a->text() == QStringLiteral("Paste")) {
+                paste = a;
+                break;
+            }
         paste->trigger();
 
         // 3 → 4: only the novel row landed.
@@ -531,6 +701,12 @@ private slots:
         QCOMPARE(p.pointAt(1).time, t(2026, 1, 1, 3));
     }
 
+    /**
+     *
+     * @brief Require the grid context-menu policy to be CustomContextMenu; does not open or
+     * inspect the menu.
+     *
+     */
     void gridUsesCustomContextMenu()
     {
         TimeseriesRegistry reg;
@@ -547,6 +723,13 @@ private slots:
         QCOMPARE(table->contextMenuPolicy(), Qt::CustomContextMenu);
     }
 
+    /**
+     *
+     * @brief Require Add Row and Paste triggers in external-file mode to retain the original
+     * point count.
+     * Overwrites the application clipboard; does not test all mutation paths.
+     *
+     */
     void externalSourceModeDisablesRowEdits()
     {
         TimeseriesRegistry reg;
@@ -558,20 +741,32 @@ private slots:
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Add Row")) { add = a; break; }
+            if (a->text() == QStringLiteral("Add Row")) {
+                add = a;
+                break;
+            }
         add->trigger();
-        QCOMPARE(p.pointCount(), 3);   // unchanged
+        QCOMPARE(p.pointCount(), 3); // unchanged
 
         QApplication::clipboard()->setText(QStringLiteral("2026-01-01T03:00:00\t10.0"));
         QAction *paste = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Paste")) { paste = a; break; }
+            if (a->text() == QStringLiteral("Paste")) {
+                paste = a;
+                break;
+            }
         paste->trigger();
-        QCOMPARE(p.pointCount(), 3);   // unchanged
+        QCOMPARE(p.pointCount(), 3); // unchanged
     }
 
     // ── Source-mode card (Phase 6.7.3.6) ────────────────────────────────────
 
+    /**
+     *
+     * @brief Require the source card to start Inline and reflect a provider-driven switch to
+     * External file.
+     *
+     */
     void sourceModeCardReflectsProviderMode()
     {
         TimeseriesRegistry reg;
@@ -583,7 +778,10 @@ private slots:
         const auto radios = dlg.findChildren<QRadioButton *>();
         QRadioButton *rInline = nullptr;
         for (auto *r : radios)
-            if (r->text() == QStringLiteral("Inline")) { rInline = r; break; }
+            if (r->text() == QStringLiteral("Inline")) {
+                rInline = r;
+                break;
+            }
         QVERIFY(rInline != nullptr);
         QVERIFY(rInline->isChecked());
 
@@ -591,11 +789,20 @@ private slots:
         p.setSourceMode(TimeseriesProvider::SourceMode::ExternalFile);
         QRadioButton *rExt = nullptr;
         for (auto *r : radios)
-            if (r->text() == QStringLiteral("External file")) { rExt = r; break; }
+            if (r->text() == QStringLiteral("External file")) {
+                rExt = r;
+                break;
+            }
         QVERIFY(rExt != nullptr);
         QVERIFY(rExt->isChecked());
     }
 
+    /**
+     *
+     * @brief Require external mode without a linked file to enable visible Browse while keeping
+     * Reload and Detach disabled.
+     *
+     */
     void externalMode_BrowseButtonEnabledEvenWithoutFile()
     {
         // Bug report: when External is selected, Browse should be enabled so
@@ -614,23 +821,31 @@ private slots:
         // Switch to External mode (provider has no file yet).
         QRadioButton *rExt = nullptr;
         for (auto *r : dlg.findChildren<QRadioButton *>())
-            if (r->text() == QStringLiteral("External file")) { rExt = r; break; }
+            if (r->text() == QStringLiteral("External file")) {
+                rExt = r;
+                break;
+            }
         QVERIFY(rExt != nullptr);
         rExt->setChecked(true);
-        rExt->toggled(true);   // ensure slot fires in offscreen mode
+        rExt->toggled(true); // ensure slot fires in offscreen mode
 
         QPushButton *browse = nullptr;
         for (auto *b : dlg.findChildren<QPushButton *>())
-            if (b->text().startsWith(QStringLiteral("Browse"))) { browse = b; break; }
+            if (b->text().startsWith(QStringLiteral("Browse"))) {
+                browse = b;
+                break;
+            }
         QVERIFY(browse != nullptr);
         QVERIFY(browse->isVisible());
-        QVERIFY(browse->isEnabled());   // <- the actual bug being pinned
+        QVERIFY(browse->isEnabled()); // <- the actual bug being pinned
 
         // And the gate-on-file controls are disabled when no file is linked.
         QPushButton *reload = nullptr, *detach = nullptr;
         for (auto *b : dlg.findChildren<QPushButton *>()) {
-            if (b->text() == QStringLiteral("Reload")) reload = b;
-            if (b->text().startsWith(QStringLiteral("Detach"))) detach = b;
+            if (b->text() == QStringLiteral("Reload"))
+                reload = b;
+            if (b->text().startsWith(QStringLiteral("Detach")))
+                detach = b;
         }
         QVERIFY(reload != nullptr);
         QVERIFY(detach != nullptr);
@@ -638,6 +853,14 @@ private slots:
         QVERIFY(!detach->isEnabled());
     }
 
+    /**
+     *
+     * @brief Require external mode to disable edit/rotate/scale/add/delete/paste while retaining
+     * Copy, then re-enable inline edit/add.
+     * The local action lookup borrows the dialog, matches exact label text and returns
+     * a borrowed QAction or nullptr without creating or modifying actions.
+     *
+     */
     void externalMode_EditAndRowToolbarsDisabled()
     {
         TimeseriesRegistry reg;
@@ -654,16 +877,17 @@ private slots:
         // glance that this is read-only, not just have actions silently no-op.
         auto findAction = [&](const QString &label) -> QAction * {
             for (auto *a : dlg.findChildren<QAction *>())
-                if (a->text() == label) return a;
+                if (a->text() == label)
+                    return a;
             return nullptr;
         };
-        QAction *edit   = findAction(QStringLiteral("Edit Points"));
+        QAction *edit = findAction(QStringLiteral("Edit Points"));
         QAction *rotate = findAction(QStringLiteral("Rotate"));
-        QAction *scale  = findAction(QStringLiteral("Scale"));
-        QAction *addR   = findAction(QStringLiteral("Add Row"));
-        QAction *delR   = findAction(QStringLiteral("Delete Rows"));
-        QAction *paste  = findAction(QStringLiteral("Paste"));
-        QAction *copy   = findAction(QStringLiteral("Copy"));
+        QAction *scale = findAction(QStringLiteral("Scale"));
+        QAction *addR = findAction(QStringLiteral("Add Row"));
+        QAction *delR = findAction(QStringLiteral("Delete Rows"));
+        QAction *paste = findAction(QStringLiteral("Paste"));
+        QAction *copy = findAction(QStringLiteral("Copy"));
 
         QVERIFY(edit && rotate && scale && addR && delR && paste && copy);
         QVERIFY(!edit->isEnabled());
@@ -672,7 +896,7 @@ private slots:
         QVERIFY(!addR->isEnabled());
         QVERIFY(!delR->isEnabled());
         QVERIFY(!paste->isEnabled());
-        QVERIFY(copy->isEnabled());   // Copy is read-only — stays enabled.
+        QVERIFY(copy->isEnabled()); // Copy is read-only — stays enabled.
 
         // Flip back to Inline → toolbar re-enables.
         p.setSourceMode(TimeseriesProvider::SourceMode::Inline);
@@ -680,6 +904,13 @@ private slots:
         QVERIFY(addR->isEnabled());
     }
 
+    /**
+     *
+     * @brief Require linking a temporary CSV to load three points, preserve its path and expose
+     * the rain_a header choice.
+     * Creates only temporary fixture files; final stream-write status is unchecked.
+     *
+     */
     void linkExternalFile_LoadsPointsAndPopulatesCombo()
     {
         QTemporaryDir tmp;
@@ -714,6 +945,12 @@ private slots:
         QCOMPARE(combo->itemText(0), QStringLiteral("rain_a"));
     }
 
+    /**
+     *
+     * @brief Require rebinding a temporary CSV to missing rain_old to clear preview points and
+     * retain an explicit missing-column choice.
+     *
+     */
     void linkExternalFile_UnmatchedColumnLoadsNothingAndShowsIt()
     {
         // Review B-3: a stored column that is not in the file is a hard error
@@ -743,16 +980,22 @@ private slots:
         QCOMPARE(p.pointCount(), 2);
 
         QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_old")), 0);
-        QCOMPARE(p.pointCount(), 0);                     // no bogus preview
-        QCOMPARE(p.columnSelector(), QStringLiteral("rain_old"));  // not rewritten
+        QCOMPARE(p.pointCount(), 0);                              // no bogus preview
+        QCOMPARE(p.columnSelector(), QStringLiteral("rain_old")); // not rewritten
 
         auto *combo = dlg.findChild<QComboBox *>();
         QVERIFY(combo != nullptr);
-        QCOMPARE(combo->count(), 3);                     // 2 real + the missing one
+        QCOMPARE(combo->count(), 3); // 2 real + the missing one
         QCOMPARE(combo->currentData().toString(), QStringLiteral("rain_old"));
         QVERIFY(combo->currentText().contains(QStringLiteral("rain_old")));
     }
 
+    /**
+     *
+     * @brief Require headerless CSV preview to consume its first line as a header, retain an
+     * empty selector and refuse fabricated alternate columns.
+     *
+     */
     void linkExternalFile_HeaderlessKeepsEmptySelectorAndRefusesOtherColumns()
     {
         // Review B-4 / risk R1 + the row off-by-one. The engine always spends
@@ -776,7 +1019,7 @@ private slots:
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
-        QCOMPARE(dlg.linkExternalFile(path), 2);   // line 1 spent as header
+        QCOMPARE(dlg.linkExternalFile(path), 2); // line 1 spent as header
         QCOMPARE(p.pointAt(0).value, 2.0);
         QVERIFY(p.columnSelector().isEmpty());
 
@@ -796,6 +1039,12 @@ private slots:
         QCOMPARE(combo->currentIndex(), 0);
     }
 
+    /**
+     *
+     * @brief Require named rain_b selection from a temporary CSV to load its two values rather
+     * than the first data column.
+     *
+     */
     void linkExternalFile_MultiColumnSelector()
     {
         QTemporaryDir tmp;
@@ -822,14 +1071,20 @@ private slots:
         QCOMPARE(p.pointAt(1).value, 20.0);
     }
 
+    /**
+     *
+     * @brief Require the committed TSF fixture to expose RG1/RG2 names and parse RG2
+     * midnight/afternoon stamps in UTC.
+     * Reads extcol_dialog_sample.tsf below SWMMVIS_GUI_TEST_DATA or current-directory dot.
+     *
+     */
     void linkExternalFile_TsfIdsHeaderAndAmPm()
     {
         // PCSWMM .tsf (spec §4 task 2): IDs-row column names, 3-row header,
         // 12-hour AM/PM datetimes. Committed fixture — reviewable per
         // CLAUDE.md §4.1.
-        const QString path =
-            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))
-            + QStringLiteral("/extcol_dialog_sample.tsf");
+        const QString path = qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")) +
+                             QStringLiteral("/extcol_dialog_sample.tsf");
 
         TimeseriesRegistry reg;
         TimeseriesProvider &p = *reg.create(QStringLiteral("TSF_A"));
@@ -841,8 +1096,7 @@ private slots:
         QCOMPARE(p.pointAt(2).value, 0.25);
         // 12:00:00 AM → midnight; 1:30:00 PM → 13:30.
         QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 0));
-        QCOMPARE(p.pointAt(2).time, QDateTime(QDate(2007, 1, 1),
-                                              QTime(13, 30), Qt::UTC));
+        QCOMPARE(p.pointAt(2).time, QDateTime(QDate(2007, 1, 1), QTime(13, 30), Qt::UTC));
 
         auto *combo = dlg.findChild<QComboBox *>();
         QVERIFY(combo != nullptr);
@@ -852,14 +1106,22 @@ private slots:
         QCOMPARE(combo->currentIndex(), 1);
     }
 
+    /**
+     *
+     * @brief Require switching through inline/file series to restore the incoming file header
+     * choices and saved rain_b selector.
+     * Reads extcol_switch_multi.csv from the configured fixture directory. The local
+     * name selector borrows the list/model, picks an exact display-name row and returns
+     * false when absent; it does not rename providers.
+     *
+     */
     void seriesSwitch_RepopulatesColumnCombo()
     {
         // B3 regression (spec §1.4): switching series must repopulate the
         // column combo from the incoming provider's file and re-select its
         // columnSelector — it used to keep the previous series' items.
-        const QString path =
-            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))
-            + QStringLiteral("/extcol_switch_multi.csv");
+        const QString path = qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")) +
+                             QStringLiteral("/extcol_switch_multi.csv");
 
         TimeseriesRegistry reg;
         TimeseriesProvider &a = *reg.create(QStringLiteral("TS_FILE"));
@@ -913,6 +1175,12 @@ private slots:
         QCOMPARE(combo->currentData().toString(), a.columnSelector());
     }
 
+    /**
+     *
+     * @brief Require detaching a temporary linked CSV to switch inline, retain both points and
+     * clear the provider file path.
+     *
+     */
     void detachToInline_PreservesPointsAndFlipsMode()
     {
         QTemporaryDir tmp;
@@ -937,28 +1205,40 @@ private slots:
         // Find + click the Detach button.
         QPushButton *detach = nullptr;
         for (auto *b : dlg.findChildren<QPushButton *>())
-            if (b->text().startsWith(QStringLiteral("Detach"))) { detach = b; break; }
+            if (b->text().startsWith(QStringLiteral("Detach"))) {
+                detach = b;
+                break;
+            }
         QVERIFY(detach != nullptr);
         detach->click();
 
         QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::Inline);
-        QCOMPARE(p.pointCount(), 2);          // points stayed
-        QVERIFY(p.filePath().isEmpty());      // file link severed
+        QCOMPARE(p.pointCount(), 2);     // points stayed
+        QVERIFY(p.filePath().isEmpty()); // file link severed
     }
 
     // ── Rotate / Scale (Phase 6.7.3.5 follow-up) ────────────────────────────
 
+    /**
+     *
+     * @brief Require factor-two Y scaling about the value centroid to map one/two/three to
+     * zero/two/four and undo endpoints.
+     * X scaling stays one; this is a spread-about-centroid check rather than doubling absolute
+     * values.
+     *
+     */
     void scalePanelDoublesSelectedValues()
     {
         TimeseriesRegistry reg;
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
-        QVERIFY(p.setAllPoints(fixture()));   // values 1, 2, 3
+        QVERIFY(p.setAllPoints(fixture())); // values 1, 2, 3
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Switch the chart into ScalePoints mode (so the panel becomes visible)
         // and select all three points.
-        dlg.chartView()->setEditMode(openswmmvis::ui::TimeseriesEditChartView::EditMode::ScalePoints);
+        dlg.chartView()->setEditMode(
+            openswmmvis::ui::TimeseriesEditChartView::EditMode::ScalePoints);
         dlg.chartView()->setSelection({0, 1, 2});
 
         // Find the scale group's editors via objectName/parent walking. Easiest
@@ -975,10 +1255,13 @@ private slots:
         int found = 0;
         for (auto *s : spins) {
             if (s->decimals() == 4 && s->maximum() <= 1.001e6 && s->maximum() > 1e5) {
-                if (found == 0) sX = s;
-                else if (found == 1) sY = s;
+                if (found == 0)
+                    sX = s;
+                else if (found == 1)
+                    sY = s;
                 ++found;
-                if (found == 2) break;
+                if (found == 2)
+                    break;
             }
         }
         QVERIFY(sX && sY);
@@ -989,16 +1272,19 @@ private slots:
         QList<QPushButton *> btns = dlg.findChildren<QPushButton *>();
         QPushButton *applyBtn = nullptr;
         for (auto *b : btns) {
-            if (b->text() != QStringLiteral("Apply")) continue;
+            if (b->text() != QStringLiteral("Apply"))
+                continue;
             // Two Apply buttons exist (rotate + scale). The scale one is a sibling
             // of sX. Walk up: parent of sX is the scale group QFrame.
-            if (b->parent() == sX->parent()) { applyBtn = b; break; }
+            if (b->parent() == sX->parent()) {
+                applyBtn = b;
+                break;
+            }
         }
         QVERIFY(applyBtn != nullptr);
         applyBtn->click();
 
-        // Centroid of values {1,2,3} = 2. New values = 2 + (v - 2) * 2 → -2, 2, 6
-        // Wait — that gives 2 + (1-2)*2 = 0, 2 + (2-2)*2 = 2, 2 + (3-2)*2 = 4.
+        // Centroid is 2: scaling deviations by two gives values 0, 2, 4.
         QCOMPARE(p.pointAt(0).value, 0.0);
         QCOMPARE(p.pointAt(1).value, 2.0);
         QCOMPARE(p.pointAt(2).value, 4.0);
@@ -1008,6 +1294,12 @@ private slots:
         QCOMPARE(p.pointAt(2).value, 3.0);
     }
 
+    /**
+     *
+     * @brief Require applying default unit X/Y scale factors to preserve every timestamp and
+     * value exactly.
+     *
+     */
     void scaleUnitFactorIsNoop()
     {
         TimeseriesRegistry reg;
@@ -1016,7 +1308,8 @@ private slots:
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
-        dlg.chartView()->setEditMode(openswmmvis::ui::TimeseriesEditChartView::EditMode::ScalePoints);
+        dlg.chartView()->setEditMode(
+            openswmmvis::ui::TimeseriesEditChartView::EditMode::ScalePoints);
         dlg.chartView()->setSelection({0, 1, 2});
 
         QList<QPushButton *> btns = dlg.findChildren<QPushButton *>();
@@ -1024,12 +1317,16 @@ private slots:
         QList<QDoubleSpinBox *> spins = dlg.findChildren<QDoubleSpinBox *>();
         QDoubleSpinBox *sX = nullptr;
         for (auto *s : spins) {
-            if (s->decimals() == 4) { sX = s; break; }
+            if (s->decimals() == 4) {
+                sX = s;
+                break;
+            }
         }
         QVERIFY(sX != nullptr);
         for (auto *b : btns) {
             if (b->text() == QStringLiteral("Apply") && b->parent() == sX->parent()) {
-                applyBtn = b; break;
+                applyBtn = b;
+                break;
             }
         }
         QVERIFY(applyBtn != nullptr);
@@ -1039,11 +1336,17 @@ private slots:
         applyBtn->click();
         QCOMPARE(p.points().size(), before.size());
         for (int i = 0; i < before.size(); ++i) {
-            QCOMPARE(p.pointAt(i).time,  before.at(i).time);
+            QCOMPARE(p.pointAt(i).time, before.at(i).time);
             QCOMPARE(p.pointAt(i).value, before.at(i).value);
         }
     }
 
+    /**
+     *
+     * @brief Require zero-angle rotation to preserve count and values; timestamp equality is not
+     * asserted by this case.
+     *
+     */
     void rotateByZeroIsNoop()
     {
         TimeseriesRegistry reg;
@@ -1052,7 +1355,8 @@ private slots:
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
-        dlg.chartView()->setEditMode(openswmmvis::ui::TimeseriesEditChartView::EditMode::RotatePoints);
+        dlg.chartView()->setEditMode(
+            openswmmvis::ui::TimeseriesEditChartView::EditMode::RotatePoints);
         dlg.chartView()->setSelection({0, 1, 2});
 
         // Default angle is 0 — Apply should be a noop.
@@ -1061,13 +1365,17 @@ private slots:
         QList<QDoubleSpinBox *> spins = dlg.findChildren<QDoubleSpinBox *>();
         QDoubleSpinBox *angle = nullptr;
         for (auto *s : spins) {
-            if (s->decimals() == 2) { angle = s; break; }
+            if (s->decimals() == 2) {
+                angle = s;
+                break;
+            }
         }
         QVERIFY(angle != nullptr);
         QPushButton *applyBtn = nullptr;
         for (auto *b : btns) {
             if (b->text() == QStringLiteral("Apply") && b->parent() == angle->parent()) {
-                applyBtn = b; break;
+                applyBtn = b;
+                break;
             }
         }
         QVERIFY(applyBtn != nullptr);
@@ -1079,6 +1387,13 @@ private slots:
             QCOMPARE(p.pointAt(i).value, before.at(i).value);
     }
 
+    /**
+     *
+     * @brief Require Reload to observe a newly appended temporary CSV row.
+     * The local writer borrows path, truncates it and streams the supplied body;
+     * QVERIFY on opening returns only from the writer and final stream status is unchecked.
+     *
+     */
     void reloadFromFile_PicksUpDiskChanges()
     {
         QTemporaryDir tmp;
@@ -1103,7 +1418,10 @@ private slots:
 
         QPushButton *reload = nullptr;
         for (auto *b : dlg.findChildren<QPushButton *>())
-            if (b->text() == QStringLiteral("Reload")) { reload = b; break; }
+            if (b->text() == QStringLiteral("Reload")) {
+                reload = b;
+                break;
+            }
         QVERIFY(reload != nullptr);
         reload->click();
 
@@ -1174,6 +1492,12 @@ private slots:
 
     // ── Time modes (relative / absolute authoring form) ─────────────────────
 
+    /**
+     *
+     * @brief Require the first row of an empty provider to use the registry simulation-start
+     * timestamp when available.
+     *
+     */
     void addRow_SeedsFromSimulationStart()
     {
         TimeseriesRegistry reg;
@@ -1185,11 +1509,20 @@ private slots:
         QTest::qWait(20);
 
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Add Row")) { a->trigger(); break; }
+            if (a->text() == QStringLiteral("Add Row")) {
+                a->trigger();
+                break;
+            }
         QCOMPARE(p.pointCount(), 1);
         QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 6));
     }
 
+    /**
+     *
+     * @brief Require selecting relative mode to set anchor/count and show a badge, then Undo to
+     * restore absolute mode and combo selection.
+     *
+     */
     void timeModeCombo_SwitchesWithUndoAndBadge()
     {
         TimeseriesRegistry reg;
@@ -1207,7 +1540,7 @@ private slots:
         QVERIFY2(holder->isVisibleTo(&dlg), "time-mode row visible for Inline series");
         auto *combo = holder->findChild<QComboBox *>();
         QVERIFY(combo);
-        QCOMPARE(combo->currentData().toInt(), 0);   // Absolute
+        QCOMPARE(combo->currentData().toInt(), 0); // Absolute
 
         // Switch to Relative through the combo → provider follows, undoable.
         combo->setCurrentIndex(combo->findData(1));
@@ -1223,10 +1556,16 @@ private slots:
         QCOMPARE(combo->currentData().toInt(), 0);
     }
 
+    /**
+     *
+     * @brief Require a relative-mode conversion with negative elapsed times to refuse and snap
+     * the combo back to absolute.
+     *
+     */
     void timeModeCombo_RefusedWhenPointsPrecedeStart()
     {
         TimeseriesRegistry reg;
-        reg.setSimulationStart(t(2026, 6, 1, 0));   // AFTER the fixture points
+        reg.setSimulationStart(t(2026, 6, 1, 0)); // AFTER the fixture points
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
@@ -1242,16 +1581,22 @@ private slots:
         QTest::qWait(10);
         // Refused: first point precedes the anchor → elapsed would be negative.
         QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
-        QCOMPARE(combo->currentData().toInt(), 0);   // snapped back
+        QCOMPARE(combo->currentData().toInt(), 0); // snapped back
     }
 
+    /**
+     *
+     * @brief Require an imported mixed-mode provider to show the third Mixed choice selected.
+     * The assertions check selection/count, without attempting to edit the mixed item.
+     *
+     */
     void mixedProvider_ShowsReadOnlyMixedItem()
     {
         TimeseriesRegistry reg;
         reg.setSimulationStart(t(2026, 1, 1, 0));
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
-        p.setRelativeInfo(2, t(2026, 1, 1, 0));   // loaded Mixed form
+        p.setRelativeInfo(2, t(2026, 1, 1, 0)); // loaded Mixed form
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
         dlg.show();
@@ -1261,10 +1606,17 @@ private slots:
         QVERIFY(holder);
         auto *combo = holder->findChild<QComboBox *>();
         QVERIFY(combo);
-        QCOMPARE(combo->currentData().toInt(), 2);   // Mixed selected
+        QCOMPARE(combo->currentData().toInt(), 2); // Mixed selected
         QCOMPARE(combo->count(), 3);
     }
 
+    /**
+     *
+     * @brief Require a bare-number clipboard time to refuse in absolute mode and represent one
+     * elapsed hour in relative mode.
+     * Overwrites the application clipboard and checks the inserted UTC timestamp/value.
+     *
+     */
     void paste_ElapsedHoursFollowTimeMode()
     {
         TimeseriesRegistry reg;
@@ -1278,14 +1630,20 @@ private slots:
         // Absolute mode: a bare-number time cell must NOT paste.
         QApplication::clipboard()->setText(QStringLiteral("1\t5.0"));
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Paste")) { a->trigger(); break; }
+            if (a->text() == QStringLiteral("Paste")) {
+                a->trigger();
+                break;
+            }
         QCOMPARE(p.pointCount(), 0);
 
         // Relative mode: "1" is one elapsed hour from the anchor.
         p.setTimeMode(TimeseriesProvider::TimeMode::Relative, t(2026, 1, 1, 0));
         QTest::qWait(10);
         for (auto *a : dlg.findChildren<QAction *>())
-            if (a->text() == QStringLiteral("Paste")) { a->trigger(); break; }
+            if (a->text() == QStringLiteral("Paste")) {
+                a->trigger();
+                break;
+            }
         QCOMPARE(p.pointCount(), 1);
         QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 1));
         QCOMPARE(p.pointAt(0).value, 5.0);
@@ -1294,6 +1652,12 @@ private slots:
     // The editor used to be dismissable only from the title bar. The Close
     // box must hide it, and must not be the default button — Enter in a
     // value cell has to commit the cell, never close the editor.
+    /**
+     *
+     * @brief Require a non-default Close button to hide the exposed dialog and pass shared
+     * accessibility assertions.
+     *
+     */
     void closeButton_HidesDialog()
     {
         TimeseriesRegistry reg;

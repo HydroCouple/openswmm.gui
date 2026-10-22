@@ -1,8 +1,10 @@
-/*!
- * \file   featurefieldeditor.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featurefieldeditor.h
+ * @brief     The one small editor for a custom feature-layer column
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §5, R4).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * The one small editor for a custom feature-layer column
  * (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §5, R4).
@@ -15,6 +17,7 @@
  * A Choice column is a Text column whose values are tokens from the list
  * (ChoiceSource::Fixed); the store keeps the list as a GeoPackage value list,
  * so QGIS shows the same dropdown.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef FEATUREFIELDEDITOR_H
@@ -32,7 +35,8 @@ class QPushButton;
 class QTableWidget;
 class QWidget;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class FeatureFieldEditor : public QDialog
 {
@@ -55,8 +59,7 @@ public:
      * \param raw  The name as typed, before sanitising.
      */
     [[nodiscard]] static QString validate(const openswmmvis::feature::FieldDef &f,
-                                          const QString &raw,
-                                          const QStringList &existing);
+                                          const QString &raw, const QStringList &existing);
 
 public slots:
     void accept() override;
@@ -72,17 +75,17 @@ private:
     [[nodiscard]] bool isChoice() const;
     [[nodiscard]] QVector<openswmmvis::feature::FieldChoice> choicesFromTable() const;
 
-    QStringList    m_existing;
-    QLineEdit     *m_name        = nullptr;
-    QComboBox     *m_type        = nullptr;
-    QLineEdit     *m_default     = nullptr;   ///< Text / Integer / Real
-    QComboBox     *m_defaultPick = nullptr;   ///< Yes-No / Choice
-    QLineEdit     *m_description = nullptr;
-    QWidget       *m_choiceBox   = nullptr;
-    QTableWidget  *m_choices     = nullptr;
-    QLabel        *m_hint        = nullptr;
+    QStringList m_existing;
+    QLineEdit *m_name = nullptr;
+    QComboBox *m_type = nullptr;
+    QLineEdit *m_default = nullptr;     ///< Text / Integer / Real
+    QComboBox *m_defaultPick = nullptr; ///< Yes-No / Choice
+    QLineEdit *m_description = nullptr;
+    QWidget *m_choiceBox = nullptr;
+    QTableWidget *m_choices = nullptr;
+    QLabel *m_hint = nullptr;
 };
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
 #endif // FEATUREFIELDEDITOR_H

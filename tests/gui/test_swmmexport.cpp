@@ -1,9 +1,9 @@
-/*!
- * \file   test_swmmexport.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  "Export ▸ SWMM objects…" against real engine-loaded models
+/**
+ * @file      test_swmmexport.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     "Export ▸ SWMM objects…" against real engine-loaded models
  *         (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8, R9).
  *
  *   - all 11 spatial types become 11 layers with the right counts;
@@ -14,6 +14,7 @@
  *     table carries mapped (plan Q9) — so an import-key change that the export
  *     does not follow fails here.
  * Outputs land in tests/output/feature_layer_roles_2026-09-30/swmmexport/.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "io/swmmexport.h"
@@ -42,7 +43,8 @@ using openswmmvis::import::ImportMappingModel;
 using openswmmvis::import::ImportTargetRegistry;
 using openswmmvis::import::TargetKind;
 
-namespace {
+namespace
+{
 
 QString fixture(const char *name)
 {
@@ -53,7 +55,8 @@ QString fixture(const char *name)
 QString outPath(const char *name)
 {
     QDir().mkpath(QStringLiteral(SWMMEXPORT_OUT_DIR));
-    const QString p = QDir(QStringLiteral(SWMMEXPORT_OUT_DIR)).absoluteFilePath(QLatin1String(name));
+    const QString p =
+        QDir(QStringLiteral(SWMMEXPORT_OUT_DIR)).absoluteFilePath(QLatin1String(name));
     QFile::remove(p);
     return p;
 }
@@ -61,14 +64,16 @@ QString outPath(const char *name)
 const ExportTable *table(const QVector<ExportTable> &tables, const char *name)
 {
     for (const ExportTable &t : tables)
-        if (t.name == QLatin1String(name)) return &t;
+        if (t.name == QLatin1String(name))
+            return &t;
     return nullptr;
 }
 
 QStringList fieldNames(const ExportTable &t)
 {
     QStringList out;
-    for (const ExportField &f : t.fields) out << f.name;
+    for (const ExportField &f : t.fields)
+        out << f.name;
     return out;
 }
 
@@ -78,7 +83,8 @@ QStringList gpkgFields(const QString &path, const char *layer)
     QStringList out;
     GDALDataset *ds = static_cast<GDALDataset *>(GDALOpenEx(
         path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
-    if (!ds) return out;
+    if (!ds)
+        return out;
     if (OGRLayer *l = ds->GetLayerByName(layer)) {
         OGRFeatureDefn *d = l->GetLayerDefn();
         for (int i = 0; i < d->GetFieldCount(); ++i)
@@ -88,7 +94,7 @@ QStringList gpkgFields(const QString &path, const char *layer)
     return out;
 }
 
-}   // namespace
+} // namespace
 
 class TestSwmmExport : public QObject
 {
@@ -100,7 +106,8 @@ private slots:
         GDALAllRegister();
         m_workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
         QVERIFY(m_workspace);
-        for (const char *f : {"selection_trace_alltypes_fixture.inp", "typed_selection_fixture.inp"}) {
+        for (const char *f :
+             {"selection_trace_alltypes_fixture.inp", "typed_selection_fixture.inp"}) {
             auto *pw = new SWMMVisProjectWindow(m_workspace, fixture(f), nullptr);
             QList<QString> warnings, errors;
             QVERIFY2(pw->loadModel(warnings, errors), qPrintable(errors.join('\n')));
@@ -126,8 +133,7 @@ private slots:
         for (int i = 0; i < cats.size(); ++i) {
             const auto c = static_cast<SWMMModelLayer::Category>(cats.at(i));
             QCOMPARE(tables.at(i).name, swmmTableName(cats.at(i)));
-            QVERIFY2(tables.at(i).skipped.isEmpty(),
-                     qPrintable(tables.at(i).skipped.join('\n')));
+            QVERIFY2(tables.at(i).skipped.isEmpty(), qPrintable(tables.at(i).skipped.join('\n')));
             QCOMPARE(tables.at(i).rows.size(), model->categoryCount(c));
         }
         QCOMPARE(table(tables, "junctions")->geometry, ExportGeometry::Point);
@@ -167,9 +173,10 @@ private slots:
         const int name = fieldNames(*conduits).indexOf(QStringLiteral("name"));
         bool sawC1 = false;
         for (const ExportRow &r : conduits->rows) {
-            if (r.values.at(name).toString() != QLatin1String("C1")) continue;
+            if (r.values.at(name).toString() != QLatin1String("C1"))
+                continue;
             sawC1 = true;
-            QCOMPARE(r.points.size(), 3);   // J1, the [VERTICES] point, X1
+            QCOMPARE(r.points.size(), 3); // J1, the [VERTICES] point, X1
             QCOMPARE(r.points.at(1), QPointF(500.0, 50.0));
         }
         QVERIFY(sawC1);
@@ -190,19 +197,28 @@ private slots:
         ExportReport rep;
         QVERIFY2(exportVectorTables(tables, o, {}, &rep), qPrintable(rep.error));
 
-        const struct { TargetKind kind; const char *layer; QStringList mustMap; } cases[] = {
-            {TargetKind::Junction, "junctions",
+        const struct {
+            TargetKind kind;
+            const char *layer;
+            QStringList mustMap;
+        } cases[] = {
+            {TargetKind::Junction,
+             "junctions",
              {QStringLiteral("name"), QStringLiteral("invertElev"), QStringLiteral("maxDepth"),
               QStringLiteral("initialDepth"), QStringLiteral("surchargeDepth"),
               QStringLiteral("pondedArea"), QStringLiteral("tag")}},
-            {TargetKind::Conduit, "conduits",
-             {QStringLiteral("name"), QStringLiteral("fromNode"), QStringLiteral("toNode"),
-              QStringLiteral("length"), QStringLiteral("roughness"), QStringLiteral("offsetUp"),
-              QStringLiteral("offsetDn"), QStringLiteral("initialFlow"), QStringLiteral("maxFlow"),
-              QStringLiteral("lossInlet"), QStringLiteral("lossOutlet"), QStringLiteral("lossAvg"),
-              QStringLiteral("seepRate"), QStringLiteral("barrels"), QStringLiteral("flapGate"),
-              QStringLiteral("geom1"), QStringLiteral("geom2"), QStringLiteral("geom3"),
-              QStringLiteral("geom4"), QStringLiteral("tag")}},
+            {TargetKind::Conduit,
+             "conduits",
+             {QStringLiteral("name"),       QStringLiteral("fromNode"),
+              QStringLiteral("toNode"),     QStringLiteral("length"),
+              QStringLiteral("roughness"),  QStringLiteral("offsetUp"),
+              QStringLiteral("offsetDn"),   QStringLiteral("initialFlow"),
+              QStringLiteral("maxFlow"),    QStringLiteral("lossInlet"),
+              QStringLiteral("lossOutlet"), QStringLiteral("lossAvg"),
+              QStringLiteral("seepRate"),   QStringLiteral("barrels"),
+              QStringLiteral("flapGate"),   QStringLiteral("geom1"),
+              QStringLiteral("geom2"),      QStringLiteral("geom3"),
+              QStringLiteral("geom4"),      QStringLiteral("tag")}},
         };
         for (const auto &c : cases) {
             const QStringList fields = gpkgFields(o.destination, c.layer);
@@ -213,7 +229,8 @@ private slots:
             QVERIFY2(mapping.validationError().isEmpty(), qPrintable(mapping.validationError()));
             QSet<QString> bound;
             for (const auto &b : mapping.mapping().bindings)
-                if (!b.sourceField.isEmpty()) bound.insert(b.targetKey);
+                if (!b.sourceField.isEmpty())
+                    bound.insert(b.targetKey);
             for (const QString &key : c.mustMap)
                 QVERIFY2(bound.contains(key),
                          qPrintable(QStringLiteral("%1.%2 did not auto-match").arg(c.layer, key)));

@@ -1,9 +1,9 @@
-/*!
- * \file   statisticsdashboarddialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BD — Statistics / frequency analysis report dashboard.
+/**
+ * @file      statisticsdashboarddialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BD — Statistics / frequency analysis report dashboard.
  *
  * Reads cumulative statistics from openswmm_statistics.h: per-node
  * max-depth / flood-volume / flood-time, per-link max-flow / max-velocity /
@@ -16,7 +16,9 @@
  *   - openswmm_stat_link_max_flow / max_velocity
  *   - openswmm_stat_subcatch_peak_runoff / total_runoff
  *   - For time-of-occurrence: stat_*_time_of_occurrence (gap-fill via Slice BA-01).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_STATISTICSDASHBOARDDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_STATISTICSDASHBOARDDIALOG_H
 
@@ -39,14 +41,14 @@ class MapCanvas;
 class SWMMModelLayer;
 class SWMMResultsLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class StatisticsDashboardDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit StatisticsDashboardDialog(SWMMResultsLayer *layer,
-                                        QWidget *parent = nullptr);
+    explicit StatisticsDashboardDialog(SWMMResultsLayer *layer, QWidget *parent = nullptr);
     ~StatisticsDashboardDialog() override;
 
     void setResultsLayer(SWMMResultsLayer *layer);
@@ -54,9 +56,7 @@ public:
     /*! \brief Bind the dialog to the project's cross-view selection bus so
      *         table rows highlight on the map, and to the canvas + model layer
      *         so the context menu can zoom to the selected features. */
-    void setProject(SWMMModelLayer *layer,
-                    SelectionManager *selMgr,
-                    MapCanvas *canvas);
+    void setProject(SWMMModelLayer *layer, SelectionManager *selMgr, MapCanvas *canvas);
 
 private slots:
     void onTableSelectionChanged();
@@ -85,26 +85,26 @@ private:
     QSortFilterProxyModel *currentProxy() const;
 
     QPointer<SWMMResultsLayer> m_layer;
-    QPointer<SWMMModelLayer>   m_modelLayer;
+    QPointer<SWMMModelLayer> m_modelLayer;
     QPointer<SelectionManager> m_selMgr;
-    QPointer<MapCanvas>        m_canvas;
-    bool m_applyingFromBus = false;   ///< Reentrancy guard, mirrors AttributeTablePanel.
+    QPointer<MapCanvas> m_canvas;
+    bool m_applyingFromBus = false; ///< Reentrancy guard, mirrors AttributeTablePanel.
 
-    QTabWidget          *m_tabs = nullptr;
-    QLineEdit           *m_queryEdit = nullptr;
-    QPushButton         *m_queryApply = nullptr;
-    QPushButton         *m_queryClear = nullptr;
-    QLabel              *m_queryStatus = nullptr;
-    QTableView          *m_nodeTable = nullptr;
-    QTableView          *m_linkTable = nullptr;
-    QTableView          *m_subTable  = nullptr;
-    QStandardItemModel  *m_nodeModel = nullptr;
-    QStandardItemModel  *m_linkModel = nullptr;
-    QStandardItemModel  *m_subModel  = nullptr;
+    QTabWidget *m_tabs = nullptr;
+    QLineEdit *m_queryEdit = nullptr;
+    QPushButton *m_queryApply = nullptr;
+    QPushButton *m_queryClear = nullptr;
+    QLabel *m_queryStatus = nullptr;
+    QTableView *m_nodeTable = nullptr;
+    QTableView *m_linkTable = nullptr;
+    QTableView *m_subTable = nullptr;
+    QStandardItemModel *m_nodeModel = nullptr;
+    QStandardItemModel *m_linkModel = nullptr;
+    QStandardItemModel *m_subModel = nullptr;
     QSortFilterProxyModel *m_nodeProxy = nullptr;
     QSortFilterProxyModel *m_linkProxy = nullptr;
-    QSortFilterProxyModel *m_subProxy  = nullptr;
-    QChartView          *m_histView  = nullptr;
+    QSortFilterProxyModel *m_subProxy = nullptr;
+    QChartView *m_histView = nullptr;
 };
 
 } // namespace openswmmvis::ui

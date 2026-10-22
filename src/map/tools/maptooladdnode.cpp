@@ -1,7 +1,10 @@
-/*!
- * \file   maptooladdnode.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptooladdnode.cpp
+ * @brief     on a conduit (which splits it) when the click lands on one.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptooladdnode.h"
@@ -16,18 +19,16 @@
 #include <QPainter>
 #include <QMouseEvent>
 
-namespace {
-constexpr int kNodeOutfall = 1;   // SWMM_NODE_OUTFALL
-constexpr int kNodeStorage = 2;   // SWMM_NODE_STORAGE
-constexpr int kNodeDivider = 3;   // SWMM_NODE_DIVIDER
+namespace
+{
+constexpr int kNodeOutfall = 1; // SWMM_NODE_OUTFALL
+constexpr int kNodeStorage = 2; // SWMM_NODE_STORAGE
+constexpr int kNodeDivider = 3; // SWMM_NODE_DIVIDER
 }
 
-OpenSWMMVisMapToolAddNode::OpenSWMMVisMapToolAddNode(MapCanvas *canvas,
-                                                     int nodeType,
-                                                     const QString &elementKind,
-                                                     QObject *parent)
-    : OpenSWMMVisMapTool(QStringLiteral("Add Node"), canvas, parent),
-      m_nodeType(nodeType),
+OpenSWMMVisMapToolAddNode::OpenSWMMVisMapToolAddNode(MapCanvas *canvas, int nodeType,
+                                                     const QString &elementKind, QObject *parent)
+    : OpenSWMMVisMapTool(QStringLiteral("Add Node"), canvas, parent), m_nodeType(nodeType),
       m_elementKind(elementKind)
 {
 }
@@ -44,36 +45,42 @@ bool OpenSWMMVisMapToolAddNode::kindCanSplitConduit() const
 
 QString OpenSWMMVisMapToolAddNode::kindLabel() const
 {
-    if (!m_lidControl.isEmpty()) return tr("LID storage node");
+    if (!m_lidControl.isEmpty())
+        return tr("LID storage node");
     switch (m_nodeType) {
-    case kNodeOutfall: return tr("outfall");
-    case kNodeStorage: return tr("storage node");
-    case kNodeDivider: return tr("flow divider");
-    default:           return tr("junction");
+    case kNodeOutfall:
+        return tr("outfall");
+    case kNodeStorage:
+        return tr("storage node");
+    case kNodeDivider:
+        return tr("flow divider");
+    default:
+        return tr("junction");
     }
 }
 
 void OpenSWMMVisMapToolAddNode::activate()
 {
-    m_snap  = {};
+    m_snap = {};
     m_hover = {};
     m_armed = false;
     OpenSWMMVisMapTool::activate();
     if (!m_lidControl.isEmpty())
-        emit statusMessageChanged(tr("Click a free location to place a LID storage node. Connect orifices or weirs and set their LID outlet layer in Properties."));
+        emit statusMessageChanged(tr(
+            "Click a free location to place a LID storage node. Connect orifices or weirs and set their LID outlet layer in Properties."));
     else if (kindCanSplitConduit())
         emit statusMessageChanged(
             tr("Click to place a %1, or click a conduit to split it and insert "
-               "the %1 there.").arg(kindLabel()));
+               "the %1 there.")
+                .arg(kindLabel()));
     else
-        emit statusMessageChanged(
-            tr("Click to place an outfall. Outfalls end a network, so they "
-               "cannot be inserted on a conduit."));
+        emit statusMessageChanged(tr("Click to place an outfall. Outfalls end a network, so they "
+                                     "cannot be inserted on a conduit."));
 }
 
 void OpenSWMMVisMapToolAddNode::deactivate()
 {
-    m_snap  = {};
+    m_snap = {};
     m_hover = {};
     m_armed = false;
     emit statusMessageChanged(QString());
@@ -82,9 +89,9 @@ void OpenSWMMVisMapToolAddNode::deactivate()
 
 SWMMModelLayer *OpenSWMMVisMapToolAddNode::activeModelLayer() const
 {
-    if (!m_canvas) return nullptr;
-    for (OpenSWMMVisLayer *layer : m_canvas->layers())
-    {
+    if (!m_canvas)
+        return nullptr;
+    for (OpenSWMMVisLayer *layer : m_canvas->layers()) {
         if (auto *model = qobject_cast<SWMMModelLayer *>(layer))
             return model;
     }
@@ -98,14 +105,15 @@ QString OpenSWMMVisMapToolAddNode::nextAvailableName(SWMMModelLayer *layer) cons
 
 void OpenSWMMVisMapToolAddNode::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     double mx = 0.0, my = 0.0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
     m_snap = SnapEngine::snap(this, activeModelLayer(), mx, my);
     // A snapped existing node wins over the conduit under it: the user is
     // targeting that node, not a break in the pipe.
-    const bool onNode = m_snap.snapped
-        && (m_snap.kind == SnapEngine::Kind::Node || m_snap.kind == SnapEngine::Kind::Gage);
+    const bool onNode = m_snap.snapped && (m_snap.kind == SnapEngine::Kind::Node ||
+                                           m_snap.kind == SnapEngine::Kind::Gage);
     m_hover = onNode ? ConduitSplitPick::ConduitHit{}
                      : ConduitSplitPick::pickConduit(m_canvas, event->pos());
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addnode-rubber"));
@@ -113,7 +121,7 @@ void OpenSWMMVisMapToolAddNode::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolAddNode::setTerrain(GISRasterLayer *layer, double offset, double factor)
 {
-    m_terrainLayer  = layer;
+    m_terrainLayer = layer;
     m_terrainOffset = offset;
     m_terrainFactor = factor;
 }
@@ -141,8 +149,8 @@ void OpenSWMMVisMapToolAddNode::mouseReleaseEvent(QMouseEvent *event)
     // Resolve at the release point (a press-drag lands where the button came
     // up), with the same node-beats-conduit rule the hover uses.
     m_snap = SnapEngine::snap(this, layer, mx, my);
-    const bool onNode = m_snap.snapped
-        && (m_snap.kind == SnapEngine::Kind::Node || m_snap.kind == SnapEngine::Kind::Gage);
+    const bool onNode = m_snap.snapped && (m_snap.kind == SnapEngine::Kind::Node ||
+                                           m_snap.kind == SnapEngine::Kind::Gage);
     const ConduitSplitPick::ConduitHit hit =
         onNode ? ConduitSplitPick::ConduitHit{}
                : ConduitSplitPick::pickConduit(m_canvas, event->pos());
@@ -150,22 +158,21 @@ void OpenSWMMVisMapToolAddNode::mouseReleaseEvent(QMouseEvent *event)
     if (hit.valid()) {
         if (!kindCanSplitConduit()) {
             emit statusMessageChanged(
-                tr("This tool requires a free location; select another point away from %1.").arg(hit.name));
-            return;   // no edit; the hover marker keeps showing the refusal
+                tr("This tool requires a free location; select another point away from %1.")
+                    .arg(hit.name));
+            return; // no edit; the hover marker keeps showing the refusal
         }
         commitSplit(hit);
     } else {
         commitFreePlacement(layer, mx, my);
     }
 
-    m_snap  = {};
+    m_snap = {};
     m_hover = {};
-    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
-                         QStringLiteral("addnode-commit"));
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay, QStringLiteral("addnode-commit"));
 }
 
-void OpenSWMMVisMapToolAddNode::commitFreePlacement(SWMMModelLayer *layer,
-                                                    double mx, double my)
+void OpenSWMMVisMapToolAddNode::commitFreePlacement(SWMMModelLayer *layer, double mx, double my)
 {
     // Resolve the placement in the LAYER's CRS — m_nodes / the engine
     // store coords in layer CRS, and rebuildSceneCoords applies the
@@ -187,17 +194,14 @@ void OpenSWMMVisMapToolAddNode::commitFreePlacement(SWMMModelLayer *layer,
     double invertElev = 0.0;
     if (m_terrainLayer) {
         bool ok = false;
-        const double z = m_terrainLayer->valueAt(px, py,
-                                                  layer->srs(),
-                                                  1, &ok);
+        const double z = m_terrainLayer->valueAt(px, py, layer->srs(), 1, &ok);
         if (ok)
             invertElev = z * m_terrainFactor + m_terrainOffset;
     }
 
     const QString name = nextAvailableName(layer);
 
-    auto *cmd = new AddNodeCommand(layer, name, m_nodeType, px, py,
-                                   m_canvas, invertElev);
+    auto *cmd = new AddNodeCommand(layer, name, m_nodeType, px, py, m_canvas, invertElev);
     cmd->setLidControl(m_lidControl);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
@@ -214,11 +218,11 @@ void OpenSWMMVisMapToolAddNode::commitSplit(const ConduitSplitPick::ConduitHit &
     const QString nodeName = nextAvailableName(layer);
     const QString linkName = ConduitSplitPick::nextSplitLinkName(layer, hit.name);
 
-    auto *cmd = new InsertNodeSplitCommand(layer, hit.name, hit.t,
-                                           nodeName, linkName, m_nodeType, m_canvas);
+    auto *cmd = new InsertNodeSplitCommand(layer, hit.name, hit.t, nodeName, linkName, m_nodeType,
+                                           m_canvas);
     QStringList warnings;
     if (m_canvas->undoStack()) {
-        m_canvas->undoStack()->push(cmd);   // runs redo()
+        m_canvas->undoStack()->push(cmd); // runs redo()
         warnings = cmd->warnings();
     } else {
         delete cmd;
@@ -245,25 +249,29 @@ void OpenSWMMVisMapToolAddNode::commitSplit(const ConduitSplitPick::ConduitHit &
 QColor OpenSWMMVisMapToolAddNode::markerColor(const SWMMModelLayer *layer) const
 {
     switch (m_nodeType) {
-    case kNodeOutfall: return layer->outfallSymbol().fillColor;
-    case kNodeStorage: return layer->storageSymbol().fillColor;
-    case kNodeDivider: return layer->dividerSymbol().fillColor;
-    default:           return layer->junctionSymbol().fillColor;
+    case kNodeOutfall:
+        return layer->outfallSymbol().fillColor;
+    case kNodeStorage:
+        return layer->storageSymbol().fillColor;
+    case kNodeDivider:
+        return layer->dividerSymbol().fillColor;
+    default:
+        return layer->junctionSymbol().fillColor;
     }
 }
 
 void OpenSWMMVisMapToolAddNode::paint(QPainter *painter, const MapExtent &,
-                                       const SpatialReferenceSystem *)
+                                      const SpatialReferenceSystem *)
 {
     SnapEngine::paintSnapRing(painter, this, m_snap);
-    if (!painter || !m_hover.valid()) return;
+    if (!painter || !m_hover.valid())
+        return;
 
     // Split-point preview on the conduit under the cursor (layer CRS →
     // pixels via the canvas transform). Solid ring + crosshair when the click
     // will split; a dotted ring alone when the kind is refused on a conduit.
     double cx = m_hover.point.x(), cy = m_hover.point.y();
-    m_hover.layer->transformLayerToCanvas(m_hover.point.x(), m_hover.point.y(),
-                                          cx, cy);
+    m_hover.layer->transformLayerToCanvas(m_hover.point.x(), m_hover.point.y(), cx, cy);
     int px = 0, py = 0;
     toPixelCoords(cx, cy, px, py);
 

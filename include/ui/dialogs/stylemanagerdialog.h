@@ -1,9 +1,9 @@
-/*!
- * \file   stylemanagerdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Browse, apply, save, import, and export Rule Lists from a
+/**
+ * @file      stylemanagerdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Browse, apply, save, import, and export Rule Lists from a
  *         user-level style library (Slice Z.17c).
  *
  *         The library is a directory of `.swmm-rule.json` files; one
@@ -22,7 +22,9 @@
  *         apply/save buttons are disabled but browse / preview /
  *         import / export still work — useful as a project-wide
  *         library editor when no layer is currently selected.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_STYLEMANAGERDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_STYLEMANAGERDIALOG_H
 
@@ -37,7 +39,8 @@ class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class StyleManagerDialog : public QDialog
 {
@@ -47,8 +50,7 @@ public:
      *                      buttons target. May be nullptr — those buttons
      *                      then sit disabled.
      *  \param parent       Standard Qt parent. */
-    explicit StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
-                                QWidget *parent = nullptr);
+    explicit StyleManagerDialog(OpenSWMMVisLayer *activeLayer, QWidget *parent = nullptr);
     ~StyleManagerDialog() override;
 
     void setLayer(OpenSWMMVisLayer *layer);
@@ -79,22 +81,22 @@ private:
     [[nodiscard]] QString currentFilePath() const;
 
     QPointer<OpenSWMMVisLayer> m_layer;
-    QString           m_libraryDir;
+    QString m_libraryDir;
 
     // Left pane — library list + folder shortcut.
-    QListWidget      *m_list        = nullptr;
-    QLabel           *m_libDirLabel = nullptr;
-    QPushButton      *m_openDirBtn  = nullptr;
+    QListWidget *m_list = nullptr;
+    QLabel *m_libDirLabel = nullptr;
+    QPushButton *m_openDirBtn = nullptr;
 
     // Right pane — preview + action buttons.
-    QPlainTextEdit   *m_preview     = nullptr;
-    QPushButton      *m_applyBtn    = nullptr;
-    QPushButton      *m_saveBtn     = nullptr;
-    QPushButton      *m_importBtn   = nullptr;
-    QPushButton      *m_exportBtn   = nullptr;
-    QPushButton      *m_deleteBtn   = nullptr;
+    QPlainTextEdit *m_preview = nullptr;
+    QPushButton *m_applyBtn = nullptr;
+    QPushButton *m_saveBtn = nullptr;
+    QPushButton *m_importBtn = nullptr;
+    QPushButton *m_exportBtn = nullptr;
+    QPushButton *m_deleteBtn = nullptr;
 
-    QDialogButtonBox *m_btns        = nullptr;
+    QDialogButtonBox *m_btns = nullptr;
 };
 
 } // namespace openswmmvis::ui

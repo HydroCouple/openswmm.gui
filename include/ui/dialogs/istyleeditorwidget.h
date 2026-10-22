@@ -1,9 +1,9 @@
-/*!
- * \file   istyleeditorwidget.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  MVC-style editor widget for a single styleable subject.
+/**
+ * @file      istyleeditorwidget.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     MVC-style editor widget for a single styleable subject.
  *
  *         Slice U-V1. The unified LayerStyleDialog consults a registry to
  *         find a custom editor widget for each ILayerStyleSubject. When a
@@ -17,7 +17,9 @@
  *         match. They bind directly to the propertyObject's Q_PROPERTYs
  *         and listen for the bag's NOTIFY signal so external mutations
  *         (e.g. cancel rollback, .oswp load) refresh the UI.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_ISTYLEEDITORWIDGET_H
 #define OPENSWMMVIS_UI_DIALOGS_ISTYLEEDITORWIDGET_H
 
@@ -27,7 +29,8 @@
 #include <functional>
 #include <memory>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /*!
  * \brief Custom editor widget for one style subject.
@@ -82,7 +85,10 @@ public:
 private:
     StyleEditorRegistry() = default;
 
-    struct Entry { QString className; Factory factory; };
+    struct Entry {
+        QString className;
+        Factory factory;
+    };
     std::vector<Entry> m_entries;
 };
 
@@ -91,16 +97,15 @@ private:
 class StyleEditorRegistrar
 {
 public:
-    StyleEditorRegistrar(const QString &className,
-                          StyleEditorRegistry::Factory factory)
+    StyleEditorRegistrar(const QString &className, StyleEditorRegistry::Factory factory)
     {
         StyleEditorRegistry::instance().registerFactory(className, std::move(factory));
     }
 };
 
-#define REGISTER_STYLE_EDITOR(CLASSNAME, FACTORY_BODY) \
-    static const openswmmvis::ui::StyleEditorRegistrar \
-        s_register_##CLASSNAME(QStringLiteral(#CLASSNAME), FACTORY_BODY);
+#define REGISTER_STYLE_EDITOR(CLASSNAME, FACTORY_BODY)                                             \
+    static const openswmmvis::ui::StyleEditorRegistrar s_register_##CLASSNAME(                     \
+        QStringLiteral(#CLASSNAME), FACTORY_BODY);
 
 } // namespace openswmmvis::ui
 

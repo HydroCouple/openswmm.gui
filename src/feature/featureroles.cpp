@@ -1,10 +1,13 @@
-/*!
- * \file   featureroles.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featureroles.cpp
+ * @brief     The feature-layer role registry
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md P1, §4, §6).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Registry content: workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §4.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "feature/featureroles.h"
@@ -23,35 +26,66 @@ using openswmmvis::feature::GeometryType;
 using openswmmvis::feature::ModelList;
 using openswmmvis::feature::Schema;
 
-namespace {
+namespace
+{
 
-QString tr_(const char *s) { return QCoreApplication::translate("FeatureRoles", s); }
+/**
+ * @brief Translate registry UI text in the FeatureRoles context.
+ * @param[in] s Non-null untranslated source text.
+ * @return Current translation.
+ */
+QString tr_(const char *s)
+{
+    return QCoreApplication::translate("FeatureRoles", s);
+}
 
 // ----- Field builders --------------------------------------------------------
 
+/**
+ * @brief Build a textual role field with translated description.
+ * @param[in] name Non-null ASCII field key.
+ * @param[in] desc Non-null translation source text.
+ * @param[in] required Whether new role layers must include this field.
+ * @return Owned Text FieldDef with no choices/default.
+ */
 FieldDef textField(const char *name, const char *desc, bool required)
 {
     FieldDef f;
-    f.name        = QString::fromLatin1(name);
-    f.type        = FieldType::Text;
+    f.name = QString::fromLatin1(name);
+    f.type = FieldType::Text;
     f.description = tr_(desc);
-    f.required    = required;
+    f.required = required;
     return f;
 }
 
-FieldDef realField(const char *name, const char *desc, bool required,
-                   double def, FieldUnit unit = FieldUnit::None)
+/**
+ * @brief Build a numeric role field with a default and unit hint.
+ * @param[in] name Non-null ASCII key.
+ * @param[in] desc Translatable help text.
+ * @param[in] required Required role field flag.
+ * @param[in] def Default real value in the field's declared units.
+ * @param[in] unit Editor unit category; None is dimensionless/unspecified.
+ * @return Owned Real FieldDef.
+ */
+FieldDef realField(const char *name, const char *desc, bool required, double def,
+                   FieldUnit unit = FieldUnit::None)
 {
     FieldDef f;
-    f.name         = QString::fromLatin1(name);
-    f.type         = FieldType::Real;
-    f.description  = tr_(desc);
-    f.required     = required;
+    f.name = QString::fromLatin1(name);
+    f.type = FieldType::Real;
+    f.description = tr_(desc);
+    f.required = required;
     f.defaultValue = def;
-    f.unit         = unit;
+    f.unit = unit;
     return f;
 }
 
+/**
+ * @brief Build optional text with an editable existing-value suggestion list.
+ * @param[in] name ASCII field key.
+ * @param[in] desc Translatable help text.
+ * @return Optional text field with ChoiceSource::Suggested.
+ */
 FieldDef suggestedField(const char *name, const char *desc)
 {
     FieldDef f = textField(name, desc, /*required=*/false);
@@ -59,24 +93,45 @@ FieldDef suggestedField(const char *name, const char *desc)
     return f;
 }
 
+/**
+ * @brief Build optional text whose choices come from the current project.
+ * @param[in] name ASCII field key.
+ * @param[in] desc Translatable help text.
+ * @param[in] list Model ID collection to offer.
+ * @return FieldDef with ChoiceSource::Model; the choices are runtime editor hints.
+ */
 FieldDef modelField(const char *name, const char *desc, ModelList list)
 {
     FieldDef f = textField(name, desc, /*required=*/false);
     f.choiceSource = ChoiceSource::Model;
-    f.modelList    = list;
+    f.modelList = list;
     return f;
 }
 
-FieldDef fixedField(const char *name, const char *desc, bool required,
-                    QVector<FieldChoice> choices, const QString &def = QString())
+/**
+ * @brief Build a role field with stable fixed choice tokens.
+ * @param[in] name ASCII field key.
+ * @param[in] desc Translatable help text.
+ * @param[in] required Required role field flag.
+ * @param[in] choices Owned value/label pairs moved into the field.
+ * @param[in] def Optional default token; empty means no explicit default.
+ * @return Text FieldDef with ChoiceSource::Fixed.
+ */
+FieldDef fixedField(const char *name, const char *desc, bool required, QVector<FieldChoice> choices,
+                    const QString &def = QString())
 {
     FieldDef f = textField(name, desc, required);
     f.choiceSource = ChoiceSource::Fixed;
-    f.choices      = std::move(choices);
-    if (!def.isEmpty()) f.defaultValue = def;
+    f.choices = std::move(choices);
+    if (!def.isEmpty())
+        f.defaultValue = def;
     return f;
 }
 
+/**
+ * @brief Build stable INP-token choices for all seven GUI boundary-condition variants.
+ * @return Owning token/translated-label pairs in BC display order.
+ */
 QVector<FieldChoice> bcTypeChoices()
 {
     using T = mesh::MeshBCTypes::Type;
@@ -87,17 +142,16 @@ QVector<FieldChoice> bcTypeChoices()
     return out;
 }
 
-const QVector<GeometryType> kPolygonKinds = {GeometryType::Polygon,
-                                             GeometryType::MultiPolygon};
-const QVector<GeometryType> kLineKinds    = {GeometryType::LineString,
-                                             GeometryType::MultiLineString};
-const QVector<GeometryType> kAllKinds     = {GeometryType::Point,
-                                             GeometryType::LineString,
-                                             GeometryType::Polygon,
-                                             GeometryType::MultiPoint,
-                                             GeometryType::MultiLineString,
-                                             GeometryType::MultiPolygon};
+const QVector<GeometryType> kPolygonKinds = {GeometryType::Polygon, GeometryType::MultiPolygon};
+const QVector<GeometryType> kLineKinds = {GeometryType::LineString, GeometryType::MultiLineString};
+const QVector<GeometryType> kAllKinds = {GeometryType::Point,           GeometryType::LineString,
+                                         GeometryType::Polygon,         GeometryType::MultiPoint,
+                                         GeometryType::MultiLineString, GeometryType::MultiPolygon};
 
+/**
+ * @brief Assemble role schemas, aliases, retired fields, geometry restrictions and UI hints.
+ * @return Owning registry vector in new-layer dialog order; first entry is the General fallback.
+ */
 QVector<FeatureRoleSpec> buildRegistry()
 {
     QVector<FeatureRoleSpec> v;
@@ -110,7 +164,7 @@ QVector<FeatureRoleSpec> buildRegistry()
         s.label = tr_("General");
         s.summary = tr_("Any features, with the columns you add.");
         s.geometries = kAllKinds;
-        s.wantsZ = true;   // the Z section stays open: the user decides
+        s.wantsZ = true; // the Z section stays open: the user decides
         s.fields = {textField("name", "Label.", /*required=*/false)};
         v.append(s);
     }
@@ -156,13 +210,15 @@ QVector<FeatureRoleSpec> buildRegistry()
         s.geometries = kPolygonKinds;
         s.defaultGeometry = GeometryType::Polygon;
         s.fields = {
-            realField("h", "Cell size inside the region, and the quad spacing "
-                           "when it is four-sided. 0 = the model's cell size.",
+            realField("h",
+                      "Cell size inside the region, and the quad spacing "
+                      "when it is four-sided. 0 = the model's cell size.",
                       /*required=*/true, 0.0, FieldUnit::Length),
-            fixedField("cells", "Quads if four-sided: a four-sided region is "
-                                "filled with quads aligned to its sides; any "
-                                "other shape keeps triangles. Triangles: always "
-                                "triangles.",
+            fixedField("cells",
+                       "Quads if four-sided: a four-sided region is "
+                       "filled with quads aligned to its sides; any "
+                       "other shape keeps triangles. Triangles: always "
+                       "triangles.",
                        /*required=*/true,
                        {{QStringLiteral("auto"), tr_("Quads if four-sided")},
                         {QStringLiteral("triangles"), tr_("Triangles")}},
@@ -212,9 +268,12 @@ QVector<FeatureRoleSpec> buildRegistry()
             suggestedField("landuse", "Land-use class (the lookup table's first key)."),
             fixedField("hsg", "Hydrologic soil group (the lookup table's second key).",
                        /*required=*/false,
-                       {{QStringLiteral("A"), QString()}, {QStringLiteral("B"), QString()},
-                        {QStringLiteral("C"), QString()}, {QStringLiteral("D"), QString()},
-                        {QStringLiteral("A/D"), QString()}, {QStringLiteral("B/D"), QString()},
+                       {{QStringLiteral("A"), QString()},
+                        {QStringLiteral("B"), QString()},
+                        {QStringLiteral("C"), QString()},
+                        {QStringLiteral("D"), QString()},
+                        {QStringLiteral("A/D"), QString()},
+                        {QStringLiteral("B/D"), QString()},
                         {QStringLiteral("C/D"), QString()}}),
         };
         s.retiredFields = {QStringLiteral("infil_method")};
@@ -230,7 +289,7 @@ QVector<FeatureRoleSpec> buildRegistry()
         s.summary = tr_("Features to turn into SWMM objects with Import Feature Layer.");
         s.geometries = kAllKinds;
         s.fields = {
-            textField("name",   "SWMM object name.", /*required=*/true),
+            textField("name", "SWMM object name.", /*required=*/true),
             textField("outlet", "Outlet node or subcatchment.", /*required=*/false),
         };
         v.append(s);
@@ -248,8 +307,7 @@ QVector<FeatureRoleSpec> buildRegistry()
         s.geometries = {GeometryType::LineString};
         s.defaultGeometry = GeometryType::LineString;
         s.fields = {
-            fixedField("bc_type", "Boundary-condition type.", /*required=*/true,
-                       bcTypeChoices(),
+            fixedField("bc_type", "Boundary-condition type.", /*required=*/true, bcTypeChoices(),
                        mesh::MeshBCTypes::inpToken(mesh::MeshBCTypes::Type::Wall)),
             realField("head", "Water-surface elevation (Specified Stage).",
                       /*required=*/false, 0.0, FieldUnit::Length),
@@ -269,7 +327,7 @@ QVector<FeatureRoleSpec> buildRegistry()
     return v;
 }
 
-}   // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Global role helpers (declared in featureroles.h; featurelayer.h includes it)
@@ -289,7 +347,8 @@ FeatureLayerRole featureLayerRoleFromToken(const QString &token)
 {
     const QString t = token.trimmed().toLower();
     for (const FeatureRoleSpec &s : openswmmvis::feature::featureRoleSpecs())
-        if (s.token == t) return s.role;
+        if (s.token == t)
+            return s.role;
     return FeatureLayerRole::General;
 }
 
@@ -306,12 +365,14 @@ GeometryType featureLayerRoleGeometry(FeatureLayerRole r)
     return openswmmvis::feature::featureRoleSpec(r).defaultGeometry;
 }
 
-namespace openswmmvis::feature {
+namespace openswmmvis::feature
+{
 
 const FieldDef *FeatureRoleSpec::field(const QString &name) const
 {
     for (const FieldDef &f : fields)
-        if (f.name.compare(name, Qt::CaseInsensitive) == 0) return &f;
+        if (f.name.compare(name, Qt::CaseInsensitive) == 0)
+            return &f;
     return nullptr;
 }
 
@@ -325,8 +386,9 @@ const FeatureRoleSpec &featureRoleSpec(FeatureLayerRole r)
 {
     const QVector<FeatureRoleSpec> &all = featureRoleSpecs();
     for (const FeatureRoleSpec &s : all)
-        if (s.role == r) return s;
-    return all.first();   // General
+        if (s.role == r)
+            return s;
+    return all.first(); // General
 }
 
 Schema editorSchema(FeatureLayerRole role, const Schema &stored)
@@ -337,21 +399,23 @@ Schema editorSchema(FeatureLayerRole role, const Schema &stored)
         const FieldDef *reg = spec.field(f.name);
         if (!reg) {
             const auto alias = spec.legacyAliases.constFind(f.name.toLower());
-            if (alias != spec.legacyAliases.constEnd()) reg = spec.field(alias.value());
+            if (alias != spec.legacyAliases.constEnd())
+                reg = spec.field(alias.value());
         }
         // A registry hint applies only to a column of the same type: a Text
         // "h" a user made by hand is not the role's Real "h".
         if (reg && reg->type == f.type) {
             f.choiceSource = reg->choiceSource;
-            f.modelList    = reg->modelList;
-            f.unit         = reg->unit;
-            f.required     = reg->required;
+            f.modelList = reg->modelList;
+            f.unit = reg->unit;
+            f.required = reg->required;
             // The registry's list when the table stores none, and also when
             // it stores the same set: GeoPackage returns a list sorted by
             // value, the registry has the display order and labels.
             if (f.choices.isEmpty() || sameChoiceSet(f.choices, reg->choices))
                 f.choices = reg->choices;
-            if (f.description.isEmpty()) f.description = reg->description;
+            if (f.description.isEmpty())
+                f.description = reg->description;
         }
         out.append(f);
     }
@@ -367,48 +431,71 @@ QStringList regionSizeFieldNames()
     return {QStringLiteral("h"), QStringLiteral("quad_spacing")};
 }
 
-QString regionCellsFieldName()   { return QStringLiteral("cells"); }
-QString regionTagFieldName()     { return QStringLiteral("tag"); }
-QString corridorWidthFieldName() { return QStringLiteral("width"); }
-QString corridorTagFieldName()   { return QStringLiteral("tag"); }
+QString regionCellsFieldName()
+{
+    return QStringLiteral("cells");
+}
+QString regionTagFieldName()
+{
+    return QStringLiteral("tag");
+}
+QString corridorWidthFieldName()
+{
+    return QStringLiteral("width");
+}
+QString corridorTagFieldName()
+{
+    return QStringLiteral("tag");
+}
 
 RegionCells regionCellsFromValue(const QString &value, bool *known)
 {
     const QString t = value.trimmed().toLower();
-    if (known) *known = true;
-    if (t.isEmpty() || t == regionCellsToken(RegionCells::Auto)) return RegionCells::Auto;
-    if (t == regionCellsToken(RegionCells::Triangles))            return RegionCells::Triangles;
-    if (known) *known = false;
+    if (known)
+        *known = true;
+    if (t.isEmpty() || t == regionCellsToken(RegionCells::Auto))
+        return RegionCells::Auto;
+    if (t == regionCellsToken(RegionCells::Triangles))
+        return RegionCells::Triangles;
+    if (known)
+        *known = false;
     return RegionCells::Auto;
 }
 
 QString regionCellsToken(RegionCells c)
 {
-    return c == RegionCells::Triangles ? QStringLiteral("triangles")
-                                       : QStringLiteral("auto");
+    return c == RegionCells::Triangles ? QStringLiteral("triangles") : QStringLiteral("auto");
 }
 
 bool bcFieldApplies(const QString &bcType, const QString &field)
 {
     const QString f = field.toLower();
-    static const QStringList kParameters = {
-        QStringLiteral("head"), QStringLiteral("slope"), QStringLiteral("flow"),
-        QStringLiteral("tseries"), QStringLiteral("curve")};
+    static const QStringList kParameters = {QStringLiteral("head"), QStringLiteral("slope"),
+                                            QStringLiteral("flow"), QStringLiteral("tseries"),
+                                            QStringLiteral("curve")};
     if (!kParameters.contains(f))
-        return true;   // bc_type, group, conveyance and every other field
+        return true; // bc_type, group, conveyance and every other field
 
     bool ok = false;
     using T = mesh::MeshBCTypes::Type;
     const T t = mesh::MeshBCTypes::fromInpToken(bcType, &ok);
-    if (!ok) return true;   // an unknown type greys nothing out
+    if (!ok)
+        return true; // an unknown type greys nothing out
     switch (t) {
-    case T::Wall:                return false;
-    case T::NormalFlow:          return f == QLatin1String("slope");
-    case T::SpecifiedStageConst: return f == QLatin1String("head");
-    case T::SpecifiedStageTS:    return f == QLatin1String("tseries");
-    case T::SpecifiedFlowConst:  return f == QLatin1String("flow");
-    case T::SpecifiedFlowTS:     return f == QLatin1String("tseries");
-    case T::RatingCurve:         return f == QLatin1String("curve");
+    case T::Wall:
+        return false;
+    case T::NormalFlow:
+        return f == QLatin1String("slope");
+    case T::SpecifiedStageConst:
+        return f == QLatin1String("head");
+    case T::SpecifiedStageTS:
+        return f == QLatin1String("tseries");
+    case T::SpecifiedFlowConst:
+        return f == QLatin1String("flow");
+    case T::SpecifiedFlowTS:
+        return f == QLatin1String("tseries");
+    case T::RatingCurve:
+        return f == QLatin1String("curve");
     }
     return true;
 }
@@ -419,20 +506,26 @@ bool bcFieldApplies(const QString &bcType, const QString &field)
 
 bool isNonEmptyValue(const QVariant &v)
 {
-    if (!v.isValid() || v.isNull()) return false;
-    if (v.userType() == QMetaType::QString) return !v.toString().trimmed().isEmpty();
+    if (!v.isValid() || v.isNull())
+        return false;
+    if (v.userType() == QMetaType::QString)
+        return !v.toString().trimmed().isEmpty();
     return true;
 }
 
-namespace {
+namespace
+{
 
 /*! The stored metadata the update action can attach — defaults, descriptions
- *  and Fixed choices — compared the way the store persists them. */
+ *  and Fixed choices — compared the way the store persists them.
+ * @param[in] stored Existing field metadata.
+ * @param[in] reg Registry proposal.
+ * @return True for type-coerced defaults, exact descriptions and order-independent Fixed choices; runtime editor hints are excluded.
+ */
 bool sameStoredMetadata(const FieldDef &stored, const FieldDef &reg)
 {
-    const QVariant regDefault = reg.defaultValue.isValid()
-                                    ? coerceToFieldType(reg.defaultValue, reg.type)
-                                    : QVariant();
+    const QVariant regDefault =
+        reg.defaultValue.isValid() ? coerceToFieldType(reg.defaultValue, reg.type) : QVariant();
     const QVariant storedDefault = stored.defaultValue.isValid()
                                        ? coerceToFieldType(stored.defaultValue, stored.type)
                                        : QVariant();
@@ -440,12 +533,11 @@ bool sameStoredMetadata(const FieldDef &stored, const FieldDef &reg)
         reg.choiceSource == ChoiceSource::Fixed ? reg.choices : QVector<FieldChoice>();
     const QVector<FieldChoice> storedChoices =
         stored.choiceSource == ChoiceSource::Fixed ? stored.choices : QVector<FieldChoice>();
-    return storedDefault == regDefault
-        && stored.description == reg.description
-        && sameChoiceSet(storedChoices, regChoices);
+    return storedDefault == regDefault && stored.description == reg.description &&
+           sameChoiceSet(storedChoices, regChoices);
 }
 
-}   // namespace
+} // namespace
 
 FieldUpdatePlan planFieldUpdate(FeatureLayerRole role, const Schema &stored,
                                 const QHash<QString, int> &nonEmpty)
@@ -457,7 +549,7 @@ FieldUpdatePlan planFieldUpdate(FeatureLayerRole role, const Schema &stored,
         if (const FieldDef *have = stored.field(reg.name)) {
             if (have->type == reg.type && !sameStoredMetadata(*have, reg)) {
                 FieldDef attach = reg;
-                attach.name = have->name;   // keep the stored spelling
+                attach.name = have->name; // keep the stored spelling
                 plan.attach.append(attach);
             }
             continue;
@@ -466,12 +558,15 @@ FieldUpdatePlan planFieldUpdate(FeatureLayerRole role, const Schema &stored,
         // of adding an empty twin beside it.
         QString legacy;
         for (auto it = spec.legacyAliases.constBegin(); it != spec.legacyAliases.constEnd(); ++it)
-            if (it.value() == reg.name && stored.contains(it.key())) { legacy = it.key(); break; }
+            if (it.value() == reg.name && stored.contains(it.key())) {
+                legacy = it.key();
+                break;
+            }
         if (!legacy.isEmpty()) {
             const FieldDef *old = stored.field(legacy);
             plan.rename.append({old->name, reg.name});
             if (old->type == reg.type && !sameStoredMetadata(*old, reg))
-                plan.attach.append(reg);   // under the new name, after the rename
+                plan.attach.append(reg); // under the new name, after the rename
             continue;
         }
         plan.add.append(reg);
@@ -479,13 +574,17 @@ FieldUpdatePlan planFieldUpdate(FeatureLayerRole role, const Schema &stored,
 
     for (const QString &name : spec.retiredFields) {
         const FieldDef *have = stored.field(name);
-        if (!have) continue;
+        if (!have)
+            continue;
         int count = 0;
         for (auto it = nonEmpty.constBegin(); it != nonEmpty.constEnd(); ++it)
-            if (it.key().compare(have->name, Qt::CaseInsensitive) == 0) { count = it.value(); break; }
+            if (it.key().compare(have->name, Qt::CaseInsensitive) == 0) {
+                count = it.value();
+                break;
+            }
         plan.retired.append({have->name, count});
     }
     return plan;
 }
 
-}   // namespace openswmmvis::feature
+} // namespace openswmmvis::feature

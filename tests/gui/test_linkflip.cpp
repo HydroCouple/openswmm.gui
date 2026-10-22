@@ -1,9 +1,9 @@
-/*!
- * \file   test_linkflip.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Coverage for SWMMModelLayer::applyLinkFlip and FlipLinkCommand.
+/**
+ * @file      test_linkflip.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Coverage for SWMMModelLayer::applyLinkFlip and FlipLinkCommand.
  *
  *         A flip reverses a link's topology only: the upstream node becomes
  *         the downstream node and the physical link does not move. Three
@@ -30,7 +30,9 @@
  *           Links  C1 J1->J2, C2 J2->J3, C3 J3->O1, P1 J4->J3 (pump)
  *         The fixture carries no vertices, offsets or losses, so the tests
  *         seed those through the C API before flipping.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "map/mapundostack.h"
 
@@ -48,36 +50,69 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select SWMMVIS_GUI_TEST_DATA or current-directory dot for link-flip fixtures.
+ * @return Owned unvalidated directory string; no creation.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Open selection_trace_fixture.inp into a caller-owned model layer.
+ * @return Unique loaded layer or nullptr after failed-load destruction. Requires
+ * GUI-thread use/readable fixture; warnings/errors remain local and no source INP
+ * is written. The returned layer owns its engine.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
-        QDir(dataDir()).filePath(QStringLiteral("selection_trace_fixture.inp")),
-        nullptr);
+        QDir(dataDir()).filePath(QStringLiteral("selection_trace_fixture.inp")), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
 //! Endpoint node ids straight from the engine — the oracle the cached SoA
 //! indices are checked against.
+/**
+ *
+ * @brief Read link from/to node IDs directly from the engine for cache comparison.
+ * @param eng Borrowed valid loaded engine.
+ * @param linkIdx Valid zero-based link index with valid endpoint nodes. Getter
+ * statuses are unchecked; invalid input is outside this fixture helper contract.
+ * @return Owned pair of UTF-8-decoded upstream/downstream IDs; no topology mutation.
+ *
+ */
 QPair<QString, QString> engineEndpoints(SWMM_Engine eng, int linkIdx)
 {
     int from = -1, to = -1;
     swmm_link_get_from_node(eng, linkIdx, &from);
     swmm_link_get_to_node(eng, linkIdx, &to);
-    return {QString::fromUtf8(swmm_node_id(eng, from)),
-            QString::fromUtf8(swmm_node_id(eng, to))};
+    return {QString::fromUtf8(swmm_node_id(eng, from)), QString::fromUtf8(swmm_node_id(eng, to))};
 }
 
 //! Interior vertices as the engine holds them (its get API wraps the endpoint
 //! coords, so the first and last entries are stripped).
+/**
+ *
+ * @brief Read only interior link vertices, stripping engine-provided endpoint coordinates.
+ * @param eng Borrowed valid loaded engine.
+ * @param linkIdx Zero-based link index; invalid input is delegated to checked APIs.
+ * @return Owned intermediate points in engine project coordinates, or empty on
+ * count/read failure or a polyline with at most two endpoints. Allocates count-sized
+ * coordinate arrays, performs no CRS transform and changes no engine state.
+ *
+ */
 QVector<QPointF> engineInterior(SWMM_Engine eng, int linkIdx)
 {
     int n = 0;
@@ -114,15 +149,13 @@ private slots:
 
         const int j1 = swmm_node_index(eng, "J1");
         const int j2 = swmm_node_index(eng, "J2");
-        QCOMPARE(engineEndpoints(eng, idx), qMakePair(QStringLiteral("J1"),
-                                                      QStringLiteral("J2")));
+        QCOMPARE(engineEndpoints(eng, idx), qMakePair(QStringLiteral("J1"), QStringLiteral("J2")));
         QCOMPARE(layer->linkFromNodeIdx(idx), j1);
         QCOMPARE(layer->linkToNodeIdx(idx), j2);
 
         QVERIFY(layer->applyLinkFlip(idx));
 
-        QCOMPARE(engineEndpoints(eng, idx), qMakePair(QStringLiteral("J2"),
-                                                      QStringLiteral("J1")));
+        QCOMPARE(engineEndpoints(eng, idx), qMakePair(QStringLiteral("J2"), QStringLiteral("J1")));
         QCOMPARE(layer->linkFromNodeIdx(idx), j2);
         QCOMPARE(layer->linkToNodeIdx(idx), j1);
     }
@@ -197,7 +230,7 @@ private slots:
         auto layer = openLayer();
         QVERIFY(layer);
         SWMM_Engine eng = layer->engine();
-        const int idx = layer->linkIndex(QStringLiteral("P1"));   // pump J4 -> J3
+        const int idx = layer->linkIndex(QStringLiteral("P1")); // pump J4 -> J3
         QVERIFY(idx >= 0);
         QVERIFY(!layer->isConduit(idx));
 
@@ -206,8 +239,7 @@ private slots:
 
         QVERIFY(layer->applyLinkFlip(idx));
 
-        QCOMPARE(engineEndpoints(eng, idx), qMakePair(QStringLiteral("J3"),
-                                                      QStringLiteral("J4")));
+        QCOMPARE(engineEndpoints(eng, idx), qMakePair(QStringLiteral("J3"), QStringLiteral("J4")));
         double up1 = 0.0;
         QCOMPARE(swmm_link_get_offset_up(eng, idx, &up1), SWMM_OK);
         QCOMPARE(up1, up0);
@@ -231,7 +263,7 @@ private slots:
         QCOMPARE(swmm_link_set_offset_dn(eng, idx, 0.5), SWMM_OK);
         QCOMPARE(swmm_link_set_loss_coeff(eng, idx, 0.9, 0.4, 0.1), SWMM_OK);
 
-        const auto ends0     = engineEndpoints(eng, idx);
+        const auto ends0 = engineEndpoints(eng, idx);
         const auto polyline0 = layer->cachedLinkPolyline(idx);
 
         MapUndoStack stack;

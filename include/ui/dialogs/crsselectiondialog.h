@@ -1,11 +1,11 @@
-/*!
- * \file   crsselectiondialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
+/**
+ * @file      crsselectiondialog.h
+ * @brief     Modal dialog for browsing and selecting a CRS from the GDAL database.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #ifndef CRSSELECTIONDIALOG_H
@@ -39,7 +39,6 @@ class CRSSelectionDialog : public QDialog
     Q_OBJECT
 
 public:
-
     explicit CRSSelectionDialog(QWidget *parent = nullptr);
     ~CRSSelectionDialog() override;
 
@@ -57,24 +56,23 @@ private slots:
 
 private:
     void setupUi();
-    void buildTree(const QString &authority = {},
-                   const QString &typeFilter = {},
+    void buildTree(const QString &authority = {}, const QString &typeFilter = {},
                    const QString &searchText = {});
     void updatePreview();
 
     // Data roles for tree items
     static constexpr int AuthCodeRole = Qt::UserRole + 1;
-    static constexpr int IsLeafRole   = Qt::UserRole + 2;
+    static constexpr int IsLeafRole = Qt::UserRole + 2;
 
-    QLineEdit              *m_searchEdit      = nullptr;
-    QComboBox              *m_authorityCombo  = nullptr;
-    QComboBox              *m_typeCombo       = nullptr;
-    QTreeView              *m_treeView        = nullptr;
-    QTextBrowser           *m_wktPreview      = nullptr;
-    QDialogButtonBox       *m_buttonBox       = nullptr;
-    QStandardItemModel     *m_treeModel       = nullptr;
+    QLineEdit *m_searchEdit = nullptr;
+    QComboBox *m_authorityCombo = nullptr;
+    QComboBox *m_typeCombo = nullptr;
+    QTreeView *m_treeView = nullptr;
+    QTextBrowser *m_wktPreview = nullptr;
+    QDialogButtonBox *m_buttonBox = nullptr;
+    QStandardItemModel *m_treeModel = nullptr;
 
-    QString                 m_selectedAuthCode;
+    QString m_selectedAuthCode;
 };
 
 #endif // CRSSELECTIONDIALOG_H

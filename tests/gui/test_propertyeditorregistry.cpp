@@ -1,6 +1,6 @@
-/*!
- * \file   test_propertyeditorregistry.cpp
- * \brief  Slice BM Phase 6.3.5 — registry register / hasFactory / create /
+/**
+ * @file      test_propertyeditorregistry.cpp
+ * @brief     Slice BM Phase 6.3.5 — registry register / hasFactory / create /
  *         clear round-trip + multi-kind dispatch. Self-contained: no engine
  *         handle and no model layer.
  *
@@ -15,6 +15,10 @@
  *              is safe.
  *           6. null / empty kind / null factory rejected with qWarning;
  *              registry unchanged.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QObject>
@@ -25,17 +29,15 @@
 #include "ui/properties/ipropertyeditor.h"
 #include "ui/properties/propertyeditorregistry.h"
 
-namespace {
+namespace
+{
 
 class DummyEditor : public IPropertyEditor
 {
 public:
     explicit DummyEditor(QString kind) : m_kind(std::move(kind)) {}
     [[nodiscard]] QString objectKind() const override { return m_kind; }
-    [[nodiscard]] QWidget *editorForObject(const SWMMObjectRef &) override
-    {
-        return nullptr;
-    }
+    [[nodiscard]] QWidget *editorForObject(const SWMMObjectRef &) override { return nullptr; }
     void apply(const SWMMObjectRef &) override {}
 
 private:
@@ -49,10 +51,7 @@ class TestPropertyEditorRegistry : public QObject
     Q_OBJECT
 
 private slots:
-    void cleanup()
-    {
-        PropertyEditorRegistry::instance().clear();
-    }
+    void cleanup() { PropertyEditorRegistry::instance().clear(); }
 
     void emptyRegistryReturnsNullptr()
     {
@@ -63,8 +62,7 @@ private slots:
     void registerSingleKindThenCreate()
     {
         PropertyEditorRegistry::instance().registerFactory(
-            "junction",
-            [] { return std::make_unique<DummyEditor>(QStringLiteral("junction")); });
+            "junction", [] { return std::make_unique<DummyEditor>(QStringLiteral("junction")); });
 
         QVERIFY(PropertyEditorRegistry::instance().hasFactory("junction"));
         auto editor = PropertyEditorRegistry::instance().create("junction");
@@ -76,9 +74,10 @@ private slots:
     {
         auto &reg = PropertyEditorRegistry::instance();
         reg.registerFactory("curve",
-            [] { return std::make_unique<DummyEditor>(QStringLiteral("curve")); });
-        reg.registerFactory("timeseries",
-            [] { return std::make_unique<DummyEditor>(QStringLiteral("timeseries")); });
+                            [] { return std::make_unique<DummyEditor>(QStringLiteral("curve")); });
+        reg.registerFactory("timeseries", [] {
+            return std::make_unique<DummyEditor>(QStringLiteral("timeseries"));
+        });
 
         auto c = reg.create("curve");
         auto t = reg.create("timeseries");
@@ -91,13 +90,13 @@ private slots:
     {
         auto &reg = PropertyEditorRegistry::instance();
         reg.registerFactory("junction",
-            [] { return std::make_unique<DummyEditor>(QStringLiteral("v1")); });
+                            [] { return std::make_unique<DummyEditor>(QStringLiteral("v1")); });
 
         // Replacing the existing factory emits a qWarning (verified via
         // log capture in larger-scoped tests). The new factory takes
         // effect immediately for subsequent create() calls.
         reg.registerFactory("junction",
-            [] { return std::make_unique<DummyEditor>(QStringLiteral("v2")); });
+                            [] { return std::make_unique<DummyEditor>(QStringLiteral("v2")); });
 
         auto editor = reg.create("junction");
         QVERIFY(editor);
@@ -107,8 +106,7 @@ private slots:
     void emptyKindIgnored()
     {
         PropertyEditorRegistry::instance().registerFactory(
-            QString{},
-            [] { return std::make_unique<DummyEditor>(QStringLiteral("empty")); });
+            QString{}, [] { return std::make_unique<DummyEditor>(QStringLiteral("empty")); });
         QVERIFY(!PropertyEditorRegistry::instance().hasFactory(QString{}));
     }
 

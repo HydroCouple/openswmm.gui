@@ -1,10 +1,12 @@
-/*!
- * \file   classificationeditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice US.1 — shared classification editor.
+/**
+ * @file      classificationeditor.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice US.1 — shared classification editor.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/classificationeditor.h"
 
 #include "render/attributesource.h"
@@ -43,9 +45,11 @@ using OpenSWMM::Render::BinMethod;
 using OpenSWMM::Render::ClassificationScheme;
 using OpenSWMM::Render::RangeMode;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 constexpr int kModeContinuous = 0;
 constexpr int kModeClassified = 1;
@@ -55,12 +59,13 @@ constexpr int kModeClassified = 1;
 
 } // namespace
 
-ClassificationEditor::ClassificationEditor(IClassificationBinding *binding,
-                                           bool ownBinding, QWidget *parent)
+ClassificationEditor::ClassificationEditor(IClassificationBinding *binding, bool ownBinding,
+                                           QWidget *parent)
     : QWidget(parent), m_binding(binding), m_ownBinding(ownBinding)
 {
     buildUi();
-    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &ClassificationEditor::updateStatus);
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this,
+            &ClassificationEditor::updateStatus);
     refresh();
 }
 
@@ -129,13 +134,13 @@ void ClassificationEditor::buildUi()
 
     // Method + class count.
     m_methodCombo = new QComboBox(box);
-    m_methodCombo->addItem(tr("Equal interval"),         int(BinMethod::EqualInterval));
-    m_methodCombo->addItem(tr("Quantile"),               int(BinMethod::Quantile));
+    m_methodCombo->addItem(tr("Equal interval"), int(BinMethod::EqualInterval));
+    m_methodCombo->addItem(tr("Quantile"), int(BinMethod::Quantile));
     m_methodCombo->addItem(tr("Natural breaks (Jenks)"), int(BinMethod::NaturalBreaks));
-    m_methodCombo->addItem(tr("Standard deviation"),     int(BinMethod::StdDev));
-    m_methodCombo->addItem(tr("Logarithmic"),            int(BinMethod::Logarithmic));
-    m_methodCombo->addItem(tr("Exponential"),            int(BinMethod::Exponential));
-    m_methodCombo->addItem(tr("Manual"),                 int(BinMethod::Manual));
+    m_methodCombo->addItem(tr("Standard deviation"), int(BinMethod::StdDev));
+    m_methodCombo->addItem(tr("Logarithmic"), int(BinMethod::Logarithmic));
+    m_methodCombo->addItem(tr("Exponential"), int(BinMethod::Exponential));
+    m_methodCombo->addItem(tr("Manual"), int(BinMethod::Manual));
     m_methodCombo->setMinimumWidth(140);
     m_methodLabel = new QLabel(tr("Method:"), box);
     form->addRow(m_methodLabel, m_methodCombo);
@@ -150,9 +155,9 @@ void ClassificationEditor::buildUi()
     // Range mode (1D-results idiom).
     using OpenSWMM::Render::RangeMode;
     m_rangeModeCombo = new QComboBox(box);
-    m_rangeModeCombo->addItem(tr("Fixed over run"),         int(RangeMode::FixedOverRun));
+    m_rangeModeCombo->addItem(tr("Fixed over run"), int(RangeMode::FixedOverRun));
     m_rangeModeCombo->addItem(tr("Per-frame auto-stretch"), int(RangeMode::PerFrameAutoStretch));
-    m_rangeModeCombo->addItem(tr("Fixed (user range)"),     int(RangeMode::FixedUser));
+    m_rangeModeCombo->addItem(tr("Fixed (user range)"), int(RangeMode::FixedUser));
     m_rangeModeRow = new QWidget(box);
     {
         auto *l = new QHBoxLayout(m_rangeModeRow);
@@ -216,7 +221,7 @@ void ClassificationEditor::buildUi()
 
     // Class table.
     m_tableModel = new QStandardItemModel(0, 4, box);
-    m_tableModel->setHorizontalHeaderLabels({ tr("Lower"), tr("Upper"), tr("Colour"), tr("Label") });
+    m_tableModel->setHorizontalHeaderLabels({tr("Lower"), tr("Upper"), tr("Colour"), tr("Label")});
     m_table = new QTableView(box);
     m_table->setModel(m_tableModel);
     m_table->verticalHeader()->setVisible(false);
@@ -238,38 +243,38 @@ void ClassificationEditor::buildUi()
     m_status->setTextFormat(Qt::PlainText);
     form->addRow(m_status);
 
-    connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClassificationEditor::onModeChanged);
-    connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClassificationEditor::onAttributeChanged);
-    connect(m_rampCombo, &ColorRampComboBox::rampChanged,
-            this, &ClassificationEditor::onRampChanged);
+    connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClassificationEditor::onModeChanged);
+    connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClassificationEditor::onAttributeChanged);
+    connect(m_rampCombo, &ColorRampComboBox::rampChanged, this,
+            &ClassificationEditor::onRampChanged);
     connect(m_invertCheck, &QCheckBox::toggled, this, &ClassificationEditor::onInvertToggled);
-    connect(m_methodCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClassificationEditor::onMethodChanged);
-    connect(m_countSpin, qOverload<int>(&QSpinBox::valueChanged),
-            this, &ClassificationEditor::onClassCountChanged);
-    connect(m_rangeModeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClassificationEditor::onRangeModeChanged);
-    connect(m_customRangeCheck, &QCheckBox::toggled,
-            this, &ClassificationEditor::onCustomRangeToggled);
-    connect(m_rangeMinSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, &ClassificationEditor::onCustomRangeEdited);
-    connect(m_rangeMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, &ClassificationEditor::onCustomRangeEdited);
-    connect(m_labelFormatCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &ClassificationEditor::onLabelFormatChanged);
-    connect(m_labelPrecisionSpin, qOverload<int>(&QSpinBox::valueChanged),
-            this, &ClassificationEditor::onLabelPrecisionChanged);
+    connect(m_methodCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClassificationEditor::onMethodChanged);
+    connect(m_countSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+            &ClassificationEditor::onClassCountChanged);
+    connect(m_rangeModeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClassificationEditor::onRangeModeChanged);
+    connect(m_customRangeCheck, &QCheckBox::toggled, this,
+            &ClassificationEditor::onCustomRangeToggled);
+    connect(m_rangeMinSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            &ClassificationEditor::onCustomRangeEdited);
+    connect(m_rangeMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            &ClassificationEditor::onCustomRangeEdited);
+    connect(m_labelFormatCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ClassificationEditor::onLabelFormatChanged);
+    connect(m_labelPrecisionSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+            &ClassificationEditor::onLabelPrecisionChanged);
     connect(m_autoBtn, &QToolButton::clicked, this, &ClassificationEditor::onAutoClassify);
-    connect(m_tableModel, &QStandardItemModel::itemChanged,
-            this, &ClassificationEditor::onTableItemChanged);
+    connect(m_tableModel, &QStandardItemModel::itemChanged, this,
+            &ClassificationEditor::onTableItemChanged);
 }
 
-template <class Fn>
-void ClassificationEditor::mutateScheme(Fn fn)
+template <class Fn> void ClassificationEditor::mutateScheme(Fn fn)
 {
-    if (m_suppress || !m_binding) return;
+    if (m_suppress || !m_binding)
+        return;
     ClassificationScheme s = m_binding->scheme();
     fn(s);
     const auto [lo, hi] = m_binding->dataRange();
@@ -279,14 +284,17 @@ void ClassificationEditor::mutateScheme(Fn fn)
         return;
     }
     const bool changed = !(s == m_binding->scheme());
-    if (changed) m_binding->setScheme(s);
+    if (changed)
+        m_binding->setScheme(s);
     rebuildTable();
-    if (changed) emit edited();
+    if (changed)
+        emit edited();
 }
 
 void ClassificationEditor::refresh()
 {
-    if (!m_binding) return;
+    if (!m_binding)
+        return;
     m_suppress = true;
     m_breakError.clear();
     m_rangeError.clear();
@@ -296,9 +304,9 @@ void ClassificationEditor::refresh()
 
     {
         QSignalBlocker b(m_modeCombo);
-        m_modeCombo->setCurrentIndex(
-            s.mode() == ClassificationScheme::ClassMode::Continuous ? kModeContinuous
-                                                                    : kModeClassified);
+        m_modeCombo->setCurrentIndex(s.mode() == ClassificationScheme::ClassMode::Continuous
+                                         ? kModeContinuous
+                                         : kModeClassified);
     }
 
     // Attribute combo.
@@ -311,7 +319,10 @@ void ClassificationEditor::refresh()
         const QString cur = m_binding->attribute();
         int idx = -1;
         for (int i = 0; i < m_attrCombo->count(); ++i)
-            if (m_attrCombo->itemData(i).toString() == cur) { idx = i; break; }
+            if (m_attrCombo->itemData(i).toString() == cur) {
+                idx = i;
+                break;
+            }
         if (idx < 0 && !cur.isEmpty()) {
             m_attrCombo->insertItem(0, cur, cur);
             idx = 0;
@@ -357,8 +368,7 @@ void ClassificationEditor::refresh()
     {
         QSignalBlocker bf(m_labelFormatCombo);
         QSignalBlocker bp(m_labelPrecisionSpin);
-        m_labelFormatCombo->setCurrentIndex(
-            m_labelFormatCombo->findData(int(s.labelFormat())));
+        m_labelFormatCombo->setCurrentIndex(m_labelFormatCombo->findData(int(s.labelFormat())));
         m_labelPrecisionSpin->setValue(s.labelPrecision());
     }
 
@@ -369,7 +379,8 @@ void ClassificationEditor::refresh()
 
 void ClassificationEditor::applyVisibility()
 {
-    if (!m_binding) return;
+    if (!m_binding)
+        return;
     const ClassificationScheme s = m_binding->scheme();
     const bool classified = (s.mode() == ClassificationScheme::ClassMode::Classified);
 
@@ -384,7 +395,8 @@ void ClassificationEditor::applyVisibility()
     m_autoBtn->setVisible(classified);
     m_table->setVisible(classified);
     // Label number format applies to the (classified) table + legend rows.
-    if (m_labelFormatRow) m_labelFormatRow->setVisible(classified);
+    if (m_labelFormatRow)
+        m_labelFormatRow->setVisible(classified);
 
     // Range idioms are mutually exclusive: range-mode combo wins.
     const bool rangeModes = m_binding->supportsRangeModes();
@@ -413,7 +425,8 @@ void ClassificationEditor::applyVisibility()
 
 void ClassificationEditor::rebuildTable()
 {
-    if (!m_binding) return;
+    if (!m_binding)
+        return;
     const bool prevSuppress = m_suppress;
     m_suppress = true;
     m_tableModel->setRowCount(0);
@@ -435,7 +448,7 @@ void ClassificationEditor::rebuildTable()
     const int n = edges.size() >= 2 ? edges.size() - 1 : s.classCount();
 
     for (int i = 0; i < n; ++i) {
-        const double lower = edges.size() >= 2 ? edges[i]     : lo;
+        const double lower = edges.size() >= 2 ? edges[i] : lo;
         const double upper = edges.size() >= 2 ? edges[i + 1] : hi;
 
         auto *lowerItem = new QStandardItem(s.formatValue(lower));
@@ -450,7 +463,7 @@ void ClassificationEditor::rebuildTable()
         const QString lbl = s.labelOverride(i);
         auto *labelItem = new QStandardItem(lbl.isEmpty() ? tr("Class %1").arg(i + 1) : lbl);
         labelItem->setEditable(true);
-        m_tableModel->appendRow({ lowerItem, upperItem, colorItem, labelItem });
+        m_tableModel->appendRow({lowerItem, upperItem, colorItem, labelItem});
     }
     m_suppress = prevSuppress;
     updateStatus();
@@ -458,38 +471,50 @@ void ClassificationEditor::rebuildTable()
 
 bool ClassificationEditor::hasValidDraft() const
 {
-    if (!isEnabled()) return true;
-    if (!m_breakError.isEmpty() || !m_rangeError.isEmpty() || !m_schemeError.isEmpty()) return false;
-    if (!m_binding) return true;
+    if (!isEnabled())
+        return true;
+    if (!m_breakError.isEmpty() || !m_rangeError.isEmpty() || !m_schemeError.isEmpty())
+        return false;
+    if (!m_binding)
+        return true;
     const auto [lo, hi] = m_binding->dataRange();
     return m_binding->scheme().validationError(lo, hi).isEmpty();
 }
 
 void ClassificationEditor::updateStatus()
 {
-    if (!m_status || !m_binding) return;
-    QString message = !m_breakError.isEmpty() ? m_breakError
-        : !m_rangeError.isEmpty() ? m_rangeError : m_schemeError;
+    if (!m_status || !m_binding)
+        return;
+    QString message = !m_breakError.isEmpty()   ? m_breakError
+                      : !m_rangeError.isEmpty() ? m_rangeError
+                                                : m_schemeError;
     const auto s = m_binding->scheme();
     const auto [dataMin, dataMax] = m_binding->dataRange();
-    if (message.isEmpty()) message = s.validationError(dataMin, dataMax);
+    if (message.isEmpty())
+        message = s.validationError(dataMin, dataMax);
     const bool error = !message.isEmpty();
     if (!error) {
         const auto [lo, hi] = s.effectiveRange(dataMin, dataMax);
-        if (lo == hi) message = tr("The available data is constant; there are no distinct class boundaries.");
-        else if (s.method() == BinMethod::Quantile || s.method() == BinMethod::NaturalBreaks || s.method() == BinMethod::StdDev) {
+        if (lo == hi)
+            message = tr("The available data is constant; there are no distinct class boundaries.");
+        else if (s.method() == BinMethod::Quantile || s.method() == BinMethod::NaturalBreaks ||
+                 s.method() == BinMethod::StdDev) {
             const auto samples = m_binding->sampleValues();
             const bool any = std::any_of(samples.cbegin(), samples.cend(), [lo, hi](double v) {
                 return std::isfinite(v) && v >= lo && v <= hi;
             });
-            if (!any) message = tr("No finite samples are available in this range. Class boundaries currently use the range endpoints; refresh when samples are available.");
+            if (!any)
+                message = tr(
+                    "No finite samples are available in this range. Class boundaries currently use the range endpoints; refresh when samples are available.");
         }
-        if (message.isEmpty() && !s.hasCustomRamp() && !s.rampName().isEmpty()
-            && !RasterColorRamp::isBuiltin(s.rampName()))
-            message = tr("The named colour ramp is unavailable; the current preview uses the grayscale fallback. Select an available ramp or import its definition.");
+        if (message.isEmpty() && !s.hasCustomRamp() && !s.rampName().isEmpty() &&
+            !RasterColorRamp::isBuiltin(s.rampName()))
+            message = tr(
+                "The named colour ramp is unavailable; the current preview uses the grayscale fallback. Select an available ramp or import its definition.");
     }
     m_status->setEnabled(true);
-    m_status->setStyleSheet(error ? theme::errorTextStyle() : QStringLiteral("color: palette(text);"));
+    m_status->setStyleSheet(error ? theme::errorTextStyle()
+                                  : QStringLiteral("color: palette(text);"));
     m_status->setText(message);
     m_status->setVisible(!message.isEmpty());
 }
@@ -507,7 +532,8 @@ void ClassificationEditor::onModeChanged()
 
 void ClassificationEditor::onAttributeChanged(int row)
 {
-    if (m_suppress || !m_binding) return;
+    if (m_suppress || !m_binding)
+        return;
     const QString name = m_attrCombo->itemData(row).toString();
     m_binding->setAttribute(name);
     refresh();
@@ -537,7 +563,8 @@ void ClassificationEditor::onInvertToggled(bool on)
 void ClassificationEditor::onMethodChanged(int row)
 {
     const auto method = static_cast<BinMethod>(m_methodCombo->itemData(row).toInt());
-    if (method != BinMethod::Manual) m_breakError.clear();
+    if (method != BinMethod::Manual)
+        m_breakError.clear();
     mutateScheme([&](ClassificationScheme &s) {
         // Switching to Manual seeds editable breaks from the current edges so
         // the user tweaks a sensible starting point rather than an empty set.
@@ -561,7 +588,8 @@ void ClassificationEditor::onClassCountChanged(int n)
 void ClassificationEditor::onRangeModeChanged(int row)
 {
     const auto mode = static_cast<RangeMode>(m_rangeModeCombo->itemData(row).toInt());
-    if (mode != RangeMode::FixedUser) m_rangeError.clear();
+    if (mode != RangeMode::FixedUser)
+        m_rangeError.clear();
     mutateScheme([&](ClassificationScheme &s) {
         s.setRangeMode(mode);
         s.setUseCustomRange(mode == RangeMode::FixedUser);
@@ -575,7 +603,8 @@ void ClassificationEditor::onRangeModeChanged(int row)
 
 void ClassificationEditor::onCustomRangeToggled(bool on)
 {
-    if (!on) m_rangeError.clear();
+    if (!on)
+        m_rangeError.clear();
     mutateScheme([&](ClassificationScheme &s) {
         s.setUseCustomRange(on);
         if (on) {
@@ -588,8 +617,10 @@ void ClassificationEditor::onCustomRangeToggled(bool on)
 
 void ClassificationEditor::onCustomRangeEdited()
 {
-    if (m_suppress) return;
-    if (!m_binding) return;
+    if (m_suppress)
+        return;
+    if (!m_binding)
+        return;
     const double mn = OpenSWMM::Ui::preciseValue(m_rangeMinSpin);
     const double mx = OpenSWMM::Ui::preciseValue(m_rangeMaxSpin);
     auto candidate = m_binding->scheme();
@@ -598,7 +629,10 @@ void ClassificationEditor::onCustomRangeEdited()
     candidate.setRangeMax(mx);
     const auto [lo, hi] = m_binding->dataRange();
     m_rangeError = candidate.validationError(lo, hi);
-    if (!m_rangeError.isEmpty()) { updateStatus(); return; }
+    if (!m_rangeError.isEmpty()) {
+        updateStatus();
+        return;
+    }
     mutateScheme([&](ClassificationScheme &s) {
         s.setRangeMin(mn);
         s.setRangeMax(mx);
@@ -611,8 +645,8 @@ void ClassificationEditor::onCustomRangeEdited()
 
 void ClassificationEditor::onLabelFormatChanged(int row)
 {
-    const auto fmt = static_cast<ClassificationScheme::LabelFormat>(
-        m_labelFormatCombo->itemData(row).toInt());
+    const auto fmt =
+        static_cast<ClassificationScheme::LabelFormat>(m_labelFormatCombo->itemData(row).toInt());
     mutateScheme([&](ClassificationScheme &s) { s.setLabelFormat(fmt); });
 }
 
@@ -623,7 +657,8 @@ void ClassificationEditor::onLabelPrecisionChanged(int digits)
 
 void ClassificationEditor::onAutoClassify()
 {
-    if (m_suppress || !m_binding || !hasValidDraft()) return;
+    if (m_suppress || !m_binding || !hasValidDraft())
+        return;
     m_binding->autoClassify();
     rebuildTable();
     emit edited();
@@ -631,7 +666,8 @@ void ClassificationEditor::onAutoClassify()
 
 void ClassificationEditor::onTableItemChanged(QStandardItem *item)
 {
-    if (m_suppress || !item || !m_binding) return;
+    if (m_suppress || !item || !m_binding)
+        return;
 
     if (item->column() == 1) {
         // Upper-bound edited → switch to Manual with the table's interior
@@ -648,7 +684,9 @@ void ClassificationEditor::onTableItemChanged(QStandardItem *item)
             if (upper->text() == upper->data(Qt::UserRole + 1).toString())
                 v = upper->data(Qt::UserRole).toDouble(&ok);
             if (!ok || !std::isfinite(v) || !(v > previous && v < hi)) {
-                m_breakError = tr("Class break %1 must be a finite number greater than the previous bound and less than the range maximum.").arg(i + 1);
+                m_breakError =
+                    tr("Class break %1 must be a finite number greater than the previous bound and less than the range maximum.")
+                        .arg(i + 1);
                 updateStatus();
                 return;
             }

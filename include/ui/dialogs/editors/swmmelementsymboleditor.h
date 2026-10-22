@@ -1,14 +1,16 @@
-/*!
- * \file   swmmelementsymboleditor.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  GIS-style editor for SwmmElementSymbolAdapter (Slice U-V3).
+/**
+ * @file      swmmelementsymboleditor.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     GIS-style editor for SwmmElementSymbolAdapter (Slice U-V3).
  *
  *         Wraps the live SwmmElementSymbolAdapter Q_PROPERTYs with
  *         familiar QGIS controls: colour buttons + swatches, marker
  *         shape combo, dash combo for flow arrows, live preview swatch.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_SWMMELEMENTSYMBOLEDITOR_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_SWMMELEMENTSYMBOLEDITOR_H
 
@@ -21,7 +23,8 @@ class QLineEdit;
 
 class SwmmElementSymbolAdapter;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ColorButton;
 class StylePreviewSwatch;
@@ -30,8 +33,7 @@ class SwmmElementSymbolEditor : public IStyleEditorWidget
 {
     Q_OBJECT
 public:
-    explicit SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapter,
-                                      QWidget *parent = nullptr);
+    explicit SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapter, QWidget *parent = nullptr);
 
     void refreshFromModel() override;
 
@@ -41,22 +43,22 @@ private:
     SwmmElementSymbolAdapter *m_adapter = nullptr;
 
     // Fill / outline / size
-    ColorButton    *m_fillBtn    = nullptr;
-    ColorButton    *m_outlineBtn = nullptr;
+    ColorButton *m_fillBtn = nullptr;
+    ColorButton *m_outlineBtn = nullptr;
     QDoubleSpinBox *m_outlineWSpin = nullptr;
-    QDoubleSpinBox *m_sizeSpin   = nullptr;
+    QDoubleSpinBox *m_sizeSpin = nullptr;
 
     // Labels
-    QCheckBox     *m_showLabelBox = nullptr;
+    QCheckBox *m_showLabelBox = nullptr;
     QFontComboBox *m_labelFontCombo = nullptr;
-    ColorButton   *m_labelColorBtn  = nullptr;
+    ColorButton *m_labelColorBtn = nullptr;
 
     // Flow arrows
-    QCheckBox      *m_showArrowsBox  = nullptr;
-    QDoubleSpinBox *m_arrowSizeSpin  = nullptr;   ///< length ALONG the link
-    QDoubleSpinBox *m_arrowWidSpin   = nullptr;   ///< width ACROSS the link
-    ColorButton    *m_arrowColorBtn  = nullptr;
-    QCheckBox      *m_arrowsFlowPosBox = nullptr;
+    QCheckBox *m_showArrowsBox = nullptr;
+    QDoubleSpinBox *m_arrowSizeSpin = nullptr; ///< length ALONG the link
+    QDoubleSpinBox *m_arrowWidSpin = nullptr;  ///< width ACROSS the link
+    ColorButton *m_arrowColorBtn = nullptr;
+    QCheckBox *m_arrowsFlowPosBox = nullptr;
 
     StylePreviewSwatch *m_preview = nullptr;
 };

@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      test_channelburndialog.cpp
+ * @brief     Tests for channelburndialog.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/dialogs/channelburndialog.h"
 #include "core/unitsystem.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -35,9 +45,9 @@ class TestChannelBurnDialog : public QObject
     Q_OBJECT
     static QString outputTemplate()
     {
-        const QString root=QDir::current().filePath("tests/output/channel_burn_progress");
+        const QString root = QDir::current().filePath("tests/output/channel_burn_progress");
         QDir().mkpath(root);
-        return root+"/run-XXXXXX";
+        return root + "/run-XXXXXX";
     }
     QTemporaryDir directory{outputTemplate()};
     OpenSWMMVisWorkspace *workspace = nullptr;
@@ -49,59 +59,75 @@ private slots:
     void workerProgressAndLateUpdatesRespectCancellation()
     {
         QPromise<ChannelBurnDialog::Result> promise;
-        promise.start(); promise.setProgressRange(0,100);
+        promise.start();
+        promise.setProgressRange(0, 100);
         ChannelBurnDialog dialog(window);
         dialog.beginGuard();
-        dialog.m_cancelled=std::make_shared<std::atomic_bool>(false);
+        dialog.m_cancelled = std::make_shared<std::atomic_bool>(false);
         dialog.setBusy(true);
         dialog.m_watcher.setFuture(promise.future());
-        auto worker=QtConcurrent::run([&promise] {
-            promise.setProgressValueAndText(42,QStringLiteral("Stitching channel cavity…"));
+        auto worker = QtConcurrent::run([&promise] {
+            promise.setProgressValueAndText(42, QStringLiteral("Stitching channel cavity…"));
         });
         worker.waitForFinished();
-        auto *bar=dialog.findChild<QProgressBar *>("channelBurnProgress");
-        QTRY_COMPARE(bar->value(),42);
-        QTRY_COMPARE(dialog.m_status->text(),QString("Stitching channel cavity…"));
+        auto *bar = dialog.findChild<QProgressBar *>("channelBurnProgress");
+        QTRY_COMPARE(bar->value(), 42);
+        QTRY_COMPARE(dialog.m_status->text(), QString("Stitching channel cavity…"));
         dialog.show();
         dialog.grab().save(directory.filePath("progress-running.png"));
         dialog.cancelBurn();
-        promise.setProgressValueAndText(95,QStringLiteral("Late worker update"));
+        promise.setProgressValueAndText(95, QStringLiteral("Late worker update"));
         QCoreApplication::processEvents();
-        QCOMPARE(bar->value(),42); QCOMPARE(bar->format(),QString("Stopping…"));
+        QCOMPARE(bar->value(), 42);
+        QCOMPARE(bar->format(), QString("Stopping…"));
         QVERIFY(dialog.m_status->text().contains("Stopping"));
-        promise.addResult(ChannelBurnDialog::Result{}); promise.finish();
+        promise.addResult(ChannelBurnDialog::Result{});
+        promise.finish();
         QTRY_VERIFY(!dialog.m_busy);
-        QCOMPARE(bar->format(),QString("Cancelled")); QVERIFY(bar->value()<100);
+        QCOMPARE(bar->format(), QString("Cancelled"));
+        QVERIFY(bar->value() < 100);
         dialog.m_watcher.progressValueChanged(100);
         dialog.m_watcher.progressTextChanged(QStringLiteral("Stale update"));
-        QCOMPARE(bar->format(),QString("Cancelled")); QVERIFY(bar->value()<100);
+        QCOMPARE(bar->format(), QString("Cancelled"));
+        QVERIFY(bar->value() < 100);
         QVERIFY(dialog.m_status->text().contains("cancelled"));
-        QCOMPARE(window->canvas()->undoStack()->count(),0);
+        QCOMPARE(window->canvas()->undoStack()->count(), 0);
     }
     void progressTracksSuccessAndFailureRetry()
     {
         ChannelBurnDialog dialog(window);
-        auto *bar=dialog.findChild<QProgressBar *>("channelBurnProgress");
-        QVERIFY(bar); QVERIFY(bar->isHidden()); QVERIFY(!bar->accessibleName().isEmpty());
+        auto *bar = dialog.findChild<QProgressBar *>("channelBurnProgress");
+        QVERIFY(bar);
+        QVERIFY(bar->isHidden());
+        QVERIFY(!bar->accessibleName().isEmpty());
         dialog.m_maxCells->setValue(1); // Force a real worker failure.
         dialog.startBurn();
-        QVERIFY(!bar->isHidden()); QCOMPARE(bar->maximum(),100); QCOMPARE(bar->value(),0);
-        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy,30000);
-        QVERIFY(bar->value()<100); QCOMPARE(bar->format(),QString("Failed"));
-        QVERIFY(!errors.isEmpty()); errors.clear();
+        QVERIFY(!bar->isHidden());
+        QCOMPARE(bar->maximum(), 100);
+        QCOMPARE(bar->value(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy, 30000);
+        QVERIFY(bar->value() < 100);
+        QCOMPARE(bar->format(), QString("Failed"));
+        QVERIFY(!errors.isEmpty());
+        errors.clear();
         dialog.m_maxCells->setValue(2000000);
-        QSignalSpy updates(bar,&QProgressBar::valueChanged);
+        QSignalSpy updates(bar, &QProgressBar::valueChanged);
         dialog.startBurn();
-        QCOMPARE(bar->value(),0); QCOMPARE(bar->format(),QString("%p%"));
-        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy,30000);
-        QVERIFY2(errors.isEmpty(),qPrintable(errors.join('\n')));
-        QVERIFY(!updates.isEmpty()); QCOMPARE(bar->value(),100);
-        bool applyFeedback=false;
-        for(const auto &update:updates) {const int v=update.at(0).toInt(); applyFeedback|=v>95&&v<100;}
-        QVERIFY2(applyFeedback,"the apply phase should move the bar between 95 and 100");
-        QCOMPARE(bar->format(),QString("Complete — %p%"));
+        QCOMPARE(bar->value(), 0);
+        QCOMPARE(bar->format(), QString("%p%"));
+        QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy, 30000);
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
+        QVERIFY(!updates.isEmpty());
+        QCOMPARE(bar->value(), 100);
+        bool applyFeedback = false;
+        for (const auto &update : updates) {
+            const int v = update.at(0).toInt();
+            applyFeedback |= v > 95 && v < 100;
+        }
+        QVERIFY2(applyFeedback, "the apply phase should move the bar between 95 and 100");
+        QCOMPARE(bar->format(), QString("Complete — %p%"));
         QCoreApplication::processEvents(); // Late queued progress cannot undo completion.
-        QCOMPARE(bar->value(),100);
+        QCOMPARE(bar->value(), 100);
         dialog.show();
         dialog.grab().save(directory.filePath("progress-complete.png"));
     }
@@ -114,7 +140,8 @@ private slots:
         int p = -1, pd = -1;
         QVERIFY(model->applyNodeAdd("P", SWMM_NODE_JUNCTION, 24, 30, &p));
         QVERIFY(model->applyLinkAdd("PD", SWMM_LINK_CONDUIT, "P", "D", {}, &pd));
-        QVERIFY(model->applyLinkXsect(pd, SWMM_XSECT_CIRCULAR, 1, 0, 0, 0)); // closed: not a burn candidate
+        QVERIFY(model->applyLinkXsect(pd, SWMM_XSECT_CIRCULAR, 1, 0, 0,
+                                      0)); // closed: not a burn candidate
         ChannelBurnDialog dialog(window);
         dialog.m_connectorLength->setValue(2);
         dialog.startBurn();
@@ -132,9 +159,11 @@ private slots:
             int from = -1, to = -1;
             swmm_link_get_from_node(engine, i, &from);
             swmm_link_get_to_node(engine, i, &to);
-            if (from == d || to == d) ++linksAtD;
+            if (from == d || to == d)
+                ++linksAtD;
             const QString id = QString::fromUtf8(swmm_link_id(engine, i));
-            if (to == d && id != "PD") connector = i;
+            if (to == d && id != "PD")
+                connector = i;
         }
         QCOMPARE(linksAtD, 3); // DE, PD and the connector
         QVERIFY(connector >= 0);
@@ -158,7 +187,8 @@ private slots:
             int from = -1, to = -1;
             swmm_link_get_from_node(engine, i, &from);
             swmm_link_get_to_node(engine, i, &to);
-            if (from == outfall || to == outfall) ++linksAtOutfall;
+            if (from == outfall || to == outfall)
+                ++linksAtOutfall;
         }
         QCOMPARE(linksAtOutfall, 1); // an outfall carries one link
         window->canvas()->undoStack()->undo();
@@ -193,20 +223,28 @@ private slots:
         window = new SWMMVisProjectWindow(workspace, path, nullptr);
         QList<QString> warnings, loadErrors;
         QVERIFY2(window->loadModel(warnings, loadErrors), qPrintable(loadErrors.join('\n')));
-        window->modelLayer()->setSRS(new SpatialReferenceSystem("EPSG", 3857, window->modelLayer()), true);
+        window->modelLayer()->setSRS(new SpatialReferenceSystem("EPSG", 3857, window->modelLayer()),
+                                     true);
         mesh::MeshResult grid;
         grid.ok = true;
-        for (int y = 0; y <= 20; ++y) for (int x = 0; x <= 20; ++x)
-            grid.vertices.append({{double(x * 2), double(y * 2)}, 10});
-        for (int y = 0; y < 20; ++y) for (int x = 0; x < 20; ++x) {
-            int a = y * 21 + x;
-            mesh::MeshCell cell;
-            cell.v0 = a; cell.v1 = a + 1; cell.v2 = a + 22;
-            cell.mannings = .04; cell.initDepth = 0; cell.tag = "soil";
-            grid.triangles.append(cell);
-            cell.v1 = a + 22; cell.v2 = a + 21;
-            grid.triangles.append(cell);
-        }
+        for (int y = 0; y <= 20; ++y)
+            for (int x = 0; x <= 20; ++x)
+                grid.vertices.append({{double(x * 2), double(y * 2)}, 10});
+        for (int y = 0; y < 20; ++y)
+            for (int x = 0; x < 20; ++x) {
+                int a = y * 21 + x;
+                mesh::MeshCell cell;
+                cell.v0 = a;
+                cell.v1 = a + 1;
+                cell.v2 = a + 22;
+                cell.mannings = .04;
+                cell.initDepth = 0;
+                cell.tag = "soil";
+                grid.triangles.append(cell);
+                cell.v1 = a + 22;
+                cell.v2 = a + 21;
+                grid.triangles.append(cell);
+            }
         old = new SWMM2DMeshLayer(std::move(grid), path);
         old->setMeshUnitsSI(true);
         old->setSRS(new SpatialReferenceSystem("EPSG", 3857, old), true);
@@ -223,8 +261,10 @@ private slots:
     }
     void cleanup()
     {
-        delete window; window = nullptr;
-        delete workspace; workspace = nullptr;
+        delete window;
+        window = nullptr;
+        delete workspace;
+        workspace = nullptr;
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
     void lengthsConvertedOnceAndSettingsStayInModelUnits()
@@ -241,8 +281,9 @@ private slots:
         dialog.startBurn();
         dialog.cancelBurn();
         QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy, 30000);
-        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->format(),QString("Cancelled"));
-        QVERIFY(dialog.findChild<QProgressBar *>("channelBurnProgress")->value()<100);
+        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->format(),
+                 QString("Cancelled"));
+        QVERIFY(dialog.findChild<QProgressBar *>("channelBurnProgress")->value() < 100);
         QCoreApplication::processEvents();
         QVERIFY(dialog.m_status->text().contains("cancelled"));
         QCOMPARE(window->channelBurnSettings().options.channelCellSize, 10.0);
@@ -294,7 +335,8 @@ private slots:
         settings.exportDirectory = "terrain";
         settings.exportRasterZToSI = .3048;
         settings.maxMeshCells = 123456;
-        const auto restored = ProjectSerializer::channelBurnFromJson(ProjectSerializer::channelBurnToJson(settings));
+        const auto restored =
+            ProjectSerializer::channelBurnFromJson(ProjectSerializer::channelBurnToJson(settings));
         QCOMPARE(restored.options.channelAspectMax, 6.0);
         QVERIFY(restored.exportRaster);
         QCOMPARE(restored.exportDemPath, settings.exportDemPath);
@@ -344,13 +386,17 @@ private slots:
             mesh::InpMeshWriter::UnitInfo units;
             units.linearUnitName = "SI (m)";
             QVERIFY2(mesh::InpMeshWriter::write(mesh::MeshOutputMode::External,
-                window->modelLayer()->modelFilePath(), external, old->mesh(), {}, .035, &why, units), qPrintable(why));
+                                                window->modelLayer()->modelFilePath(), external,
+                                                old->mesh(), {}, .035, &why, units),
+                     qPrintable(why));
             old->setSourcePath(external);
             old->setExternalMesh(true);
             if (mode >= 2) {
-                auto artifacts = GeneratedMeshArtifacts::create(window->modelLayer()->modelFilePath(), &why);
+                auto artifacts =
+                    GeneratedMeshArtifacts::create(window->modelLayer()->modelFilePath(), &why);
                 QVERIFY2(artifacts, qPrintable(why));
-                const auto stage = artifacts->reserve(external, "mesh.2dm", &why, ProjectSaveOutputs::Mesh);
+                const auto stage =
+                    artifacts->reserve(external, "mesh.2dm", &why, ProjectSaveOutputs::Mesh);
                 QVERIFY2(!stage.isEmpty(), qPrintable(why));
                 QVERIFY2(artifacts->copySource(external, stage, &why), qPrintable(why));
                 QVERIFY2(artifacts->seal(&why), qPrintable(why));
@@ -362,7 +408,9 @@ private slots:
         QVERIFY(!dialog.m_exportRaster->isChecked());
         if (mode == 3) {
             dialog.m_exportRaster->setChecked(true);
-            dialog.m_demPath->setText(QFileInfo(QStringLiteral(CHANNEL_BURN_FIXTURE)).absoluteDir().filePath("terrain.asc"));
+            dialog.m_demPath->setText(QFileInfo(QStringLiteral(CHANNEL_BURN_FIXTURE))
+                                          .absoluteDir()
+                                          .filePath("terrain.asc"));
             dialog.m_outputDirectory->setText(directory.filePath("raster"));
             dialog.show();
             QTest::qWait(20);
@@ -377,7 +425,8 @@ private slots:
         const QByteArray modelBeforeBurn = readFile(modelPath);
         const QByteArray externalBeforeBurn = mode ? readFile(externalPath) : QByteArray{};
         QVERIFY(!modelBeforeBurn.isEmpty());
-        if (mode) QVERIFY(!externalBeforeBurn.isEmpty());
+        if (mode)
+            QVERIFY(!externalBeforeBurn.isEmpty());
         dialog.startBurn();
         QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy, 30000);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
@@ -386,23 +435,28 @@ private slots:
         QVERIFY(!window->canvas()->layers().contains(old));
         SWMM2DMeshLayer *burned = nullptr;
         for (auto *layer : window->canvas()->layers())
-            if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer); mesh && mesh->isActiveMesh()) burned = mesh;
+            if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer); mesh && mesh->isActiveMesh())
+                burned = mesh;
         QVERIFY(burned);
         QVERIFY(burned != old);
         QCOMPARE(burned->name(), old->name());
         QCOMPARE(burned->opacity(), old->opacity());
         QCOMPARE(burned->showEdges(), old->showEdges());
         QVERIFY(burned->ownsGeneratedTopology());
-        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->value(),100);
-        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->format(),QString("Complete — %p%"));
+        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->value(), 100);
+        QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->format(),
+                 QString("Complete — %p%"));
         const int burnedCells = burned->triangleCount();
         QVERIFY(swmm_link_index(window->modelLayer()->engine(), "AB") >= 0);
         QVERIFY(swmm_link_index(window->modelLayer()->engine(), "XY") >= 0);
         QVERIFY(swmm_node_index(window->modelLayer()->engine(), "C") < 0);
-        QVERIFY(swmm_link_index(window->modelLayer()->engine(), "BC") >= 0); // Outside interval survives.
-        QVERIFY(swmm_link_index(window->modelLayer()->engine(), "CD") < 0); // Entirely replaced inside the mesh.
+        QVERIFY(swmm_link_index(window->modelLayer()->engine(), "BC") >=
+                0); // Outside interval survives.
+        QVERIFY(swmm_link_index(window->modelLayer()->engine(), "CD") <
+                0); // Entirely replaced inside the mesh.
         QCOMPARE(readFile(modelPath), modelBeforeBurn);
-        if (mode) QCOMPARE(readFile(externalPath), externalBeforeBurn);
+        if (mode)
+            QCOMPARE(readFile(externalPath), externalBeforeBurn);
         stack->undo();
         QVERIFY(window->canvas()->layers().contains(old));
         QVERIFY(old->isActiveMesh());
@@ -417,7 +471,10 @@ private slots:
         QVERIFY(!window->canvas()->layers().contains(old));
         QVERIFY(window->canvas()->layers().contains(burned));
         QCOMPARE(burned->triangleCount(), burnedCells);
-        if (mode == 3) { QTest::qWait(20); dialog.grab().save("/tmp/channelburn-result.png"); }
+        if (mode == 3) {
+            QTest::qWait(20);
+            dialog.grab().save("/tmp/channelburn-result.png");
+        }
         QString error;
         const auto saved = directory.filePath("burned.inp");
         QVERIFY2(window->saveAs(saved, &error), qPrintable(error));

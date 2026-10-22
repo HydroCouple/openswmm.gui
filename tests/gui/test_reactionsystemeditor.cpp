@@ -1,8 +1,8 @@
-/*!
- * \file test_reactionsystemeditor.cpp
- * \brief G-B2/G-C1 — the Reaction System editor, driven through its widgets.
+/**
+ * @file      test_reactionsystemeditor.cpp
+ * @brief     G-B2/G-C1 — the Reaction System editor, driven through its widgets.
  *
- * \details Dependency-light (Qt Widgets + the swmm_reaction_* /
+ * @details Dependency-light (Qt Widgets + the swmm_reaction_* /
  *          swmm_process_component_* ABI), constructed against a synthetic
  *          BUILDING engine — the WaterAgeSourcesDialog contract.
  *
@@ -19,6 +19,10 @@
  *          5. Per-element initial rows commit; species removal refusal
  *             (still referenced) reports rather than corrupting.
  *          6. Sources opens whole-file editing and preserves the extended sections.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/reactionsystemeditordialog.h"
@@ -39,7 +43,8 @@
 
 using OpenSWMMVis::ReactionSystemEditorDialog;
 
-namespace {
+namespace
+{
 
 SWMM_Engine makeEngine()
 {
@@ -52,8 +57,7 @@ SWMM_Engine makeEngine()
     return e;
 }
 
-template <typename T>
-T *child(ReactionSystemEditorDialog &dlg, const char *name)
+template <typename T> T *child(ReactionSystemEditorDialog &dlg, const char *name)
 {
     return dlg.findChild<T *>(QLatin1String(name));
 }
@@ -92,15 +96,13 @@ void TestReactionSystemEditor::structuredCrudReachesEngine()
     ReactionSystemEditorDialog dlg(e, nullptr);
 
     // Species add.
-    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(
-        QStringLiteral("HOCL"));
+    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(QStringLiteral("HOCL"));
     child<QPushButton>(dlg, "rx_addSpeciesBtn")->click();
     QCOMPARE(swmm_reaction_species_count(e), 1);
     QCOMPARE(child<QTableWidget>(dlg, "rx_speciesTable")->rowCount(), 1);
 
     // Duplicate refused, with a status message.
-    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(
-        QStringLiteral("HOCL"));
+    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(QStringLiteral("HOCL"));
     child<QPushButton>(dlg, "rx_addSpeciesBtn")->click();
     QCOMPARE(swmm_reaction_species_count(e), 1);
     QVERIFY(!child<QLabel>(dlg, "rx_status")->text().isEmpty());
@@ -115,12 +117,11 @@ void TestReactionSystemEditor::structuredCrudReachesEngine()
 
     // Expression through the table (row 0 = HOCL/Pipes, column 3).
     auto *exprTable = child<QTableWidget>(dlg, "rx_exprTable");
-    QCOMPARE(exprTable->rowCount(), 2);            // 1 species x 2 scopes
+    QCOMPARE(exprTable->rowCount(), 2); // 1 species x 2 scopes
     exprTable->item(0, 3)->setText(QStringLiteral("-0.1 * HOCL"));
     int form = -1;
     char expr[256];
-    QCOMPARE(swmm_reaction_expr_get(e, SWMM_RXN_SCOPE_PIPE, 0, &form, expr,
-                                    256), SWMM_OK);
+    QCOMPARE(swmm_reaction_expr_get(e, SWMM_RXN_SCOPE_PIPE, 0, &form, expr, 256), SWMM_OK);
     QCOMPARE(form, SWMM_RXN_FORM_RATE);
     QCOMPARE(QString::fromUtf8(expr), QStringLiteral("-0.1 * HOCL"));
 
@@ -128,9 +129,8 @@ void TestReactionSystemEditor::structuredCrudReachesEngine()
     auto *speciesTable = child<QTableWidget>(dlg, "rx_speciesTable");
     speciesTable->setCurrentCell(0, 0);
     child<QPushButton>(dlg, "rx_removeSpeciesBtn")->click();
-    QCOMPARE(swmm_reaction_species_count(e), 1);   // survived
-    QVERIFY(child<QLabel>(dlg, "rx_status")->text().contains(
-        QStringLiteral("references")));
+    QCOMPARE(swmm_reaction_species_count(e), 1); // survived
+    QVERIFY(child<QLabel>(dlg, "rx_status")->text().contains(QStringLiteral("references")));
 
     QVERIFY(dlg.wroteAnyChanges());
     swmm_engine_destroy(e);
@@ -140,15 +140,13 @@ void TestReactionSystemEditor::fileTabShowsStructuredEdits()
 {
     SWMM_Engine e = makeEngine();
     ReactionSystemEditorDialog dlg(e, nullptr);
-    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(
-        QStringLiteral("ZED"));
+    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(QStringLiteral("ZED"));
     child<QPushButton>(dlg, "rx_addSpeciesBtn")->click();
 
     auto *tabs = child<QTabWidget>(dlg, "rx_tabs");
-    const int fileIdx = tabs->count() - 2;         // File is before Sources
+    const int fileIdx = tabs->count() - 2; // File is before Sources
     tabs->setCurrentIndex(fileIdx);
-    const QString text =
-        child<QPlainTextEdit>(dlg, "rx_fileEdit")->toPlainText();
+    const QString text = child<QPlainTextEdit>(dlg, "rx_fileEdit")->toPlainText();
     QVERIFY2(text.contains(QStringLiteral("ZED")),
              "structured edit must be visible on the File tab");
     QVERIFY(text.contains(QStringLiteral("[REACTION_SPECIES]")));
@@ -159,8 +157,7 @@ void TestReactionSystemEditor::fileTabEditsReachEngine()
 {
     SWMM_Engine e = makeEngine();
     ReactionSystemEditorDialog dlg(e, nullptr);
-    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(
-        QStringLiteral("ZED"));
+    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(QStringLiteral("ZED"));
     child<QPushButton>(dlg, "rx_addSpeciesBtn")->click();
 
     auto *tabs = child<QTabWidget>(dlg, "rx_tabs");
@@ -168,17 +165,15 @@ void TestReactionSystemEditor::fileTabEditsReachEngine()
     tabs->setCurrentIndex(fileIdx);
     auto *edit = child<QPlainTextEdit>(dlg, "rx_fileEdit");
     QString text = edit->toPlainText();
-    text += QStringLiteral(
-        "\n[REACTION_COEFFICIENTS]\nPARAMETER kx 0.5\n");
+    text += QStringLiteral("\n[REACTION_COEFFICIENTS]\nPARAMETER kx 0.5\n");
     edit->setPlainText(text);
-    tabs->setCurrentIndex(0);                      // leave: applies
+    tabs->setCurrentIndex(0); // leave: applies
     QCOMPARE(tabs->currentIndex(), 0);
     QCOMPARE(swmm_reaction_coeff_count(e), 1);
     char name[64];
     int is_param = 0;
     double v = 0;
-    QCOMPARE(swmm_reaction_coeff_get(e, 0, name, 64, &is_param, &v),
-             SWMM_OK);
+    QCOMPARE(swmm_reaction_coeff_get(e, 0, name, 64, &is_param, &v), SWMM_OK);
     QCOMPARE(QString::fromUtf8(name), QStringLiteral("kx"));
     QCOMPARE(v, 0.5);
     swmm_engine_destroy(e);
@@ -188,22 +183,18 @@ void TestReactionSystemEditor::badTextGatesTheTabSwitch()
 {
     SWMM_Engine e = makeEngine();
     ReactionSystemEditorDialog dlg(e, nullptr);
-    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(
-        QStringLiteral("ZED"));
+    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(QStringLiteral("ZED"));
     child<QPushButton>(dlg, "rx_addSpeciesBtn")->click();
 
     auto *tabs = child<QTabWidget>(dlg, "rx_tabs");
     const int fileIdx = tabs->count() - 2;
     tabs->setCurrentIndex(fileIdx);
     auto *edit = child<QPlainTextEdit>(dlg, "rx_fileEdit");
-    edit->setPlainText(edit->toPlainText() +
-                       QStringLiteral("\n[REACTION_PIPES]\n"
-                                      "RATE ZED MIN(ZED)\n"));
+    edit->setPlainText(edit->toPlainText() + QStringLiteral("\n[REACTION_PIPES]\n"
+                                                            "RATE ZED MIN(ZED)\n"));
     tabs->setCurrentIndex(0);
-    QVERIFY2(tabs->currentIndex() == fileIdx,
-             "bad text must gate the tab switch");
-    QVERIFY(child<QLabel>(dlg, "rx_fileStatus")->text().contains(
-        QStringLiteral("MIN")));
+    QVERIFY2(tabs->currentIndex() == fileIdx, "bad text must gate the tab switch");
+    QVERIFY(child<QLabel>(dlg, "rx_fileStatus")->text().contains(QStringLiteral("MIN")));
 
     // Discard restores the canonical text and unblocks.
     child<QPushButton>(dlg, "rx_discardTextBtn")->click();
@@ -216,8 +207,7 @@ void TestReactionSystemEditor::initOverridesCommit()
 {
     SWMM_Engine e = makeEngine();
     ReactionSystemEditorDialog dlg(e, nullptr);
-    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(
-        QStringLiteral("HOCL"));
+    child<QLineEdit>(dlg, "rx_newSpeciesName")->setText(QStringLiteral("HOCL"));
     child<QPushButton>(dlg, "rx_addSpeciesBtn")->click();
 
     child<QPushButton>(dlg, "rx_addInitBtn")->click();
@@ -225,7 +215,7 @@ void TestReactionSystemEditor::initOverridesCommit()
     QCOMPARE(tbl->rowCount(), 1);
     auto *spin = qobject_cast<QDoubleSpinBox *>(tbl->cellWidget(0, 3));
     QVERIFY(spin);
-    spin->setValue(1.25);                          // commits the row
+    spin->setValue(1.25); // commits the row
     QCOMPARE(swmm_reaction_init_elem_count(e), 1);
     int il = -1, ei = -1, si = -1;
     double v = 0;
@@ -252,31 +242,48 @@ void TestReactionSystemEditor::sourcesTabOpensConfiguration()
 
 void TestReactionSystemEditor::sourceTablesApplyAtomicallyAndRetainUnownedReactorSections()
 {
-    auto e=makeEngine();char error[1024]={};
-    QCOMPARE(swmm_reactions_apply_text(e,"[REACTION_SPECIES]\nBULK A MG\n[REACTION_SUBCATCHMENTS]\nRATE A -0.01*A\n",error,sizeof(error)),SWMM_OK);
-    ReactionSystemEditorDialog dlg(e,nullptr);auto *tabs=child<QTabWidget>(dlg,"rx_tabs");
-    tabs->setCurrentIndex(tabs->count()-1);
-    auto *sources=child<QTableWidget>(dlg,"rx_reaction_sourcesTable");
-    auto *patterns=child<QTableWidget>(dlg,"rx_reaction_patternsTable");
-    QVERIFY(sources);QVERIFY(patterns);
-    sources->insertRow(0);patterns->insertRow(0);
-    const QStringList values={"SETPOINT","J0","A","2","pulse"};
-    for(int c=0;c<values.size();++c)sources->setItem(0,c,new QTableWidgetItem(values[c]));
-    patterns->setItem(0,0,new QTableWidgetItem("pulse"));patterns->setItem(0,1,new QTableWidgetItem("1 0 2"));
-    tabs->setCurrentIndex(tabs->count()-2);
-    QCOMPARE(tabs->currentIndex(),tabs->count()-2);
-    auto *file=child<QPlainTextEdit>(dlg,"rx_fileEdit");
-    QVERIFY(file->toPlainText().contains("SETPOINT"));QVERIFY(file->toPlainText().contains("-0.01*A"));
-    const QString accepted=file->toPlainText();
-    tabs->setCurrentIndex(tabs->count()-1);
-    sources->item(0,3)->setText("-5");patterns->item(0,1)->setText("3 4");
-    tabs->setCurrentIndex(0);QCOMPARE(tabs->currentIndex(),tabs->count()-1);
-    QVERIFY(!child<QLabel>(dlg,"rx_status")->text().isEmpty());
+    auto e = makeEngine();
+    char error[1024] = {};
+    QCOMPARE(swmm_reactions_apply_text(
+                 e, "[REACTION_SPECIES]\nBULK A MG\n[REACTION_SUBCATCHMENTS]\nRATE A -0.01*A\n",
+                 error, sizeof(error)),
+             SWMM_OK);
+    ReactionSystemEditorDialog dlg(e, nullptr);
+    auto *tabs = child<QTabWidget>(dlg, "rx_tabs");
+    tabs->setCurrentIndex(tabs->count() - 1);
+    auto *sources = child<QTableWidget>(dlg, "rx_reaction_sourcesTable");
+    auto *patterns = child<QTableWidget>(dlg, "rx_reaction_patternsTable");
+    QVERIFY(sources);
+    QVERIFY(patterns);
+    sources->insertRow(0);
+    patterns->insertRow(0);
+    const QStringList values = {"SETPOINT", "J0", "A", "2", "pulse"};
+    for (int c = 0; c < values.size(); ++c)
+        sources->setItem(0, c, new QTableWidgetItem(values[c]));
+    patterns->setItem(0, 0, new QTableWidgetItem("pulse"));
+    patterns->setItem(0, 1, new QTableWidgetItem("1 0 2"));
+    tabs->setCurrentIndex(tabs->count() - 2);
+    QCOMPARE(tabs->currentIndex(), tabs->count() - 2);
+    auto *file = child<QPlainTextEdit>(dlg, "rx_fileEdit");
+    QVERIFY(file->toPlainText().contains("SETPOINT"));
+    QVERIFY(file->toPlainText().contains("-0.01*A"));
+    const QString accepted = file->toPlainText();
+    tabs->setCurrentIndex(tabs->count() - 1);
+    sources->item(0, 3)->setText("-5");
+    patterns->item(0, 1)->setText("3 4");
+    tabs->setCurrentIndex(0);
+    QCOMPARE(tabs->currentIndex(), tabs->count() - 1);
+    QVERIFY(!child<QLabel>(dlg, "rx_status")->text().isEmpty());
     // Both tables roll back together; the invalid draft remains editable.
-    int count=0;QCOMPARE(swmm_reactions_serialize(e,nullptr,0,&count),SWMM_OK);QVERIFY(count>0);
-    QByteArray text(count,'\0');swmm_reactions_serialize(e,text.data(),count,&count);
-    QCOMPARE(QString::fromUtf8(text.constData()),accepted);
-    sources->item(0,3)->setText("4");tabs->setCurrentIndex(0);QCOMPARE(tabs->currentIndex(),0);
+    int count = 0;
+    QCOMPARE(swmm_reactions_serialize(e, nullptr, 0, &count), SWMM_OK);
+    QVERIFY(count > 0);
+    QByteArray text(count, '\0');
+    swmm_reactions_serialize(e, text.data(), count, &count);
+    QCOMPARE(QString::fromUtf8(text.constData()), accepted);
+    sources->item(0, 3)->setText("4");
+    tabs->setCurrentIndex(0);
+    QCOMPARE(tabs->currentIndex(), 0);
     swmm_engine_destroy(e);
 }
 
@@ -284,12 +291,12 @@ void TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
 {
     SWMM_Engine e = makeEngine();
     const char *text = "[REACTION_SPECIES]\nBULK A MG\n"
-        "[REACTION_COEFFICIENTS]\nPARAMETER k 1\n"
-        "[REACTION_PARAMETERS]\nNODE J0 k 2\n"
-        "[REACTION_PATTERNS]\npulse 1 0\n"
-        "[REACTION_SOURCES]\nMASS J0 A 28.317 pulse\n"
-        "[REACTION_REPORT]\nSPECIES ALL NO\n"
-        "[REACTION_SUBCATCHMENTS]\nRATE A -k * A\n";
+                       "[REACTION_COEFFICIENTS]\nPARAMETER k 1\n"
+                       "[REACTION_PARAMETERS]\nNODE J0 k 2\n"
+                       "[REACTION_PATTERNS]\npulse 1 0\n"
+                       "[REACTION_SOURCES]\nMASS J0 A 28.317 pulse\n"
+                       "[REACTION_REPORT]\nSPECIES ALL NO\n"
+                       "[REACTION_SUBCATCHMENTS]\nRATE A -k * A\n";
     char error[512] = {};
     QCOMPARE(swmm_reactions_apply_text(e, text, error, sizeof(error)), SWMM_OK);
     ReactionSystemEditorDialog dlg(e, nullptr);
@@ -305,10 +312,13 @@ void TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
     child<QDoubleSpinBox>(dlg, "rx_coeffValue_0")->setValue(3);
     tabs->setCurrentIndex(tabs->count() - 2);
     const QString after = file->toPlainText();
-    for (const auto& section : {"REACTION_SOURCES", "REACTION_PATTERNS", "REACTION_PARAMETERS", "REACTION_REPORT", "REACTION_SUBCATCHMENTS"})
+    for (const auto &section : {"REACTION_SOURCES", "REACTION_PATTERNS", "REACTION_PARAMETERS",
+                                "REACTION_REPORT", "REACTION_SUBCATCHMENTS"})
         QVERIFY(after.contains(QLatin1String(section)));
     QVERIFY(after.contains(QStringLiteral("56.634")));
-    int param = 0; double value = 0; char name[64];
+    int param = 0;
+    double value = 0;
+    char name[64];
     QCOMPARE(swmm_reaction_coeff_get(e, 0, name, 64, &param, &value), SWMM_OK);
     QCOMPARE(value, 3.0);
     swmm_engine_destroy(e);
@@ -383,7 +393,8 @@ void TestReactionSystemEditor::invalidationStopsExpressionEditorsAndLateWrites()
     ReactionSystemEditorDialog dlg(e, nullptr);
     auto *edit = new openswmmvis::ui::ReactionExpressionEdit(e, SWMM_RXN_SCOPE_PIPE, &dlg);
     edit->setPlainText(QStringLiteral("HGW + ("));
-    child<QPlainTextEdit>(dlg, "rx_fileEdit")->setPlainText(QStringLiteral("[REACTION_SPECIES]\nHOCL BULK MG\n"));
+    child<QPlainTextEdit>(dlg, "rx_fileEdit")
+        ->setPlainText(QStringLiteral("[REACTION_SPECIES]\nHOCL BULK MG\n"));
     QVERIFY(QMetaObject::invokeMethod(&dlg, "invalidateEngine", Qt::DirectConnection));
     swmm_engine_destroy(e);
     QVERIFY(!dlg.isEnabled());

@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      test_meshpatchplacement.cpp
+ * @brief     Tests for meshpatchplacement.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "mesh/meshgenerator.h"
 #include "mesh/meshpatch.h"
 #include "mesh/meshcellgeom.h"
@@ -6,33 +16,73 @@
 #include <cmath>
 #include <limits>
 
-namespace {
-QPolygonF squareDomain(double offset = 0.0) {
+namespace
+{
+/**
+ * @brief Construct a 100 unit square outline with ten segments on each side.
+ * @param[in] offset Common translation added to x and y coordinates, shared planar units.
+ * @return Owned open 40 point CCW ring with 10 unit spacing, no holes or model registration. No
+ * finite-value validation; callers use zero or 1e6 to exercise projected-coordinate stability.
+ */
+QPolygonF squareDomain(double offset = 0.0)
+{
     QPolygonF ring;
-    for (int i = 0; i < 10; ++i) ring << QPointF(offset + 10 * i, offset);
-    for (int i = 0; i < 10; ++i) ring << QPointF(offset + 100, offset + 10 * i);
-    for (int i = 0; i < 10; ++i) ring << QPointF(offset + 100 - 10 * i, offset + 100);
-    for (int i = 0; i < 10; ++i) ring << QPointF(offset, offset + 100 - 10 * i);
+    for (int i = 0; i < 10; ++i)
+        ring << QPointF(offset + 10 * i, offset);
+    for (int i = 0; i < 10; ++i)
+        ring << QPointF(offset + 100, offset + 10 * i);
+    for (int i = 0; i < 10; ++i)
+        ring << QPointF(offset + 100 - 10 * i, offset + 100);
+    for (int i = 0; i < 10; ++i)
+        ring << QPointF(offset, offset + 100 - 10 * i);
     return ring;
 }
-mesh::PatchMesh rectangle(double x0, double y0, double x1, double y1, const QString &tag) {
+/**
+ * @brief Generate a named 2 by 2 structured patch from rectangular corner coordinates.
+ * @param[in] x0 First corner x in shared planar units.
+ * @param[in] y0 First corner y in shared planar units.
+ * @param[in] x1 Opposite corner x in those units; valid fixtures have x1>x0.
+ * @param[in] y1 Opposite corner y in those units; valid fixtures have y1>y0.
+ * @param[in] tag Value copied into the patch tag; no ownership retained by caller-dependent
+ * reference.
+ * @return Owned makeTransfinitePatch result with requested tag and four quads for valid
+ * geometry; this helper does not independently assert success or mutate a generator.
+ */
+mesh::PatchMesh rectangle(double x0, double y0, double x1, double y1, const QString &tag)
+{
     mesh::StructuredPatch patch;
-    patch.corners = {{x0,y0}, {x1,y0}, {x1,y1}, {x0,y1}};
+    patch.corners = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
     patch.n = patch.m = 2;
     patch.tag = tag;
     return mesh::makeTransfinitePatch(patch);
 }
-void options(mesh::MeshGenerator &generator) {
+/**
+ * @brief Configure a generator's local test options with maximum triangle area 200.
+ * @param[in,out] generator Live generator whose options are replaced with a fresh
+ * GenerationOptions value. Coordinates use fixture planar units so area is squared units; other
+ * options retain defaults. Does not generate cells, acquire ownership or alter any project file.
+ */
+void options(mesh::MeshGenerator &generator)
+{
     mesh::GenerationOptions opts;
-    opts.maxArea = 200;   // triangles everywhere: patches supply the only quads
+    opts.maxArea = 200; // triangles everywhere: patches supply the only quads
     generator.setOptions(opts);
 }
 }
 
-class TestMeshPatchPlacement : public QObject {
+class TestMeshPatchPlacement : public QObject
+{
     Q_OBJECT
 private slots:
-    void invalidPlacement_data() {
+    /**
+     * @brief Register 13 invalid patch/domain/constraint placements with diagnostic
+     * expectations.
+     * @note Covers duplicate/overlap/crossing patches, exterior and concave-notch escapes,
+     * enclosed/crossed holes and user hole seeds, interior constraint cuts and an empty
+     * requested patch.
+     */
+    void invalidPlacement_data()
+    {
         QTest::addColumn<QString>("scenario");
         QTest::newRow("duplicate-patches") << QString("duplicate");
         QTest::newRow("partially-overlapping-patches") << QString("overlap");
@@ -48,52 +98,87 @@ private slots:
         QTest::newRow("constraint-between-patch-boundaries") << QString("constraint-boundaries");
         QTest::newRow("empty-requested-patch") << QString("empty");
     }
-    void invalidPlacement() {
+    /**
+     * @brief Verify every invalid requested patch arrangement fails with an actionable nonempty
+     * diagnostic.
+     * @note Builds only the selected synthetic domain/holes/constraints, adds requested patches,
+     * then runs generation; rejection must happen rather than silently dropping the request. No
+     * project IO.
+     */
+    void invalidPlacement()
+    {
         QFETCH(QString, scenario);
         mesh::MeshGenerator generator;
         generator.setDomain(squareDomain());
         options(generator);
         auto patch = rectangle(40, 40, 60, 60, "requested-corridor");
         QVERIFY(!patch.quads.isEmpty());
-        if (scenario == "duplicate") generator.addPatch(patch);
-        else if (scenario == "overlap") generator.addPatch(rectangle(50, 50, 70, 70, "overlap"));
+        if (scenario == "duplicate")
+            generator.addPatch(patch);
+        else if (scenario == "overlap")
+            generator.addPatch(rectangle(50, 50, 70, 70, "overlap"));
         else if (scenario == "cross") {
             patch = rectangle(30, 48, 70, 52, "horizontal-corridor");
             generator.addPatch(rectangle(48, 30, 52, 70, "vertical-corridor"));
-        } else if (scenario == "outside") patch = rectangle(110, 40, 130, 60, "outside-corridor");
-        else if (scenario == "boundary") patch = rectangle(90, 40, 110, 60, "boundary-corridor");
+        } else if (scenario == "outside")
+            patch = rectangle(110, 40, 130, 60, "outside-corridor");
+        else if (scenario == "boundary")
+            patch = rectangle(90, 40, 110, 60, "boundary-corridor");
         else if (scenario == "notch") {
             // All four corners AND the centroid lie in this domain, but
             // both horizontal patch edges cross the notch at x=70..80.
             generator.setDomain(QPolygonF(QVector<QPointF>{
-                {0,0}, {100,0}, {100,100}, {80,100}, {80,40}, {70,40}, {70,100}, {0,100}}));
+                {0, 0}, {100, 0}, {100, 100}, {80, 100}, {80, 40}, {70, 40}, {70, 100}, {0, 100}}));
             patch = rectangle(10, 50, 90, 60, "notch-crossing-corridor");
         } else if (scenario == "hole" || scenario == "hole-edge") {
-            generator.addConstraintSegment({{{45,45}, {55,45}, {55,55}, {45,55}, {45,45}}, 7, "hole"});
+            generator.addConstraintSegment(
+                {{{45, 45}, {55, 45}, {55, 55}, {45, 55}, {45, 45}}, 7, "hole"});
             generator.addHole({50, 50});
-            if (scenario == "hole-edge") patch = rectangle(40, 46, 47, 54, "hole-crossing-corridor");
+            if (scenario == "hole-edge")
+                patch = rectangle(40, 46, 47, 54, "hole-crossing-corridor");
         } else if (scenario == "inside-hole") {
-            generator.addConstraintSegment({{{20,20}, {80,20}, {80,80}, {20,80}, {20,20}}, 7, "hole"});
+            generator.addConstraintSegment(
+                {{{20, 20}, {80, 20}, {80, 80}, {20, 80}, {20, 20}}, 7, "hole"});
             generator.addHole({30, 30});
-        } else if (scenario == "seed") generator.addHole({50, 50});
+        } else if (scenario == "seed")
+            generator.addHole({50, 50});
         else if (scenario == "constraint")
-            generator.addConstraintSegment({{{20,50}, {80,50}}, 9, "required-road"});
+            generator.addConstraintSegment({{{20, 50}, {80, 50}}, 9, "required-road"});
         else if (scenario == "constraint-boundaries")
-            generator.addConstraintSegment({{{40,50}, {60,50}}, 9, "required-road"});
-        else if (scenario == "empty") patch = {};
+            generator.addConstraintSegment({{{40, 50}, {60, 50}}, 9, "required-road"});
+        else if (scenario == "empty")
+            patch = {};
         generator.addPatch(patch);
         const auto result = generator.generate();
-        QVERIFY2(!result.ok, qPrintable(QString("Invalid placement was accepted: %1; cells=%2 quads=%3")
-            .arg(scenario).arg(result.triangles.size()).arg(result.quadCount())));
-        QVERIFY2(!result.errorMsg.isEmpty(), "A rejected requested corridor needs an actionable diagnostic");
+        QVERIFY2(!result.ok,
+                 qPrintable(QString("Invalid placement was accepted: %1; cells=%2 quads=%3")
+                                .arg(scenario)
+                                .arg(result.triangles.size())
+                                .arg(result.quadCount())));
+        QVERIFY2(!result.errorMsg.isEmpty(),
+                 "A rejected requested corridor needs an actionable diagnostic");
     }
 
-    void rejectsNonconformingWeld_data() {
+    /**
+     * @brief Register snapping collapse and mismatched abutting subdivision failures.
+     * @note Boolean row selects aggressive snap tolerance versus incompatible 2 by 2/2 by 3
+     * shared seam.
+     */
+    void rejectsNonconformingWeld_data()
+    {
         QTest::addColumn<bool>("snapCollapse");
         QTest::newRow("snap-collapses-patch-vertices") << true;
         QTest::newRow("abutting-different-subdivisions") << false;
     }
-    void rejectsNonconformingWeld() {
+    /**
+     * @brief Verify collapsed patch boundaries and nonconforming abutting seams refuse
+     * generation.
+     * @note Snap-collapse uses tolerance 20 and requires boundary diagnostic; alternative uses
+     * exact snapping with mismatched shared divisions. Both require nonempty error and failed
+     * result.
+     */
+    void rejectsNonconformingWeld()
+    {
         QFETCH(bool, snapCollapse);
         mesh::MeshGenerator generator;
         generator.setDomain(squareDomain());
@@ -104,7 +189,7 @@ private slots:
         generator.addPatch(rectangle(20, 40, 40, 60, "first"));
         if (!snapCollapse) {
             mesh::StructuredPatch second;
-            second.corners = {{40,40}, {60,40}, {60,60}, {40,60}};
+            second.corners = {{40, 40}, {60, 40}, {60, 60}, {40, 60}};
             second.n = 2;
             second.m = 3; // three seam intervals cannot meet the first patch's two
             second.tag = "nonconforming";
@@ -119,14 +204,29 @@ private slots:
             QVERIFY2(result.errorMsg.contains("boundary"), qPrintable(result.errorMsg));
     }
 
-    void invalidSnapTolerance_data() {
+    /**
+     * @brief Register NaN/infinite snap tolerances and positive scales that overflow snap-key
+     * arithmetic.
+     * @note Includes 1e-18 finite key overflow and denorm_min division overflow, without
+     * changing globals.
+     */
+    void invalidSnapTolerance_data()
+    {
         QTest::addColumn<double>("tolerance");
         QTest::newRow("nan") << std::numeric_limits<double>::quiet_NaN();
         QTest::newRow("infinite") << std::numeric_limits<double>::infinity();
         QTest::newRow("finite-key-overflow") << 1e-18;
         QTest::newRow("division-overflow") << std::numeric_limits<double>::denorm_min();
     }
-    void invalidSnapTolerance() {
+    /**
+     * @brief Verify invalid or unrepresentable snap tolerance fails explicitly before accepting
+     * patch geometry.
+     * @note Uses a valid local rectangle and requires failed generation with diagnostic
+     * containing snap tolerance, rather than accepting invalid coordinates or producing partial
+     * success.
+     */
+    void invalidSnapTolerance()
+    {
         QFETCH(double, tolerance);
         mesh::MeshGenerator generator;
         generator.setDomain(squareDomain());
@@ -140,13 +240,26 @@ private slots:
         QVERIFY2(result.errorMsg.contains("snap tolerance"), qPrintable(result.errorMsg));
     }
 
-    void validOutlinePlacement_data() {
+    /**
+     * @brief Register domain-outline, hole-outline and nested protected-annulus valid
+     * placements.
+     * @note Rows select exact boundary coincidence scenarios which must remain permitted.
+     */
+    void validOutlinePlacement_data()
+    {
         QTest::addColumn<QString>("scenario");
         QTest::newRow("along-domain-outline") << QString("domain");
         QTest::newRow("along-hole-outline") << QString("hole");
         QTest::newRow("nested-hole-preserves-protected-annulus") << QString("nested");
     }
-    void validOutlinePlacement() {
+    /**
+     * @brief Verify patches coincident with permitted outlines preserve requested quads and full
+     * domain area.
+     * @note Successful result quad count equals requested patch quads; total area 10000 or 9900
+     * for hole case within 1e-5 squared fixture units. Local generated mesh owned by test.
+     */
+    void validOutlinePlacement()
+    {
         QFETCH(QString, scenario);
         mesh::MeshGenerator generator;
         generator.setDomain(squareDomain());
@@ -154,12 +267,14 @@ private slots:
         auto patch = rectangle(0, 40, 20, 60, "outline");
         double expectedArea = 10000;
         if (scenario != "domain") {
-            generator.addConstraintSegment({{{45,45}, {55,45}, {55,55}, {45,55}, {45,45}}, 7, "hole"});
+            generator.addConstraintSegment(
+                {{{45, 45}, {55, 45}, {55, 55}, {45, 55}, {45, 45}}, 7, "hole"});
             generator.addHole({50, 50});
             expectedArea -= 100;
             patch = rectangle(25, 45, 45, 55, "hole-outline");
             if (scenario == "nested") {
-                generator.addConstraintSegment({{{20,20}, {80,20}, {80,80}, {20,80}, {20,20}}, 9, "protected-ring"});
+                generator.addConstraintSegment(
+                    {{{20, 20}, {80, 20}, {80, 80}, {20, 80}, {20, 20}}, 9, "protected-ring"});
                 patch = rectangle(25, 30, 35, 40, "protected-annulus");
             }
         }
@@ -168,12 +283,21 @@ private slots:
         QVERIFY2(result.ok, qPrintable(result.errorMsg));
         QCOMPARE(result.quadCount(), patch.quads.size());
         double area = 0;
-        for (const auto &cell : result.triangles) area += mesh::cellGeom(result.vertices, cell).area;
+        for (const auto &cell : result.triangles)
+            area += mesh::cellGeom(result.vertices, cell).area;
         QVERIFY2(std::abs(area - expectedArea) < 1e-5,
-                 qPrintable(QString("Expected domain area %1, received %2").arg(expectedArea).arg(area, 0, 'g', 17)));
+                 qPrintable(QString("Expected domain area %1, received %2")
+                                .arg(expectedArea)
+                                .arg(area, 0, 'g', 17)));
     }
 
-    void validPlacement_data() {
+    /**
+     * @brief Register disjoint/abutting patch pairs at origin and translated
+     * projected-coordinate scale.
+     * @note Two layouts times offsets 0/1e6 give four QtTest rows.
+     */
+    void validPlacement_data()
+    {
         QTest::addColumn<bool>("abutting");
         QTest::addColumn<double>("offset");
         QTest::newRow("disjoint") << false << 0.0;
@@ -181,7 +305,15 @@ private slots:
         QTest::newRow("translated-disjoint") << false << 1000000.0;
         QTest::newRow("translated-exact-abutting") << true << 1000000.0;
     }
-    void validPlacement() {
+    /**
+     * @brief Verify valid patch pairs preserve convex positive cells, tags, area and exact
+     * shared seam vertices.
+     * @note Total area 10000 within 1e-5 squared units, expected quad counts/tags retained;
+     * abutting 2 by 2 patches share exactly one vertex per each of three seam positions. No
+     * model/file mutation.
+     */
+    void validPlacement()
+    {
         QFETCH(bool, abutting);
         QFETCH(double, offset);
         mesh::MeshGenerator generator;
@@ -205,19 +337,23 @@ private slots:
             QVERIFY(geometry.area > 0);
             area += geometry.area;
             if (cell.isQuad()) {
-                if (cell.tag == "first") ++firstCells;
-                if (cell.tag == "second") ++secondCells;
+                if (cell.tag == "first")
+                    ++firstCells;
+                if (cell.tag == "second")
+                    ++secondCells;
             }
         }
         QCOMPARE(firstCells, first.quads.size());
         QCOMPARE(secondCells, second.quads.size());
         QVERIFY2(std::abs(area - 10000.0) < 1e-5,
-                 qPrintable(QString("Combined cell area %1 does not cover domain exactly once").arg(area, 0, 'g', 17)));
+                 qPrintable(QString("Combined cell area %1 does not cover domain exactly once")
+                                .arg(area, 0, 'g', 17)));
         if (abutting) {
             for (int row = 0; row <= 2; ++row) {
                 const QPointF shared(offset + 40, offset + 40 + row * 10);
                 int count = 0;
-                for (const auto &vertex : result.vertices) count += vertex.xy == shared;
+                for (const auto &vertex : result.vertices)
+                    count += vertex.xy == shared;
                 QCOMPARE(count, 1); // exact conforming joins share topology
             }
         }

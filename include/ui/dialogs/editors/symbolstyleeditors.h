@@ -1,9 +1,9 @@
-/*!
- * \file   symbolstyleeditors.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  SE.1–SE.3 — dedicated IStyleEditorWidget editors for the rule-path
+/**
+ * @file      symbolstyleeditors.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     SE.1–SE.3 — dedicated IStyleEditorWidget editors for the rule-path
  *         *SymbolStyleAdapter family (Point / Line / Polygon).
  *
  *         These are the polished editors mounted by SingleSymbolPanel for a
@@ -12,13 +12,16 @@
  *         Rule::notifyRendererStateChanged → the SWMMModelLayer per-kind
  *         bridge → legacy struct → repaint), and refresh on the adapter's
  *         changed() signal.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_SYMBOLSTYLEEDITORS_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_SYMBOLSTYLEEDITORS_H
 
 #include "ui/dialogs/istyleeditorwidget.h"
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 class PointSymbolStyleAdapter;
 class LineSymbolStyleAdapter;
 class PolygonSymbolStyleAdapter;
@@ -26,7 +29,8 @@ class PolygonSymbolStyleAdapter;
 
 class QDoubleSpinBox;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ColorButton;
 class MarkerShapeCombo;
@@ -45,12 +49,12 @@ public:
 
 private:
     OpenSWMM::Render::PointSymbolStyleAdapter *m_a = nullptr;
-    MarkerShapeCombo *m_shape       = nullptr;
-    QDoubleSpinBox   *m_size        = nullptr;
-    ColorButton      *m_fill        = nullptr;
-    ColorButton      *m_outline     = nullptr;
-    QDoubleSpinBox   *m_outlineW    = nullptr;
-    QDoubleSpinBox   *m_opacity     = nullptr;
+    MarkerShapeCombo *m_shape = nullptr;
+    QDoubleSpinBox *m_size = nullptr;
+    ColorButton *m_fill = nullptr;
+    ColorButton *m_outline = nullptr;
+    QDoubleSpinBox *m_outlineW = nullptr;
+    QDoubleSpinBox *m_opacity = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -66,10 +70,10 @@ public:
 
 private:
     OpenSWMM::Render::LineSymbolStyleAdapter *m_a = nullptr;
-    ColorButton    *m_color    = nullptr;
-    QDoubleSpinBox *m_width     = nullptr;
-    DashStyleCombo *m_dash      = nullptr;
-    QDoubleSpinBox *m_opacity   = nullptr;
+    ColorButton *m_color = nullptr;
+    QDoubleSpinBox *m_width = nullptr;
+    DashStyleCombo *m_dash = nullptr;
+    QDoubleSpinBox *m_opacity = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -85,10 +89,10 @@ public:
 
 private:
     OpenSWMM::Render::PolygonSymbolStyleAdapter *m_a = nullptr;
-    ColorButton    *m_fill      = nullptr;
-    ColorButton    *m_outline   = nullptr;
-    QDoubleSpinBox *m_outlineW  = nullptr;
-    QDoubleSpinBox *m_opacity   = nullptr;
+    ColorButton *m_fill = nullptr;
+    ColorButton *m_outline = nullptr;
+    QDoubleSpinBox *m_outlineW = nullptr;
+    QDoubleSpinBox *m_opacity = nullptr;
 };
 
 } // namespace openswmmvis::ui

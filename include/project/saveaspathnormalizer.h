@@ -1,8 +1,9 @@
-/*!
- * \file   saveaspathnormalizer.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      saveaspathnormalizer.h
+ * @brief     Save As dialog result canonicalization (Slice RA, Phase RA.1).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Save As dialog result canonicalization (Slice RA, Phase RA.1).
  *
@@ -20,6 +21,7 @@
  * is intentionally a pure function over the dialog string + a writable-
  * extensions set so the unit test (test_saveaspathnormalizer.cpp) can
  * exercise it without spinning up the dialog or FileFilterRegistry.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef SAVEASPATHNORMALIZER_H
@@ -28,11 +30,11 @@
 #include <QSet>
 #include <QString>
 
-namespace openswmmvis {
+namespace openswmmvis
+{
 
 /*! Result of normalizeSaveAsPath. */
-struct SaveAsPathResult
-{
+struct SaveAsPathResult {
     /*! Canonical path to pass to SWMMVisProjectWindow::saveAs.
      *  - When isProject is true, this is `<stem>.inp` (the .inp the
      *    engine actually writes; the .oswp sidecar is written next
@@ -77,10 +79,10 @@ struct SaveAsPathResult
  *    "/p/m.bak.bak"      → {"/p/m.bak.bak", isProject=false, wasNormalized=false}
  *    "/p/m.inp.inp.inp"  → {"/p/m.inp",  isProject=false, wasNormalized=true}
  *    ""                  → {"",          isProject=false, wasNormalized=false}
+ * @return Value with original-tail .oswp classification, normalized target path and duplicate-extension flag. No filesystem access or writes occur.
  */
-[[nodiscard]] SaveAsPathResult
-normalizeSaveAsPath(const QString &dialogPath,
-                    const QSet<QString> &writableExtensions);
+[[nodiscard]] SaveAsPathResult normalizeSaveAsPath(const QString &dialogPath,
+                                                   const QSet<QString> &writableExtensions);
 
 } // namespace openswmmvis
 

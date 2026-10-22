@@ -1,6 +1,6 @@
-/*!
- * \file   test_options_hydration_contract.cpp
- * \brief  Slice CX (Phase CX.1) QtTest: verifies the §M.1 hydration contract
+/**
+ * @file      test_options_hydration_contract.cpp
+ * @brief     Slice CX (Phase CX.1) QtTest: verifies the §M.1 hydration contract
  *         for status-bar widgets whose source-of-truth is a SWMM [OPTIONS]
  *         key.
  *
@@ -22,6 +22,10 @@
  * checkbox reflect the engine at open / tab switch / external mutation); that
  * is parked behind the `swmmvis_core` extraction, and the audit entry is kept
  * in swmmvis_hydration_audit.h so it isn't lost.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "core/unitsystem.h"
@@ -40,7 +44,8 @@
 
 #include <cstring>
 
-namespace {
+namespace
+{
 
 /*! \brief Build a synthetic engine in BUILDING state and stamp a FLOW_UNITS
  *         value on it. No node / link / outfall topology is needed for an
@@ -74,7 +79,7 @@ class TestOptionsHydrationContract : public QObject
     Q_OBJECT
 
 private slots:
-    void cleanup();   // unbind the facade between cases so leaks can't bleed.
+    void cleanup(); // unbind the facade between cases so leaks can't bleed.
 
     // §M.1 triggers, exercised against the engine ABI.
     void trigger1_projectOpen_syncsFlowUnitsFromEngine();
@@ -187,7 +192,7 @@ void TestOptionsHydrationContract::trigger1_projectOpen_syncsFlowUnitsFromEngine
     QCOMPARE(a.flowUnits(), swmm_CFS);
     QCOMPARE(b.flowUnits(), swmm_CMS);
     QVERIFY(!a.isSI());
-    QVERIFY( b.isSI());
+    QVERIFY(b.isSI());
 
     swmm_engine_destroy(eCfs);
     swmm_engine_destroy(eCms);
@@ -202,24 +207,26 @@ void TestOptionsHydrationContract::trigger2_tabActivation_flipsFacadeBetweenProj
     SWMM_Engine eA = makeEngineWithFlowUnits("CFS");
     SWMM_Engine eB = makeEngineWithFlowUnits("LPS");
 
-    UnitSystem a; a.syncFromEngine(eA);
-    UnitSystem b; b.syncFromEngine(eB);
+    UnitSystem a;
+    a.syncFromEngine(eA);
+    UnitSystem b;
+    b.syncFromEngine(eB);
 
     // Activate A — facade must report A's units.
     UnitSystem::setActiveProject(&a);
-    QCOMPARE(UnitSystem::instance()->flowUnits(),     swmm_CFS);
+    QCOMPARE(UnitSystem::instance()->flowUnits(), swmm_CFS);
     QCOMPARE(UnitSystem::instance()->flowUnitLabel(), QStringLiteral("CFS"));
     QVERIFY(!UnitSystem::instance()->isSI());
 
     // Switch tab to B — facade must flip without any per-callsite work.
     UnitSystem::setActiveProject(&b);
-    QCOMPARE(UnitSystem::instance()->flowUnits(),     swmm_LPS);
+    QCOMPARE(UnitSystem::instance()->flowUnits(), swmm_LPS);
     QCOMPARE(UnitSystem::instance()->flowUnitLabel(), QStringLiteral("LPS"));
-    QVERIFY( UnitSystem::instance()->isSI());
+    QVERIFY(UnitSystem::instance()->isSI());
 
     // Switch back to A — facade must flip back; no stale-cache survival.
     UnitSystem::setActiveProject(&a);
-    QCOMPARE(UnitSystem::instance()->flowUnits(),     swmm_CFS);
+    QCOMPARE(UnitSystem::instance()->flowUnits(), swmm_CFS);
 
     swmm_engine_destroy(eA);
     swmm_engine_destroy(eB);
@@ -315,22 +322,23 @@ void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
     const auto writeDeck = [&dir](const QString &name, const char *token) {
         const QString path = dir.filePath(name);
         QFile f(path);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return QString();
-        f.write(QStringLiteral(
-                    "[OPTIONS]\n"
-                    "FLOW_UNITS           CFS\n"
-                    "FLOW_ROUTING         DYNWAVE\n"
-                    "LINK_OFFSETS         %1\n"
-                    "START_DATE           01/01/2026\n"
-                    "END_DATE             01/01/2026\n"
-                    "END_TIME             00:30:00\n"
-                    "ROUTING_STEP         1\n"
-                    "\n[JUNCTIONS]\n J1  10.0  5.0\n"
-                    "\n[OUTFALLS]\n O1  8.0  FREE  NO\n"
-                    "\n[CONDUITS]\n C1  J1  O1  200.0  0.013  11.0  9.0\n"
-                    "\n[XSECTIONS]\n C1  CIRCULAR  1.0  0  0  0  1\n"
-                    "\n[COORDINATES]\n J1  0.0  0.0\n O1  200.0  0.0\n")
-                    .arg(QString::fromLatin1(token)).toUtf8());
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+            return QString();
+        f.write(QStringLiteral("[OPTIONS]\n"
+                               "FLOW_UNITS           CFS\n"
+                               "FLOW_ROUTING         DYNWAVE\n"
+                               "LINK_OFFSETS         %1\n"
+                               "START_DATE           01/01/2026\n"
+                               "END_DATE             01/01/2026\n"
+                               "END_TIME             00:30:00\n"
+                               "ROUTING_STEP         1\n"
+                               "\n[JUNCTIONS]\n J1  10.0  5.0\n"
+                               "\n[OUTFALLS]\n O1  8.0  FREE  NO\n"
+                               "\n[CONDUITS]\n C1  J1  O1  200.0  0.013  11.0  9.0\n"
+                               "\n[XSECTIONS]\n C1  CIRCULAR  1.0  0  0  0  1\n"
+                               "\n[COORDINATES]\n J1  0.0  0.0\n O1  200.0  0.0\n")
+                    .arg(QString::fromLatin1(token))
+                    .toUtf8());
         f.close();
         return path;
     };
@@ -350,8 +358,8 @@ void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
     QVERIFY(e != nullptr);
     QCOMPARE(swmm_engine_open(e, src.toUtf8().constData(),
                               dir.filePath(QStringLiteral("r.rpt")).toUtf8().constData(),
-                              dir.filePath(QStringLiteral("r.out")).toUtf8().constData(),
-                              nullptr), 0);
+                              dir.filePath(QStringLiteral("r.out")).toUtf8().constData(), nullptr),
+             0);
     QCOMPARE(optionOf(e), QStringLiteral("ELEVATION"));
 
     // ---- Save: flip it the way the Offset Mode toggle does, then write.
@@ -367,8 +375,7 @@ void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
     QVERIFY(written.open(QIODevice::ReadOnly | QIODevice::Text));
     const QString text = QString::fromUtf8(written.readAll());
     written.close();
-    QVERIFY2(text.contains(QStringLiteral("LINK_OFFSETS")),
-             "written deck has no LINK_OFFSETS row");
+    QVERIFY2(text.contains(QStringLiteral("LINK_OFFSETS")), "written deck has no LINK_OFFSETS row");
     QVERIFY2(!text.contains(QStringLiteral("LINK_OFFSETS         ELEVATION")),
              "save did not apply the flip to DEPTH");
 
@@ -377,8 +384,8 @@ void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
     QVERIFY(e2 != nullptr);
     QCOMPARE(swmm_engine_open(e2, out.toUtf8().constData(),
                               dir.filePath(QStringLiteral("r2.rpt")).toUtf8().constData(),
-                              dir.filePath(QStringLiteral("r2.out")).toUtf8().constData(),
-                              nullptr), 0);
+                              dir.filePath(QStringLiteral("r2.out")).toUtf8().constData(), nullptr),
+             0);
     QCOMPARE(optionOf(e2), QStringLiteral("DEPTH"));
     swmm_engine_close(e2);
     swmm_engine_destroy(e2);
@@ -389,7 +396,8 @@ void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
 // for the keys whose broken get/set made dialog edits revert on reload.
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 QString getOptionString(SWMM_Engine e, const char *key)
 {
@@ -420,7 +428,7 @@ void TestOptionsHydrationContract::minimumStep_engineRoundTripsValue()
     // dialog's minimum-routing-step spin always showed the preferences
     // default and edits were dropped (and the "Apply fast preset" button was
     // half a no-op).
-    QCOMPARE(getOptionDouble(e, "MINIMUM_STEP"), 0.5);   // engine default
+    QCOMPARE(getOptionDouble(e, "MINIMUM_STEP"), 0.5); // engine default
 
     QCOMPARE(swmm_options_set(e, "MINIMUM_STEP", "1.0"), 0);
     QCOMPARE(getOptionDouble(e, "MINIMUM_STEP"), 1.0);
@@ -476,7 +484,7 @@ void TestOptionsHydrationContract::threads_engineRoundTripsValue()
 
     // THREADS: plain integer; 0 is the "auto" sentinel the engine maps to
     // omp_get_max_threads() at start, matching the GUI spinbox's 0 = "auto".
-    QCOMPARE(getOptionString(e, "THREADS"), QStringLiteral("1"));  // default
+    QCOMPARE(getOptionString(e, "THREADS"), QStringLiteral("1")); // default
 
     QCOMPARE(swmm_options_set(e, "THREADS", "8"), 0);
     QCOMPARE(getOptionString(e, "THREADS"), QStringLiteral("8"));
@@ -518,47 +526,51 @@ void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
     // Defaults — these are the hard-coded fallbacks in readFromEngine();
     // if the engine defaults drift this case flags the dialog for a resync.
     QCOMPARE(getOptionDouble(e, "FV_CELL_LENGTH"), 0.0);
-    QCOMPARE(getOptionString(e, "FV_MIN_CELLS"),   QStringLiteral("4"));
-    QCOMPARE(getOptionDouble(e, "FV_CFL"),         0.5);
-    QCOMPARE(getOptionString(e, "FV_RIEMANN"),     QStringLiteral("HLLC"));
-    QCOMPARE(getOptionString(e, "FV_ORDER"),       QStringLiteral("1"));
-    QCOMPARE(getOptionString(e, "FV_LIMITER"),     QStringLiteral("MINMOD"));
+    QCOMPARE(getOptionString(e, "FV_MIN_CELLS"), QStringLiteral("4"));
+    QCOMPARE(getOptionDouble(e, "FV_CFL"), 0.5);
+    QCOMPARE(getOptionString(e, "FV_RIEMANN"), QStringLiteral("HLLC"));
+    QCOMPARE(getOptionString(e, "FV_ORDER"), QStringLiteral("1"));
+    QCOMPARE(getOptionString(e, "FV_LIMITER"), QStringLiteral("MINMOD"));
     QCOMPARE(getOptionString(e, "FV_TIME_INTEGRATION"), QStringLiteral("EULER"));
     QCOMPARE(getOptionDouble(e, "FV_SLOT_CELERITY"), 100.0);
     // No widget edits these two any more (FV_PRESSURIZED_IMPLICIT is hidden
     // until slot program R2b; FV_DISPERSION is inert on every path). The
     // pins stay: nothing else would notice an engine-side removal.
     QCOMPARE(getOptionString(e, "FV_PRESSURIZED_IMPLICIT"), QStringLiteral("NO"));
-    QCOMPARE(getOptionDouble(e, "FV_DISPERSION"),  0.0);
+    QCOMPARE(getOptionDouble(e, "FV_DISPERSION"), 0.0);
     QCOMPARE(getOptionString(e, "FV_STRUCTURE_COUPLING"), QStringLiteral("SUBSTEP"));
-    QCOMPARE(getOptionString(e, "FV_COMPACTION"),  QStringLiteral("YES"));
-    QCOMPARE(getOptionString(e, "FV_BACKEND"),     QStringLiteral("AUTO"));
+    QCOMPARE(getOptionString(e, "FV_COMPACTION"), QStringLiteral("YES"));
+    QCOMPARE(getOptionString(e, "FV_BACKEND"), QStringLiteral("AUTO"));
     QCOMPARE(getOptionString(e, "FV_MIN_PARALLEL_CELLS"), QStringLiteral("20000"));
-    QCOMPARE(getOptionString(e, "FV_LTS"),         QStringLiteral("YES"));
+    QCOMPARE(getOptionString(e, "FV_LTS"), QStringLiteral("YES"));
     QCOMPARE(getOptionString(e, "FV_LTS_MAX_TIERS"), QStringLiteral("6"));
     QCOMPARE(getOptionString(e, "FV_CFL_CENSUS_INTERVAL"), QStringLiteral("1"));
 
     // Set → get for every key the dialog writes, using the exact string
     // forms writeToEngine() produces (spin formats and combo tokens).
-    const struct { const char *key; const char *set; const char *expect; } rows[] = {
-        { "FV_CELL_LENGTH",         "25.00",        "25"           },
-        { "FV_MIN_CELLS",           "8",            "8"            },
-        { "FV_CFL",                 "0.70",         "0.7"          },
-        { "FV_RIEMANN",             "HLL",          "HLL"          },
-        { "FV_ORDER",               "2",            "2"            },
-        { "FV_LIMITER",             "VANLEER",      "VANLEER"      },
-        { "FV_TIME_INTEGRATION",    "RK2",          "RK2"          },
-        { "FV_SLOT_CELERITY",       "150.0",        "150"          },
-        { "FV_PRESSURIZED_IMPLICIT","YES",          "YES"          },  // engine pin only
-        { "FV_PRESSURIZED_IMPLICIT","NO",           "NO"           },
-        { "FV_DISPERSION",          "1.500",        "1.5"          },  // engine pin only
-        { "FV_STRUCTURE_COUPLING",  "ROUTING_STEP", "ROUTING_STEP" },
-        { "FV_COMPACTION",          "NO",           "NO"           },
-        { "FV_BACKEND",             "CPU",          "CPU"          },
-        { "FV_MIN_PARALLEL_CELLS",  "5000",         "5000"         },
-        { "FV_LTS",                 "NO",           "NO"           },
-        { "FV_LTS_MAX_TIERS",       "3",            "3"            },
-        { "FV_CFL_CENSUS_INTERVAL", "10",           "10"           },
+    const struct {
+        const char *key;
+        const char *set;
+        const char *expect;
+    } rows[] = {
+        {"FV_CELL_LENGTH", "25.00", "25"},
+        {"FV_MIN_CELLS", "8", "8"},
+        {"FV_CFL", "0.70", "0.7"},
+        {"FV_RIEMANN", "HLL", "HLL"},
+        {"FV_ORDER", "2", "2"},
+        {"FV_LIMITER", "VANLEER", "VANLEER"},
+        {"FV_TIME_INTEGRATION", "RK2", "RK2"},
+        {"FV_SLOT_CELERITY", "150.0", "150"},
+        {"FV_PRESSURIZED_IMPLICIT", "YES", "YES"}, // engine pin only
+        {"FV_PRESSURIZED_IMPLICIT", "NO", "NO"},
+        {"FV_DISPERSION", "1.500", "1.5"}, // engine pin only
+        {"FV_STRUCTURE_COUPLING", "ROUTING_STEP", "ROUTING_STEP"},
+        {"FV_COMPACTION", "NO", "NO"},
+        {"FV_BACKEND", "CPU", "CPU"},
+        {"FV_MIN_PARALLEL_CELLS", "5000", "5000"},
+        {"FV_LTS", "NO", "NO"},
+        {"FV_LTS_MAX_TIERS", "3", "3"},
+        {"FV_CFL_CENSUS_INTERVAL", "10", "10"},
     };
     for (const auto &r : rows) {
         QVERIFY2(swmm_options_set(e, r.key, r.set) == 0, r.key);
@@ -585,12 +597,12 @@ void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
     // Enum keys must reject unknown tokens instead of silently keeping or
     // mangling state — the dialog relies on this to surface typos through
     // setOption() failure rather than losing edits.
-    QVERIFY(swmm_options_set(e, "FV_RIEMANN",         "ROE")     != 0);
-    QVERIFY(swmm_options_set(e, "FV_LIMITER",         "OSPRE")   != 0);
-    QVERIFY(swmm_options_set(e, "FV_SCALAR_SCHEME",   "WENO")    != 0);
-    QVERIFY(swmm_options_set(e, "FV_TIME_INTEGRATION","RK4")     != 0);
+    QVERIFY(swmm_options_set(e, "FV_RIEMANN", "ROE") != 0);
+    QVERIFY(swmm_options_set(e, "FV_LIMITER", "OSPRE") != 0);
+    QVERIFY(swmm_options_set(e, "FV_SCALAR_SCHEME", "WENO") != 0);
+    QVERIFY(swmm_options_set(e, "FV_TIME_INTEGRATION", "RK4") != 0);
     QVERIFY(swmm_options_set(e, "FV_STRUCTURE_COUPLING", "NEVER") != 0);
-    QVERIFY(swmm_options_set(e, "FV_BACKEND",         "METAL")   != 0);
+    QVERIFY(swmm_options_set(e, "FV_BACKEND", "METAL") != 0);
 
     // ...and a rejected set must leave the previous value untouched.
     QCOMPARE(swmm_options_set(e, "FV_RIEMANN", "HLL"), 0);
@@ -611,10 +623,14 @@ void TestOptionsHydrationContract::fvOptions_retiredNodeKeysAcceptAndFreeze()
     // behaviour (never echo the value) — exactly the FV_JUNCTION_MODEL
     // convention. Against the pre-retirement engine every row here fails,
     // because the values used to round-trip.
-    const struct { const char *key; const char *frozen; const char *attempt; } rows[] = {
-        { "FV_NODE_COUPLING", "SEMI_IMPLICIT", "EXPLICIT" },
-        { "FV_NODE_DT",       "STABILITY",     "NONE"     },
-        { "FV_NODE_PICARD",   "1",             "3"        },
+    const struct {
+        const char *key;
+        const char *frozen;
+        const char *attempt;
+    } rows[] = {
+        {"FV_NODE_COUPLING", "SEMI_IMPLICIT", "EXPLICIT"},
+        {"FV_NODE_DT", "STABILITY", "NONE"},
+        {"FV_NODE_PICARD", "1", "3"},
     };
     for (const auto &r : rows) {
         QCOMPARE(getOptionString(e, r.key), QString::fromLatin1(r.frozen));
@@ -640,39 +656,42 @@ void TestOptionsHydrationContract::transportOptions_engineRoundTripsValues()
     // getOption(); if the engine's defaults drift this case flags the
     // dialog for a resync (the fvOptions case's contract, same rule).
     QCOMPARE(getOptionString(e, "QUALITY_SOLVER"), QStringLiteral("LEGACY"));
-    QCOMPARE(getOptionString(e, "WATER_AGE"),      QStringLiteral("NO"));
+    QCOMPARE(getOptionString(e, "WATER_AGE"), QStringLiteral("NO"));
     QCOMPARE(getOptionString(e, "HEAT_TRANSPORT"), QStringLiteral("NO"));
-    QCOMPARE(getOptionDouble(e, "QUALITY_STEP"),   0.0);
+    QCOMPARE(getOptionDouble(e, "QUALITY_STEP"), 0.0);
     QCOMPARE(getOptionString(e, "MAX_SEGMENTS_PER_LINK"), QStringLiteral("100"));
-    QCOMPARE(getOptionString(e, "DISPERSION"),     QStringLiteral("OFF"));
-    QCOMPARE(getOptionString(e, "RWPT_SEED"),      QStringLiteral("0"));
-    QCOMPARE(getOptionString(e, "OUTFALL_BACKFLOW_QUALITY"),
-             QStringLiteral("LAST"));
+    QCOMPARE(getOptionString(e, "DISPERSION"), QStringLiteral("OFF"));
+    QCOMPARE(getOptionString(e, "RWPT_SEED"), QStringLiteral("0"));
+    QCOMPARE(getOptionString(e, "OUTFALL_BACKFLOW_QUALITY"), QStringLiteral("LAST"));
     // FV_SCALAR_SCHEME is edited on this page (ARD group) since the FV
     // simplification round — its only live consumer is the ARD engine.
     QCOMPARE(getOptionString(e, "FV_SCALAR_SCHEME"), QStringLiteral("MUSCL"));
 
     // Set → get in the exact string forms writeToEngine() produces:
     // combo tokens, QString::number(v,'f',2) for the step, plain ints.
-    const struct { const char *key; const char *set; const char *expect; } rows[] = {
-        { "QUALITY_SOLVER",        "LAGRANGIAN",   "LAGRANGIAN"   },
-        { "FV_SCALAR_SCHEME",      "QUICKEST_ULTIMATE", "QUICKEST_ULTIMATE" },
-        { "FV_SCALAR_SCHEME",      "MUSCL",        "MUSCL"        },
-        { "QUALITY_STEP",          "5.00",         "5"            },
-        { "MAX_SEGMENTS_PER_LINK", "50",           "50"           },
-        { "DISPERSION",            "RWPT",         "RWPT"         },
-        { "RWPT_SEED",             "7",            "7"            },
-        { "WATER_AGE",             "YES",          "YES"          },
-        { "HEAT_TRANSPORT",        "YES",          "YES"          },
-        { "OUTFALL_BACKFLOW_QUALITY", "ZERO",      "ZERO"         },
+    const struct {
+        const char *key;
+        const char *set;
+        const char *expect;
+    } rows[] = {
+        {"QUALITY_SOLVER", "LAGRANGIAN", "LAGRANGIAN"},
+        {"FV_SCALAR_SCHEME", "QUICKEST_ULTIMATE", "QUICKEST_ULTIMATE"},
+        {"FV_SCALAR_SCHEME", "MUSCL", "MUSCL"},
+        {"QUALITY_STEP", "5.00", "5"},
+        {"MAX_SEGMENTS_PER_LINK", "50", "50"},
+        {"DISPERSION", "RWPT", "RWPT"},
+        {"RWPT_SEED", "7", "7"},
+        {"WATER_AGE", "YES", "YES"},
+        {"HEAT_TRANSPORT", "YES", "YES"},
+        {"OUTFALL_BACKFLOW_QUALITY", "ZERO", "ZERO"},
         // The OFF/NO directions too — a one-way table would pass a setter
         // that can only ever turn things on.
-        { "QUALITY_SOLVER",        "EULERIAN_ARD", "EULERIAN_ARD" },
-        { "DISPERSION",            "OFF",          "OFF"          },
-        { "WATER_AGE",             "NO",           "NO"           },
-        { "HEAT_TRANSPORT",        "NO",           "NO"           },
-        { "OUTFALL_BACKFLOW_QUALITY", "LAST",      "LAST"         },
-        { "QUALITY_SOLVER",        "LEGACY",       "LEGACY"       },
+        {"QUALITY_SOLVER", "EULERIAN_ARD", "EULERIAN_ARD"},
+        {"DISPERSION", "OFF", "OFF"},
+        {"WATER_AGE", "NO", "NO"},
+        {"HEAT_TRANSPORT", "NO", "NO"},
+        {"OUTFALL_BACKFLOW_QUALITY", "LAST", "LAST"},
+        {"QUALITY_SOLVER", "LEGACY", "LEGACY"},
     };
     for (const auto &r : rows) {
         QVERIFY2(swmm_options_set(e, r.key, r.set) == 0, r.key);
@@ -703,8 +722,8 @@ void TestOptionsHydrationContract::transportOptions_rejectBadEnumTokens()
 
     // Enum keys must reject unknown tokens so a typo surfaces through a
     // failed setOption() rather than a silently lost edit.
-    QVERIFY(swmm_options_set(e, "QUALITY_SOLVER", "MAGIC")   != 0);
-    QVERIFY(swmm_options_set(e, "DISPERSION",     "FISCHER") != 0);
+    QVERIFY(swmm_options_set(e, "QUALITY_SOLVER", "MAGIC") != 0);
+    QVERIFY(swmm_options_set(e, "DISPERSION", "FISCHER") != 0);
 
     // ...and a rejected set leaves the previous value untouched.
     QCOMPARE(swmm_options_set(e, "QUALITY_SOLVER", "LAGRANGIAN"), 0);
@@ -735,29 +754,33 @@ void TestOptionsHydrationContract::mixedFlowOptions_engineRoundTripsValues()
     // Defaults — these are the fallbacks readFromEngine() passes to
     // getOption(); if the engine's defaults drift this case flags the
     // dialog for a resync (the fvOptions case's contract, same rule).
-    QCOMPARE(getOptionString(e, "SURCHARGE_METHOD"),    QStringLiteral("EXTRAN"));
-    QCOMPARE(getOptionDouble(e, "TPA_CELERITY"),        100.0);
+    QCOMPARE(getOptionString(e, "SURCHARGE_METHOD"), QStringLiteral("EXTRAN"));
+    QCOMPARE(getOptionDouble(e, "TPA_CELERITY"), 100.0);
     QCOMPARE(getOptionString(e, "FV_PRESSURE_CLOSURE"), QStringLiteral("SLOT"));
-    QCOMPARE(getOptionString(e, "UNSTEADY_FRICTION"),   QStringLiteral("NONE"));
-    QCOMPARE(getOptionDouble(e, "UF_K3"),               0.015);
+    QCOMPARE(getOptionString(e, "UNSTEADY_FRICTION"), QStringLiteral("NONE"));
+    QCOMPARE(getOptionDouble(e, "UF_K3"), 0.015);
     QCOMPARE(getOptionString(e, "REPORT_SIGNED_HEADS"), QStringLiteral("NO"));
 
     // Set → get in the exact string forms writeToEngine() produces:
     // combo tokens, QString::number(v,'f',1) for the celerity,
     // QString::number(v,'f',3) for k3, YES/NO for the checkbox.
-    const struct { const char *key; const char *set; const char *expect; } rows[] = {
-        { "SURCHARGE_METHOD",    "TPA",       "TPA"       },
-        { "TPA_CELERITY",        "250.0",     "250"       },
-        { "FV_PRESSURE_CLOSURE", "TPA",       "TPA"       },
-        { "UNSTEADY_FRICTION",   "VITKOVSKY", "VITKOVSKY" },
-        { "UF_K3",               "0.010",     "0.01"      },
-        { "REPORT_SIGNED_HEADS", "YES",       "YES"       },
+    const struct {
+        const char *key;
+        const char *set;
+        const char *expect;
+    } rows[] = {
+        {"SURCHARGE_METHOD", "TPA", "TPA"},
+        {"TPA_CELERITY", "250.0", "250"},
+        {"FV_PRESSURE_CLOSURE", "TPA", "TPA"},
+        {"UNSTEADY_FRICTION", "VITKOVSKY", "VITKOVSKY"},
+        {"UF_K3", "0.010", "0.01"},
+        {"REPORT_SIGNED_HEADS", "YES", "YES"},
         // The default-restoring directions too — a one-way table would pass
         // a setter that can only ever turn things on.
-        { "SURCHARGE_METHOD",    "EXTRAN",    "EXTRAN"    },
-        { "FV_PRESSURE_CLOSURE", "SLOT",      "SLOT"      },
-        { "UNSTEADY_FRICTION",   "NONE",      "NONE"      },
-        { "REPORT_SIGNED_HEADS", "NO",        "NO"        },
+        {"SURCHARGE_METHOD", "EXTRAN", "EXTRAN"},
+        {"FV_PRESSURE_CLOSURE", "SLOT", "SLOT"},
+        {"UNSTEADY_FRICTION", "NONE", "NONE"},
+        {"REPORT_SIGNED_HEADS", "NO", "NO"},
     };
     for (const auto &r : rows) {
         QVERIFY2(swmm_options_set(e, r.key, r.set) == 0, r.key);
@@ -783,11 +806,11 @@ void TestOptionsHydrationContract::mixedFlowOptions_rejectBadEnumTokens()
     // surfaces through a failed setOption() rather than a silently lost
     // edit. REPORT_SIGNED_HEADS is deliberately absent: it takes the
     // engine's lenient bool grammar and never rejects.
-    QVERIFY(swmm_options_set(e, "SURCHARGE_METHOD",    "PIPE")    != 0);
-    QVERIFY(swmm_options_set(e, "UNSTEADY_FRICTION",   "BRUNONE") != 0);
+    QVERIFY(swmm_options_set(e, "SURCHARGE_METHOD", "PIPE") != 0);
+    QVERIFY(swmm_options_set(e, "UNSTEADY_FRICTION", "BRUNONE") != 0);
     // EXTRAN is a valid SURCHARGE_METHOD token but not a closure — the
     // discriminating typo for this key.
-    QVERIFY(swmm_options_set(e, "FV_PRESSURE_CLOSURE", "EXTRAN")  != 0);
+    QVERIFY(swmm_options_set(e, "FV_PRESSURE_CLOSURE", "EXTRAN") != 0);
 
     // ...and a rejected set leaves the previous value untouched.
     QCOMPARE(swmm_options_set(e, "SURCHARGE_METHOD", "TPA"), 0);
@@ -812,10 +835,14 @@ void TestOptionsHydrationContract::auditList_excludesOutOfScopeWidgets()
         return false;
     };
 
-    QVERIFY2(!contains("Auto-Length"),    "Auto-Length is a GUI preference (§M.3) and must not appear in the OPTIONS audit.");
-    QVERIFY2(!contains("Engine Version"), "Engine Version is project metadata (§M.3) and must not appear in the OPTIONS audit.");
-    QVERIFY2(!contains("Coordinates"),    "Coordinates is a live readout (§M.3) and must not appear in the OPTIONS audit.");
-    QVERIFY2(!contains("Progress"),       "Progress bar is live state (§M.3) and must not appear in the OPTIONS audit.");
+    QVERIFY2(!contains("Auto-Length"),
+             "Auto-Length is a GUI preference (§M.3) and must not appear in the OPTIONS audit.");
+    QVERIFY2(!contains("Engine Version"),
+             "Engine Version is project metadata (§M.3) and must not appear in the OPTIONS audit.");
+    QVERIFY2(!contains("Coordinates"),
+             "Coordinates is a live readout (§M.3) and must not appear in the OPTIONS audit.");
+    QVERIFY2(!contains("Progress"),
+             "Progress bar is live state (§M.3) and must not appear in the OPTIONS audit.");
 }
 
 // ---------------------------------------------------------------------------

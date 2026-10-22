@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      traceanalysisstore.cpp
+ * @brief     Persistent storage of flow balance and travel-time analyses.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "output/traceanalysisstore.h"
 #include <QDir>
 #include <QFile>
@@ -20,16 +30,33 @@ namespace
 using DS = std::unique_ptr<GDALDataset, decltype(&GDALClose)>;
 using Feature = std::unique_ptr<OGRFeature, decltype(&OGRFeature::DestroyFeature)>;
 const double nan = std::numeric_limits<double>::quiet_NaN();
+/**
+ * @brief Raise a caught storage failure for a failed GDAL/invariant condition.
+ * @param[in] ok Required condition.
+ * @param[in] message Non-null failure text copied into std::runtime_error.
+ * @throws std::runtime_error When ok is false.
+ */
 void require(bool ok, const char *message)
 {
     if (!ok)
         throw std::runtime_error(message);
 }
+/**
+ * @brief Abort storage work cooperatively at a safe row/commit boundary.
+ * @param[in] c Optional shared cancellation flag.
+ * @throws std::runtime_error When cancellation is requested.
+ */
 void checkCancel(std::atomic_bool *c)
 {
     if (c && c->load())
         throw std::runtime_error("Analysis cancelled");
 }
+/**
+ * @brief Register GDAL drivers and open an independently owned vector dataset.
+ * @param[in] p Datasource path.
+ * @param[in] write True requests update access, false read-only.
+ * @return Owning RAII dataset or null; handle closes on the caller thread.
+ */
 DS open(const QString &p, bool write)
 {
     GDALAllRegister();
@@ -39,16 +66,41 @@ DS open(const QString &p, bool write)
                            nullptr, nullptr)),
             GDALClose};
 }
+/**
+ * @brief Encode a JSON object as compact UTF-8 text for an attribute field.
+ * @param[in] o Owning metadata value to encode.
+ * @return Text without a trailing pretty-print newline.
+ */
 QString json(const QJsonObject &o)
 {
     return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }
-QJsonObject object(const char *s) { return QJsonDocument::fromJson(QByteArray(s)).object(); }
+/**
+ * @brief Parse a stored UTF-8 JSON field without raising schema errors.
+ * @param[in] s Null-terminated field text.
+ * @return Parsed object, empty for malformed/nonobject text.
+ */
+QJsonObject object(const char *s)
+{
+    return QJsonDocument::fromJson(QByteArray(s)).object();
+}
+/**
+ * @brief Add one scalar schema field or throw on failure.
+ * @param[in,out] l Non-null target layer.
+ * @param[in] n Non-null field name.
+ * @param[in] t OGR scalar field type.
+ */
 void field(OGRLayer *l, const char *n, OGRFieldType t)
 {
     OGRFieldDefn f(n, t);
     require(l->CreateField(&f) == OGRERR_NONE, "Cannot create analysis field");
 }
+/**
+ * @brief Assign a finite numeric field or SQL null for unavailable values.
+ * @param[in,out] f Non-null feature with the named field.
+ * @param[in] n Non-null field name.
+ * @param[in] v Numeric value in the schema field units; NaN/infinity become null.
+ */
 void number(OGRFeature *f, const char *n, double v)
 {
     int i = f->GetFieldIndex(n);
@@ -57,39 +109,87 @@ void number(OGRFeature *f, const char *n, double v)
     else
         f->SetFieldNull(i);
 }
+/**
+ * @brief Read an optional numerical field without treating missing as zero.
+ * @param[in] f Non-null borrowed feature.
+ * @param[in] n Non-null field name.
+ * @return Converted double or NaN when the field is missing/unset/null.
+ */
 double number(const OGRFeature *f, const char *n)
 {
     int i = f->GetFieldIndex(n);
     return i >= 0 && f->IsFieldSetAndNotNull(i) ? f->GetFieldAsDouble(i) : nan;
 }
+/**
+ * @brief Assign UTF-8 metadata text to a feature.
+ * @param[in,out] f Non-null feature containing the named field.
+ * @param[in] n Field name.
+ * @param[in] v Text copied by OGR.
+ */
 void textField(OGRFeature *f, const char *n, const QString &v)
 {
     f->SetField(n, v.toUtf8().constData());
 }
+/**
+ * @brief Copy an OGR text field as UTF-8.
+ * @param[in] f Non-null borrowed feature.
+ * @param[in] n Non-null field name.
+ * @return Decoded text, using OGR empty/default conversions for missing data.
+ */
 QString str(const OGRFeature *f, const char *n)
 {
     return QString::fromUtf8(f->GetFieldAsString(n));
 }
+/**
+ * @brief Allocate a scoped feature using a layer schema.
+ * @param[in] l Non-null layer.
+ * @return Owning RAII feature destroyed with OGRFeature::DestroyFeature().
+ */
 Feature feature(OGRLayer *l)
 {
     return {OGRFeature::CreateFeature(l->GetLayerDefn()), OGRFeature::DestroyFeature};
 }
+/**
+ * @brief Write a feature without transferring caller ownership.
+ * @param[in,out] l Non-null target layer.
+ * @param[in] f Non-null borrowed feature.
+ * @throws std::runtime_error When CreateFeature() fails.
+ */
 void insert(OGRLayer *l, OGRFeature *f)
 {
     require(l->CreateFeature(f) == OGRERR_NONE, "Cannot write analysis feature");
 }
+/**
+ * @brief Require an existing named layer in an open dataset.
+ * @param[in] d Non-null borrowed dataset.
+ * @param[in] n Layer/table name.
+ * @return Borrowed dataset-owned layer.
+ * @throws std::runtime_error When absent.
+ */
 OGRLayer *table(GDALDataset *d, const char *n)
 {
     auto *l = d->GetLayerByName(n);
     require(l, "Missing analysis table");
     return l;
 }
+/**
+ * @brief Create a geometry-free metadata table.
+ * @param[in,out] d Non-null target dataset.
+ * @param[in] n New table name.
+ * @return Borrowed dataset-owned layer; throws if creation fails.
+ */
 OGRLayer *attributes(GDALDataset *d, const char *n)
 {
     auto *l = d->CreateLayer(n, nullptr, wkbNone, nullptr);
     require(l, "Cannot create analysis table");
     return l;
 }
+/**
+ * @brief Derive a validated per-estimate spatial table identifier.
+ * @param[in] id Analysis ID whose hyphens are removed; remaining text must be 32 lowercase hex/digit characters.
+ * @param[in] nodes True chooses node suffix, false link suffix.
+ * @return trace_ID_nodes/links; throws on invalid ID.
+ */
 QString tableName(const QString &id, bool nodes)
 {
     QString token = id;
@@ -100,6 +200,15 @@ QString tableName(const QString &id, bool nodes)
     return QStringLiteral("trace_%1_%2")
         .arg(token, nodes ? QStringLiteral("nodes") : QStringLiteral("links"));
 }
+/**
+ * @brief Create the spatial schema for average or estimated node/link rows.
+ * @param[in,out] d Non-null target dataset.
+ * @param[in] name New layer name.
+ * @param[in] nodes True point/node fields, false line/link fields.
+ * @param[in] wkt Optional CRS input; unparseable/empty CRS leaves it unassigned.
+ * @param[in] traced Add fraction/time/terminal/seed estimate fields when true.
+ * @return Borrowed new layer, with schema fields in SI units; throws on creation failure.
+ */
 OGRLayer *features(GDALDataset *d, const QString &name, bool nodes, const QString &wkt, bool traced)
 {
     OGRSpatialReference srs;
@@ -118,14 +227,11 @@ OGRLayer *features(GDALDataset *d, const QString &name, bool nodes, const QStrin
     field(l, "status", OFTString);
     field(l, "first_volume_m3", OFTReal);
     field(l, "last_volume_m3", OFTReal);
-    if (nodes)
-    {
+    if (nodes) {
         for (auto n : {"mean_volume_m3", "mean_inflow_m3s", "lateral_in_m3s", "withdrawal_m3s",
                        "overflow_m3s", "mean_outgoing_m3s", "residence_s"})
             field(l, n, OFTReal);
-    }
-    else
-    {
+    } else {
         field(l, "node1", OFTString);
         field(l, "node2", OFTString);
         field(l, "dominant_dir", OFTInteger);
@@ -133,8 +239,7 @@ OGRLayer *features(GDALDataset *d, const QString &name, bool nodes, const QStrin
                        "v_abs_mean_mps", "forward_volume_m3", "reverse_volume_m3", "local_time_s"})
             field(l, n, OFTReal);
     }
-    if (traced)
-    {
+    if (traced) {
         for (auto n : {"trace_ratio", "time_s", "time_coverage", "from_time_s", "to_time_s",
                        "terminal_fraction"})
             field(l, n, OFTReal);
@@ -143,26 +248,33 @@ OGRLayer *features(GDALDataset *d, const QString &name, bool nodes, const QStrin
     }
     return l;
 }
+/**
+ * @brief Write all aligned node or link averages, optionally with trace estimates.
+ * @param[in,out] d Destination dataset.
+ * @param[in] data Valid topology and complete SI average arrays.
+ * @param[in] nodes True writes nodes, false links.
+ * @param[in] name New spatial table name.
+ * @param[in] r Optional result with matching arrays; null writes only averages.
+ * @param[in] cancel Optional flag checked before each row.
+ * @details Nonfinite numeric values are stored null; missing geometry remains null. Throws on cancellation/schema/write failure for caller rollback/cleanup.
+ */
 void writeFeatures(GDALDataset *d, const Dataset &data, bool nodes, const QString &name,
                    const Result *r, std::atomic_bool *cancel)
 {
     auto *l = features(d, name, nodes, data.snapshot.wkt, r);
     int count = nodes ? data.nodes.size() : data.links.size();
-    for (int i = 0; i < count; ++i)
-    {
+    for (int i = 0; i < count; ++i) {
         checkCancel(cancel);
         auto f = feature(l);
         f->SetField("object_index", i);
         int flags = 0;
-        if (nodes)
-        {
+        if (nodes) {
             const auto &n = data.snapshot.nodes[i];
             const auto &a = data.nodes[i];
             textField(f.get(), "object_id", n.id);
             f->SetField("object_type", n.type);
             f->SetField("input_flags", n.flags);
-            if (n.hasGeometry)
-            {
+            if (n.hasGeometry) {
                 OGRPoint p(n.point.x(), n.point.y());
                 f->SetGeometry(&p);
             }
@@ -176,9 +288,7 @@ void writeFeatures(GDALDataset *d, const Dataset &data, bool nodes, const QStrin
             number(f.get(), "first_volume_m3", a.first_volume_m3);
             number(f.get(), "last_volume_m3", a.last_volume_m3);
             flags = a.flags;
-        }
-        else
-        {
+        } else {
             const auto &v = data.snapshot.links[i];
             const auto &a = data.links[i];
             textField(f.get(), "object_id", v.id);
@@ -186,8 +296,7 @@ void writeFeatures(GDALDataset *d, const Dataset &data, bool nodes, const QStrin
             textField(f.get(), "node2", data.snapshot.nodes[v.to].id);
             f->SetField("object_type", v.type);
             f->SetField("dominant_dir", a.direction);
-            if (v.points.size() > 1)
-            {
+            if (v.points.size() > 1) {
                 OGRLineString line;
                 for (auto p : v.points)
                     line.addPoint(p.x(), p.y());
@@ -205,8 +314,7 @@ void writeFeatures(GDALDataset *d, const Dataset &data, bool nodes, const QStrin
             number(f.get(), "last_volume_m3", a.last_volume_m3);
             flags = a.flags;
         }
-        if (r)
-        {
+        if (r) {
             const auto &v = nodes ? r->nodes[i] : r->links[i];
             number(f.get(), "trace_ratio", v.ratio);
             number(f.get(), "time_s", v.time_s);
@@ -223,15 +331,25 @@ void writeFeatures(GDALDataset *d, const Dataset &data, bool nodes, const QStrin
         insert(l, f.get());
     }
 }
+/**
+ * @brief Delete a matching spatial table when replacing a saved estimate.
+ * @param[in,out] d Open update dataset.
+ * @param[in] name Exact layer name.
+ * @details No-op when absent; throws if DeleteLayer() fails.
+ */
 void removeTable(GDALDataset *d, const QString &name)
 {
     for (int i = 0; i < d->GetLayerCount(); ++i)
-        if (QString::fromUtf8(d->GetLayer(i)->GetName()) == name)
-        {
+        if (QString::fromUtf8(d->GetLayer(i)->GetName()) == name) {
             require(d->DeleteLayer(i) == OGRERR_NONE, "Cannot replace analysis table");
             return;
         }
 }
+/**
+ * @brief Combine one saved analysis recipe with its ID/style/summary.
+ * @param[in] f Non-null analyses-table feature.
+ * @return Owning JSON recipe, using empty objects for malformed JSON fields.
+ */
 QJsonObject record(const OGRFeature *f)
 {
     auto j = object(f->GetFieldAsString("recipe"));
@@ -246,15 +364,13 @@ bool AnalysisStore::prepare(const QString &path, const Dataset &data, QString *e
 {
     QString staging = path + QStringLiteral(".part-") +
                       QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".gpkg");
-    try
-    {
+    try {
         QString validation;
         require(data.snapshot.valid(&validation), validation.toUtf8().constData());
         require(data.nodes.size() == data.snapshot.nodes.size() &&
                     data.links.size() == data.snapshot.links.size(),
                 "Average counts differ from topology");
-        if (QFile::exists(path))
-        {
+        if (QFile::exists(path)) {
             auto old = readDataset(path, error);
             return old && old->runId == data.runId && old->fingerprint == data.fingerprint &&
                    old->snapshot.modelFingerprint == data.snapshot.modelFingerprint;
@@ -307,9 +423,7 @@ bool AnalysisStore::prepare(const QString &path, const Dataset &data, QString *e
         d.reset();
         require(QFile::rename(staging, path), "Cannot publish prepared analysis");
         return true;
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception &e) {
         if (error)
             *error = QString::fromUtf8(e.what());
         QFile::remove(staging);
@@ -320,8 +434,7 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
                          std::atomic_bool *cancel)
 {
     DS d(nullptr, GDALClose);
-    try
-    {
+    try {
         require(bool(r.dataset), "Missing analysis dataset");
         require(r.nodes.size() == r.dataset->nodes.size() &&
                     r.links.size() == r.dataset->links.size(),
@@ -340,15 +453,13 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
         // per saved analysis, too many to materialize on every save.
         (void)tableName(r.id, true);
         const QString filter = QStringLiteral("analysis_id = '%1'").arg(r.id);
-        for (auto name : {"analyses", "analysis_summary", "analysis_diagnostics"})
-        {
+        for (auto name : {"analyses", "analysis_summary", "analysis_diagnostics"}) {
             auto *l = table(d.get(), name);
             require(l->SetAttributeFilter(filter.toUtf8().constData()) == OGRERR_NONE,
                     "Cannot filter saved analysis rows");
             l->ResetReading();
             QVector<GIntBig> old;
-            while (auto *raw = l->GetNextFeature())
-            {
+            while (auto *raw = l->GetNextFeature()) {
                 Feature f(raw, OGRFeature::DestroyFeature);
                 old.append(f->GetFID());
             }
@@ -356,8 +467,7 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
             for (auto fid : old)
                 require(l->DeleteFeature(fid) == OGRERR_NONE, "Cannot replace saved analysis");
         }
-        for (bool nodes : {true, false})
-        {
+        for (bool nodes : {true, false}) {
             QString name = tableName(r.id, nodes);
             removeTable(d.get(), name);
             writeFeatures(d.get(), *r.dataset, nodes, name, &r, cancel);
@@ -378,8 +488,7 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
         auto *s = table(d.get(), "analysis_summary");
         const char *kinds[] = {"Outfall",  "Loss",       "Source",
                                "Retained", "Unresolved", "Trapped circulation"};
-        for (int i = 0; i < 6; ++i)
-        {
+        for (int i = 0; i < 6; ++i) {
             auto sf = feature(s);
             textField(sf.get(), "analysis_id", r.id);
             sf->SetField("quantity", kinds[i]);
@@ -390,8 +499,7 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
         auto budget = summaryJson(r.summary);
         for (auto it = budget.begin(); it != budget.end(); ++it)
             if (it.value().isDouble() && it.key() != "cyclic" && it.key() != "nodes" &&
-                it.key() != "links")
-            {
+                it.key() != "links") {
                 auto sf = feature(s);
                 textField(sf.get(), "analysis_id", r.id);
                 textField(sf.get(), "quantity", it.key());
@@ -403,12 +511,10 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
                 insert(s, sf.get());
             }
         auto *diag = table(d.get(), "analysis_diagnostics");
-        for (bool nodes : {true, false})
-        {
+        for (bool nodes : {true, false}) {
             const auto &values = nodes ? r.nodes : r.links;
             for (int i = 0; i < values.size(); ++i)
-                if (values[i].flags)
-                {
+                if (values[i].flags) {
                     auto df = feature(diag);
                     textField(df.get(), "analysis_id", r.id);
                     textField(df.get(), "object_id",
@@ -423,9 +529,7 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
         checkCancel(cancel);
         require(d->CommitTransaction() == OGRERR_NONE, "Cannot commit saved estimate");
         return true;
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception &e) {
         if (d)
             d->RollbackTransaction();
         if (error)
@@ -435,8 +539,7 @@ bool AnalysisStore::save(const QString &path, const Result &r, QString *error,
 }
 std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString *error)
 {
-    try
-    {
+    try {
         auto d = open(path, false);
         require(bool(d), "Cannot open analysis GeoPackage");
         auto *l = table(d.get(), "analysis_runs");
@@ -459,16 +562,14 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
         require(data->snapshot.valid(), "Invalid saved topology");
         data->nodes.resize(data->snapshot.nodes.size());
         data->links.resize(data->snapshot.links.size());
-        for (bool nodes : {true, false})
-        {
+        for (bool nodes : {true, false}) {
             auto *layer = table(d.get(), nodes ? "average_nodes" : "average_links");
             // Geometry is restored from the snapshot JSON, not from these rows.
             const char *ignored[] = {"OGR_GEOMETRY", nullptr};
             layer->SetIgnoredFields(ignored);
             QSet<int> seen;
             int count = nodes ? data->nodes.size() : data->links.size();
-            while (auto *raw = layer->GetNextFeature())
-            {
+            while (auto *raw = layer->GetNextFeature()) {
                 Feature v(raw, OGRFeature::DestroyFeature);
                 int i = v->GetFieldAsInteger("object_index");
                 require(i >= 0 && i < count && !seen.contains(i), "Invalid average row index");
@@ -476,8 +577,7 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
                 require(str(v.get(), "object_id") ==
                             (nodes ? data->snapshot.nodes[i].id : data->snapshot.links[i].id),
                         "Average IDs differ from snapshot");
-                if (nodes)
-                {
+                if (nodes) {
                     auto &a = data->nodes[i];
                     a.volume_m3 = number(v.get(), "mean_volume_m3");
                     a.inflow_m3s = number(v.get(), "mean_inflow_m3s");
@@ -489,9 +589,7 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
                     a.first_volume_m3 = number(v.get(), "first_volume_m3");
                     a.last_volume_m3 = number(v.get(), "last_volume_m3");
                     a.flags = v->GetFieldAsInteger("flags");
-                }
-                else
-                {
+                } else {
                     auto &a = data->links[i];
                     a.net_flow_m3s = number(v.get(), "q_net_mean_m3s");
                     a.absolute_flow_m3s = number(v.get(), "q_abs_mean_m3s");
@@ -508,9 +606,7 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
             require(seen.size() == count, "Incomplete average layer");
         }
         return data;
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception &e) {
         if (error)
             *error = QString::fromUtf8(e.what());
         return {};
@@ -518,8 +614,7 @@ std::shared_ptr<Dataset> AnalysisStore::readDataset(const QString &path, QString
 }
 bool AnalysisStore::isPartial(const QString &path)
 {
-    try
-    {
+    try {
         auto d = open(path, false);
         if (!d)
             return false;
@@ -528,28 +623,22 @@ bool AnalysisStore::isPartial(const QString &path)
             return false;
         Feature f(l->GetNextFeature(), OGRFeature::DestroyFeature);
         return f && object(f->GetFieldAsString("metadata"))["partial"].toBool(false);
-    }
-    catch (const std::exception &)
-    {
+    } catch (const std::exception &) {
         return false;
     }
 }
 QVector<QJsonObject> AnalysisStore::analyses(const QString &path, QString *error)
 {
     QVector<QJsonObject> rows;
-    try
-    {
+    try {
         auto d = open(path, false);
         require(bool(d), "Cannot open analysis package");
         auto *l = table(d.get(), "analyses");
-        while (auto *raw = l->GetNextFeature())
-        {
+        while (auto *raw = l->GetNextFeature()) {
             Feature f(raw, OGRFeature::DestroyFeature);
             rows.append(record(f.get()));
         }
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception &e) {
         if (error)
             *error = QString::fromUtf8(e.what());
     }
@@ -563,18 +652,15 @@ std::shared_ptr<Result> AnalysisStore::read(const QString &path, const QString &
 std::shared_ptr<Result> AnalysisStore::read(const QString &path, const QString &id,
                                             std::shared_ptr<const Dataset> data, QString *error)
 {
-    try
-    {
+    try {
         require(bool(data), "Cannot read saved analysis averages");
         auto d = open(path, false);
         require(bool(d), "Cannot open analysis package");
         auto *a = table(d.get(), "analyses");
         QJsonObject row;
-        while (auto *raw = a->GetNextFeature())
-        {
+        while (auto *raw = a->GetNextFeature()) {
             Feature f(raw, OGRFeature::DestroyFeature);
-            if (str(f.get(), "analysis_id") == id)
-            {
+            if (str(f.get(), "analysis_id") == id) {
                 row = record(f.get());
                 break;
             }
@@ -591,14 +677,12 @@ std::shared_ptr<Result> AnalysisStore::read(const QString &path, const QString &
         require(r->seed >= 0 && r->seed < data->nodes.size() && r->direction >= 0 &&
                     r->direction <= 1,
                 "Invalid saved recipe");
-        for (bool nodes : {true, false})
-        {
+        for (bool nodes : {true, false}) {
             auto *l = table(d.get(), tableName(id, nodes).toUtf8().constData());
             auto &values = nodes ? r->nodes : r->links;
             values.resize(nodes ? data->nodes.size() : data->links.size());
             QSet<int> seen;
-            while (auto *raw = l->GetNextFeature())
-            {
+            while (auto *raw = l->GetNextFeature()) {
                 Feature f(raw, OGRFeature::DestroyFeature);
                 int i = f->GetFieldAsInteger("object_index");
                 require(i >= 0 && i < values.size() && !seen.contains(i),
@@ -620,9 +704,7 @@ std::shared_ptr<Result> AnalysisStore::read(const QString &path, const QString &
             require(seen.size() == values.size(), "Incomplete saved trace");
         }
         return r;
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception &e) {
         if (error)
             *error = QString::fromUtf8(e.what());
         return {};
@@ -631,16 +713,13 @@ std::shared_ptr<Result> AnalysisStore::read(const QString &path, const QString &
 bool AnalysisStore::saveStyle(const QString &path, const QString &id, const QJsonObject &style,
                               QString *error)
 {
-    try
-    {
+    try {
         auto d = open(path, true);
         require(bool(d), "Cannot open saved analysis for style update");
         auto *l = table(d.get(), "analyses");
-        while (auto *raw = l->GetNextFeature())
-        {
+        while (auto *raw = l->GetNextFeature()) {
             Feature f(raw, OGRFeature::DestroyFeature);
-            if (str(f.get(), "analysis_id") == id)
-            {
+            if (str(f.get(), "analysis_id") == id) {
                 textField(f.get(), "style", json(style));
                 require(l->SetFeature(f.get()) == OGRERR_NONE,
                         "Cannot save default analysis style");
@@ -648,9 +727,7 @@ bool AnalysisStore::saveStyle(const QString &path, const QString &id, const QJso
             }
         }
         require(false, "Analysis missing");
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception &e) {
         if (error)
             *error = QString::fromUtf8(e.what());
     }

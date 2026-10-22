@@ -1,6 +1,6 @@
-/*!
- * \file   test_channelburn_rule.cpp
- * \brief  Gate V2 (corridor-rule invariants) and V3 (units / frames) for the
+/**
+ * @file      test_channelburn_rule.cpp
+ * @brief     Gate V2 (corridor-rule invariants) and V3 (units / frames) for the
  *         channel burn-in, phase P1
  *         (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §8).
  *
@@ -8,7 +8,12 @@
  * — never RAISE outside R, idempotent, order-independent, NoData preserved —
  * are properties of the rule, not of GDAL. test_burnedrasterwriter covers the
  * raster round trip.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QPointF>
@@ -20,74 +25,155 @@
 
 using namespace mesh;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Build metre-based rule-test profile options.
+ * @return Owned options: forced half-width 2 m, no bank clipping, maximum half-width
+ * 10 m, one interior string and chainage step 1 m. Does not construct a profile.
+ *
+ */
 BurnOptions options()
 {
     BurnOptions o;
     o.forceHalfWidth = 2.0;
-    o.clipToBanks    = false;
-    o.maxHalfWidth   = 10.0;
-    o.stringCount    = 1;
-    o.chainageStep   = 1.0;
+    o.clipToBanks = false;
+    o.maxHalfWidth = 10.0;
+    o.stringCount = 1;
+    o.chainageStep = 1.0;
     return o;
 }
 
-/*! A straight west→east trapezoidal channel from (0,0) to (\p len,0), bed
- *  falling \p drop over its length. */
+/**
+ *
+ * @brief Build a west-east trapezoidal profile for pure grid rule tests.
+ * @param id Copied conduit ID.
+ * @param len Intended positive centreline length in metres.
+ * @param zUp Upstream bed elevation in metres.
+ * @param drop Metre elevation fall, subtracted from zUp at the downstream endpoint;
+ * negative values deliberately permit adverse-slope fixtures.
+ * @param opt Borrowed profile options, default options(), copied by production builder.
+ * @return Owned production-built profile with 4-metre base, side slope 2 and
+ * 0..2-metre section depths; no local validity check or persistent mutation.
+ *
+ */
 BurnProfile straightChannel(const QString &id, double len, double zUp, double drop,
                             const BurnOptions &opt = options())
 {
     ChannelInput in;
-    in.conduitId  = id;
+    in.conduitId = id;
     in.centerline = {QPointF(0, 0), QPointF(len, 0)};
-    in.zUp        = zUp;
-    in.zDn        = zUp - drop;
+    in.zUp = zUp;
+    in.zDn = zUp - drop;
     const QVector<double> d = {0.0, 1.0, 2.0};
     QVector<double> w;
-    for (const double y : d) w.append(4.0 + 2.0 * 2.0 * y);   // b = 4, z = 2
+    for (const double y : d)
+        w.append(4.0 + 2.0 * 2.0 * y); // b = 4, z = 2
     in.section = sectionFromWidths(d, w);
     return buildBurnProfile(in, opt);
 }
 
 /*! A flat DEM sampled on a grid, so the invariants can be checked pixel by
  *  pixel without a file. */
-struct Grid
-{
+struct Grid {
     double x0 = -5.0, y0 = -12.0, step = 1.0;
-    int    nx = 40,   ny = 25;
+    int nx = 40, ny = 25;
     QVector<double> z;
 
+    /**
+     *
+     * @brief Resize/reset the fixture grid's elevations.
+     * @param v Uniform elevation in metres or NaN to represent NoData.
+     * Requires nonnegative nx/ny and representable nx*ny capacity; overwrites all prior
+     * samples. No dimensional validation or file writes; allocation failure propagates.
+     *
+     */
     void fill(double v) { z.assign(size_t(nx) * size_t(ny), v); }
+    /**
+     *
+     * @brief Compute an unchecked grid sample coordinate.
+     * @param i Zero-based column, normally in [0,nx).
+     * @param j Zero-based row, normally in [0,ny).
+     * @return XY in metres using origin plus index*step, with no half-pixel offset or
+     * bounds check. Does not access or mutate z.
+     *
+     */
     QPointF at(int i, int j) const { return QPointF(x0 + i * step, y0 + j * step); }
+    /**
+     *
+     * @brief Access one writable row-major grid elevation.
+     * @param i Valid zero-based column in [0,nx).
+     * @param j Valid zero-based row in [0,ny).
+     * @return Borrowed mutable metre elevation (NaN means NoData), valid until z changes
+     * capacity or this grid dies. Requires prior fill/adequate nx*ny storage; no checks.
+     *
+     */
     double &operator()(int i, int j) { return z[size_t(j) * size_t(nx) + size_t(i)]; }
-    double  operator()(int i, int j) const { return z[size_t(j) * size_t(nx) + size_t(i)]; }
+    /**
+     *
+     * @brief Copy one row-major grid elevation without mutation.
+     * @param i Valid zero-based column in [0,nx).
+     * @param j Valid zero-based row in [0,ny).
+     * @return Metre elevation or NaN NoData. Requires populated nx*ny storage; no bounds
+     * or index-overflow validation.
+     *
+     */
+    double operator()(int i, int j) const { return z[size_t(j) * size_t(nx) + size_t(i)]; }
 };
 
 /*! One burn pass over the grid. Returns the outcome counts. */
-struct Counts { int replaced = 0, lowered = 0, unchanged = 0, noData = 0, outside = 0; };
+struct Counts {
+    int replaced = 0, lowered = 0, unchanged = 0, noData = 0, outside = 0;
+};
 
+/**
+ *
+ * @brief Apply the production corridor and pixel rules to every fixture sample.
+ * @param g Borrowed mutable populated grid; replaced/lowered values are written in
+ * place, while unchanged/NoData/outside outcomes retain prior values.
+ * @param profiles Borrowed valid metre-based burn profiles, indexed locally.
+ * @param rule Borrowed rule in the same metre units as grid/profile data.
+ * @return Counts of all pixel outcomes, including samples outside indexed corridors.
+ * NaN alone is treated as input NoData. No rollback if an allocation/production call
+ * throws after earlier writes; no raster files or engine state are touched.
+ *
+ */
 Counts burnGrid(Grid &g, const QVector<BurnProfile> &profiles, const BurnRule &rule)
 {
     BurnCorridorIndex idx;
     idx.build(profiles);
     Counts c;
     for (int j = 0; j < g.ny; ++j)
-        for (int i = 0; i < g.nx; ++i)
-        {
+        for (int i = 0; i < g.nx; ++i) {
             BurnProjection pr;
             double zSec = 0.0;
-            if (!bestBurnAt(idx, profiles, g.at(i, j), &pr, &zSec)) { ++c.outside; continue; }
+            if (!bestBurnAt(idx, profiles, g.at(i, j), &pr, &zSec)) {
+                ++c.outside;
+                continue;
+            }
             const double zDem = g(i, j);
-            const bool   nd   = std::isnan(zDem);
+            const bool nd = std::isnan(zDem);
             double zNew = zDem;
-            switch (burnPixel(zDem, nd, zSec, pr.offset, rule, &zNew))
-            {
-            case BurnOutcome::Replaced:   g(i, j) = zNew; ++c.replaced;  break;
-            case BurnOutcome::Lowered:    g(i, j) = zNew; ++c.lowered;   break;
-            case BurnOutcome::Unchanged:  ++c.unchanged; break;
-            case BurnOutcome::NoDataKept: ++c.noData;    break;
-            case BurnOutcome::Outside:    ++c.outside;   break;
+            switch (burnPixel(zDem, nd, zSec, pr.offset, rule, &zNew)) {
+            case BurnOutcome::Replaced:
+                g(i, j) = zNew;
+                ++c.replaced;
+                break;
+            case BurnOutcome::Lowered:
+                g(i, j) = zNew;
+                ++c.lowered;
+                break;
+            case BurnOutcome::Unchanged:
+                ++c.unchanged;
+                break;
+            case BurnOutcome::NoDataKept:
+                ++c.noData;
+                break;
+            case BurnOutcome::Outside:
+                ++c.outside;
+                break;
             }
         }
     return c;
@@ -124,12 +210,14 @@ TEST(ChannelBurnRule, ProjectionIsSingleValuedInsideATightBend)
     // does not. Every point inside the corridor must get exactly one offset per
     // conduit, and it must be no further than the corridor extent.
     ChannelInput in;
-    in.conduitId  = QStringLiteral("BEND");
+    in.conduitId = QStringLiteral("BEND");
     in.centerline = {QPointF(0, 20), QPointF(0, 0), QPointF(20, 0)};
-    in.zUp = 10.0; in.zDn = 9.0;
+    in.zUp = 10.0;
+    in.zDn = 9.0;
     const QVector<double> d = {0.0, 1.0, 2.0};
     QVector<double> w;
-    for (const double y : d) w.append(4.0 + 4.0 * y);
+    for (const double y : d)
+        w.append(4.0 + 4.0 * y);
     in.section = sectionFromWidths(d, w);
 
     BurnOptions opt = options();
@@ -143,11 +231,11 @@ TEST(ChannelBurnRule, ProjectionIsSingleValuedInsideATightBend)
     const double ext = ps.first().section.sMax;
 
     for (double x = -6.0; x <= 26.0; x += 0.25)
-        for (double y = -6.0; y <= 26.0; y += 0.25)
-        {
+        for (double y = -6.0; y <= 26.0; y += 0.25) {
             idx.projectAll(QPointF(x, y), &hits);
             ASSERT_LE(hits.size(), 1) << "multi-valued at " << x << "," << y;
-            if (hits.isEmpty()) continue;
+            if (hits.isEmpty())
+                continue;
             EXPECT_LE(std::abs(hits.first().offset), ext + 1e-9);
             EXPECT_GE(hits.first().chainage, -1e-9);
             EXPECT_LE(hits.first().chainage, ps.first().length() + 1e-9);
@@ -159,32 +247,36 @@ TEST(ChannelBurnRule, ProjectionIsSingleValuedInsideATightBend)
 TEST(ChannelBurnRule, NeverRaisesAPixelOutsideTheForcedCorridor)
 {
     const QVector<BurnProfile> ps = {straightChannel(QStringLiteral("C1"), 30.0, 10.0, 1.0)};
-    BurnRule rule; rule.forceHalfWidth = 2.0;
+    BurnRule rule;
+    rule.forceHalfWidth = 2.0;
 
-    Grid g; g.fill(5.0);                       // DEM far BELOW the channel bed
+    Grid g;
+    g.fill(5.0); // DEM far BELOW the channel bed
     const Grid before = g;
     burnGrid(g, ps, rule);
 
     BurnCorridorIndex idx;
     idx.build(ps);
     for (int j = 0; j < g.ny; ++j)
-        for (int i = 0; i < g.nx; ++i)
-        {
+        for (int i = 0; i < g.nx; ++i) {
             BurnProjection pr;
             double zSec = 0.0;
-            if (!bestBurnAt(idx, ps, g.at(i, j), &pr, &zSec)) continue;
-            if (std::abs(pr.offset) <= rule.forceHalfWidth) continue;
-            EXPECT_LE(g(i, j), before(i, j) + 1e-12)
-                << "raised at offset " << pr.offset;
+            if (!bestBurnAt(idx, ps, g.at(i, j), &pr, &zSec))
+                continue;
+            if (std::abs(pr.offset) <= rule.forceHalfWidth)
+                continue;
+            EXPECT_LE(g(i, j), before(i, j) + 1e-12) << "raised at offset " << pr.offset;
         }
 }
 
 TEST(ChannelBurnRule, InsideTheForcedCorridorTheSectionWinsEvenWhenItRaises)
 {
     const QVector<BurnProfile> ps = {straightChannel(QStringLiteral("C1"), 30.0, 10.0, 1.0)};
-    BurnRule rule; rule.forceHalfWidth = 2.0;
+    BurnRule rule;
+    rule.forceHalfWidth = 2.0;
 
-    Grid g; g.fill(5.0);
+    Grid g;
+    g.fill(5.0);
     const Counts c = burnGrid(g, ps, rule);
     EXPECT_GT(c.replaced, 0);
 
@@ -201,9 +293,11 @@ TEST(ChannelBurnRule, InsideTheForcedCorridorTheSectionWinsEvenWhenItRaises)
 TEST(ChannelBurnRule, BurnIsIdempotent)
 {
     const QVector<BurnProfile> ps = {straightChannel(QStringLiteral("C1"), 30.0, 10.0, 1.0)};
-    BurnRule rule; rule.forceHalfWidth = 2.0;
+    BurnRule rule;
+    rule.forceHalfWidth = 2.0;
 
-    Grid g; g.fill(9.0);                      // straddles the bed: both rules fire
+    Grid g;
+    g.fill(9.0); // straddles the bed: both rules fire
     burnGrid(g, ps, rule);
     const Grid once = g;
     burnGrid(g, ps, rule);
@@ -215,24 +309,29 @@ TEST(ChannelBurnRule, ResultIsIndependentOfConduitOrder)
     // Two channels crossing at right angles: every pixel in the overlap is
     // claimed by both, so the confluence tie-break is what makes this stable.
     ChannelInput ns;
-    ns.conduitId  = QStringLiteral("B_north");
+    ns.conduitId = QStringLiteral("B_north");
     ns.centerline = {QPointF(10, -10), QPointF(10, 10)};
-    ns.zUp = 9.0; ns.zDn = 8.0;
+    ns.zUp = 9.0;
+    ns.zDn = 8.0;
     const QVector<double> d = {0.0, 1.0, 2.0};
     QVector<double> w;
-    for (const double y : d) w.append(4.0 + 4.0 * y);
+    for (const double y : d)
+        w.append(4.0 + 4.0 * y);
     ns.section = sectionFromWidths(d, w);
 
-    QVector<BurnProfile> forward   = {straightChannel(QStringLiteral("A_east"), 30.0, 10.0, 1.0),
-                                      buildBurnProfile(ns, options())};
-    QVector<BurnProfile> reversed  = {forward[1], forward[0]};
+    QVector<BurnProfile> forward = {straightChannel(QStringLiteral("A_east"), 30.0, 10.0, 1.0),
+                                    buildBurnProfile(ns, options())};
+    QVector<BurnProfile> reversed = {forward[1], forward[0]};
     ASSERT_TRUE(forward[0].isValid());
     ASSERT_TRUE(forward[1].isValid());
 
-    BurnRule rule; rule.forceHalfWidth = 2.0;
-    Grid a; a.fill(9.5);
-    Grid b; b.fill(9.5);
-    burnGrid(a, forward,  rule);
+    BurnRule rule;
+    rule.forceHalfWidth = 2.0;
+    Grid a;
+    a.fill(9.5);
+    Grid b;
+    b.fill(9.5);
+    burnGrid(a, forward, rule);
     burnGrid(b, reversed, rule);
     EXPECT_EQ(a.z, b.z);
 }
@@ -240,12 +339,14 @@ TEST(ChannelBurnRule, ResultIsIndependentOfConduitOrder)
 TEST(ChannelBurnRule, ConfluenceTakesTheLowestSection)
 {
     ChannelInput deep;
-    deep.conduitId  = QStringLiteral("B_north");
+    deep.conduitId = QStringLiteral("B_north");
     deep.centerline = {QPointF(10, -10), QPointF(10, 10)};
-    deep.zUp = 4.0; deep.zDn = 3.0;                       // much deeper
+    deep.zUp = 4.0;
+    deep.zDn = 3.0; // much deeper
     const QVector<double> d = {0.0, 1.0, 2.0};
     QVector<double> w;
-    for (const double y : d) w.append(4.0 + 4.0 * y);
+    for (const double y : d)
+        w.append(4.0 + 4.0 * y);
     deep.section = sectionFromWidths(d, w);
 
     const QVector<BurnProfile> ps = {straightChannel(QStringLiteral("A_east"), 30.0, 10.0, 1.0),
@@ -262,13 +363,14 @@ TEST(ChannelBurnRule, ConfluenceTakesTheLowestSection)
 
 TEST(ChannelBurnRule, NoDataIsBridgedInsideRAndKeptOutside)
 {
-    BurnRule rule; rule.forceHalfWidth = 2.0;
+    BurnRule rule;
+    rule.forceHalfWidth = 2.0;
     const double nan = std::numeric_limits<double>::quiet_NaN();
     double z = 0.0;
 
-    EXPECT_EQ(burnPixel(nan, true, 7.0,  1.0, rule, &z), BurnOutcome::Replaced);
+    EXPECT_EQ(burnPixel(nan, true, 7.0, 1.0, rule, &z), BurnOutcome::Replaced);
     EXPECT_DOUBLE_EQ(z, 7.0);
-    EXPECT_EQ(burnPixel(nan, true, 7.0,  5.0, rule, &z), BurnOutcome::NoDataKept);
+    EXPECT_EQ(burnPixel(nan, true, 7.0, 5.0, rule, &z), BurnOutcome::NoDataKept);
     // A non-finite value with no NoData flag is still NoData in practice.
     EXPECT_EQ(burnPixel(nan, false, 7.0, 5.0, rule, &z), BurnOutcome::NoDataKept);
 }
@@ -279,13 +381,13 @@ TEST(ChannelBurnRule, MaxIncisionClampsAgainstTheDemNotTheBed)
     // is at or above its own bed. Clamping against the DEM is what was meant.
     BurnRule rule;
     rule.forceHalfWidth = 2.0;
-    rule.maxIncision    = 0.5;
+    rule.maxIncision = 0.5;
     double z = 0.0;
 
     EXPECT_EQ(burnPixel(10.0, false, 4.0, 0.0, rule, &z), BurnOutcome::Replaced);
-    EXPECT_DOUBLE_EQ(z, 9.5);              // cut limited to 0.5 below the DEM
+    EXPECT_DOUBLE_EQ(z, 9.5); // cut limited to 0.5 below the DEM
 
-    rule.maxIncision = 0.0;                // unbounded
+    rule.maxIncision = 0.0; // unbounded
     EXPECT_EQ(burnPixel(10.0, false, 4.0, 0.0, rule, &z), BurnOutcome::Replaced);
     EXPECT_DOUBLE_EQ(z, 4.0);
 }
@@ -293,8 +395,10 @@ TEST(ChannelBurnRule, MaxIncisionClampsAgainstTheDemNotTheBed)
 TEST(ChannelBurnRule, OutsideTheCorridorTheDemStands)
 {
     const QVector<BurnProfile> ps = {straightChannel(QStringLiteral("C1"), 30.0, 10.0, 1.0)};
-    BurnRule rule; rule.forceHalfWidth = 2.0;
-    Grid g; g.fill(9.0);
+    BurnRule rule;
+    rule.forceHalfWidth = 2.0;
+    Grid g;
+    g.fill(9.0);
     const Grid before = g;
     burnGrid(g, ps, rule);
 
@@ -316,21 +420,22 @@ TEST(ChannelBurnRule, RasterFrameConvertsBothUnits)
 
     constexpr double kFtToM = 0.3048;
     QVector<QPointF> metricLine;
-    for (const QPointF &p : ft.centerline) metricLine.append(p * kFtToM);
+    for (const QPointF &p : ft.centerline)
+        metricLine.append(p * kFtToM);
 
     const BurnProfile m = toRasterFrame(ft, metricLine, kFtToM, kFtToM);
     ASSERT_TRUE(m.isValid());
 
     EXPECT_NEAR(m.length(), ft.length() * kFtToM, 1e-9);
-    EXPECT_NEAR(m.bedZ.first(), 10.0, 1e-6);                 // 32.808399 ft = 10 m
-    EXPECT_NEAR(m.bedZ.last(),   9.0, 1e-6);
+    EXPECT_NEAR(m.bedZ.first(), 10.0, 1e-6); // 32.808399 ft = 10 m
+    EXPECT_NEAR(m.bedZ.last(), 9.0, 1e-6);
     EXPECT_NEAR(m.section.sMax, ft.section.sMax * kFtToM, 1e-12);
     EXPECT_NEAR(m.offsets.last(), ft.offsets.last() * kFtToM, 1e-12);
 
     // The bank, three feet above the invert, is 0.9144 m above it in the copy.
     bool in1 = false, in2 = false;
     const double zFt = sectionZAt(ft, ft.length() * 0.5, ft.section.sMax, &in1);
-    const double zM  = sectionZAt(m,  m.length()  * 0.5, m.section.sMax,  &in2);
+    const double zM = sectionZAt(m, m.length() * 0.5, m.section.sMax, &in2);
     ASSERT_TRUE(in1);
     ASSERT_TRUE(in2);
     EXPECT_NEAR(zM, zFt * kFtToM, 1e-9);
@@ -340,10 +445,10 @@ TEST(ChannelBurnRule, RasterRuleConvertsBothLengths)
 {
     BurnOptions o = options();
     o.forceHalfWidth = 2.0;
-    o.maxIncision    = 1.0;
+    o.maxIncision = 1.0;
     const BurnRule r = toRasterRule(o, 0.3048, 0.3048);
     EXPECT_NEAR(r.forceHalfWidth, 0.6096, 1e-12);
-    EXPECT_NEAR(r.maxIncision,    0.3048, 1e-12);
+    EXPECT_NEAR(r.maxIncision, 0.3048, 1e-12);
 }
 
 TEST(ChannelBurnRule, FingerprintIsStableAndSensitive)

@@ -7,35 +7,37 @@
 #include <QMessageBox>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include "layers/traceanalysislayer.h"
-/*!
- * \file   swmmvisprojectwindow.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      swmmvisprojectwindow.cpp
+ * @brief     MDI sub-window that hosts a single SWMM model session.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "swmmvisprojectwindow.h"
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
 
-#include "swmmvis.h"   // closeEvent's Save As hand-off (saveProjectWindowAs)
+#include "swmmvis.h" // closeEvent's Save As hand-off (saveProjectWindowAs)
 #include "map/mapcanvas.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
-#include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
-#include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
-#include "mesh/meshenginesync.h"            // push mesh-layer edits into the engine before save
-#include "mesh/inpmeshreader.h"             // parse a browsed-for .2dm on import
-#include "mesh/inpmeshwriter.h"             // convert an SMS 2DM import to section format
+#include "layers/swmmresultslayer.h"   // Slice QA.2 — registry hookup
+#include "layers/swmm2dresultslayer.h" // active 2D analysis layer
+#include "mesh/meshenginesync.h"       // push mesh-layer edits into the engine before save
+#include "mesh/inpmeshreader.h"        // parse a browsed-for .2dm on import
+#include "mesh/inpmeshwriter.h"        // convert an SMS 2DM import to section format
 #include "mesh/meshcellgeom.h"
-#include "mesh/sms2dmreader.h"              // SMS / Aquaveo 2DM cards (G5)
-#include "mesh/meshcellgeom.h"              // edgeSlotCount for the BC SoA size check
-#include "mesh/inpmeshwriter.h"             // retarget [2D_MESH_FILE] after save
-#include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
+#include "mesh/sms2dmreader.h"          // SMS / Aquaveo 2DM cards (G5)
+#include "mesh/meshcellgeom.h"          // edgeSlotCount for the BC SoA size check
+#include "mesh/inpmeshwriter.h"         // retarget [2D_MESH_FILE] after save
+#include "output/outputstatsregistry.h" // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
-#include "project/projectserializer.h"      // Slice RB.1 — sidecar auto-create
+#include "project/projectserializer.h" // Slice RB.1 — sidecar auto-create
 #include "project/projectsaveoutputs.h"
 #include "project/generatedmeshartifacts.h"
 #include "project/projectsavevalidation.h"
@@ -69,7 +71,7 @@
 #include "plugins/filefilterregistry.h"
 #include "selection/gisselectionbridge.h"
 #include "selection/selectionmanager.h"
-#include "mesh/meshobjectref.h"             // MeshCell ref parsing for cell highlight
+#include "mesh/meshobjectref.h" // MeshCell ref parsing for cell highlight
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -110,11 +112,9 @@
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_model.h>
 
-SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
-                                           const QString &filePath,
+SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, const QString &filePath,
                                            QWidget *parent)
-    : QMdiSubWindow(parent),
-      mWorkspace(workspace)
+    : QMdiSubWindow(parent), mWorkspace(workspace)
 {
     setAttribute(Qt::WA_DeleteOnClose);
     setMinimumSize(200, 150);
@@ -126,16 +126,16 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // "close-only, non-minimizable" affordance is the default.
 
     // Per-project services (parented to this window so they die with it)
-    mUnits            = new UnitSystem(this);
+    mUnits = new UnitSystem(this);
     mSelectionManager = new SelectionManager(this);
-    connect(ProfileSectionStore::forOwner(this), &ProfileSectionStore::edited,
-            this, [this] { setHasChanges(true); });
-    connect(GroundwaterRecipeStore::forOwner(this), &GroundwaterRecipeStore::edited,
-            this, [this] { setHasChanges(true); });
+    connect(ProfileSectionStore::forOwner(this), &ProfileSectionStore::edited, this,
+            [this] { setHasChanges(true); });
+    connect(GroundwaterRecipeStore::forOwner(this), &GroundwaterRecipeStore::edited, this,
+            [this] { setHasChanges(true); });
     // Slice QA.2 — per-project output-identity registry. Layers wire
     // themselves in / out below via the MapCanvas layerAdded /
     // layerRemoved signals.
-    mStatsRegistry    = new openswmmvis::OutputStatsRegistry(this);
+    mStatsRegistry = new openswmmvis::OutputStatsRegistry(this);
 
     // Drive the 2D-results cell highlight from selection, keyed to the active
     // 2D results layer (results-analysis demarcation, Part E). Cell picks made
@@ -150,8 +150,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // General → Default engine mode). The status-bar engine picker still
     // overrides per-project.
     {
-        const QString defaultEngine =
-            PreferencesManager::instance()->defaultEngineMode();
+        const QString defaultEngine = PreferencesManager::instance()->defaultEngineMode();
         if (!defaultEngine.isEmpty())
             mEngineVersion = defaultEngine;
     }
@@ -172,11 +171,11 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // is in the canvas's layer list; layerRemoved fires before removal
     // completes. The registry's register/unregister are idempotent so
     // either ordering is safe.
-    connect(mCanvas, &MapCanvas::layerAdded, this,
-            [this](OpenSWMMVisLayer *layer) {
+    connect(mCanvas, &MapCanvas::layerAdded, this, [this](OpenSWMMVisLayer *layer) {
         if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
             mStatsRegistry->registerLayer(rl, rl->resultsFilePath());
-            if (!rl->property("traceStoredRunId").toString().isEmpty()) return;
+            if (!rl->property("traceStoredRunId").toString().isEmpty())
+                return;
             auto observe = [this, rl] {
                 mStatsRegistry->contentOpened(rl, rl->resultsFilePath(), rl->isLive());
             };
@@ -188,23 +187,25 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     });
     connect(mCanvas, &MapCanvas::layerAdded, this, [this](OpenSWMMVisLayer *layer) {
         if (auto *text = qobject_cast<OpenSWMMVisAnnotationLayer *>(layer)) {
-            connect(text, &OpenSWMMVisAnnotationLayer::annotationsChanged, this, [this] { setHasChanges(true); });
+            connect(text, &OpenSWMMVisAnnotationLayer::annotationsChanged, this,
+                    [this] { setHasChanges(true); });
             connect(text, &OpenSWMMVisLayer::nameChanged, this, [this] { setHasChanges(true); });
-            connect(text, &OpenSWMMVisLayer::visibilityChanged, this, [this] { setHasChanges(true); });
+            connect(text, &OpenSWMMVisLayer::visibilityChanged, this,
+                    [this] { setHasChanges(true); });
             connect(text, &OpenSWMMVisLayer::opacityChanged, this, [this] { setHasChanges(true); });
             setHasChanges(true);
         }
-        if (auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer*>(layer)) {
-            connect(trace->traceStyle(), &OpenSWMM::Render::SublayerStyle::styleChanged,
-                    this, [this] { setHasChanges(true); });
+        if (auto *trace = qobject_cast<openswmmvis::trace::TraceAnalysisLayer *>(layer)) {
+            connect(trace->traceStyle(), &OpenSWMM::Render::SublayerStyle::styleChanged, this,
+                    [this] { setHasChanges(true); });
             for (auto *part : trace->sublayers())
-                connect(part, &OpenSWMM::Render::ISublayer::invalidated,
-                        this, [this] { setHasChanges(true); });
+                connect(part, &OpenSWMM::Render::ISublayer::invalidated, this,
+                        [this] { setHasChanges(true); });
         }
     });
-    connect(mCanvas, &MapCanvas::layerRemoved, this,
-            [this](OpenSWMMVisLayer *layer) {
-        if (qobject_cast<OpenSWMMVisAnnotationLayer *>(layer)) setHasChanges(true);
+    connect(mCanvas, &MapCanvas::layerRemoved, this, [this](OpenSWMMVisLayer *layer) {
+        if (qobject_cast<OpenSWMMVisAnnotationLayer *>(layer))
+            setHasChanges(true);
         if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
             mStatsRegistry->unregisterLayer(rl);
         }
@@ -212,9 +213,8 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
 
     // Model layer
     mModelLayer = new SWMMModelLayer(filePath, workspace);
-    mModelLayer->setName(filePath.isEmpty()
-                             ? QStringLiteral("Untitled")
-                             : QFileInfo(filePath).baseName());
+    mModelLayer->setName(filePath.isEmpty() ? QStringLiteral("Untitled")
+                                            : QFileInfo(filePath).baseName());
     mModelLayer->setVisible(!filePath.isEmpty());
     // Undo host for mediated edits made outside a map tool (the property
     // panel's inlet-usage rows), so they land on the same stack as every
@@ -258,29 +258,23 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     auto applyNodeStyleFromPreferences = [this]() {
         auto *prefs = PreferencesManager::instance();
         const QString kinds[6] = {
-            QStringLiteral("junction"),
-            QStringLiteral("outfall"),
-            QStringLiteral("storage"),
-            QStringLiteral("divider"),
-            QStringLiteral("virtual_junction"),
-            QStringLiteral("inlet_junction"),
+            QStringLiteral("junction"),         QStringLiteral("outfall"),
+            QStringLiteral("storage"),          QStringLiteral("divider"),
+            QStringLiteral("virtual_junction"), QStringLiteral("inlet_junction"),
         };
         SWMMElementSymbol syms[6] = {
-            mModelLayer->junctionSymbol(),
-            mModelLayer->outfallSymbol(),
-            mModelLayer->storageSymbol(),
-            mModelLayer->dividerSymbol(),
-            mModelLayer->virtualJunctionSymbol(),
-            mModelLayer->inletJunctionSymbol(),
+            mModelLayer->junctionSymbol(),        mModelLayer->outfallSymbol(),
+            mModelLayer->storageSymbol(),         mModelLayer->dividerSymbol(),
+            mModelLayer->virtualJunctionSymbol(), mModelLayer->inletJunctionSymbol(),
         };
         for (int i = 0; i < 6; ++i) {
-            const QBrush fill    = prefs->nodeBrush(kinds[i]);
-            const QPen   outline = prefs->nodePen(kinds[i]);
-            const double sizePx  = prefs->nodeSize(kinds[i]);
-            syms[i].fillColor    = fill.color();
+            const QBrush fill = prefs->nodeBrush(kinds[i]);
+            const QPen outline = prefs->nodePen(kinds[i]);
+            const double sizePx = prefs->nodeSize(kinds[i]);
+            syms[i].fillColor = fill.color();
             syms[i].outlineColor = outline.color();
             syms[i].outlineWidth = outline.widthF();
-            syms[i].size         = sizePx;
+            syms[i].size = sizePx;
         }
         mModelLayer->setJunctionSymbol(syms[0]);
         mModelLayer->setOutfallSymbol(syms[1]);
@@ -291,29 +285,30 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         // The dashed connector overlay follows the inlet-junction colour so
         // the relation and its node read as one thing (§3.2).
         auto connector = mModelLayer->inletConnectorSymbol();
-        connector.fillColor    = syms[5].fillColor;
+        connector.fillColor = syms[5].fillColor;
         connector.outlineColor = syms[5].fillColor;
         mModelLayer->setInletConnectorSymbol(connector);
     };
     applyNodeStyleFromPreferences();
 
-    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
-            this, [this, applyLinkColorsFromPreferences,
-                   applyNodeStyleFromPreferences](const QString &group,
-                                                  const QString &key) {
-                if (group != QLatin1String("Rendering")) return;
+    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged, this,
+            [this, applyLinkColorsFromPreferences,
+             applyNodeStyleFromPreferences](const QString &group, const QString &key) {
+                if (group != QLatin1String("Rendering"))
+                    return;
                 if (key.startsWith(QLatin1String("LinkPen/"))) {
                     applyLinkColorsFromPreferences();
                     // Painter renderers consume linkPen() directly —
                     // kick a repaint so width/cap/join edits land
                     // immediately even when the colour didn't change.
-                    if (mModelLayer) emit mModelLayer->repaintRequested();
-                }
-                else if (key.startsWith(QLatin1String("NodePen/"))
-                      || key.startsWith(QLatin1String("NodeBrush/"))
-                      || key.startsWith(QLatin1String("NodeSize/"))) {
+                    if (mModelLayer)
+                        emit mModelLayer->repaintRequested();
+                } else if (key.startsWith(QLatin1String("NodePen/")) ||
+                           key.startsWith(QLatin1String("NodeBrush/")) ||
+                           key.startsWith(QLatin1String("NodeSize/"))) {
                     applyNodeStyleFromPreferences();
-                    if (mModelLayer) emit mModelLayer->repaintRequested();
+                    if (mModelLayer)
+                        emit mModelLayer->repaintRequested();
                 }
             });
 
@@ -328,10 +323,11 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // instead of stale geometry. Idempotent on same-authority repeats.
     connect(mModelLayer, &SWMMModelLayer::srsChanged, this,
             [this](SpatialReferenceSystem *layerSrs) {
-                if (!layerSrs || !mCanvas) return;
+                if (!layerSrs || !mCanvas)
+                    return;
                 auto *canvasSrs = mCanvas->canvasSRS();
-                if (canvasSrs && !canvasSrs->toAuthority().isEmpty()
-                    && canvasSrs->toAuthority() == layerSrs->toAuthority())
+                if (canvasSrs && !canvasSrs->toAuthority().isEmpty() &&
+                    canvasSrs->toAuthority() == layerSrs->toAuthority())
                     return;
                 // Geographic layer (lat/lon degrees): adopting it as the
                 // canvas CRS would render Plate Carrée — vertically
@@ -342,8 +338,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                     mCanvas->zoomToFullExtent(/*pushUndo=*/false);
                     return;
                 }
-                mCanvas->setCanvasSRS(
-                    new SpatialReferenceSystem(*layerSrs, mCanvas), true);
+                mCanvas->setCanvasSRS(new SpatialReferenceSystem(*layerSrs, mCanvas), true);
                 // setCanvasSRS already fans out onCanvasCRSChanged to all
                 // layers + emits canvasSRSChanged + refreshes the buffer;
                 // refit so the user sees content at the new coordinates.
@@ -353,8 +348,9 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
 
     mCanvas->addLayer(mModelLayer, false);
 
-    connect(mModelLayer, &SWMMModelLayer::modelLoaded,    this, &SWMMVisProjectWindow::modelLoaded);
-    connect(mModelLayer, &SWMMModelLayer::modelLoadError, this, &SWMMVisProjectWindow::modelLoadError);
+    connect(mModelLayer, &SWMMModelLayer::modelLoaded, this, &SWMMVisProjectWindow::modelLoaded);
+    connect(mModelLayer, &SWMMModelLayer::modelLoadError, this,
+            &SWMMVisProjectWindow::modelLoadError);
 
     // Dirty tracking for engine-state edits. SWMMVis::onRunSimulation gates
     // its pre-run auto-save on hasChanges(), so anything that mutates the
@@ -375,10 +371,8 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // deliberately excluded so panning and selecting never force a re-save of
     // a large model. Anything emitted while the engine is being adopted is
     // cleared by finishModelLoad(), which resets the flag after the load.
-    connect(mModelLayer, &SWMMModelLayer::modelEdited, this,
-            [this]() { setHasChanges(true); });
-    connect(mModelLayer, &SWMMModelLayer::geometryChanged, this,
-            [this]() { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::modelEdited, this, [this]() { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::geometryChanged, this, [this]() { setHasChanges(true); });
     connect(mModelLayer, &SWMMModelLayer::attributeChanged, this,
             [this](const QString &) { setHasChanges(true); });
     connect(mModelLayer, &SWMMModelLayer::optionsChanged, this,
@@ -393,115 +387,124 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
             [this](const QString &) { setHasChanges(true); });
 
     // Tools — each tool is bound to mCanvas at construction
-    mPanTool        = new OpenSWMMVisMapToolPan(mCanvas, this);
-    mZoomInTool     = new OpenSWMMVisMapToolZoom(mCanvas, this);
+    mPanTool = new OpenSWMMVisMapToolPan(mCanvas, this);
+    mZoomInTool = new OpenSWMMVisMapToolZoom(mCanvas, this);
     mZoomInTool->setZoomInMode(true);
-    mZoomOutTool    = new OpenSWMMVisMapToolZoom(mCanvas, this);
+    mZoomOutTool = new OpenSWMMVisMapToolZoom(mCanvas, this);
     mZoomOutTool->setZoomInMode(false);
-    mSelectTool        = new OpenSWMMVisMapToolSelect(mCanvas, this);
+    mSelectTool = new OpenSWMMVisMapToolSelect(mCanvas, this);
     mSelectPolygonTool = new OpenSWMMVisMapToolSelectPolygon(mCanvas, this);
-    mMeasureTool       = new OpenSWMMVisMapToolMeasure(mCanvas, this);
+    mMeasureTool = new OpenSWMMVisMapToolMeasure(mCanvas, this);
     mSelectProfileTool = new OpenSWMMVisMapToolSelectProfile(mCanvas, this);
     // SWMM_NODE_JUNCTION=0, OUTFALL=1, STORAGE=2, DIVIDER=3
     // Pass element-kind keys so tools read the configurable prefix from PreferencesManager.
-    mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"),     this);
+    mAddJunctionTool = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"), this);
     mAddVirtualJunctionTool = new OpenSWMMVisMapToolAddVirtualNode(mCanvas, this);
-    mAddInletJunctionTool   = new OpenSWMMVisMapToolAddInletNode(mCanvas, this);
-    mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"),      this);
-    mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"),      this);
+    mAddInletJunctionTool = new OpenSWMMVisMapToolAddInletNode(mCanvas, this);
+    mAddOutfallTool = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"), this);
+    mAddStorageTool = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"), this);
     mAddLidTool = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"), this);
     connect(mAddLidTool, &OpenSWMMVisMapToolAddNode::nodeAdded, this,
-            [this](const QString& name, int, double, double) {
-        if (!mModelLayer || !mModelLayer->engine() || !mCanvas->undoStack()) return;
-        const auto eng = mModelLayer->engine();
-        const int node = swmm_node_index(eng, name.toUtf8().constData());
-        int control = -1; double saturation = 0.0;
-        if (swmm_node_get_lid(eng, node, &control, &saturation) != SWMM_OK || control < 0) return;
-        QStringList destinations{tr("Do not add")};
-        for (int i = 0; i < swmm_node_count(eng); ++i) {
-            int otherControl = -1; double sat = 0;
-            swmm_node_get_lid(eng, i, &otherControl, &sat);
-            if (i != node && otherControl < 0) destinations.append(QString::fromUtf8(swmm_node_id(eng, i)));
-        }
-        if (destinations.size() < 2) return;
-        int numbered = 0; SWMM_LidNodeLayer first{};
-        swmm_lid_node_layer_get(eng, control, 0, &first);
-        for (int i = 0; i < swmm_lid_node_layer_count(eng, control); ++i) {
-            SWMM_LidNodeLayer row{};
-            swmm_lid_node_layer_get(eng, control, i, &row);
-            numbered += row.kind != 3;
-        }
-        for (int kind : {2, 3}) {
-            bool ok = false;
-            const auto target = QInputDialog::getItem(this, tr("LID outlet"),
-                kind == 2 ? tr("Underdrain orifice destination") : tr("Overflow weir destination"), destinations, 0, false, &ok);
-            if (!ok || target == destinations.first()) continue;
-            const QString prefix = name + (kind == 2 ? QStringLiteral("_underdrain") : QStringLiteral("_overflow"));
-            QString id = prefix;
-            for (int suffix = 2; swmm_link_index(eng, id.toUtf8().constData()) >= 0; ++suffix) id = prefix + QString::number(suffix);
-            auto* command = new AddLinkCommand(mModelLayer, id, kind, name, target, {}, mCanvas);
-            command->setLidAnchor(kind == 2 ? numbered : 1, kind == 3 && first.kind != 0);
-            mCanvas->undoStack()->push(command);
-        }
-    });
-    mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("divider"),      this);
+            [this](const QString &name, int, double, double) {
+                if (!mModelLayer || !mModelLayer->engine() || !mCanvas->undoStack())
+                    return;
+                const auto eng = mModelLayer->engine();
+                const int node = swmm_node_index(eng, name.toUtf8().constData());
+                int control = -1;
+                double saturation = 0.0;
+                if (swmm_node_get_lid(eng, node, &control, &saturation) != SWMM_OK || control < 0)
+                    return;
+                QStringList destinations{tr("Do not add")};
+                for (int i = 0; i < swmm_node_count(eng); ++i) {
+                    int otherControl = -1;
+                    double sat = 0;
+                    swmm_node_get_lid(eng, i, &otherControl, &sat);
+                    if (i != node && otherControl < 0)
+                        destinations.append(QString::fromUtf8(swmm_node_id(eng, i)));
+                }
+                if (destinations.size() < 2)
+                    return;
+                int numbered = 0;
+                SWMM_LidNodeLayer first{};
+                swmm_lid_node_layer_get(eng, control, 0, &first);
+                for (int i = 0; i < swmm_lid_node_layer_count(eng, control); ++i) {
+                    SWMM_LidNodeLayer row{};
+                    swmm_lid_node_layer_get(eng, control, i, &row);
+                    numbered += row.kind != 3;
+                }
+                for (int kind : {2, 3}) {
+                    bool ok = false;
+                    const auto target =
+                        QInputDialog::getItem(this, tr("LID outlet"),
+                                              kind == 2 ? tr("Underdrain orifice destination")
+                                                        : tr("Overflow weir destination"),
+                                              destinations, 0, false, &ok);
+                    if (!ok || target == destinations.first())
+                        continue;
+                    const QString prefix = name + (kind == 2 ? QStringLiteral("_underdrain")
+                                                             : QStringLiteral("_overflow"));
+                    QString id = prefix;
+                    for (int suffix = 2; swmm_link_index(eng, id.toUtf8().constData()) >= 0;
+                         ++suffix)
+                        id = prefix + QString::number(suffix);
+                    auto *command =
+                        new AddLinkCommand(mModelLayer, id, kind, name, target, {}, mCanvas);
+                    command->setLidAnchor(kind == 2 ? numbered : 1, kind == 3 && first.kind != 0);
+                    mCanvas->undoStack()->push(command);
+                }
+            });
+    mAddDividerTool = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("divider"), this);
     // SWMM_LINK: 0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet
-    mAddConduitTool   = new OpenSWMMVisMapToolAddLink(mCanvas, 0, QStringLiteral("conduit"),      this);
-    mAddPumpTool      = new OpenSWMMVisMapToolAddLink(mCanvas, 1, QStringLiteral("pump"),         this);
-    mAddOrificeTool   = new OpenSWMMVisMapToolAddLink(mCanvas, 2, QStringLiteral("orifice"),      this);
-    mAddWeirTool      = new OpenSWMMVisMapToolAddLink(mCanvas, 3, QStringLiteral("weir"),         this);
-    mAddOutletTool    = new OpenSWMMVisMapToolAddLink(mCanvas, 4, QStringLiteral("outlet"),       this);
-    mAddGageTool      = new OpenSWMMVisMapToolAddGage(mCanvas, this);
-    mAddSubcatchTool  = new OpenSWMMVisMapToolAddSubcatchment(mCanvas, this);
+    mAddConduitTool = new OpenSWMMVisMapToolAddLink(mCanvas, 0, QStringLiteral("conduit"), this);
+    mAddPumpTool = new OpenSWMMVisMapToolAddLink(mCanvas, 1, QStringLiteral("pump"), this);
+    mAddOrificeTool = new OpenSWMMVisMapToolAddLink(mCanvas, 2, QStringLiteral("orifice"), this);
+    mAddWeirTool = new OpenSWMMVisMapToolAddLink(mCanvas, 3, QStringLiteral("weir"), this);
+    mAddOutletTool = new OpenSWMMVisMapToolAddLink(mCanvas, 4, QStringLiteral("outlet"), this);
+    mAddGageTool = new OpenSWMMVisMapToolAddGage(mCanvas, this);
+    mAddSubcatchTool = new OpenSWMMVisMapToolAddSubcatchment(mCanvas, this);
     // Annotation layer is lazy — created on first text placement or on
     // project restore — so projects with no annotations stay tidy in the
     // layer tree. The AddText tool is also lazy; activateAddTextTool()
     // wires both before flipping the tool active.
     mAnnotationLayer = nullptr;
-    mAddTextTool     = nullptr;
+    mAddTextTool = nullptr;
 
     // Terrain Z readout: sample, convert to model vertical units, push to canvas.
-    connect(mCanvas, &MapCanvas::cursorPositionChanged, this,
-            [this](double mapX, double mapY) {
-                if (!mActiveTerrain) {
-                    mCanvas->setTerrainElevation({});
-                    return;
-                }
-                bool ok = false;
-                const double zRaw = mActiveTerrain->valueAt(mapX, mapY,
-                                                             mCanvas->canvasSRS(),
-                                                             1, &ok);
-                // Convert from raster vertical unit to model vertical unit so
-                // the displayed value and the node/link invert elevations are
-                // in the same unit system.
-                const double zModel = zRaw * mTerrainVertFactor;
-                mCanvas->setTerrainElevation(ok ? std::optional<double>(zModel)
-                                                : std::optional<double>{});
-                mCanvas->setTerrainUnit(mUnits->depthLabel());
-            });
+    connect(mCanvas, &MapCanvas::cursorPositionChanged, this, [this](double mapX, double mapY) {
+        if (!mActiveTerrain) {
+            mCanvas->setTerrainElevation({});
+            return;
+        }
+        bool ok = false;
+        const double zRaw = mActiveTerrain->valueAt(mapX, mapY, mCanvas->canvasSRS(), 1, &ok);
+        // Convert from raster vertical unit to model vertical unit so
+        // the displayed value and the node/link invert elevations are
+        // in the same unit system.
+        const double zModel = zRaw * mTerrainVertFactor;
+        mCanvas->setTerrainElevation(ok ? std::optional<double>(zModel) : std::optional<double>{});
+        mCanvas->setTerrainUnit(mUnits->depthLabel());
+    });
 
     // Canvas label shows model vertical unit (Z is already converted above).
     mCanvas->setTerrainUnit(mUnits->depthLabel());
 
     // Recompute the vertical factor and update the canvas unit label whenever
     // the project's flow units change (e.g., user switches CFS ↔ CMS).
-    connect(mUnits, &UnitSystem::unitsChanged, this,
-            [this](swmm_FlowUnitsProperty) {
-                const double rasterToSI = (mTerrainVertUnit == QLatin1String("ft"))
-                                              ? 0.3048 : 1.0;
-                const double modelToSI  = mUnits->isSI() ? 1.0 : 0.3048;
-                mTerrainVertFactor = rasterToSI / modelToSI;
-                mCanvas->setTerrainUnit(mUnits->depthLabel());
-                // Re-propagate updated factor to map tools.
-                for (auto *t : { mAddJunctionTool, mAddOutfallTool,
-                                  mAddStorageTool, mAddLidTool, mAddDividerTool })
-                    if (t) t->setTerrain(mActiveTerrain, mTerrainNodeOffset,
-                                         mTerrainVertFactor);
-                for (auto *t : { mAddConduitTool, mAddPumpTool,
-                                  mAddOrificeTool, mAddWeirTool, mAddOutletTool })
-                    if (t) t->setTerrain(mActiveTerrain, mTerrainLinkOffset,
-                                         mTerrainVertFactor);
-            });
+    connect(mUnits, &UnitSystem::unitsChanged, this, [this](swmm_FlowUnitsProperty) {
+        const double rasterToSI = (mTerrainVertUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
+        const double modelToSI = mUnits->isSI() ? 1.0 : 0.3048;
+        mTerrainVertFactor = rasterToSI / modelToSI;
+        mCanvas->setTerrainUnit(mUnits->depthLabel());
+        // Re-propagate updated factor to map tools.
+        for (auto *t :
+             {mAddJunctionTool, mAddOutfallTool, mAddStorageTool, mAddLidTool, mAddDividerTool})
+            if (t)
+                t->setTerrain(mActiveTerrain, mTerrainNodeOffset, mTerrainVertFactor);
+        for (auto *t :
+             {mAddConduitTool, mAddPumpTool, mAddOrificeTool, mAddWeirTool, mAddOutletTool})
+            if (t)
+                t->setTerrain(mActiveTerrain, mTerrainLinkOffset, mTerrainVertFactor);
+    });
 
     // ---------------------------------------------------------------------------
     // Measure tool floating panel (child of mCanvas, shown/hidden by tool state)
@@ -542,53 +545,48 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         mMeasurePanel->hide();
 
         // Mode combo → update tool + repopulate unit combo
-        connect(mMeasureModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [this](int idx)
-        {
-            if (!mMeasureTool) return;
-            const auto mode = (idx == 0) ? MeasureMode::Distance : MeasureMode::Area;
-            mMeasureTool->setMode(mode);
-            updateMeasureUnitCombo();
-        });
+        connect(mMeasureModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this](int idx) {
+                    if (!mMeasureTool)
+                        return;
+                    const auto mode = (idx == 0) ? MeasureMode::Distance : MeasureMode::Area;
+                    mMeasureTool->setMode(mode);
+                    updateMeasureUnitCombo();
+                });
 
         // Unit combo → update tool
-        connect(mMeasureUnitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, [this](int idx)
-        {
-            if (!mMeasureTool || idx < 0) return;
-            if (mMeasureTool->mode() == MeasureMode::Distance)
-                mMeasureTool->setDistanceUnit(
-                    static_cast<MeasurementUnitManager::DistanceUnit>(idx));
-            else
-                mMeasureTool->setAreaUnit(
-                    static_cast<MeasurementUnitManager::AreaUnit>(idx));
-        });
+        connect(mMeasureUnitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this](int idx) {
+                    if (!mMeasureTool || idx < 0)
+                        return;
+                    if (mMeasureTool->mode() == MeasureMode::Distance)
+                        mMeasureTool->setDistanceUnit(
+                            static_cast<MeasurementUnitManager::DistanceUnit>(idx));
+                    else
+                        mMeasureTool->setAreaUnit(
+                            static_cast<MeasurementUnitManager::AreaUnit>(idx));
+                });
 
         // Clear button → reset measurement
-        connect(clearBtn, &QPushButton::clicked,
-                mMeasureTool, &OpenSWMMVisMapToolMeasure::clearMeasurement);
+        connect(clearBtn, &QPushButton::clicked, mMeasureTool,
+                &OpenSWMMVisMapToolMeasure::clearMeasurement);
 
         // Total label ← tool total
-        connect(mMeasureTool, &OpenSWMMVisMapToolMeasure::totalChanged,
-                this, [this](double total)
-        {
-            if (!mMeasurePanel->isVisible()) return;
+        connect(mMeasureTool, &OpenSWMMVisMapToolMeasure::totalChanged, this, [this](double total) {
+            if (!mMeasurePanel->isVisible())
+                return;
             QString sym;
             if (mMeasureTool->mode() == MeasureMode::Distance)
                 sym = MeasurementUnitManager::distanceUnitSymbol(mMeasureTool->distanceUnit());
             else
                 sym = MeasurementUnitManager::areaUnitSymbol(mMeasureTool->areaUnit());
-            mMeasureTotalLabel->setText(
-                QStringLiteral("%1 %2").arg(total, 0, 'f', 2).arg(sym));
+            mMeasureTotalLabel->setText(QStringLiteral("%1 %2").arg(total, 0, 'f', 2).arg(sym));
         });
 
         // Show/hide + initialise combos when the active tool changes
-        connect(mCanvas, &MapCanvas::activeToolChanged,
-                this, [this](OpenSWMMVisMapTool *tool)
-        {
+        connect(mCanvas, &MapCanvas::activeToolChanged, this, [this](OpenSWMMVisMapTool *tool) {
             const bool isMeasure = (tool == mMeasureTool);
-            if (isMeasure)
-            {
+            if (isMeasure) {
                 // Sync mode combo to tool's current mode without triggering slots
                 QSignalBlocker mb(mMeasureModeCombo);
                 mMeasureModeCombo->setCurrentIndex(
@@ -619,15 +617,17 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // load. Unknown values fall back to Select.
     {
         const QString defTool = PreferencesManager::instance()->defaultTool();
-        if (defTool == QStringLiteral("Pan"))       mCanvas->setActiveTool(mPanTool);
-        else if (defTool == QStringLiteral("Zoom")) mCanvas->setActiveTool(mZoomInTool);
-        else                                         mCanvas->setActiveTool(mSelectTool);
+        if (defTool == QStringLiteral("Pan"))
+            mCanvas->setActiveTool(mPanTool);
+        else if (defTool == QStringLiteral("Zoom"))
+            mCanvas->setActiveTool(mZoomInTool);
+        else
+            mCanvas->setActiveTool(mSelectTool);
     }
 
     // Window title
-    setWindowTitle(filePath.isEmpty()
-                       ? QStringLiteral("Untitled")
-                       : QFileInfo(filePath).baseName());
+    setWindowTitle(filePath.isEmpty() ? QStringLiteral("Untitled")
+                                      : QFileInfo(filePath).baseName());
 }
 
 SWMMVisProjectWindow::~SWMMVisProjectWindow()
@@ -641,18 +641,29 @@ SWMMVisProjectWindow::~SWMMVisProjectWindow()
     }
 }
 
-MapCanvas        *SWMMVisProjectWindow::canvas()           const { return mCanvas; }
-SWMMModelLayer   *SWMMVisProjectWindow::modelLayer()       const { return mModelLayer; }
-UnitSystem       *SWMMVisProjectWindow::unitSystem()       const { return mUnits; }
-SelectionManager *SWMMVisProjectWindow::selectionManager() const { return mSelectionManager; }
+MapCanvas *SWMMVisProjectWindow::canvas() const
+{
+    return mCanvas;
+}
+SWMMModelLayer *SWMMVisProjectWindow::modelLayer() const
+{
+    return mModelLayer;
+}
+UnitSystem *SWMMVisProjectWindow::unitSystem() const
+{
+    return mUnits;
+}
+SelectionManager *SWMMVisProjectWindow::selectionManager() const
+{
+    return mSelectionManager;
+}
 
 void SWMMVisProjectWindow::reloadElevationOffsetModeFromEngine()
 {
-    if (!mModelLayer || !mModelLayer->engine()) return;
+    if (!mModelLayer || !mModelLayer->engine())
+        return;
     char buf[32] = {};
-    if (swmm_options_get(mModelLayer->engine(), "LINK_OFFSETS",
-                         buf, sizeof(buf)) == 0)
-    {
+    if (swmm_options_get(mModelLayer->engine(), "LINK_OFFSETS", buf, sizeof(buf)) == 0) {
         mElevationOffsetMode =
             QString(buf).trimmed().compare("ELEVATION", Qt::CaseInsensitive) == 0;
     }
@@ -664,10 +675,8 @@ void SWMMVisProjectWindow::setElevationOffsetMode(bool elevation)
         return;
     mElevationOffsetMode = elevation;
 
-    if (mModelLayer && mModelLayer->engine())
-    {
-        swmm_options_set(mModelLayer->engine(), "LINK_OFFSETS",
-                         elevation ? "ELEVATION" : "DEPTH");
+    if (mModelLayer && mModelLayer->engine()) {
+        swmm_options_set(mModelLayer->engine(), "LINK_OFFSETS", elevation ? "ELEVATION" : "DEPTH");
         setHasChanges(true);
     }
 
@@ -682,7 +691,8 @@ void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation, bool convertValu
     setHasChanges(true);
 }
 
-namespace {
+namespace
+{
 // Joins the openswmm.load.* family, so QT_LOGGING_RULES="openswmm.load.*=true"
 // turns these on. Gated because the [postZoom] sample walks EVERY scene item
 // (167k on a large model) purely to report a count.
@@ -695,13 +705,16 @@ Q_LOGGING_CATEGORY(lcLoadWindow, "openswmm.load.window")
 // whether an index-wise push is meaningful, and both calls are O(1).
 bool engineMeshMatches(SWMM_Engine engine, const mesh::MeshResult &m)
 {
-    if (!engine) return false;
+    if (!engine)
+        return false;
     int nv = 0, nt = 0;
-    if (swmm_2d_vertex_count(engine, &nv) != 0) return false;
-    if (swmm_2d_triangle_count(engine, &nt) != 0) return false;
+    if (swmm_2d_vertex_count(engine, &nv) != 0)
+        return false;
+    if (swmm_2d_triangle_count(engine, &nt) != 0)
+        return false;
     return nv == m.vertices.size() && nt == m.triangles.size();
 }
-}  // namespace
+} // namespace
 
 bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
@@ -710,11 +723,13 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
         return false;
     }
     QString recoveryError, recoveryNotice;
-    if (!ProjectSaveOutputs::recover(mModelLayer->modelFilePath(), &recoveryError, &recoveryNotice)) {
+    if (!ProjectSaveOutputs::recover(mModelLayer->modelFilePath(), &recoveryError,
+                                     &recoveryNotice)) {
         errors.append(recoveryError);
         return false;
     }
-    if (!recoveryNotice.isEmpty()) warnings.append(recoveryNotice);
+    if (!recoveryNotice.isEmpty())
+        warnings.append(recoveryNotice);
     if (!mModelLayer->loadModel(warnings, errors))
         return false;
     return finishModelLoad(warnings, errors);
@@ -723,9 +738,8 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
 void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
 {
     const auto refuse = [this](const QString &message) {
-        QTimer::singleShot(0, this, [this, message] {
-            emit modelLoadFinished(false, {}, {message});
-        });
+        QTimer::singleShot(0, this,
+                           [this, message] { emit modelLoadFinished(false, {}, {message}); });
     };
     if (mAsyncLoadInProgress) {
         refuse(tr("This project is already opening a model."));
@@ -742,8 +756,12 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
         SWMM_Engine engine = nullptr;
         QString errorDetail, recoveryNotice;
         qint64 openMs = 0;
-        ~AsyncOpenOutcome() {
-            if (engine) { swmm_engine_close(engine); swmm_engine_destroy(engine); }
+        ~AsyncOpenOutcome()
+        {
+            if (engine) {
+                swmm_engine_close(engine);
+                swmm_engine_destroy(engine);
+            }
         }
     };
     auto outcome = std::make_shared<AsyncOpenOutcome>();
@@ -766,125 +784,156 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
     connect(layer, &SWMMModelLayer::geometryChanged, watcher, invalidate);
     connect(layer, &QObject::destroyed, watcher, invalidate);
     connect(layer, &QObject::destroyed, this, [this, original = layer.data()] {
-        if (mModelLayer == original) mModelLayer = nullptr;
+        if (mModelLayer == original)
+            mModelLayer = nullptr;
     });
     connect(watcher, &QFutureWatcherBase::progressValueChanged, watcher,
             [self, layer, progressGuard, invalidated](int packed) {
-        if (!self || self->isClosing() || !layer || !progressGuard
-            || invalidated->load() || packed < 0) return;
-        const OpenStage stage = unpackLoadProgressStage(packed);
-        progressGuard->setStage(stage, unpackLoadProgressPct(packed),
-                                OpenProgressModel::stageLabel(stage));
-    });
-    connect(watcher, &QFutureWatcherBase::finished, watcher,
-            [watcher, self, layer, path, revision, wasVisible,
-             outcome, invalidated, progressGuard] {
-        auto cleanup = qScopeGuard([watcher, self] {
-            watcher->deleteLater();
-            if (self) self->mAsyncLoadInProgress = false;
-        });
-        try { watcher->future().waitForFinished(); }
-        catch (const std::exception &ex) {
-            outcome->errorDetail = QObject::tr("Model open failed: %1").arg(QString::fromUtf8(ex.what()));
-        } catch (...) {
-            outcome->errorDetail = QObject::tr("Model open failed with an unexpected worker exception.");
-        }
-        if (!self || self->isClosing()) return;
-        QList<QString> warnings, errors;
-        if (!outcome->recoveryNotice.isEmpty()) warnings.append(outcome->recoveryNotice);
-        const auto contextCurrent = [self, layer, path, revision, invalidated] {
-            return self && !self->isClosing() && layer && self->mModelLayer == layer
-                && !invalidated->load() && layer->modelFilePath() == path
-                && layer->editRevision() == revision && !layer->engine();
-        };
-        bool ok = false;
-        if (!contextCurrent()) {
-            errors.append(QObject::tr("Model open discarded because its project or model changed."));
-        } else if (!outcome->errorDetail.isEmpty() || !outcome->engine) {
-            errors.append(outcome->errorDetail.isEmpty()
-                ? QObject::tr("Model open did not produce a usable engine.") : outcome->errorDetail);
-        } else {
-            SWMM_Engine opened = outcome->engine;
+                if (!self || self->isClosing() || !layer || !progressGuard || invalidated->load() ||
+                    packed < 0)
+                    return;
+                const OpenStage stage = unpackLoadProgressStage(packed);
+                progressGuard->setStage(stage, unpackLoadProgressPct(packed),
+                                        OpenProgressModel::stageLabel(stage));
+            });
+    connect(
+        watcher, &QFutureWatcherBase::finished, watcher,
+        [watcher, self, layer, path, revision, wasVisible, outcome, invalidated, progressGuard] {
+            auto cleanup = qScopeGuard([watcher, self] {
+                watcher->deleteLater();
+                if (self)
+                    self->mAsyncLoadInProgress = false;
+            });
             try {
-                // This bounded safety correction deliberately performs SoA/cache
-                // preparation on the GUI thread. A detached data-transfer API is
-                // needed to move it back to a worker safely.
-                qint64 soaMs = 0, geomMs = 0;
-                if (progressGuard) progressGuard->setStage(OpenStage::SoaCopy, 0,
-                    OpenProgressModel::stageLabel(OpenStage::SoaCopy));
-                if (!contextCurrent()) throw std::runtime_error("The model changed during open.");
-                layer->closeEngine(); // discard any prior failed, unadopted arrays
-                layer->buildFromEngine(opened, &soaMs, &geomMs);
-                if (progressGuard) {
-                    progressGuard->finishStage(OpenStage::SoaCopy);
-                    if (progressGuard) progressGuard->finishStage(OpenStage::GeomCache);
-                }
-                if (!contextCurrent()) throw std::runtime_error("The model changed during open.");
-                // If an adoption callback closes/deletes the layer, ownership
-                // must leave the result before that callback frees the engine.
-                connect(layer, &SWMMModelLayer::engineAboutToClose, watcher,
-                        [layer, outcome] {
-                    if (layer && layer->engine() == outcome->engine) outcome->engine = nullptr;
-                });
-                ok = layer->adoptOpenEngine(opened, warnings, errors, outcome->openMs, soaMs, geomMs);
-                if (layer && layer->engine() == opened) outcome->engine = nullptr;
-                if (ok && self && layer && !self->isClosing()
-                    && self->mModelLayer == layer && layer->engine() == opened
-                    && layer->modelFilePath() == path && layer->editRevision() == revision)
-                    ok = self->finishModelLoad(warnings, errors);
-                else ok = false;
+                watcher->future().waitForFinished();
             } catch (const std::exception &ex) {
-                ok = false;
-                errors.append(QObject::tr("Model adoption failed: %1").arg(QString::fromUtf8(ex.what())));
+                outcome->errorDetail =
+                    QObject::tr("Model open failed: %1").arg(QString::fromUtf8(ex.what()));
             } catch (...) {
-                ok = false;
-                errors.append(QObject::tr("Model adoption failed with an unexpected exception."));
+                outcome->errorDetail =
+                    QObject::tr("Model open failed with an unexpected worker exception.");
             }
-            // Adoption may have taken ownership before a later GUI exception.
-            if (layer && layer->engine() == opened) outcome->engine = nullptr;
-            if (!ok && layer && !layer->engine()) layer->closeEngine();
-        }
-        if (!self || self->isClosing()) return;
-        if (!ok && layer && !layer->engine()) layer->setVisible(wasVisible);
-        if (!ok && errors.isEmpty()) errors.append(QObject::tr("Model open was cancelled."));
-        // Allow a failure handler to repair/retry immediately.
-        cleanup.dismiss();
-        watcher->deleteLater();
-        self->mAsyncLoadInProgress = false;
-        emit self->modelLoadFinished(ok, warnings, errors);
-    });
-    watcher->setFuture(QtConcurrent::run([path, outcome, invalidated, workerHook](QPromise<void> &promise) {
+            if (!self || self->isClosing())
+                return;
+            QList<QString> warnings, errors;
+            if (!outcome->recoveryNotice.isEmpty())
+                warnings.append(outcome->recoveryNotice);
+            const auto contextCurrent = [self, layer, path, revision, invalidated] {
+                return self && !self->isClosing() && layer && self->mModelLayer == layer &&
+                       !invalidated->load() && layer->modelFilePath() == path &&
+                       layer->editRevision() == revision && !layer->engine();
+            };
+            bool ok = false;
+            if (!contextCurrent()) {
+                errors.append(
+                    QObject::tr("Model open discarded because its project or model changed."));
+            } else if (!outcome->errorDetail.isEmpty() || !outcome->engine) {
+                errors.append(outcome->errorDetail.isEmpty()
+                                  ? QObject::tr("Model open did not produce a usable engine.")
+                                  : outcome->errorDetail);
+            } else {
+                SWMM_Engine opened = outcome->engine;
+                try {
+                    // This bounded safety correction deliberately performs SoA/cache
+                    // preparation on the GUI thread. A detached data-transfer API is
+                    // needed to move it back to a worker safely.
+                    qint64 soaMs = 0, geomMs = 0;
+                    if (progressGuard)
+                        progressGuard->setStage(OpenStage::SoaCopy, 0,
+                                                OpenProgressModel::stageLabel(OpenStage::SoaCopy));
+                    if (!contextCurrent())
+                        throw std::runtime_error("The model changed during open.");
+                    layer->closeEngine(); // discard any prior failed, unadopted arrays
+                    layer->buildFromEngine(opened, &soaMs, &geomMs);
+                    if (progressGuard) {
+                        progressGuard->finishStage(OpenStage::SoaCopy);
+                        if (progressGuard)
+                            progressGuard->finishStage(OpenStage::GeomCache);
+                    }
+                    if (!contextCurrent())
+                        throw std::runtime_error("The model changed during open.");
+                    // If an adoption callback closes/deletes the layer, ownership
+                    // must leave the result before that callback frees the engine.
+                    connect(layer, &SWMMModelLayer::engineAboutToClose, watcher, [layer, outcome] {
+                        if (layer && layer->engine() == outcome->engine)
+                            outcome->engine = nullptr;
+                    });
+                    ok = layer->adoptOpenEngine(opened, warnings, errors, outcome->openMs, soaMs,
+                                                geomMs);
+                    if (layer && layer->engine() == opened)
+                        outcome->engine = nullptr;
+                    if (ok && self && layer && !self->isClosing() && self->mModelLayer == layer &&
+                        layer->engine() == opened && layer->modelFilePath() == path &&
+                        layer->editRevision() == revision)
+                        ok = self->finishModelLoad(warnings, errors);
+                    else
+                        ok = false;
+                } catch (const std::exception &ex) {
+                    ok = false;
+                    errors.append(
+                        QObject::tr("Model adoption failed: %1").arg(QString::fromUtf8(ex.what())));
+                } catch (...) {
+                    ok = false;
+                    errors.append(
+                        QObject::tr("Model adoption failed with an unexpected exception."));
+                }
+                // Adoption may have taken ownership before a later GUI exception.
+                if (layer && layer->engine() == opened)
+                    outcome->engine = nullptr;
+                if (!ok && layer && !layer->engine())
+                    layer->closeEngine();
+            }
+            if (!self || self->isClosing())
+                return;
+            if (!ok && layer && !layer->engine())
+                layer->setVisible(wasVisible);
+            if (!ok && errors.isEmpty())
+                errors.append(QObject::tr("Model open was cancelled."));
+            // Allow a failure handler to repair/retry immediately.
+            cleanup.dismiss();
+            watcher->deleteLater();
+            self->mAsyncLoadInProgress = false;
+            emit self->modelLoadFinished(ok, warnings, errors);
+        });
+    watcher->setFuture(QtConcurrent::run([path, outcome, invalidated,
+                                          workerHook](QPromise<void> &promise) {
         promise.setProgressRange(0, packLoadProgress(OpenStage::EngineParse, 100));
         try {
-            if (invalidated->load()) return;
+            if (invalidated->load())
+                return;
             promise.setProgressValue(packLoadProgress(OpenStage::EngineParse, 0));
-            if (!ProjectSaveOutputs::recover(path, &outcome->errorDetail, &outcome->recoveryNotice)) return;
-            if (invalidated->load()) return;
-            outcome->engine = SWMMModelLayer::openEngineForPath(path, &outcome->errorDetail, &outcome->openMs);
-            if (workerHook) workerHook();
+            if (!ProjectSaveOutputs::recover(path, &outcome->errorDetail, &outcome->recoveryNotice))
+                return;
+            if (invalidated->load())
+                return;
+            outcome->engine =
+                SWMMModelLayer::openEngineForPath(path, &outcome->errorDetail, &outcome->openMs);
+            if (workerHook)
+                workerHook();
             promise.setProgressValue(packLoadProgress(OpenStage::EngineParse, 100));
         } catch (const std::exception &ex) {
-            outcome->errorDetail = QObject::tr("Model open failed: %1").arg(QString::fromUtf8(ex.what()));
+            outcome->errorDetail =
+                QObject::tr("Model open failed: %1").arg(QString::fromUtf8(ex.what()));
         } catch (...) {
             outcome->errorDetail = QObject::tr("Model open failed with an unexpected exception.");
         }
     }));
 }
 
-
 bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QString> &errors)
 {
     Q_UNUSED(warnings);
     const QPointer<SWMMVisProjectWindow> owner(this);
     const QPointer<SWMMModelLayer> model(mModelLayer);
-    if (!model || mClosing) return false;
+    if (!model || mClosing)
+        return false;
     const SWMM_Engine loadedEngine = model->engine();
     const QString loadedPath = model->modelFilePath();
     const quint64 loadedRevision = model->editRevision();
     const auto contextCurrent = [owner, model, loadedEngine, loadedPath, loadedRevision] {
-        return owner && !owner->isClosing() && model && owner->modelLayer() == model
-            && model->engine() == loadedEngine && model->modelFilePath() == loadedPath
-            && model->editRevision() == loadedRevision;
+        return owner && !owner->isClosing() && model && owner->modelLayer() == model &&
+               model->engine() == loadedEngine && model->modelFilePath() == loadedPath &&
+               model->editRevision() == loadedRevision;
     };
     {
         mHasChanges = false;
@@ -892,14 +941,11 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
         mModelLayer->setVisible(true);
 
         // Sync per-project options from the engine.
-        if (mModelLayer->engine())
-        {
+        if (mModelLayer->engine()) {
             mUnits->syncFromEngine(mModelLayer->engine());
 
             char buf[32] = {};
-            if (swmm_options_get(mModelLayer->engine(), "LINK_OFFSETS",
-                                 buf, sizeof(buf)) == 0)
-            {
+            if (swmm_options_get(mModelLayer->engine(), "LINK_OFFSETS", buf, sizeof(buf)) == 0) {
                 mElevationOffsetMode =
                     QString(buf).trimmed().compare("ELEVATION", Qt::CaseInsensitive) == 0;
             }
@@ -913,9 +959,10 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
         // manager (and vice versa).
         auto *busy = new bool(false);
         connect(mSelectionManager, &SelectionManager::selectionChanged, this,
-                [this, busy](const QSet<SWMMObjectRef> &current,
-                             const QSet<SWMMObjectRef> &, const QSet<SWMMObjectRef> &) {
-                    if (*busy) return;
+                [this, busy](const QSet<SWMMObjectRef> &current, const QSet<SWMMObjectRef> &,
+                             const QSet<SWMMObjectRef> &) {
+                    if (*busy)
+                        return;
                     *busy = true;
                     // Typed hand-off: SWMM names are per-type namespaces, so
                     // each ref carries its kind into the layer — selecting a
@@ -927,13 +974,17 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                         quint8 kind = 0;
                         switch (r.objectType) {
                         case SWMMObjectRef::Node:
-                            kind = SWMMModelLayer::kKindNode;  break;
+                            kind = SWMMModelLayer::kKindNode;
+                            break;
                         case SWMMObjectRef::Link:
-                            kind = SWMMModelLayer::kKindLink;  break;
+                            kind = SWMMModelLayer::kKindLink;
+                            break;
                         case SWMMObjectRef::Subcatchment:
-                            kind = SWMMModelLayer::kKindCatch; break;
+                            kind = SWMMModelLayer::kKindCatch;
+                            break;
                         case SWMMObjectRef::RainGage:
-                            kind = SWMMModelLayer::kKindGage;  break;
+                            kind = SWMMModelLayer::kKindGage;
+                            break;
                         default:
                             continue;
                         }
@@ -944,7 +995,8 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                 });
         connect(mModelLayer, &SWMMModelLayer::selectionChanged, this,
                 [this, busy](const QStringList &) {
-                    if (*busy) return;
+                    if (*busy)
+                        return;
                     *busy = true;
                     // Read the layer's TYPED selection rather than deriving a
                     // kind per name (objectTypeFor is a single-keyed hash that
@@ -952,8 +1004,7 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                     QSet<SWMMObjectRef> refs;
                     const auto &sel = mModelLayer->selectedElements();
                     refs.reserve(sel.size());
-                    for (const auto &e : sel)
-                    {
+                    for (const auto &e : sel) {
                         if (e.kinds & SWMMModelLayer::kKindNode)
                             refs.insert({SWMMObjectRef::Node, e.name});
                         if (e.kinds & SWMMModelLayer::kKindLink)
@@ -977,32 +1028,31 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
         // the picker until the user chooses one. If they explicitly abort,
         // push a loader error and return false so the caller closes the
         // project window.
-        if (!mCanvasCRSAdopted)
-        {
+        if (!mCanvasCRSAdopted) {
             SpatialReferenceSystem *modelSRS = mModelLayer->srs();
             // Only prompt when the CRS is truly unknown ("Untitled (Local)").
             // Auto-generated local CRS ("Local (ft)" / "Local (m)") already
             // has correct units — no user intervention required.
-            const bool isUntitledLocal = modelSRS
-                && modelSRS->toAuthority() == QStringLiteral("Local")
-                && modelSRS->description() == QStringLiteral("Untitled (Local)");
+            const bool isUntitledLocal =
+                modelSRS && modelSRS->toAuthority() == QStringLiteral("Local") &&
+                modelSRS->description() == QStringLiteral("Untitled (Local)");
 
-            if (isUntitledLocal)
-            {
-                while (true)
-                {
+            if (isUntitledLocal) {
+                while (true) {
                     QPointer<CRSSelectionDialog> dlg = new CRSSelectionDialog(this);
-                    const auto releaseDialog = qScopeGuard([dlg] { if (dlg) dlg->deleteLater(); });
+                    const auto releaseDialog = qScopeGuard([dlg] {
+                        if (dlg)
+                            dlg->deleteLater();
+                    });
                     dlg->setWindowTitle(tr("Coordinate Reference System"));
                     const int result = dlg->exec();
                     if (!contextCurrent() || !dlg) {
-                        errors.append(QObject::tr("Project open cancelled because its model or owner changed."));
+                        errors.append(QObject::tr(
+                            "Project open cancelled because its model or owner changed."));
                         return false;
                     }
-                    if (result == QDialog::Accepted)
-                    {
-                        if (SpatialReferenceSystem *picked = dlg->selectedSRS())
-                        {
+                    if (result == QDialog::Accepted) {
+                        if (SpatialReferenceSystem *picked = dlg->selectedSRS()) {
                             mModelLayer->setSRS(picked, true);
                             modelSRS = picked;
                             break;
@@ -1011,42 +1061,45 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                     }
 
                     QPointer<QMessageBox> mb = new QMessageBox(this);
-                    const auto releaseMessage = qScopeGuard([mb] { if (mb) mb->deleteLater(); });
+                    const auto releaseMessage = qScopeGuard([mb] {
+                        if (mb)
+                            mb->deleteLater();
+                    });
                     mb->setIcon(QMessageBox::Warning);
                     mb->setWindowTitle(tr("CRS Required"));
-                    mb->setText(tr("A coordinate reference system is required to open this SWMM model."));
-                    mb->setInformativeText(tr("Choose a CRS to continue, or abort opening the project."));
-                    QPushButton *chooseBtn = mb->addButton(tr("Choose CRS…"), QMessageBox::AcceptRole);
+                    mb->setText(
+                        tr("A coordinate reference system is required to open this SWMM model."));
+                    mb->setInformativeText(
+                        tr("Choose a CRS to continue, or abort opening the project."));
+                    QPushButton *chooseBtn =
+                        mb->addButton(tr("Choose CRS…"), QMessageBox::AcceptRole);
                     // Local-projected shortcut: matches the model's flow-unit
                     // system (ft vs. m) so 2D mesh generation has a usable
                     // linear unit without forcing the user through the picker.
-                    const QString lenLabel = (mUnits && mUnits->isSI())
-                                                 ? QStringLiteral("m")
-                                                 : QStringLiteral("ft");
-                    QPushButton *localBtn  = mb->addButton(
-                        tr("Use local projected (%1)").arg(lenLabel),
-                        QMessageBox::AcceptRole);
-                    QPushButton *abortBtn  = mb->addButton(tr("Abort Open"),  QMessageBox::RejectRole);
+                    const QString lenLabel =
+                        (mUnits && mUnits->isSI()) ? QStringLiteral("m") : QStringLiteral("ft");
+                    QPushButton *localBtn = mb->addButton(
+                        tr("Use local projected (%1)").arg(lenLabel), QMessageBox::AcceptRole);
+                    QPushButton *abortBtn =
+                        mb->addButton(tr("Abort Open"), QMessageBox::RejectRole);
                     mb->setDefaultButton(chooseBtn);
                     mb->exec();
                     if (!contextCurrent() || !mb) {
-                        errors.append(QObject::tr("Project open cancelled because its model or owner changed."));
+                        errors.append(QObject::tr(
+                            "Project open cancelled because its model or owner changed."));
                         return false;
                     }
-                    if (mb->clickedButton() == abortBtn)
-                    {
+                    if (mb->clickedButton() == abortBtn) {
                         errors.append(tr("Project open cancelled: no CRS selected."));
                         mModelLayer->setVisible(false);
                         return false;
                     }
-                    if (mb->clickedButton() == localBtn)
-                    {
+                    if (mb->clickedButton() == localBtn) {
                         const QString mapUnits = (mUnits && mUnits->isSI())
                                                      ? QStringLiteral("METERS")
                                                      : QStringLiteral("FEET");
                         if (SpatialReferenceSystem *local =
-                                SpatialReferenceSystem::localFromMapUnits(mapUnits))
-                        {
+                                SpatialReferenceSystem::localFromMapUnits(mapUnits)) {
                             mModelLayer->setSRS(local, true);
                             modelSRS = local;
                             break;
@@ -1057,13 +1110,10 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                 }
             }
 
-            if (modelSRS && !modelSRS->isGeographic())
-            {
+            if (modelSRS && !modelSRS->isGeographic()) {
                 mCanvas->setCanvasSRS(new SpatialReferenceSystem(*modelSRS, mCanvas), true);
                 mCanvasCRSAdopted = true;
-            }
-            else if (modelSRS && modelSRS->isGeographic())
-            {
+            } else if (modelSRS && modelSRS->isGeographic()) {
                 // Geographic model: keep the projected canvas CRS (Web
                 // Mercator by default) so the layer→canvas reprojection
                 // pipeline kicks in. Adopting EPSG:4326 here would render
@@ -1073,14 +1123,18 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
         }
 
         const MapExtent ext = mModelLayer->extent();
-        const QString diag = QStringLiteral(
-            "[loadModel] %1 | extent valid=%2 [%3,%4 -> %5,%6] | canvas %7x%8 | SRS=%9")
-            .arg(QFileInfo(mModelLayer->modelFilePath()).fileName())
-            .arg(ext.isValid() ? "yes" : "no")
-            .arg(ext.xMin(), 0, 'g', 6).arg(ext.yMin(), 0, 'g', 6)
-            .arg(ext.xMax(), 0, 'g', 6).arg(ext.yMax(), 0, 'g', 6)
-            .arg(mCanvas->width()).arg(mCanvas->height())
-            .arg(mCanvas->canvasSRS() ? mCanvas->canvasSRS()->toAuthority() : "none");
+        const QString diag =
+            QStringLiteral(
+                "[loadModel] %1 | extent valid=%2 [%3,%4 -> %5,%6] | canvas %7x%8 | SRS=%9")
+                .arg(QFileInfo(mModelLayer->modelFilePath()).fileName())
+                .arg(ext.isValid() ? "yes" : "no")
+                .arg(ext.xMin(), 0, 'g', 6)
+                .arg(ext.yMin(), 0, 'g', 6)
+                .arg(ext.xMax(), 0, 'g', 6)
+                .arg(ext.yMax(), 0, 'g', 6)
+                .arg(mCanvas->width())
+                .arg(mCanvas->height())
+                .arg(mCanvas->canvasSRS() ? mCanvas->canvasSRS()->toAuthority() : "none");
         qCDebug(lcLoadWindow).noquote() << diag;
         // Mirror to the in-app log so the user can see it without a terminal.
         if (auto *mw = window())
@@ -1116,19 +1170,24 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                 return;
             QTimer::singleShot(50, mCanvas, [this, mw = window()]() {
                 const MapExtent canvasExt = mCanvas->extent();
-                const int sceneItems = mCanvas->mapScene() ? mCanvas->mapScene()->items().count() : -1;
-                const QString d2 = QStringLiteral(
-                    "[postZoom] canvas %1x%2 | extent [%3,%4 -> %5,%6] | scene items=%7")
-                    .arg(mCanvas->width()).arg(mCanvas->height())
-                    .arg(canvasExt.xMin(), 0, 'g', 6).arg(canvasExt.yMin(), 0, 'g', 6)
-                    .arg(canvasExt.xMax(), 0, 'g', 6).arg(canvasExt.yMax(), 0, 'g', 6)
-                    .arg(sceneItems);
+                const int sceneItems =
+                    mCanvas->mapScene() ? mCanvas->mapScene()->items().count() : -1;
+                const QString d2 =
+                    QStringLiteral(
+                        "[postZoom] canvas %1x%2 | extent [%3,%4 -> %5,%6] | scene items=%7")
+                        .arg(mCanvas->width())
+                        .arg(mCanvas->height())
+                        .arg(canvasExt.xMin(), 0, 'g', 6)
+                        .arg(canvasExt.yMin(), 0, 'g', 6)
+                        .arg(canvasExt.xMax(), 0, 'g', 6)
+                        .arg(canvasExt.yMax(), 0, 'g', 6)
+                        .arg(sceneItems);
                 qCDebug(lcLoadWindow).noquote() << d2;
                 if (mw)
-                    QMetaObject::invokeMethod(mw, "onLogMessage", Qt::QueuedConnection,
-                                              Q_ARG(QString, d2),
-                                              Q_ARG(OpenSWMMVisLogMessage::LogMessageType,
-                                                    OpenSWMMVisLogMessage::LogMessageType::Information));
+                    QMetaObject::invokeMethod(
+                        mw, "onLogMessage", Qt::QueuedConnection, Q_ARG(QString, d2),
+                        Q_ARG(OpenSWMMVisLogMessage::LogMessageType,
+                              OpenSWMMVisLogMessage::LogMessageType::Information));
             });
         };
 
@@ -1143,19 +1202,19 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
             auto *attemptCount = new int(0);
             QObject::connect(attempt, &QTimer::timeout, mCanvas,
                              [this, attempt, attemptCount, zoomNow]() {
-                if (mCanvas->width() <= 0 || mCanvas->height() <= 0) {
-                    if (++*attemptCount < 20) {           // ≤ 1 s total
-                        attempt->start();
-                        return;
-                    }
-                    delete attemptCount;                  // never sized — give up
-                    attempt->deleteLater();
-                    return;
-                }
-                delete attemptCount;
-                attempt->deleteLater();
-                zoomNow();
-            });
+                                 if (mCanvas->width() <= 0 || mCanvas->height() <= 0) {
+                                     if (++*attemptCount < 20) { // ≤ 1 s total
+                                         attempt->start();
+                                         return;
+                                     }
+                                     delete attemptCount; // never sized — give up
+                                     attempt->deleteLater();
+                                     return;
+                                 }
+                                 delete attemptCount;
+                                 attempt->deleteLater();
+                                 zoomNow();
+                             });
             attempt->start();
         }
     }
@@ -1168,7 +1227,8 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
 
 bool SWMMVisProjectWindow::projectCrsIsProvisional() const
 {
-    if (!mModelLayer) return false;
+    if (!mModelLayer)
+        return false;
     const SpatialReferenceSystem *srs = mModelLayer->srs();
     return !mModelLayer->crsAssigned() || !srs || srs->isLocal();
 }
@@ -1176,14 +1236,17 @@ bool SWMMVisProjectWindow::projectCrsIsProvisional() const
 bool SWMMVisProjectWindow::assignProjectCrs(const SpatialReferenceSystem &srs, QString *errorOut)
 {
     if (!mModelLayer || !mModelLayer->engine() || !mCanvas) {
-        if (errorOut) *errorOut = tr("No model loaded.");
+        if (errorOut)
+            *errorOut = tr("No model loaded.");
         return false;
     }
     const QString authority = srs.toAuthority();
     const QByteArray crs = (authority.isEmpty() || authority == QStringLiteral("Local"))
-        ? srs.toWkt().toUtf8() : authority.toUtf8();
+                               ? srs.toWkt().toUtf8()
+                               : authority.toUtf8();
     if (swmm_spatial_set_crs(mModelLayer->engine(), crs.constData()) != SWMM_OK) {
-        if (errorOut) *errorOut = tr("The model rejected the selected CRS.");
+        if (errorOut)
+            *errorOut = tr("The model rejected the selected CRS.");
         return false;
     }
     // setSRS emits srsChanged, which marks the CRS as assigned.
@@ -1207,15 +1270,15 @@ void SWMMVisProjectWindow::setHasChanges(bool dirty)
 
 void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer, bool pristine)
 {
-    if(meshLayer)meshLayer->setInfiltrationModel(mModelLayer);
+    if (meshLayer)
+        meshLayer->setInfiltrationModel(mModelLayer);
     if (!meshLayer)
         return;
     // MapCanvas does not own its layers; undo/deferred geometry can outlive
     // the window. Abandon this project's pending disk artifacts on teardown
     // even if an orphaned layer remains alive.
-    connect(this, &QObject::destroyed, meshLayer, [meshLayer] {
-        meshLayer->setGeneratedArtifacts({});
-    });
+    connect(this, &QObject::destroyed, meshLayer,
+            [meshLayer] { meshLayer->setGeneratedArtifacts({}); });
     // A layer parsed from the very file the engine opened already agrees with
     // the engine's in-memory mesh, so the save path can skip re-pushing it.
     // Every other origin (mesh generated or imported in-session) leaves the
@@ -1234,19 +1297,16 @@ void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer, bool pris
                 meshLayer->markMeshEdited();
                 setHasChanges(true);
             });
-    connect(meshLayer, &SWMM2DMeshLayer::meshEditsChanged, this,
-            [this, meshLayer]() {
-                meshLayer->markMeshEdited();
-                setHasChanges(true);
-            });
+    connect(meshLayer, &SWMM2DMeshLayer::meshEditsChanged, this, [this, meshLayer]() {
+        meshLayer->markMeshEdited();
+        setHasChanges(true);
+    });
 }
 
 void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
 {
     const quint64 serial = ++mMeshImportSerial;
-    auto fail = [this](const QString &msg) {
-        emit meshImportFinished(false, msg, QString());
-    };
+    auto fail = [this](const QString &msg) { emit meshImportFinished(false, msg, QString()); };
     if (mClosing || !canvas() || !mModelLayer || !mModelLayer->engine()) {
         fail(tr("Open a project first — a 2D mesh attaches to a model."));
         return;
@@ -1269,7 +1329,8 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
     const QPointer<QObject> operationGuard(operation);
     bool launched = false;
     const auto cleanup = qScopeGuard([&] {
-        if (!launched && operationGuard) delete operationGuard.data();
+        if (!launched && operationGuard)
+            delete operationGuard.data();
     });
     connect(operation, &QObject::destroyed, [cancelled] { cancelled->store(true); });
     const auto invalidate = [cancelled] { cancelled->store(true); };
@@ -1282,9 +1343,11 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
            << connect(ownerModel.data(), &SWMMModelLayer::optionsChanged, operation, invalidate)
            << connect(ownerModel.data(), &SWMMModelLayer::dataObjectsChanged, operation, invalidate)
            << connect(ownerModel.data(), &SWMMModelLayer::hydrographChanged, operation, invalidate)
-           << connect(ownerModel.data(), &SWMMModelLayer::controlRulesChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::controlRulesChanged, operation,
+                      invalidate)
            << connect(ownerModel.data(), &SWMMModelLayer::transectChanged, operation, invalidate)
-           << connect(ownerModel.data(), &SWMMModelLayer::modelFilePathChanged, operation, invalidate)
+           << connect(ownerModel.data(), &SWMMModelLayer::modelFilePathChanged, operation,
+                      invalidate)
            << connect(ownerCanvas.data(), &MapCanvas::layerAdded, operation, invalidate)
            << connect(ownerCanvas.data(), &MapCanvas::layerRemoved, operation, invalidate);
     for (auto *layer : ownerCanvas->layers()) {
@@ -1293,7 +1356,8 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
         if (auto *meshLayer = qobject_cast<SWMM2DMeshLayer *>(layer))
             guards << connect(meshLayer, &SWMM2DMeshLayer::attributeChanged, operation, invalidate)
                    << connect(meshLayer, &SWMM2DMeshLayer::meshEditsChanged, operation, invalidate)
-                   << connect(meshLayer, &SWMM2DMeshLayer::activeMeshChanged, operation, invalidate);
+                   << connect(meshLayer, &SWMM2DMeshLayer::activeMeshChanged, operation,
+                              invalidate);
     }
 
     // Choose a logical destination only. Overwrite consent applies at Save;
@@ -1310,15 +1374,16 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
         meshPath = projectDir.filePath(base + QStringLiteral(".2dm"));
         for (int n = 1; QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink(); ++n)
             meshPath = projectDir.filePath(QStringLiteral("%1_%2.2dm").arg(base).arg(n));
-    } else if (meshPath != sourcePath
-               && (QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink())) {
+    } else if (meshPath != sourcePath &&
+               (QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink())) {
         QString captureError;
         if (!ProjectSaveOutputs::captureDestination(meshPath, &promptDestination, &captureError)) {
             fail(captureError);
             return;
         }
         const QPointer<SWMMVisProjectWindow> self(this);
-        auto *box = new QMessageBox(QMessageBox::Question, tr("Import 2D Mesh"),
+        auto *box = new QMessageBox(
+            QMessageBox::Question, tr("Import 2D Mesh"),
             tr("The project folder already contains a file named %1.").arg(srcFi.fileName()),
             QMessageBox::NoButton, this);
         const QPointer<QMessageBox> boxGuard(box);
@@ -1328,7 +1393,8 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
         box->addButton(QMessageBox::Cancel);
         box->setDefaultButton(keepBoth);
         box->exec();
-        if (!self || !boxGuard) return;
+        if (!self || !boxGuard)
+            return;
         QAbstractButton *clicked = box->clickedButton();
         box->deleteLater();
         if (clicked == keepBoth) {
@@ -1336,7 +1402,8 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
             const QString ext = srcFi.suffix();
             int n = 1;
             do {
-                meshPath = projectDir.filePath(QStringLiteral("%1_%2.%3").arg(base).arg(n++).arg(ext));
+                meshPath =
+                    projectDir.filePath(QStringLiteral("%1_%2.%3").arg(base).arg(n++).arg(ext));
             } while (QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink());
         } else if (clicked != overwrite) {
             fail(tr("2D mesh import cancelled."));
@@ -1349,17 +1416,20 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
 
     ProjectSaveOutputs::DestinationState approvedDestination;
     QString destinationError;
-    if (!ProjectSaveOutputs::captureDestination(meshPath, &approvedDestination, &destinationError)) {
+    if (!ProjectSaveOutputs::captureDestination(meshPath, &approvedDestination,
+                                                &destinationError)) {
         fail(destinationError);
         return;
     }
     if (requireAbsentDestination && approvedDestination.fingerprint != QStringLiteral("absent")) {
-        fail(tr("The import destination appeared while choosing a name: %1. Import again.").arg(meshPath));
+        fail(tr("The import destination appeared while choosing a name: %1. Import again.")
+                 .arg(meshPath));
         return;
     }
-    if (overwriteApproved && (approvedDestination.resolvedPath != promptDestination.resolvedPath
-                             || approvedDestination.fingerprint != promptDestination.fingerprint)) {
-        fail(tr("The import destination changed while confirming replacement: %1. Import again.").arg(meshPath));
+    if (overwriteApproved && (approvedDestination.resolvedPath != promptDestination.resolvedPath ||
+                              approvedDestination.fingerprint != promptDestination.fingerprint)) {
+        fail(tr("The import destination changed while confirming replacement: %1. Import again.")
+                 .arg(meshPath));
         return;
     }
 
@@ -1369,91 +1439,107 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
         QString errorMsg;
     };
     auto *watcher = new QFutureWatcher<ImportOutcome>(operation);
-    connect(watcher, &QFutureWatcherBase::finished, operation,
-            [this, watcher, operation, guards, cancelled, serial, ownerModel, ownerCanvas,
-             ownerEngine, modelPath, revision, meshPath, needsSaveAsRebase]() {
-        ImportOutcome out;
-        try {
-            auto future = watcher->future();
-            out = future.takeResult();
-        } catch (const std::exception &e) {
-            out.errorMsg = tr("Reading the 2D mesh failed: %1").arg(QString::fromUtf8(e.what()));
-        } catch (...) {
-            out.errorMsg = tr("Reading the 2D mesh failed.");
-        }
-        for (const auto &connection : guards) disconnect(connection);
-        operation->deleteLater();
-        const bool current = !cancelled->load() && !mClosing && serial == mMeshImportSerial
-            && ownerModel && ownerCanvas && mModelLayer == ownerModel && canvas() == ownerCanvas
-            && ownerModel->engine() == ownerEngine && ownerModel->modelFilePath() == modelPath
-            && ownerModel->editRevision() == revision;
-        if (!current) {
-            emit meshImportFinished(false,
-                tr("2D mesh import discarded because the project changed, closed, or a newer import started."),
-                QString());
-            return;
-        }
-        if (!out.read.hasMesh || !out.artifacts) {
-            emit meshImportFinished(false, out.errorMsg, QString());
-            return;
-        }
+    connect(
+        watcher, &QFutureWatcherBase::finished, operation,
+        [this, watcher, operation, guards, cancelled, serial, ownerModel, ownerCanvas, ownerEngine,
+         modelPath, revision, meshPath, needsSaveAsRebase]() {
+            ImportOutcome out;
+            try {
+                auto future = watcher->future();
+                out = future.takeResult();
+            } catch (const std::exception &e) {
+                out.errorMsg =
+                    tr("Reading the 2D mesh failed: %1").arg(QString::fromUtf8(e.what()));
+            } catch (...) {
+                out.errorMsg = tr("Reading the 2D mesh failed.");
+            }
+            for (const auto &connection : guards)
+                disconnect(connection);
+            operation->deleteLater();
+            const bool current = !cancelled->load() && !mClosing && serial == mMeshImportSerial &&
+                                 ownerModel && ownerCanvas && mModelLayer == ownerModel &&
+                                 canvas() == ownerCanvas && ownerModel->engine() == ownerEngine &&
+                                 ownerModel->modelFilePath() == modelPath &&
+                                 ownerModel->editRevision() == revision;
+            if (!current) {
+                emit meshImportFinished(
+                    false,
+                    tr("2D mesh import discarded because the project changed, closed, or a newer import started."),
+                    QString());
+                return;
+            }
+            if (!out.read.hasMesh || !out.artifacts) {
+                emit meshImportFinished(false, out.errorMsg, QString());
+                return;
+            }
 
-        // No QObject crosses the worker boundary. The future owns only data
-        // and private files, so an abandoned result releases its whole job.
-        std::unique_ptr<SWMM2DMeshLayer> prepared;
-        try {
-            prepared = std::make_unique<SWMM2DMeshLayer>(std::move(out.read.mesh), meshPath,
-                                                        nullptr, /*deferHeavyGeometry=*/true);
-            prepared->setExternalMesh(true);
-            prepared->setMeshUnitsSI(mesh::unitsHeaderIsSI(out.read.unitsHeader));
-            prepared->setOwnsGeneratedTopology(true);
-            prepared->setPreservesImportedSections(true);
-            prepared->setImportNeedsSaveAsRebase(needsSaveAsRebase);
-            prepared->setGeneratedArtifacts(std::move(out.artifacts));
-            prepared->setActiveMesh(true);
-            prepared->setName(QFileInfo(meshPath).fileName());
-            if (out.read.edgeBCs.size() == mesh::edgeSlotCount(prepared->triangleCount()))
-                prepared->edgeBCsMutable() = std::move(out.read.edgeBCs);
-            if (ownerModel->srs())
-                prepared->setSRS(new SpatialReferenceSystem(*ownerModel->srs(), prepared.get()), true);
-        } catch (const std::exception &e) {
-            emit meshImportFinished(false, tr("Preparing the imported mesh failed: %1")
-                .arg(QString::fromUtf8(e.what())), QString());
-            return;
-        } catch (...) {
-            emit meshImportFinished(false, tr("Preparing the imported mesh failed."), QString());
-            return;
-        }
-        auto *meshLayer = prepared.get();
+            // No QObject crosses the worker boundary. The future owns only data
+            // and private files, so an abandoned result releases its whole job.
+            std::unique_ptr<SWMM2DMeshLayer> prepared;
+            try {
+                prepared = std::make_unique<SWMM2DMeshLayer>(std::move(out.read.mesh), meshPath,
+                                                             nullptr, /*deferHeavyGeometry=*/true);
+                prepared->setExternalMesh(true);
+                prepared->setMeshUnitsSI(mesh::unitsHeaderIsSI(out.read.unitsHeader));
+                prepared->setOwnsGeneratedTopology(true);
+                prepared->setPreservesImportedSections(true);
+                prepared->setImportNeedsSaveAsRebase(needsSaveAsRebase);
+                prepared->setGeneratedArtifacts(std::move(out.artifacts));
+                prepared->setActiveMesh(true);
+                prepared->setName(QFileInfo(meshPath).fileName());
+                if (out.read.edgeBCs.size() == mesh::edgeSlotCount(prepared->triangleCount()))
+                    prepared->edgeBCsMutable() = std::move(out.read.edgeBCs);
+                if (ownerModel->srs())
+                    prepared->setSRS(new SpatialReferenceSystem(*ownerModel->srs(), prepared.get()),
+                                     true);
+            } catch (const std::exception &e) {
+                emit meshImportFinished(
+                    false,
+                    tr("Preparing the imported mesh failed: %1").arg(QString::fromUtf8(e.what())),
+                    QString());
+                return;
+            } catch (...) {
+                emit meshImportFinished(false, tr("Preparing the imported mesh failed."),
+                                        QString());
+                return;
+            }
+            auto *meshLayer = prepared.get();
 
-        QList<SWMM2DMeshLayer *> stale;
-        for (OpenSWMMVisLayer *layer : canvas()->layers()) {
-            auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer);
-            if (!mesh) continue;
-            mesh->setActiveMesh(false);
-            if (!mesh->sourcePath().isEmpty()
-                && QFileInfo(mesh->sourcePath()).absoluteFilePath() == meshPath)
-                stale.append(mesh);
-        }
-        for (auto *mesh : stale) {
-            const int index = canvas()->layers().indexOf(mesh);
-            if (index >= 0)
-                if (auto *taken = canvas()->takeLayer(index, false)) taken->deleteLater();
-        }
-        canvas()->addLayer(meshLayer, true);
-        prepared.release();
-        attachMeshLayer(meshLayer);
-        meshLayer->finishSceneGeometryAsync();
-        setHasChanges(true);
+            QList<SWMM2DMeshLayer *> stale;
+            for (OpenSWMMVisLayer *layer : canvas()->layers()) {
+                auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer);
+                if (!mesh)
+                    continue;
+                mesh->setActiveMesh(false);
+                if (!mesh->sourcePath().isEmpty() &&
+                    QFileInfo(mesh->sourcePath()).absoluteFilePath() == meshPath)
+                    stale.append(mesh);
+            }
+            for (auto *mesh : stale) {
+                const int index = canvas()->layers().indexOf(mesh);
+                if (index >= 0)
+                    if (auto *taken = canvas()->takeLayer(index, false))
+                        taken->deleteLater();
+            }
+            canvas()->addLayer(meshLayer, true);
+            prepared.release();
+            attachMeshLayer(meshLayer);
+            meshLayer->finishSceneGeometryAsync();
+            setHasChanges(true);
 
-        QString message = tr("Imported 2D mesh %1: %2 vertices, %3 cells. Files will be published when the project is saved.")
-            .arg(QFileInfo(meshPath).fileName()).arg(meshLayer->vertexCount()).arg(meshLayer->triangleCount());
-        if (!out.read.warning.isEmpty()) message += QStringLiteral(" ") + out.read.warning;
-        emit meshImportFinished(true, message, meshPath);
-    });
+            QString message =
+                tr("Imported 2D mesh %1: %2 vertices, %3 cells. Files will be published when the project is saved.")
+                    .arg(QFileInfo(meshPath).fileName())
+                    .arg(meshLayer->vertexCount())
+                    .arg(meshLayer->triangleCount());
+            if (!out.read.warning.isEmpty())
+                message += QStringLiteral(" ") + out.read.warning;
+            emit meshImportFinished(true, message, meshPath);
+        });
 
     launched = true;
-    watcher->setFuture(QtConcurrent::run([sourcePath, meshPath, modelPath, cancelled, approvedDestination]() -> ImportOutcome {
+    watcher->setFuture(QtConcurrent::run([sourcePath, meshPath, modelPath, cancelled,
+                                          approvedDestination]() -> ImportOutcome {
         ImportOutcome out;
         const auto isCancelled = [cancelled] { return cancelled->load(); };
         const auto error = [](const char *message) {
@@ -1465,24 +1551,32 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
         }
         // A pathless project has no writable project directory yet. Never
         // require write access beside the user's source dataset just to import.
-        const QString stagingOwner = modelPath.isEmpty()
-            ? QDir(QDir::tempPath()).filePath(QStringLiteral("openswmm-untitled.inp")) : modelPath;
+        const QString stagingOwner =
+            modelPath.isEmpty()
+                ? QDir(QDir::tempPath()).filePath(QStringLiteral("openswmm-untitled.inp"))
+                : modelPath;
         auto artifacts = GeneratedMeshArtifacts::create(stagingOwner, &out.errorMsg);
-        if (!artifacts) return out;
+        if (!artifacts)
+            return out;
         const QString snapshot = artifacts->reserve(meshPath, QStringLiteral("import.2dm"),
-                                                     &out.errorMsg, ProjectSaveOutputs::Mesh);
-        if (snapshot.isEmpty()) return out;
+                                                    &out.errorMsg, ProjectSaveOutputs::Mesh);
+        if (snapshot.isEmpty())
+            return out;
         const auto &reservedDestination = artifacts->entries().last().destination;
-        if (reservedDestination.resolvedPath != approvedDestination.resolvedPath
-            || reservedDestination.fingerprint != approvedDestination.fingerprint) {
-            out.errorMsg = error("The import destination changed before preparation: %1. Import again.").arg(meshPath);
+        if (reservedDestination.resolvedPath != approvedDestination.resolvedPath ||
+            reservedDestination.fingerprint != approvedDestination.fingerprint) {
+            out.errorMsg =
+                error("The import destination changed before preparation: %1. Import again.")
+                    .arg(meshPath);
             return out;
         }
-        if (!artifacts->copySource(sourcePath, snapshot, &out.errorMsg, isCancelled)) return out;
+        if (!artifacts->copySource(sourcePath, snapshot, &out.errorMsg, isCancelled))
+            return out;
         const bool sms = mesh::Sms2dmReader::looksLikeSms2dm(snapshot);
         if (sms) {
             if (sourcePath == meshPath) {
-                out.errorMsg = error("The source format changed during import. Import the SMS mesh again.");
+                out.errorMsg =
+                    error("The source format changed during import. Import the SMS mesh again.");
                 return out;
             }
             auto mesh = mesh::Sms2dmReader::read(snapshot, false);
@@ -1490,14 +1584,18 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
                 out.errorMsg = mesh.errorMsg;
                 return out;
             }
-            out.read.warning = error("SMS 2DM mesh converted to SWMMVis format (%1 triangles, %2 quads).")
-                .arg(mesh.triangles.size() - mesh.quadCount()).arg(mesh.quadCount());
+            out.read.warning =
+                error("SMS 2DM mesh converted to SWMMVis format (%1 triangles, %2 quads).")
+                    .arg(mesh.triangles.size() - mesh.quadCount())
+                    .arg(mesh.quadCount());
             QSaveFile converted(snapshot);
             converted.setDirectWriteFallback(false);
-            const QByteArray text = mesh::InpMeshWriter::buildSectionText(mesh, mesh::CouplingMap{}, 0.035).toUtf8();
-            if (!converted.open(QIODevice::WriteOnly) || converted.write(text) != text.size()
-                || !converted.flush() || !converted.commit()) {
-                out.errorMsg = error("Could not prepare the converted mesh snapshot: %1").arg(converted.errorString());
+            const QByteArray text =
+                mesh::InpMeshWriter::buildSectionText(mesh, mesh::CouplingMap{}, 0.035).toUtf8();
+            if (!converted.open(QIODevice::WriteOnly) || converted.write(text) != text.size() ||
+                !converted.flush() || !converted.commit()) {
+                out.errorMsg = error("Could not prepare the converted mesh snapshot: %1")
+                                   .arg(converted.errorString());
                 return out;
             }
             out.read.mesh = std::move(mesh);
@@ -1508,7 +1606,8 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
             // snapshot: relative paths would gain a different base directory.
             QFile input(snapshot);
             if (!input.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                out.errorMsg = error("Could not read the mesh snapshot: %1").arg(input.errorString());
+                out.errorMsg =
+                    error("Could not read the mesh snapshot: %1").arg(input.errorString());
                 return out;
             }
             QString section;
@@ -1516,23 +1615,32 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
             while (!inputText.atEnd()) {
                 const QString line = inputText.readLine().section(';', 0, 0).trimmed();
                 if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']')))
-                    section = QLatin1Char('[') + line.mid(1, line.size() - 2).trimmed().toUpper() + QLatin1Char(']');
-                const QString keyword = line.simplified().section(QLatin1Char(' '), 0, 0)
-                    .remove(QLatin1Char('"')).remove(QLatin1Char('\'')).toUpper();
-                const bool qualityFile = keyword == QStringLiteral("FILE")
-                    && (section == QStringLiteral("[GW_INITIAL_QUALITY]")
-                        || section == QStringLiteral("[INITIAL_QUALITY]")
-                        || section == QStringLiteral("[2D_INITIAL_QUALITY]"));
-                const bool outputFile = section == QStringLiteral("[2D_OPTIONS]")
-                    && keyword == QStringLiteral("OUTPUT_FILE");
+                    section = QLatin1Char('[') + line.mid(1, line.size() - 2).trimmed().toUpper() +
+                              QLatin1Char(']');
+                const QString keyword = line.simplified()
+                                            .section(QLatin1Char(' '), 0, 0)
+                                            .remove(QLatin1Char('"'))
+                                            .remove(QLatin1Char('\''))
+                                            .toUpper();
+                const bool qualityFile = keyword == QStringLiteral("FILE") &&
+                                         (section == QStringLiteral("[GW_INITIAL_QUALITY]") ||
+                                          section == QStringLiteral("[INITIAL_QUALITY]") ||
+                                          section == QStringLiteral("[2D_INITIAL_QUALITY]"));
+                const bool outputFile = section == QStringLiteral("[2D_OPTIONS]") &&
+                                        keyword == QStringLiteral("OUTPUT_FILE");
                 if (section == QStringLiteral("[2D_MESH_FILE]") || qualityFile || outputFile) {
-                    out.errorMsg = error("Cannot import %1 with a nested file reference. Import a standalone mesh with inline data and configure file dependencies in the project.")
-                        .arg(section + (line.startsWith(QLatin1Char('[')) ? QString() : QStringLiteral(" ") + keyword));
+                    out.errorMsg =
+                        error(
+                            "Cannot import %1 with a nested file reference. Import a standalone mesh with inline data and configure file dependencies in the project.")
+                            .arg(section + (line.startsWith(QLatin1Char('['))
+                                                ? QString()
+                                                : QStringLiteral(" ") + keyword));
                     return out;
                 }
             }
             if (inputText.status() != QTextStream::Ok || input.error() != QFileDevice::NoError) {
-                out.errorMsg = error("Could not read the mesh snapshot: %1").arg(input.errorString());
+                out.errorMsg =
+                    error("Could not read the mesh snapshot: %1").arg(input.errorString());
                 return out;
             }
             input.close();
@@ -1540,16 +1648,19 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
         }
         if (!out.read.hasMesh) {
             out.errorMsg = out.read.errorMsg.isEmpty()
-                ? error("%1 does not contain a SWMMVis 2D mesh.").arg(QFileInfo(sourcePath).fileName())
-                : out.read.errorMsg;
+                               ? error("%1 does not contain a SWMMVis 2D mesh.")
+                                     .arg(QFileInfo(sourcePath).fileName())
+                               : out.read.errorMsg;
             return out;
         }
         if (isCancelled()) {
             out.errorMsg = error("2D mesh import cancelled.");
             return out;
         }
-        artifacts->protectInput(sourcePath, !sms && sourcePath == meshPath ? ProjectSaveOutputs::Mesh : -1);
-        if (!artifacts->seal(&out.errorMsg)) return out;
+        artifacts->protectInput(sourcePath,
+                                !sms && sourcePath == meshPath ? ProjectSaveOutputs::Mesh : -1);
+        if (!artifacts->seal(&out.errorMsg))
+            return out;
         out.artifacts = std::move(artifacts);
         return out;
     }));
@@ -1568,8 +1679,7 @@ void SWMMVisProjectWindow::updateWindowTitle()
     // Untitled wins over modelFilePath — even when an untitled window is
     // backed by a temp .inp, surfacing the temp filename to the user is
     // confusing. The window stays "Untitled" until Save As replaces it.
-    QString base = (mUntitled || !mModelLayer ||
-                    mModelLayer->modelFilePath().isEmpty())
+    QString base = (mUntitled || !mModelLayer || mModelLayer->modelFilePath().isEmpty())
                        ? QStringLiteral("Untitled")
                        : QFileInfo(mModelLayer->modelFilePath()).baseName();
     setWindowTitle(mHasChanges ? (base + QStringLiteral(" *")) : base);
@@ -1591,12 +1701,12 @@ void SWMMVisProjectWindow::markUntitled()
     updateWindowTitle();
 }
 
-bool SWMMVisProjectWindow::initializeBlankModel(
-    const SWMMModelLayer::NewProjectSpec &spec,
-    QList<QString> &warnings, QList<QString> &errors)
+bool SWMMVisProjectWindow::initializeBlankModel(const SWMMModelLayer::NewProjectSpec &spec,
+                                                QList<QString> &warnings, QList<QString> &errors)
 {
     if (!mModelLayer || mAsyncLoadInProgress || mClosing) {
-        errors.append(tr("No available model layer to initialize, or the project is opening or closing."));
+        errors.append(
+            tr("No available model layer to initialize, or the project is opening or closing."));
         return false;
     }
     if (!mModelLayer->adoptNewEngine(spec, warnings, errors))
@@ -1610,12 +1720,12 @@ bool SWMMVisProjectWindow::initializeBlankModel(
 
 bool SWMMVisProjectWindow::save(QString *errorOut)
 {
-    if (!mModelLayer || mModelLayer->modelFilePath().isEmpty() || mUntitled)
-    {
+    if (!mModelLayer || mModelLayer->modelFilePath().isEmpty() || mUntitled) {
         // Untitled projects don't have a real path yet — fall through to
         // Save As. The main window routes pathless/untitled projects to
         // that dialog before calling save().
-        if (errorOut) *errorOut = tr("No file path set; use Save As.");
+        if (errorOut)
+            *errorOut = tr("No file path set; use Save As.");
         return false;
     }
     return saveAs(mModelLayer->modelFilePath(), errorOut);
@@ -1623,17 +1733,20 @@ bool SWMMVisProjectWindow::save(QString *errorOut)
 
 bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
 {
-    if (!mModelLayer || !mModelLayer->engine())
-    {
-        if (errorOut) *errorOut = tr("No model loaded.");
+    if (!mModelLayer || !mModelLayer->engine()) {
+        if (errorOut)
+            *errorOut = tr("No model loaded.");
         return false;
     }
 
-    if (errorOut) errorOut->clear();
+    if (errorOut)
+        errorOut->clear();
     if (!corridorRecipeLoadError().isEmpty()) {
-        if (errorOut) *errorOut = tr("The mesh corridor recipe could not be loaded: %1 "
-                                    "Restore a supported recipe or explicitly regenerate its replacement before saving.")
-                                    .arg(corridorRecipeLoadError());
+        if (errorOut)
+            *errorOut =
+                tr("The mesh corridor recipe could not be loaded: %1 "
+                   "Restore a supported recipe or explicitly regenerate its replacement before saving.")
+                    .arg(corridorRecipeLoadError());
         setHasChanges(true);
         return false;
     }
@@ -1643,7 +1756,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // reopening a project. Every Save must protect its original dependencies.
     for (const auto &source : corridorSources()) {
         saveOutputs.protect(source.path, -1);
-        for (const auto &file : source.sourceFiles) saveOutputs.protect(file, -1);
+        for (const auto &file : source.sourceFiles)
+            saveOutputs.protect(file, -1);
     }
     bool modelWriteStarted = false;
     const auto failSave = [&](const QString &operation, const QString &path,
@@ -1653,7 +1767,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             message += tr(" Model files may already have been updated.");
         message += tr(" The project remains unsaved. Keep it open, correct the problem, "
                       "and retry Save.");
-        if (errorOut) *errorOut = message;
+        if (errorOut)
+            *errorOut = message;
         qWarning().noquote() << message;
         setHasChanges(true);
         return false;
@@ -1667,8 +1782,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     total.start();
     stage.start();
     qint64 meshSyncMs = 0, meshReadMs = 0, engineWriteMs = 0;
-    qint64 meshPatchMs = 0, meshRefMs = 0, inlinePatchMs = 0,
-           oswpMs = 0, validationMs = 0;
+    qint64 meshPatchMs = 0, meshRefMs = 0, inlinePatchMs = 0, oswpMs = 0, validationMs = 0;
     int dmReads = 0, dmWrites = 0;
 
     // AA-3.3 — pick the writer plugin by matching the path's extension
@@ -1678,9 +1792,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // falls through to legacy behaviour without a separate code path.
     auto pluginIdForExt = [](const QString &ext) -> QString {
         auto *registry = openswmmvis::FileFilterRegistry::instance();
-        for (const auto &entry :
-                registry->entriesFor(openswmmvis::FilterKind::InputRead)) {
-            if (!entry.canWrite || !entry.enabled) continue;
+        for (const auto &entry : registry->entriesFor(openswmmvis::FilterKind::InputRead)) {
+            if (!entry.canWrite || !entry.enabled)
+                continue;
             for (const QString &pat : entry.patterns) {
                 QString patExt = pat;
                 if (patExt.startsWith(QStringLiteral("*.")))
@@ -1690,7 +1804,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 // staged path (swmm_model_write_staged), not the plugin path.
                 if (QString::compare(patExt, ext, Qt::CaseInsensitive) == 0)
                     return openswmmvis::FileFilterRegistry::isBuiltinPlugin(entry.pluginId)
-                               ? QString() : entry.pluginId;
+                               ? QString()
+                               : entry.pluginId;
             }
         }
         return {};
@@ -1706,7 +1821,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     if (canvas()) {
         for (OpenSWMMVisLayer *l : canvas()->layers()) {
             auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!ml) continue;
+            if (!ml)
+                continue;
             meshLayers.append(ml);
             if (ml->isActiveMesh()) {
                 if (chosenMesh)
@@ -1719,7 +1835,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     }
     // Older inline projects may not carry an active flag. A sole layer is
     // unambiguous; multiple unflagged layers must never depend on draw order.
-    if (!chosenMesh && meshLayers.size() == 1) chosenMesh = meshLayers.front();
+    if (!chosenMesh && meshLayers.size() == 1)
+        chosenMesh = meshLayers.front();
     if (!chosenMesh && !meshLayers.isEmpty())
         return failSave(tr("choose the active mesh"), newPath,
                         tr("select one mesh in the mesh editing toolbar and retry"));
@@ -1729,17 +1846,19 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                             tr("%1 has unsaved mesh edits. Project Save currently "
                                "supports one edited mesh at a time; it cannot preserve "
                                "edits on inactive meshes. Keep this project open to "
-                               "retain those edits").arg(ml->name()));
+                               "retain those edits")
+                                .arg(ml->name()));
     }
 
     // An imported mesh owns an immutable source snapshot until its first Save.
     // An untitled project has no final directory yet; bind that destination
     // here, without changing its draft identity if any part of Save fails.
     const GeneratedMeshArtifacts::Entry *pendingImportedMesh = nullptr;
-    if (chosenMesh && chosenMesh->generatedArtifacts()
-        && !chosenMesh->generatedArtifacts()->isPublished()) {
+    if (chosenMesh && chosenMesh->generatedArtifacts() &&
+        !chosenMesh->generatedArtifacts()->isPublished()) {
         for (const auto &entry : chosenMesh->generatedArtifacts()->entries())
-            if (entry.role == ProjectSaveOutputs::Mesh && chosenMesh->generatedArtifacts()->isPendingEntry(entry))
+            if (entry.role == ProjectSaveOutputs::Mesh &&
+                chosenMesh->generatedArtifacts()->isPendingEntry(entry))
                 pendingImportedMesh = &entry;
     }
     GeneratedMeshArtifacts::Entry rebasedImport;
@@ -1753,15 +1872,20 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     if (pendingImportedMesh && chosenMesh->importNeedsSaveAsRebase()) {
         const QFileInfo original(originalMeshPath);
         const QDir destinationDirectory = QFileInfo(newPath).absoluteDir();
-        const QString suffix = original.suffix().isEmpty() ? QStringLiteral("2dm") : original.suffix();
-        QString candidate = destinationDirectory.filePath(original.completeBaseName() + QLatin1Char('.') + suffix);
+        const QString suffix =
+            original.suffix().isEmpty() ? QStringLiteral("2dm") : original.suffix();
+        QString candidate =
+            destinationDirectory.filePath(original.completeBaseName() + QLatin1Char('.') + suffix);
         int index = 1;
         while (QFileInfo::exists(candidate) || QFileInfo(candidate).isSymLink())
             candidate = destinationDirectory.filePath(QStringLiteral("%1_%2.%3")
-                .arg(original.completeBaseName()).arg(index++).arg(suffix));
+                                                          .arg(original.completeBaseName())
+                                                          .arg(index++)
+                                                          .arg(suffix));
         rebasedImport = *pendingImportedMesh;
         rebasedImport.finalPath = candidate;
-        if (!ProjectSaveOutputs::captureDestination(candidate, &rebasedImport.destination, errorOut))
+        if (!ProjectSaveOutputs::captureDestination(candidate, &rebasedImport.destination,
+                                                    errorOut))
             return failSave(tr("prepare the imported mesh destination"), candidate,
                             errorOut ? *errorOut : tr("the destination cannot be inspected"));
         if (rebasedImport.destination.fingerprint != QStringLiteral("absent"))
@@ -1784,27 +1908,32 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
 #endif
         };
         const auto sameFile = [&](const QString &a, const QString &b) {
-            if (a.isEmpty() || b.isEmpty()) return false;
+            if (a.isEmpty() || b.isEmpty())
+                return false;
             std::error_code ec;
-            if (std::filesystem::equivalent(nativePath(a), nativePath(b), ec)) return true;
+            if (std::filesystem::equivalent(nativePath(a), nativePath(b), ec))
+                return true;
             // weakly_canonical also resolves existing ancestor symlinks when
             // the final file does not exist yet. The lexical fallback covers
             // identical destinations even if the filesystem cannot resolve one.
             const auto ca = std::filesystem::weakly_canonical(nativePath(a), ec);
             if (!ec) {
                 const auto cb = std::filesystem::weakly_canonical(nativePath(b), ec);
-                if (!ec && ca == cb) return true;
+                if (!ec && ca == cb)
+                    return true;
             }
-            return QDir::cleanPath(QFileInfo(a).absoluteFilePath())
-                == QDir::cleanPath(QFileInfo(b).absoluteFilePath());
+            return QDir::cleanPath(QFileInfo(a).absoluteFilePath()) ==
+                   QDir::cleanPath(QFileInfo(b).absoluteFilePath());
         };
-        struct SaveFileRole { QString label; QString path; };
+        struct SaveFileRole {
+            QString label;
+            QString path;
+        };
         QVector<SaveFileRole> outputs = {
             {tr("model output"), newPath},
-            {tr("project settings output"), ProjectSerializer::sidecarPathFor(newPath)}
-        };
-        if (chosenMesh && chosenMesh->isExternalMesh()
-            && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0)
+            {tr("project settings output"), ProjectSerializer::sidecarPathFor(newPath)}};
+        if (chosenMesh && chosenMesh->isExternalMesh() &&
+            QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0)
             outputs.append({tr("active mesh output"), chosenMesh->sourcePath()});
         const auto conflict = [&](const SaveFileRole &a, const SaveFileRole &b) {
             return failSave(tr("save files with conflicting paths"), newPath,
@@ -1830,19 +1959,22 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             // The active layer owns that mesh write (Phase 10). Protect other
             // mesh references from model/settings writers, not from their
             // explicitly selected active view of the same resource.
-            if (i >= 2) continue;
+            if (i >= 2)
+                continue;
             for (auto *ml : meshLayers) {
-                if (ml == chosenMesh || !ml->isExternalMesh()) continue;
-                const SaveFileRole inactive{tr("inactive mesh %1").arg(ml->name()), ml->sourcePath()};
+                if (ml == chosenMesh || !ml->isExternalMesh())
+                    continue;
+                const SaveFileRole inactive{tr("inactive mesh %1").arg(ml->name()),
+                                            ml->sourcePath()};
                 if (sameFile(outputs[i].path, inactive.path))
                     return conflict(outputs[i], inactive);
             }
         }
     }
 
-    if (chosenMesh && (chosenMesh->ownsGeneratedTopology() || chosenMesh->generatedArtifacts())
-        && (!pluginId.isEmpty()
-            || QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) != 0))
+    if (chosenMesh && (chosenMesh->ownsGeneratedTopology() || chosenMesh->generatedArtifacts()) &&
+        (!pluginId.isEmpty() ||
+         QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) != 0))
         return failSave(tr("save generated mesh topology"), newPath,
                         tr("save this generated mesh as a built-in INP project first"));
 
@@ -1850,14 +1982,15 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         return failSave(tr("save the active mesh"), chosenMesh->sourcePath(),
                         tr("the selected mesh has no vertices"));
 
-    if (chosenMesh && chosenMesh->edgeBCs().size()
-            != mesh::edgeSlotCount(chosenMesh->mesh().triangles.size()))
+    if (chosenMesh &&
+        chosenMesh->edgeBCs().size() != mesh::edgeSlotCount(chosenMesh->mesh().triangles.size()))
         return failSave(tr("save mesh boundary conditions"), chosenMesh->sourcePath(),
                         tr("the boundary-condition data does not match the mesh; "
                            "wait for mesh loading to finish before retrying"));
 
     if (chosenMesh) {
-        const QString invalid = mesh::validateMeshSaveData(chosenMesh->mesh(), chosenMesh->edgeBCs());
+        const QString invalid =
+            mesh::validateMeshSaveData(chosenMesh->mesh(), chosenMesh->edgeBCs());
         if (!invalid.isEmpty())
             return failSave(tr("validate mesh data"), chosenMesh->sourcePath(), invalid);
     }
@@ -1882,14 +2015,15 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // reached the engine. Serialize the selected inline layer on EVERY Save,
     // including clean repeats, because the engine still owns its old XY and
     // connectivity. Only the engine push retains the clean-layer fast path.
-    if (chosenMesh && !chosenMesh->isExternalMesh() && pluginId.isEmpty()
-        && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0)
+    if (chosenMesh && !chosenMesh->isExternalMesh() && pluginId.isEmpty() &&
+        QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0)
         inlineNeedsAttrPatch.append(chosenMesh);
     QVector<SWMM2DMeshLayer *> meshLayersPushed;
     int meshLayersSkipped = 0;
     if (canvas()) {
         for (SWMM2DMeshLayer *meshLayer : {chosenMesh}) {
-            if (!meshLayer) continue;
+            if (!meshLayer)
+                continue;
             if (meshLayer->ownsGeneratedTopology()) {
                 // Indices can refer to entirely different vertices/cells,
                 // even when counts match. The layer owns full serialization
@@ -1899,8 +2033,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             }
             // Switching to a clean layer still changes which attributes own
             // the single engine mesh. Do not skip that push on count equality.
-            if (meshLayers.size() == 1 && !meshLayer->hasUnsavedMeshEdits()
-                && engineMeshMatches(mModelLayer->engine(), meshLayer->mesh())) {
+            if (meshLayers.size() == 1 && !meshLayer->hasUnsavedMeshEdits() &&
+                engineMeshMatches(mModelLayer->engine(), meshLayer->mesh())) {
                 ++meshLayersSkipped;
                 continue;
             }
@@ -1908,8 +2042,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             bool trianglesSynced = false;
             bool writeRejected = false;
             mesh::pushMeshEditsToEngine(mModelLayer->engine(), meshLayer->mesh(),
-                                        meshLayer->edgeBCs(), &syncWarnings,
-                                        &trianglesSynced, &writeRejected);
+                                        meshLayer->edgeBCs(), &syncWarnings, &trianglesSynced,
+                                        &writeRejected);
             if (writeRejected)
                 return failSave(tr("synchronize mesh edits"), meshLayer->sourcePath(),
                                 syncWarnings.join(QLatin1String("; ")));
@@ -1922,11 +2056,10 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             // be re-patched even when its triangles DID reach the engine,
             // otherwise every save silently reverts them.
             const mesh::MeshResult &lm = meshLayer->mesh();
-            const bool carriesInfil = !lm.infilDefaults.isEmpty()
-                                   || !lm.infilOverrides.isEmpty()
-                                   || lm.infilOptions.infilStep > 0.0;
-            if ((!trianglesSynced || carriesInfil) && !meshLayer->isExternalMesh()
-                && !inlineNeedsAttrPatch.contains(meshLayer))
+            const bool carriesInfil = !lm.infilDefaults.isEmpty() || !lm.infilOverrides.isEmpty() ||
+                                      lm.infilOptions.infilStep > 0.0;
+            if ((!trianglesSynced || carriesInfil) && !meshLayer->isExternalMesh() &&
+                !inlineNeedsAttrPatch.contains(meshLayer))
                 inlineNeedsAttrPatch.append(meshLayer);
             meshLayersPushed.append(meshLayer);
         }
@@ -1948,9 +2081,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         const QString auth = srs->toAuthority();
         if (!srs->isLocal() && !auth.isEmpty() && auth != QStringLiteral("Local")) {
             char cur[512] = {};
-            const bool same =
-                swmm_get_crs(mModelLayer->engine(), cur, sizeof cur) == 0
-                && QString::fromUtf8(cur) == auth;
+            const bool same = swmm_get_crs(mModelLayer->engine(), cur, sizeof cur) == 0 &&
+                              QString::fromUtf8(cur) == auth;
             if (!same)
                 mModelLayer->setOption(QByteArrayLiteral("CRS"), auth);
         }
@@ -1959,22 +2091,19 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // Preflight the chosen external file before writing the model.
     // The engine writes inline during this Save so it
     // cannot overwrite another mesh through a stale or rebased reference.
-    QString          extMeshPath;
+    QString extMeshPath;
     QByteArray externalSnapshot;
     SWMM2DMeshLayer *extMeshLayer = nullptr;
-    if (canvas() && pluginId.isEmpty()
-        && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
-                                               Qt::CaseInsensitive) == 0)
-    {
-        if (chosenMesh && chosenMesh->isExternalMesh())
-        {
+    if (canvas() && pluginId.isEmpty() &&
+        QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0) {
+        if (chosenMesh && chosenMesh->isExternalMesh()) {
             extMeshPath = chosenMesh->sourcePath();
             if (extMeshPath.isEmpty())
                 return failSave(tr("read the external mesh"), extMeshPath,
                                 tr("the mesh destination is empty"));
             extMeshPath = QFileInfo(extMeshPath).absoluteFilePath();
-            const bool newGeneratedDestination = chosenMesh->ownsGeneratedTopology()
-                && !QFileInfo::exists(extMeshPath);
+            const bool newGeneratedDestination =
+                chosenMesh->ownsGeneratedTopology() && !QFileInfo::exists(extMeshPath);
             if (!pendingImportedMesh && !newGeneratedDestination) {
                 if (!QFileInfo(extMeshPath).isFile())
                     return failSave(tr("read the external mesh"), extMeshPath,
@@ -2015,17 +2144,19 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         if (!finalSettingsPath.isEmpty()) {
             stagedSettingsPath = saveOutputs.stage(finalSettingsPath, ProjectSaveOutputs::Settings);
             if (stagedSettingsPath.isEmpty())
-                return failSave(tr("stage project settings"), finalSettingsPath, saveOutputs.error());
+                return failSave(tr("stage project settings"), finalSettingsPath,
+                                saveOutputs.error());
         }
         if (!extMeshPath.isEmpty() && !pendingImportedMesh) {
             stagedMeshPath = saveOutputs.stage(extMeshPath, ProjectSaveOutputs::Mesh);
             if (stagedMeshPath.isEmpty())
                 return failSave(tr("stage the external mesh"), extMeshPath, saveOutputs.error());
             QFile stagedMesh(stagedMeshPath);
-            if (!stagedMesh.open(QIODevice::WriteOnly)
-                || stagedMesh.write(externalSnapshot) != externalSnapshot.size()
-                || !stagedMesh.flush())
-                return failSave(tr("stage the external mesh"), extMeshPath, stagedMesh.errorString());
+            if (!stagedMesh.open(QIODevice::WriteOnly) ||
+                stagedMesh.write(externalSnapshot) != externalSnapshot.size() ||
+                !stagedMesh.flush())
+                return failSave(tr("stage the external mesh"), extMeshPath,
+                                stagedMesh.errorString());
             stagedMesh.close();
             ++dmWrites;
         }
@@ -2033,7 +2164,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     externalSnapshot.clear();
     if (chosenMesh && chosenMesh->generatedArtifacts()) {
         QString artifactError;
-        if (!chosenMesh->generatedArtifacts()->prepareSave(saveOutputs, &artifactError, importDestinationOverride))
+        if (!chosenMesh->generatedArtifacts()->prepareSave(saveOutputs, &artifactError,
+                                                           importDestinationOverride))
             return failSave(tr("prepare pending mesh and terrain outputs"), newPath, artifactError);
         if (pendingImportedMesh) {
             stagedMeshPath.clear();
@@ -2054,18 +2186,19 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // ("embedded [REACTION_*] sections are ... lost from this save", engine
     // 7d43a1ff) — before that fix the sink was never wired and the loss was
     // silent all the way to the user; reading the delta here is the GUI half.
-    const int engineWarnsBefore =
-        swmm_get_warning_count(mModelLayer->engine());
+    const int engineWarnsBefore = swmm_get_warning_count(mModelLayer->engine());
     // Built-in INP serialization can otherwise rewrite an external mesh at
     // its OLD reference (or at an unrelated same-named Save As destination).
     // Temporarily request inline output; the GUI owns the selected external
     // file and publishes its reference below. Plugin behavior is separate.
-    const bool guiOwnsMeshOutput = chosenMesh && pluginId.isEmpty()
-        && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0;
+    const bool guiOwnsMeshOutput =
+        chosenMesh && pluginId.isEmpty() &&
+        QFileInfo(newPath).suffix().compare(QStringLiteral("inp"), Qt::CaseInsensitive) == 0;
     QByteArray previousMeshReference(32768, '\0');
     if (guiOwnsMeshOutput) {
-        const int readRc = swmm_options_get_ext(mModelLayer->engine(), "MESH_FILE",
-                                                previousMeshReference.data(), previousMeshReference.size());
+        const int readRc =
+            swmm_options_get_ext(mModelLayer->engine(), "MESH_FILE", previousMeshReference.data(),
+                                 previousMeshReference.size());
         const int length = int(qstrlen(previousMeshReference.constData()));
         if (readRc != 0 || length == previousMeshReference.size() - 1)
             return failSave(tr("read the engine mesh reference"), newPath,
@@ -2078,22 +2211,30 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     }
     // The engine enumerates every physical output, including component
     // configs and engine-owned meshes, through this synchronous mapper.
-    struct MapperContext { ProjectSaveOutputs *outputs; QByteArray path; } mapper{&saveOutputs, {}};
+    struct MapperContext {
+        ProjectSaveOutputs *outputs;
+        QByteArray path;
+    } mapper{&saveOutputs, {}};
     const auto mapOutput = [](void *data, const char *finalPath, int kind) -> const char * {
         auto &context = *static_cast<MapperContext *>(data);
         if (kind < ProjectSaveOutputs::Model || kind > ProjectSaveOutputs::Component)
             return nullptr;
-        context.path = context.outputs->stage(QString::fromUtf8(finalPath),
-            static_cast<ProjectSaveOutputs::Role>(kind), kind == ProjectSaveOutputs::Model).toUtf8();
+        context.path =
+            context.outputs
+                ->stage(QString::fromUtf8(finalPath), static_cast<ProjectSaveOutputs::Role>(kind),
+                        kind == ProjectSaveOutputs::Model)
+                .toUtf8();
         return context.path.isEmpty() ? nullptr : context.path.constData();
     };
     // Curves and patterns are edited in registries and reach the engine on
     // editor close; an editor still open at save time has not flushed yet.
     mModelLayer->flushDataObjectRegistries();
     modelWriteStarted = !pluginId.isEmpty();
-    const int rc = pluginId.isEmpty()
-        ? swmm_model_write_staged(mModelLayer->engine(), utf8.constData(), mapOutput, &mapper)
-        : swmm_model_write_with_plugin(mModelLayer->engine(), utf8.constData(), idUtf8.constData());
+    const int rc =
+        pluginId.isEmpty()
+            ? swmm_model_write_staged(mModelLayer->engine(), utf8.constData(), mapOutput, &mapper)
+            : swmm_model_write_with_plugin(mModelLayer->engine(), utf8.constData(),
+                                           idUtf8.constData());
     if (guiOwnsMeshOutput) {
         const int restoreRc = swmm_options_set_ext(mModelLayer->engine(), "MESH_FILE",
                                                    previousMeshReference.constData());
@@ -2102,13 +2243,11 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                             tr("the engine rejected the reference (code %1)").arg(restoreRc));
     }
     engineWriteMs = stage.restart();
-    if (rc == 0)
-    {
-        const int engineWarnsAfter =
-            swmm_get_warning_count(mModelLayer->engine());
+    if (rc == 0) {
+        const int engineWarnsAfter = swmm_get_warning_count(mModelLayer->engine());
         for (int i = engineWarnsBefore; i < engineWarnsAfter; ++i)
-            mLastSaveWarnings.append(QString::fromUtf8(
-                swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
+            mLastSaveWarnings.append(
+                QString::fromUtf8(swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
     }
     if (rc != 0) {
         // The engine forwards its writer diagnostics (the failing file and
@@ -2116,39 +2255,43 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         QStringList engineReasons;
         const int engineWarnsAfter = swmm_get_warning_count(mModelLayer->engine());
         for (int i = engineWarnsBefore; i < engineWarnsAfter; ++i)
-            engineReasons.append(QString::fromUtf8(
-                swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
+            engineReasons.append(
+                QString::fromUtf8(swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
         QString reason = pluginId.isEmpty()
-            ? tr("the built-in writer failed (code %1)").arg(rc)
-            : tr("writer %1 failed (code %2)").arg(pluginId).arg(rc);
-        if (!saveOutputs.error().isEmpty()) engineReasons.append(saveOutputs.error());
+                             ? tr("the built-in writer failed (code %1)").arg(rc)
+                             : tr("writer %1 failed (code %2)").arg(pluginId).arg(rc);
+        if (!saveOutputs.error().isEmpty())
+            engineReasons.append(saveOutputs.error());
         if (!engineReasons.isEmpty())
             reason += QStringLiteral(": ") + engineReasons.join(QStringLiteral("; "));
         return failSave(tr("write the model"), newPath, reason);
     }
     // Prepare GUI-owned attributes and boundaries on the staged mesh. The
     // engine's inline output may contain stale topology and is not its source.
-    if (!extMeshPath.isEmpty())
-    {
+    if (!extMeshPath.isEmpty()) {
         QString patchErr;
         mesh::InpMeshWriter::UnitInfo units;
         units.linearUnitName = extMeshLayer->meshUnitsSI() ? QStringLiteral("SI (m)")
-                                                          : QStringLiteral("project units");
+                                                           : QStringLiteral("project units");
         const bool replacement = extMeshLayer->ownsGeneratedTopology();
-        if (replacement && !mesh::InpMeshWriter::validateTopologyReplacement(stagedModelPath, &patchErr))
+        if (replacement &&
+            !mesh::InpMeshWriter::validateTopologyReplacement(stagedModelPath, &patchErr))
             return failSave(tr("replace mesh topology"), newPath, patchErr);
-        const bool meshWritten = replacement && !extMeshLayer->preservesImportedSections()
-            ? mesh::InpMeshWriter::replaceMeshSections(stagedMeshPath, extMeshLayer->mesh(),
-                                                       extMeshLayer->edgeBCs(), &patchErr, 0.035, &units)
-            : mesh::InpMeshWriter::patchMeshSections(stagedMeshPath, extMeshLayer->mesh(),
-                                                     extMeshLayer->edgeBCs(), &patchErr);
+        const bool meshWritten =
+            replacement && !extMeshLayer->preservesImportedSections()
+                ? mesh::InpMeshWriter::replaceMeshSections(stagedMeshPath, extMeshLayer->mesh(),
+                                                           extMeshLayer->edgeBCs(), &patchErr,
+                                                           0.035, &units)
+                : mesh::InpMeshWriter::patchMeshSections(stagedMeshPath, extMeshLayer->mesh(),
+                                                         extMeshLayer->edgeBCs(), &patchErr);
         if (!meshWritten)
             return failSave(tr("save the external mesh"), extMeshPath, patchErr);
         ++dmReads;
         ++dmWrites;
         meshPatchMs = stage.restart();
         QString meshErr;
-        if (!mesh::InpMeshWriter::writePreparedMeshFileRef(stagedModelPath, extMeshPath, stagedMeshPath, &meshErr))
+        if (!mesh::InpMeshWriter::writePreparedMeshFileRef(stagedModelPath, extMeshPath,
+                                                           stagedMeshPath, &meshErr))
             return failSave(tr("save the mesh reference"), newPath, meshErr);
         meshRefMs = stage.restart();
     }
@@ -2157,17 +2300,17 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // engine accepted its indexed attributes. Geometry and BC group labels
     // have no corresponding synchronization setters. Counts must still match:
     // replacement/remapping of other mesh-indexed model data is separate work.
-    for (SWMM2DMeshLayer *ml : inlineNeedsAttrPatch)
-    {
+    for (SWMM2DMeshLayer *ml : inlineNeedsAttrPatch) {
         mesh::InpMeshWriter::UnitInfo units;
-        units.linearUnitName = ml->meshUnitsSI() ? QStringLiteral("SI (m)")
-                                               : QStringLiteral("project units");
+        units.linearUnitName =
+            ml->meshUnitsSI() ? QStringLiteral("SI (m)") : QStringLiteral("project units");
         QString patchErr;
-        const bool meshWritten = ml->ownsGeneratedTopology()
-            ? mesh::InpMeshWriter::replaceMeshSections(stagedModelPath, ml->mesh(), ml->edgeBCs(),
-                                                       &patchErr, 0.035, &units)
-            : mesh::InpMeshWriter::patchMeshSections(stagedModelPath, ml->mesh(), ml->edgeBCs(),
-                                                     &patchErr, 0.035, &units);
+        const bool meshWritten =
+            ml->ownsGeneratedTopology()
+                ? mesh::InpMeshWriter::replaceMeshSections(stagedModelPath, ml->mesh(),
+                                                           ml->edgeBCs(), &patchErr, 0.035, &units)
+                : mesh::InpMeshWriter::patchMeshSections(stagedModelPath, ml->mesh(), ml->edgeBCs(),
+                                                         &patchErr, 0.035, &units);
         if (!meshWritten)
             return failSave(tr("save the inline mesh"), newPath, patchErr);
     }
@@ -2180,11 +2323,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // RB.2: log a one-line "Creating sibling project file:" sentinel the
     // first time the sidecar appears on disk so the user sees the
     // auto-create. Subsequent saves of an existing .oswp are silent.
-    if (pluginId.isEmpty())
-    {
+    if (pluginId.isEmpty()) {
         const QString oswpPath = finalSettingsPath;
-        if (!oswpPath.isEmpty())
-        {
+        if (!oswpPath.isEmpty()) {
             QString sidecarErr;
             bool sidecarSaved = false;
             {
@@ -2195,14 +2336,15 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 const QString originalMeshPath = chosenMesh ? chosenMesh->sourcePath() : QString();
                 const auto restorePath = qScopeGuard([&] {
                     mModelLayer->setModelFilePath(originalPath);
-                    if (chosenMesh) chosenMesh->setSourcePath(originalMeshPath);
+                    if (chosenMesh)
+                        chosenMesh->setSourcePath(originalMeshPath);
                 });
                 mModelLayer->setModelFilePath(newPath);
-                if (chosenMesh && !chosenMesh->isExternalMesh()) chosenMesh->setSourcePath(newPath);
+                if (chosenMesh && !chosenMesh->isExternalMesh())
+                    chosenMesh->setSourcePath(newPath);
                 sidecarSaved = ProjectSerializer::saveToFile(stagedSettingsPath, this, &sidecarErr);
             }
-            if (!sidecarSaved)
-            {
+            if (!sidecarSaved) {
                 return failSave(tr("stage project settings"), oswpPath, sidecarErr);
             }
         }
@@ -2213,11 +2355,11 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         QString validationError;
         QStringList validationWarnings;
         const auto *expectedMesh = chosenMesh ? &chosenMesh->mesh() : nullptr;
-        if (!ProjectSaveValidation::validate(saveOutputs, mModelLayer->engine(),
-                &validationError, &validationWarnings,
-                expectedMesh ? expectedMesh->vertices.size() : -1,
-                expectedMesh ? expectedMesh->triangles.size() : -1,
-                expectedMesh ? expectedMesh->quadCount() : -1))
+        if (!ProjectSaveValidation::validate(saveOutputs, mModelLayer->engine(), &validationError,
+                                             &validationWarnings,
+                                             expectedMesh ? expectedMesh->vertices.size() : -1,
+                                             expectedMesh ? expectedMesh->triangles.size() : -1,
+                                             expectedMesh ? expectedMesh->quadCount() : -1))
             return failSave(tr("validate the prepared project"), newPath, validationError);
         mLastSaveWarnings.append(validationWarnings);
         validationMs = stage.restart();
@@ -2226,22 +2368,29 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             return failSave(tr("publish the prepared project"), newPath, saveOutputs.error());
         if (chosenMesh && chosenMesh->generatedArtifacts())
             chosenMesh->generatedArtifacts()->markPublished(extMeshPath);
-        if (!extMeshPath.isEmpty()) { ++dmReads; ++dmWrites; }
+        if (!extMeshPath.isEmpty()) {
+            ++dmReads;
+            ++dmWrites;
+        }
         if (!finalSettingsPath.isEmpty() && !settingsExisted)
-            qInfo().noquote() << QStringLiteral("Creating sibling project file: %1").arg(finalSettingsPath);
+            qInfo().noquote()
+                << QStringLiteral("Creating sibling project file: %1").arg(finalSettingsPath);
     }
 
     if (guiOwnsMeshOutput) {
-        const QByteArray finalReference = chosenMesh->isExternalMesh()
-            ? QFileInfo(chosenMesh->sourcePath()).absoluteFilePath().toUtf8() : QByteArray();
-        const int refRc = swmm_options_set_ext(mModelLayer->engine(), "MESH_FILE",
-                                               finalReference.constData());
+        const QByteArray finalReference =
+            chosenMesh->isExternalMesh()
+                ? QFileInfo(chosenMesh->sourcePath()).absoluteFilePath().toUtf8()
+                : QByteArray();
+        const int refRc =
+            swmm_options_set_ext(mModelLayer->engine(), "MESH_FILE", finalReference.constData());
         if (refRc != 0)
             return failSave(tr("adopt the saved mesh reference"), newPath,
                             tr("the engine rejected the reference (code %1)").arg(refRc));
     }
 
-    if (chosenMesh && !chosenMesh->isExternalMesh()) chosenMesh->setSourcePath(newPath);
+    if (chosenMesh && !chosenMesh->isExternalMesh())
+        chosenMesh->setSourcePath(newPath);
 
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath()) {
@@ -2255,14 +2404,14 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // model lived only in memory until now, so there is nothing on disk to
     // clean up; adopt the file's base name so the Layers panel drops
     // "Untitled" too.
-    if (mUntitled)
-    {
+    if (mUntitled) {
         mUntitled = false;
         mModelLayer->setName(QFileInfo(newPath).baseName());
         updateWindowTitle();
     }
     saveSucceeded = true;
-    if (chosenMesh) chosenMesh->setImportNeedsSaveAsRebase(false);
+    if (chosenMesh)
+        chosenMesh->setImportNeedsSaveAsRebase(false);
     setHasChanges(false);
     // Only now that the write is known to have succeeded: a failed save must
     // leave the layers dirty so the next attempt re-pushes them.
@@ -2271,20 +2420,14 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         ml->setGeneratedArtifacts({});
     }
 
-    qCInfo(lcSavePerf).nospace()
-        << "[save][stages] meshPushed=" << meshLayersPushed.size()
-        << " meshSkipped=" << meshLayersSkipped
-        << " meshSync=" << meshSyncMs
-        << " meshRead=" << meshReadMs
-        << " engineWrite=" << engineWriteMs
-        << " meshPatch=" << meshPatchMs
-        << " meshRef=" << meshRefMs
-        << " inlinePatch=" << inlinePatchMs
-        << " oswp=" << oswpMs
-        << " validation=" << validationMs
-        << " dmReads=" << dmReads
-        << " dmWrites=" << dmWrites
-        << " total=" << total.elapsed() << " ms";
+    qCInfo(lcSavePerf).nospace() << "[save][stages] meshPushed=" << meshLayersPushed.size()
+                                 << " meshSkipped=" << meshLayersSkipped
+                                 << " meshSync=" << meshSyncMs << " meshRead=" << meshReadMs
+                                 << " engineWrite=" << engineWriteMs << " meshPatch=" << meshPatchMs
+                                 << " meshRef=" << meshRefMs << " inlinePatch=" << inlinePatchMs
+                                 << " oswp=" << oswpMs << " validation=" << validationMs
+                                 << " dmReads=" << dmReads << " dmWrites=" << dmWrites
+                                 << " total=" << total.elapsed() << " ms";
 
     // Emitted last so subscribers see the save fully settled (sidecars
     // written, mesh references patched). Every save path funnels through
@@ -2303,11 +2446,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
 
 bool SWMMVisProjectWindow::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == mCanvas
-        && event->type() == QEvent::Resize
-        && mMeasurePanel
-        && mMeasurePanel->isVisible())
-    {
+    if (watched == mCanvas && event->type() == QEvent::Resize && mMeasurePanel &&
+        mMeasurePanel->isVisible()) {
         repositionMeasurePanel();
     }
     return QMdiSubWindow::eventFilter(watched, event);
@@ -2317,10 +2457,10 @@ void SWMMVisProjectWindow::repositionMeasurePanel()
 {
     if (!mMeasurePanel || !mCanvas)
         return;
-    const int margin    = 8;
-    const QSize sz      = mMeasurePanel->sizeHint();
-    const int x         = (mCanvas->width()  - sz.width())  / 2;
-    const int y         =  mCanvas->height() - sz.height()  - margin;
+    const int margin = 8;
+    const QSize sz = mMeasurePanel->sizeHint();
+    const int x = (mCanvas->width() - sz.width()) / 2;
+    const int y = mCanvas->height() - sz.height() - margin;
     mMeasurePanel->setGeometry(x, y, sz.width(), sz.height());
     mMeasurePanel->raise();
 }
@@ -2333,19 +2473,14 @@ void SWMMVisProjectWindow::updateMeasureUnitCombo()
     QSignalBlocker blocker(mMeasureUnitCombo);
     mMeasureUnitCombo->clear();
 
-    if (mMeasureTool->mode() == MeasureMode::Distance)
-    {
+    if (mMeasureTool->mode() == MeasureMode::Distance) {
         for (const QString &name : MeasurementUnitManager::distanceUnitNames())
             mMeasureUnitCombo->addItem(name);
-        mMeasureUnitCombo->setCurrentIndex(
-            static_cast<int>(mMeasureTool->distanceUnit()));
-    }
-    else
-    {
+        mMeasureUnitCombo->setCurrentIndex(static_cast<int>(mMeasureTool->distanceUnit()));
+    } else {
         for (const QString &name : MeasurementUnitManager::areaUnitNames())
             mMeasureUnitCombo->addItem(name);
-        mMeasureUnitCombo->setCurrentIndex(
-            static_cast<int>(mMeasureTool->areaUnit()));
+        mMeasureUnitCombo->setCurrentIndex(static_cast<int>(mMeasureTool->areaUnit()));
     }
 }
 
@@ -2356,37 +2491,32 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     // A modal prompt below runs a nested event loop; a re-entrant close
     // (e.g. app-quit walking the sub-windows while the prompt is open)
     // must not stack a second prompt.
-    if (mClosePromptActive)
-    {
+    if (mClosePromptActive) {
         event->ignore();
         return;
     }
 
     // Untitled projects live only in memory, so closing one always prompts
     // — even with zero edits, the whole project vanishes on close.
-    if (mHasChanges || mUntitled)
-    {
+    if (mHasChanges || mUntitled) {
         mClosePromptActive = true;
         const auto promptGuard = qScopeGuard([this] { mClosePromptActive = false; });
 
-        if (mUntitled)
-        {
+        if (mUntitled) {
             QMessageBox box(this);
             box.setIcon(QMessageBox::Question);
             box.setWindowTitle(tr("Save project?"));
             box.setText(mHasChanges
-                ? tr("\"Untitled\" has never been saved and has unsaved changes.")
-                : tr("\"Untitled\" has never been saved."));
+                            ? tr("\"Untitled\" has never been saved and has unsaved changes.")
+                            : tr("\"Untitled\" has never been saved."));
             box.setInformativeText(tr("Save it to a file, or discard it?"));
-            QPushButton *saveAsBtn  = box.addButton(tr("Save As…"),
-                                                    QMessageBox::AcceptRole);
+            QPushButton *saveAsBtn = box.addButton(tr("Save As…"), QMessageBox::AcceptRole);
             QPushButton *discardBtn = box.addButton(QMessageBox::Discard);
             box.addButton(QMessageBox::Cancel);
             box.setDefaultButton(saveAsBtn);
             box.exec();
 
-            if (box.clickedButton() == saveAsBtn)
-            {
+            if (box.clickedButton() == saveAsBtn) {
                 // Real Save As from the prompt — hand off to the main
                 // window's shared path-picking flow (filter normalization,
                 // last-filter memory). A canceled/failed dialog keeps the
@@ -2394,38 +2524,28 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
                 bool saved = false;
                 if (auto *vis = qobject_cast<SWMMVis *>(window()))
                     saved = vis->saveProjectWindowAs(this);
-                if (!saved)
-                {
+                if (!saved) {
                     event->ignore();
                     return;
                 }
-            }
-            else if (box.clickedButton() != discardBtn)
-            {
-                event->ignore();   // Cancel / Esc
+            } else if (box.clickedButton() != discardBtn) {
+                event->ignore(); // Cancel / Esc
                 return;
             }
-        }
-        else
-        {
-            const QString name =
-                QFileInfo(mModelLayer->modelFilePath()).baseName();
+        } else {
+            const QString name = QFileInfo(mModelLayer->modelFilePath()).baseName();
             QMessageBox::StandardButton btn = QMessageBox::question(
                 this, tr("Save changes?"),
-                tr("The model \"%1\" has unsaved changes. Save before closing?")
-                    .arg(name),
+                tr("The model \"%1\" has unsaved changes. Save before closing?").arg(name),
                 QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
 
-            if (btn == QMessageBox::Cancel)
-            {
+            if (btn == QMessageBox::Cancel) {
                 event->ignore();
                 return;
             }
-            if (btn == QMessageBox::Save)
-            {
+            if (btn == QMessageBox::Save) {
                 QString err;
-                if (!save(&err))
-                {
+                if (!save(&err)) {
                     QMessageBox::critical(this, tr("Save failed"), err);
                     event->ignore();
                     return;
@@ -2452,24 +2572,36 @@ void SWMMVisProjectWindow::changeEvent(QEvent *event)
     QMdiSubWindow::changeEvent(event);
 }
 
-void SWMMVisProjectWindow::activatePanTool()         { mCanvas->setActiveTool(mPanTool); }
-void SWMMVisProjectWindow::activateZoomInTool()      { mCanvas->setActiveTool(mZoomInTool); }
-void SWMMVisProjectWindow::activateZoomOutTool()     { mCanvas->setActiveTool(mZoomOutTool); }
+void SWMMVisProjectWindow::activatePanTool()
+{
+    mCanvas->setActiveTool(mPanTool);
+}
+void SWMMVisProjectWindow::activateZoomInTool()
+{
+    mCanvas->setActiveTool(mZoomInTool);
+}
+void SWMMVisProjectWindow::activateZoomOutTool()
+{
+    mCanvas->setActiveTool(mZoomOutTool);
+}
 void SWMMVisProjectWindow::activateSelectTool()
 {
     if (mCanvas->activeTool() == mSelectProfileTool && mSelectProfileTool)
         mSelectProfileTool->clearSelection();
     mCanvas->setActiveTool(mSelectTool);
 }
-void SWMMVisProjectWindow::activateSelectByPolygonTool() { mCanvas->setActiveTool(mSelectPolygonTool); }
+void SWMMVisProjectWindow::activateSelectByPolygonTool()
+{
+    mCanvas->setActiveTool(mSelectPolygonTool);
+}
 
 void SWMMVisProjectWindow::activatePick2DCellsTool()
 {
     if (!mPick2DCellsTool) {
         mPick2DCellsTool = new MapToolPick2DCells(mCanvas, mSelectionManager, this);
         // Forward the cellsPicked signal up to SWMMVis (parent path).
-        QObject::connect(mPick2DCellsTool, &MapToolPick2DCells::cellsPicked,
-                         this,             &SWMMVisProjectWindow::pick2DCellsPicked);
+        QObject::connect(mPick2DCellsTool, &MapToolPick2DCells::cellsPicked, this,
+                         &SWMMVisProjectWindow::pick2DCellsPicked);
     }
     mCanvas->setActiveTool(mPick2DCellsTool);
 }
@@ -2479,7 +2611,7 @@ void SWMMVisProjectWindow::activateMeshSelectVertexTool()
     if (!mMeshSelectVertexTool) {
         mMeshSelectVertexTool = new MapToolMeshSelectVertex(mCanvas, mSelectionManager, this);
         QObject::connect(mMeshSelectVertexTool, &MapToolMeshSelectVertex::plotVertexSeriesRequested,
-                         this,                  &SWMMVisProjectWindow::meshVertexSeriesRequested);
+                         this, &SWMMVisProjectWindow::meshVertexSeriesRequested);
     }
     mCanvas->setActiveTool(mMeshSelectVertexTool);
 }
@@ -2488,10 +2620,10 @@ void SWMMVisProjectWindow::activateMeshSelectEdgeTool()
 {
     if (!mMeshSelectEdgeTool) {
         mMeshSelectEdgeTool = new MapToolMeshSelectEdge(mCanvas, mSelectionManager, this);
-        QObject::connect(mMeshSelectEdgeTool, &MapToolMeshSelectEdge::plotEdgeFluxRequested,
-                         this,                &SWMMVisProjectWindow::meshEdgeFluxRequested);
-        QObject::connect(mMeshSelectEdgeTool, &MapToolMeshSelectEdge::statusMessageChanged,
-                         this,                &SWMMVisProjectWindow::meshEdgeStatusMessage);
+        QObject::connect(mMeshSelectEdgeTool, &MapToolMeshSelectEdge::plotEdgeFluxRequested, this,
+                         &SWMMVisProjectWindow::meshEdgeFluxRequested);
+        QObject::connect(mMeshSelectEdgeTool, &MapToolMeshSelectEdge::statusMessageChanged, this,
+                         &SWMMVisProjectWindow::meshEdgeStatusMessage);
     }
     mCanvas->setActiveTool(mMeshSelectEdgeTool);
 }
@@ -2520,8 +2652,8 @@ void SWMMVisProjectWindow::activateMeshProfileTool()
         mMeshProfileTool = new MapToolMeshProfile(mCanvas, this);
         // Forward the finished polyline up to SWMMVis (parent path) on the
         // bed-only channel (US.A1).
-        QObject::connect(mMeshProfileTool, &MapToolMeshProfile::profilePathTraced,
-                         this,             &SWMMVisProjectWindow::meshProfileTraced);
+        QObject::connect(mMeshProfileTool, &MapToolMeshProfile::profilePathTraced, this,
+                         &SWMMVisProjectWindow::meshProfileTraced);
     }
     mCanvas->setActiveTool(mMeshProfileTool);
 }
@@ -2537,8 +2669,8 @@ void SWMMVisProjectWindow::activateAnalysisMeshProfileTool()
     }
     if (!mAnalysisMeshProfileTool) {
         mAnalysisMeshProfileTool = new MapToolMeshProfile(mCanvas, this);
-        QObject::connect(mAnalysisMeshProfileTool, &MapToolMeshProfile::profilePathTraced,
-                         this, &SWMMVisProjectWindow::analysisMeshProfileTraced);
+        QObject::connect(mAnalysisMeshProfileTool, &MapToolMeshProfile::profilePathTraced, this,
+                         &SWMMVisProjectWindow::analysisMeshProfileTraced);
     }
     mCanvas->setActiveTool(mAnalysisMeshProfileTool);
 }
@@ -2555,52 +2687,98 @@ void SWMMVisProjectWindow::activateTerrainProfileTool()
     }
     if (!mTerrainProfileTool) {
         mTerrainProfileTool = new MapToolMeshProfile(mCanvas, this);
-        QObject::connect(mTerrainProfileTool, &MapToolMeshProfile::profilePathTraced,
-                         this, &SWMMVisProjectWindow::terrainProfileTraced);
+        QObject::connect(mTerrainProfileTool, &MapToolMeshProfile::profilePathTraced, this,
+                         &SWMMVisProjectWindow::terrainProfileTraced);
     }
     mCanvas->setActiveTool(mTerrainProfileTool);
 }
 
 bool SWMMVisProjectWindow::hasModelLayer() const
 {
-    if (!mCanvas) return false;
+    if (!mCanvas)
+        return false;
     for (OpenSWMMVisLayer *l : mCanvas->layers())
-        if (qobject_cast<SWMMModelLayer *>(l)) return true;
+        if (qobject_cast<SWMMModelLayer *>(l))
+            return true;
     return false;
 }
 
 bool SWMMVisProjectWindow::hasMeshLayer() const
 {
-    if (!mCanvas) return false;
+    if (!mCanvas)
+        return false;
     for (OpenSWMMVisLayer *l : mCanvas->layers())
-        if (qobject_cast<SWMM2DMeshLayer *>(l)) return true;
+        if (qobject_cast<SWMM2DMeshLayer *>(l))
+            return true;
     return false;
 }
-void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
-void SWMMVisProjectWindow::activateAddVirtualJunctionTool() { mCanvas->setActiveTool(mAddVirtualJunctionTool); }
-void SWMMVisProjectWindow::activateAddInletJunctionTool()   { mCanvas->setActiveTool(mAddInletJunctionTool); }
-void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
-void SWMMVisProjectWindow::activateAddStorageTool()     { mCanvas->setActiveTool(mAddStorageTool); }
-void SWMMVisProjectWindow::activateAddDividerTool()     { mCanvas->setActiveTool(mAddDividerTool); }
-void SWMMVisProjectWindow::activateAddConduitTool()     { mCanvas->setActiveTool(mAddConduitTool); }
-void SWMMVisProjectWindow::activateAddPumpTool()        { mCanvas->setActiveTool(mAddPumpTool); }
-void SWMMVisProjectWindow::activateAddOrificeTool()     { mCanvas->setActiveTool(mAddOrificeTool); }
-void SWMMVisProjectWindow::activateAddWeirTool()        { mCanvas->setActiveTool(mAddWeirTool); }
-void SWMMVisProjectWindow::activateAddOutletTool()      { mCanvas->setActiveTool(mAddOutletTool); }
-void SWMMVisProjectWindow::activateAddGageTool()        { mCanvas->setActiveTool(mAddGageTool); }
-void SWMMVisProjectWindow::activateAddSubcatchmentTool(){ mCanvas->setActiveTool(mAddSubcatchTool); }
+void SWMMVisProjectWindow::activateAddJunctionTool()
+{
+    mCanvas->setActiveTool(mAddJunctionTool);
+}
+void SWMMVisProjectWindow::activateAddVirtualJunctionTool()
+{
+    mCanvas->setActiveTool(mAddVirtualJunctionTool);
+}
+void SWMMVisProjectWindow::activateAddInletJunctionTool()
+{
+    mCanvas->setActiveTool(mAddInletJunctionTool);
+}
+void SWMMVisProjectWindow::activateAddOutfallTool()
+{
+    mCanvas->setActiveTool(mAddOutfallTool);
+}
+void SWMMVisProjectWindow::activateAddStorageTool()
+{
+    mCanvas->setActiveTool(mAddStorageTool);
+}
+void SWMMVisProjectWindow::activateAddDividerTool()
+{
+    mCanvas->setActiveTool(mAddDividerTool);
+}
+void SWMMVisProjectWindow::activateAddConduitTool()
+{
+    mCanvas->setActiveTool(mAddConduitTool);
+}
+void SWMMVisProjectWindow::activateAddPumpTool()
+{
+    mCanvas->setActiveTool(mAddPumpTool);
+}
+void SWMMVisProjectWindow::activateAddOrificeTool()
+{
+    mCanvas->setActiveTool(mAddOrificeTool);
+}
+void SWMMVisProjectWindow::activateAddWeirTool()
+{
+    mCanvas->setActiveTool(mAddWeirTool);
+}
+void SWMMVisProjectWindow::activateAddOutletTool()
+{
+    mCanvas->setActiveTool(mAddOutletTool);
+}
+void SWMMVisProjectWindow::activateAddGageTool()
+{
+    mCanvas->setActiveTool(mAddGageTool);
+}
+void SWMMVisProjectWindow::activateAddSubcatchmentTool()
+{
+    mCanvas->setActiveTool(mAddSubcatchTool);
+}
 void SWMMVisProjectWindow::activateAddTextTool()
 {
     TextLayersDialog dlg(mCanvas, ensureAnnotationLayer(), this);
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted)
+        return;
     mAnnotationLayer = dlg.selectedLayer();
-    if (!mAnnotationLayer) return;
+    if (!mAnnotationLayer)
+        return;
     mAnnotationLayer->setVisible(true);
     setEditSessionActive(true);
     if (!mAddTextTool) {
         mAddTextTool = new OpenSWMMVisMapToolAddText(mCanvas, mAnnotationLayer, this);
         connect(this, &SWMMVisProjectWindow::editSessionChanged, this, [this](bool active) {
-            if (!active && mCanvas->activeTool() == mAddTextTool) mCanvas->setActiveTool(mSelectTool);
+            if (!active && mCanvas->activeTool() == mAddTextTool)
+                mCanvas->setActiveTool(mSelectTool);
         });
     }
     mAddTextTool->setLayer(mAnnotationLayer);
@@ -2609,10 +2787,12 @@ void SWMMVisProjectWindow::activateAddTextTool()
 
 OpenSWMMVisAnnotationLayer *SWMMVisProjectWindow::ensureAnnotationLayer()
 {
-    if (mAnnotationLayer && mCanvas->layers().contains(mAnnotationLayer)) return mAnnotationLayer;
+    if (mAnnotationLayer && mCanvas->layers().contains(mAnnotationLayer))
+        return mAnnotationLayer;
     for (auto *base : mCanvas->layers())
         if (auto *layer = qobject_cast<OpenSWMMVisAnnotationLayer *>(base)) {
-            mAnnotationLayer = layer; return layer;
+            mAnnotationLayer = layer;
+            return layer;
         }
     mAnnotationLayer = new OpenSWMMVisAnnotationLayer(tr("Text"));
     mAnnotationLayer->setParent(mCanvas);
@@ -2622,50 +2802,53 @@ OpenSWMMVisAnnotationLayer *SWMMVisProjectWindow::ensureAnnotationLayer()
     return mAnnotationLayer;
 }
 
-void SWMMVisProjectWindow::zoomToFullExtent()        { mCanvas->zoomToFullExtent(); }
+void SWMMVisProjectWindow::zoomToFullExtent()
+{
+    mCanvas->zoomToFullExtent();
+}
 
 QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() const
 {
     return {
-        { mPanTool,            QStringLiteral("actionPan")            },
-        { mZoomInTool,         QStringLiteral("actionZoomIn")         },
-        { mZoomOutTool,        QStringLiteral("actionZoomOut")        },
-        { mSelectTool,         QStringLiteral("actionSelect")         },
-        { mSelectPolygonTool,  QStringLiteral("actionSelectByPolygon")},
-        { mMeasureTool,        QStringLiteral("actionMeasure")        },
-        { mSelectProfileTool,  QStringLiteral("actionPlotProfile")    },
-        { mAddJunctionTool,    QStringLiteral("actionAddJunction")    },
-        { mAddVirtualJunctionTool, QStringLiteral("actionAddVirtualJunction") },
-        { mAddInletJunctionTool,   QStringLiteral("actionAddInletJunction")   },
-        { mAddOutfallTool,     QStringLiteral("actionAddOutfall")     },
-        { mAddStorageTool,     QStringLiteral("actionAddStorage")     },
-        { mAddLidTool,         QStringLiteral("actionAddLidNode")     },
-        { mAddDividerTool,     QStringLiteral("actionAddFlowDivider") },
-        { mAddConduitTool,     QStringLiteral("actionAddPipe")        },
-        { mAddPumpTool,        QStringLiteral("actionAddPump")        },
-        { mAddOrificeTool,     QStringLiteral("actionAddOrifice")     },
-        { mAddWeirTool,        QStringLiteral("actionAddWeir")        },
-        { mAddOutletTool,      QStringLiteral("actionAddOutlet")      },
-        { mAddGageTool,        QStringLiteral("actionRainGauge")      },
-        { mAddSubcatchTool,    QStringLiteral("actionAddSubcatchment")},
+        {mPanTool, QStringLiteral("actionPan")},
+        {mZoomInTool, QStringLiteral("actionZoomIn")},
+        {mZoomOutTool, QStringLiteral("actionZoomOut")},
+        {mSelectTool, QStringLiteral("actionSelect")},
+        {mSelectPolygonTool, QStringLiteral("actionSelectByPolygon")},
+        {mMeasureTool, QStringLiteral("actionMeasure")},
+        {mSelectProfileTool, QStringLiteral("actionPlotProfile")},
+        {mAddJunctionTool, QStringLiteral("actionAddJunction")},
+        {mAddVirtualJunctionTool, QStringLiteral("actionAddVirtualJunction")},
+        {mAddInletJunctionTool, QStringLiteral("actionAddInletJunction")},
+        {mAddOutfallTool, QStringLiteral("actionAddOutfall")},
+        {mAddStorageTool, QStringLiteral("actionAddStorage")},
+        {mAddLidTool, QStringLiteral("actionAddLidNode")},
+        {mAddDividerTool, QStringLiteral("actionAddFlowDivider")},
+        {mAddConduitTool, QStringLiteral("actionAddPipe")},
+        {mAddPumpTool, QStringLiteral("actionAddPump")},
+        {mAddOrificeTool, QStringLiteral("actionAddOrifice")},
+        {mAddWeirTool, QStringLiteral("actionAddWeir")},
+        {mAddOutletTool, QStringLiteral("actionAddOutlet")},
+        {mAddGageTool, QStringLiteral("actionRainGauge")},
+        {mAddSubcatchTool, QStringLiteral("actionAddSubcatchment")},
         // Lazy tools — null entries are tolerated by the caller's `if (tool)`
         // guards; the key reservation keeps the action's checkable state
         // tracked once the tool first instantiates.
-        { mAddTextTool,          QStringLiteral("actionAddText")          },
-        { mPick2DCellsTool,      QStringLiteral("actionPick2DCells")      },
-        { mMeshProfileTool,      QStringLiteral("actionMeshProfile")      },
+        {mAddTextTool, QStringLiteral("actionAddText")},
+        {mPick2DCellsTool, QStringLiteral("actionPick2DCells")},
+        {mMeshProfileTool, QStringLiteral("actionMeshProfile")},
         // Analysis "Plot 2D Profile" — its own action since the 1D / 2D
         // profile entries were split apart.
-        { mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile2D") },
+        {mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile2D")},
         // Terrain-toolbar DEM profile-trace — its own action, so picking Select
         // (or any other canvas tool) unchecks it like the mesh variants.
-        { mTerrainProfileTool,   QStringLiteral("actionTerrainProfile")   },
+        {mTerrainProfileTool, QStringLiteral("actionTerrainProfile")},
         // Step G — mesh-toolbar vertex/edge selectors join the canvas-level
         // active-tool radio so the general-purpose Select / 2D-cells picks
         // visually uncheck them (and vice versa). objectNames come from
         // MeshEditingToolbar::ctor.
-        { mMeshSelectVertexTool, QStringLiteral("actionMeshSelectVertex") },
-        { mMeshSelectEdgeTool,   QStringLiteral("actionMeshSelectEdge")   },
+        {mMeshSelectVertexTool, QStringLiteral("actionMeshSelectVertex")},
+        {mMeshSelectEdgeTool, QStringLiteral("actionMeshSelectEdge")},
     };
 }
 
@@ -2682,9 +2865,11 @@ void SWMMVisProjectWindow::setAutoLengthEnabled(bool enabled)
 
 void SWMMVisProjectWindow::setEngineVersion(const QString &version, bool markDirty)
 {
-    if (mEngineVersion == version) return;
+    if (mEngineVersion == version)
+        return;
     mEngineVersion = version;
-    if (markDirty) setHasChanges(true);
+    if (markDirty)
+        setHasChanges(true);
 }
 
 // ── Terrain editing ───────────────────────────────────────────────────────────
@@ -2738,14 +2923,17 @@ void SWMMVisProjectWindow::setActive2DResultsLayer(SWMM2DResultsLayer *layer)
 
 void SWMMVisProjectWindow::refreshActive2DCellHighlight()
 {
-    if (!mCanvas) return;
+    if (!mCanvas)
+        return;
 
     // Collect the currently-selected MeshCell triangle indices.
     QSet<int> cellSet;
     if (mSelectionManager) {
         for (const SWMMObjectRef &ref : mSelectionManager->selection()) {
-            if (ref.objectType != SWMMObjectRef::MeshCell) continue;
-            QString lk; int tri = -1;
+            if (ref.objectType != SWMMObjectRef::MeshCell)
+                continue;
+            QString lk;
+            int tri = -1;
             if (mesh::MeshObjectRef::parseCell(ref, &lk, &tri) && tri >= 0)
                 cellSet.insert(tri);
         }
@@ -2756,7 +2944,8 @@ void SWMMVisProjectWindow::refreshActive2DCellHighlight()
     // de-activated run (fixes the old unkeyed push-to-all-layers behaviour).
     for (OpenSWMMVisLayer *l : mCanvas->layers()) {
         auto *res = qobject_cast<SWMM2DResultsLayer *>(l);
-        if (!res) continue;
+        if (!res)
+            continue;
         if (res == mActive2DResultsLayer)
             res->highlightCells(cellSet);
         else
@@ -2766,50 +2955,58 @@ void SWMMVisProjectWindow::refreshActive2DCellHighlight()
 
 void SWMMVisProjectWindow::setActiveTerrain(GISRasterLayer *layer, bool markDirty)
 {
-    if (mActiveTerrain == layer) return;
+    if (mActiveTerrain == layer)
+        return;
     mActiveTerrain = layer;
 
     // Propagate to every add-node and add-link tool (include vertical factor).
-    const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
-                              mAddStorageTool, mAddLidTool, mAddDividerTool };
+    const auto nodeTools = {mAddJunctionTool, mAddOutfallTool, mAddStorageTool, mAddLidTool,
+                            mAddDividerTool};
     for (auto *t : nodeTools)
-        if (t) t->setTerrain(layer, mTerrainNodeOffset, mTerrainVertFactor);
+        if (t)
+            t->setTerrain(layer, mTerrainNodeOffset, mTerrainVertFactor);
 
-    const auto linkTools = { mAddConduitTool, mAddPumpTool,
-                              mAddOrificeTool, mAddWeirTool, mAddOutletTool };
+    const auto linkTools = {mAddConduitTool, mAddPumpTool, mAddOrificeTool, mAddWeirTool,
+                            mAddOutletTool};
     for (auto *t : linkTools)
-        if (t) t->setTerrain(layer, mTerrainLinkOffset, mTerrainVertFactor);
+        if (t)
+            t->setTerrain(layer, mTerrainLinkOffset, mTerrainVertFactor);
 
     // Reset Z readout when terrain is cleared.
     if (!layer && mCanvas)
         mCanvas->setTerrainElevation({});
 
     emit activeTerrainChanged(layer);
-    if (markDirty) setHasChanges(true);
+    if (markDirty)
+        setHasChanges(true);
 }
 
 void SWMMVisProjectWindow::setTerrainNodeOffset(double offset)
 {
-    if (mTerrainNodeOffset == offset) return;
+    if (mTerrainNodeOffset == offset)
+        return;
     mTerrainNodeOffset = offset;
 
-    const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
-                              mAddStorageTool, mAddLidTool, mAddDividerTool };
+    const auto nodeTools = {mAddJunctionTool, mAddOutfallTool, mAddStorageTool, mAddLidTool,
+                            mAddDividerTool};
     for (auto *t : nodeTools)
-        if (t) t->setTerrain(mActiveTerrain, offset, mTerrainVertFactor);
+        if (t)
+            t->setTerrain(mActiveTerrain, offset, mTerrainVertFactor);
 
     setHasChanges(true);
 }
 
 void SWMMVisProjectWindow::setTerrainLinkOffset(double offset)
 {
-    if (mTerrainLinkOffset == offset) return;
+    if (mTerrainLinkOffset == offset)
+        return;
     mTerrainLinkOffset = offset;
 
-    const auto linkTools = { mAddConduitTool, mAddPumpTool,
-                              mAddOrificeTool, mAddWeirTool, mAddOutletTool };
+    const auto linkTools = {mAddConduitTool, mAddPumpTool, mAddOrificeTool, mAddWeirTool,
+                            mAddOutletTool};
     for (auto *t : linkTools)
-        if (t) t->setTerrain(mActiveTerrain, offset, mTerrainVertFactor);
+        if (t)
+            t->setTerrain(mActiveTerrain, offset, mTerrainVertFactor);
 
     setHasChanges(true);
 }
@@ -2825,13 +3022,13 @@ void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit, bool mark
     // would otherwise display raw metres labelled as feet until the user
     // manually toggled the unit combo.
     const double rasterToSI = (newUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
-    const double modelToSI  = mUnits->isSI() ? 1.0 : 0.3048;
-    const double newFactor  = rasterToSI / modelToSI;
+    const double modelToSI = mUnits->isSI() ? 1.0 : 0.3048;
+    const double newFactor = rasterToSI / modelToSI;
 
     if (mTerrainVertUnit == newUnit && mTerrainVertFactor == newFactor)
         return;
 
-    mTerrainVertUnit   = newUnit;
+    mTerrainVertUnit = newUnit;
     mTerrainVertFactor = newFactor;
 
     // Canvas label shows the model unit since Z is converted before display.
@@ -2840,26 +3037,27 @@ void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit, bool mark
 
     // Propagate the new factor to map tools (offset stays in model units;
     // the raw Z is multiplied by this factor before adding the offset).
-    const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
-                              mAddStorageTool, mAddLidTool, mAddDividerTool };
+    const auto nodeTools = {mAddJunctionTool, mAddOutfallTool, mAddStorageTool, mAddLidTool,
+                            mAddDividerTool};
     for (auto *t : nodeTools)
-        if (t) t->setTerrain(mActiveTerrain, mTerrainNodeOffset, mTerrainVertFactor);
+        if (t)
+            t->setTerrain(mActiveTerrain, mTerrainNodeOffset, mTerrainVertFactor);
 
-    const auto linkTools = { mAddConduitTool, mAddPumpTool,
-                              mAddOrificeTool, mAddWeirTool, mAddOutletTool };
+    const auto linkTools = {mAddConduitTool, mAddPumpTool, mAddOrificeTool, mAddWeirTool,
+                            mAddOutletTool};
     for (auto *t : linkTools)
-        if (t) t->setTerrain(mActiveTerrain, mTerrainLinkOffset, mTerrainVertFactor);
+        if (t)
+            t->setTerrain(mActiveTerrain, mTerrainLinkOffset, mTerrainVertFactor);
 
     // Vertical-unit change also affects the conversion factor profile
     // dialogs need — re-fire activeTerrainChanged so they re-sample.
     emit activeTerrainChanged(mActiveTerrain);
-    if (markDirty) setHasChanges(true);
+    if (markDirty)
+        setHasChanges(true);
 }
 
-void SWMMVisProjectWindow::restoreTerrainState(const QString &absoluteLayerPath,
-                                                double nodeOffset,
-                                                double linkOffset,
-                                                const QString &vertUnit)
+void SWMMVisProjectWindow::restoreTerrainState(const QString &absoluteLayerPath, double nodeOffset,
+                                               double linkOffset, const QString &vertUnit)
 {
     mTerrainNodeOffset = nodeOffset;
     mTerrainLinkOffset = linkOffset;
@@ -2879,29 +3077,34 @@ void SWMMVisProjectWindow::restoreTerrainState(const QString &absoluteLayerPath,
     setActiveTerrain(found, false);
 
     // Restore or auto-detect vertical unit.
-    const QString unit = vertUnit.isEmpty()
-                             ? (found ? found->detectVerticalUnit() : QStringLiteral("m"))
-                             : vertUnit;
+    const QString unit =
+        vertUnit.isEmpty() ? (found ? found->detectVerticalUnit() : QStringLiteral("m")) : vertUnit;
     setTerrainVerticalUnit(unit, false);
 }
 
 void SWMMVisProjectWindow::activateAddLidTool()
 {
-    if (!mModelLayer || !mModelLayer->engine()) return;
+    if (!mModelLayer || !mModelLayer->engine())
+        return;
     auto eng = mModelLayer->engine();
     QStringList controls;
     for (int i = 0; i < swmm_lid_count(eng); ++i) {
-        int type = -1; swmm_lid_get_type(eng, i, &type);
+        int type = -1;
+        swmm_lid_get_type(eng, i, &type);
         if (type == 0 || type == 1 || type == 3 || type == 4 || type == 8)
             controls.append(QString::fromUtf8(swmm_lid_id(eng, i)));
     }
     if (controls.isEmpty()) {
-        QMessageBox::information(this, tr("Add LID Node"), tr("Create an LID control in the LID Controls editor first. Choose Storage Node to define any number of ordered layers."));
+        QMessageBox::information(
+            this, tr("Add LID Node"),
+            tr("Create an LID control in the LID Controls editor first. Choose Storage Node to define any number of ordered layers."));
         return;
     }
     bool ok = false;
-    const auto control = QInputDialog::getItem(this, tr("Add LID Node"), tr("LID control"), controls, 0, false, &ok);
-    if (!ok) return;
+    const auto control =
+        QInputDialog::getItem(this, tr("Add LID Node"), tr("LID control"), controls, 0, false, &ok);
+    if (!ok)
+        return;
     mAddLidTool->setLidControl(control);
     mCanvas->setActiveTool(mAddLidTool);
 }

@@ -1,9 +1,13 @@
-/*!
- * \file   reactionexpressionedit.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      reactionexpressionedit.cpp
+ * @brief     single-line completing editor, and the table-cell delegate — the [REACTION_*] peer of
+ *            TreatmentExpressionEdit, cloned from it.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/reactionexpressionedit.h"
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -16,7 +20,8 @@
 #include <QStringListModel>
 #include <QTimer>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Highlighter
@@ -47,8 +52,7 @@ QStringList ReactionSyntaxHighlighter::functionNames()
     return out;
 }
 
-ReactionSyntaxHighlighter::ReactionSyntaxHighlighter(QTextDocument *doc)
-    : QSyntaxHighlighter(doc)
+ReactionSyntaxHighlighter::ReactionSyntaxHighlighter(QTextDocument *doc) : QSyntaxHighlighter(doc)
 {
     rebuildFormats_();
 }
@@ -72,10 +76,10 @@ void ReactionSyntaxHighlighter::rebuildFormats_()
     // convention): hydraulic variables = Link italic, model identifiers =
     // Link bold, functions = LinkVisited bold, operators = WindowText,
     // numbers = Text, unrecognized identifiers = PlaceholderText italic.
-    const QColor link        = m_palette.color(QPalette::Active, QPalette::Link);
+    const QColor link = m_palette.color(QPalette::Active, QPalette::Link);
     const QColor linkVisited = m_palette.color(QPalette::Active, QPalette::LinkVisited);
-    const QColor windowText  = m_palette.color(QPalette::Active, QPalette::WindowText);
-    const QColor text        = m_palette.color(QPalette::Active, QPalette::Text);
+    const QColor windowText = m_palette.color(QPalette::Active, QPalette::WindowText);
+    const QColor text = m_palette.color(QPalette::Active, QPalette::Text);
     const QColor placeholder = m_palette.color(QPalette::Active, QPalette::PlaceholderText);
 
     m_fmtVariable = QTextCharFormat{};
@@ -87,35 +91,35 @@ void ReactionSyntaxHighlighter::rebuildFormats_()
     m_fmtModelIdent.setFontWeight(QFont::Bold);
 
     m_fmtFunction = QTextCharFormat{};
-    m_fmtFunction.setForeground(linkVisited.isValid() ? linkVisited
-                                                      : QColor("#6A1B9A"));
+    m_fmtFunction.setForeground(linkVisited.isValid() ? linkVisited : QColor("#6A1B9A"));
     m_fmtFunction.setFontWeight(QFont::Bold);
 
     m_fmtOperator = QTextCharFormat{};
-    m_fmtOperator.setForeground(windowText.isValid() ? windowText
-                                                     : QColor("#212121"));
+    m_fmtOperator.setForeground(windowText.isValid() ? windowText : QColor("#212121"));
 
     m_fmtNumber = QTextCharFormat{};
     m_fmtNumber.setForeground(text.isValid() ? text : QColor("#37474F"));
 
     m_fmtUnknown = QTextCharFormat{};
-    m_fmtUnknown.setForeground(placeholder.isValid() ? placeholder
-                                                     : QColor("#9E9E9E"));
+    m_fmtUnknown.setForeground(placeholder.isValid() ? placeholder : QColor("#9E9E9E"));
     m_fmtUnknown.setFontItalic(true);
 }
 
 void ReactionSyntaxHighlighter::highlightBlock(const QString &text)
 {
-    if (text.isEmpty()) return;
+    if (text.isEmpty())
+        return;
 
     static const QSet<QString> kHydVars = [] {
         QSet<QString> s;
-        for (const QString &v : hydVarNames()) s.insert(v.toUpper());
+        for (const QString &v : hydVarNames())
+            s.insert(v.toUpper());
         return s;
     }();
     static const QSet<QString> kFuncs = [] {
         QSet<QString> s;
-        for (const QString &f : functionNames()) s.insert(f.toUpper());
+        for (const QString &f : functionNames())
+            s.insert(f.toUpper());
         return s;
     }();
 
@@ -123,7 +127,10 @@ void ReactionSyntaxHighlighter::highlightBlock(const QString &text)
     const int n = text.size();
     while (i < n) {
         const QChar c = text.at(i);
-        if (c.isSpace()) { ++i; continue; }
+        if (c.isSpace()) {
+            ++i;
+            continue;
+        }
 
         if (QStringLiteral("+-*/^(),").contains(c)) {
             setFormat(i, 1, m_fmtOperator);
@@ -131,19 +138,17 @@ void ReactionSyntaxHighlighter::highlightBlock(const QString &text)
             continue;
         }
 
-        if (c.isDigit() || (c == QLatin1Char('.') && i + 1 < n
-                            && text.at(i + 1).isDigit())) {
+        if (c.isDigit() || (c == QLatin1Char('.') && i + 1 < n && text.at(i + 1).isDigit())) {
             int j = i;
             while (j < n) {
                 const QChar cj = text.at(j);
-                if (cj.isDigit() || cj == QLatin1Char('.')
-                    || cj == QLatin1Char('e') || cj == QLatin1Char('E')
-                    || ((cj == QLatin1Char('+') || cj == QLatin1Char('-'))
-                        && j > i
-                        && (text.at(j - 1) == QLatin1Char('e')
-                            || text.at(j - 1) == QLatin1Char('E'))))
+                if (cj.isDigit() || cj == QLatin1Char('.') || cj == QLatin1Char('e') ||
+                    cj == QLatin1Char('E') ||
+                    ((cj == QLatin1Char('+') || cj == QLatin1Char('-')) && j > i &&
+                     (text.at(j - 1) == QLatin1Char('e') || text.at(j - 1) == QLatin1Char('E'))))
                     ++j;
-                else break;
+                else
+                    break;
             }
             setFormat(i, j - i, m_fmtNumber);
             i = j;
@@ -152,8 +157,7 @@ void ReactionSyntaxHighlighter::highlightBlock(const QString &text)
 
         if (c.isLetter() || c == QLatin1Char('_')) {
             int j = i;
-            while (j < n && (text.at(j).isLetterOrNumber()
-                             || text.at(j) == QLatin1Char('_')))
+            while (j < n && (text.at(j).isLetterOrNumber() || text.at(j) == QLatin1Char('_')))
                 ++j;
             const QString word = text.mid(i, j - i);
             // Model identifiers match case-sensitively (the compiler's
@@ -179,13 +183,19 @@ void ReactionSyntaxHighlighter::highlightBlock(const QString &text)
 // Single-line editor
 // ─────────────────────────────────────────────────────────────────────────────
 
-namespace {
+namespace
+{
 
 /// Species + coefficients + terms + pollutants from the live engine.
+/**
+ * @param[in] engineHandle Borrowed live engine; null returns an empty set.
+ * @return Exact-case deduplicated species/coefficient/term/pollutant names from successful getter reads; no grammar or scope filtering occurs.
+ */
 QSet<QString> modelIdentifiers(void *engineHandle)
 {
     QSet<QString> out;
-    if (!engineHandle) return out;
+    if (!engineHandle)
+        return out;
     auto e = static_cast<SWMM_Engine>(engineHandle);
 
     char name[128];
@@ -194,16 +204,14 @@ QSet<QString> modelIdentifiers(void *engineHandle)
         char units[32];
         int wall = 0;
         double a = 0, r = 0;
-        if (swmm_reaction_species_get(e, i, name, 128, &wall, units, 32,
-                                      &a, &r) == SWMM_OK)
+        if (swmm_reaction_species_get(e, i, name, 128, &wall, units, 32, &a, &r) == SWMM_OK)
             out.insert(QString::fromUtf8(name));
     }
     const int nc = swmm_reaction_coeff_count(e);
     for (int i = 0; i < nc; ++i) {
         int is_param = 0;
         double v = 0;
-        if (swmm_reaction_coeff_get(e, i, name, 128, &is_param, &v)
-                == SWMM_OK)
+        if (swmm_reaction_coeff_get(e, i, name, 128, &is_param, &v) == SWMM_OK)
             out.insert(QString::fromUtf8(name));
     }
     const int nt = swmm_reaction_term_count(e);
@@ -221,8 +229,7 @@ QSet<QString> modelIdentifiers(void *engineHandle)
 
 } // namespace
 
-ReactionExpressionEdit::ReactionExpressionEdit(void *engineHandle, int scope,
-                                               QWidget *parent)
+ReactionExpressionEdit::ReactionExpressionEdit(void *engineHandle, int scope, QWidget *parent)
     : QTextEdit(parent), m_engine(engineHandle), m_scope(scope)
 {
     setAcceptRichText(false);
@@ -242,17 +249,15 @@ ReactionExpressionEdit::ReactionExpressionEdit(void *engineHandle, int scope,
     m_completer->setCompletionMode(QCompleter::PopupCompletion);
     m_completer->setCaseSensitivity(Qt::CaseInsensitive);
     m_completer->setWidget(this);
-    connect(m_completer, qOverload<const QString &>(&QCompleter::activated),
-            this, &ReactionExpressionEdit::insertCompletion_);
+    connect(m_completer, qOverload<const QString &>(&QCompleter::activated), this,
+            &ReactionExpressionEdit::insertCompletion_);
     refreshVocabulary();
 
     m_debounce = new QTimer(this);
     m_debounce->setSingleShot(true);
     m_debounce->setInterval(250);
-    connect(m_debounce, &QTimer::timeout,
-            this, &ReactionExpressionEdit::validateNow);
-    connect(this, &QTextEdit::textChanged,
-            this, [this]() { m_debounce->start(); });
+    connect(m_debounce, &QTimer::timeout, this, &ReactionExpressionEdit::validateNow);
+    connect(this, &QTextEdit::textChanged, this, [this]() { m_debounce->start(); });
 }
 
 void ReactionExpressionEdit::refreshVocabulary()
@@ -291,9 +296,9 @@ void ReactionExpressionEdit::validateNow()
     }
     char errbuf[512] = {};
     int col = -1;
-    const int rc = swmm_reaction_validate_expression(
-        static_cast<SWMM_Engine>(m_engine), m_scope,
-        expr.toUtf8().constData(), errbuf, sizeof(errbuf), &col);
+    const int rc =
+        swmm_reaction_validate_expression(static_cast<SWMM_Engine>(m_engine), m_scope,
+                                          expr.toUtf8().constData(), errbuf, sizeof(errbuf), &col);
     emit validationChanged(rc == SWMM_OK, QString::fromUtf8(errbuf), col);
 }
 
@@ -308,14 +313,15 @@ void ReactionExpressionEdit::showCompleter_(const QString &prefix)
 {
     m_completer->setCompletionPrefix(prefix);
     QRect cr = cursorRect();
-    cr.setWidth(m_completer->popup()->sizeHintForColumn(0)
-                + m_completer->popup()->verticalScrollBar()->sizeHint().width());
+    cr.setWidth(m_completer->popup()->sizeHintForColumn(0) +
+                m_completer->popup()->verticalScrollBar()->sizeHint().width());
     m_completer->complete(cr);
 }
 
 void ReactionExpressionEdit::insertCompletion_(const QString &completion)
 {
-    if (m_completer->widget() != this) return;
+    if (m_completer->widget() != this)
+        return;
     QTextCursor tc = textCursor();
     tc.select(QTextCursor::WordUnderCursor);
     tc.insertText(completion);
@@ -324,7 +330,8 @@ void ReactionExpressionEdit::insertCompletion_(const QString &completion)
 
 void ReactionExpressionEdit::focusInEvent(QFocusEvent *e)
 {
-    if (m_completer) m_completer->setWidget(this);
+    if (m_completer)
+        m_completer->setWidget(this);
     QTextEdit::focusInEvent(e);
 }
 
@@ -350,22 +357,22 @@ void ReactionExpressionEdit::keyPressEvent(QKeyEvent *e)
         return;
     }
 
-    if (e->key() == Qt::Key_Space
-        && e->modifiers().testFlag(Qt::ControlModifier)) {
+    if (e->key() == Qt::Key_Space && e->modifiers().testFlag(Qt::ControlModifier)) {
         showCompleter_(textUnderCursor_());
         return;
     }
 
     QTextEdit::keyPressEvent(e);
 
-    if (!m_completer) return;
+    if (!m_completer)
+        return;
     const QString prefix = textUnderCursor_();
-    const QString typed  = e->text();
-    const bool wordChar  = !typed.isEmpty()
-                           && (typed.at(0).isLetterOrNumber()
-                               || typed.at(0) == QLatin1Char('_'));
+    const QString typed = e->text();
+    const bool wordChar =
+        !typed.isEmpty() && (typed.at(0).isLetterOrNumber() || typed.at(0) == QLatin1Char('_'));
     if (!wordChar || prefix.size() < 2) {
-        if (m_completer->popup()) m_completer->popup()->hide();
+        if (m_completer->popup())
+            m_completer->popup()->hide();
         return;
     }
     if (prefix != m_completer->completionPrefix())
@@ -376,34 +383,30 @@ void ReactionExpressionEdit::keyPressEvent(QKeyEvent *e)
 // Delegate
 // ─────────────────────────────────────────────────────────────────────────────
 
-ReactionExpressionDelegate::ReactionExpressionDelegate(void *engineHandle,
-                                                       int defaultScope,
+ReactionExpressionDelegate::ReactionExpressionDelegate(void *engineHandle, int defaultScope,
                                                        QObject *parent)
-    : QStyledItemDelegate(parent), m_engine(engineHandle),
-      m_defaultScope(defaultScope)
+    : QStyledItemDelegate(parent), m_engine(engineHandle), m_defaultScope(defaultScope)
 {
 }
 
-QWidget *ReactionExpressionDelegate::createEditor(
-    QWidget *parent, const QStyleOptionViewItem & /*option*/,
-    const QModelIndex &index) const
+QWidget *ReactionExpressionDelegate::createEditor(QWidget *parent,
+                                                  const QStyleOptionViewItem & /*option*/,
+                                                  const QModelIndex &index) const
 {
     const QVariant sv = index.data(ScopeRole);
     const int scope = sv.isValid() ? sv.toInt() : m_defaultScope;
     auto *editor = new ReactionExpressionEdit(m_engine, scope, parent);
-    connect(editor, &ReactionExpressionEdit::validationChanged,
-            this, &ReactionExpressionDelegate::validationChanged);
-    connect(editor, &ReactionExpressionEdit::editingFinished, this,
-            [this, editor]() {
-                auto *self = const_cast<ReactionExpressionDelegate *>(this);
-                emit self->commitData(editor);
-                emit self->closeEditor(editor);
-            });
+    connect(editor, &ReactionExpressionEdit::validationChanged, this,
+            &ReactionExpressionDelegate::validationChanged);
+    connect(editor, &ReactionExpressionEdit::editingFinished, this, [this, editor]() {
+        auto *self = const_cast<ReactionExpressionDelegate *>(this);
+        emit self->commitData(editor);
+        emit self->closeEditor(editor);
+    });
     return editor;
 }
 
-void ReactionExpressionDelegate::setEditorData(QWidget *editor,
-                                               const QModelIndex &index) const
+void ReactionExpressionDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     if (auto *e = qobject_cast<ReactionExpressionEdit *>(editor)) {
         e->setExpression(index.data(Qt::EditRole).toString());
@@ -412,8 +415,7 @@ void ReactionExpressionDelegate::setEditorData(QWidget *editor,
     QStyledItemDelegate::setEditorData(editor, index);
 }
 
-void ReactionExpressionDelegate::setModelData(QWidget *editor,
-                                              QAbstractItemModel *model,
+void ReactionExpressionDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
                                               const QModelIndex &index) const
 {
     if (auto *e = qobject_cast<ReactionExpressionEdit *>(editor)) {

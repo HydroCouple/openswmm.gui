@@ -1,8 +1,10 @@
-/*!
- * \file   xsecticonrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      xsecticonrenderer.cpp
+ * @brief     Slice SP.3 (workplans/SECTION_PREVIEW_WORKPLAN.md).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/sectionview/xsecticonrenderer.h"
@@ -21,13 +23,21 @@
 
 #include <algorithm>
 
-namespace openswmmvis::sectionview {
+namespace openswmmvis::sectionview
+{
 
-namespace {
+namespace
+{
 
 //! Icons are drawn at unit depth; widths below are relative to that.
 constexpr double kUnitDepth = 1.0;
 
+/**
+ * @param[in] size Logical pixmap size expected positive; no fallback/clamp here.
+ * @param[in] palette Muted-fill/Mid dashed-border roles.
+ * @return Transparent single-DPR icon with inset rounded dashed box; may be null on
+ *   allocation/invalid size. GUI-thread Qt pixmap/painter operation, no cache/model access.
+ */
 QIcon placeholderIcon(const QSize &size, const QPalette &palette)
 {
     QPixmap pm(size);
@@ -37,15 +47,14 @@ QIcon placeholderIcon(const QSize &size, const QPalette &palette)
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing, true);
         QPainterPath path;
-        path.addRoundedRect(QRectF(4, 4, size.width() - 8.0, size.height() - 8.0),
-                            5.0, 5.0);
+        path.addRoundedRect(QRectF(4, 4, size.width() - 8.0, size.height() - 8.0), 5.0, 5.0);
         p.fillPath(path, diagramFillColor(DiagramRole::Muted, palette));
         QPen pen(palette.color(QPalette::Mid));
         pen.setWidthF(1.2);
         pen.setStyle(Qt::DashLine);
         p.setPen(pen);
         p.drawPath(path);
-    }   // finish painting before the pixmap is copied into the icon
+    } // finish painting before the pixmap is copied into the icon
     return QIcon(pm);
 }
 
@@ -57,6 +66,10 @@ QIcon placeholderIcon(const QSize &size, const QPalette &palette)
  * dimensions?" — so a representative table is exactly as truthful here as the
  * nominal geoms used for the parametric shapes, and strictly better than the
  * dashed box these shapes fell back to.
+ * @param[in] shape IRREGULAR/STREET/CUSTOM code; others invalid.
+ * @return Independent SI sampler from canned compound transect, two-sided street or normalized
+ *   curve; invalid for unhandled/engine rejection. Preview geometry is representative and unrelated
+ *   to any live model; owned sampler frees itself.
  */
 XsectSampler tabulatedIconSampler(int shape)
 {
@@ -64,8 +77,8 @@ XsectSampler tabulatedIconSampler(int shape)
     case SWMM_XSECT_IRREGULAR: {
         // A textbook compound channel: overbanks either side of a deeper
         // main channel, with the roughness triple that shape implies.
-        const QVector<double> stations   { 0.0, 2.0, 4.0, 5.0,  7.0,  8.0, 10.0, 12.0 };
-        const QVector<double> elevations { 1.0, 0.7, 0.55, 0.0, 0.0, 0.55, 0.7,  1.0 };
+        const QVector<double> stations{0.0, 2.0, 4.0, 5.0, 7.0, 8.0, 10.0, 12.0};
+        const QVector<double> elevations{1.0, 0.7, 0.55, 0.0, 0.0, 0.55, 0.7, 1.0};
         return XsectSampler::fromTransect(stations, elevations,
                                           /*xLeftBank=*/4.0, /*xRightBank=*/8.0,
                                           /*nLeft=*/0.05, /*nChannel=*/0.03,
@@ -87,8 +100,8 @@ XsectSampler tabulatedIconSampler(int shape)
         // A normalized shape curve — widest at mid-depth, narrowing towards
         // both invert and crown, which is what a custom section usually
         // looks like.
-        const QVector<double> depths { 0.0, 0.25, 0.50, 0.75, 1.0 };
-        const QVector<double> widths { 0.35, 0.85, 1.0, 0.85, 0.30 };
+        const QVector<double> depths{0.0, 0.25, 0.50, 0.75, 1.0};
+        const QVector<double> widths{0.35, 0.85, 1.0, 0.85, 0.30};
         return XsectSampler::fromCurve(/*yFull=*/1.0, depths, widths, /*si=*/true);
     }
     default:
@@ -119,59 +132,60 @@ void nominalGeomsFor(int shape, double &g1, double &g2, double &g3, double &g4)
         // geom1 alone defines these. FORCE_MAIN's geom2 is a roughness
         // coefficient, not a dimension — a Hazen-Williams C of 100 keeps the
         // engine happy without affecting the drawn geometry.
-        if (shape == SWMM_XSECT_FORCE_MAIN) g2 = 100.0;
+        if (shape == SWMM_XSECT_FORCE_MAIN)
+            g2 = 100.0;
         break;
 
     case SWMM_XSECT_FILLED_CIRCULAR:
-        g2 = 0.25 * kUnitDepth;                  // sediment depth
+        g2 = 0.25 * kUnitDepth; // sediment depth
         break;
 
     case SWMM_XSECT_RECT_CLOSED:
     case SWMM_XSECT_RECT_OPEN:
-        g2 = 0.75 * kUnitDepth;                  // width
+        g2 = 0.75 * kUnitDepth; // width
         break;
 
     case SWMM_XSECT_TRAPEZOIDAL:
-        g2 = 0.45 * kUnitDepth;                  // bottom width
-        g3 = 1.0;                                // left slope (run:rise)
-        g4 = 1.0;                                // right slope
+        g2 = 0.45 * kUnitDepth; // bottom width
+        g3 = 1.0;               // left slope (run:rise)
+        g4 = 1.0;               // right slope
         break;
 
     case SWMM_XSECT_TRIANGULAR:
     case SWMM_XSECT_PARABOLIC:
-        g2 = 1.0 * kUnitDepth;                   // top width
+        g2 = 1.0 * kUnitDepth; // top width
         break;
 
     case SWMM_XSECT_POWER:
-        g2 = 1.0 * kUnitDepth;                   // top width
-        g3 = 2.0;                                // exponent
+        g2 = 1.0 * kUnitDepth; // top width
+        g3 = 2.0;              // exponent
         break;
 
     case SWMM_XSECT_RECT_TRIANG:
-        g2 = 0.8 * kUnitDepth;                   // top width
-        g3 = 0.3 * kUnitDepth;                   // triangle height
+        g2 = 0.8 * kUnitDepth; // top width
+        g3 = 0.3 * kUnitDepth; // triangle height
         break;
 
     case SWMM_XSECT_RECT_ROUND:
-        g2 = 0.8 * kUnitDepth;                   // top width
-        g3 = 0.4 * kUnitDepth;                   // bottom radius
+        g2 = 0.8 * kUnitDepth; // top width
+        g3 = 0.4 * kUnitDepth; // bottom radius
         break;
 
     case SWMM_XSECT_MOD_BASKET:
-        g2 = 0.7 * kUnitDepth;                   // bottom width
-        g3 = 0.35 * kUnitDepth;                  // top radius
+        g2 = 0.7 * kUnitDepth;  // bottom width
+        g3 = 0.35 * kUnitDepth; // top radius
         break;
 
     case SWMM_XSECT_HORIZ_ELLIPSE:
-        g2 = 1.5 * kUnitDepth;                   // width > height
+        g2 = 1.5 * kUnitDepth; // width > height
         break;
 
     case SWMM_XSECT_VERT_ELLIPSE:
-        g2 = 0.65 * kUnitDepth;                  // width < height
+        g2 = 0.65 * kUnitDepth; // width < height
         break;
 
     case SWMM_XSECT_ARCH:
-        g2 = 1.35 * kUnitDepth;                  // span
+        g2 = 1.35 * kUnitDepth; // span
         break;
 
     default:
@@ -193,7 +207,8 @@ QIcon xsectShapeIcon(int shape, const QSize &size, const QPalette &palette)
                             .arg(palette.color(QPalette::Base).rgba())
                             .arg(palette.color(QPalette::Highlight).rgba());
     QPixmap cached;
-    if (QPixmapCache::find(key, &cached)) return QIcon(cached);
+    if (QPixmapCache::find(key, &cached))
+        return QIcon(cached);
 
     // Tabulated shapes have no standalone geometry, so they get a canned but
     // representative table; everything else is built from its nominal geoms.
@@ -205,12 +220,11 @@ QIcon xsectShapeIcon(int shape, const QSize &size, const QPalette &palette)
         nominalGeomsFor(shape, g1, g2, g3, g4);
         sampler = XsectSampler::fromShape(shape, g1, g2, g3, g4, /*si=*/true);
     }
-    const QPolygonF outline = sampler.isValid() ? sampler.outline(128)
-                                                : QPolygonF();
+    const QPolygonF outline = sampler.isValid() ? sampler.outline(128) : QPolygonF();
     if (outline.size() < 3)
         return placeholderIcon(sz, palette);
 
-    constexpr qreal kDpr = 2.0;   // crisp on HiDPI, downscaled cleanly on 1x
+    constexpr qreal kDpr = 2.0; // crisp on HiDPI, downscaled cleanly on 1x
     QPixmap pm(sz * kDpr);
     pm.setDevicePixelRatio(kDpr);
     pm.fill(Qt::transparent);
@@ -225,8 +239,7 @@ QIcon xsectShapeIcon(int shape, const QSize &size, const QPalette &palette)
         if (b.width() <= 0.0 || b.height() <= 0.0)
             return placeholderIcon(sz, palette);
 
-        const double s = std::min(fit.width() / b.width(),
-                                  fit.height() / b.height());
+        const double s = std::min(fit.width() / b.width(), fit.height() / b.height());
         const double cx = fit.center().x() - s * b.center().x();
         const double cy = fit.center().y() + s * b.center().y();
 
@@ -245,7 +258,7 @@ QIcon xsectShapeIcon(int shape, const QSize &size, const QPalette &palette)
             p.drawPolygon(px);
             p.setPen(pen);
             p.setBrush(Qt::NoBrush);
-            const int n   = static_cast<int>(px.size());
+            const int n = static_cast<int>(px.size());
             const int mid = n / 2;
             p.drawPolyline(px.constData(), mid);
             p.drawPolyline(px.constData() + mid, n - mid);

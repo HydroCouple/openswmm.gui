@@ -1,10 +1,12 @@
-/*!
- * \file   symbolstyleeditors.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  SE.1–SE.3 — dedicated editors for the *SymbolStyleAdapter family.
+/**
+ * @file      symbolstyleeditors.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     SE.1–SE.3 — dedicated editors for the *SymbolStyleAdapter family.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/symbolstyleeditors.h"
 
 #include "render/markershape.h"
@@ -19,14 +21,16 @@
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using OpenSWMM::Render::LineSymbolStyleAdapter;
 using OpenSWMM::Render::MarkerShape;
 using OpenSWMM::Render::PointSymbolStyleAdapter;
 using OpenSWMM::Render::PolygonSymbolStyleAdapter;
 
-namespace {
+namespace
+{
 // Shared opacity spin (0–100 %), maps to the adapter's 0..1 opacity.
 QDoubleSpinBox *makeOpacitySpin(QWidget *parent)
 {
@@ -42,18 +46,17 @@ QDoubleSpinBox *makeOpacitySpin(QWidget *parent)
 // ===========================================================================
 // SE.1 — Point
 // ===========================================================================
-PointSymbolStyleEditor::PointSymbolStyleEditor(PointSymbolStyleAdapter *adapter,
-                                               QWidget *parent)
+PointSymbolStyleEditor::PointSymbolStyleEditor(PointSymbolStyleAdapter *adapter, QWidget *parent)
     : IStyleEditorWidget(parent), m_a(adapter)
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
 
-    auto *box  = new QGroupBox(tr("Marker"), this);
+    auto *box = new QGroupBox(tr("Marker"), this);
     auto *form = new QFormLayout(box);
 
     m_shape = new MarkerShapeCombo(box);
-    m_shape->populateCanonical();     // all 19 canonical MarkerShapes
+    m_shape->populateCanonical(); // all 19 canonical MarkerShapes
     form->addRow(tr("&Shape:"), m_shape);
 
     m_size = new QDoubleSpinBox(box);
@@ -84,31 +87,43 @@ PointSymbolStyleEditor::PointSymbolStyleEditor(PointSymbolStyleAdapter *adapter,
     root->addWidget(box);
     root->addStretch();
 
-    connect(m_shape, &MarkerShapeCombo::shapeValueChanged, this,
-            [this](int v) { if (m_a) m_a->setMarkerShape(static_cast<MarkerShape>(v)); });
-    connect(m_size, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double v) { if (m_a) m_a->setMarkerSize(v); });
-    connect(m_fill, &ColorButton::colorChanged, this,
-            [this](const QColor &c) { if (m_a) m_a->setFillColor(c); });
-    connect(m_outline, &ColorButton::colorChanged, this,
-            [this](const QColor &c) { if (m_a) m_a->setOutlineColor(c); });
-    connect(m_outlineW, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double v) { if (m_a) m_a->setOutlineWidth(v); });
-    connect(m_opacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double v) { if (m_a) m_a->setOpacity(v / 100.0); });
+    connect(m_shape, &MarkerShapeCombo::shapeValueChanged, this, [this](int v) {
+        if (m_a)
+            m_a->setMarkerShape(static_cast<MarkerShape>(v));
+    });
+    connect(m_size, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (m_a)
+            m_a->setMarkerSize(v);
+    });
+    connect(m_fill, &ColorButton::colorChanged, this, [this](const QColor &c) {
+        if (m_a)
+            m_a->setFillColor(c);
+    });
+    connect(m_outline, &ColorButton::colorChanged, this, [this](const QColor &c) {
+        if (m_a)
+            m_a->setOutlineColor(c);
+    });
+    connect(m_outlineW, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (m_a)
+            m_a->setOutlineWidth(v);
+    });
+    connect(m_opacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (m_a)
+            m_a->setOpacity(v / 100.0);
+    });
 
     if (m_a)
-        connect(m_a, &PointSymbolStyleAdapter::changed,
-                this, &PointSymbolStyleEditor::refreshFromModel,
-                Qt::UniqueConnection);
+        connect(m_a, &PointSymbolStyleAdapter::changed, this,
+                &PointSymbolStyleEditor::refreshFromModel, Qt::UniqueConnection);
     refreshFromModel();
 }
 
 void PointSymbolStyleEditor::refreshFromModel()
 {
-    if (!m_a) return;
-    QSignalBlocker b1(m_shape), b2(m_size), b3(m_fill),
-                   b4(m_outline), b5(m_outlineW), b6(m_opacity);
+    if (!m_a)
+        return;
+    QSignalBlocker b1(m_shape), b2(m_size), b3(m_fill), b4(m_outline), b5(m_outlineW),
+        b6(m_opacity);
     m_shape->setShapeValue(static_cast<int>(m_a->markerShape()));
     m_size->setValue(m_a->markerSize());
     m_fill->setColor(m_a->fillColor());
@@ -120,14 +135,13 @@ void PointSymbolStyleEditor::refreshFromModel()
 // ===========================================================================
 // SE.2 — Line
 // ===========================================================================
-LineSymbolStyleEditor::LineSymbolStyleEditor(LineSymbolStyleAdapter *adapter,
-                                             QWidget *parent)
+LineSymbolStyleEditor::LineSymbolStyleEditor(LineSymbolStyleAdapter *adapter, QWidget *parent)
     : IStyleEditorWidget(parent), m_a(adapter)
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
 
-    auto *box  = new QGroupBox(tr("Line"), this);
+    auto *box = new QGroupBox(tr("Line"), this);
     auto *form = new QFormLayout(box);
 
     m_color = new ColorButton(box);
@@ -150,25 +164,33 @@ LineSymbolStyleEditor::LineSymbolStyleEditor(LineSymbolStyleAdapter *adapter,
     root->addWidget(box);
     root->addStretch();
 
-    connect(m_color, &ColorButton::colorChanged, this,
-            [this](const QColor &c) { if (m_a) m_a->setLineColor(c); });
-    connect(m_width, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double v) { if (m_a) m_a->setLineWidth(v); });
-    connect(m_dash, &DashStyleCombo::penStyleChanged, this,
-            [this](Qt::PenStyle s) { if (m_a) m_a->setDashPattern(s); });
-    connect(m_opacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double v) { if (m_a) m_a->setOpacity(v / 100.0); });
+    connect(m_color, &ColorButton::colorChanged, this, [this](const QColor &c) {
+        if (m_a)
+            m_a->setLineColor(c);
+    });
+    connect(m_width, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (m_a)
+            m_a->setLineWidth(v);
+    });
+    connect(m_dash, &DashStyleCombo::penStyleChanged, this, [this](Qt::PenStyle s) {
+        if (m_a)
+            m_a->setDashPattern(s);
+    });
+    connect(m_opacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (m_a)
+            m_a->setOpacity(v / 100.0);
+    });
 
     if (m_a)
-        connect(m_a, &LineSymbolStyleAdapter::changed,
-                this, &LineSymbolStyleEditor::refreshFromModel,
-                Qt::UniqueConnection);
+        connect(m_a, &LineSymbolStyleAdapter::changed, this,
+                &LineSymbolStyleEditor::refreshFromModel, Qt::UniqueConnection);
     refreshFromModel();
 }
 
 void LineSymbolStyleEditor::refreshFromModel()
 {
-    if (!m_a) return;
+    if (!m_a)
+        return;
     QSignalBlocker b1(m_color), b2(m_width), b3(m_dash), b4(m_opacity);
     m_color->setColor(m_a->lineColor());
     m_width->setValue(m_a->lineWidth());
@@ -186,7 +208,7 @@ PolygonSymbolStyleEditor::PolygonSymbolStyleEditor(PolygonSymbolStyleAdapter *ad
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
 
-    auto *box  = new QGroupBox(tr("Fill"), this);
+    auto *box = new QGroupBox(tr("Fill"), this);
     auto *form = new QFormLayout(box);
 
     m_fill = new ColorButton(box);
@@ -210,25 +232,33 @@ PolygonSymbolStyleEditor::PolygonSymbolStyleEditor(PolygonSymbolStyleAdapter *ad
     root->addWidget(box);
     root->addStretch();
 
-    connect(m_fill, &ColorButton::colorChanged, this,
-            [this](const QColor &c) { if (m_a) m_a->setFillColor(c); });
-    connect(m_outline, &ColorButton::colorChanged, this,
-            [this](const QColor &c) { if (m_a) m_a->setOutlineColor(c); });
-    connect(m_outlineW, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double v) { if (m_a) m_a->setOutlineWidth(v); });
-    connect(m_opacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double v) { if (m_a) m_a->setOpacity(v / 100.0); });
+    connect(m_fill, &ColorButton::colorChanged, this, [this](const QColor &c) {
+        if (m_a)
+            m_a->setFillColor(c);
+    });
+    connect(m_outline, &ColorButton::colorChanged, this, [this](const QColor &c) {
+        if (m_a)
+            m_a->setOutlineColor(c);
+    });
+    connect(m_outlineW, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (m_a)
+            m_a->setOutlineWidth(v);
+    });
+    connect(m_opacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (m_a)
+            m_a->setOpacity(v / 100.0);
+    });
 
     if (m_a)
-        connect(m_a, &PolygonSymbolStyleAdapter::changed,
-                this, &PolygonSymbolStyleEditor::refreshFromModel,
-                Qt::UniqueConnection);
+        connect(m_a, &PolygonSymbolStyleAdapter::changed, this,
+                &PolygonSymbolStyleEditor::refreshFromModel, Qt::UniqueConnection);
     refreshFromModel();
 }
 
 void PolygonSymbolStyleEditor::refreshFromModel()
 {
-    if (!m_a) return;
+    if (!m_a)
+        return;
     QSignalBlocker b1(m_fill), b2(m_outline), b3(m_outlineW), b4(m_opacity);
     m_fill->setColor(m_a->fillColor());
     m_outline->setColor(m_a->outlineColor());
@@ -240,28 +270,25 @@ void PolygonSymbolStyleEditor::refreshFromModel()
 // Registry hookup. Keys are unqualified tails; createEditorFor (SE.1) matches
 // them against the namespaced metaObject className.
 // ===========================================================================
-REGISTER_STYLE_EDITOR(
-    PointSymbolStyleAdapter,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *a = qobject_cast<PointSymbolStyleAdapter *>(obj))
-            return new PointSymbolStyleEditor(a, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(PointSymbolStyleAdapter,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *a = qobject_cast<PointSymbolStyleAdapter *>(obj))
+                              return new PointSymbolStyleEditor(a, parent);
+                          return nullptr;
+                      })
 
-REGISTER_STYLE_EDITOR(
-    LineSymbolStyleAdapter,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *a = qobject_cast<LineSymbolStyleAdapter *>(obj))
-            return new LineSymbolStyleEditor(a, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(LineSymbolStyleAdapter,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *a = qobject_cast<LineSymbolStyleAdapter *>(obj))
+                              return new LineSymbolStyleEditor(a, parent);
+                          return nullptr;
+                      })
 
-REGISTER_STYLE_EDITOR(
-    PolygonSymbolStyleAdapter,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *a = qobject_cast<PolygonSymbolStyleAdapter *>(obj))
-            return new PolygonSymbolStyleEditor(a, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(PolygonSymbolStyleAdapter,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *a = qobject_cast<PolygonSymbolStyleAdapter *>(obj))
+                              return new PolygonSymbolStyleEditor(a, parent);
+                          return nullptr;
+                      })
 
 } // namespace openswmmvis::ui

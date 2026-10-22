@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      test_traceanalysisjourney.cpp
+ * @brief     Tests for traceanalysisjourney.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "core/preferencesmanager.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/traceanalysislayer.h"
@@ -91,8 +101,7 @@ class TestTraceJourney : public QObject
         d->nodes.resize(4);
         d->links.resize(4);
         d->nodes[0].lateral_in_m3s = 10;
-        for (int i = 0; i < 4; ++i)
-        {
+        for (int i = 0; i < 4; ++i) {
             d->links[i].net_flow_m3s = d->links[i].absolute_flow_m3s = i % 2 ? 4 : 6;
             d->links[i].absolute_velocity_mps = 1;
         }
@@ -114,7 +123,7 @@ class TestTraceJourney : public QObject
         swmm_trace_close(h);
         return r;
     }
-  private slots:
+private slots:
     void initTestCase()
     {
         folder = QStringLiteral(TRACE_JOURNEY_OUTPUT) + "/" +
@@ -148,7 +157,8 @@ class TestTraceJourney : public QObject
     }
     void negligibleContributionsAreHiddenAndUnlabelled()
     {
-        auto r = fixture(QUuid::createUuid().toString(QUuid::WithoutBraces), path("negligible.gpkg"));
+        auto r =
+            fixture(QUuid::createUuid().toString(QUuid::WithoutBraces), path("negligible.gpkg"));
         QVERIFY(r);
         // SB carries almost nothing; BO is outside the trace.
         r->links[1].ratio = 1e-9;
@@ -157,14 +167,14 @@ class TestTraceJourney : public QObject
         TraceAnalysisLayer layer(r);
         layer.traceStyle()->linkLabels.appearance.enabled = true;
         layer.traceStyle()->nodeLabels.appearance.enabled = true;
-        QVERIFY(layer.contributes(false, 0));   // SA
-        QVERIFY(!layer.contributes(false, 1));  // SB, below the 0.1 % default
-        QVERIFY(!layer.contributes(false, 3));  // BO, unreachable
+        QVERIFY(layer.contributes(false, 0));  // SA
+        QVERIFY(!layer.contributes(false, 1)); // SB, below the 0.1 % default
+        QVERIFY(!layer.contributes(false, 3)); // BO, unreachable
         QVERIFY(layer.contributes(true, r->seed));
         QCOMPARE(layer.samples(false, layer.traceStyle()->linkColor).size(), 2); // SA, AO
         layer.traceStyle()->setMinContribution(0);
-        QVERIFY(layer.contributes(false, 1));   // shown again at 0 %
-        QVERIFY(!layer.contributes(false, 3));  // never: outside the trace
+        QVERIFY(layer.contributes(false, 1));  // shown again at 0 %
+        QVERIFY(!layer.contributes(false, 3)); // never: outside the trace
         TraceStyle copy;
         layer.traceStyle()->setMinContribution(0.05);
         copy.fromJson(layer.traceStyle()->toJson());
@@ -244,8 +254,7 @@ class TestTraceJourney : public QObject
         style->nodeLabels.percent = true;
         style->nodeLabels.showId = true;
         // Save a reproducible visual of flow labels and classified colors.
-        auto capture = [&](QString name)
-        {
+        auto capture = [&](QString name) {
             QImage image(920, 600, QImage::Format_ARGB32_Premultiplied);
             image.fill(Qt::white);
             QPainter painter(&image);
@@ -369,20 +378,21 @@ class TestTraceJourney : public QObject
     void partialRunsAndRecalculate()
     {
         // One conduit S -> O carrying a constant dry-weather flow.
-        auto writeModel = [&](const QString &stem, double flow)
-        {
-            const auto inp = path(stem + ".inp"), out = path(stem + ".out"), rpt = path(stem + ".rpt");
+        auto writeModel = [&](const QString &stem, double flow) {
+            const auto inp = path(stem + ".inp"), out = path(stem + ".out"),
+                       rpt = path(stem + ".rpt");
             QFile file(inp);
             if (!file.open(QIODevice::WriteOnly))
                 return QString();
-            file.write(QStringLiteral(
-                "[TITLE]\nPartial analysis test\n[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
-                "START_DATE 10/01/2026\nEND_DATE 10/01/2026\nEND_TIME 01:00:00\nREPORT_STEP 00:05:00\n"
-                "ROUTING_STEP 00:00:05\n[JUNCTIONS]\nS 10 5\n[OUTFALLS]\nO 0 FREE NO\n"
-                "[CONDUITS]\nSO S O 100 0.013 0 0\n[XSECTIONS]\nSO CIRCULAR 2 0 0 0 1\n"
-                "[DWF]\nS FLOW %1\n[COORDINATES]\nS 0 0\nO 100 0\n[REPORT]\nNODES ALL\nLINKS ALL\n")
-                           .arg(flow)
-                           .toUtf8());
+            file.write(
+                QStringLiteral(
+                    "[TITLE]\nPartial analysis test\n[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+                    "START_DATE 10/01/2026\nEND_DATE 10/01/2026\nEND_TIME 01:00:00\nREPORT_STEP 00:05:00\n"
+                    "ROUTING_STEP 00:00:05\n[JUNCTIONS]\nS 10 5\n[OUTFALLS]\nO 0 FREE NO\n"
+                    "[CONDUITS]\nSO S O 100 0.013 0 0\n[XSECTIONS]\nSO CIRCULAR 2 0 0 0 1\n"
+                    "[DWF]\nS FLOW %1\n[COORDINATES]\nS 0 0\nO 100 0\n[REPORT]\nNODES ALL\nLINKS ALL\n")
+                    .arg(flow)
+                    .toUtf8());
             file.close();
             return swmm_engine_run(inp.toUtf8().constData(), rpt.toUtf8().constData(),
                                    out.toUtf8().constData(), nullptr) == 0
@@ -391,7 +401,8 @@ class TestTraceJourney : public QObject
         };
         const auto full = writeModel("partial", 1);
         QVERIFY(!full.isEmpty());
-        std::unique_ptr<OpenSWMMVisWorkspace> workspace(OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
         SWMMVisProjectWindow w(workspace.get(), path("partial.inp"));
         QList<QString> warnings, errors;
         QVERIFY2(w.loadModel(warnings, errors), qPrintable(errors.join('\n')));
@@ -402,15 +413,14 @@ class TestTraceJourney : public QObject
         QSignalSpy failed(controller, &TraceController::failed);
         QSignalSpy ready(controller, &TraceController::resultReady);
         QString error;
-        auto readBytes = [](const QString &file)
-        {
+        auto readBytes = [](const QString &file) {
             QFile f(file);
             return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
         };
-        auto writeBytes = [](const QString &file, const QByteArray &bytes)
-        {
+        auto writeBytes = [](const QString &file, const QByteArray &bytes) {
             QFile f(file);
-            return f.open(QIODevice::WriteOnly | QIODevice::Truncate) && f.write(bytes) == bytes.size();
+            return f.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                   f.write(bytes) == bytes.size();
         };
         const QByteArray complete = readBytes(full);
         QVERIFY(complete.size() > 24);
@@ -476,7 +486,8 @@ class TestTraceJourney : public QObject
         QCOMPARE(flow->layer()->result()->id, liveId);
         QCOMPARE(travel->layer()->result()->id, liveId);
         const double after = flow->layer()->result()->dataset->links[0].net_flow_m3s;
-        QVERIFY2(after > 1.5 * before, qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(after)));
+        QVERIFY2(after > 1.5 * before,
+                 qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(after)));
         QCOMPARE(travel->layer()->result()->dataset->links[0].net_flow_m3s, after);
         QCOMPARE(flow->layer()->traceStyle()->linkColor.field, QString("gross"));
         QCOMPARE(travel->layer()->traceStyle()->linkColor.field, QString("ratio"));
@@ -502,23 +513,24 @@ class TestTraceJourney : public QObject
         const auto inp = path("stacking.inp"), out = path("stacking.out");
         QFile file(inp);
         QVERIFY(file.open(QIODevice::WriteOnly));
-        file.write(
-            "[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
-            "START_DATE 10/01/2026\nEND_DATE 10/01/2026\nEND_TIME 00:10:00\n"
-            "REPORT_STEP 00:05:00\nROUTING_STEP 00:00:05\n"
-            "[RAINGAGES]\nRG INTENSITY 1:00 1 TIMESERIES Rain\n"
-            "[TIMESERIES]\nRain 10/01/2026 0:00 0\n"
-            "[SUBCATCHMENTS]\nSC RG S 1 10 100 1 0\n"
-            "[SUBAREAS]\nSC .01 .1 .05 .05 25 OUTLET\n"
-            "[INFILTRATION]\nSC 3 .5 4 7 0\n"
-            "[JUNCTIONS]\nS 10 5\n[OUTFALLS]\nO 0 FREE NO\n"
-            "[CONDUITS]\nSO S O 100 0.013 0 0\n[XSECTIONS]\nSO CIRCULAR 2 0 0 0 1\n"
-            "[DWF]\nS FLOW 1\n[COORDINATES]\nS 0 0\nO 100 0\n"
-            "[POLYGONS]\nSC -20 -120\nSC 280 -120\nSC 280 120\nSC -20 120\n"
-            "[REPORT]\nNODES ALL\nLINKS ALL\nSUBCATCHMENTS ALL\n");
+        file.write("[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+                   "START_DATE 10/01/2026\nEND_DATE 10/01/2026\nEND_TIME 00:10:00\n"
+                   "REPORT_STEP 00:05:00\nROUTING_STEP 00:00:05\n"
+                   "[RAINGAGES]\nRG INTENSITY 1:00 1 TIMESERIES Rain\n"
+                   "[TIMESERIES]\nRain 10/01/2026 0:00 0\n"
+                   "[SUBCATCHMENTS]\nSC RG S 1 10 100 1 0\n"
+                   "[SUBAREAS]\nSC .01 .1 .05 .05 25 OUTLET\n"
+                   "[INFILTRATION]\nSC 3 .5 4 7 0\n"
+                   "[JUNCTIONS]\nS 10 5\n[OUTFALLS]\nO 0 FREE NO\n"
+                   "[CONDUITS]\nSO S O 100 0.013 0 0\n[XSECTIONS]\nSO CIRCULAR 2 0 0 0 1\n"
+                   "[DWF]\nS FLOW 1\n[COORDINATES]\nS 0 0\nO 100 0\n"
+                   "[POLYGONS]\nSC -20 -120\nSC 280 -120\nSC 280 120\nSC -20 120\n"
+                   "[REPORT]\nNODES ALL\nLINKS ALL\nSUBCATCHMENTS ALL\n");
         file.close();
-        QCOMPARE(swmm_engine_run(inp.toUtf8().constData(), path("stacking.rpt").toUtf8().constData(),
-                                 out.toUtf8().constData(), nullptr), 0);
+        QCOMPARE(swmm_engine_run(inp.toUtf8().constData(),
+                                 path("stacking.rpt").toUtf8().constData(),
+                                 out.toUtf8().constData(), nullptr),
+                 0);
         std::unique_ptr<OpenSWMMVisWorkspace> workspace(
             OpenSWMMVisWorkspace::newInstance({}, nullptr));
         SWMMVisProjectWindow w(workspace.get(), inp);
@@ -554,37 +566,37 @@ class TestTraceJourney : public QObject
         output->populateScene(canvas->mapScene(), canvas->extent(), canvas->canvasSRS());
         int features = 0, labels = 0;
         double highestOutputZ = -1, traceZ = -1;
-        for (auto *item : canvas->mapScene()->items())
-        {
+        for (auto *item : canvas->mapScene()->items()) {
             const auto owner = item->data(0).value<quintptr>();
-            if (owner == reinterpret_cast<quintptr>(output))
-            {
+            if (owner == reinterpret_cast<quintptr>(output)) {
                 QVERIFY(item->zValue() > model->layerZValue());
                 QVERIFY(item->zValue() < output->layerZValue() + 1.);
                 highestOutputZ = std::max(highestOutputZ, item->zValue());
-                if (dynamic_cast<QGraphicsSimpleTextItem *>(item)) ++labels;
-                else ++features;
+                if (dynamic_cast<QGraphicsSimpleTextItem *>(item))
+                    ++labels;
+                else
+                    ++features;
             }
-            if (owner == reinterpret_cast<quintptr>(flow->layer())) traceZ = item->zValue();
+            if (owner == reinterpret_cast<quintptr>(flow->layer()))
+                traceZ = item->zValue();
         }
         QVERIFY(features > 0);
         QVERIFY(labels > 0);
         QVERIFY(traceZ > highestOutputZ);
         const bool gpuPreference = PreferencesManager::instance()->qsgRenderEnabled();
-        model->setQsgRenderKinds(SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgCatch |
-                                                       SWMMModelLayer::QsgNodes));
+        model->setQsgRenderKinds(
+            SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgCatch | SWMMModelLayer::QsgNodes));
         const auto above = canvas->grab().toImage();
         QCOMPARE(model->qsgRenderKinds(), SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNone));
         QCOMPARE(PreferencesManager::instance()->qsgRenderEnabled(), gpuPreference);
         QVERIFY(above.save(path("results-above-subcatchment.png")));
-        auto redPixels = [](const QImage &image)
-        {
+        auto redPixels = [](const QImage &image) {
             int n = 0;
             for (int y = 0; y < image.height(); ++y)
-                for (int x = 0; x < image.width(); ++x)
-                {
+                for (int x = 0; x < image.width(); ++x) {
                     auto c = image.pixelColor(x, y);
-                    if (c.red() > 200 && c.green() < 40 && c.blue() < 40) ++n;
+                    if (c.red() > 200 && c.green() < 40 && c.blue() < 40)
+                        ++n;
                 }
             return n;
         };
@@ -615,8 +627,7 @@ class TestTraceJourney : public QObject
         style->setTitle("Flow balance legend");
         style->setShowTitle(true);
         style->setAnchor(OpenSWMM::Render::LegendOverlayStyle::Anchor::TopLeft);
-        auto drag = [&](QPoint start, QPoint delta)
-        {
+        auto drag = [&](QPoint start, QPoint delta) {
             const QPoint global = legend.mapToGlobal(start);
             QMouseEvent press(QEvent::MouseButtonPress, start, global, Qt::LeftButton,
                               Qt::LeftButton, Qt::NoModifier);
@@ -625,9 +636,8 @@ class TestTraceJourney : public QObject
                              Qt::LeftButton, Qt::NoModifier);
             QApplication::sendEvent(&legend, &move);
             const QRect dragged = legend.geometry();
-            QMouseEvent release(QEvent::MouseButtonRelease,
-                                legend.mapFromGlobal(global + delta), global + delta,
-                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease, legend.mapFromGlobal(global + delta),
+                                global + delta, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
             QApplication::sendEvent(&legend, &release);
             return dragged;
         };
@@ -694,16 +704,18 @@ class TestTraceJourney : public QObject
         const int x = qRound((legend.style()->padding() + 14) * dpr);
         QVector<double> runs;
         int length = 0;
-        for (int y = 0; y < shot.height(); ++y)
-        {
+        for (int y = 0; y < shot.height(); ++y) {
             const QColor c = shot.pixelColor(x, y);
-            const bool sample = qAbs(c.red() - 86) < 20 && qAbs(c.green() - 102) < 20 &&
-                                qAbs(c.blue() - 122) < 20;
-            if (sample) ++length;
-            else if (length) { runs.append(length / dpr); length = 0; }
+            const bool sample =
+                qAbs(c.red() - 86) < 20 && qAbs(c.green() - 102) < 20 && qAbs(c.blue() - 122) < 20;
+            if (sample)
+                ++length;
+            else if (length) {
+                runs.append(length / dpr);
+                length = 0;
+            }
         }
-        auto hasSize = [&](double size)
-        {
+        auto hasSize = [&](double size) {
             return std::any_of(runs.begin(), runs.end(),
                                [=](double run) { return qAbs(run - size) <= 1; });
         };
@@ -743,54 +755,43 @@ class TestTraceJourney : public QObject
         QVERIFY(view);
         auto *proxy = qobject_cast<QSortFilterProxyModel *>(view->model());
         QVERIFY(proxy);
-        auto select = [&](TraceSublayer *part)
-        {
+        auto select = [&](TraceSublayer *part) {
             view->expandAll();
             auto index = proxy->mapFromSource(panel.model()->indexForSublayer(output, part));
             view->setCurrentIndex(index);
             view->scrollTo(index);
             return index;
         };
-        auto menuAction = [&](TraceSublayer *part, const QString &label)
-        {
+        auto menuAction = [&](TraceSublayer *part, const QString &label) {
             const auto index = select(part);
             bool picked = false, consistent = false;
             QTimer timeout;
             timeout.setSingleShot(true);
-            connect(&timeout, &QTimer::timeout, &panel,
-                    []
-                    {
-                        if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget()))
-                            menu->close();
-                    });
+            connect(&timeout, &QTimer::timeout, &panel, [] {
+                if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget()))
+                    menu->close();
+            });
             timeout.start(2000);
-            QTimer::singleShot(0, &panel,
-                               [&]
-                               {
-                                   auto *menu =
-                                       qobject_cast<QMenu *>(QApplication::activePopupWidget());
-                                   if (!menu)
-                                       return;
-                                   QStringList names;
-                                   QAction *chosen = nullptr;
-                                   for (auto *action : menu->actions())
-                                   {
-                                       names.append(action->text());
-                                       if (action->text() == label)
-                                           chosen = action;
-                                   }
-                                   consistent = names.contains("Properties…") &&
-                                                names.contains("Remove Layer") &&
-                                                !names.contains("Style…");
-                                   if (chosen)
-                                   {
-                                       picked = true;
-                                       menu->setActiveAction(chosen);
-                                       QTest::keyClick(menu, Qt::Key_Return);
-                                   }
-                                   else
-                                       menu->close();
-                               });
+            QTimer::singleShot(0, &panel, [&] {
+                auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+                if (!menu)
+                    return;
+                QStringList names;
+                QAction *chosen = nullptr;
+                for (auto *action : menu->actions()) {
+                    names.append(action->text());
+                    if (action->text() == label)
+                        chosen = action;
+                }
+                consistent = names.contains("Properties…") && names.contains("Remove Layer") &&
+                             !names.contains("Style…");
+                if (chosen) {
+                    picked = true;
+                    menu->setActiveAction(chosen);
+                    QTest::keyClick(menu, Qt::Key_Return);
+                } else
+                    menu->close();
+            });
             const bool invoked =
                 QMetaObject::invokeMethod(&panel, "onContextMenuRequested", Qt::DirectConnection,
                                           Q_ARG(QPoint, view->visualRect(index).center()));
@@ -805,8 +806,7 @@ class TestTraceJourney : public QObject
         auto *scene = w.canvas()->mapScene();
         const auto painterTag = reinterpret_cast<quintptr>(flow->layer());
         flow->layer()->populateScene(scene, MapExtent(-25, -115, 280, 115), nullptr);
-        auto hasGraphics = [&]
-        {
+        auto hasGraphics = [&] {
             for (auto *item : scene->items())
                 if (item->data(0).value<quintptr>() == painterTag)
                     return true;

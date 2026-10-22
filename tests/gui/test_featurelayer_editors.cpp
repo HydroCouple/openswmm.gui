@@ -1,9 +1,9 @@
-/*!
- * \file   test_featurelayer_editors.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The feature-layer editors and consumers inside the real panels
+/**
+ * @file      test_featurelayer_editors.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The feature-layer editors and consumers inside the real panels
  *         (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md R3, R5,
  *         R6, R7):
  *   - an edit through FeatureFieldDelegate in the Attribute Table and in the
@@ -17,6 +17,7 @@
  *     and to a mesh table (showMeshTable).
  * GeoPackages land in tests/output/feature_layer_roles_2026-09-30/editors/
  * (reviewable — CLAUDE.md §4.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "core/preferencesmanager.h"
@@ -57,14 +58,16 @@ using namespace openswmmvis::feature;
 using openswmmvis::ui::FeatureFieldDelegate;
 using openswmmvis::ui::FeatureLayerPanel;
 
-namespace {
+namespace
+{
 
 QString freshGpkg(const char *stem)
 {
     QDir().mkpath(QStringLiteral(FEATURE_EDITORS_OUT_DIR));
     const QString p = QDir(QStringLiteral(FEATURE_EDITORS_OUT_DIR))
                           .absoluteFilePath(QLatin1String(stem) + QStringLiteral(".gpkg"));
-    for (const char *sfx : {"", "-wal", "-shm"}) QFile::remove(p + QLatin1String(sfx));
+    for (const char *sfx : {"", "-wal", "-shm"})
+        QFile::remove(p + QLatin1String(sfx));
     return p;
 }
 
@@ -105,16 +108,18 @@ FeatureLayer *makeLayer(const char *stem, GeometryType type, const Schema &schem
                         FeatureLayerRole role)
 {
     QString err;
-    FeatureLayer *fl = FeatureLayer::create(freshGpkg(stem), QLatin1String(stem), type,
-                                            ZPolicy{}, schema, QString(), role, &err, nullptr);
-    if (!fl) qWarning() << "FeatureLayer::create:" << err;
+    FeatureLayer *fl = FeatureLayer::create(freshGpkg(stem), QLatin1String(stem), type, ZPolicy{},
+                                            schema, QString(), role, &err, nullptr);
+    if (!fl)
+        qWarning() << "FeatureLayer::create:" << err;
     return fl;
 }
 
 int columnOf(const QAbstractItemModel *m, const QString &header)
 {
     for (int c = 0; c < m->columnCount(); ++c)
-        if (m->headerData(c, Qt::Horizontal).toString() == header) return c;
+        if (m->headerData(c, Qt::Horizontal).toString() == header)
+            return c;
     return -1;
 }
 
@@ -131,7 +136,7 @@ void editThrough(FeatureFieldDelegate *del, QWidget *viewport, QAbstractItemMode
     del->setModelData(combo, model, idx);
 }
 
-}   // namespace
+} // namespace
 
 class TestFeatureLayerEditors : public QObject
 {
@@ -187,7 +192,7 @@ private slots:
         auto *del = qobject_cast<FeatureFieldDelegate *>(view->itemDelegateForColumn(col));
         QVERIFY2(del, "the Attribute Table installs FeatureFieldDelegate on feature columns");
         const QModelIndex idx = view->model()->index(0, col);
-        QCOMPARE(idx.data(Qt::EditRole).toString(), QStringLiteral("WALL"));   // the column default
+        QCOMPARE(idx.data(Qt::EditRole).toString(), QStringLiteral("WALL")); // the column default
 
         const int before = canvas.undoStack()->count();
         editThrough(del, view->viewport(), view->model(), idx, QStringLiteral("RATING_CURVE"));
@@ -198,7 +203,8 @@ private slots:
                  QStringLiteral("RATING_CURVE"));
         canvas.undoStack()->undo();
         QVERIFY(fl->feature(id, back));
-        QCOMPARE(back.attributes.value(QStringLiteral("bc_type")).toString(), QStringLiteral("WALL"));
+        QCOMPARE(back.attributes.value(QStringLiteral("bc_type")).toString(),
+                 QStringLiteral("WALL"));
     }
 
     void featuresDockEditsThroughTheDelegate()
@@ -239,21 +245,19 @@ private slots:
     void updateFieldsToRoleOnAnOldRegionLayer()
     {
         Schema old;
-        for (const auto &p : {std::pair{"max_area", FieldType::Real},
-                              std::pair{"min_cell", FieldType::Real},
-                              std::pair{"quad_mode", FieldType::Text},
-                              std::pair{"quad_spacing", FieldType::Real},
-                              std::pair{"quad_aspect", FieldType::Real},
-                              std::pair{"quad_angle", FieldType::Real},
-                              std::pair{"tag", FieldType::Text}}) {
+        for (const auto &p :
+             {std::pair{"max_area", FieldType::Real}, std::pair{"min_cell", FieldType::Real},
+              std::pair{"quad_mode", FieldType::Text}, std::pair{"quad_spacing", FieldType::Real},
+              std::pair{"quad_aspect", FieldType::Real}, std::pair{"quad_angle", FieldType::Real},
+              std::pair{"tag", FieldType::Text}}) {
             FieldDef fd;
             fd.name = QLatin1String(p.first);
             fd.type = p.second;
             old.append(fd);
         }
         MapCanvas canvas;
-        FeatureLayer *fl = makeLayer("old_regions", GeometryType::Polygon, old,
-                                     FeatureLayerRole::Region);
+        FeatureLayer *fl =
+            makeLayer("old_regions", GeometryType::Polygon, old, FeatureLayerRole::Region);
         QVERIFY(fl);
         canvas.addLayer(fl, false);
         Feature f;
@@ -268,7 +272,8 @@ private slots:
         // The preview's data: 5 retired fields (one holding a value), one rename.
         QHash<QString, int> counts;
         counts.insert(QStringLiteral("quad_mode"), 1);
-        const FieldUpdatePlan plan = planFieldUpdate(FeatureLayerRole::Region, fl->schema(), counts);
+        const FieldUpdatePlan plan =
+            planFieldUpdate(FeatureLayerRole::Region, fl->schema(), counts);
         QCOMPARE(plan.retired.size(), 5);
         QCOMPARE(plan.rename.size(), 1);
 
@@ -283,11 +288,12 @@ private slots:
         if (err.contains(QStringLiteral("cannot delete")))
             QSKIP("this GDAL cannot drop a GeoPackage column");
         QVERIFY2(err.isEmpty(), qPrintable(err));
-        QCOMPARE(canvas.undoStack()->count(), before + 1);   // one undo step
+        QCOMPARE(canvas.undoStack()->count(), before + 1); // one undo step
 
         const QStringList names = fl->schema().names();
-        QCOMPARE(QSet<QString>(names.cbegin(), names.cend()),
-                 (QSet<QString>{QStringLiteral("h"), QStringLiteral("tag"), QStringLiteral("cells")}));
+        QCOMPARE(
+            QSet<QString>(names.cbegin(), names.cend()),
+            (QSet<QString>{QStringLiteral("h"), QStringLiteral("tag"), QStringLiteral("cells")}));
         Feature back;
         QVERIFY(fl->feature(id, back));
         QCOMPARE(back.attributes.value(QStringLiteral("h")).toDouble(), 4.5);
@@ -302,16 +308,17 @@ private slots:
                  QSet<QString>(oldNames.cbegin(), oldNames.cend()));
         QVERIFY(fl->feature(id, back));
         QCOMPARE(back.attributes.value(QStringLiteral("quad_spacing")).toDouble(), 4.5);
-        QCOMPARE(back.attributes.value(QStringLiteral("quad_mode")).toString(), QStringLiteral("Mapped"));
+        QCOMPARE(back.attributes.value(QStringLiteral("quad_mode")).toString(),
+                 QStringLiteral("Mapped"));
     }
 
     void meshPickersFilterByGeometryAndShowTheRole()
     {
         MapCanvas *canvas = m_window->canvas();
         QVERIFY(canvas);
-        FeatureLayer *regions = makeLayer("picker_regions", GeometryType::Polygon,
-                                          featureLayerRoleTemplate(FeatureLayerRole::Region),
-                                          FeatureLayerRole::Region);
+        FeatureLayer *regions =
+            makeLayer("picker_regions", GeometryType::Polygon,
+                      featureLayerRoleTemplate(FeatureLayerRole::Region), FeatureLayerRole::Region);
         FeatureLayer *zones = makeLayer("picker_zones", GeometryType::Polygon,
                                         featureLayerRoleTemplate(FeatureLayerRole::ParameterZone),
                                         FeatureLayerRole::ParameterZone);
@@ -323,28 +330,31 @@ private slots:
                                          FeatureLayerRole::General);
         QVERIFY(regions && zones && lines && points);
         // Zones first, so "matching role first" is a real reorder.
-        for (FeatureLayer *l : {zones, regions, lines, points}) canvas->addLayer(l, false);
-        QVERIFY(regions->addFeature(Feature{kInvalidFeatureId, square(0, 10), {}}) != kInvalidFeatureId);
+        for (FeatureLayer *l : {zones, regions, lines, points})
+            canvas->addLayer(l, false);
+        QVERIFY(regions->addFeature(Feature{kInvalidFeatureId, square(0, 10), {}}) !=
+                kInvalidFeatureId);
         QVERIFY(lines->addFeature(Feature{kInvalidFeatureId, line(5), {}}) != kInvalidFeatureId);
         QVERIFY(points->addFeature(Feature{kInvalidFeatureId, point(3), {}}) != kInvalidFeatureId);
 
         MeshGenerationDialog dlg(m_window, m_window);
         auto *regionCombo = dlg.findChild<QComboBox *>(QStringLiteral("meshQuadRegionLayerCombo"));
         auto *domainCombo = dlg.findChild<QComboBox *>(QStringLiteral("meshBoundaryLayerCombo"));
-        auto *lineList  = dlg.findChild<QListWidget *>(QStringLiteral("meshLineLayersList"));
+        auto *lineList = dlg.findChild<QListWidget *>(QStringLiteral("meshLineLayersList"));
         auto *pointList = dlg.findChild<QListWidget *>(QStringLiteral("meshPointLayersList"));
         QVERIFY(regionCombo && domainCombo && lineList && pointList);
 
         const auto texts = [](QComboBox *c) {
             QStringList t;
-            for (int i = 0; i < c->count(); ++i) t << c->itemText(i);
+            for (int i = 0; i < c->count(); ++i)
+                t << c->itemText(i);
             return t;
         };
         const QStringList regionItems = texts(regionCombo);
         QVERIFY2(regionItems.size() >= 3, qPrintable(regionItems.join(" | ")));
         // "(none)", then the Region-role layer, labelled with its role.
-        QVERIFY2(regionItems.at(1).contains(QStringLiteral("picker_regions"))
-                     && regionItems.at(1).contains(featureLayerRoleLabel(FeatureLayerRole::Region)),
+        QVERIFY2(regionItems.at(1).contains(QStringLiteral("picker_regions")) &&
+                     regionItems.at(1).contains(featureLayerRoleLabel(FeatureLayerRole::Region)),
                  qPrintable(regionItems.join(" | ")));
         QVERIFY(regionItems.join(' ').contains(QStringLiteral("picker_zones")));
         for (const QString &t : regionItems + texts(domainCombo)) {
@@ -354,7 +364,8 @@ private slots:
 
         const auto listTexts = [](QListWidget *list) {
             QStringList t;
-            for (QCheckBox *b : list->findChildren<QCheckBox *>()) t << b->text();
+            for (QCheckBox *b : list->findChildren<QCheckBox *>())
+                t << b->text();
             return t.join(QLatin1Char('|'));
         };
         QVERIFY(listTexts(lineList).contains(QStringLiteral("picker_breaklines")));
@@ -389,7 +400,9 @@ private slots:
             m.vertices << v;
         }
         mesh::MeshTriangle t;
-        t.v0 = 0; t.v1 = 1; t.v2 = 2;
+        t.v0 = 0;
+        t.v1 = 1;
+        t.v2 = 2;
         m.triangles << t;
         m.ok = true;
         auto *meshLayer = new SWMM2DMeshLayer(m);
@@ -401,7 +414,8 @@ private slots:
         QVERIFY(combo->currentData().toString().endsWith(QStringLiteral(":c")));
         // Rebind the panel before the mesh goes, then take it off the canvas.
         panel.showModelCategory(model, SWMMModelLayer::CatConduits, nullptr);
-        delete m_window->canvas()->takeLayer(m_window->canvas()->layers().indexOf(meshLayer), false);
+        delete m_window->canvas()->takeLayer(m_window->canvas()->layers().indexOf(meshLayer),
+                                             false);
     }
 
 private:

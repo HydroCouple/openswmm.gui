@@ -1,9 +1,9 @@
-/*!
- * \file   test_bulkdelete.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Coverage for SWMMModelLayer::BulkEdit and BulkEditCommand.
+/**
+ * @file      test_bulkdelete.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Coverage for SWMMModelLayer::BulkEdit and BulkEditCommand.
  *
  *         Deleting a selection used to run the full "the model changed"
  *         cascade once per object: rebuildCategoryIndex() (O(N) hash over
@@ -33,7 +33,9 @@
  *         Fixture: selection_trace_fixture.inp (see its [TITLE] for topology).
  *           Nodes  J1 J2 J3 J4 (junctions), O1 (outfall)
  *           Links  C1 J1->J2, C2 J2->J3, C3 J3->O1, P1 J4->J3 (pump)
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "map/mapundostack.h"
 #include "selection/selectionmanager.h"
@@ -57,30 +59,56 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select SWMMVIS_GUI_TEST_DATA or current-directory dot for bulk-delete fixtures.
+ * @return Owned unvalidated directory; no directory creation or file writes.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Load selection_trace_fixture.inp into a caller-owned model layer.
+ * @return Unique loaded layer/engine, or nullptr after failed-load destruction.
+ * Requires GUI-thread use and readable fixture; diagnostics are local, with no
+ * canvas ownership transfer or source INP write.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
-        QDir(dataDir()).filePath(QStringLiteral("selection_trace_fixture.inp")),
-        nullptr);
+        QDir(dataDir()).filePath(QStringLiteral("selection_trace_fixture.inp")), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
 //! Model-space coordinate of a node, straight from the engine — the
 //! independent oracle the cache assertions are checked against.
+/**
+ *
+ * @brief Read an engine node coordinate as an independent cache-comparison oracle.
+ * @param eng Borrowed valid loaded engine.
+ * @param name Borrowed exact node ID converted to UTF-8 for lookup.
+ * @return Project-coordinate point, or origin if lookup fails. Coordinate-getter
+ * status is unchecked after lookup, so failure may also return initialized zeros.
+ * Origin is not an unambiguous success marker; no CRS conversion or mutation.
+ *
+ */
 QPointF engineNodeXY(SWMM_Engine eng, const QString &name)
 {
     const QByteArray utf8 = name.toUtf8();
     const int idx = swmm_node_index(eng, utf8.constData());
-    if (idx < 0) return {};
+    if (idx < 0)
+        return {};
     double x = 0, y = 0;
     swmm_spatial_get_node_coord(eng, idx, &x, &y);
     return {x, y};
@@ -107,10 +135,9 @@ private slots:
 
         MapUndoStack stack;
         auto *macro = new BulkEditCommand(layer.get(), QStringLiteral("Delete 3"));
-        for (const QString &n : {QStringLiteral("J1"), QStringLiteral("J2"),
-                                 QStringLiteral("J4")})
-            new DeleteObjectCommand(layer.get(), n,
-                                    DeleteObjectCommand::DeleteNode, nullptr, macro);
+        for (const QString &n : {QStringLiteral("J1"), QStringLiteral("J2"), QStringLiteral("J4")})
+            new DeleteObjectCommand(layer.get(), n, DeleteObjectCommand::DeleteNode, nullptr,
+                                    macro);
         stack.push(macro);
 
         // Three nodes deleted (plus their cascade links) — one notification.
@@ -119,7 +146,7 @@ private slots:
 
         // ...and the deletions really happened, so the count above is not 1
         // because nothing ran.
-        QCOMPARE(layer->categoryCount(SWMMModelLayer::CatJunctions), 1);  // J3 only
+        QCOMPARE(layer->categoryCount(SWMMModelLayer::CatJunctions), 1); // J3 only
         QCOMPARE(swmm_node_index(layer->engine(), "J1"), -1);
         QCOMPARE(swmm_node_index(layer->engine(), "J2"), -1);
         QCOMPARE(swmm_node_index(layer->engine(), "J4"), -1);
@@ -132,13 +159,13 @@ private slots:
         auto layer = openLayer();
         QVERIFY(layer);
         const int nodes0 = layer->categoryCount(SWMMModelLayer::CatJunctions);
-        const int cond0  = layer->categoryCount(SWMMModelLayer::CatConduits);
+        const int cond0 = layer->categoryCount(SWMMModelLayer::CatConduits);
 
         MapUndoStack stack;
         auto *macro = new BulkEditCommand(layer.get(), QStringLiteral("Delete 2"));
         for (const QString &n : {QStringLiteral("J1"), QStringLiteral("J2")})
-            new DeleteObjectCommand(layer.get(), n,
-                                    DeleteObjectCommand::DeleteNode, nullptr, macro);
+            new DeleteObjectCommand(layer.get(), n, DeleteObjectCommand::DeleteNode, nullptr,
+                                    macro);
         stack.push(macro);
         QCOMPARE(layer->categoryCount(SWMMModelLayer::CatJunctions), nodes0 - 2);
 
@@ -161,6 +188,14 @@ private slots:
         QCOMPARE(engineNodeXY(eng, QStringLiteral("J1")), QPointF(0.0, 0.0));
     }
 
+    /**
+     *
+     * @brief Require a bulk delete after undo to emit one geometry change and delete the selected
+     * nodes again.
+     * Uses a local MapUndoStack and borrowed loaded fixture layer; checks actual engine
+     * absence after redo, without saving the mutated model.
+     *
+     */
     void redoAfterUndoIsSymmetric()
     {
         auto layer = openLayer();
@@ -170,8 +205,8 @@ private slots:
         MapUndoStack stack;
         auto *macro = new BulkEditCommand(layer.get(), QStringLiteral("Delete 2"));
         for (const QString &n : {QStringLiteral("J1"), QStringLiteral("J2")})
-            new DeleteObjectCommand(layer.get(), n,
-                                    DeleteObjectCommand::DeleteNode, nullptr, macro);
+            new DeleteObjectCommand(layer.get(), n, DeleteObjectCommand::DeleteNode, nullptr,
+                                    macro);
         stack.push(macro);
         stack.undo();
 
@@ -202,27 +237,25 @@ private slots:
         QCOMPARE(swmm_node_index(eng, "J1"), 0);
         const QPointF j3xy = engineNodeXY(eng, QStringLiteral("J3"));
         const QPointF j4xy = engineNodeXY(eng, QStringLiteral("J4"));
-        QVERIFY(j3xy != j4xy);   // else the assertion below could not fail
+        QVERIFY(j3xy != j4xy); // else the assertion below could not fail
 
         MapUndoStack stack;
         auto *macro = new BulkEditCommand(layer.get(), QStringLiteral("Delete J1"));
-        new DeleteObjectCommand(layer.get(), QStringLiteral("J1"),
-                                DeleteObjectCommand::DeleteNode, nullptr, macro);
+        new DeleteObjectCommand(layer.get(), QStringLiteral("J1"), DeleteObjectCommand::DeleteNode,
+                                nullptr, macro);
         stack.push(macro);
 
         // Counts agree with the engine after the deferred rebuild.
         QCOMPARE(layer->categoryCount(SWMMModelLayer::CatJunctions),
-                 3);                                   // J2 J3 J4 (J1 gone)
+                 3); // J2 J3 J4 (J1 gone)
         QCOMPARE(layer->categoryCount(SWMMModelLayer::CatConduits),
-                 2);                                   // C1 cascaded with J1
+                 2); // C1 cascaded with J1
 
         // Name->index maps agree with the engine, for every survivor.
         for (const char *n : {"J2", "J3", "J4", "O1"})
-            QCOMPARE(layer->nodeIndex(QString::fromLatin1(n)),
-                     swmm_node_index(eng, n));
+            QCOMPARE(layer->nodeIndex(QString::fromLatin1(n)), swmm_node_index(eng, n));
         for (const char *l : {"C2", "C3", "P1"})
-            QCOMPARE(layer->linkIndex(QString::fromLatin1(l)),
-                     swmm_link_index(eng, l));
+            QCOMPARE(layer->linkIndex(QString::fromLatin1(l)), swmm_link_index(eng, l));
 
         // The one that matters: C3's cached polyline must still start at J3.
         // Without the endpoint resync its stale fromNodeIdx now names J4.
@@ -251,8 +284,8 @@ private slots:
 
         MapUndoStack stack;
         auto *macro = new BulkEditCommand(layer.get(), QStringLiteral("Delete J1"));
-        new DeleteObjectCommand(layer.get(), QStringLiteral("J1"),
-                                DeleteObjectCommand::DeleteNode, nullptr, macro);
+        new DeleteObjectCommand(layer.get(), QStringLiteral("J1"), DeleteObjectCommand::DeleteNode,
+                                nullptr, macro);
         stack.push(macro);
         stack.undo();
 
@@ -314,9 +347,8 @@ private slots:
                 combo->setCurrentIndex(i);
 
         QSignalSpy geom(layer.get(), &SWMMModelLayer::geometryChanged);
-        const int n = panel.deleteObjects({QStringLiteral("J1"),
-                                           QStringLiteral("J2"),
-                                           QStringLiteral("J4")});
+        const int n =
+            panel.deleteObjects({QStringLiteral("J1"), QStringLiteral("J2"), QStringLiteral("J4")});
         QCOMPARE(n, 3);
         // Already emitted by the time deleteObjects() returned — never
         // deferred past the call, only coalesced within it.
@@ -356,8 +388,7 @@ private slots:
                                           {SWMMObjectRef::Node, QStringLiteral("J2")}});
         QVERIFY(!selMgr.isEmpty());
 
-        QCOMPARE(panel.deleteObjects({QStringLiteral("J1"),
-                                      QStringLiteral("J2")}), 2);
+        QCOMPARE(panel.deleteObjects({QStringLiteral("J1"), QStringLiteral("J2")}), 2);
         for (const SWMMObjectRef &r : selMgr.selection())
             QVERIFY2(r.name != QLatin1String("J1") && r.name != QLatin1String("J2"),
                      qPrintable(QStringLiteral("phantom ref survived: %1").arg(r.name)));
@@ -371,45 +402,43 @@ private slots:
     void batchDeleteMatchesPerObjectReference()
     {
         auto batchLayer = openLayer();
-        auto refLayer   = openLayer();
+        auto refLayer = openLayer();
         QVERIFY(batchLayer);
         QVERIFY(refLayer);
 
-        const QStringList victims{QStringLiteral("J1"), QStringLiteral("J2"),
-                                  QStringLiteral("J4")};
+        const QStringList victims{QStringLiteral("J1"), QStringLiteral("J2"), QStringLiteral("J4")};
 
         MapUndoStack batchStack;
         QList<BatchDeleteCommand::Target> targets;
         for (const QString &n : victims)
             targets.append({n, DeleteObjectCommand::DeleteNode});
         QSignalSpy geom(batchLayer.get(), &SWMMModelLayer::geometryChanged);
-        batchStack.push(new BatchDeleteCommand(batchLayer.get(), targets,
-                                               nullptr,
-                                               QStringLiteral("Batch")));
+        batchStack.push(
+            new BatchDeleteCommand(batchLayer.get(), targets, nullptr, QStringLiteral("Batch")));
         // The batch keeps the one-notification contract.
         QCOMPARE(geom.count(), 1);
 
         MapUndoStack refStack;
-        auto *refMacro = new BulkEditCommand(refLayer.get(),
-                                             QStringLiteral("Ref"));
+        auto *refMacro = new BulkEditCommand(refLayer.get(), QStringLiteral("Ref"));
         for (const QString &n : victims)
-            new DeleteObjectCommand(refLayer.get(), n,
-                                    DeleteObjectCommand::DeleteNode, nullptr,
+            new DeleteObjectCommand(refLayer.get(), n, DeleteObjectCommand::DeleteNode, nullptr,
                                     refMacro);
         refStack.push(refMacro);
 
         const auto sameState = [](SWMMModelLayer *a, SWMMModelLayer *b) {
             const int nn = swmm_node_count(a->engine());
-            if (nn != swmm_node_count(b->engine())) return false;
+            if (nn != swmm_node_count(b->engine()))
+                return false;
             for (int i = 0; i < nn; ++i)
-                if (QString::fromUtf8(swmm_node_id(a->engine(), i))
-                    != QString::fromUtf8(swmm_node_id(b->engine(), i)))
+                if (QString::fromUtf8(swmm_node_id(a->engine(), i)) !=
+                    QString::fromUtf8(swmm_node_id(b->engine(), i)))
                     return false;
             const int nl = swmm_link_count(a->engine());
-            if (nl != swmm_link_count(b->engine())) return false;
+            if (nl != swmm_link_count(b->engine()))
+                return false;
             for (int i = 0; i < nl; ++i)
-                if (QString::fromUtf8(swmm_link_id(a->engine(), i))
-                    != QString::fromUtf8(swmm_link_id(b->engine(), i)))
+                if (QString::fromUtf8(swmm_link_id(a->engine(), i)) !=
+                    QString::fromUtf8(swmm_link_id(b->engine(), i)))
                     return false;
             // The SoA mirrors must agree with their engines too.
             if (a->cachedNodeCount() != nn || b->cachedNodeCount() != nn)
@@ -462,16 +491,14 @@ private slots:
         // from firing.
         QList<BatchDeleteCommand::Target> targets;
         for (const char *n : {"J1", "J2", "J3", "J4", "O1"})
-            targets.append({QString::fromLatin1(n),
-                            DeleteObjectCommand::DeleteNode});
+            targets.append({QString::fromLatin1(n), DeleteObjectCommand::DeleteNode});
         targets.append({QStringLiteral("RG1"), DeleteObjectCommand::DeleteGage});
         for (const char *s : {"S1", "S2", "S3", "S4"})
-            targets.append({QString::fromLatin1(s),
-                            DeleteObjectCommand::DeleteSubcatch});
+            targets.append({QString::fromLatin1(s), DeleteObjectCommand::DeleteSubcatch});
 
         MapUndoStack stack;
-        stack.push(new BatchDeleteCommand(layer.get(), targets, nullptr,
-                                          QStringLiteral("Delete All")));
+        stack.push(
+            new BatchDeleteCommand(layer.get(), targets, nullptr, QStringLiteral("Delete All")));
 
         // The model really is empty — every SoA, or the old early-out would
         // not have fired and this test would pass without the fix.
@@ -499,7 +526,7 @@ private slots:
 
     //! Bulk-delete baseline on a REAL model: set SWMM_PROFILE_INP=<path.inp>
     //! (the profileExternalModel idiom) and optionally
-    //! SWMM_PROFILE_DELETE_N=<count> (default 1000). Reports snapshot vs
+    //! SWMM_PROFILE_DELETE_N=COUNT (default 1000). Reports snapshot vs
     //! execute+close ms; enable QT_LOGGING_RULES="openswmm.bulkdelete=true"
     //! for the endBulkEdit sub-splits. Never runs in CI.
     void profileBulkDelete()
@@ -510,14 +537,11 @@ private slots:
 
         auto layer = std::make_unique<SWMMModelLayer>(inp, nullptr);
         QList<QString> warnings, errors;
-        QVERIFY2(layer->loadModel(warnings, errors),
-                 qPrintable(errors.join(QStringLiteral("; "))));
+        QVERIFY2(layer->loadModel(warnings, errors), qPrintable(errors.join(QStringLiteral("; "))));
 
-        const int junctions =
-            layer->categoryCount(SWMMModelLayer::CatJunctions);
+        const int junctions = layer->categoryCount(SWMMModelLayer::CatJunctions);
         const int wanted =
-            qEnvironmentVariable("SWMM_PROFILE_DELETE_N",
-                                 QStringLiteral("1000")).toInt();
+            qEnvironmentVariable("SWMM_PROFILE_DELETE_N", QStringLiteral("1000")).toInt();
         const int k = std::min(wanted, junctions);
         QVERIFY2(k > 0, "profile model has no junctions to delete");
 
@@ -533,16 +557,15 @@ private slots:
         targets.reserve(names.size());
         for (const QString &n : std::as_const(names))
             targets.append({n, DeleteObjectCommand::DeleteNode});
-        auto *macro = new BatchDeleteCommand(layer.get(), targets, nullptr,
-                                             QStringLiteral("Profile Delete"));
+        auto *macro =
+            new BatchDeleteCommand(layer.get(), targets, nullptr, QStringLiteral("Profile Delete"));
         const qint64 snapshotMs = timer.elapsed();
         stack.push(macro);
         const qint64 totalMs = timer.elapsed();
 
-        qInfo().nospace() << "[profileBulkDelete] " << k << " node(s) of "
-                          << junctions << " — snapshots " << snapshotMs
-                          << " ms, execute+close " << (totalMs - snapshotMs)
-                          << " ms, total " << totalMs << " ms";
+        qInfo().nospace() << "[profileBulkDelete] " << k << " node(s) of " << junctions
+                          << " — snapshots " << snapshotMs << " ms, execute+close "
+                          << (totalMs - snapshotMs) << " ms, total " << totalMs << " ms";
     }
 };
 

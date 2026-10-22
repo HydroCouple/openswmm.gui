@@ -1,8 +1,12 @@
-/*!
- * \file   meshprofileplotwidget.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      meshprofileplotwidget.cpp
+ * @brief     surface mesh.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "plot/meshprofileplotwidget.h"
 #include "ui/theme/thememanager.h"
 #include "ui/theme/themetokens.h"
@@ -32,50 +36,79 @@
 #include <functional>
 #include <limits>
 
-namespace {
+namespace
+{
 
-constexpr int    kMarginLeft   = 64;
-constexpr int    kMarginRight  = 16;
-constexpr int    kMarginTop    = 16;
-constexpr int    kMarginBottom = 40;
-constexpr double kPadFracY     = 0.06;
-constexpr double kPadFracX     = 0.02;
-constexpr double kDry          = 1e-4;   // 0.1 mm — matches layer dryDepth default
-constexpr qreal  kAxisEdgeAlongPx = 28.0;
-constexpr qreal  kAxisLabelBandPx = 48.0;
-
+constexpr int kMarginLeft = 64;
+constexpr int kMarginRight = 16;
+constexpr int kMarginTop = 16;
+constexpr int kMarginBottom = 40;
+constexpr double kPadFracY = 0.06;
+constexpr double kPadFracX = 0.02;
+constexpr double kDry = 1e-4; // 0.1 mm — matches layer dryDepth default
+constexpr qreal kAxisEdgeAlongPx = 28.0;
+constexpr qreal kAxisLabelBandPx = 48.0;
 
 // UI redesign P4 — plot chrome colors come from the theme tokens so the
 // plot flips with the light/dark scheme (data fills stay hardcoded).
+/**
+ * @brief Resolve plot chrome from the application theme.
+ * @return Borrowed immutable token table, for GUI-thread use.
+ */
 inline const openswmmvis::ui::ThemeColors &plotTheme()
 {
     return openswmmvis::ui::ThemeManager::instance()->colors();
 }
 
-
+/**
+ * @brief Test whether a station has drawable terrain elevation.
+ * @param[in] s Profile sample.
+ * @return std::isfinite(s.ground); does not inspect depths or cell indices.
+ */
 inline bool finiteGround(const MeshProfileSampler::Sample &s)
 {
     return std::isfinite(s.ground);
 }
 
+/**
+ * @brief Classify endpoint-editor error text.
+ * @param[in] edge Axis endpoint enum.
+ * @return True only for XMinimum/YMinimum, false otherwise.
+ */
 bool isMinEdge(MeshProfilePlotWidget::AxisEdge edge) noexcept
 {
-    return edge == MeshProfilePlotWidget::AxisEdge::XMinimum
-        || edge == MeshProfilePlotWidget::AxisEdge::YMinimum;
+    return edge == MeshProfilePlotWidget::AxisEdge::XMinimum ||
+           edge == MeshProfilePlotWidget::AxisEdge::YMinimum;
 }
 
+/**
+ * @brief Supply the endpoint-entry dialog caption.
+ * @param[in] edge Declared axis edge.
+ * @return Translated X/Y minimum/maximum, or empty for None/unknown values.
+ */
 QString labelForEdge(MeshProfilePlotWidget::AxisEdge edge)
 {
     switch (edge) {
-    case MeshProfilePlotWidget::AxisEdge::XMinimum: return QObject::tr("X minimum");
-    case MeshProfilePlotWidget::AxisEdge::XMaximum: return QObject::tr("X maximum");
-    case MeshProfilePlotWidget::AxisEdge::YMinimum: return QObject::tr("Y minimum");
-    case MeshProfilePlotWidget::AxisEdge::YMaximum: return QObject::tr("Y maximum");
-    case MeshProfilePlotWidget::AxisEdge::None: break;
+    case MeshProfilePlotWidget::AxisEdge::XMinimum:
+        return QObject::tr("X minimum");
+    case MeshProfilePlotWidget::AxisEdge::XMaximum:
+        return QObject::tr("X maximum");
+    case MeshProfilePlotWidget::AxisEdge::YMinimum:
+        return QObject::tr("Y minimum");
+    case MeshProfilePlotWidget::AxisEdge::YMaximum:
+        return QObject::tr("Y maximum");
+    case MeshProfilePlotWidget::AxisEdge::None:
+        break;
     }
     return {};
 }
 
+/**
+ * @brief Parse finite numeric endpoint text with local then neutral Qt conventions.
+ * @param[in] text Input trimmed before each parse attempt.
+ * @param[out] value Parsed candidate; assigned even when parsing/nonfinite validation fails, so consume only on true.
+ * @return True for a successful finite local-locale parse or fallback QString::toDouble() parse.
+ */
 bool parseDoubleLocaleAware(const QString &text, double &value)
 {
     bool ok = false;
@@ -87,8 +120,7 @@ bool parseDoubleLocaleAware(const QString &text, double &value)
 
 } // namespace
 
-MeshProfilePlotWidget::MeshProfilePlotWidget(QWidget *parent)
-    : QWidget(parent)
+MeshProfilePlotWidget::MeshProfilePlotWidget(QWidget *parent) : QWidget(parent)
 {
     setAutoFillBackground(true);
     const auto applyPlotBackground = [this] {
@@ -98,14 +130,14 @@ MeshProfilePlotWidget::MeshProfilePlotWidget(QWidget *parent)
         update();
     };
     applyPlotBackground();
-    connect(openswmmvis::ui::ThemeManager::instance(),
-            &openswmmvis::ui::ThemeManager::themeChanged,
+    connect(openswmmvis::ui::ThemeManager::instance(), &openswmmvis::ui::ThemeManager::themeChanged,
             this, applyPlotBackground);
     setMinimumSize(360, 240);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setAccessibleName(tr("2D elevation profile"));
-    setAccessibleDescription(tr("Left and Right move between section stations. Home and End move to the first and last station."));
+    setAccessibleDescription(tr(
+        "Left and Right move between section stations. Home and End move to the first and last station."));
 }
 
 // ── Configuration ───────────────────────────────────────────────────────
@@ -122,7 +154,8 @@ void MeshProfilePlotWidget::setCurrentDepths(const QVector<double> &depthNow,
                                              const QVector<bool> &cellHasSurface,
                                              const QVector<double> &signedDepths)
 {
-    if (depthNow.size() != m_profile.samples.size()) return;
+    if (depthNow.size() != m_profile.samples.size())
+        return;
     const bool withFlags = cellHasSurface.size() == depthNow.size();
     for (int i = 0; i < depthNow.size(); ++i) {
         m_profile.samples[i].depthNow = depthNow[i];
@@ -136,19 +169,20 @@ void MeshProfilePlotWidget::setCurrentDepths(const QVector<double> &depthNow,
 
 void MeshProfilePlotWidget::setOptions(MeshProfilePlotOptions *options)
 {
-    if (m_options == options) return;
+    if (m_options == options)
+        return;
     if (m_options)
         disconnect(m_options.data(), nullptr, this, nullptr);
     m_options = options;
     if (m_options)
-        connect(m_options.data(), &MeshProfilePlotOptions::changed,
-                this, [this] { update(); });
+        connect(m_options.data(), &MeshProfilePlotOptions::changed, this, [this] { update(); });
     update();
 }
 
 void MeshProfilePlotWidget::setCurrentDateTime(const QDateTime &dt)
 {
-    if (m_currentDateTime == dt) return;
+    if (m_currentDateTime == dt)
+        return;
     m_currentDateTime = dt;
     update();
 }
@@ -163,7 +197,8 @@ void MeshProfilePlotWidget::setAxisLabels(const QString &xLabel, const QString &
 void MeshProfilePlotWidget::setCursorChainage(double chainage)
 {
     if (chainage < 0.0 || m_profile.samples.isEmpty()) {
-        if (!m_hasCursor) return;
+        if (!m_hasCursor)
+            return;
         m_hasCursor = false;
         refreshAccessibleDescription();
         update();
@@ -171,11 +206,12 @@ void MeshProfilePlotWidget::setCursorChainage(double chainage)
     }
     const double total = m_profile.samples.last().chainage;
     const double c = std::clamp(chainage, 0.0, total);
-    if (m_hasCursor && std::abs(c - m_cursorChainage) < 1e-9) return;
+    if (m_hasCursor && std::abs(c - m_cursorChainage) < 1e-9)
+        return;
     m_hasCursor = true;
     m_cursorChainage = c;
     refreshAccessibleDescription();
-    QAccessibleValueChangeEvent accessibleEvent(this,c);
+    QAccessibleValueChangeEvent accessibleEvent(this, c);
     QAccessible::updateAccessibility(&accessibleEvent);
     update();
 }
@@ -185,10 +221,13 @@ void MeshProfilePlotWidget::setCursorChainage(double chainage)
 void MeshProfilePlotWidget::refreshAccessibleDescription()
 {
     QStringList descriptions;
-    if (m_hasCursor) descriptions.append(tr("Station %1.").arg(m_cursorChainage,0,'g',12));
-    descriptions.append(tr("Left and Right move between section stations. Home and End move to the first and last station."));
+    if (m_hasCursor)
+        descriptions.append(tr("Station %1.").arg(m_cursorChainage, 0, 'g', 12));
+    descriptions.append(tr(
+        "Left and Right move between section stations. Home and End move to the first and last station."));
     for (const auto &series : m_profile.series)
-        if (series.definition.visible && series.definition.role == ProfileSection::SeriesRole::Elevation)
+        if (series.definition.visible &&
+            series.definition.role == ProfileSection::SeriesRole::Elevation)
             descriptions.append(ProfileSection::accessibleSeriesSummary(series));
     setAccessibleDescription(descriptions.join(QStringLiteral("; ")));
 }
@@ -197,32 +236,48 @@ void MeshProfilePlotWidget::recomputeBounds()
 {
     const auto &samples = m_profile.samples;
     if (samples.isEmpty()) {
-        m_autoXMin = 0.0; m_autoXMax = 1.0; m_autoYMin = 0.0; m_autoYMax = 1.0;
-        if (m_fitMode) { m_dataXMin = 0.0; m_dataXMax = 1.0; m_dataYMin = 0.0; m_dataYMax = 1.0; }
+        m_autoXMin = 0.0;
+        m_autoXMax = 1.0;
+        m_autoYMin = 0.0;
+        m_autoYMax = 1.0;
+        if (m_fitMode) {
+            m_dataXMin = 0.0;
+            m_dataXMax = 1.0;
+            m_dataYMin = 0.0;
+            m_dataYMax = 1.0;
+        }
         return;
     }
 
     double xMin = 0.0;
     double xMax = samples.last().chainage;
-    if (xMax <= xMin) xMax = xMin + 1.0;
+    if (xMax <= xMin)
+        xMax = xMin + 1.0;
 
-    double yMin =  std::numeric_limits<double>::infinity();
+    double yMin = std::numeric_limits<double>::infinity();
     double yMax = -std::numeric_limits<double>::infinity();
     for (const auto &s : samples) {
-        if (!finiteGround(s)) continue;
+        if (!finiteGround(s))
+            continue;
         yMin = std::min(yMin, s.ground);
         yMax = std::max(yMax, s.ground + std::max(0.0, s.maxDepth));
     }
     for (const auto &series : m_profile.series) {
-        if (!series.definition.visible || series.definition.role != ProfileSection::SeriesRole::Elevation
-            || !series.error.isEmpty()) continue;
+        if (!series.definition.visible ||
+            series.definition.role != ProfileSection::SeriesRole::Elevation ||
+            !series.error.isEmpty())
+            continue;
         for (const auto &point : series.points) {
-            if (point.status != openswmmvis::io::Mesh2DValueStatus::Valid || !std::isfinite(point.value)) continue;
-            yMin = std::min(yMin,point.value); yMax = std::max(yMax,point.value);
+            if (point.status != openswmmvis::io::Mesh2DValueStatus::Valid ||
+                !std::isfinite(point.value))
+                continue;
+            yMin = std::min(yMin, point.value);
+            yMax = std::max(yMax, point.value);
         }
     }
     if (!std::isfinite(yMin) || !std::isfinite(yMax) || yMax <= yMin) {
-        yMin = 0.0; yMax = 1.0;
+        yMin = 0.0;
+        yMax = 1.0;
     }
 
     const double rangeY = yMax - yMin;
@@ -232,74 +287,94 @@ void MeshProfilePlotWidget::recomputeBounds()
     xMin -= rangeX * kPadFracX;
     xMax += rangeX * kPadFracX;
 
-    m_autoXMin = xMin; m_autoXMax = xMax;
-    m_autoYMin = yMin; m_autoYMax = yMax;
+    m_autoXMin = xMin;
+    m_autoXMax = xMax;
+    m_autoYMin = yMin;
+    m_autoYMax = yMax;
     if (m_fitMode) {
-        m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
-        m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax;
+        m_dataXMin = m_autoXMin;
+        m_dataXMax = m_autoXMax;
+        m_dataYMin = m_autoYMin;
+        m_dataYMax = m_autoYMax;
     }
 }
 
 void MeshProfilePlotWidget::fitToExtent()
 {
     m_fitMode = true;
-    m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
-    m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax;
+    m_dataXMin = m_autoXMin;
+    m_dataXMax = m_autoXMax;
+    m_dataYMin = m_autoYMin;
+    m_dataYMax = m_autoYMax;
     update();
 }
 
 void MeshProfilePlotWidget::zoomBy(double factor)
 {
-    if (factor <= 0.0) return;
+    if (factor <= 0.0)
+        return;
     m_fitMode = false;
     const double cx = (m_dataXMin + m_dataXMax) / 2.0;
     const double cy = (m_dataYMin + m_dataYMax) / 2.0;
     const double halfX = (m_dataXMax - m_dataXMin) / 2.0 * factor;
     const double halfY = (m_dataYMax - m_dataYMin) / 2.0 * factor;
-    m_dataXMin = cx - halfX; m_dataXMax = cx + halfX;
-    m_dataYMin = cy - halfY; m_dataYMax = cy + halfY;
+    m_dataXMin = cx - halfX;
+    m_dataXMax = cx + halfX;
+    m_dataYMin = cy - halfY;
+    m_dataYMax = cy + halfY;
     update();
 }
 
 void MeshProfilePlotWidget::setMode(Mode m)
 {
-    if (m_mode == m) return;
+    if (m_mode == m)
+        return;
     m_mode = m;
     switch (m) {
-    case Mode::Pan:      setCursor(Qt::OpenHandCursor); break;
-    case Mode::ZoomIn:   setCursor(Qt::CrossCursor);    break;
-    case Mode::ZoomOut:  setCursor(Qt::CrossCursor);    break;
-    case Mode::Identify: setCursor(Qt::ArrowCursor);    break;
+    case Mode::Pan:
+        setCursor(Qt::OpenHandCursor);
+        break;
+    case Mode::ZoomIn:
+        setCursor(Qt::CrossCursor);
+        break;
+    case Mode::ZoomOut:
+        setCursor(Qt::CrossCursor);
+        break;
+    case Mode::Identify:
+        setCursor(Qt::ArrowCursor);
+        break;
     }
     m_panActive = false;
     m_zoomActive = false;
     m_pressedAxisEdge = AxisEdge::None;
-    if (m_rubberBand) m_rubberBand->hide();
+    if (m_rubberBand)
+        m_rubberBand->hide();
 }
 
-MeshProfilePlotWidget::AxisEdge
-MeshProfilePlotWidget::axisEdgeAt(const QPoint &widgetPos) const
+MeshProfilePlotWidget::AxisEdge MeshProfilePlotWidget::axisEdgeAt(const QPoint &widgetPos) const
 {
     const QRectF r = plotRect();
     const QPointF p = widgetPos;
 
-    const bool nearLeft  = std::abs(p.x() - r.left()) <= kAxisEdgeAlongPx;
+    const bool nearLeft = std::abs(p.x() - r.left()) <= kAxisEdgeAlongPx;
     const bool nearRight = std::abs(p.x() - r.right()) <= kAxisEdgeAlongPx;
-    const bool nearTop   = std::abs(p.y() - r.top()) <= kAxisEdgeAlongPx;
-    const bool nearBot   = std::abs(p.y() - r.bottom()) <= kAxisEdgeAlongPx;
+    const bool nearTop = std::abs(p.y() - r.top()) <= kAxisEdgeAlongPx;
+    const bool nearBot = std::abs(p.y() - r.bottom()) <= kAxisEdgeAlongPx;
 
-    const bool inBottomBand =
-        p.y() >= r.bottom() && p.y() <= r.bottom() + kAxisLabelBandPx;
+    const bool inBottomBand = p.y() >= r.bottom() && p.y() <= r.bottom() + kAxisLabelBandPx;
     if (inBottomBand) {
-        if (nearLeft) return AxisEdge::XMinimum;
-        if (nearRight) return AxisEdge::XMaximum;
+        if (nearLeft)
+            return AxisEdge::XMinimum;
+        if (nearRight)
+            return AxisEdge::XMaximum;
     }
 
-    const bool inLeftBand =
-        p.x() <= r.left() && p.x() >= r.left() - kAxisLabelBandPx;
+    const bool inLeftBand = p.x() <= r.left() && p.x() >= r.left() - kAxisLabelBandPx;
     if (inLeftBand) {
-        if (nearBot) return AxisEdge::YMinimum;
-        if (nearTop) return AxisEdge::YMaximum;
+        if (nearBot)
+            return AxisEdge::YMinimum;
+        if (nearTop)
+            return AxisEdge::YMaximum;
     }
 
     return AxisEdge::None;
@@ -307,23 +382,28 @@ MeshProfilePlotWidget::axisEdgeAt(const QPoint &widgetPos) const
 
 bool MeshProfilePlotWidget::setAxisEdgeValue(AxisEdge edge, double value)
 {
-    if (!std::isfinite(value)) return false;
+    if (!std::isfinite(value))
+        return false;
 
     switch (edge) {
     case AxisEdge::XMinimum:
-        if (value >= m_dataXMax) return false;
+        if (value >= m_dataXMax)
+            return false;
         m_dataXMin = value;
         break;
     case AxisEdge::XMaximum:
-        if (value <= m_dataXMin) return false;
+        if (value <= m_dataXMin)
+            return false;
         m_dataXMax = value;
         break;
     case AxisEdge::YMinimum:
-        if (value >= m_dataYMax) return false;
+        if (value >= m_dataYMax)
+            return false;
         m_dataYMin = value;
         break;
     case AxisEdge::YMaximum:
-        if (value <= m_dataYMin) return false;
+        if (value <= m_dataYMin)
+            return false;
         m_dataYMax = value;
         break;
     case AxisEdge::None:
@@ -337,34 +417,28 @@ bool MeshProfilePlotWidget::setAxisEdgeValue(AxisEdge edge, double value)
 
 QRectF MeshProfilePlotWidget::visibleDataRange() const
 {
-    return QRectF(QPointF(m_dataXMin, m_dataYMin),
-                  QPointF(m_dataXMax, m_dataYMax)).normalized();
+    return QRectF(QPointF(m_dataXMin, m_dataYMin), QPointF(m_dataXMax, m_dataYMax)).normalized();
 }
 
 bool MeshProfilePlotWidget::editAxisEdge(AxisEdge edge)
 {
-    if (edge == AxisEdge::None) return false;
-    const double current =
-        edge == AxisEdge::XMinimum ? m_dataXMin :
-        edge == AxisEdge::XMaximum ? m_dataXMax :
-        edge == AxisEdge::YMinimum ? m_dataYMin :
-                                     m_dataYMax;
+    if (edge == AxisEdge::None)
+        return false;
+    const double current = edge == AxisEdge::XMinimum   ? m_dataXMin
+                           : edge == AxisEdge::XMaximum ? m_dataXMax
+                           : edge == AxisEdge::YMinimum ? m_dataYMin
+                                                        : m_dataYMax;
     bool accepted = false;
-    const QString text = QInputDialog::getText(
-        this,
-        tr("Edit Axis Range"),
-        tr("%1:").arg(labelForEdge(edge)),
-        QLineEdit::Normal,
-        QLocale().toString(current, 'g', 15),
-        &accepted);
-    if (!accepted) return false;
+    const QString text =
+        QInputDialog::getText(this, tr("Edit Axis Range"), tr("%1:").arg(labelForEdge(edge)),
+                              QLineEdit::Normal, QLocale().toString(current, 'g', 15), &accepted);
+    if (!accepted)
+        return false;
 
     double value = 0.0;
-    if (!parseDoubleLocaleAware(text, value)
-        || !setAxisEdgeValue(edge, value)) {
+    if (!parseDoubleLocaleAware(text, value) || !setAxisEdgeValue(edge, value)) {
         QMessageBox::warning(
-            this,
-            tr("Invalid Axis Range"),
+            this, tr("Invalid Axis Range"),
             isMinEdge(edge)
                 ? tr("The minimum must be a finite value less than the current maximum.")
                 : tr("The maximum must be a finite value greater than the current minimum."));
@@ -377,23 +451,23 @@ bool MeshProfilePlotWidget::editAxisEdge(AxisEdge edge)
 
 QRectF MeshProfilePlotWidget::plotRect() const
 {
-    return QRectF(kMarginLeft, kMarginTop,
-                  std::max(1, width()  - kMarginLeft - kMarginRight),
-                  std::max(1, height() - kMarginTop  - kMarginBottom));
+    return QRectF(kMarginLeft, kMarginTop, std::max(1, width() - kMarginLeft - kMarginRight),
+                  std::max(1, height() - kMarginTop - kMarginBottom));
 }
 
 QPointF MeshProfilePlotWidget::dataToPixel(double chainage, double elev) const
 {
     const QRectF r = plotRect();
     const double xFrac = (chainage - m_dataXMin) / (m_dataXMax - m_dataXMin);
-    const double yFrac = (elev     - m_dataYMin) / (m_dataYMax - m_dataYMin);
-    return { r.left() + xFrac * r.width(), r.bottom() - yFrac * r.height() };
+    const double yFrac = (elev - m_dataYMin) / (m_dataYMax - m_dataYMin);
+    return {r.left() + xFrac * r.width(), r.bottom() - yFrac * r.height()};
 }
 
 double MeshProfilePlotWidget::pixelToChainage(double px) const
 {
     const QRectF r = plotRect();
-    if (r.width() <= 0.0) return m_dataXMin;
+    if (r.width() <= 0.0)
+        return m_dataXMin;
     const double xFrac = (px - r.left()) / r.width();
     return m_dataXMin + xFrac * (m_dataXMax - m_dataXMin);
 }
@@ -401,26 +475,31 @@ double MeshProfilePlotWidget::pixelToChainage(double px) const
 bool MeshProfilePlotWidget::sampleAtChainage(double chain, double &ground, double &wse) const
 {
     const auto &s = m_profile.samples;
-    if (s.isEmpty()) return false;
+    if (s.isEmpty())
+        return false;
     if (m_profile.exactWaterGeometry) {
         for (int i = 1; i < s.size(); ++i) {
-            const auto& a = s[i-1]; const auto& b = s[i];
-            if (b.breakBefore || chain < a.chainage || chain > b.chainage
-                || !finiteGround(a) || !finiteGround(b)) continue;
-            const double t = (chain-a.chainage)/(b.chainage-a.chainage);
-            ground = a.ground + t*(b.ground-a.ground);
-            const double q = a.signedDepthNow + t*(b.signedDepthNow-a.signedDepthNow);
-            wse = ground + std::max(0.0,q);
+            const auto &a = s[i - 1];
+            const auto &b = s[i];
+            if (b.breakBefore || chain < a.chainage || chain > b.chainage || !finiteGround(a) ||
+                !finiteGround(b))
+                continue;
+            const double t = (chain - a.chainage) / (b.chainage - a.chainage);
+            ground = a.ground + t * (b.ground - a.ground);
+            const double q = a.signedDepthNow + t * (b.signedDepthNow - a.signedDepthNow);
+            wse = ground + std::max(0.0, q);
             return true;
         }
         return false;
     }
     // Find the bracketing samples and linearly interpolate ground + depth.
     for (int i = 1; i < s.size(); ++i) {
-        if (chain > s[i].chainage) continue;
+        if (chain > s[i].chainage)
+            continue;
         const auto &a = s[i - 1];
         const auto &b = s[i];
-        if (!finiteGround(a) || !finiteGround(b)) return false;
+        if (!finiteGround(a) || !finiteGround(b))
+            return false;
         const double span = b.chainage - a.chainage;
         const double t = (span > 1e-12) ? std::clamp((chain - a.chainage) / span, 0.0, 1.0) : 0.0;
         ground = a.ground + (b.ground - a.ground) * t;
@@ -429,7 +508,8 @@ bool MeshProfilePlotWidget::sampleAtChainage(double chain, double &ground, doubl
         return true;
     }
     // chain past the last sample — clamp to it.
-    if (!finiteGround(s.last())) return false;
+    if (!finiteGround(s.last()))
+        return false;
     ground = s.last().ground;
     wse = ground + std::max(0.0, s.last().depthNow);
     return true;
@@ -437,17 +517,24 @@ bool MeshProfilePlotWidget::sampleAtChainage(double chain, double &ground, doubl
 
 // ── Events ────────────────────────────────────────────────────────────────
 
-void MeshProfilePlotWidget::resizeEvent(QResizeEvent *) { update(); }
+void MeshProfilePlotWidget::resizeEvent(QResizeEvent *)
+{
+    update();
+}
 
 void MeshProfilePlotWidget::paintEvent(QPaintEvent *)
 {
     const QRectF range = visibleDataRange();
-    if (range != m_lastEmittedViewRange) { m_lastEmittedViewRange = range; emit viewRangeChanged(range); }
+    if (range != m_lastEmittedViewRange) {
+        m_lastEmittedViewRange = range;
+        emit viewRangeChanged(range);
+    }
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
 
     paintBackgroundAndAxes(p);
-    if (m_profile.samples.isEmpty()) return;
+    if (m_profile.samples.isEmpty())
+        return;
 
     paintSoilFill(p);
     if (m_profile.hasResults) {
@@ -517,8 +604,8 @@ void MeshProfilePlotWidget::mousePressEvent(QMouseEvent *event)
             // Click-to-place / grab the position cursor, then drag it.
             m_cursorDragging = true;
             m_hasCursor = true;
-            m_cursorChainage = std::clamp(pixelToChainage(event->position().x()),
-                                          0.0, m_profile.samples.last().chainage);
+            m_cursorChainage = std::clamp(pixelToChainage(event->position().x()), 0.0,
+                                          m_profile.samples.last().chainage);
             emit cursorChainageChanged(m_cursorChainage);
             setCursor(Qt::SizeHorCursor);
             update();
@@ -545,19 +632,23 @@ void MeshProfilePlotWidget::mouseMoveEvent(QMouseEvent *event)
         return;
     }
     if (m_cursorDragging && !m_profile.samples.isEmpty()) {
-        m_cursorChainage = std::clamp(pixelToChainage(event->position().x()),
-                                      0.0, m_profile.samples.last().chainage);
+        m_cursorChainage = std::clamp(pixelToChainage(event->position().x()), 0.0,
+                                      m_profile.samples.last().chainage);
         emit cursorChainageChanged(m_cursorChainage);
         update();
         return;
     }
     if (m_panActive) {
         const QRectF r = plotRect();
-        const double dxData = -(event->pos().x() - m_lastMousePos.x()) / r.width()  * (m_dataXMax - m_dataXMin);
-        const double dyData =  (event->pos().y() - m_lastMousePos.y()) / r.height() * (m_dataYMax - m_dataYMin);
+        const double dxData =
+            -(event->pos().x() - m_lastMousePos.x()) / r.width() * (m_dataXMax - m_dataXMin);
+        const double dyData =
+            (event->pos().y() - m_lastMousePos.y()) / r.height() * (m_dataYMax - m_dataYMin);
         m_fitMode = false;
-        m_dataXMin += dxData; m_dataXMax += dxData;
-        m_dataYMin += dyData; m_dataYMax += dyData;
+        m_dataXMin += dxData;
+        m_dataXMax += dxData;
+        m_dataYMin += dyData;
+        m_dataYMax += dyData;
         m_lastMousePos = event->pos();
         update();
         return;
@@ -568,9 +659,8 @@ void MeshProfilePlotWidget::mouseMoveEvent(QMouseEvent *event)
     }
     if (m_mode == Mode::Identify) {
         const QPointF pos = event->position();
-        const bool overOverlay =
-            (!m_timeLabelRect.isNull() && m_timeLabelRect.contains(pos)) ||
-            (!m_legendRect.isNull()    && m_legendRect.contains(pos));
+        const bool overOverlay = (!m_timeLabelRect.isNull() && m_timeLabelRect.contains(pos)) ||
+                                 (!m_legendRect.isNull() && m_legendRect.contains(pos));
         setCursor(overOverlay ? Qt::OpenHandCursor : Qt::ArrowCursor);
     }
     QWidget::mouseMoveEvent(event);
@@ -579,22 +669,21 @@ void MeshProfilePlotWidget::mouseMoveEvent(QMouseEvent *event)
 void MeshProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     auto restoreCursor = [this] {
-        setCursor(m_mode == Mode::Pan     ? Qt::OpenHandCursor :
-                  m_mode == Mode::ZoomIn  ? Qt::CrossCursor    :
-                  m_mode == Mode::ZoomOut ? Qt::CrossCursor    :
-                                            Qt::ArrowCursor);
+        setCursor(m_mode == Mode::Pan       ? Qt::OpenHandCursor
+                  : m_mode == Mode::ZoomIn  ? Qt::CrossCursor
+                  : m_mode == Mode::ZoomOut ? Qt::CrossCursor
+                                            : Qt::ArrowCursor);
     };
     if (m_overlayDrag != OverlayDrag::None && event->button() == Qt::LeftButton) {
         m_overlayDrag = OverlayDrag::None;
         restoreCursor();
         return;
     }
-    if (m_pressedAxisEdge != AxisEdge::None
-        && event->button() == Qt::LeftButton) {
+    if (m_pressedAxisEdge != AxisEdge::None && event->button() == Qt::LeftButton) {
         const AxisEdge edge = m_pressedAxisEdge;
         m_pressedAxisEdge = AxisEdge::None;
-        const bool click = std::abs(event->pos().x() - m_lastMousePos.x()) < 5
-            && std::abs(event->pos().y() - m_lastMousePos.y()) < 5;
+        const bool click = std::abs(event->pos().x() - m_lastMousePos.x()) < 5 &&
+                           std::abs(event->pos().y() - m_lastMousePos.y()) < 5;
         if (click && axisEdgeAt(event->pos()) == edge)
             editAxisEdge(edge);
         event->accept();
@@ -605,8 +694,7 @@ void MeshProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
         restoreCursor();
         return;
     }
-    if (m_panActive &&
-        (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)) {
+    if (m_panActive && (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)) {
         m_panActive = false;
         restoreCursor();
         return;
@@ -615,12 +703,13 @@ void MeshProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
         m_zoomActive = false;
         const QRect band = m_rubberBand ? m_rubberBand->geometry()
                                         : QRect(m_zoomAnchor, event->pos()).normalized();
-        if (m_rubberBand) m_rubberBand->hide();
+        if (m_rubberBand)
+            m_rubberBand->hide();
         const QRectF plot = plotRect();
-        const QRect  clipped = band.intersected(plot.toRect());
+        const QRect clipped = band.intersected(plot.toRect());
 
         auto pixelToData = [&](const QPoint &px) {
-            const double xFrac = (px.x() - plot.left())  / plot.width();
+            const double xFrac = (px.x() - plot.left()) / plot.width();
             const double yFrac = (plot.bottom() - px.y()) / plot.height();
             return QPointF(m_dataXMin + xFrac * (m_dataXMax - m_dataXMin),
                            m_dataYMin + yFrac * (m_dataYMax - m_dataYMin));
@@ -632,24 +721,30 @@ void MeshProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
             const double factor = (m_mode == Mode::ZoomIn) ? 0.5 : 2.0;
             const double halfX = (m_dataXMax - m_dataXMin) / 2.0 * factor;
             const double halfY = (m_dataYMax - m_dataYMin) / 2.0 * factor;
-            m_dataXMin = anchor.x() - halfX; m_dataXMax = anchor.x() + halfX;
-            m_dataYMin = anchor.y() - halfY; m_dataYMax = anchor.y() + halfY;
+            m_dataXMin = anchor.x() - halfX;
+            m_dataXMax = anchor.x() + halfX;
+            m_dataYMin = anchor.y() - halfY;
+            m_dataYMax = anchor.y() + halfY;
         } else {
             const QPointF a = pixelToData(clipped.topLeft());
             const QPointF b = pixelToData(clipped.bottomRight());
             const double xMin = std::min(a.x(), b.x()), xMax = std::max(a.x(), b.x());
             const double yMin = std::min(a.y(), b.y()), yMax = std::max(a.y(), b.y());
             if (m_mode == Mode::ZoomIn) {
-                m_dataXMin = xMin; m_dataXMax = xMax;
-                m_dataYMin = yMin; m_dataYMax = yMax;
+                m_dataXMin = xMin;
+                m_dataXMax = xMax;
+                m_dataYMin = yMin;
+                m_dataYMax = yMax;
             } else {
                 const double sx = (m_dataXMax - m_dataXMin) / std::max(1e-9, xMax - xMin);
                 const double sy = (m_dataYMax - m_dataYMin) / std::max(1e-9, yMax - yMin);
                 const double cx = (xMin + xMax) / 2.0, cy = (yMin + yMax) / 2.0;
                 const double halfX = (m_dataXMax - m_dataXMin) / 2.0 * sx;
                 const double halfY = (m_dataYMax - m_dataYMin) / 2.0 * sy;
-                m_dataXMin = cx - halfX; m_dataXMax = cx + halfX;
-                m_dataYMin = cy - halfY; m_dataYMax = cy + halfY;
+                m_dataXMin = cx - halfX;
+                m_dataXMax = cx + halfX;
+                m_dataYMin = cy - halfY;
+                m_dataYMax = cy + halfY;
             }
         }
         update();
@@ -661,13 +756,14 @@ void MeshProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
 void MeshProfilePlotWidget::wheelEvent(QWheelEvent *event)
 {
     const double steps = event->angleDelta().y() / 120.0;
-    if (steps == 0.0) return;
+    if (steps == 0.0)
+        return;
     const double factor = std::pow(0.85, steps);
     m_fitMode = false;
 
     const QRectF r = plotRect();
     const QPointF widgetPos = event->position();
-    const double xFrac = (widgetPos.x() - r.left())  / r.width();
+    const double xFrac = (widgetPos.x() - r.left()) / r.width();
     const double yFrac = (r.bottom() - widgetPos.y()) / r.height();
     const double dataX = m_dataXMin + xFrac * (m_dataXMax - m_dataXMin);
     const double dataY = m_dataYMin + yFrac * (m_dataYMax - m_dataYMin);
@@ -675,8 +771,10 @@ void MeshProfilePlotWidget::wheelEvent(QWheelEvent *event)
     const double halfYNew = (m_dataYMax - m_dataYMin) / 2.0 * factor;
     const double newCx = dataX + (0.5 - xFrac) * halfXNew * 2.0;
     const double newCy = dataY + (0.5 - yFrac) * halfYNew * 2.0;
-    m_dataXMin = newCx - halfXNew; m_dataXMax = newCx + halfXNew;
-    m_dataYMin = newCy - halfYNew; m_dataYMax = newCy + halfYNew;
+    m_dataXMin = newCx - halfXNew;
+    m_dataXMax = newCx + halfXNew;
+    m_dataYMin = newCy - halfYNew;
+    m_dataYMax = newCy + halfYNew;
 
     event->accept();
     update();
@@ -707,26 +805,26 @@ void MeshProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     // options object is attached.
     using openswmmvis::plot::NumberFormat;
     using openswmmvis::plot::NumberFormatMode;
-    const NumberFormat yFmt = m_options ? m_options->yFormat()
-                                        : NumberFormat{NumberFormatMode::Decimals, 1};
-    const NumberFormat xFmt = m_options ? m_options->xFormat()
-                                        : NumberFormat{NumberFormatMode::Decimals, 0};
+    const NumberFormat yFmt =
+        m_options ? m_options->yFormat() : NumberFormat{NumberFormatMode::Decimals, 1};
+    const NumberFormat xFmt =
+        m_options ? m_options->xFormat() : NumberFormat{NumberFormatMode::Decimals, 0};
     QFontMetricsF fm(p.font());
     p.setPen(plotTheme().plotAxis);
     for (int i = 0; i <= 5; ++i) {
         const double frac = i / 5.0;
         const double y = r.bottom() - r.height() * frac;
         const double val = m_dataYMin + frac * (m_dataYMax - m_dataYMin);
-        p.drawText(QRectF(0, y - 8, kMarginLeft - 4, 16),
-                   Qt::AlignRight | Qt::AlignVCenter, yFmt.format(val));
+        p.drawText(QRectF(0, y - 8, kMarginLeft - 4, 16), Qt::AlignRight | Qt::AlignVCenter,
+                   yFmt.format(val));
         p.drawLine(QPointF(r.left() - 3, y), QPointF(r.left(), y));
     }
     for (int i = 0; i <= 6; ++i) {
         const double frac = i / 6.0;
         const double x = r.left() + r.width() * frac;
         const double val = m_dataXMin + frac * (m_dataXMax - m_dataXMin);
-        p.drawText(QRectF(x - 30, r.bottom() + 2, 60, 16),
-                   Qt::AlignHCenter | Qt::AlignTop, xFmt.format(val));
+        p.drawText(QRectF(x - 30, r.bottom() + 2, 60, 16), Qt::AlignHCenter | Qt::AlignTop,
+                   xFmt.format(val));
         p.drawLine(QPointF(x, r.bottom()), QPointF(x, r.bottom() + 3));
     }
 
@@ -735,8 +833,7 @@ void MeshProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     p.save();
     p.translate(14, r.center().y());
     p.rotate(-90);
-    p.drawText(QRectF(-80, -8, 160, 16),
-               Qt::AlignHCenter | Qt::AlignVCenter, m_yLabel);
+    p.drawText(QRectF(-80, -8, 160, 16), Qt::AlignHCenter | Qt::AlignVCenter, m_yLabel);
     p.restore();
 }
 
@@ -744,8 +841,7 @@ void MeshProfilePlotWidget::paintSoilFill(QPainter &p) const
 {
     const auto &s = m_profile.samples;
     const QRectF r = plotRect();
-    const QBrush brush = m_options ? m_options->soilFill()
-                                   : QBrush(QColor(0xC6, 0xA9, 0x7A, 160));
+    const QBrush brush = m_options ? m_options->soilFill() : QBrush(QColor(0xC6, 0xA9, 0x7A, 160));
     p.save();
     p.setPen(Qt::NoPen);
     p.setBrush(brush);
@@ -756,7 +852,10 @@ void MeshProfilePlotWidget::paintSoilFill(QPainter &p) const
     path.setFillRule(Qt::WindingFill);
     int i = 0;
     while (i < s.size()) {
-        if (!finiteGround(s[i])) { ++i; continue; }
+        if (!finiteGround(s[i])) {
+            ++i;
+            continue;
+        }
         int j = i;
         path.moveTo(dataToPixel(s[i].chainage, s[i].ground));
         while (j < s.size() && finiteGround(s[j]) && (j == i || !s[j].breakBefore)) {
@@ -765,7 +864,7 @@ void MeshProfilePlotWidget::paintSoilFill(QPainter &p) const
         }
         const int last = j - 1;
         path.lineTo(QPointF(dataToPixel(s[last].chainage, 0).x(), r.bottom()));
-        path.lineTo(QPointF(dataToPixel(s[i].chainage, 0).x(),    r.bottom()));
+        path.lineTo(QPointF(dataToPixel(s[i].chainage, 0).x(), r.bottom()));
         path.closeSubpath();
         i = j;
     }
@@ -773,65 +872,96 @@ void MeshProfilePlotWidget::paintSoilFill(QPainter &p) const
     p.restore();
 }
 
-namespace {
+namespace
+{
 // Clip each cell interval independently, then rasterize one compound fill.
 // Shared edges cancel without alpha seams; dry intervals remain gaps.
-void paintExactWetBand(QPainter& p, const QVector<MeshProfileSampler::Sample>& s,
-                       bool maximum, const QBrush& fill, bool doFill,
-                       const QPen& line, bool doLine,
-                       const std::function<QPointF(double,double)>& toPx)
+/**
+ * @brief Clip signed-depth cell intervals to wet subintervals and draw one compound water band.
+ * @param[in,out] p Active painter; state saved/restored.
+ * @param[in] s Ordered finite-ground interval endpoints, with breakBefore separating independent cells.
+ * @param[in] maximum True selects signedMaxDepth, false signedDepthNow.
+ * @param[in] fill Fill brush.
+ * @param[in] doFill Whether to rasterize the compound fill.
+ * @param[in] line WSE stroke pen.
+ * @param[in] doLine Whether to stroke wet interval tops.
+ * @param[in] toPx Required chainage/elevation-to-pixel callback, valid throughout the call.
+ * @note Skips nonpositive chainage spans and invalid/dry intervals. Exact shorelines are clipped through CellWaterGeometry::wetInterval(), preserving breaks and avoiding alpha seams.
+ */
+void paintExactWetBand(QPainter &p, const QVector<MeshProfileSampler::Sample> &s, bool maximum,
+                       const QBrush &fill, bool doFill, const QPen &line, bool doLine,
+                       const std::function<QPointF(double, double)> &toPx)
 {
     p.save();
     QPainterPath waterLine;
     QPainterPath waterFill;
     waterFill.setFillRule(Qt::WindingFill);
     for (int i = 1; i < s.size(); ++i) {
-        const auto& a = s[i-1]; const auto& b = s[i];
-        if (b.breakBefore || !(b.chainage > a.chainage)
-            || !finiteGround(a) || !finiteGround(b)) continue;
+        const auto &a = s[i - 1];
+        const auto &b = s[i];
+        if (b.breakBefore || !(b.chainage > a.chainage) || !finiteGround(a) || !finiteGround(b))
+            continue;
         const double qa = maximum ? a.signedMaxDepth : a.signedDepthNow;
         const double qb = maximum ? b.signedMaxDepth : b.signedDepthNow;
-        double lo,hi;
-        if (!CellWaterGeometry::wetInterval(qa,qb,0,lo,hi)) continue;
-        auto ground = [&](double t) { return a.ground+t*(b.ground-a.ground); };
-        auto chain = [&](double t) { return a.chainage+t*(b.chainage-a.chainage); };
-        auto top = [&](double t) { return ground(t)+std::max(0.0,qa+t*(qb-qa)); };
-        const QPointF left = toPx(chain(lo),top(lo)), right = toPx(chain(hi),top(hi));
+        double lo, hi;
+        if (!CellWaterGeometry::wetInterval(qa, qb, 0, lo, hi))
+            continue;
+        auto ground = [&](double t) { return a.ground + t * (b.ground - a.ground); };
+        auto chain = [&](double t) { return a.chainage + t * (b.chainage - a.chainage); };
+        auto top = [&](double t) { return ground(t) + std::max(0.0, qa + t * (qb - qa)); };
+        const QPointF left = toPx(chain(lo), top(lo)), right = toPx(chain(hi), top(hi));
         if (doFill) {
             waterFill.moveTo(left);
             waterFill.lineTo(right);
-            waterFill.lineTo(toPx(chain(hi),ground(hi)));
-            waterFill.lineTo(toPx(chain(lo),ground(lo)));
+            waterFill.lineTo(toPx(chain(hi), ground(hi)));
+            waterFill.lineTo(toPx(chain(lo), ground(lo)));
             waterFill.closeSubpath();
         }
         if (doLine) {
-            if (waterLine.isEmpty() || QLineF(waterLine.currentPosition(),left).length()>1e-7)
+            if (waterLine.isEmpty() || QLineF(waterLine.currentPosition(), left).length() > 1e-7)
                 waterLine.moveTo(left);
             waterLine.lineTo(right);
         }
     }
     if (doFill) {
-        p.setPen(Qt::NoPen); p.setBrush(fill); p.drawPath(waterFill);
+        p.setPen(Qt::NoPen);
+        p.setBrush(fill);
+        p.drawPath(waterFill);
     }
     if (doLine) {
-        p.setPen(line); p.setBrush(Qt::NoBrush); p.drawPath(waterLine);
+        p.setPen(line);
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(waterLine);
     }
     p.restore();
 }
 
 template <typename TopFn>
-void paintWetBand(QPainter &p,
-                  const QVector<MeshProfileSampler::Sample> &s,
-                  TopFn topElev,
-                  const QBrush &fillBrush, bool doFill,
-                  const QPen &linePen,    bool doLine,
+/**
+ * @brief Draw legacy sampled wet runs with shallow-film bridging and shoreline taper.
+ * @tparam TopFn Callable mapping one profile sample to its raw WSE in profile vertical units.
+ * @param[in,out] p Active painter, saved/restored around draw operations.
+ * @param[in] s Ordered sample series with coherent chainage/ground units and dry-gap surface flags.
+ * @param[in] topElev Required raw-top callback; finite elevations or NaN expected.
+ * @param[in] fillBrush Water-band fill brush.
+ * @param[in] doFill Whether to draw ground-to-top polygons with at least two top points.
+ * @param[in] linePen WSE outline pen.
+ * @param[in] doLine Whether to stroke top runs with at least two points.
+ * @param[in] toPx Required chainage/elevation pixel mapper.
+ * @note Uses bridgedTops() then optional shorelineIntercept() at each run edge; intended for legacy continuous profiles, not exact breakBefore-separated cell intervals.
+ */
+void paintWetBand(QPainter &p, const QVector<MeshProfileSampler::Sample> &s, TopFn topElev,
+                  const QBrush &fillBrush, bool doFill, const QPen &linePen, bool doLine,
                   const std::function<QPointF(double, double)> &toPx)
 {
     const QVector<double> top = MeshProfileInterp::bridgedTops(
         s, [&](const MeshProfileSampler::Sample &x) { return topElev(x); });
     int i = 0;
     while (i < s.size()) {
-        if (std::isnan(top[i])) { ++i; continue; }
+        if (std::isnan(top[i])) {
+            ++i;
+            continue;
+        }
         int j = i;
         QPolygonF topPoly;
         while (j < s.size() && !std::isnan(top[j])) {
@@ -879,63 +1009,82 @@ void MeshProfilePlotWidget::paintMaxEnvelope(QPainter &p) const
 {
     const bool doFill = !m_options || m_options->showMaxEnvelopeFill();
     const bool doLine = !m_options || m_options->showMaxEnvelopeLine();
-    if (!doFill && !doLine) return;
-    const QBrush brush = m_options ? m_options->maxEnvelopeBrush()
-                                   : QBrush(QColor(0x55, 0xA8, 0xE6, 60));
-    const QPen pen = m_options ? m_options->maxEnvelopePen()
-                               : QPen(QColor(0x1F, 0x6F, 0xB7), 1.4, Qt::DashLine);
+    if (!doFill && !doLine)
+        return;
+    const QBrush brush =
+        m_options ? m_options->maxEnvelopeBrush() : QBrush(QColor(0x55, 0xA8, 0xE6, 60));
+    const QPen pen =
+        m_options ? m_options->maxEnvelopePen() : QPen(QColor(0x1F, 0x6F, 0xB7), 1.4, Qt::DashLine);
     auto toPx = [this](double c, double e) { return dataToPixel(c, e); };
     if (m_profile.exactWaterGeometry) {
-        paintExactWetBand(p,m_profile.samples,true,brush,doFill,pen,doLine,toPx);
+        paintExactWetBand(p, m_profile.samples, true, brush, doFill, pen, doLine, toPx);
         return;
     }
-    paintWetBand(p, m_profile.samples,
-                 [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.maxDepth); },
-                 brush, doFill, pen, doLine, toPx);
+    paintWetBand(
+        p, m_profile.samples,
+        [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.maxDepth); },
+        brush, doFill, pen, doLine, toPx);
 }
 
 void MeshProfilePlotWidget::paintDepthFill(QPainter &p) const
 {
-    if (m_options && !m_options->showDepthFill()) return;
-    const QBrush brush = m_options ? m_options->depthFillBrush()
-                                   : QBrush(QColor(0x55, 0xA8, 0xE6, 120));
+    if (m_options && !m_options->showDepthFill())
+        return;
+    const QBrush brush =
+        m_options ? m_options->depthFillBrush() : QBrush(QColor(0x55, 0xA8, 0xE6, 120));
     auto toPx = [this](double c, double e) { return dataToPixel(c, e); };
     if (m_profile.exactWaterGeometry) {
-        paintExactWetBand(p,m_profile.samples,false,brush,true,QPen(Qt::NoPen),false,toPx);
+        paintExactWetBand(p, m_profile.samples, false, brush, true, QPen(Qt::NoPen), false, toPx);
         return;
     }
-    paintWetBand(p, m_profile.samples,
-                 [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.depthNow); },
-                 brush, /*doFill=*/true, QPen(Qt::NoPen), /*doLine=*/false, toPx);
+    paintWetBand(
+        p, m_profile.samples,
+        [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.depthNow); },
+        brush, /*doFill=*/true, QPen(Qt::NoPen), /*doLine=*/false, toPx);
 }
 
 void MeshProfilePlotWidget::paintWseLine(QPainter &p) const
 {
-    if (m_options && !m_options->showWseLine()) return;
-    const QPen pen = m_options ? m_options->wseLinePen()
-                               : QPen(QColor(0x1F, 0x6F, 0xB7), 2.0, Qt::SolidLine);
+    if (m_options && !m_options->showWseLine())
+        return;
+    const QPen pen =
+        m_options ? m_options->wseLinePen() : QPen(QColor(0x1F, 0x6F, 0xB7), 2.0, Qt::SolidLine);
     auto toPx = [this](double c, double e) { return dataToPixel(c, e); };
     if (m_profile.exactWaterGeometry) {
-        paintExactWetBand(p,m_profile.samples,false,QBrush(Qt::NoBrush),false,pen,true,toPx);
+        paintExactWetBand(p, m_profile.samples, false, QBrush(Qt::NoBrush), false, pen, true, toPx);
         return;
     }
-    paintWetBand(p, m_profile.samples,
-                 [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.depthNow); },
-                 QBrush(Qt::NoBrush), /*doFill=*/false, pen, /*doLine=*/true, toPx);
+    paintWetBand(
+        p, m_profile.samples,
+        [](const MeshProfileSampler::Sample &s) { return s.ground + std::max(0.0, s.depthNow); },
+        QBrush(Qt::NoBrush), /*doFill=*/false, pen, /*doLine=*/true, toPx);
 }
 
 void MeshProfilePlotWidget::paintAdditionalElevations(QPainter &p) const
 {
-    p.save(); p.setClipRect(plotRect()); p.setBrush(Qt::NoBrush);
+    p.save();
+    p.setClipRect(plotRect());
+    p.setBrush(Qt::NoBrush);
     for (const auto &series : m_profile.series) {
-        if (!series.definition.visible || series.definition.role != ProfileSection::SeriesRole::Elevation
-            || !series.error.isEmpty()) continue;
-        p.setPen(series.definition.pen); p.setOpacity(series.definition.opacity);
-        QPainterPath path; bool active = false;
+        if (!series.definition.visible ||
+            series.definition.role != ProfileSection::SeriesRole::Elevation ||
+            !series.error.isEmpty())
+            continue;
+        p.setPen(series.definition.pen);
+        p.setOpacity(series.definition.opacity);
+        QPainterPath path;
+        bool active = false;
         for (const auto &point : series.points) {
-            if (point.status != openswmmvis::io::Mesh2DValueStatus::Valid || !std::isfinite(point.value)) { active = false; continue; }
-            const QPointF pixel = dataToPixel(point.chainage,point.value);
-            if (!active || point.breakBefore) path.moveTo(pixel); else path.lineTo(pixel);
+            if (point.status != openswmmvis::io::Mesh2DValueStatus::Valid ||
+                !std::isfinite(point.value)) {
+                active = false;
+                continue;
+            }
+            const QPointF pixel = dataToPixel(point.chainage, point.value);
+            if (!active || point.breakBefore)
+                path.moveTo(pixel);
+            else
+                path.lineTo(pixel);
             active = true;
         }
         p.drawPath(path);
@@ -946,37 +1095,59 @@ void MeshProfilePlotWidget::paintAdditionalElevations(QPainter &p) const
 void MeshProfilePlotWidget::keyPressEvent(QKeyEvent *event)
 {
     QVector<double> stations;
-    for (const auto &sample : m_profile.samples) stations.append(sample.chainage);
-    for (const auto &series : m_profile.series) for (const auto &point : series.points) stations.append(point.chainage);
-    std::sort(stations.begin(),stations.end()); stations.erase(std::unique(stations.begin(),stations.end()),stations.end());
-    if (stations.isEmpty()) { QWidget::keyPressEvent(event); return; }
+    for (const auto &sample : m_profile.samples)
+        stations.append(sample.chainage);
+    for (const auto &series : m_profile.series)
+        for (const auto &point : series.points)
+            stations.append(point.chainage);
+    std::sort(stations.begin(), stations.end());
+    stations.erase(std::unique(stations.begin(), stations.end()), stations.end());
+    if (stations.isEmpty()) {
+        QWidget::keyPressEvent(event);
+        return;
+    }
     double station = m_hasCursor ? m_cursorChainage : -1;
-    if (event->key() == Qt::Key_Home) station = stations.front();
-    else if (event->key() == Qt::Key_End) station = stations.back();
-    else if (event->key() == Qt::Key_Right) { auto it = std::upper_bound(stations.begin(),stations.end(),station); station = it == stations.end() ? stations.back() : *it; }
-    else if (event->key() == Qt::Key_Left) { auto it = std::lower_bound(stations.begin(),stations.end(),station); station = it == stations.begin() ? stations.front() : *--it; }
-    else { QWidget::keyPressEvent(event); return; }
-    setCursorChainage(station); emit cursorChainageChanged(station); event->accept();
+    if (event->key() == Qt::Key_Home)
+        station = stations.front();
+    else if (event->key() == Qt::Key_End)
+        station = stations.back();
+    else if (event->key() == Qt::Key_Right) {
+        auto it = std::upper_bound(stations.begin(), stations.end(), station);
+        station = it == stations.end() ? stations.back() : *it;
+    } else if (event->key() == Qt::Key_Left) {
+        auto it = std::lower_bound(stations.begin(), stations.end(), station);
+        station = it == stations.begin() ? stations.front() : *--it;
+    } else {
+        QWidget::keyPressEvent(event);
+        return;
+    }
+    setCursorChainage(station);
+    emit cursorChainageChanged(station);
+    event->accept();
 }
 
 void MeshProfilePlotWidget::paintGroundLine(QPainter &p) const
 {
     const auto &s = m_profile.samples;
-    const QPen pen = m_options ? m_options->groundLinePen()
-                               : QPen(QColor(0x6B, 0x52, 0x2E), 1.6, Qt::SolidLine);
+    const QPen pen =
+        m_options ? m_options->groundLinePen() : QPen(QColor(0x6B, 0x52, 0x2E), 1.6, Qt::SolidLine);
     p.save();
     p.setPen(pen);
     p.setBrush(Qt::NoBrush);
     int i = 0;
     while (i < s.size()) {
-        if (!finiteGround(s[i])) { ++i; continue; }
+        if (!finiteGround(s[i])) {
+            ++i;
+            continue;
+        }
         QPolygonF run;
         int j = i;
         while (j < s.size() && finiteGround(s[j]) && (j == i || !s[j].breakBefore)) {
             run << dataToPixel(s[j].chainage, s[j].ground);
             ++j;
         }
-        if (run.size() >= 2) p.drawPolyline(run);
+        if (run.size() >= 2)
+            p.drawPolyline(run);
         i = j;
     }
     p.restore();
@@ -984,10 +1155,11 @@ void MeshProfilePlotWidget::paintGroundLine(QPainter &p) const
 
 void MeshProfilePlotWidget::paintCellBoundaryDots(QPainter &p) const
 {
-    if (m_options && !m_options->showCellBoundaries()) return;
-    if (m_profile.crossings.isEmpty()) return;
-    const QColor color = m_options ? m_options->cellBoundaryColor()
-                                   : QColor(0xD9, 0x53, 0x1E);
+    if (m_options && !m_options->showCellBoundaries())
+        return;
+    if (m_profile.crossings.isEmpty())
+        return;
+    const QColor color = m_options ? m_options->cellBoundaryColor() : QColor(0xD9, 0x53, 0x1E);
     const QRectF r = plotRect();
     p.save();
     p.setPen(QPen(color.darker(120), 0.8));
@@ -995,9 +1167,9 @@ void MeshProfilePlotWidget::paintCellBoundaryDots(QPainter &p) const
     constexpr double kR = 3.0;
     for (const auto &c : m_profile.crossings) {
         const QPointF px = dataToPixel(c.chainage, c.ground);
-        if (px.x() < r.left() - kR || px.x() > r.right() + kR ||
-            px.y() < r.top()  - kR || px.y() > r.bottom() + kR)
-            continue;   // outside the (possibly zoomed) view
+        if (px.x() < r.left() - kR || px.x() > r.right() + kR || px.y() < r.top() - kR ||
+            px.y() > r.bottom() + kR)
+            continue; // outside the (possibly zoomed) view
         p.drawEllipse(px, kR, kR);
     }
     p.restore();
@@ -1005,10 +1177,12 @@ void MeshProfilePlotWidget::paintCellBoundaryDots(QPainter &p) const
 
 void MeshProfilePlotWidget::paintCursor(QPainter &p) const
 {
-    if (!m_hasCursor || m_profile.samples.isEmpty()) return;
+    if (!m_hasCursor || m_profile.samples.isEmpty())
+        return;
     const QRectF r = plotRect();
     const double x = dataToPixel(m_cursorChainage, 0.0).x();
-    if (x < r.left() - 1.0 || x > r.right() + 1.0) return;   // off the view
+    if (x < r.left() - 1.0 || x > r.right() + 1.0)
+        return; // off the view
 
     p.save();
     // Vertical guide line.
@@ -1029,10 +1203,10 @@ void MeshProfilePlotWidget::paintCursor(QPainter &p) const
     double ground = 0.0, wse = 0.0;
     using openswmmvis::plot::NumberFormat;
     using openswmmvis::plot::NumberFormatMode;
-    const NumberFormat xFmt = m_options ? m_options->xFormat()
-                                        : NumberFormat{NumberFormatMode::Decimals, 1};
-    const NumberFormat yFmt = m_options ? m_options->yFormat()
-                                        : NumberFormat{NumberFormatMode::Decimals, 2};
+    const NumberFormat xFmt =
+        m_options ? m_options->xFormat() : NumberFormat{NumberFormatMode::Decimals, 1};
+    const NumberFormat yFmt =
+        m_options ? m_options->yFormat() : NumberFormat{NumberFormatMode::Decimals, 2};
     QString text = QStringLiteral("x = %1").arg(xFmt.format(m_cursorChainage));
     if (sampleAtChainage(m_cursorChainage, ground, wse)) {
         text += QStringLiteral("\nGround %1").arg(yFmt.format(ground));
@@ -1042,11 +1216,13 @@ void MeshProfilePlotWidget::paintCursor(QPainter &p) const
     const QFontMetricsF fm(p.font());
     const QStringList lines = text.split(QLatin1Char('\n'));
     qreal tw = 0;
-    for (const QString &ln : lines) tw = std::max(tw, fm.horizontalAdvance(ln));
+    for (const QString &ln : lines)
+        tw = std::max(tw, fm.horizontalAdvance(ln));
     const qreal th = lines.size() * fm.height();
     constexpr qreal pad = 4.0;
     qreal bx = x + 8;
-    if (bx + tw + 2 * pad > r.right()) bx = x - 8 - tw - 2 * pad;   // flip left near edge
+    if (bx + tw + 2 * pad > r.right())
+        bx = x - 8 - tw - 2 * pad; // flip left near edge
     const QRectF box(bx, r.top() + 10, tw + 2 * pad, th + 2 * pad);
     p.setPen(QPen(QColor(0x80, 0x80, 0x80, 130), 0.8));
     p.setBrush(QColor(0xFF, 0xFF, 0xFF, 210));
@@ -1059,37 +1235,54 @@ void MeshProfilePlotWidget::paintCursor(QPainter &p) const
 void MeshProfilePlotWidget::paintLegend(QPainter &p) const
 {
     m_legendRect = QRectF();
-    if (m_options && !m_options->legendVisible()) return;
+    if (m_options && !m_options->legendVisible())
+        return;
 
-    struct Row { QString text; bool hasFill; bool hasLine; QBrush fill; QPen pen; };
+    struct Row {
+        QString text;
+        bool hasFill;
+        bool hasLine;
+        QBrush fill;
+        QPen pen;
+    };
     QVector<Row> rows;
-    rows.push_back({ tr("Ground"), true, true,
-                     m_options ? m_options->soilFill() : QBrush(QColor(0xC6, 0xA9, 0x7A, 160)),
-                     m_options ? m_options->groundLinePen() : QPen(QColor(0x6B, 0x52, 0x2E), 1.6) });
+    rows.push_back({tr("Ground"), true, true,
+                    m_options ? m_options->soilFill() : QBrush(QColor(0xC6, 0xA9, 0x7A, 160)),
+                    m_options ? m_options->groundLinePen() : QPen(QColor(0x6B, 0x52, 0x2E), 1.6)});
     if (m_profile.hasResults) {
         if (!m_options || m_options->showDepthFill())
-            rows.push_back({ tr("Depth (current)"), true, false,
-                             m_options ? m_options->depthFillBrush() : QBrush(QColor(0x55, 0xA8, 0xE6, 120)),
-                             QPen(Qt::NoPen) });
+            rows.push_back(
+                {tr("Depth (current)"), true, false,
+                 m_options ? m_options->depthFillBrush() : QBrush(QColor(0x55, 0xA8, 0xE6, 120)),
+                 QPen(Qt::NoPen)});
         if (!m_options || m_options->showWseLine())
-            rows.push_back({ tr("Water surface"), false, true, QBrush(Qt::NoBrush),
-                             m_options ? m_options->wseLinePen() : QPen(QColor(0x1F, 0x6F, 0xB7), 2.0) });
+            rows.push_back(
+                {tr("Water surface"), false, true, QBrush(Qt::NoBrush),
+                 m_options ? m_options->wseLinePen() : QPen(QColor(0x1F, 0x6F, 0xB7), 2.0)});
         if (!m_options || m_options->showMaxEnvelopeLine() || m_options->showMaxEnvelopeFill())
-            rows.push_back({ tr("Max depth"),
-                             (!m_options || m_options->showMaxEnvelopeFill()),
-                             (!m_options || m_options->showMaxEnvelopeLine()),
-                             m_options ? m_options->maxEnvelopeBrush() : QBrush(QColor(0x55, 0xA8, 0xE6, 60)),
-                             m_options ? m_options->maxEnvelopePen() : QPen(QColor(0x1F, 0x6F, 0xB7), 1.4, Qt::DashLine) });
+            rows.push_back(
+                {tr("Max depth"), (!m_options || m_options->showMaxEnvelopeFill()),
+                 (!m_options || m_options->showMaxEnvelopeLine()),
+                 m_options ? m_options->maxEnvelopeBrush() : QBrush(QColor(0x55, 0xA8, 0xE6, 60)),
+                 m_options ? m_options->maxEnvelopePen()
+                           : QPen(QColor(0x1F, 0x6F, 0xB7), 1.4, Qt::DashLine)});
     }
     for (const auto &series : m_profile.series) {
-        if (!series.definition.visible || series.definition.role != ProfileSection::SeriesRole::Elevation) continue;
-        QPen pen = series.definition.pen; QColor color = pen.color(); color.setAlphaF(color.alphaF()*series.definition.opacity); pen.setColor(color);
+        if (!series.definition.visible ||
+            series.definition.role != ProfileSection::SeriesRole::Elevation)
+            continue;
+        QPen pen = series.definition.pen;
+        QColor color = pen.color();
+        color.setAlphaF(color.alphaF() * series.definition.opacity);
+        pen.setColor(color);
         const QString units = series.unitsKnown ? series.units : tr("units unknown");
         const QString timing = ProfileSection::effectiveTimeLabel(series);
-        const QString label = QStringLiteral("%1 [%2] — %3").arg(series.definition.label,units,timing);
-        rows.push_back({label,false,true,QBrush(Qt::NoBrush),pen});
+        const QString label =
+            QStringLiteral("%1 [%2] — %3").arg(series.definition.label, units, timing);
+        rows.push_back({label, false, true, QBrush(Qt::NoBrush), pen});
     }
-    if (rows.isEmpty()) return;
+    if (rows.isEmpty())
+        return;
 
     const QRectF r = plotRect();
     const QFont legendFont = m_options ? m_options->legendFont() : p.font();
@@ -1099,22 +1292,28 @@ void MeshProfilePlotWidget::paintLegend(QPainter &p) const
     const qreal swatchW = 40, padX = 8, padY = 6;
     const qreal rowH = fm.height() + 2;
     qreal maxTextW = 0;
-    for (const Row &row : rows) maxTextW = std::max(maxTextW, fm.horizontalAdvance(row.text));
+    for (const Row &row : rows)
+        maxTextW = std::max(maxTextW, fm.horizontalAdvance(row.text));
     const qreal boxW = swatchW + 6 + maxTextW + padX * 2;
     const qreal boxH = rows.size() * rowH + padY * 2;
 
     using LP = MeshProfilePlotOptions::LegendPosition;
     LP pos = m_options ? m_options->legendPosition() : LP::TopRight;
     qreal bx = r.right() - boxW - 10;
-    qreal by = r.top()   + 10;
-    if (pos == LP::TopLeft    || pos == LP::BottomLeft)  bx = r.left()   + 10;
-    if (pos == LP::BottomLeft || pos == LP::BottomRight) by = r.bottom() - boxH - 10;
-    if (m_options) { bx += m_options->legendOffset().x(); by += m_options->legendOffset().y(); }
+    qreal by = r.top() + 10;
+    if (pos == LP::TopLeft || pos == LP::BottomLeft)
+        bx = r.left() + 10;
+    if (pos == LP::BottomLeft || pos == LP::BottomRight)
+        by = r.bottom() - boxH - 10;
+    if (m_options) {
+        bx += m_options->legendOffset().x();
+        by += m_options->legendOffset().y();
+    }
     const QRectF box(bx, by, boxW, boxH);
     m_legendRect = box;
 
     const double opacity = m_options ? m_options->legendOpacity() : 0.86;
-    const int    alpha   = std::clamp(int(opacity * 255 + 0.5), 0, 255);
+    const int alpha = std::clamp(int(opacity * 255 + 0.5), 0, 255);
     p.setPen(QPen(QColor(0x80, 0x80, 0x80, std::min(255, alpha + 30)), 1.0));
     p.setBrush(QColor(0xFF, 0xFF, 0xFF, alpha));
     p.drawRoundedRect(box, 4, 4);
@@ -1146,15 +1345,18 @@ void MeshProfilePlotWidget::paintLegend(QPainter &p) const
 void MeshProfilePlotWidget::paintTimeLabel(QPainter &p) const
 {
     m_timeLabelRect = QRectF();
-    if (!m_currentDateTime.isValid()) return;
-    if (m_options && !m_options->showTimeLabel()) return;
+    if (!m_currentDateTime.isValid())
+        return;
+    if (m_options && !m_options->showTimeLabel())
+        return;
 
-    const QString fmt = m_options ? m_options->timeLabelFormat()
-                                  : QStringLiteral("dd-MMM-yyyy HH:mm:ss");
+    const QString fmt =
+        m_options ? m_options->timeLabelFormat() : QStringLiteral("dd-MMM-yyyy HH:mm:ss");
     const QString text = m_currentDateTime.toString(fmt);
-    if (text.isEmpty()) return;
+    if (text.isEmpty())
+        return;
 
-    const QFont  font  = m_options ? m_options->timeLabelFont() : p.font();
+    const QFont font = m_options ? m_options->timeLabelFont() : p.font();
     const QColor color = m_options ? m_options->timeLabelColor() : QColor(0x10, 0x10, 0x10);
     const QFontMetricsF fm(font);
     constexpr qreal kPad = 6.0, kEdge = 8.0;
@@ -1165,10 +1367,15 @@ void MeshProfilePlotWidget::paintTimeLabel(QPainter &p) const
     TP pos = m_options ? m_options->timeLabelPosition() : TP::TimeTopLeft;
     const QRectF r = plotRect();
     qreal bx = r.right() - boxW - kEdge;
-    qreal by = r.top()   + kEdge;
-    if (pos == TP::TimeTopLeft    || pos == TP::TimeBottomLeft)  bx = r.left()   + kEdge;
-    if (pos == TP::TimeBottomLeft || pos == TP::TimeBottomRight) by = r.bottom() - boxH - kEdge;
-    if (m_options) { bx += m_options->timeLabelOffset().x(); by += m_options->timeLabelOffset().y(); }
+    qreal by = r.top() + kEdge;
+    if (pos == TP::TimeTopLeft || pos == TP::TimeBottomLeft)
+        bx = r.left() + kEdge;
+    if (pos == TP::TimeBottomLeft || pos == TP::TimeBottomRight)
+        by = r.bottom() - boxH - kEdge;
+    if (m_options) {
+        bx += m_options->timeLabelOffset().x();
+        by += m_options->timeLabelOffset().y();
+    }
 
     const QRectF box(bx, by, boxW, boxH);
     m_timeLabelRect = box;

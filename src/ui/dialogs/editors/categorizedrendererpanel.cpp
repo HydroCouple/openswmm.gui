@@ -1,9 +1,9 @@
-/*!
- * \file   categorizedrendererpanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  IRendererPanel implementation for the "Categorized" renderer
+/**
+ * @file      categorizedrendererpanel.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     IRendererPanel implementation for the "Categorized" renderer
  *         class.  Slice X.4 follow-up — completes the categorized leg
  *         that previously surfaced as an empty stub.
  *
@@ -16,7 +16,9 @@
  *         the host so the layer's rebuildKindFeatureOverrides repaints the
  *         scene and the legend refreshes — single source of truth, MVC
  *         all the way down.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/irendererpanel.h"
 
 #include "layers/openswmmvislayer.h"
@@ -30,7 +32,7 @@
 #include "render/rule.h"
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/symbolstyle.h"
-#include "ui/dialogs/editors/basesymbolgroup.h"   // feedback C2
+#include "ui/dialogs/editors/basesymbolgroup.h" // feedback C2
 #include "ui/widgets/dashstylecombo.h"
 #include "ui/widgets/markershapecombo.h"
 #include "ui/theme/iconfactory.h"
@@ -58,9 +60,11 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 using OpenSWMM::Render::CategorizedRenderer;
 using OpenSWMM::Render::IFeatureRenderer;
@@ -68,8 +72,7 @@ using OpenSWMM::Render::IFeatureRenderer;
 QString attributeKey(const QComboBox *combo)
 {
     const int row = combo->currentIndex();
-    if (row >= 0 && combo->currentText() == combo->itemText(row)
-        && combo->itemData(row).isValid())
+    if (row >= 0 && combo->currentText() == combo->itemText(row) && combo->itemData(row).isValid())
         return combo->itemData(row).toString();
     return combo->currentText().trimmed();
 }
@@ -83,8 +86,7 @@ class CategoryColorDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
-    void paint(QPainter *p, const QStyleOptionViewItem &opt,
-               const QModelIndex &idx) const override
+    void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override
     {
         const QColor c = idx.data(Qt::BackgroundRole).value<QColor>();
         p->save();
@@ -105,16 +107,17 @@ public:
         return nullptr;
     }
 
-    bool editorEvent(QEvent *e, QAbstractItemModel *m,
-                     const QStyleOptionViewItem &, const QModelIndex &idx) override
+    bool editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &,
+                     const QModelIndex &idx) override
     {
-        if (e->type() != QEvent::MouseButtonDblClick) return false;
+        if (e->type() != QEvent::MouseButtonDblClick)
+            return false;
         QColor cur = idx.data(Qt::BackgroundRole).value<QColor>();
-        const QColor picked = QColorDialog::getColor(
-            cur.isValid() ? cur : QColor(Qt::white),
-            nullptr, QObject::tr("Category colour"),
-            QColorDialog::ShowAlphaChannel);
-        if (!picked.isValid()) return true;
+        const QColor picked =
+            QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white), nullptr,
+                                   QObject::tr("Category colour"), QColorDialog::ShowAlphaChannel);
+        if (!picked.isValid())
+            return true;
         m->setData(idx, picked, Qt::BackgroundRole);
         return true;
     }
@@ -127,24 +130,24 @@ public:
 QStringList suggestedAttributesFor(OpenSWMMVis::SwmmCategory cat)
 {
     using namespace OpenSWMMVis;
-    QStringList common = { QStringLiteral("tag") };
+    QStringList common = {QStringLiteral("tag")};
     switch (cat) {
     case CatJunctions:
     case CatOutfalls:
     case CatStorage:
     case CatDividers:
-        return common + QStringList{ QStringLiteral("Node type") };
+        return common + QStringList{QStringLiteral("Node type")};
     case CatConduits:
     case CatPumps:
     case CatOrifices:
     case CatWeirs:
     case CatOutlets:
         return common + QStringList{
-            QStringLiteral("Link type"),
-            QStringLiteral("shape"),
-        };
+                            QStringLiteral("Link type"),
+                            QStringLiteral("shape"),
+                        };
     case CatSubcatchments:
-        return common + QStringList{ QStringLiteral("Outlet") };
+        return common + QStringList{QStringLiteral("Outlet")};
     default:
         return common;
     }
@@ -159,8 +162,7 @@ OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
     OpenSWMM::Render::SymbolLayer layer;
     // Gap A1.2 — canonical QColor variant (the old hex-string write was
     // unreadable through the typed spec readers' value<QColor>()).
-    OpenSWMM::Render::SymbolProps::writeColor(
-        layer.props, QStringLiteral("color"), c);
+    OpenSWMM::Render::SymbolProps::writeColor(layer.props, QStringLiteral("color"), c);
     s.layers.append(layer);
     return s;
 }
@@ -171,49 +173,65 @@ OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
  *  — the paint path reads them via `extractStyleSize` on the sublayer
  *  override cache.  Keeping the schema flat (no nested objects) means
  *  any consumer reading just "color" today keeps working. */
-int    readSymbolShape(const OpenSWMM::Render::SymbolStyle &s, int fallback = -1)
+int readSymbolShape(const OpenSWMM::Render::SymbolStyle &s, int fallback = -1)
 {
-    if (s.layers.isEmpty()) return fallback;
+    if (s.layers.isEmpty())
+        return fallback;
     const auto it = s.layers.first().props.constFind(QStringLiteral("shape"));
-    if (it == s.layers.first().props.constEnd()) return fallback;
-    bool ok = false; const int v = it.value().toInt(&ok);
+    if (it == s.layers.first().props.constEnd())
+        return fallback;
+    bool ok = false;
+    const int v = it.value().toInt(&ok);
     return ok ? v : fallback;
 }
 double readSymbolSize(const OpenSWMM::Render::SymbolStyle &s, double fallback = -1.0)
 {
-    if (s.layers.isEmpty()) return fallback;
+    if (s.layers.isEmpty())
+        return fallback;
     const auto it = s.layers.first().props.constFind(QStringLiteral("size"));
-    if (it == s.layers.first().props.constEnd()) return fallback;
-    bool ok = false; const double v = it.value().toDouble(&ok);
+    if (it == s.layers.first().props.constEnd())
+        return fallback;
+    bool ok = false;
+    const double v = it.value().toDouble(&ok);
     return ok ? v : fallback;
 }
 double readSymbolWidth(const OpenSWMM::Render::SymbolStyle &s, double fallback = -1.0)
 {
-    if (s.layers.isEmpty()) return fallback;
+    if (s.layers.isEmpty())
+        return fallback;
     const auto it = s.layers.first().props.constFind(QStringLiteral("width"));
-    if (it == s.layers.first().props.constEnd()) return fallback;
-    bool ok = false; const double v = it.value().toDouble(&ok);
+    if (it == s.layers.first().props.constEnd())
+        return fallback;
+    bool ok = false;
+    const double v = it.value().toDouble(&ok);
     return ok ? v : fallback;
 }
 int readSymbolDash(const OpenSWMM::Render::SymbolStyle &s, int fallback = int(Qt::SolidLine))
 {
-    if (s.layers.isEmpty()) return fallback;
+    if (s.layers.isEmpty())
+        return fallback;
     const auto it = s.layers.first().props.constFind(QStringLiteral("dash"));
-    if (it == s.layers.first().props.constEnd()) return fallback;
-    bool ok = false; const int v = it.value().toInt(&ok);
+    if (it == s.layers.first().props.constEnd())
+        return fallback;
+    bool ok = false;
+    const int v = it.value().toInt(&ok);
     return ok ? v : fallback;
 }
 
-void writeSymbolKnobs(OpenSWMM::Render::SymbolStyle &s,
-                      int shape, double size, double width, int dash)
+void writeSymbolKnobs(OpenSWMM::Render::SymbolStyle &s, int shape, double size, double width,
+                      int dash)
 {
     if (s.layers.isEmpty())
         s.layers.append(OpenSWMM::Render::SymbolLayer{});
     auto &props = s.layers.first().props;
-    if (shape >= 0)  props.insert(QStringLiteral("shape"), shape);
-    if (size  > 0.0) props.insert(QStringLiteral("size"),  size);
-    if (width > 0.0) props.insert(QStringLiteral("width"), width);
-    if (dash  >= 0)  props.insert(QStringLiteral("dash"),  dash);
+    if (shape >= 0)
+        props.insert(QStringLiteral("shape"), shape);
+    if (size > 0.0)
+        props.insert(QStringLiteral("size"), size);
+    if (width > 0.0)
+        props.insert(QStringLiteral("width"), width);
+    if (dash >= 0)
+        props.insert(QStringLiteral("dash"), dash);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,8 +243,7 @@ class SymbolDetailsDialog : public QDialog
 {
 public:
     SymbolDetailsDialog(OpenSWMM::Render::FeatureSublayer::Archetype arch,
-                        const OpenSWMM::Render::SymbolStyle &initial,
-                        QWidget *parent)
+                        const OpenSWMM::Render::SymbolStyle &initial, QWidget *parent)
         : QDialog(parent), m_archetype(arch)
     {
         using Arch = OpenSWMM::Render::FeatureSublayer::Archetype;
@@ -235,7 +252,7 @@ public:
 
         if (arch == Arch::Point) {
             m_shape = new MarkerShapeCombo(this);
-            m_shape->populateCanonical();   // category symbols use canonical MarkerShape
+            m_shape->populateCanonical(); // category symbols use canonical MarkerShape
             const int initShape = readSymbolShape(initial, MarkerShapeCombo::Circle);
             m_shape->setShapeValue(initShape);
             form->addRow(tr("S&hape:"), m_shape);
@@ -253,8 +270,7 @@ public:
             m_width->setDecimals(2);
             m_width->setSuffix(QStringLiteral(" px"));
             m_width->setValue(readSymbolWidth(initial, arch == Arch::Line ? 1.5 : 0.5));
-            form->addRow(arch == Arch::Line ? tr("Line width:") : tr("Outline width:"),
-                          m_width);
+            form->addRow(arch == Arch::Line ? tr("Line width:") : tr("Outline width:"), m_width);
 
             m_dash = new DashStyleCombo(this);
             m_dash->setCurrentIndex(m_dash->findData(readSymbolDash(initial, int(Qt::SolidLine))));
@@ -272,19 +288,19 @@ public:
      *  dialog doesn't surface for this archetype. */
     void applyTo(OpenSWMM::Render::SymbolStyle &s) const
     {
-        const int    shape = m_shape ? m_shape->shapeValue() : -1;
-        const double size  = m_size  ? m_size ->value()       : -1.0;
-        const double width = m_width ? m_width->value()       : -1.0;
-        const int    dash  = m_dash  ? m_dash ->currentData().toInt() : -1;
+        const int shape = m_shape ? m_shape->shapeValue() : -1;
+        const double size = m_size ? m_size->value() : -1.0;
+        const double width = m_width ? m_width->value() : -1.0;
+        const int dash = m_dash ? m_dash->currentData().toInt() : -1;
         writeSymbolKnobs(s, shape, size, width, dash);
     }
 
 private:
     OpenSWMM::Render::FeatureSublayer::Archetype m_archetype;
     MarkerShapeCombo *m_shape = nullptr;
-    QDoubleSpinBox   *m_size  = nullptr;
-    QDoubleSpinBox   *m_width = nullptr;
-    DashStyleCombo   *m_dash  = nullptr;
+    QDoubleSpinBox *m_size = nullptr;
+    QDoubleSpinBox *m_width = nullptr;
+    DashStyleCombo *m_dash = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -295,7 +311,7 @@ public:
     explicit CategorizedPanel(const RendererPanelContext &ctx, QWidget *parent)
         : IRendererPanel(parent), m_ctx(ctx)
     {
-        m_modelLayer   = qobject_cast<SWMMModelLayer *>(ctx.hostLayer);
+        m_modelLayer = qobject_cast<SWMMModelLayer *>(ctx.hostLayer);
         m_resultsLayer = qobject_cast<SWMMResultsLayer *>(ctx.hostLayer);
 
         auto *outer = new QVBoxLayout(this);
@@ -313,22 +329,20 @@ public:
 
         auto *form = new QFormLayout;
         m_attrCombo = new QComboBox(box);
-        m_attrCombo->setEditable(true);     // user can type a custom key
+        m_attrCombo->setEditable(true); // user can type a custom key
         form->addRow(tr("A&ttribute:"), m_attrCombo);
         vlay->addLayout(form);
 
         m_model = new QStandardItemModel(0, 3, box);
-        m_model->setHorizontalHeaderLabels({
-            tr("Value"), tr("Label"), tr("Colour")
-        });
+        m_model->setHorizontalHeaderLabels({tr("Value"), tr("Label"), tr("Colour")});
         m_table = new QTableView(box);
         m_table->setModel(m_model);
         m_table->verticalHeader()->setVisible(false);
         m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         m_table->horizontalHeader()->setStretchLastSection(false);
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-        m_table->setEditTriggers(QAbstractItemView::DoubleClicked
-                                  | QAbstractItemView::SelectedClicked);
+        m_table->setEditTriggers(QAbstractItemView::DoubleClicked |
+                                 QAbstractItemView::SelectedClicked);
         m_table->setAlternatingRowColors(true);
         m_table->setItemDelegateForColumn(2, new CategoryColorDelegate(m_table));
         m_table->setMinimumHeight(180);
@@ -340,9 +354,8 @@ public:
         m_sampleBtn->setText(tr("Sample unique values"));
         m_sampleBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Search")));
         m_sampleBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-        m_sampleBtn->setToolTip(tr(
-            "Scan the layer for distinct values of the selected attribute "
-            "and seed one category per value."));
+        m_sampleBtn->setToolTip(tr("Scan the layer for distinct values of the selected attribute "
+                                   "and seed one category per value."));
         btnRow->addWidget(m_sampleBtn);
 
         m_addBtn = new QToolButton(box);
@@ -367,31 +380,24 @@ public:
         m_editSymBtn->setText(tr("Edit symbol…"));
         m_editSymBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")));
         m_editSymBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-        m_editSymBtn->setToolTip(tr(
-            "Edit the shape / size / line width / dash for the selected "
-            "category.  Colour is editable inline."));
+        m_editSymBtn->setToolTip(tr("Edit the shape / size / line width / dash for the selected "
+                                    "category.  Colour is editable inline."));
         btnRow->addWidget(m_editSymBtn);
 
         btnRow->addStretch();
         vlay->addLayout(btnRow);
 
-        connect(m_attrCombo, &QComboBox::editTextChanged,
-                this, &CategorizedPanel::onAttributeChanged);
-        connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-                this, [this](int) { onAttributeChanged(attributeKey(m_attrCombo)); });
+        connect(m_attrCombo, &QComboBox::editTextChanged, this,
+                &CategorizedPanel::onAttributeChanged);
+        connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [this](int) { onAttributeChanged(attributeKey(m_attrCombo)); });
 
-        connect(m_sampleBtn, &QToolButton::clicked,
-                this, &CategorizedPanel::onSampleUniqueValues);
-        connect(m_addBtn, &QToolButton::clicked,
-                this, &CategorizedPanel::onAddCategory);
-        connect(m_removeBtn, &QToolButton::clicked,
-                this, &CategorizedPanel::onRemoveSelected);
-        connect(m_clearBtn, &QToolButton::clicked,
-                this, &CategorizedPanel::onClearAll);
-        connect(m_editSymBtn, &QToolButton::clicked,
-                this, &CategorizedPanel::onEditSelectedSymbol);
-        connect(m_model, &QStandardItemModel::itemChanged,
-                this, &CategorizedPanel::onRowEdited);
+        connect(m_sampleBtn, &QToolButton::clicked, this, &CategorizedPanel::onSampleUniqueValues);
+        connect(m_addBtn, &QToolButton::clicked, this, &CategorizedPanel::onAddCategory);
+        connect(m_removeBtn, &QToolButton::clicked, this, &CategorizedPanel::onRemoveSelected);
+        connect(m_clearBtn, &QToolButton::clicked, this, &CategorizedPanel::onClearAll);
+        connect(m_editSymBtn, &QToolButton::clicked, this, &CategorizedPanel::onEditSelectedSymbol);
+        connect(m_model, &QStandardItemModel::itemChanged, this, &CategorizedPanel::onRowEdited);
 
         refreshFromModel();
     }
@@ -410,10 +416,10 @@ public:
             QSignalBlocker b(m_attrCombo);
             m_attrCombo->clear();
             if (m_ctx.category.has_value()) {
-                auto *provider = m_ctx.hostLayer
-                    ? qobject_cast<OpenSWMM::Render::IAttributeProvider *>(
-                          m_ctx.hostLayer)
-                    : nullptr;
+                auto *provider =
+                    m_ctx.hostLayer
+                        ? qobject_cast<OpenSWMM::Render::IAttributeProvider *>(m_ctx.hostLayer)
+                        : nullptr;
                 if (provider) {
                     // Gap A4.3 — string fields first (the natural
                     // categorisation targets: tag / status / group), then
@@ -429,12 +435,12 @@ public:
                     m_attrCombo->addItems(suggestedAttributesFor(*m_ctx.category));
                 }
             }
-            const QString current = cz
-                ? cz->classifyAttribute()
-                : attributeKey(m_attrCombo);
+            const QString current = cz ? cz->classifyAttribute() : attributeKey(m_attrCombo);
             const int row = m_attrCombo->findData(current);
-            if (row >= 0) m_attrCombo->setCurrentIndex(row);
-            else m_attrCombo->setCurrentText(current);
+            if (row >= 0)
+                m_attrCombo->setCurrentIndex(row);
+            else
+                m_attrCombo->setCurrentText(current);
         }
 
         rebuildTable();
@@ -464,8 +470,10 @@ private:
         if (m_ctx.rule) {
             r = m_ctx.rule->renderer();
         } else if (m_ctx.category.has_value()) {
-            if (m_modelLayer)   r = m_modelLayer  ->kindRenderer(*m_ctx.category);
-            if (m_resultsLayer) r = m_resultsLayer->kindRenderer(*m_ctx.category);
+            if (m_modelLayer)
+                r = m_modelLayer->kindRenderer(*m_ctx.category);
+            if (m_resultsLayer)
+                r = m_resultsLayer->kindRenderer(*m_ctx.category);
         }
         return dynamic_cast<CategorizedRenderer *>(r);
     }
@@ -476,14 +484,16 @@ private:
      *  one the layer/Rule owns, but the setters expect a unique_ptr. */
     void pushBack(CategorizedRenderer *cz)
     {
-        if (!cz) return;
+        if (!cz)
+            return;
         auto fresh = cz->clone();
         // Slice B.6d — Rule path takes priority.
         if (m_ctx.rule) {
             m_ctx.rule->setRenderer(std::move(fresh));
             return;
         }
-        if (!m_ctx.category.has_value()) return;
+        if (!m_ctx.category.has_value())
+            return;
         if (m_modelLayer)
             m_modelLayer->setKindRenderer(*m_ctx.category, std::move(fresh));
         else if (m_resultsLayer)
@@ -496,35 +506,42 @@ private:
         m_model->setRowCount(0);
 
         auto *cz = currentRenderer();
-        if (!cz) { m_suppress = false; return; }
+        if (!cz) {
+            m_suppress = false;
+            return;
+        }
 
         const auto cats = cz->categories();
         for (const auto &c : cats) {
-            auto *valItem   = new QStandardItem(c.value);
+            auto *valItem = new QStandardItem(c.value);
             auto *labelItem = new QStandardItem(c.label.isEmpty() ? c.value : c.label);
             auto *colorItem = new QStandardItem;
 
             // Pull colour out of the symbol if it exposes one (gap A1.2 —
             // tolerant read over both grammar keys via SymbolProps).
             QColor swatch = OpenSWMM::Render::SymbolProps::firstColor(c.symbol);
-            if (!swatch.isValid()) swatch = QColor::fromHsvF(
-                (m_model->rowCount() * 0.137) - std::floor(m_model->rowCount() * 0.137),
-                0.55, 0.85);
+            if (!swatch.isValid())
+                swatch = QColor::fromHsvF((m_model->rowCount() * 0.137) -
+                                              std::floor(m_model->rowCount() * 0.137),
+                                          0.55, 0.85);
             colorItem->setData(swatch, Qt::BackgroundRole);
             colorItem->setEditable(true);
 
-            m_model->appendRow({ valItem, labelItem, colorItem });
+            m_model->appendRow({valItem, labelItem, colorItem});
         }
         m_suppress = false;
     }
 
     void onAttributeChanged(const QString &)
     {
-        if (m_suppress) return;
+        if (m_suppress)
+            return;
         const QString attr = attributeKey(m_attrCombo);
         auto *cz = currentRenderer();
-        if (!cz) return;
-        if (cz->classifyAttribute() == attr) return;
+        if (!cz)
+            return;
+        if (cz->classifyAttribute() == attr)
+            return;
         cz->setClassifyAttribute(attr);
         pushBack(cz);
     }
@@ -537,11 +554,14 @@ private:
     void onSampleUniqueValues()
     {
         auto *cz = currentRenderer();
-        if (!cz || (!m_modelLayer && !m_resultsLayer)) return;
-        if (!m_ctx.category.has_value()) return;
+        if (!cz || (!m_modelLayer && !m_resultsLayer))
+            return;
+        if (!m_ctx.category.has_value())
+            return;
 
         const QString attr = attributeKey(m_attrCombo);
-        if (attr.isEmpty()) return;
+        if (attr.isEmpty())
+            return;
 
         // Always sample against the underlying model layer — even on
         // results layers, the categorical attributes ("tag", "Link
@@ -550,19 +570,21 @@ private:
         SWMMModelLayer *model = m_modelLayer;
         if (!model && m_resultsLayer)
             model = m_resultsLayer->modelLayer();
-        if (!model) return;
+        if (!model)
+            return;
 
-        const SWMMModelLayer::Category cat =
-            static_cast<SWMMModelLayer::Category>(*m_ctx.category);
+        const SWMMModelLayer::Category cat = static_cast<SWMMModelLayer::Category>(*m_ctx.category);
         const int count = model->categoryCount(cat);
-        if (count <= 0) return;
+        if (count <= 0)
+            return;
 
         QSet<QString> seen;
-        QStringList ordered;     // preserve first-seen order
+        QStringList ordered; // preserve first-seen order
         ordered.reserve(count);
         for (int row = 0; row < count; ++row) {
             const QString name = model->objectNameAt(cat, row);
-            const QVariantMap attrs = model->identifyByName(name, SWMMModelLayer::kindBitForCategory(cat));
+            const QVariantMap attrs =
+                model->identifyByName(name, SWMMModelLayer::kindBitForCategory(cat));
             const QString v = attrs.value(attr).toString();
             // Treat empty values as "(none)" so categorized still
             // renders something — leaving them out would silently drop
@@ -604,7 +626,8 @@ private:
     void onAddCategory()
     {
         auto *cz = currentRenderer();
-        if (!cz) return;
+        if (!cz)
+            return;
         CategorizedRenderer::Category c;
         c.value = tr("value");
         c.label = c.value;
@@ -619,18 +642,21 @@ private:
     void onRemoveSelected()
     {
         auto *cz = currentRenderer();
-        if (!cz) return;
-        const auto sel = m_table->selectionModel()
-            ? m_table->selectionModel()->selectedRows()
-            : QModelIndexList{};
-        if (sel.isEmpty()) return;
+        if (!cz)
+            return;
+        const auto sel = m_table->selectionModel() ? m_table->selectionModel()->selectedRows()
+                                                   : QModelIndexList{};
+        if (sel.isEmpty())
+            return;
 
         QList<int> rows;
-        for (const QModelIndex &i : sel) rows.append(i.row());
+        for (const QModelIndex &i : sel)
+            rows.append(i.row());
         std::sort(rows.begin(), rows.end(), std::greater<int>());
         auto cats = cz->categories();
         for (int r : rows)
-            if (r >= 0 && r < cats.size()) cats.removeAt(r);
+            if (r >= 0 && r < cats.size())
+                cats.removeAt(r);
         cz->setCategories(cats);
         pushBack(cz);
         rebuildTable();
@@ -639,7 +665,8 @@ private:
     void onClearAll()
     {
         auto *cz = currentRenderer();
-        if (!cz) return;
+        if (!cz)
+            return;
         cz->setCategories({});
         pushBack(cz);
         rebuildTable();
@@ -651,17 +678,22 @@ private:
     void onEditSelectedSymbol()
     {
         auto *cz = currentRenderer();
-        if (!cz || !m_ctx.category.has_value()) return;
-        if (!m_table->selectionModel()) return;
+        if (!cz || !m_ctx.category.has_value())
+            return;
+        if (!m_table->selectionModel())
+            return;
         const auto sel = m_table->selectionModel()->selectedRows();
-        if (sel.size() != 1) return;
+        if (sel.size() != 1)
+            return;
         const int row = sel.first().row();
         auto cats = cz->categories();
-        if (row < 0 || row >= cats.size()) return;
+        if (row < 0 || row >= cats.size())
+            return;
 
         const auto arch = OpenSWMM::Render::FeatureSublayer::archetypeFor(*m_ctx.category);
         SymbolDetailsDialog dlg(arch, cats.at(row).symbol, this);
-        if (dlg.exec() != QDialog::Accepted) return;
+        if (dlg.exec() != QDialog::Accepted)
+            return;
 
         dlg.applyTo(cats[row].symbol);
         cz->setCategories(cats);
@@ -675,9 +707,11 @@ private:
      *  cell edit including the colour delegate. */
     void onRowEdited(QStandardItem *)
     {
-        if (m_suppress) return;
+        if (m_suppress)
+            return;
         auto *cz = currentRenderer();
-        if (!cz) return;
+        if (!cz)
+            return;
 
         QList<CategorizedRenderer::Category> cats;
         const int rows = m_model->rowCount();
@@ -697,9 +731,8 @@ private:
                     if (c.symbol.layers.isEmpty())
                         c.symbol = makeColourSymbol(sw);
                     else
-                        OpenSWMM::Render::SymbolProps::writeColor(
-                            c.symbol.layers.first().props,
-                            QStringLiteral("color"), sw);
+                        OpenSWMM::Render::SymbolProps::writeColor(c.symbol.layers.first().props,
+                                                                  QStringLiteral("color"), sw);
                 }
             } else {
                 c.symbol = makeColourSymbol(sw.isValid() ? sw : QColor(Qt::gray));
@@ -710,18 +743,18 @@ private:
         pushBack(cz);
     }
 
-    RendererPanelContext   m_ctx;
-    SWMMModelLayer        *m_modelLayer   = nullptr;
-    SWMMResultsLayer      *m_resultsLayer = nullptr;
+    RendererPanelContext m_ctx;
+    SWMMModelLayer *m_modelLayer = nullptr;
+    SWMMResultsLayer *m_resultsLayer = nullptr;
 
-    QComboBox             *m_attrCombo  = nullptr;
-    QTableView            *m_table      = nullptr;
-    QStandardItemModel    *m_model      = nullptr;
-    QToolButton           *m_sampleBtn  = nullptr;
-    QToolButton           *m_addBtn     = nullptr;
-    QToolButton           *m_removeBtn  = nullptr;
-    QToolButton           *m_clearBtn   = nullptr;
-    QToolButton           *m_editSymBtn = nullptr;
+    QComboBox *m_attrCombo = nullptr;
+    QTableView *m_table = nullptr;
+    QStandardItemModel *m_model = nullptr;
+    QToolButton *m_sampleBtn = nullptr;
+    QToolButton *m_addBtn = nullptr;
+    QToolButton *m_removeBtn = nullptr;
+    QToolButton *m_clearBtn = nullptr;
+    QToolButton *m_editSymBtn = nullptr;
 
     bool m_suppress = false;
 };

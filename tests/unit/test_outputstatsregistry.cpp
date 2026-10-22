@@ -1,6 +1,6 @@
-/*!
- * \file   test_outputstatsregistry.cpp
- * \brief  Smoke tests for openswmmvis::OutputStatsRegistry (Slice QA tests).
+/**
+ * @file      test_outputstatsregistry.cpp
+ * @brief     Smoke tests for openswmmvis::OutputStatsRegistry (Slice QA tests).
  *
  * The registry holds QPointer<SWMMResultsLayer> and calls
  * `layer->resultsFilePath()` to compute short labels. Spinning up a real
@@ -19,6 +19,10 @@
  * Full register/unregister/recomputeLabels coverage with real layers
  * lives in the GUI integration suite once the test fixtures for
  * SWMMResultsLayer (real .out files in tests/gui/data) are reused.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -32,12 +36,22 @@
 using openswmmvis::OutputStatsRegistry;
 using openswmmvis::OutputIdentity;
 
+/**
+ *
+ * @brief Require a newly constructed output registry to expose no layer identities.
+ *
+ */
 TEST(OutputStatsRegistry, FreshRegistryHasNoIdentities)
 {
     OutputStatsRegistry reg;
     EXPECT_TRUE(reg.identities().isEmpty());
 }
 
+/**
+ *
+ * @brief Require null UUID lookup to return empty stable ID/labels/path and null layer.
+ *
+ */
 TEST(OutputStatsRegistry, IdentityForNullUuidReturnsEmpty)
 {
     OutputStatsRegistry reg;
@@ -48,6 +62,11 @@ TEST(OutputStatsRegistry, IdentityForNullUuidReturnsEmpty)
     EXPECT_EQ(id.layer, nullptr);
 }
 
+/**
+ *
+ * @brief Require unknown UUID lookup to return a null stable ID and layer.
+ *
+ */
 TEST(OutputStatsRegistry, IdentityForUnknownUuidReturnsEmpty)
 {
     OutputStatsRegistry reg;
@@ -57,6 +76,12 @@ TEST(OutputStatsRegistry, IdentityForUnknownUuidReturnsEmpty)
     EXPECT_EQ(id.layer, nullptr);
 }
 
+/**
+ *
+ * @brief Require null layer register/unregister to retain an empty registry without
+ * identity-change signals.
+ *
+ */
 TEST(OutputStatsRegistry, NullLayerRegisterIsNoop)
 {
     OutputStatsRegistry reg;
@@ -67,6 +92,11 @@ TEST(OutputStatsRegistry, NullLayerRegisterIsNoop)
     EXPECT_EQ(spy.count(), 0);
 }
 
+/**
+ *
+ * @brief Check the identity-change signal can be observed through a valid QSignalSpy.
+ *
+ */
 TEST(OutputStatsRegistry, IdentitiesChangedSignalIsConnectable)
 {
     OutputStatsRegistry reg;
@@ -76,6 +106,14 @@ TEST(OutputStatsRegistry, IdentitiesChangedSignalIsConnectable)
     EXPECT_TRUE(spy.isValid());
 }
 
+/**
+ *
+ * @brief Verify separate paths/reruns have distinct run identities and correct shared source
+ * lineage.
+ * Checks label disambiguation, rerun numbering/previous ID, completed versus reopened
+ * interrupted state, analysis availability and source identity through JSON restore.
+ *
+ */
 TEST(OutputStatsRegistry, RerunsAndEqualBasenamesHaveSeparatePersistentIdentities)
 {
     OutputStatsRegistry registry;

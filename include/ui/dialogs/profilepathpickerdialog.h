@@ -1,9 +1,9 @@
-/*!
- * \file   profilepathpickerdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BC's path-picker — modal dialog shown by
+/**
+ * @file      profilepathpickerdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BC's path-picker — modal dialog shown by
  *         OpenSWMMVisMapToolSelectProfile when ProfileRouter returns more
  *         than one candidate between the user-picked endpoints.
  *
@@ -11,6 +11,7 @@
  *         count / total invert drop.  Hovering or selecting a row emits
  *         `hoveredPathChanged(index)` so the host can promote that path on
  *         the map overlay; clicking OK confirms.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef PROFILEPATHPICKERDIALOG_H
@@ -30,10 +31,8 @@ class ProfilePathPickerDialog : public QDialog
     Q_OBJECT
 
 public:
-    ProfilePathPickerDialog(SWMMModelLayer *model,
-                            const QVector<ProfileRouter::Path> &paths,
-                            bool truncated = false,
-                            QWidget *parent = nullptr);
+    ProfilePathPickerDialog(SWMMModelLayer *model, const QVector<ProfileRouter::Path> &paths,
+                            bool truncated = false, QWidget *parent = nullptr);
 
     /*!
      * \brief Index (0-based) of the path the user accepted, or -1 when
@@ -60,17 +59,14 @@ private slots:
 
 private:
     void populateTable();
-    void summarizePath(int pathIdx,
-                       double &lengthOut,
-                       int &conduitsOut,
-                       int &nonConduitsOut,
+    void summarizePath(int pathIdx, double &lengthOut, int &conduitsOut, int &nonConduitsOut,
                        double &dropOut) const;
 
-    SWMMModelLayer                       *m_model = nullptr;
-    QVector<ProfileRouter::Path>          m_paths;
-    QTableWidget                         *m_table = nullptr;
-    QDialogButtonBox                     *m_buttons = nullptr;
-    int                                   m_selectedIdx = -1;
+    SWMMModelLayer *m_model = nullptr;
+    QVector<ProfileRouter::Path> m_paths;
+    QTableWidget *m_table = nullptr;
+    QDialogButtonBox *m_buttons = nullptr;
+    int m_selectedIdx = -1;
 };
 
 #endif // PROFILEPATHPICKERDIALOG_H

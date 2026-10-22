@@ -1,9 +1,15 @@
-/*!
- * \file   rastergeoref.cpp
- * \author SWMMVis
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rastergeoref.cpp
+ * @brief     World-file parsing and GDAL PAM georeferencing helpers for local raster basemaps
+ *            (LOCAL_RASTER_BASEMAP plan, Phase 2).
+ * @author    SWMMVis
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "io/rastergeoref.h"
 
 #include "io/gdaldrivers.h"
@@ -17,23 +23,37 @@
 #include <ogr_spatialref.h>
 #include <cpl_conv.h>
 
-namespace openswmmvis::io::rastergeoref {
+namespace openswmmvis::io::rastergeoref
+{
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Store an optional georeferencing diagnostic.
+ * @param[out] err Nullable diagnostic destination.
+ * @param[in] msg Text to assign when a destination exists.
+ */
 void setErr(QString *err, const QString &msg)
 {
     if (err)
         *err = msg;
 }
 
+/**
+ * @brief Read the current GDAL diagnostic.
+ * @return UTF-8 error text, or an unknown-error fallback when none is available.
+ */
 QString gdalErrorDetail()
 {
     const char *msg = CPLGetLastErrorMsg();
     return (msg && *msg) ? QString::fromUtf8(msg) : QStringLiteral("unknown GDAL error");
 }
 
-/*! GeoTransform in the comma-space-separated %.16e form GDAL's PAM uses. */
+/*! GeoTransform in the comma-space-separated %.16e form GDAL's PAM uses.
+ * @param[in] gt Non-null six-coefficient pixel-corner transform.
+ * @return Six scientific-notation coefficients separated by comma-space for PAM serialization.
+ */
 QString geoTransformText(const double gt[6])
 {
     QStringList parts;
@@ -42,7 +62,10 @@ QString geoTransformText(const double gt[6])
     return parts.join(QStringLiteral(", "));
 }
 
-/*! "2,1"-style dataAxisToSRSAxisMapping attribute value for \a srs. */
+/*! "2,1"-style dataAxisToSRSAxisMapping attribute value for \a srs.
+ * @param[in] srs Spatial reference with configured data-axis mapping.
+ * @return Comma-separated axis indices for the PAM dataAxisToSRSAxisMapping attribute.
+ */
 QString axisMappingText(const OGRSpatialReference &srs)
 {
     QStringList parts;
@@ -55,13 +78,16 @@ QString axisMappingText(const OGRSpatialReference &srs)
 /*! Attempts the driver-native route: open for update and set the georef
  *  directly. Returns false when the driver refuses update access (PNG/JPEG)
  *  or rejects the set calls — the caller then falls back to the PAM sidecar.
- *  The open is quieted because failure here is expected control flow. */
-bool tryNativeUpdate(const QString &imagePath, const double *gt6,
-                     const OGRSpatialReference *srs)
+ *  The open is quieted because failure here is expected control flow.
+ * @param[in] imagePath Raster path opened for update and closed before return.
+ * @param[in] gt6 Optional six-coefficient transform; null leaves transform unchanged.
+ * @param[in] srs Optional borrowed spatial reference; null leaves CRS unchanged.
+ * @return True when requested setters succeed; false permits PAM fallback. Earlier setters may already have changed metadata on failure.
+ */
+bool tryNativeUpdate(const QString &imagePath, const double *gt6, const OGRSpatialReference *srs)
 {
     CPLPushErrorHandler(CPLQuietErrorHandler);
-    GDALDatasetH h = GDALOpenEx(imagePath.toUtf8().constData(),
-                                GDAL_OF_RASTER | GDAL_OF_UPDATE,
+    GDALDatasetH h = GDALOpenEx(imagePath.toUtf8().constData(), GDAL_OF_RASTER | GDAL_OF_UPDATE,
                                 nullptr, nullptr, nullptr);
     CPLPopErrorHandler();
     if (!h)
@@ -70,7 +96,7 @@ bool tryNativeUpdate(const QString &imagePath, const double *gt6,
     auto *ds = GDALDataset::FromHandle(h);
     bool ok = true;
     if (gt6) {
-        double gt[6];  // SetGeoTransform takes a non-const pointer
+        double gt[6]; // SetGeoTransform takes a non-const pointer
         for (int i = 0; i < 6; ++i)
             gt[i] = gt6[i];
         ok = ds->SetGeoTransform(gt) == CE_None;
@@ -85,10 +111,16 @@ bool tryNativeUpdate(const QString &imagePath, const double *gt6,
  *  written wholesale; an existing one is re-serialized token-by-token with
  *  QXmlStreamReader/Writer (Qt Xml is not linked in this project) so
  *  non-georef top-level elements — statistics, histograms, metadata — are
- *  preserved while <SRS> / <GeoTransform> are replaced. */
-bool writePamSidecar(const QString &imagePath, const double *gt6,
-                     const QString &crsWkt, const QString &axisMapping,
-                     QString *err)
+ *  preserved while `SRS` / `GeoTransform` are replaced.
+ * @param[in] imagePath Raster whose .aux.xml companion is written.
+ * @param[in] gt6 Optional six-coefficient transform replacing its PAM element.
+ * @param[in] crsWkt Nonempty CRS replaces the SRS element; empty preserves it.
+ * @param[in] axisMapping Optional axis mapping serialized with a new SRS.
+ * @param[out] err Optional read/parse/write failure diagnostic, unchanged on success.
+ * @return False for unreadable/malformed existing XML or failed/short writes; a failed direct write can leave a partial sidecar.
+ */
+bool writePamSidecar(const QString &imagePath, const double *gt6, const QString &crsWkt,
+                     const QString &axisMapping, QString *err)
 {
     const QString pamPath = imagePath + QStringLiteral(".aux.xml");
 
@@ -119,20 +151,18 @@ bool writePamSidecar(const QString &imagePath, const double *gt6,
 
     if (!existing.isEmpty()) {
         QXmlStreamReader r(existing);
-        if (!r.readNextStartElement()
-            || r.name() != QLatin1String("PAMDataset")) {
+        if (!r.readNextStartElement() || r.name() != QLatin1String("PAMDataset")) {
             setErr(err, QStringLiteral("Existing PAM sidecar %1 is not a "
                                        "<PAMDataset> document — refusing to "
-                                       "overwrite it").arg(pamPath));
+                                       "overwrite it")
+                            .arg(pamPath));
             return false;
         }
         while (r.readNextStartElement()) {
-            const bool replacedSrs =
-                !crsWkt.isEmpty() && r.name() == QLatin1String("SRS");
-            const bool replacedGt =
-                gt6 && r.name() == QLatin1String("GeoTransform");
+            const bool replacedSrs = !crsWkt.isEmpty() && r.name() == QLatin1String("SRS");
+            const bool replacedGt = gt6 && r.name() == QLatin1String("GeoTransform");
             if (replacedSrs || replacedGt) {
-                r.skipCurrentElement();  // superseded by the values above
+                r.skipCurrentElement(); // superseded by the values above
                 continue;
             }
             // Echo this top-level child's subtree verbatim.
@@ -158,18 +188,18 @@ bool writePamSidecar(const QString &imagePath, const double *gt6,
             return false;
         }
     }
-    w.writeEndElement();  // PAMDataset
+    w.writeEndElement(); // PAMDataset
     content.append('\n');
 
     QFile out(pamPath);
     if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        setErr(err, QStringLiteral("Cannot write PAM sidecar %1: %2")
-                        .arg(pamPath, out.errorString()));
+        setErr(err,
+               QStringLiteral("Cannot write PAM sidecar %1: %2").arg(pamPath, out.errorString()));
         return false;
     }
     if (out.write(content) != content.size()) {
-        setErr(err, QStringLiteral("Short write to PAM sidecar %1: %2")
-                        .arg(pamPath, out.errorString()));
+        setErr(err,
+               QStringLiteral("Short write to PAM sidecar %1: %2").arg(pamPath, out.errorString()));
         return false;
     }
     return true;
@@ -181,19 +211,18 @@ bool parseWorldFile(const QString &path, WorldFileParams *out, QString *err)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        setErr(err, QStringLiteral("Cannot open world file %1: %2")
-                        .arg(path, file.errorString()));
+        setErr(err, QStringLiteral("Cannot open world file %1: %2").arg(path, file.errorString()));
         return false;
     }
     // simplified() collapses all whitespace (newlines, tabs, CR) to single
     // spaces; QString::toDouble is C-locale, so parsing is locale-independent.
     const QString text = QString::fromLatin1(file.readAll());
-    const QStringList tokens =
-        text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    const QStringList tokens = text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (tokens.size() < 6) {
         setErr(err, QStringLiteral("World file %1 has %2 value(s); six are "
                                    "required (A, D, B, E, C, F)")
-                        .arg(path).arg(tokens.size()));
+                        .arg(path)
+                        .arg(tokens.size()));
         return false;
     }
     double v[6];
@@ -203,7 +232,9 @@ bool parseWorldFile(const QString &path, WorldFileParams *out, QString *err)
         if (!ok) {
             setErr(err, QStringLiteral("World file %1: value %2 (\"%3\") is "
                                        "not a number")
-                            .arg(path).arg(i + 1).arg(tokens.at(i)));
+                            .arg(path)
+                            .arg(i + 1)
+                            .arg(tokens.at(i)));
             return false;
         }
     }
@@ -252,21 +283,21 @@ QStringList worldFileCandidates(const QString &imagePath)
 
 void worldFileToGeoTransform(const WorldFileParams &wf, double gt[6])
 {
-    gt[0] = wf.c - wf.a / 2.0 - wf.b / 2.0;  // pixel CENTER → CORNER
+    gt[0] = wf.c - wf.a / 2.0 - wf.b / 2.0; // pixel CENTER → CORNER
     gt[1] = wf.a;
     gt[2] = wf.b;
-    gt[3] = wf.f - wf.d / 2.0 - wf.e / 2.0;  // pixel CENTER → CORNER
+    gt[3] = wf.f - wf.d / 2.0 - wf.e / 2.0; // pixel CENTER → CORNER
     gt[4] = wf.d;
     gt[5] = wf.e;
 }
 
-bool applyPamGeoref(const QString &imagePath, const double *gt6,
-                    const QString &crsWkt, QString *err)
+bool applyPamGeoref(const QString &imagePath, const double *gt6, const QString &crsWkt,
+                    QString *err)
 {
     gdalcaps::ensureRegistered();
 
     if (!gt6 && crsWkt.isEmpty())
-        return true;  // nothing to apply
+        return true; // nothing to apply
 
     if (!QFile::exists(imagePath)) {
         setErr(err, QStringLiteral("Raster file does not exist: %1").arg(imagePath));
@@ -282,8 +313,7 @@ bool applyPamGeoref(const QString &imagePath, const double *gt6,
         const OGRErr rc = srs.importFromWkt(crsWkt.toUtf8().constData());
         CPLPopErrorHandler();
         if (rc != OGRERR_NONE) {
-            setErr(err, QStringLiteral("Invalid CRS WKT (starts \"%1…\")")
-                            .arg(crsWkt.left(60)));
+            setErr(err, QStringLiteral("Invalid CRS WKT (starts \"%1…\")").arg(crsWkt.left(60)));
             return false;
         }
         axisMapping = axisMappingText(srs);
@@ -296,8 +326,8 @@ bool applyPamGeoref(const QString &imagePath, const double *gt6,
 
     // Verify: a plain read-only open must now see the georeferencing.
     GDALDatasetH h = GDALOpenEx(imagePath.toUtf8().constData(),
-                                GDAL_OF_RASTER | GDAL_OF_READONLY | GDAL_OF_VERBOSE_ERROR,
-                                nullptr, nullptr, nullptr);
+                                GDAL_OF_RASTER | GDAL_OF_READONLY | GDAL_OF_VERBOSE_ERROR, nullptr,
+                                nullptr, nullptr);
     if (!h) {
         setErr(err, QStringLiteral("Reopen of %1 failed after writing "
                                    "georeferencing: %2")
@@ -310,13 +340,13 @@ bool applyPamGeoref(const QString &imagePath, const double *gt6,
         double got[6];
         if (ds->GetGeoTransform(got) != CE_None) {
             setErr(err, QStringLiteral("GeoTransform written to %1 is not "
-                                       "visible on reopen").arg(imagePath));
+                                       "visible on reopen")
+                            .arg(imagePath));
             ok = false;
         }
     }
     if (ok && !crsWkt.isEmpty() && !ds->GetSpatialRef()) {
-        setErr(err, QStringLiteral("CRS written to %1 is not visible on reopen")
-                        .arg(imagePath));
+        setErr(err, QStringLiteral("CRS written to %1 is not visible on reopen").arg(imagePath));
         ok = false;
     }
     GDALClose(h);
@@ -329,8 +359,7 @@ GeorefProbe probeGeoref(const QString &imagePath)
 
     GeorefProbe probe;
     CPLPushErrorHandler(CPLQuietErrorHandler);
-    GDALDatasetH h = GDALOpenEx(imagePath.toUtf8().constData(),
-                                GDAL_OF_RASTER | GDAL_OF_READONLY,
+    GDALDatasetH h = GDALOpenEx(imagePath.toUtf8().constData(), GDAL_OF_RASTER | GDAL_OF_READONLY,
                                 nullptr, nullptr, nullptr);
     CPLPopErrorHandler();
     if (!h)
@@ -345,8 +374,8 @@ GeorefProbe probeGeoref(const QString &imagePath)
         const char *auth = sr->GetAuthorityName(nullptr);
         const char *code = sr->GetAuthorityCode(nullptr);
         if (auth && code)
-            probe.crsAuthCode = QStringLiteral("%1:%2").arg(
-                QString::fromUtf8(auth), QString::fromUtf8(code));
+            probe.crsAuthCode =
+                QStringLiteral("%1:%2").arg(QString::fromUtf8(auth), QString::fromUtf8(code));
     }
     GDALClose(h);
     return probe;
@@ -367,8 +396,7 @@ QString authCodeToWkt(const QString &authCode, QString *err)
     char *wkt = nullptr;
     if (srs.exportToWkt(&wkt) != OGRERR_NONE || !wkt) {
         CPLFree(wkt);
-        setErr(err, QStringLiteral("CRS \"%1\" could not be exported to WKT")
-                        .arg(authCode));
+        setErr(err, QStringLiteral("CRS \"%1\" could not be exported to WKT").arg(authCode));
         return QString();
     }
     const QString result = QString::fromUtf8(wkt);

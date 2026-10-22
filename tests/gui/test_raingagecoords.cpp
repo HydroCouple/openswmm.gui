@@ -1,6 +1,6 @@
-/*!
- * \file   test_raingagecoords.cpp
- * \brief  Rain-gage map position ([SYMBOLS] X / Y) is readable AND editable
+/**
+ * @file      test_raingagecoords.cpp
+ * @brief     Rain-gage map position ([SYMBOLS] X / Y) is readable AND editable
  *         from both editing surfaces.
  *
  * A rain gage is a placed object, but the DA.2 adapter set derives it from the
@@ -21,6 +21,10 @@
  *
  * Fixture: `typed_selection_fixture.inp` — one gage `S1` at (-2000, -2000).
  * Output is written next to the fixture (reviewable, CLAUDE.md §4.1).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmmmodellayer.h"
@@ -42,31 +46,64 @@
 
 using openswmmvis::ColumnSpec;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Read SWMMVIS_GUI_TEST_DATA or use the current directory for coordinate fixtures.
+ * @return Owned unvalidated directory string; no creation.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ *
+ * @brief Join a fixture/output name beneath dataDir().
+ * @param name Borrowed relative filename, or any path QDir::filePath accepts.
+ * @return Owned path without traversal/existence/writability validation or IO.
+ *
+ */
 QString fixture(const QString &name)
 {
     return QDir(dataDir()).filePath(name);
 }
 
-std::unique_ptr<SWMMModelLayer> openLayer(const QString &file =
-                                              QStringLiteral("typed_selection_fixture.inp"))
+/**
+ *
+ * @brief Load a coordinate fixture into a caller-owned model layer.
+ * @param file Borrowed filename under fixture(), default typed_selection_fixture.inp.
+ * @return Unique layer on successful engine load, nullptr on failure (temporary
+ * layer/engine are released). Warnings/errors are discarded; referenced file IO
+ * may occur but no model is written. Call on the GUI thread.
+ *
+ */
+std::unique_ptr<SWMMModelLayer>
+openLayer(const QString &file = QStringLiteral("typed_selection_fixture.inp"))
 {
     auto layer = std::make_unique<SWMMModelLayer>(fixture(file), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
+/**
+ *
+ * @brief Find the first attribute-table column with an exact setter token.
+ * @param specs Borrowed ordered column specifications.
+ * @param tag Borrowed case-sensitive setter identifier.
+ * @return Zero-based index or -1 when absent; no model or input mutation.
+ *
+ */
 int colForSetter(const QList<ColumnSpec> &specs, const QString &tag)
 {
     for (int i = 0; i < specs.size(); ++i)
-        if (specs[i].setter == tag) return i;
+        if (specs[i].setter == tag)
+            return i;
     return -1;
 }
 
@@ -96,10 +133,8 @@ private slots:
         QCOMPARE(adapter.yCoord(), -2000.0);
 
         // Labelled like the node adapter's rows.
-        QCOMPARE(adapter.displayLabelFor(QStringLiteral("xCoord")),
-                 QStringLiteral("X Coordinate"));
-        QCOMPARE(adapter.displayLabelFor(QStringLiteral("yCoord")),
-                 QStringLiteral("Y Coordinate"));
+        QCOMPARE(adapter.displayLabelFor(QStringLiteral("xCoord")), QStringLiteral("X Coordinate"));
+        QCOMPARE(adapter.displayLabelFor(QStringLiteral("yCoord")), QStringLiteral("Y Coordinate"));
 
         // Both properties are on the meta-object, so QPropertyModel shows them.
         QVERIFY(adapter.metaObject()->indexOfProperty("xCoord") >= 0);
@@ -111,10 +146,10 @@ private slots:
         adapter.setXCoord(kNewX);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(spy.at(0).at(0).toDouble(), kNewX);
-        QCOMPARE(spy.at(0).at(1).toDouble(), -2000.0);   // Y unchanged
+        QCOMPARE(spy.at(0).at(1).toDouble(), -2000.0); // Y unchanged
         double x = 0.0, y = 0.0;
         swmm_spatial_get_gage_coord(e, gi, &x, &y);
-        QCOMPARE(x, -2000.0);   // still untouched: the panel applies it
+        QCOMPARE(x, -2000.0); // still untouched: the panel applies it
 
         adapter.setYCoord(kNewY);
         QCOMPARE(spy.count(), 2);
@@ -152,15 +187,14 @@ private slots:
         // legacy precedence (node → link → catchment → gage) — so the gage
         // is only reachable with the gage kind bit, exactly as the
         // Attribute Table's row cache reads it.
-        const QVariantMap m = layer->identifyByName(
-            QStringLiteral("S1"), SWMMModelLayer::kKindGage);
+        const QVariantMap m =
+            layer->identifyByName(QStringLiteral("S1"), SWMMModelLayer::kKindGage);
         QCOMPARE(m.value(QStringLiteral("X")).toDouble(), kNewX);
         QCOMPARE(m.value(QStringLiteral("Y")).toDouble(), kNewY);
 
         // The collision itself: unscoped identify still yields the
         // subcatchment (legacy precedence), which carries no "X".
-        QVERIFY(!layer->identifyByName(QStringLiteral("S1"))
-                     .contains(QStringLiteral("X")));
+        QVERIFY(!layer->identifyByName(QStringLiteral("S1")).contains(QStringLiteral("X")));
 
         QVERIFY(edited.count() >= 1);
         QVERIFY(repaint.count() >= 1);
@@ -229,6 +263,14 @@ private slots:
         QCOMPARE(y, kNewY);
     }
 
+    /**
+     *
+     * @brief Require gage drag preview to change only cached coordinates, then merged move
+     * commands to commit/undo/redo engine coordinates.
+     * Reads the typed-selection fixture, uses a local undo stack and writes no file;
+     * restores the cache-only preview before pushing the first command.
+     *
+     */
     void dragPreviewAndMoveGageCommand()
     {
         // The map drag path (Edit Existing → move tool): previewGageMove
@@ -243,9 +285,10 @@ private slots:
 
         // Preview: the layer's cached position follows, the engine does not.
         QVERIFY(layer->previewGageMove(gi, 111.0, 222.0));
-        QCOMPARE(layer->identifyByName(QStringLiteral("S1"),
-                                       SWMMModelLayer::kKindGage)
-                     .value(QStringLiteral("X")).toDouble(), 111.0);
+        QCOMPARE(layer->identifyByName(QStringLiteral("S1"), SWMMModelLayer::kKindGage)
+                     .value(QStringLiteral("X"))
+                     .toDouble(),
+                 111.0);
         double ex = 0.0, ey = 0.0;
         QCOMPARE(swmm_spatial_get_gage_coord(e, gi, &ex, &ey), 0);
         QCOMPARE(ex, -2000.0);
@@ -253,11 +296,9 @@ private slots:
         QVERIFY(layer->previewGageMove(gi, -2000.0, -2000.0));
 
         QUndoStack stack;
-        stack.push(new MoveGageCommand(layer.get(), gi, -2000.0, -2000.0,
-                                       10.0, 20.0, nullptr));
-        stack.push(new MoveGageCommand(layer.get(), gi, 10.0, 20.0,
-                                       30.0, 40.0, nullptr));
-        QCOMPARE(stack.count(), 1);   // same-gage moves merged
+        stack.push(new MoveGageCommand(layer.get(), gi, -2000.0, -2000.0, 10.0, 20.0, nullptr));
+        stack.push(new MoveGageCommand(layer.get(), gi, 10.0, 20.0, 30.0, 40.0, nullptr));
+        QCOMPARE(stack.count(), 1); // same-gage moves merged
         QCOMPARE(swmm_spatial_get_gage_coord(e, gi, &ex, &ey), 0);
         QCOMPARE(ex, 30.0);
         QCOMPARE(ey, 40.0);

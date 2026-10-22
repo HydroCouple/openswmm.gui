@@ -1,8 +1,9 @@
-/*!
- * \file   test_cursorwindowslider.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_cursorwindowslider.cpp
+ * @brief     Tests for cursorwindowslider.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Issue 1 — pins CursorWindowSlider's public API + invariants (the single-thumb
  * scrubber that replaced the two-thumb RangeSliderWidget on the animation
@@ -16,7 +17,9 @@
  *
  * Self-contained: only links cursorwindowslider.cpp + Qt6 Widgets. Writes no
  * temp files.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/cursorwindowslider.h"
 
 #include <QObject>
@@ -29,13 +32,59 @@ class TestCursorWindowSlider : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Pin initial cursor and window normalized fractions to zero.
+     *
+     */
     void defaults();
+    /**
+     *
+     * @brief Require cursor inputs below/above [0,1] to clamp and a valid 0.42 fraction to remain
+     * exact.
+     *
+     */
     void setCursorClamps();
+    /**
+     *
+     * @brief Require window inputs below/above [0,1] to clamp and a valid 0.25 fraction to remain
+     * exact.
+     *
+     */
     void setWindowClamps();
+    /**
+     *
+     * @brief Require cursor change payload 0.3, no emission for repeating it and another emission
+     * for 0.6.
+     *
+     */
     void cursorChangedFiresOnlyOnChange();
+    /**
+     *
+     * @brief Require one window change signal and no additional signal for repeated 0.2.
+     *
+     */
     void windowChangedFiresOnlyOnChange();
+    /**
+     *
+     * @brief Require right-arrow increase, at least three change signals across
+     * right/left/shift-right and a shift increment over 0.04.
+     * The left-step magnitude and exact ordinary increment are not separately asserted.
+     *
+     */
     void arrowKeysNudgeCursor();
+    /**
+     *
+     * @brief Require Home/End key events to place the normalized cursor exactly at zero/one.
+     *
+     */
     void homeEndJumpToEnds();
+    /**
+     *
+     * @brief Require cursor changes not to alter/notify window fraction and window changes not to
+     * alter/notify cursor fraction.
+     *
+     */
     void cursorAndWindowAreIndependent();
 };
 
@@ -77,7 +126,7 @@ void TestCursorWindowSlider::cursorChangedFiresOnlyOnChange()
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.takeLast().at(0).toDouble(), 0.3);
 
-    s.setCursorNorm(0.3);            // no-op
+    s.setCursorNorm(0.3); // no-op
     QCOMPARE(spy.count(), 0);
 
     s.setCursorNorm(0.6);
@@ -92,7 +141,7 @@ void TestCursorWindowSlider::windowChangedFiresOnlyOnChange()
     s.setWindowNorm(0.2);
     QCOMPARE(spy.count(), 1);
 
-    s.setWindowNorm(0.2);            // no-op
+    s.setWindowNorm(0.2); // no-op
     QCOMPARE(spy.count(), 1);
 }
 
@@ -104,7 +153,7 @@ void TestCursorWindowSlider::arrowKeysNudgeCursor()
 
     QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
     QCoreApplication::sendEvent(&s, &right);
-    QVERIFY(s.cursorNorm() > 0.5);                 // moved right ~1%
+    QVERIFY(s.cursorNorm() > 0.5); // moved right ~1%
 
     QKeyEvent left(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier);
     QCoreApplication::sendEvent(&s, &left);
@@ -112,7 +161,7 @@ void TestCursorWindowSlider::arrowKeysNudgeCursor()
     const qreal pre = s.cursorNorm();
     QKeyEvent shiftRight(QEvent::KeyPress, Qt::Key_Right, Qt::ShiftModifier);
     QCoreApplication::sendEvent(&s, &shiftRight);
-    QVERIFY(s.cursorNorm() - pre > 0.04);          // Shift nudges ~5%
+    QVERIFY(s.cursorNorm() - pre > 0.04); // Shift nudges ~5%
 
     QVERIFY(spy.count() >= 3);
 }
@@ -142,12 +191,12 @@ void TestCursorWindowSlider::cursorAndWindowAreIndependent()
 
     s.setCursorNorm(0.1);
     s.setCursorNorm(0.9);
-    QCOMPARE(s.windowNorm(), 0.2);   // window untouched by scrubbing
-    QCOMPARE(winSpy.count(), 0);     // and emitted no window change
+    QCOMPARE(s.windowNorm(), 0.2); // window untouched by scrubbing
+    QCOMPARE(winSpy.count(), 0);   // and emitted no window change
 
     QSignalSpy curSpy(&s, &CursorWindowSlider::cursorChanged);
     s.setWindowNorm(0.5);
-    QCOMPARE(s.cursorNorm(), 0.9);   // cursor untouched by a window change
+    QCOMPARE(s.cursorNorm(), 0.9); // cursor untouched by a window change
     QCOMPARE(curSpy.count(), 0);
 }
 

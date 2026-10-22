@@ -1,9 +1,12 @@
-/*!
- * \file   unitsystem.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      unitsystem.cpp
+ * @brief     Per-project flow-units state + label helpers.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "core/unitsystem.h"
 
 #include <openswmm/engine/openswmm_model.h>
@@ -12,15 +15,13 @@
 
 namespace
 {
-    // The facade target — points at the active project's per-instance
-    // UnitSystem. Cleared (or rebound) by SWMMVis::onActiveSubWindowChanged
-    // each time the focused MDI subwindow changes.
-    QPointer<UnitSystem> g_activeUnits;
+// The facade target — points at the active project's per-instance
+// UnitSystem. Cleared (or rebound) by SWMMVis::onActiveSubWindowChanged
+// each time the focused MDI subwindow changes.
+QPointer<UnitSystem> g_activeUnits;
 }
 
-UnitSystem::UnitSystem(QObject *parent)
-    : QObject(parent)
-{}
+UnitSystem::UnitSystem(QObject *parent) : QObject(parent) {}
 
 // ---------------------------------------------------------------------------
 // Delegating facade
@@ -45,8 +46,8 @@ void UnitSystem::setActiveProject(UnitSystem *units)
 
     // Disconnect the facade re-broadcast from the previously-active project.
     if (g_activeUnits)
-        QObject::disconnect(g_activeUnits.data(), &UnitSystem::unitsChanged,
-                            facade, &UnitSystem::unitsChanged);
+        QObject::disconnect(g_activeUnits.data(), &UnitSystem::unitsChanged, facade,
+                            &UnitSystem::unitsChanged);
 
     g_activeUnits = units;
 
@@ -54,8 +55,7 @@ void UnitSystem::setActiveProject(UnitSystem *units)
     // existing listeners (status-bar combo, dialogs) refresh without knowing
     // which project they came from.
     if (units)
-        QObject::connect(units, &UnitSystem::unitsChanged,
-                         facade, &UnitSystem::unitsChanged,
+        QObject::connect(units, &UnitSystem::unitsChanged, facade, &UnitSystem::unitsChanged,
                          Qt::UniqueConnection);
 
     // Notify listeners that the facade now reports a (potentially) different
@@ -82,25 +82,29 @@ swmm_FlowUnitsProperty UnitSystem::flowUnits() const
 
 void UnitSystem::syncFromEngine(SWMM_Engine engine)
 {
-    if (this == instance())
-    {
-        if (g_activeUnits) g_activeUnits->syncFromEngine(engine);
+    if (this == instance()) {
+        if (g_activeUnits)
+            g_activeUnits->syncFromEngine(engine);
         return;
     }
 
     char buf[32] = {};
-    if (swmm_options_get(engine, "FLOW_UNITS", buf, sizeof(buf)) == 0)
-    {
+    if (swmm_options_get(engine, "FLOW_UNITS", buf, sizeof(buf)) == 0) {
         QString s = QString(buf).trimmed().toUpper();
         swmm_FlowUnitsProperty u = swmm_CFS;
-        if      (s == "CFS") u = swmm_CFS;
-        else if (s == "GPM") u = swmm_GPM;
-        else if (s == "MGD") u = swmm_MGD;
-        else if (s == "CMS") u = swmm_CMS;
-        else if (s == "LPS") u = swmm_LPS;
-        else if (s == "MLD") u = swmm_MLD;
-        if (u != mFlowUnits)
-        {
+        if (s == "CFS")
+            u = swmm_CFS;
+        else if (s == "GPM")
+            u = swmm_GPM;
+        else if (s == "MGD")
+            u = swmm_MGD;
+        else if (s == "CMS")
+            u = swmm_CMS;
+        else if (s == "LPS")
+            u = swmm_LPS;
+        else if (s == "MLD")
+            u = swmm_MLD;
+        if (u != mFlowUnits) {
             mFlowUnits = u;
             emit unitsChanged(mFlowUnits);
         }
@@ -109,9 +113,9 @@ void UnitSystem::syncFromEngine(SWMM_Engine engine)
 
 void UnitSystem::setFlowUnits(swmm_FlowUnitsProperty units, SWMM_Engine engine)
 {
-    if (this == instance())
-    {
-        if (g_activeUnits) g_activeUnits->setFlowUnits(units, engine);
+    if (this == instance()) {
+        if (g_activeUnits)
+            g_activeUnits->setFlowUnits(units, engine);
         return;
     }
 
@@ -120,9 +124,8 @@ void UnitSystem::setFlowUnits(swmm_FlowUnitsProperty units, SWMM_Engine engine)
 
     mFlowUnits = units;
 
-    if (engine)
-    {
-        static const char *labels[] = { "CFS","GPM","MGD","CMS","LPS","MLD" };
+    if (engine) {
+        static const char *labels[] = {"CFS", "GPM", "MGD", "CMS", "LPS", "MLD"};
         swmm_options_set(engine, "FLOW_UNITS", labels[static_cast<int>(units)]);
     }
 
@@ -137,14 +140,19 @@ bool UnitSystem::isSI() const
 
 QString UnitSystem::flowUnitLabel() const
 {
-    switch (flowUnits())
-    {
-        case swmm_CFS: return QStringLiteral("CFS");
-        case swmm_GPM: return QStringLiteral("GPM");
-        case swmm_MGD: return QStringLiteral("MGD");
-        case swmm_CMS: return QStringLiteral("CMS");
-        case swmm_LPS: return QStringLiteral("LPS");
-        case swmm_MLD: return QStringLiteral("MLD");
+    switch (flowUnits()) {
+    case swmm_CFS:
+        return QStringLiteral("CFS");
+    case swmm_GPM:
+        return QStringLiteral("GPM");
+    case swmm_MGD:
+        return QStringLiteral("MGD");
+    case swmm_CMS:
+        return QStringLiteral("CMS");
+    case swmm_LPS:
+        return QStringLiteral("LPS");
+    case swmm_MLD:
+        return QStringLiteral("MLD");
     }
     return QStringLiteral("CFS");
 }

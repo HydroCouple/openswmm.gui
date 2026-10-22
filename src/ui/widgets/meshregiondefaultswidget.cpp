@@ -1,9 +1,13 @@
-/*!
- * \file   meshregiondefaultswidget.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshregiondefaultswidget.cpp
+ * @brief     the mesh generation dialog's region-defaults table
+ *            (`workplans/INTEGRATED2D_GW_GUI_PLAN_2026-08-15.md` §3.3).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/meshregiondefaultswidget.h"
 
 #include "ui/theme/themehelpers.h"
@@ -23,7 +27,8 @@
 #include <cmath>
 #include <initializer_list>
 
-namespace {
+namespace
+{
 
 /*! Column layout. P0…P4 are the five positional slots of mesh::InfilRow; the
  *  headers above them are retitled from mesh::infilParamLabel() for whichever
@@ -33,7 +38,11 @@ enum Column {
     ColMannings,
     ColInitDepth,
     ColMethod,
-    ColP0, ColP1, ColP2, ColP3, ColP4,
+    ColP0,
+    ColP1,
+    ColP2,
+    ColP3,
+    ColP4,
     ColDest,
     ColCount
 };
@@ -48,32 +57,66 @@ constexpr int kStarRow = 0;
  *  hydraulic columns. */
 constexpr int kRoleValue = Qt::UserRole + 1;
 
-/*! Rendered in a cell the row's method does not use. */
-QString emDash() { return QStringLiteral("—"); }
+/*! Rendered in a cell the row's method does not use.
+ * @return Em dash used for inapplicable parameter/destination cells.
+ */
+QString emDash()
+{
+    return QStringLiteral("—");
+}
 
 /*! mesh::InfilMethod::None is -1, so the enum value is the combo index minus
- *  one — infilMethodLabels() runs None…Constant in enum order. */
-int methodToIndex(mesh::InfilMethod m) { return int(m) + 1; }
+ *  one — infilMethodLabels() runs None…Constant in enum order.
+ * @param[in] m Method enum, with None=-1.
+ * @return Combo index equal to enum plus one, without validation.
+ */
+int methodToIndex(mesh::InfilMethod m)
+{
+    return int(m) + 1;
+}
+/**
+ * @brief Translate a method combo row into its stored enum.
+ * @param[in] i Combo index.
+ * @return Enum equal to index minus one, without validation.
+ */
 mesh::InfilMethod methodFromIndex(int i)
 {
     return static_cast<mesh::InfilMethod>(i - 1);
 }
 
-struct NumericRange { double lo; double hi; int decimals; };
+struct NumericRange {
+    double lo;
+    double hi;
+    int decimals;
+};
 
 /*! Manning's n and initial depth reuse the ranges of the dialog's two spin
  *  boxes verbatim so the '*' row and a region row cannot disagree on what is
- *  an acceptable value. */
+ *  an acceptable value.
+ * @param[in] column Hydraulic or infiltration numeric column.
+ * @return Manning [0.001,1], depth [0,1000] (four decimals), or infiltration [0,1e9] (six decimals), in the draft's raw units.
+ */
 NumericRange rangeFor(int column)
 {
     switch (column) {
-    case ColMannings:  return {0.001, 1.0,    4};
-    case ColInitDepth: return {0.0,   1000.0, 4};
-    default:           return {0.0,   1.0e9,  6};   // infiltration parameters
+    case ColMannings:
+        return {0.001, 1.0, 4};
+    case ColInitDepth:
+        return {0.0, 1000.0, 4};
+    default:
+        return {0.0, 1.0e9, 6}; // infiltration parameters
     }
 }
 
-QString formatValue(double v) { return QString::number(v, 'g', 10); }
+/**
+ * @brief Format a raw numeric draft without forcing fixed decimals.
+ * @param[in] v Value in its existing units.
+ * @return General-format text with ten significant digits.
+ */
+QString formatValue(double v)
+{
+    return QString::number(v, 'g', 10);
+}
 
 /*! Editors: a combo for the two enum columns, a validated line edit for every
  *  numeric one. A line edit (rather than a spin box) because "blank" is a
@@ -84,25 +127,29 @@ class RegionDefaultsDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    /**
+     * @brief Create an enum combo or blank-capable validated line edit for a table cell.
+     * @param[in] parent QWidget owner of the new editor.
+     * @param[in] idx Cell identifying the parameter/enum column.
+     * @return New parent-owned editor; the unused Qt style-options argument does not affect construction. Destination combos keep legacy Aquifer2D visible but disabled.
+     */
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
                           const QModelIndex &idx) const override
     {
         const int col = idx.column();
 
-        if (col == ColMethod || col == ColDest)
-        {
+        if (col == ColMethod || col == ColDest) {
             auto *combo = new QComboBox(parent);
-            combo->addItems(col == ColMethod ? mesh::infilMethodLabels()
-                                             : mesh::infilDestLabels());
-            if (col == ColDest)
-            {
+            combo->addItems(col == ColMethod ? mesh::infilMethodLabels() : mesh::infilDestLabels());
+            if (col == ColDest) {
                 // Keep the obsolete value readable in existing files; new
                 // assignments use the ownership review to migrate it.
                 if (auto *m = qobject_cast<QStandardItemModel *>(combo->model()))
                     for (int i = 0; i < combo->count(); ++i)
                         if (QStandardItem *si = m->item(i)) {
                             si->setToolTip(mesh::infilDestHint(static_cast<mesh::InfilDest>(i)));
-                            if(i==int(mesh::InfilDest::Aquifer2D))si->setEnabled(false);
+                            if (i == int(mesh::InfilDest::Aquifer2D))
+                                si->setEnabled(false);
                         }
             }
             return combo;
@@ -110,7 +157,7 @@ public:
 
         const NumericRange r = rangeFor(col);
         auto *edit = new QLineEdit(parent);
-        auto *val  = new QDoubleValidator(r.lo, r.hi, r.decimals, edit);
+        auto *val = new QDoubleValidator(r.lo, r.hi, r.decimals, edit);
         val->setNotation(QDoubleValidator::StandardNotation);
         edit->setValidator(val);
         // An inheriting hydraulic cell already displays the '*' value; showing
@@ -121,28 +168,36 @@ public:
         return edit;
     }
 
+    /**
+     * @brief Populate an enum/numeric editor from its raw value role, preserving blanks.
+     * @param[in,out] editor Required combo or line edit created by this delegate.
+     * @param[in] idx Source cell carrying kRoleValue; hydraulic inheritance uses blank input rather than displayed fallback.
+     */
     void setEditorData(QWidget *editor, const QModelIndex &idx) const override
     {
         const QVariant v = idx.data(kRoleValue);
 
-        if (auto *combo = qobject_cast<QComboBox *>(editor))
-        {
+        if (auto *combo = qobject_cast<QComboBox *>(editor)) {
             const int stored = v.toInt();
-            combo->setCurrentIndex(
-                idx.column() == ColMethod
-                    ? methodToIndex(static_cast<mesh::InfilMethod>(stored))
-                    : stored);
+            combo->setCurrentIndex(idx.column() == ColMethod
+                                       ? methodToIndex(static_cast<mesh::InfilMethod>(stored))
+                                       : stored);
             return;
         }
         if (auto *edit = qobject_cast<QLineEdit *>(editor))
             edit->setText(v.isValid() ? formatValue(v.toDouble()) : QString());
     }
 
+    /**
+     * @brief Submit enum payloads or clamped parsed numeric drafts to kRoleValue.
+     * @param[in] editor Combo/line edit; unsupported types are ignored.
+     * @param[in,out] model Required target model; setter rejection is not reported.
+     * @param[in] idx Destination cell; trimmed empty numeric text writes invalid QVariant (inherit/unset), invalid conversion writes nothing.
+     */
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &idx) const override
     {
-        if (auto *combo = qobject_cast<QComboBox *>(editor))
-        {
+        if (auto *combo = qobject_cast<QComboBox *>(editor)) {
             const int i = combo->currentIndex();
             if (idx.column() == ColMethod)
                 model->setData(idx, int(methodFromIndex(i)), kRoleValue);
@@ -156,17 +211,18 @@ public:
         }
 
         auto *edit = qobject_cast<QLineEdit *>(editor);
-        if (!edit) return;
+        if (!edit)
+            return;
 
         const QString text = edit->text().trimmed();
-        if (text.isEmpty())
-        {
-            model->setData(idx, QVariant(), kRoleValue);   // blank
+        if (text.isEmpty()) {
+            model->setData(idx, QVariant(), kRoleValue); // blank
             return;
         }
         bool ok = false;
         const double v = text.toDouble(&ok);
-        if (!ok) return;
+        if (!ok)
+            return;
         // QDoubleValidator lets an out-of-range prefix through as Intermediate,
         // so the range is only really enforced here.
         const NumericRange r = rangeFor(idx.column());
@@ -180,27 +236,21 @@ public:
 // Construction
 // ---------------------------------------------------------------------------
 
-MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent)
-    : QWidget(parent)
+MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent) : QWidget(parent)
 {
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(4);
 
     m_table = new QTableWidget(0, ColCount, this);
-    m_table->setHorizontalHeaderLabels({
-        tr("Region"), tr("Manning's n"), tr("Initial depth"),
-        tr("Infiltration method"),
-        tr("P1"), tr("P2"), tr("P3"), tr("P4"), tr("P5"),
-        tr("Destination")
-    });
+    m_table->setHorizontalHeaderLabels({tr("Region"), tr("Manning's n"), tr("Initial depth"),
+                                        tr("Infiltration method"), tr("P1"), tr("P2"), tr("P3"),
+                                        tr("P4"), tr("P5"), tr("Destination")});
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_table->setEditTriggers(QAbstractItemView::DoubleClicked
-                             | QAbstractItemView::SelectedClicked
-                             | QAbstractItemView::EditKeyPressed
-                             | QAbstractItemView::AnyKeyPressed);
+    m_table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked |
+                             QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
     m_table->setAlternatingRowColors(true);
     m_table->setItemDelegate(new RegionDefaultsDelegate(m_table));
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -208,28 +258,26 @@ MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent)
     m_table->setMinimumHeight(140);
     lay->addWidget(m_table, 1);
 
-    auto *hint = new QLabel(
-        tr("The * row applies to every cell. Region rows are added when "
-           "\"Subcatchments → triangle regions\" is on (Sources tab); each one "
-           "applies to the cells inside that subcatchment. Blank roughness / "
-           "depth cells inherit the * row. Leaving a method at \"None\" writes "
-           "no infiltration data at all."),
-        this);
+    auto *hint = new QLabel(tr("The * row applies to every cell. Region rows are added when "
+                               "\"Subcatchments → triangle regions\" is on (Sources tab); each one "
+                               "applies to the cells inside that subcatchment. Blank roughness / "
+                               "depth cells inherit the * row. Leaving a method at \"None\" writes "
+                               "no infiltration data at all."),
+                            this);
     hint->setWordWrap(true);
     openswmmvis::ui::theme::applyHintRole(hint);
     lay->addWidget(hint);
 
     RegionRow star;
-    star.tag       = QStringLiteral("*");
+    star.tag = QStringLiteral("*");
     star.manningsN = m_starMannings;
     star.initDepth = m_starDepth;
     appendRow(star);
     refreshParamHeaders(kStarRow);
 
-    connect(m_table, &QTableWidget::itemChanged,
-            this, &MeshRegionDefaultsWidget::onItemChanged);
-    connect(m_table, &QTableWidget::currentCellChanged,
-            this, &MeshRegionDefaultsWidget::onCurrentCellChanged);
+    connect(m_table, &QTableWidget::itemChanged, this, &MeshRegionDefaultsWidget::onItemChanged);
+    connect(m_table, &QTableWidget::currentCellChanged, this,
+            &MeshRegionDefaultsWidget::onCurrentCellChanged);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,22 +287,20 @@ MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent)
 void MeshRegionDefaultsWidget::setDepthUnit(const QString &unit)
 {
     if (QTableWidgetItem *h = m_table->horizontalHeaderItem(ColInitDepth))
-        h->setText(unit.isEmpty() ? tr("Initial depth")
-                                  : tr("Initial depth (%1)").arg(unit));
+        h->setText(unit.isEmpty() ? tr("Initial depth") : tr("Initial depth (%1)").arg(unit));
 }
 
 void MeshRegionDefaultsWidget::setStarHydraulics(double manningsN, double initDepth)
 {
     m_starMannings = manningsN;
-    m_starDepth    = initDepth;
+    m_starDepth = initDepth;
 
     m_updating = true;
     m_table->item(kStarRow, ColMannings)->setData(kRoleValue, manningsN);
     m_table->item(kStarRow, ColInitDepth)->setData(kRoleValue, initDepth);
     // Every region row still inheriting has to re-render, or it would keep
     // showing the value the '*' row used to carry.
-    for (int r = 0; r < m_table->rowCount(); ++r)
-    {
+    for (int r = 0; r < m_table->rowCount(); ++r) {
         renderHydraulicCell(r, ColMannings);
         renderHydraulicCell(r, ColInitDepth);
     }
@@ -266,8 +312,7 @@ void MeshRegionDefaultsWidget::setRegionTags(const QStringList &tags)
     // Toggling the region source off and on again, or re-opening the dialog
     // against an edited model, must not throw away what the user typed.
     QHash<QString, RegionRow> keep;
-    for (int r = kStarRow + 1; r < m_table->rowCount(); ++r)
-    {
+    for (int r = kStarRow + 1; r < m_table->rowCount(); ++r) {
         const RegionRow row = rowAt(r);
         keep.insert(row.tag, row);
     }
@@ -277,8 +322,7 @@ void MeshRegionDefaultsWidget::setRegionTags(const QStringList &tags)
         m_table->removeRow(m_table->rowCount() - 1);
     m_updating = false;
 
-    for (const QString &tag : tags)
-    {
+    for (const QString &tag : tags) {
         RegionRow row = keep.value(tag);
         row.tag = tag;
         appendRow(row);
@@ -291,18 +335,22 @@ void MeshRegionDefaultsWidget::restoreRows(const QVector<RegionRow> &values)
     auto current = rows();
     for (auto &row : current)
         for (const auto &saved : values)
-            if (row.tag == saved.tag) { row = saved; break; }
+            if (row.tag == saved.tag) {
+                row = saved;
+                break;
+            }
     m_updating = true;
     m_table->setRowCount(0);
     m_updating = false;
-    for (const auto &row : current) appendRow(row);
+    for (const auto &row : current)
+        appendRow(row);
     setStarHydraulics(m_starMannings, m_starDepth);
     refreshParamHeaders(m_table->currentRow());
 }
 
 void MeshRegionDefaultsWidget::appendRow(const RegionRow &values)
 {
-    const int  r    = m_table->rowCount();
+    const int r = m_table->rowCount();
     const bool star = (r == kStarRow);
 
     m_updating = true;
@@ -313,25 +361,19 @@ void MeshRegionDefaultsWidget::appendRow(const RegionRow &values)
     QTableWidgetItem *tag = m_table->item(r, ColRegion);
     tag->setText(values.tag);
     tag->setFlags(tag->flags() & ~Qt::ItemIsEditable);
-    tag->setToolTip(star
-        ? tr("Mesh-wide fallback. Cells whose region has no row of its own use "
-             "this one. It cannot be removed.")
-        : tr("Region tag written to [2D_TRIANGLES] for every cell of this "
-             "subcatchment."));
+    tag->setToolTip(star ? tr("Mesh-wide fallback. Cells whose region has no row of its own use "
+                              "this one. It cannot be removed.")
+                         : tr("Region tag written to [2D_TRIANGLES] for every cell of this "
+                              "subcatchment."));
 
-    if (star)
-    {
+    if (star) {
         // Mirror only — the dialog's two spin boxes remain the '*' editors.
-        for (int c = ColMannings; c <= ColInitDepth; ++c)
-        {
+        for (int c = ColMannings; c <= ColInitDepth; ++c) {
             QTableWidgetItem *it = m_table->item(r, c);
             it->setFlags(it->flags() & ~Qt::ItemIsEditable);
-            it->setData(kRoleValue,
-                        (c == ColMannings) ? m_starMannings : m_starDepth);
+            it->setData(kRoleValue, (c == ColMannings) ? m_starMannings : m_starDepth);
         }
-    }
-    else
-    {
+    } else {
         // A blank cell inherits; only a value the caller actually carries is
         // written back.
         if (!std::isnan(values.manningsN))
@@ -363,15 +405,19 @@ void MeshRegionDefaultsWidget::appendRow(const RegionRow &values)
 // Rendering
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 /*! Italic marks a cell whose value is not the row's own — inherited from the
  *  '*' row, or masked out by the row's method. Clearing the font role (rather
- *  than setting a non-italic font) keeps the view's own font. */
+ *  than setting a non-italic font) keeps the view's own font.
+ * @param[in,out] item Required table item.
+ * @param[in] base Base view font to copy when italic is requested.
+ * @param[in] italic True sets an italic font; false clears FontRole so the view font applies again.
+ */
 void setItalic(QTableWidgetItem *item, const QFont &base, bool italic)
 {
-    if (!italic)
-    {
+    if (!italic) {
         item->setData(Qt::FontRole, QVariant());
         return;
     }
@@ -385,13 +431,13 @@ void setItalic(QTableWidgetItem *item, const QFont &base, bool italic)
 void MeshRegionDefaultsWidget::renderHydraulicCell(int row, int column)
 {
     QTableWidgetItem *it = m_table->item(row, column);
-    if (!it) return;
+    if (!it)
+        return;
 
-    const QVariant v         = it->data(kRoleValue);
-    const bool     inherited = (row != kStarRow) && !v.isValid();
-    const double   shown     = inherited
-                                   ? (column == ColMannings ? m_starMannings : m_starDepth)
-                                   : v.toDouble();
+    const QVariant v = it->data(kRoleValue);
+    const bool inherited = (row != kStarRow) && !v.isValid();
+    const double shown =
+        inherited ? (column == ColMannings ? m_starMannings : m_starDepth) : v.toDouble();
 
     setItalic(it, m_table->font(), inherited);
     it->setText(formatValue(shown));
@@ -400,37 +446,34 @@ void MeshRegionDefaultsWidget::renderHydraulicCell(int row, int column)
                           "fields above."));
     else
         it->setToolTip(inherited
-            ? tr("Inherited from the * row. Type a value to override it; clear "
-                 "the cell to inherit again.")
-            : tr("Overrides the * row for this region."));
+                           ? tr("Inherited from the * row. Type a value to override it; clear "
+                                "the cell to inherit again.")
+                           : tr("Overrides the * row for this region."));
 }
 
 void MeshRegionDefaultsWidget::renderParamCell(int row, int slot)
 {
     QTableWidgetItem *it = m_table->item(row, ColP0 + slot);
-    if (!it) return;
+    if (!it)
+        return;
 
-    const mesh::InfilMethod m    = methodAt(row);
-    const bool              used = mesh::infilUsesParam(m, slot);
+    const mesh::InfilMethod m = methodAt(row);
+    const bool used = mesh::infilUsesParam(m, slot);
 
     setItalic(it, m_table->font(), !used);
-    if (used)
-    {
+    if (used) {
         const QVariant v = it->data(kRoleValue);
         it->setFlags(it->flags() | Qt::ItemIsEditable);
         it->setText(v.isValid() ? formatValue(v.toDouble()) : QString());
         it->setToolTip(mesh::infilParamLabel(m, slot));
-    }
-    else
-    {
+    } else {
         // The stored value is deliberately kept: flipping a row to another
         // method and back should not silently discard what was typed. rowAt()
         // reads only the slots the current method uses, so a masked value can
         // never reach the file.
         it->setFlags(it->flags() & ~Qt::ItemIsEditable);
         it->setText(emDash());
-        it->setToolTip(tr("Not used by the %1 method.")
-                           .arg(mesh::infilMethodLabel(m)));
+        it->setToolTip(tr("Not used by the %1 method.").arg(mesh::infilMethodLabel(m)));
     }
 }
 
@@ -440,12 +483,12 @@ void MeshRegionDefaultsWidget::applyMethodMask(int row)
         renderParamCell(row, slot);
 
     QTableWidgetItem *dest = m_table->item(row, ColDest);
-    if (!dest) return;
+    if (!dest)
+        return;
 
     const bool on = (methodAt(row) != mesh::InfilMethod::None);
     setItalic(dest, m_table->font(), !on);
-    if (on)
-    {
+    if (on) {
         const auto d = static_cast<mesh::InfilDest>(dest->data(kRoleValue).toInt());
         dest->setFlags(dest->flags() | Qt::ItemIsEditable);
         dest->setText(mesh::infilDestLabel(d));
@@ -453,9 +496,7 @@ void MeshRegionDefaultsWidget::applyMethodMask(int row)
                             "available in this release; the aquifer "
                             "destinations arrive with the groundwater release.")
                              .arg(mesh::infilDestLabel(mesh::InfilDest::Lost)));
-    }
-    else
-    {
+    } else {
         dest->setFlags(dest->flags() & ~Qt::ItemIsEditable);
         dest->setText(emDash());
         dest->setToolTip(tr("Choose an infiltration method first."));
@@ -466,17 +507,18 @@ void MeshRegionDefaultsWidget::refreshParamHeaders(int row)
 {
     const mesh::InfilMethod m = (row >= 0) ? methodAt(row) : mesh::InfilMethod::None;
 
-    for (int slot = 0; slot < mesh::kInfilMaxParams; ++slot)
-    {
+    for (int slot = 0; slot < mesh::kInfilMaxParams; ++slot) {
         QTableWidgetItem *h = m_table->horizontalHeaderItem(ColP0 + slot);
-        if (!h) continue;
+        if (!h)
+            continue;
 
         const QString label = mesh::infilParamLabel(m, slot);
         h->setText(label.isEmpty() ? tr("P%1").arg(slot + 1) : label);
         h->setToolTip(label.isEmpty()
-            ? tr("Positional infiltration parameter %1. The heading follows the "
-                 "method of the selected row.").arg(slot + 1)
-            : label);
+                          ? tr("Positional infiltration parameter %1. The heading follows the "
+                               "method of the selected row.")
+                                .arg(slot + 1)
+                          : label);
     }
 }
 
@@ -486,16 +528,16 @@ void MeshRegionDefaultsWidget::refreshParamHeaders(int row)
 
 void MeshRegionDefaultsWidget::onItemChanged(QTableWidgetItem *item)
 {
-    if (m_updating || !item) return;
+    if (m_updating || !item)
+        return;
 
     const int row = item->row();
     const int col = item->column();
 
     m_updating = true;
-    switch (col)
-    {
+    switch (col) {
     case ColRegion:
-        break;                                   // read-only
+        break; // read-only
     case ColMannings:
     case ColInitDepth:
         renderHydraulicCell(row, col);
@@ -527,17 +569,18 @@ void MeshRegionDefaultsWidget::onCurrentCellChanged(int row, int, int, int)
 mesh::InfilMethod MeshRegionDefaultsWidget::methodAt(int row) const
 {
     QTableWidgetItem *it = m_table->item(row, ColMethod);
-    if (!it) return mesh::InfilMethod::None;
+    if (!it)
+        return mesh::InfilMethod::None;
 
     const QVariant v = it->data(kRoleValue);
-    return v.isValid() ? static_cast<mesh::InfilMethod>(v.toInt())
-                       : mesh::InfilMethod::None;
+    return v.isValid() ? static_cast<mesh::InfilMethod>(v.toInt()) : mesh::InfilMethod::None;
 }
 
 MeshRegionDefaultsWidget::RegionRow MeshRegionDefaultsWidget::rowAt(int row) const
 {
     RegionRow out;
-    if (row < 0 || row >= m_table->rowCount()) return out;
+    if (row < 0 || row >= m_table->rowCount())
+        return out;
 
     auto number = [this, row](int column) {
         const QTableWidgetItem *it = m_table->item(row, column);
@@ -545,7 +588,7 @@ MeshRegionDefaultsWidget::RegionRow MeshRegionDefaultsWidget::rowAt(int row) con
         return v.isValid() ? v.toDouble() : qQNaN();
     };
 
-    out.tag       = m_table->item(row, ColRegion)->text();
+    out.tag = m_table->item(row, ColRegion)->text();
     out.manningsN = number(ColMannings);
     out.initDepth = number(ColInitDepth);
 
@@ -555,8 +598,7 @@ MeshRegionDefaultsWidget::RegionRow MeshRegionDefaultsWidget::rowAt(int row) con
             out.infil.p[slot] = number(ColP0 + slot);
 
     const QVariant d = m_table->item(row, ColDest)->data(kRoleValue);
-    out.infil.dest = d.isValid() ? static_cast<mesh::InfilDest>(d.toInt())
-                                 : mesh::InfilDest::Lost;
+    out.infil.dest = d.isValid() ? static_cast<mesh::InfilDest>(d.toInt()) : mesh::InfilDest::Lost;
     return out;
 }
 
@@ -577,9 +619,9 @@ QVector<mesh::InfilDefaultRow> MeshRegionDefaultsWidget::infilDefaults() const
     // section that did not exist before this table did.
     QVector<mesh::InfilDefaultRow> out;
     const QVector<RegionRow> all = rows();
-    for (const RegionRow &r : all)
-    {
-        if (r.infil.isNone()) continue;
+    for (const RegionRow &r : all) {
+        if (r.infil.isNone())
+            continue;
         mesh::InfilDefaultRow d;
         d.tag = r.tag;
         d.row = r.infil;
@@ -590,32 +632,32 @@ QVector<mesh::InfilDefaultRow> MeshRegionDefaultsWidget::infilDefaults() const
 
 QString MeshRegionDefaultsWidget::rowLabel(int row) const
 {
-    if (row == kStarRow) return tr("the mesh-wide default (*)");
+    if (row == kStarRow)
+        return tr("the mesh-wide default (*)");
     return tr("region \"%1\"").arg(m_table->item(row, ColRegion)->text());
 }
 
 bool MeshRegionDefaultsWidget::validate(QString *errOut) const
 {
-    for (int r = 0; r < m_table->rowCount(); ++r)
-    {
+    for (int r = 0; r < m_table->rowCount(); ++r) {
         const RegionRow row = rowAt(r);
-        if (row.infil.isNone()) continue;
+        if (row.infil.isNone())
+            continue;
 
-        for (int slot = 0; slot < mesh::kInfilMaxParams; ++slot)
-        {
-            if (!mesh::infilUsesParam(row.infil.method, slot)) continue;
-            if (!std::isnan(row.infil.p[slot]))                continue;
+        for (int slot = 0; slot < mesh::kInfilMaxParams; ++slot) {
+            if (!mesh::infilUsesParam(row.infil.method, slot))
+                continue;
+            if (!std::isnan(row.infil.p[slot]))
+                continue;
 
             if (errOut)
-                *errOut = tr(
-                    "Initial cell values: %1 uses the %2 infiltration method, "
-                    "but its \"%3\" parameter is blank.\n\n"
-                    "Fill in every parameter the method needs, or set the "
-                    "method back to \"%4\".")
-                    .arg(rowLabel(r),
-                         mesh::infilMethodLabel(row.infil.method),
-                         mesh::infilParamLabel(row.infil.method, slot),
-                         mesh::infilMethodLabel(mesh::InfilMethod::None));
+                *errOut = tr("Initial cell values: %1 uses the %2 infiltration method, "
+                             "but its \"%3\" parameter is blank.\n\n"
+                             "Fill in every parameter the method needs, or set the "
+                             "method back to \"%4\".")
+                              .arg(rowLabel(r), mesh::infilMethodLabel(row.infil.method),
+                                   mesh::infilParamLabel(row.infil.method, slot),
+                                   mesh::infilMethodLabel(mesh::InfilMethod::None));
             return false;
         }
     }

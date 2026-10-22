@@ -1,8 +1,9 @@
-/*!
- * \file   dataobjectpickereditor.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      dataobjectpickereditor.h
+ * @brief     Custom cell editor widget for `DataObjectRef`.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice DA.4.3 — Custom cell editor widget for `DataObjectRef`.
  *
@@ -20,6 +21,7 @@
  * tooltip naming the future editor slice instead. Once those editor
  * slices ship, the picker will dispatch through the same
  * `ObjectBrowserPanel::launchAddNewEditor` path as Add-New.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef DATAOBJECTPICKEREDITOR_H
@@ -37,32 +39,63 @@ class DataObjectPickerEditor : public QWidget
     Q_PROPERTY(DataObjectRef value READ value WRITE setValue USER true NOTIFY valueChanged)
 
 public:
+    /**
+     * @brief Create the inline DataObjectRef property editor and its child controls.
+     * @param[in] parent Optional owning widget; construct and operate on the GUI thread.
+     */
     explicit DataObjectPickerEditor(QWidget *parent = nullptr);
 
+    /**
+     * @brief Read the editor's current value object for the delegate commit round trip.
+     * @return Value copy; embedded engine/layer/model pointers stay borrowed and the summary may reflect applied dialog edits.
+     */
     [[nodiscard]] DataObjectRef value() const noexcept { return m_ref; }
+    /**
+     * @brief Bind a new cell value and refresh displayed text without applying a user edit.
+     * @param[in] ref Value copied into the widget; referenced engine/layer/store must remain valid during editing.
+     * @details Programmatic combo updates suppress edit callbacks. The flags/initial-quality buttons disable when their required model/engine or object ID is absent.
+     */
     void setValue(const DataObjectRef &ref);
 
-    /*! Adopt \p name as the current value (a map pick landed) and notify. */
+    /*! Adopt \p name as the current value (a map pick landed) and notify.
+     * @param[in] name Selected object ID copied verbatim; empty clears the current selection.
+     * @details Rebuilds the filtered list and emits valueChanged; adapter WRITE slots normally perform the engine assignment.
+     */
     void applyPickedName(const QString &name);
 
 signals:
+    /**
+     * @brief Notify the item delegate that a user interaction produced a commit candidate.
+     * @details Read value() for the reference and cached text; the signal alone is not a guarantee that an engine setter succeeded.
+     */
     void valueChanged();
 
 private slots:
+    /**
+     * @brief Publish a user-selected object name unless refreshing the combo.
+     * @param[in] text Current literal object ID, including empty for no assignment.
+     * @details Changes the ref only, then emits valueChanged.
+     */
     void onComboTextChanged(const QString &text);
+    /**
+     * @brief Dispatch browse/create/map-pick behavior for the bound reference kind.
+     * @details Requires a model layer. May open dialogs or start a layer-owned node-pick session; capture-node picks push an inlet-usage edit through the layer. Successful dialog picks update currentName and notify; unsupported families display guidance.
+     */
     void onPickerClicked();
 
 private:
     /*! Refill the combo from the engine, filtered by `m_ref.kind` /
-     *  `m_ref.typeLock`. Preserves the current selection when possible. */
+     *  `m_ref.typeLock`. Preserves the current selection when possible.
+     * @details Uses the bound layer/engine to enumerate kind/type-filtered IDs; keeps assigned pump/rating curves visible even when their current type is incompatible. Blocks combo signals while replacing items.
+     */
     void repopulate();
 
-    DataObjectRef        m_ref;
-    LabeledPickerCombo  *m_combo = nullptr;
+    DataObjectRef m_ref;
+    LabeledPickerCombo *m_combo = nullptr;
     /*! Re-entrancy guard: when `setValue` or `repopulate` updates the
      *  combo text programmatically, `currentTextChanged` fires — we
      *  bail in that case so the model doesn't see a phantom user edit. */
-    bool                 m_suppressTextChange = false;
+    bool m_suppressTextChange = false;
 };
 
 #endif // DATAOBJECTPICKEREDITOR_H

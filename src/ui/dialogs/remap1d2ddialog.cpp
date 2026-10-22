@@ -1,9 +1,15 @@
-/*!
- * \file   remap1d2ddialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      remap1d2ddialog.cpp
+ * @brief     Remap 1D↔2D (1D2D fine-scale coupling plan §7.3, D8): the node coupling selector with
+ *            each node's current and proposed mesh coupling, a dry run that updates as nodes are
+ *            switched, Preserve existing / Clear & rebuild, and one undoable Apply covering the
+ *            node flags and the mesh rows.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/remap1d2ddialog.h"
 
 #include "layers/swmm2dmeshlayer.h"
@@ -43,7 +49,8 @@ Remap1D2DDialog::Remap1D2DDialog(SWMMModelLayer *model, SWMM2DMeshLayer *mesh, M
 
     auto *lay = new QVBoxLayout(this);
     auto *intro = new QLabel(tr("Couple the 1D nodes to the active mesh. Switch nodes on or off "
-                                "here; the Proposed column follows."), this);
+                                "here; the Proposed column follows."),
+                             this);
     intro->setWordWrap(true);
     lay->addWidget(intro);
 
@@ -82,7 +89,8 @@ Remap1D2DDialog::Remap1D2DDialog(SWMMModelLayer *model, SWMM2DMeshLayer *mesh, M
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
     auto *applyBtn = buttons->addButton(tr("Apply"), QDialogButtonBox::AcceptRole);
     if (ownershipReview) {
-        auto *review = buttons->addButton(tr("Review surface ownership…"), QDialogButtonBox::ActionRole);
+        auto *review =
+            buttons->addButton(tr("Review surface ownership…"), QDialogButtonBox::ActionRole);
         connect(review, &QPushButton::clicked, this, [this, ownershipReview] {
             reject();
             ownershipReview();
@@ -93,8 +101,10 @@ Remap1D2DDialog::Remap1D2DDialog(SWMMModelLayer *model, SWMM2DMeshLayer *mesh, M
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(applyBtn, &QPushButton::clicked, this, [this] {
         QString error;
-        if (apply(&error)) accept();
-        else QMessageBox::warning(this, windowTitle(), error);
+        if (apply(&error))
+            accept();
+        else
+            QMessageBox::warning(this, windowTitle(), error);
     });
 
     connect(m_rebuild, &QRadioButton::toggled, this, [this] { refreshPlan(); });
@@ -115,7 +125,8 @@ void Remap1D2DDialog::setMapOnlyCoupleable(bool on)
 
 void Remap1D2DDialog::refreshPlan()
 {
-    if (!m_mesh) return;
+    if (!m_mesh)
+        return;
     const bool only = m_onlyCoupleable->isChecked();
     auto coupleable = [this, only](const QString &n) {
         return !only || m_model->rowOf(n) < 0 || m_model->isCoupleable(n);
@@ -127,13 +138,15 @@ void Remap1D2DDialog::refreshPlan()
     // against the vertex or cell-centroid bed — a large gap is a datum
     // mismatch or a node mapped to the wrong terrain.
     QHash<QString, double> bed;
-    for (auto it = m_plan.mapped.vertexMatches.cbegin(); it != m_plan.mapped.vertexMatches.cend(); ++it)
+    for (auto it = m_plan.mapped.vertexMatches.cbegin(); it != m_plan.mapped.vertexMatches.cend();
+         ++it)
         bed.insert(it.value(), mr.vertices[it.key()].z);
     for (const mesh::CellCoupling &c : m_plan.mapped.cellMatches)
         if (!bed.contains(c.nodeId) && c.tri >= 0 && c.tri < mr.triangles.size()) {
             const mesh::MeshTriangle &t = mr.triangles[c.tri];
             double z = 0.0;
-            for (int k = 0; k < t.vertexCount(); ++k) z += mr.vertices[t.vertex(k)].z;
+            for (int k = 0; k < t.vertexCount(); ++k)
+                z += mr.vertices[t.vertex(k)].z;
             bed.insert(c.nodeId, z / t.vertexCount());
         }
     const SWMM_Engine e = m_layer ? m_layer->engine() : nullptr;
@@ -143,13 +156,14 @@ void Remap1D2DDialog::refreshPlan()
         if (e && bed.contains(node)) {
             const int idx = swmm_node_index(e, node.toUtf8().constData());
             double inv = 0.0, depth = 0.0;
-            if (idx >= 0 && swmm_node_get_invert_elev(e, idx, &inv) == 0
-                && swmm_node_get_max_depth(e, idx, &depth) == 0)
+            if (idx >= 0 && swmm_node_get_invert_elev(e, idx, &inv) == 0 &&
+                swmm_node_get_max_depth(e, idx, &depth) == 0)
                 gap = QString::number(std::fabs(inv + depth - bed.value(node)), 'f', 2);
         }
-        m_model->setExtraValues(node, {m_plan.current.value(node, QStringLiteral("—")),
-                                       m_plan.proposed.value(node, m_plan.current.value(node, QStringLiteral("—"))),
-                                       gap});
+        m_model->setExtraValues(
+            node,
+            {m_plan.current.value(node, QStringLiteral("—")),
+             m_plan.proposed.value(node, m_plan.current.value(node, QStringLiteral("—"))), gap});
     }
 
     QString s = tr("Proposed: %1 vertex coupling(s), %2 cell coupling(s); %3 vertex(es) change.")
@@ -163,7 +177,8 @@ void Remap1D2DDialog::refreshPlan()
         s += tr(" %1 node(s) fall outside the mesh: %2%3")
                  .arg(m_plan.mapped.unmatched.size())
                  .arg(head.join(QStringLiteral(", ")))
-                 .arg(m_plan.mapped.unmatched.size() > head.size() ? QStringLiteral(", …") : QString());
+                 .arg(m_plan.mapped.unmatched.size() > head.size() ? QStringLiteral(", …")
+                                                                   : QString());
     }
     if (!m_authorCdArea)
         s += tr(" New rows leave Cd / area to each node's structure (weir / orifice law).");
@@ -172,19 +187,23 @@ void Remap1D2DDialog::refreshPlan()
 
 bool Remap1D2DDialog::apply(QString *error)
 {
-    if (!m_mesh || !m_layer) return false;
+    if (!m_mesh || !m_layer)
+        return false;
     refreshPlan();
     MapUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
-    if (stack) stack->beginMacro(tr("Remap 1D ↔ 2D"));
-    bool ok = m_layer->pushNodeCoupling2DEdits(m_model->changedStates(), tr("Set Node Coupling"), error);
+    if (stack)
+        stack->beginMacro(tr("Remap 1D ↔ 2D"));
+    bool ok =
+        m_layer->pushNodeCoupling2DEdits(m_model->changedStates(), tr("Set Node Coupling"), error);
     if (ok) {
         if (stack) {
             if (!m_plan.vertices.isEmpty())
                 stack->push(new MeshSetVertexAttributeCommand(
                     m_mesh, QByteArrayLiteral("coupledNode"), m_plan.vertices, m_plan.newAttrs,
                     m_plan.oldAttrs, tr("Remap Vertex Couplings"), m_canvas));
-            stack->push(new MeshSetCellCouplingsCommand(
-                m_mesh, m_plan.newCells, m_mesh->cellCouplings(), tr("Remap Cell Couplings"), m_canvas));
+            stack->push(new MeshSetCellCouplingsCommand(m_mesh, m_plan.newCells,
+                                                        m_mesh->cellCouplings(),
+                                                        tr("Remap Cell Couplings"), m_canvas));
         } else {
             for (int i = 0; i < m_plan.vertices.size(); ++i) {
                 const int v = m_plan.vertices[i];
@@ -197,6 +216,7 @@ bool Remap1D2DDialog::apply(QString *error)
             m_mesh->applyCellCouplings(m_plan.newCells);
         }
     }
-    if (stack) stack->endMacro();
+    if (stack)
+        stack->endMacro();
     return ok;
 }

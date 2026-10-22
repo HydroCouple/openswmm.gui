@@ -1,4 +1,14 @@
 // Selected corridor recipes remain editable and never silently expand to all features.
+
+/**
+ * @file      test_corridorsourceswidget.cpp
+ * @brief     Tests for corridorsourceswidget.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/widgets/corridorsourceswidget.h"
 #include "layers/gisvectorlayer.h"
 #include "map/spatialreferencesystem.h"
@@ -24,7 +34,7 @@ class TestCorridorSourcesWidget : public QObject
 {
     Q_OBJECT
     QString m_path;
-    template<class T> static T *control(CorridorSourcesWidget &widget, const char *name)
+    template <class T> static T *control(CorridorSourcesWidget &widget, const char *name)
     {
         return widget.findChild<T *>(QString::fromLatin1(name));
     }
@@ -47,10 +57,12 @@ class TestCorridorSourcesWidget : public QObject
 private slots:
     void initTestCase()
     {
-        const QString dir = qEnvironmentVariable("SWMMVIS_CORRIDOR_WIDGET_TEST_OUTPUT",
-            QStringLiteral("tests/output/corridor_sources_widget"));
+        const QString dir =
+            qEnvironmentVariable("SWMMVIS_CORRIDOR_WIDGET_TEST_OUTPUT",
+                                 QStringLiteral("tests/output/corridor_sources_widget"));
         QVERIFY(QDir().mkpath(dir));
-        m_path = QFileInfo(QDir(dir).filePath(QStringLiteral("selected_roads.geojson"))).absoluteFilePath();
+        m_path = QFileInfo(QDir(dir).filePath(QStringLiteral("selected_roads.geojson")))
+                     .absoluteFilePath();
         QFile fixture(m_path);
         QVERIFY(fixture.open(QIODevice::WriteOnly | QIODevice::Truncate));
         const QByteArray json = R"({"type":"FeatureCollection","features":[
@@ -72,8 +84,10 @@ private slots:
         QFETCH(int, count);
         GISVectorLayer layer(m_path);
         QSet<long long> ids{7};
-        if (count >= 2) ids.insert(19);
-        if (count >= 3) ids.insert(42);
+        if (count >= 2)
+            ids.insert(19);
+        if (count >= 3)
+            ids.insert(42);
         layer.setSelectedFeatureIds(ids);
         CorridorSourcesWidget widget;
         widget.setLayers({&layer});
@@ -92,7 +106,8 @@ private slots:
         auto *table = control<QTableWidget>(widget, "corridorSourcesTable");
         if (count != 2) {
             QCOMPARE(table->rowCount(), 0);
-            QVERIFY(control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("two")));
+            QVERIFY(
+                control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("two")));
             return;
         }
         QCOMPARE(table->rowCount(), 1);
@@ -153,9 +168,12 @@ private slots:
         CorridorSourcesWidget widget;
         auto bank = saved();
         bank.bankPair = true;
-        if (invalid == "one-id") bank.featureIds = {7};
-        if (invalid == "duplicate-ids") bank.featureIds = {7, 7};
-        if (invalid == "width-field") bank.widthField = QStringLiteral("width_m");
+        if (invalid == "one-id")
+            bank.featureIds = {7};
+        if (invalid == "duplicate-ids")
+            bank.featureIds = {7, 7};
+        if (invalid == "width-field")
+            bank.widthField = QStringLiteral("width_m");
         widget.setSources({bank});
         QVector<mesh::CorridorSource> rows{saved()};
         QString error;
@@ -205,7 +223,8 @@ private slots:
         widget.setLayers({&layer});
         control<QPushButton>(widget, "corridorAdd")->click();
         QCOMPARE(control<QTableWidget>(widget, "corridorSourcesTable")->rowCount(), 0);
-        QVERIFY(control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("Select")));
+        QVERIFY(
+            control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("Select")));
         QVERIFY(!QApplication::activeModalWidget());
     }
 
@@ -274,7 +293,8 @@ private slots:
 
     void invalidSavedNumbersRetainDraftAndOutput()
     {
-        QFETCH(int, column); QFETCH(QString, value);
+        QFETCH(int, column);
+        QFETCH(QString, value);
         CorridorSourcesWidget widget;
         widget.setSources({saved()});
         auto *table = control<QTableWidget>(widget, "corridorSourcesTable");
@@ -297,7 +317,8 @@ private slots:
         control<QLineEdit>(widget, "corridorAlong")->setText(QStringLiteral("oops"));
         control<QPushButton>(widget, "corridorAdd")->click();
         QCOMPARE(control<QTableWidget>(widget, "corridorSourcesTable")->rowCount(), 0);
-        QVERIFY(control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("Along")));
+        QVERIFY(
+            control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("Along")));
         control<QLineEdit>(widget, "corridorAlong")->setText(QStringLiteral("0"));
         control<QPushButton>(widget, "corridorAdd")->click();
         QVector<mesh::CorridorSource> rows;
@@ -346,7 +367,9 @@ private slots:
         widget.setLayers({&layer});
         control<QPushButton>(widget, "corridorAdd")->click();
         QCOMPARE(control<QTableWidget>(widget, "corridorSourcesTable")->rowCount(), 0);
-        QVERIFY(control<QLabel>(widget, "corridorMessage")->text().contains(QStringLiteral("coordinate reference")));
+        QVERIFY(control<QLabel>(widget, "corridorMessage")
+                    ->text()
+                    .contains(QStringLiteral("coordinate reference")));
     }
 
     void deletedLayerCannotLeaveDanglingComboOrEraseSavedRows()
@@ -396,8 +419,10 @@ private slots:
         widget.setSources({row, row, row});
         auto *table = control<QTableWidget>(widget, "corridorSourcesTable");
         table->item(1, 6)->setText(QStringLiteral("survivor"));
-        for (int r : {0, 2}) table->selectionModel()->select(table->model()->index(r, 0),
-            QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        for (int r : {0, 2})
+            table->selectionModel()->select(table->model()->index(r, 0),
+                                            QItemSelectionModel::Select |
+                                                QItemSelectionModel::Rows);
         control<QPushButton>(widget, "corridorRemove")->click();
         QCOMPARE(table->rowCount(), 1);
         QVector<mesh::CorridorSource> rows;
@@ -406,11 +431,13 @@ private slots:
         QCOMPARE(rows[0].tag, QStringLiteral("survivor"));
         QVERIFY(!table->accessibleName().isEmpty());
         for (auto *label : widget.findChildren<QLabel *>())
-            if (label->text().contains('&')) QVERIFY(label->buddy());
+            if (label->text().contains('&'))
+                QVERIFY(label->buddy());
         QSet<QChar> mnemonicKeys;
         for (auto *label : widget.findChildren<QLabel *>()) {
             const int marker = label->text().indexOf('&');
-            if (marker < 0) continue;
+            if (marker < 0)
+                continue;
             const QChar key = label->text().at(marker + 1).toLower();
             QVERIFY(!mnemonicKeys.contains(key));
             mnemonicKeys.insert(key);

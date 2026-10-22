@@ -1,9 +1,9 @@
-/*!
- * \file   uiscrollhelpers.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Shared helper for the "content scrolls, dialog shrinks" pattern.
+/**
+ * @file      uiscrollhelpers.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Shared helper for the "content scrolls, dialog shrinks" pattern.
  *
  *         Properties / styling panels build their controls into a plain
  *         QVBoxLayout, so when the dock or dialog is dragged below the content's
@@ -12,6 +12,7 @@
  *         lets the content hold its minimum size and scroll instead — matching
  *         layerstylingdock.cpp and swmm2dresultsstylepanel.cpp, which already
  *         do this. One helper, reused, rather than re-deriving the lambda.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef UI_SCROLL_HELPERS_H
@@ -27,7 +28,7 @@ namespace OpenSWMM::Ui
 /*! Minimum widths for controls that otherwise collapse in a narrow panel.
  *  Shared so spin boxes / combo boxes stay readable once the content scrolls.
  *  Values match swmm2dresultsstylepanel.cpp, the existing reference. */
-inline constexpr int kSpinMinWidthPx  = 110;
+inline constexpr int kSpinMinWidthPx = 110;
 inline constexpr int kComboMinWidthPx = 140;
 
 /*!

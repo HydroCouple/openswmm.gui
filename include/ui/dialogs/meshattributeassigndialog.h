@@ -1,8 +1,10 @@
-/*!
- * \file   meshattributeassigndialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshattributeassigndialog.h
+ * @brief     Assign per-cell 2D mesh parameters from a GIS source: a raster band or a vector
+ *            layer's attribute field, mapped onto the mesh cells in one undoable step.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Assign per-cell 2D mesh parameters from a GIS source: a raster band or a
  * vector layer's attribute field, mapped onto the mesh cells in one undoable
@@ -46,7 +48,9 @@
  * source by path on its own thread, because GDAL/OGR handles must not cross
  * threads. Nothing is written to the mesh until the worker has finished
  * successfully, so cancelling mid-run leaves the mesh untouched.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_MESHATTRIBUTEASSIGNDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_MESHATTRIBUTEASSIGNDIALOG_H
 
@@ -78,26 +82,24 @@ class QTableWidget;
 class SelectionManager;
 class SWMM2DMeshLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class MeshAttributeAssignDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    using Source=assignment::MeshAssignmentSampling::Source;
-    using Mode=assignment::MeshAssignmentSampling::Mode;
-    using Sampling=assignment::MeshAssignmentSampling::Sampling;
-    using WriteTarget=assignment::MeshAssignmentSampling::WriteTarget;
-    using Job=assignment::MeshAssignmentSampling::Job;
-    using SampleResult=assignment::MeshAssignmentSampling::SampleResult;
+    using Source = assignment::MeshAssignmentSampling::Source;
+    using Mode = assignment::MeshAssignmentSampling::Mode;
+    using Sampling = assignment::MeshAssignmentSampling::Sampling;
+    using WriteTarget = assignment::MeshAssignmentSampling::WriteTarget;
+    using Job = assignment::MeshAssignmentSampling::Job;
+    using SampleResult = assignment::MeshAssignmentSampling::SampleResult;
 
-    MeshAttributeAssignDialog(SWMM2DMeshLayer  *meshLayer,
-                              MapCanvas        *canvas,
-                              SelectionManager *selection,
-                              Source            initialSource,
-                              const QString    &depthUnitLabel,
-                              QWidget          *parent = nullptr);
+    MeshAttributeAssignDialog(SWMM2DMeshLayer *meshLayer, MapCanvas *canvas,
+                              SelectionManager *selection, Source initialSource,
+                              const QString &depthUnitLabel, QWidget *parent = nullptr);
 
 public slots:
     /*! \brief Esc / Close / the window button. While a sampling pass is
@@ -140,7 +142,7 @@ private:
      *         (disabled ones greyed, as the original target combo does). */
     void fillParamCombo(QComboBox *combo, const QString &depthUnitLabel) const;
 
-    [[nodiscard]] Mode     currentMode() const;
+    [[nodiscard]] Mode currentMode() const;
     [[nodiscard]] Sampling currentSampling() const;
 
     /*! \brief Triangle indices in scope (all cells, or the selected ones). */
@@ -166,8 +168,8 @@ private:
     /*! \brief Read the lookup-table editor into a mesh::InfilLookupTable.
      *         Row 0 is the "unmatched keys" fallback. */
     [[nodiscard]] mesh::InfilLookupTable collectLookupTable() const;
-    void                                 applyLookupTable(const mesh::InfilLookupTable &t);
-    void                                 rebuildLookupColumns();
+    void applyLookupTable(const mesh::InfilLookupTable &t);
+    void rebuildLookupColumns();
     /*! \brief Grey out the parameter cells the row's method does not use, the
      *         same masking mesh::infilUsesParam() drives elsewhere. */
     void maskLookupRow(int row);
@@ -185,54 +187,54 @@ private:
      *  reported: a row for an unknown tag reaches no cell. */
     void applyInfilDefaultsResult(const SampleResult &r);
 
-    QPointer<SWMM2DMeshLayer>  m_mesh;
-    QPointer<MapCanvas>        m_canvas;
+    QPointer<SWMM2DMeshLayer> m_mesh;
+    QPointer<MapCanvas> m_canvas;
     QPointer<SelectionManager> m_selection;
 
-    QComboBox      *m_modeCombo     = nullptr;
-    QComboBox      *m_targetCombo   = nullptr;   // SingleNumeric
-    QGroupBox      *m_singleGroup   = nullptr;
-    QGroupBox      *m_multiGroup    = nullptr;
-    QTableWidget   *m_targetTable   = nullptr;   // MultiNumeric
-    QPushButton    *m_addTargetBtn  = nullptr;
-    QPushButton    *m_delTargetBtn  = nullptr;
-    QGroupBox      *m_lookupGroup   = nullptr;   // ClassifiedInfil
-    QTableWidget   *m_lookupTable   = nullptr;
-    QComboBox      *m_key1Combo     = nullptr;
-    QComboBox      *m_key2Combo     = nullptr;
-    QSpinBox       *m_key1BandSpin  = nullptr;
-    QSpinBox       *m_key2BandSpin  = nullptr;
-    QCheckBox      *m_twoKeyCheck   = nullptr;
-    QLabel         *m_key1Label     = nullptr;
-    QLabel         *m_key2Label     = nullptr;
+    QComboBox *m_modeCombo = nullptr;
+    QComboBox *m_targetCombo = nullptr; // SingleNumeric
+    QGroupBox *m_singleGroup = nullptr;
+    QGroupBox *m_multiGroup = nullptr;
+    QTableWidget *m_targetTable = nullptr; // MultiNumeric
+    QPushButton *m_addTargetBtn = nullptr;
+    QPushButton *m_delTargetBtn = nullptr;
+    QGroupBox *m_lookupGroup = nullptr; // ClassifiedInfil
+    QTableWidget *m_lookupTable = nullptr;
+    QComboBox *m_key1Combo = nullptr;
+    QComboBox *m_key2Combo = nullptr;
+    QSpinBox *m_key1BandSpin = nullptr;
+    QSpinBox *m_key2BandSpin = nullptr;
+    QCheckBox *m_twoKeyCheck = nullptr;
+    QLabel *m_key1Label = nullptr;
+    QLabel *m_key2Label = nullptr;
 
-    QRadioButton   *m_srcRaster     = nullptr;
-    QRadioButton   *m_srcVector     = nullptr;
-    QComboBox      *m_rasterCombo   = nullptr;
-    QPushButton    *m_browseBtn     = nullptr;
-    QSpinBox       *m_bandSpin      = nullptr;
-    QDoubleSpinBox *m_scaleSpin     = nullptr;
-    QDoubleSpinBox *m_offsetSpin    = nullptr;
-    QComboBox      *m_vectorCombo   = nullptr;
-    QComboBox      *m_fieldCombo    = nullptr;
-    QCheckBox      *m_selectedOnly  = nullptr;
+    QRadioButton *m_srcRaster = nullptr;
+    QRadioButton *m_srcVector = nullptr;
+    QComboBox *m_rasterCombo = nullptr;
+    QPushButton *m_browseBtn = nullptr;
+    QSpinBox *m_bandSpin = nullptr;
+    QDoubleSpinBox *m_scaleSpin = nullptr;
+    QDoubleSpinBox *m_offsetSpin = nullptr;
+    QComboBox *m_vectorCombo = nullptr;
+    QComboBox *m_fieldCombo = nullptr;
+    QCheckBox *m_selectedOnly = nullptr;
 
-    QComboBox      *m_samplingCombo = nullptr;
-    QComboBox      *m_nnVariantCombo = nullptr;
-    QLabel         *m_nnVariantLbl  = nullptr;
+    QComboBox *m_samplingCombo = nullptr;
+    QComboBox *m_nnVariantCombo = nullptr;
+    QLabel *m_nnVariantLbl = nullptr;
 
-    QRadioButton   *m_writeOverrides = nullptr;
-    QRadioButton   *m_writeDefaults  = nullptr;
-    QCheckBox      *m_keepInherited  = nullptr;
-    QGroupBox      *m_writeGroup     = nullptr;
+    QRadioButton *m_writeOverrides = nullptr;
+    QRadioButton *m_writeDefaults = nullptr;
+    QCheckBox *m_keepInherited = nullptr;
+    QGroupBox *m_writeGroup = nullptr;
 
-    QRadioButton   *m_scopeAll      = nullptr;
-    QRadioButton   *m_scopeSelected = nullptr;
-    QLabel         *m_statusLbl     = nullptr;
-    QProgressBar   *m_progress      = nullptr;
-    QPushButton    *m_previewBtn    = nullptr;
-    QPushButton    *m_applyBtn      = nullptr;
-    QPushButton    *m_closeBtn      = nullptr;
+    QRadioButton *m_scopeAll = nullptr;
+    QRadioButton *m_scopeSelected = nullptr;
+    QLabel *m_statusLbl = nullptr;
+    QProgressBar *m_progress = nullptr;
+    QPushButton *m_previewBtn = nullptr;
+    QPushButton *m_applyBtn = nullptr;
+    QPushButton *m_closeBtn = nullptr;
 
     /*! Path typed via Browse… (empty when a canvas layer is chosen). */
     QString m_browsedRasterPath;

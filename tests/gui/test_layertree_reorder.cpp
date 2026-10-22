@@ -1,6 +1,6 @@
-/*!
- * \file   test_layertree_reorder.cpp
- * \brief  Layer-tree reordering (Slice LTR-2026-09-19): category headers,
+/**
+ * @file      test_layertree_reorder.cpp
+ * @brief     Layer-tree reordering (Slice LTR-2026-09-19): category headers,
  *         layers and sublayers reorder by drag-drop (exercised through the
  *         model's mimeData/dropMimeData contract) and by the context-menu
  *         paths, and the canvas paint order follows the tree.
@@ -15,7 +15,12 @@
  * files: SWMM2DResultsLayer (category "SWMM 2D Outputs", an ISublayerHost
  * with 8 sublayers), OpenSWMMVisAnnotationLayer ("Feature Layers") and
  * TabularDataLayer ("Tables").
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <QtTest>
 #include <QElapsedTimer>
 #include <QFile>
@@ -47,10 +52,7 @@ class TestLayerTreeReorder : public QObject
     Q_OBJECT
 
     // Bottom→top pointer list of the canvas stack, for readable QCOMPAREs.
-    static QList<OpenSWMMVisLayer *> stack(const MapCanvas &c)
-    {
-        return c.layers();
-    }
+    static QList<OpenSWMMVisLayer *> stack(const MapCanvas &c) { return c.layers(); }
 
     // QCOMPARE needs identical pointer types: widen a concrete layer.
     static OpenSWMMVisLayer *L(OpenSWMMVisLayer &l) { return &l; }
@@ -65,13 +67,14 @@ class TestLayerTreeReorder : public QObject
     }
 
     // Drag `src` and drop it at (row, parent) exactly as QTreeView would.
-    static bool dragDrop(LayerTreeModel &m, const QModelIndex &src,
-                         int row, const QModelIndex &parent)
+    static bool dragDrop(LayerTreeModel &m, const QModelIndex &src, int row,
+                         const QModelIndex &parent)
     {
         QMimeData *mime = m.mimeData({src});
-        if (!mime) return false;
+        if (!mime)
+            return false;
         const bool can = m.canDropMimeData(mime, Qt::MoveAction, row, 0, parent);
-        const bool ok  = can && m.dropMimeData(mime, Qt::MoveAction, row, 0, parent);
+        const bool ok = can && m.dropMimeData(mime, Qt::MoveAction, row, 0, parent);
         delete mime;
         return ok;
     }
@@ -83,17 +86,17 @@ private slots:
     void addLayerKeepsStackGroupedByCategory()
     {
         OpenSWMMVisAnnotationLayer feat1(QStringLiteral("feat1"));
-        TabularDataLayer           tab1(QStringLiteral("tab1"));
-        SWMM2DResultsLayer         res1(QStringLiteral("res1"));
+        TabularDataLayer tab1(QStringLiteral("tab1"));
+        SWMM2DResultsLayer res1(QStringLiteral("res1"));
         OpenSWMMVisAnnotationLayer feat2(QStringLiteral("feat2"));
-        SWMM2DResultsLayer         res2(QStringLiteral("res2"));
+        SWMM2DResultsLayer res2(QStringLiteral("res2"));
         MapCanvas canvas;
 
-        canvas.addLayer(&feat1, false);   // first layer → index 0
-        canvas.addLayer(&tab1,  false);   // Tables sits BELOW Feature Layers
-        canvas.addLayer(&res1,  false);   // 2D outputs go on top
-        canvas.addLayer(&feat2, false);   // top of ITS group, under results
-        canvas.addLayer(&res2,  false);   // top of stack
+        canvas.addLayer(&feat1, false); // first layer → index 0
+        canvas.addLayer(&tab1, false);  // Tables sits BELOW Feature Layers
+        canvas.addLayer(&res1, false);  // 2D outputs go on top
+        canvas.addLayer(&feat2, false); // top of ITS group, under results
+        canvas.addLayer(&res2, false);  // top of stack
 
         const QList<OpenSWMMVisLayer *> expected{&tab1, &feat1, &feat2, &res1, &res2};
         QCOMPARE(stack(canvas), expected);
@@ -115,13 +118,13 @@ private slots:
     // must move the TABLES group, both in the tree and in the stack.
     void categoryMoveWithEmptyCategoriesPresent()
     {
-        SWMM2DResultsLayer         res(QStringLiteral("res"));
+        SWMM2DResultsLayer res(QStringLiteral("res"));
         OpenSWMMVisAnnotationLayer feat(QStringLiteral("feat"));
-        TabularDataLayer           tab(QStringLiteral("tab"));
+        TabularDataLayer tab(QStringLiteral("tab"));
         MapCanvas canvas;
-        canvas.addLayer(&res,  false);
+        canvas.addLayer(&res, false);
         canvas.addLayer(&feat, false);
-        canvas.addLayer(&tab,  false);
+        canvas.addLayer(&tab, false);
         QCOMPARE(stack(canvas), (QList<OpenSWMMVisLayer *>{&tab, &feat, &res}));
 
         LayerTreePanel panel;
@@ -129,7 +132,7 @@ private slots:
         LayerTreeModel *m = panel.model();
         QCOMPARE(categoryName(*m, 2), QStringLiteral("Tables"));
 
-        QVERIFY(m->reorderCategory(CatTables, 1));          // "Move Category Up"
+        QVERIFY(m->reorderCategory(CatTables, 1)); // "Move Category Up"
         QCOMPARE(categoryName(*m, 0), QStringLiteral("SWMM 2D Outputs"));
         QCOMPARE(categoryName(*m, 1), QStringLiteral("Tables"));
         QCOMPARE(categoryName(*m, 2), QStringLiteral("Feature Layers"));
@@ -157,13 +160,13 @@ private slots:
 
     void categoryDragDropBetweenAndOntoRows()
     {
-        SWMM2DResultsLayer         res(QStringLiteral("res"));
+        SWMM2DResultsLayer res(QStringLiteral("res"));
         OpenSWMMVisAnnotationLayer feat(QStringLiteral("feat"));
-        TabularDataLayer           tab(QStringLiteral("tab"));
+        TabularDataLayer tab(QStringLiteral("tab"));
         MapCanvas canvas;
-        canvas.addLayer(&res,  false);
+        canvas.addLayer(&res, false);
         canvas.addLayer(&feat, false);
-        canvas.addLayer(&tab,  false);
+        canvas.addLayer(&tab, false);
         LayerTreePanel panel;
         panel.setCanvas(&canvas);
         LayerTreeModel *m = panel.model();
@@ -189,8 +192,7 @@ private slots:
 
         // A category can never be dropped onto a layer row.
         QMimeData *mime = m->mimeData({m->index(0, 0)});
-        QVERIFY(!m->canDropMimeData(mime, Qt::MoveAction, -1, 0,
-                                    m->index(0, 0, m->index(1, 0))));
+        QVERIFY(!m->canDropMimeData(mime, Qt::MoveAction, -1, 0, m->index(0, 0, m->index(1, 0))));
         delete mime;
     }
 
@@ -199,7 +201,7 @@ private slots:
         OpenSWMMVisAnnotationLayer a(QStringLiteral("a"));
         OpenSWMMVisAnnotationLayer b(QStringLiteral("b"));
         OpenSWMMVisAnnotationLayer c(QStringLiteral("c"));
-        TabularDataLayer           tab(QStringLiteral("tab"));
+        TabularDataLayer tab(QStringLiteral("tab"));
         MapCanvas canvas;
         canvas.addLayer(&a, false);
         canvas.addLayer(&b, false);
@@ -238,7 +240,7 @@ private slots:
     void sublayerDropBetweenRowsAndOntoRows()
     {
         SWMM2DResultsLayer res(QStringLiteral("res"));
-        SWMM2DResultsLayer other(QStringLiteral("other"));   // used at the end
+        SWMM2DResultsLayer other(QStringLiteral("other")); // used at the end
         MapCanvas canvas;
         canvas.addLayer(&res, false);
         auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(&res);
@@ -264,8 +266,7 @@ private slots:
         QCOMPARE(m->sublayerForIndex(m->index(1, 0, layerIdx)), before.last());
 
         // Drop the bottom sub-row ONTO the top sub-row → takes the top slot.
-        QVERIFY(dragDrop(*m, m->index(n - 1, 0, layerIdx), -1,
-                         m->index(0, 0, layerIdx)));
+        QVERIFY(dragDrop(*m, m->index(n - 1, 0, layerIdx), -1, m->index(0, 0, layerIdx)));
         after = host->sublayers();
         QCOMPARE(after.last(), before.first());
 
@@ -285,12 +286,11 @@ private slots:
         // A sublayer can't be dropped under a different host.
         canvas.addLayer(&other, false);
         const QModelIndex otherIdx = m->indexForLayer(&other);
-        const QModelIndex resIdx   = m->indexForLayer(&res);
+        const QModelIndex resIdx = m->indexForLayer(&res);
         QVERIFY(otherIdx.isValid() && resIdx.isValid());
         QMimeData *mime = m->mimeData({m->index(0, 0, resIdx)});
         QVERIFY(!m->canDropMimeData(mime, Qt::MoveAction, 0, 0, otherIdx));
-        QVERIFY(!m->canDropMimeData(mime, Qt::MoveAction, -1, 0,
-                                    m->index(0, 0, otherIdx)));
+        QVERIFY(!m->canDropMimeData(mime, Qt::MoveAction, -1, 0, m->index(0, 0, otherIdx)));
         delete mime;
     }
 
@@ -321,19 +321,18 @@ private slots:
     void pendingLayerOrderRestoresSavedStack()
     {
         OpenSWMMVisAnnotationLayer feat(QStringLiteral("feat"));
-        SWMM2DResultsLayer         res(QStringLiteral("res"));
-        TabularDataLayer           tab(QStringLiteral("tab"));
-        OpenSWMMVisAnnotationLayer feat2(QStringLiteral("feat2"));   // late arrival
+        SWMM2DResultsLayer res(QStringLiteral("res"));
+        TabularDataLayer tab(QStringLiteral("tab"));
+        OpenSWMMVisAnnotationLayer feat2(QStringLiteral("feat2")); // late arrival
         MapCanvas canvas;
 
         // The user had saved the (non-default) order tab < res < feat.
-        const QStringList saved{MapCanvas::layerOrderKey(&tab),
-                                MapCanvas::layerOrderKey(&res),
+        const QStringList saved{MapCanvas::layerOrderKey(&tab), MapCanvas::layerOrderKey(&res),
                                 MapCanvas::layerOrderKey(&feat)};
 
         // Layers already present before the order is known get re-sorted.
-        canvas.addLayer(&res,  false);
-        canvas.addLayer(&feat, false);           // grouped default: feat below res
+        canvas.addLayer(&res, false);
+        canvas.addLayer(&feat, false); // grouped default: feat below res
         QCOMPARE(stack(canvas), (QList<OpenSWMMVisLayer *>{&feat, &res}));
         canvas.setPendingLayerOrder(saved);
         QCOMPARE(stack(canvas), (QList<OpenSWMMVisLayer *>{&res, &feat}));
@@ -372,8 +371,7 @@ private slots:
         if (inp.isEmpty())
             QSKIP("set SWMM_PROFILE_INP=<path.inp> to run the grouped-insert profile");
         QVERIFY2(QFile::exists(inp), qPrintable("SWMM_PROFILE_INP not found: " + inp));
-        const int n = qEnvironmentVariable("SWMM_PROFILE_GIS_N",
-                                           QStringLiteral("8")).toInt();
+        const int n = qEnvironmentVariable("SWMM_PROFILE_GIS_N", QStringLiteral("8")).toInt();
         QVERIFY(n > 0);
 
         // Declaration order is load-bearing: every layer must outlive the
@@ -382,14 +380,13 @@ private slots:
         // this file relies on).
         SWMMModelLayer model(inp, nullptr);
         QList<QString> warnings, errors;
-        QVERIFY2(model.loadModel(warnings, errors),
-                 qPrintable(errors.join(QStringLiteral("; "))));
+        QVERIFY2(model.loadModel(warnings, errors), qPrintable(errors.join(QStringLiteral("; "))));
 
         std::vector<std::unique_ptr<OpenSWMMVisAnnotationLayer>> gis;
         gis.reserve(size_t(n));
         for (int i = 0; i < n; ++i)
-            gis.push_back(std::make_unique<OpenSWMMVisAnnotationLayer>(
-                QStringLiteral("gis%1").arg(i)));
+            gis.push_back(
+                std::make_unique<OpenSWMMVisAnnotationLayer>(QStringLiteral("gis%1").arg(i)));
 
         MapCanvas canvas;
         canvas.addLayer(&model, false);
@@ -401,7 +398,7 @@ private slots:
         for (int i = 0; i < n; ++i)
             canvas.addLayer(gis[size_t(i)].get(), false);
         const double groupedMs = double(t.nsecsElapsed()) / 1e6;
-        QCOMPARE(canvas.layers().last(), L(model));   // model stayed on top
+        QCOMPARE(canvas.layers().last(), L(model)); // model stayed on top
 
         // Strip the GIS layers back off, leaving the loaded model alone.
         for (int i = 0; i < n; ++i)
@@ -418,23 +415,22 @@ private slots:
         while (canvas.layerCount() > 0)
             canvas.takeLayer(canvas.layerCount() - 1, false);
 
-        qInfo().noquote()
-            << QStringLiteral("=== PROFILE grouped insert — %1").arg(inp);
-        qInfo().noquote()
-            << QStringLiteral("    model: nodes=%1 links=%2 subcatchments=%3")
-                   .arg(model.cachedNodeCount())
-                   .arg(model.cachedLinkCount())
-                   .arg(model.cachedSubcatchCount());
-        qInfo().noquote()
-            << QStringLiteral("    A  %1 GIS layers BELOW the model (this slice): %2 ms")
-                   .arg(n).arg(groupedMs, 0, 'f', 3);
-        qInfo().noquote()
-            << QStringLiteral("    B  %1 GIS layers on TOP (pre-slice)          : %2 ms")
-                   .arg(n).arg(topMs, 0, 'f', 3);
-        qInfo().noquote()
-            << QStringLiteral("    added cost: %1 ms total, %2 ms per layer added")
-                   .arg(groupedMs - topMs, 0, 'f', 3)
-                   .arg((groupedMs - topMs) / n, 0, 'f', 3);
+        qInfo().noquote() << QStringLiteral("=== PROFILE grouped insert — %1").arg(inp);
+        qInfo().noquote() << QStringLiteral("    model: nodes=%1 links=%2 subcatchments=%3")
+                                 .arg(model.cachedNodeCount())
+                                 .arg(model.cachedLinkCount())
+                                 .arg(model.cachedSubcatchCount());
+        qInfo().noquote() << QStringLiteral(
+                                 "    A  %1 GIS layers BELOW the model (this slice): %2 ms")
+                                 .arg(n)
+                                 .arg(groupedMs, 0, 'f', 3);
+        qInfo().noquote() << QStringLiteral(
+                                 "    B  %1 GIS layers on TOP (pre-slice)          : %2 ms")
+                                 .arg(n)
+                                 .arg(topMs, 0, 'f', 3);
+        qInfo().noquote() << QStringLiteral("    added cost: %1 ms total, %2 ms per layer added")
+                                 .arg(groupedMs - topMs, 0, 'f', 3)
+                                 .arg((groupedMs - topMs) / n, 0, 'f', 3);
     }
 
     void groupOrderValidation()
@@ -442,12 +438,14 @@ private slots:
         MapCanvas canvas;
         const QVector<int> def = canvas.layerGroupOrder();
         QCOMPARE(def.size(), int(CatCount));
-        canvas.setLayerGroupOrder({0, 1, 2});                 // wrong size
+        canvas.setLayerGroupOrder({0, 1, 2}); // wrong size
         QCOMPARE(canvas.layerGroupOrder(), def);
-        QVector<int> dup = def; dup[0] = dup[1];              // not a permutation
+        QVector<int> dup = def;
+        dup[0] = dup[1]; // not a permutation
         canvas.setLayerGroupOrder(dup);
         QCOMPARE(canvas.layerGroupOrder(), def);
-        QVector<int> rev = def; std::reverse(rev.begin(), rev.end());
+        QVector<int> rev = def;
+        std::reverse(rev.begin(), rev.end());
         canvas.setLayerGroupOrder(rev);
         QCOMPARE(canvas.layerGroupOrder(), rev);
     }

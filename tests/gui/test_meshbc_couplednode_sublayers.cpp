@@ -1,6 +1,6 @@
-/*!
- * \file   test_meshbc_couplednode_sublayers.cpp
- * \brief  Contract tests for the two sublayers carved out of the mesh
+/**
+ * @file      test_meshbc_couplednode_sublayers.cpp
+ * @brief     Contract tests for the two sublayers carved out of the mesh
  *         edge/vertex style bags (mesh styling restructure):
  *           - MeshBcSublayer / MeshBcStyle — BC indicator ring with
  *             per-type visibility, colours, widths; legacy MeshEdgeStyle
@@ -10,6 +10,10 @@
  *         Plus the ClassificationScheme embedded-custom-ramp contract that
  *         fixes the "custom ramp applies grayscale" defect: the payload
  *         must survive selection, serialization, and resolution.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QJsonObject>
@@ -27,20 +31,85 @@ class TestMeshBcCoupledNodeSublayers : public QObject
 
 private slots:
     // ── MeshBcSublayer ──────────────────────────────────────────────────
+    /**
+     * @brief Verify mesh BC sublayer identity, static line kind, hidden default and shared
+     * typed-style pointer.
+     * @note Stack-owned sublayer, borrowed style accessors must agree; no canvas rendering or
+     * persistence.
+     */
     void meshBc_identity_static_hiddenByDefault();
+    /**
+     * @brief Verify default BC-type visibility and safe out-of-range read/write conventions.
+     * @note All types visible, toggling 3 does not affect 2; invalid reads fold onto Wall,
+     * invalid writes leave valid color/width/visibility untouched. Local style value only.
+     */
     void meshBc_typeVisibility_defaults_and_folding();
+    /**
+     * @brief Verify per-type RGBA colors, pixel widths and visibility survive style JSON
+     * round-trip.
+     * @note Stage 4.5 px/flowhidden/wallhidden customized values restored, untouched
+     * normal/rating defaults preserved; no settings file or model mutation.
+     */
     void meshBc_json_roundTrip();
+    /**
+     * @brief Verify customization provenance survives JSON and legacy explicit BC styling marks
+     * user choice.
+     * @note Fresh/old-format-withoutflag remain uncustomized; explicit flag round-trips, legacy
+     * BC color seeding marks customized, empty legacy object does not. Controls later live
+     * preference reseeding.
+     */
     void meshBc_customized_flag();
+    /**
+     * @brief Verify migration of legacy per-type colors and shared width with per-type
+     * overrides.
+     * @note Shared 3.3 px seeds types, flowTS 7.7 px overrides, alpha retained and all types
+     * visible by default. Pure JSON/style conversion, no project-file rewrite.
+     */
     void meshBc_legacy_edgeJson_seeding();
+    /**
+     * @brief Verify BC legend contains only present visible types plus Wall and routes rows to
+     * owning sublayer ID.
+     * @note Present 2/5 give three rows; hiding 5 leaves two, absent rating visibility adds
+     * none. Local symbol data only, no rasterization or external resource ownership.
+     */
     void meshBc_legend_gates_on_present_and_visible();
 
     // ── CoupledNodeSublayer ─────────────────────────────────────────────
+    /**
+     * @brief Verify coupled-node sublayer identity, static marker kind and visible default
+     * legend row.
+     * @note Single legend row retains mesh.coupledNodes ID; stack-owned sublayer with no project
+     * IO.
+     */
     void coupled_identity_static_visibleByDefault();
+    /**
+     * @brief Verify coupled-node RGBA marker style round-trip and historical orange 5
+     * pxdefaults.
+     * @note Customized 9.5 px size/alpha retained through local JSON; no preference mutation.
+     */
     void coupled_json_roundTrip();
 
     // ── ClassificationScheme custom-ramp payload ────────────────────────
+    /**
+     * @brief Verify embedded named custom ramps resolve their own stops/interpolation rather
+     * than a grayscale fallback.
+     * @note Red-to-green HSVshort ramp retains name and exact endpoint red; no global ramp
+     * registry writes.
+     */
     void scheme_customRamp_resolves_not_grayscale();
+    /**
+     * @brief Verify portable embedded custom-ramp payload and alpha survive classification
+     * scheme JSON equality.
+     * @note Three stops including half-alpha blue,.4 position, Portable name and hasCustomRamp
+     * remain; serialization in memory only.
+     */
     void scheme_customRamp_json_roundTrip();
+    /**
+     * @brief Verify redundant same-name selection preserves custom payload and a different
+     * built-in selection clears it.
+     * @note Mine refresh retains stops; viridis switch clears custom flag/resolves other stops.
+     * No registry, source layer or saved project mutation.
+     */
     void scheme_setRampName_clears_custom_only_on_change();
 };
 
@@ -70,11 +139,11 @@ void TestMeshBcCoupledNodeSublayers::meshBc_typeVisibility_defaults_and_folding(
     // Out-of-range reads fold onto Wall; out-of-range writes are ignored.
     QCOMPARE(st.bcColorForType(-1), st.wallColor());
     QCOMPARE(st.bcColorForType(99), st.wallColor());
-    QVERIFY(st.bcTypeVisible(99));          // folds to Wall (still visible)
-    st.setBcTypeVisible(99, false);          // ignored
+    QVERIFY(st.bcTypeVisible(99));  // folds to Wall (still visible)
+    st.setBcTypeVisible(99, false); // ignored
     QVERIFY(st.bcTypeVisible(0));
-    st.setBcColor(99, Qt::red);              // ignored
-    st.setBcWidth(-1, 5.0);                  // ignored
+    st.setBcColor(99, Qt::red); // ignored
+    st.setBcWidth(-1, 5.0);     // ignored
 }
 
 void TestMeshBcCoupledNodeSublayers::meshBc_json_roundTrip()
@@ -116,16 +185,14 @@ void TestMeshBcCoupledNodeSublayers::meshBc_customized_flag()
     // An old-format JSON without the key leaves the receiver's flag alone.
     MeshBcStyle c;
     QJsonObject old;
-    old[QStringLiteral("stageConstColor")] =
-        QColor(1, 2, 3, 4).name(QColor::HexArgb);
+    old[QStringLiteral("stageConstColor")] = QColor(1, 2, 3, 4).name(QColor::HexArgb);
     c.fromJson(old);
     QVERIFY(!c.isCustomized());
 
     // Legacy MeshEdgeStyle seeding with explicit bc* keys marks customized.
     MeshBcStyle d;
     QJsonObject legacy;
-    legacy[QStringLiteral("bcStageConstColor")] =
-        QColor(11, 22, 33, 44).name(QColor::HexArgb);
+    legacy[QStringLiteral("bcStageConstColor")] = QColor(11, 22, 33, 44).name(QColor::HexArgb);
     d.seedFromLegacyEdgeJson(legacy);
     QVERIFY(d.isCustomized());
 
@@ -141,9 +208,9 @@ void TestMeshBcCoupledNodeSublayers::meshBc_legacy_edgeJson_seeding()
     // one pre-per-type shared "bcWidthPx", and one per-type width override.
     QJsonObject legacy;
     legacy[QStringLiteral("bcStageConstColor")] = QColor(11, 22, 33, 44).name(QColor::HexArgb);
-    legacy[QStringLiteral("bcWallColor")]       = QColor(9, 9, 9, 90).name(QColor::HexArgb);
-    legacy[QStringLiteral("bcWidthPx")]         = 3.3;
-    legacy[QStringLiteral("bcFlowTSWidthPx")]   = 7.7;
+    legacy[QStringLiteral("bcWallColor")] = QColor(9, 9, 9, 90).name(QColor::HexArgb);
+    legacy[QStringLiteral("bcWidthPx")] = 3.3;
+    legacy[QStringLiteral("bcFlowTSWidthPx")] = 7.7;
 
     MeshBcStyle st;
     st.seedFromLegacyEdgeJson(legacy);
@@ -166,7 +233,7 @@ void TestMeshBcCoupledNodeSublayers::meshBc_legend_gates_on_present_and_visible(
 
     // Wall is always present; add stage-const (2) and flow-TS (5).
     sub.setBcTypesPresent({2, 5});
-    QCOMPARE(sub.legendSymbolItems().size(), 3);   // Wall + 2 + 5
+    QCOMPARE(sub.legendSymbolItems().size(), 3); // Wall + 2 + 5
 
     // Hiding a present type removes its row.
     sub.bcStyle()->setFlowTSVisible(false);
@@ -191,8 +258,7 @@ void TestMeshBcCoupledNodeSublayers::coupled_identity_static_visibleByDefault()
     // Visible by default — mirrors the legacy highlightTagged=true default.
     QVERIFY(sub.isVisible());
     QCOMPARE(sub.legendSymbolItems().size(), 1);
-    QCOMPARE(sub.legendSymbolItems().first().sublayerId,
-             QStringLiteral("mesh.coupledNodes"));
+    QCOMPARE(sub.legendSymbolItems().first().sublayerId, QStringLiteral("mesh.coupledNodes"));
 }
 
 void TestMeshBcCoupledNodeSublayers::coupled_json_roundTrip()
@@ -215,7 +281,7 @@ void TestMeshBcCoupledNodeSublayers::coupled_json_roundTrip()
 void TestMeshBcCoupledNodeSublayers::scheme_customRamp_resolves_not_grayscale()
 {
     RasterColorRamp custom;
-    custom.stops = { {0.0, QColor(255, 0, 0)}, {1.0, QColor(0, 255, 0)} };
+    custom.stops = {{0.0, QColor(255, 0, 0)}, {1.0, QColor(0, 255, 0)}};
     custom.interp = RampInterp::HsvShort;
 
     ClassificationScheme s;
@@ -233,9 +299,8 @@ void TestMeshBcCoupledNodeSublayers::scheme_customRamp_resolves_not_grayscale()
 void TestMeshBcCoupledNodeSublayers::scheme_customRamp_json_roundTrip()
 {
     RasterColorRamp custom;
-    custom.stops = { {0.0, QColor(255, 0, 0)},
-                     {0.4, QColor(0, 0, 255, 128)},
-                     {1.0, QColor(0, 255, 0)} };
+    custom.stops = {
+        {0.0, QColor(255, 0, 0)}, {0.4, QColor(0, 0, 255, 128)}, {1.0, QColor(0, 255, 0)}};
 
     ClassificationScheme a;
     a.setCustomRamp(custom, QStringLiteral("Portable"));
@@ -250,7 +315,7 @@ void TestMeshBcCoupledNodeSublayers::scheme_customRamp_json_roundTrip()
 void TestMeshBcCoupledNodeSublayers::scheme_setRampName_clears_custom_only_on_change()
 {
     RasterColorRamp custom;
-    custom.stops = { {0.0, QColor(1, 1, 1)}, {1.0, QColor(2, 2, 2)} };
+    custom.stops = {{0.0, QColor(1, 1, 1)}, {1.0, QColor(2, 2, 2)}};
 
     ClassificationScheme s;
     s.setCustomRamp(custom, QStringLiteral("Mine"));

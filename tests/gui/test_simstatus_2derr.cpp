@@ -1,8 +1,9 @@
-/*!
- * \file   test_simstatus_2derr.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_simstatus_2derr.cpp
+ * @brief     Tests for simstatus 2derr.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * End-to-end check of the "2D Err (%)" Simulation Status column: runs the
  * real SimulationRunner (in-process refactored engine) wired to a real
@@ -14,7 +15,9 @@
  * All run artifacts (.inp copies, .rpt, .out, .2d.h5) are written to
  * tests/gui/data/output_simstatus2derr/ so they can be reviewed after the
  * test instead of vanishing with a temp dir.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QSignalSpy>
 #include <QDir>
@@ -23,7 +26,8 @@
 #include "simulation/simulationrunner.h"
 #include "simulation/simulationstatusmodel.h"
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -33,16 +37,14 @@ QString dataDir()
 /// Reviewable output dir for everything this test writes.
 QString outputDir()
 {
-    const QString dir = QDir(dataDir()).filePath(
-        QStringLiteral("output_simstatus2derr"));
+    const QString dir = QDir(dataDir()).filePath(QStringLiteral("output_simstatus2derr"));
     QDir().mkpath(dir);
     return dir;
 }
 
 QString twoDErrCell(const SimulationStatusModel &model, int row)
 {
-    return model.index(row, SimulationStatusModel::ColTwoDErr)
-        .data(Qt::DisplayRole).toString();
+    return model.index(row, SimulationStatusModel::ColTwoDErr).data(Qt::DisplayRole).toString();
 }
 
 } // namespace
@@ -70,29 +72,27 @@ private slots:
 
         const int rows = model.rowCount(jobIdx);
         QVERIFY2(rows <= 5001, qPrintable(QString::number(rows)));
-        QVERIFY(model.index(0, 0, jobIdx).data(Qt::DisplayRole).toString()
+        QVERIFY(model.index(0, 0, jobIdx)
+                    .data(Qt::DisplayRole)
+                    .toString()
                     .contains(QStringLiteral("earlier warnings dropped")));
         QCOMPARE(model.index(rows - 1, 0, jobIdx).data(Qt::DisplayRole).toString(),
                  QStringLiteral("[0] w5599"));
-        QCOMPARE(removed.count(), 2);   // 5600 warnings → two batched trims
+        QCOMPARE(removed.count(), 2); // 5600 warnings → two batched trims
     }
 
     void headerAndColumnLayout()
     {
         SimulationStatusModel model;
         QCOMPARE(model.columnCount(), SimulationStatusModel::NumColumns);
-        QCOMPARE(model.headerData(SimulationStatusModel::ColTwoDErr,
-                                  Qt::Horizontal).toString(),
+        QCOMPARE(model.headerData(SimulationStatusModel::ColTwoDErr, Qt::Horizontal).toString(),
                  QStringLiteral("2D Err (%)"));
         // The 2D column sits with the other continuity columns.
-        QCOMPARE(SimulationStatusModel::ColTwoDErr,
-                 SimulationStatusModel::ColRoutingErr + 1);
+        QCOMPARE(SimulationStatusModel::ColTwoDErr, SimulationStatusModel::ColRoutingErr + 1);
         // 2D solver telemetry columns trail the engine version.
-        QCOMPARE(model.headerData(SimulationStatusModel::Col2DBackend,
-                                  Qt::Horizontal).toString(),
+        QCOMPARE(model.headerData(SimulationStatusModel::Col2DBackend, Qt::Horizontal).toString(),
                  QStringLiteral("2D Solver"));
-        QCOMPARE(model.headerData(SimulationStatusModel::ColLtsTiers,
-                                  Qt::Horizontal).toString(),
+        QCOMPARE(model.headerData(SimulationStatusModel::ColLtsTiers, Qt::Horizontal).toString(),
                  QStringLiteral("LTS Tiers"));
     }
 
@@ -108,54 +108,53 @@ private slots:
         {
             QFile f(inp);
             QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
-            f.write(
-                "[OPTIONS]\n"
-                "FLOW_UNITS       CMS\n"
-                "INFILTRATION     HORTON\n"
-                "FLOW_ROUTING     DYNWAVE\n"
-                "START_DATE       01/01/2026\n"
-                "START_TIME       00:00:00\n"
-                "END_DATE         01/01/2026\n"
-                "END_TIME         01:00:00\n"
-                "REPORT_STEP      0:05:00\n"
-                "ROUTING_STEP     5\n"
-                "\n"
-                "[JUNCTIONS]\n"
-                ";;Name  Elev  MaxDepth  InitDepth  SurDepth  Aponded\n"
-                "J1      10    3         0          0         0\n"
-                "\n"
-                "[OUTFALLS]\n"
-                ";;Name  Elev  Type  Gated\n"
-                "O1      9     FREE  NO\n"
-                "\n"
-                "[CONDUITS]\n"
-                ";;Name  From  To  Length  Roughness  InOffset  OutOffset  InitFlow\n"
-                "C1      J1    O1  100     0.013      0         0          0\n"
-                "\n"
-                "[XSECTIONS]\n"
-                ";;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels\n"
-                "C1      CIRCULAR  1      0      0      0      1\n"
-                "\n"
-                "[2D_OPTIONS]\n"
-                "MAX_TIMESTEP     5\n"
-                "DRY_DEPTH        0.002\n"
-                "COUPLING_CD      0.7\n"
-                "REPORT_2D        NO\n"
-                "\n"
-                "[2D_VERTICES]\n"
-                ";;X   Y    Z\n"
-                "0     0    10\n"
-                "10    0    10.5\n"
-                "10    10   11\n"
-                "0     10   11.5\n"
-                "\n"
-                "[2D_TRIANGLES]\n"
-                ";;V1  V2  V3  MANNINGS_N\n"
-                "0     1   2   0.03\n"
-                "0     2   3   0.045\n"
-                "\n"
-                "[2D_VERTEX_NODE_MAP]\n"
-                "0  J1  0.7  2.5\n");
+            f.write("[OPTIONS]\n"
+                    "FLOW_UNITS       CMS\n"
+                    "INFILTRATION     HORTON\n"
+                    "FLOW_ROUTING     DYNWAVE\n"
+                    "START_DATE       01/01/2026\n"
+                    "START_TIME       00:00:00\n"
+                    "END_DATE         01/01/2026\n"
+                    "END_TIME         01:00:00\n"
+                    "REPORT_STEP      0:05:00\n"
+                    "ROUTING_STEP     5\n"
+                    "\n"
+                    "[JUNCTIONS]\n"
+                    ";;Name  Elev  MaxDepth  InitDepth  SurDepth  Aponded\n"
+                    "J1      10    3         0          0         0\n"
+                    "\n"
+                    "[OUTFALLS]\n"
+                    ";;Name  Elev  Type  Gated\n"
+                    "O1      9     FREE  NO\n"
+                    "\n"
+                    "[CONDUITS]\n"
+                    ";;Name  From  To  Length  Roughness  InOffset  OutOffset  InitFlow\n"
+                    "C1      J1    O1  100     0.013      0         0          0\n"
+                    "\n"
+                    "[XSECTIONS]\n"
+                    ";;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels\n"
+                    "C1      CIRCULAR  1      0      0      0      1\n"
+                    "\n"
+                    "[2D_OPTIONS]\n"
+                    "MAX_TIMESTEP     5\n"
+                    "DRY_DEPTH        0.002\n"
+                    "COUPLING_CD      0.7\n"
+                    "REPORT_2D        NO\n"
+                    "\n"
+                    "[2D_VERTICES]\n"
+                    ";;X   Y    Z\n"
+                    "0     0    10\n"
+                    "10    0    10.5\n"
+                    "10    10   11\n"
+                    "0     10   11.5\n"
+                    "\n"
+                    "[2D_TRIANGLES]\n"
+                    ";;V1  V2  V3  MANNINGS_N\n"
+                    "0     1   2   0.03\n"
+                    "0     2   3   0.045\n"
+                    "\n"
+                    "[2D_VERTEX_NODE_MAP]\n"
+                    "0  J1  0.7  2.5\n");
         }
         const QString rpt = QDir(outputDir()).filePath(QStringLiteral("mini_2d.rpt"));
         const QString out = QDir(outputDir()).filePath(QStringLiteral("mini_2d.out"));
@@ -163,16 +162,14 @@ private slots:
         SimulationStatusModel model;
         const int jobId = model.addJob(QStringLiteral("mini_2d.inp"), inp);
 
-        auto *runner = new SimulationRunner(jobId, QStringLiteral("mini_2d.inp"),
-                                            inp, rpt, out,
+        auto *runner = new SimulationRunner(jobId, QStringLiteral("mini_2d.inp"), inp, rpt, out,
                                             QStringLiteral("6.0.0"), this);
         // Mirror the SWMMVis wiring: direct signal → slot connections.
-        connect(runner, &SimulationRunner::progressChanged,
-                &model, &SimulationStatusModel::updateProgress);
-        connect(runner, &SimulationRunner::finished,
-                &model, &SimulationStatusModel::finishJob);
-        connect(runner, &SimulationRunner::twoDSolverStats,
-                &model, &SimulationStatusModel::updateTwoDSolverStats);
+        connect(runner, &SimulationRunner::progressChanged, &model,
+                &SimulationStatusModel::updateProgress);
+        connect(runner, &SimulationRunner::finished, &model, &SimulationStatusModel::finishJob);
+        connect(runner, &SimulationRunner::twoDSolverStats, &model,
+                &SimulationStatusModel::updateTwoDSolverStats);
         // Two cells sit below every auto-selection floor, but an inherited
         // OPENSWMM_2D_BACKEND would still override AUTO — pin the CPU marcher.
         qputenv("OPENSWMM_2D_BACKEND", "cpu");
@@ -187,8 +184,8 @@ private slots:
         QVERIFY2(finishedSpy.count() > 0 || finishedSpy.wait(60000),
                  "no finished signal within 60 s");
         QVERIFY2(finishedSpy.last().at(1).toBool(),
-                 qPrintable(QStringLiteral("2D run failed: %1")
-                                .arg(finishedSpy.last().at(3).toString())));
+                 qPrintable(
+                     QStringLiteral("2D run failed: %1").arg(finishedSpy.last().at(3).toString())));
         const double finalTwoDErr = finishedSpy.last().at(6).toDouble();
         QVERIFY2(!qIsNaN(finalTwoDErr), "finished twoDErrFrac is NaN for 2D model");
 
@@ -207,12 +204,12 @@ private slots:
 
         // The solver telemetry landed: backend + closure, and the LTS tier
         // occupancy sampled at the marcher's rebuilds.
-        const QString backendCell = model.index(0, SimulationStatusModel::Col2DBackend)
-                                        .data(Qt::DisplayRole).toString();
+        const QString backendCell =
+            model.index(0, SimulationStatusModel::Col2DBackend).data(Qt::DisplayRole).toString();
         QVERIFY2(backendCell.startsWith(QStringLiteral("cpu")), qPrintable(backendCell));
         QVERIFY2(backendCell.contains(QStringLiteral("LOCAL_INERTIAL")), qPrintable(backendCell));
-        const QString tiersCell = model.index(0, SimulationStatusModel::ColLtsTiers)
-                                      .data(Qt::DisplayRole).toString();
+        const QString tiersCell =
+            model.index(0, SimulationStatusModel::ColLtsTiers).data(Qt::DisplayRole).toString();
         QVERIFY2(tiersCell.contains(QStringLiteral("tiers")), qPrintable(tiersCell));
         QVERIFY2(tiersCell.contains(QStringLiteral("%")), qPrintable(tiersCell));
     }
@@ -256,13 +253,11 @@ private slots:
         SimulationStatusModel model;
         const int jobId = model.addJob(QStringLiteral("minimal_1d.inp"), inp);
 
-        auto *runner = new SimulationRunner(jobId, QStringLiteral("minimal_1d.inp"),
-                                            inp, rpt, out,
+        auto *runner = new SimulationRunner(jobId, QStringLiteral("minimal_1d.inp"), inp, rpt, out,
                                             QStringLiteral("6.0.0"), this);
-        connect(runner, &SimulationRunner::progressChanged,
-                &model, &SimulationStatusModel::updateProgress);
-        connect(runner, &SimulationRunner::finished,
-                &model, &SimulationStatusModel::finishJob);
+        connect(runner, &SimulationRunner::progressChanged, &model,
+                &SimulationStatusModel::updateProgress);
+        connect(runner, &SimulationRunner::finished, &model, &SimulationStatusModel::finishJob);
 
         QSignalSpy finishedSpy(runner, &SimulationRunner::finished);
         runner->start();
@@ -270,8 +265,8 @@ private slots:
         // A dry 1-hour model finishes in well under the timeout.
         QVERIFY2(finishedSpy.wait(60000), "no finished signal within 60 s");
         QVERIFY2(finishedSpy.last().at(1).toBool(),
-                 qPrintable(QStringLiteral("1D run failed: %1")
-                                .arg(finishedSpy.last().at(3).toString())));
+                 qPrintable(
+                     QStringLiteral("1D run failed: %1").arg(finishedSpy.last().at(3).toString())));
         QVERIFY2(qIsNaN(finishedSpy.last().at(6).toDouble()),
                  "1D-only run reported a non-NaN 2D continuity error");
         QCOMPARE(twoDErrCell(model, 0), QStringLiteral("—"));
@@ -316,16 +311,15 @@ private slots:
         const QString rpt = QDir(outputDir()).filePath(QStringLiteral("avgts_1d.rpt"));
         const QString out = QDir(outputDir()).filePath(QStringLiteral("avgts_1d.out"));
 
-        auto *runner = new SimulationRunner(0, QStringLiteral("avgts_1d.inp"),
-                                            inp, rpt, out,
+        auto *runner = new SimulationRunner(0, QStringLiteral("avgts_1d.inp"), inp, rpt, out,
                                             QStringLiteral("6.0.0"), this);
         QSignalSpy progressSpy(runner, &SimulationRunner::progressChanged);
         QSignalSpy finishedSpy(runner, &SimulationRunner::finished);
         runner->start();
         QVERIFY2(finishedSpy.wait(60000), "no finished signal within 60 s");
-        QVERIFY2(finishedSpy.last().at(1).toBool(),
-                 qPrintable(QStringLiteral("run failed: %1")
-                                .arg(finishedSpy.last().at(3).toString())));
+        QVERIFY2(
+            finishedSpy.last().at(1).toBool(),
+            qPrintable(QStringLiteral("run failed: %1").arg(finishedSpy.last().at(3).toString())));
 
         // Ticks are rate-limited, so take the last one that actually ran a
         // step (the pre-loop seed emission carries a zero fraction).

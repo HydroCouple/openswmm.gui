@@ -1,8 +1,9 @@
-/*!
- * \file   test_xsectgeominline.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_xsectgeominline.cpp
+ * @brief     Tests for xsectgeominline.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Inline cross-section geom1..geom4 — the direct-edit fields surfaced
  * alongside the compound XSection dialog in both the Property Browser and
@@ -23,6 +24,7 @@
  * stub. The companion test_linkpropertyadapter.cpp (which exercises the
  * full LinkCompoundEditDialog) is disabled pending a transect-picker
  * dependency split, so the inline-geom coverage lives here where it runs.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/swmmlinkpropertyadapter.h"
@@ -30,24 +32,26 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
-#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
+#include <openswmm/engine/openswmm_initial_quality.h> // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
-#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
+#include <openswmm/engine/openswmm_pollutants.h> // Initial-quality UI round
 
 #include <QObject>
 #include <QSignalSpy>
 #include <QStringList>
 #include <QTest>
 
-namespace {
+namespace
+{
 
 // J1→J2 with a single link of the requested type (0=Conduit, 1=Pump,
 // 2=Orifice, 3=Weir, 4=Outlet). The engine seeds a CIRCULAR section.
 SWMM_Engine buildLinkFixture(const char *id, int linkType)
 {
     SWMM_Engine e = swmm_engine_new();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
     swmm_node_add(e, "J1", 0);
     swmm_node_add(e, "J2", 0);
     swmm_link_add(e, id, linkType);
@@ -70,16 +74,17 @@ private slots:
     {
         using namespace openswmmvis;
         // CIRCULAR (0): only geom1 (Diameter).
-        QVERIFY( xsectGeomApplies(0, 1));
+        QVERIFY(xsectGeomApplies(0, 1));
         QVERIFY(!xsectGeomApplies(0, 2));
         QVERIFY(!xsectGeomApplies(0, 3));
         QVERIFY(!xsectGeomApplies(0, 4));
         // RECT_CLOSED (2): geom1 + geom2.
-        QVERIFY( xsectGeomApplies(2, 1));
-        QVERIFY( xsectGeomApplies(2, 2));
+        QVERIFY(xsectGeomApplies(2, 1));
+        QVERIFY(xsectGeomApplies(2, 2));
         QVERIFY(!xsectGeomApplies(2, 3));
         // TRAPEZOIDAL (4): all four (depth, bottom width, two slopes).
-        for (int k = 1; k <= 4; ++k) QVERIFY(xsectGeomApplies(4, k));
+        for (int k = 1; k <= 4; ++k)
+            QVERIFY(xsectGeomApplies(4, k));
         // IRREGULAR / STREET carry no named dimensions at all — geom1 is a
         // list index and the rest are unused, so nothing gets a label.
         for (int k = 1; k <= 4; ++k) {
@@ -104,8 +109,7 @@ private slots:
         const int idx = swmm_link_index(e, "C1");
         QVERIFY(idx >= 0);
         // Seed RECT_CLOSED (shape 2): geom1=4.0 (depth), geom2=2.5 (width).
-        QCOMPARE(swmm_link_set_xsect(e, idx, /*RECT_CLOSED=*/2, 4.0, 2.5, 0, 0),
-                 SWMM_OK);
+        QCOMPARE(swmm_link_set_xsect(e, idx, /*RECT_CLOSED=*/2, 4.0, 2.5, 0, 0), SWMM_OK);
 
         SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
         QCOMPARE(a.xsectShapeId(), 2);
@@ -116,16 +120,17 @@ private slots:
         QSignalSpy spy(&a, &SWMMLinkPropertyAdapter::changed);
         a.setXsectGeom1(5.0);
         QCOMPARE(spy.count(), 1);
-        int shape = -1; double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+        int shape = -1;
+        double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
         QCOMPARE(swmm_link_get_xsect(e, idx, &shape, &g1, &g2, &g3, &g4), SWMM_OK);
         QCOMPARE(shape, 2);
         QCOMPARE(g1, 5.0);
-        QCOMPARE(g2, 2.5);   // sibling preserved
+        QCOMPARE(g2, 2.5); // sibling preserved
 
         // Edit geom2 likewise.
         a.setXsectGeom2(3.0);
         QCOMPARE(a.xsectGeom2(), 3.0);
-        QCOMPARE(a.xsectGeom1(), 5.0);   // sibling preserved
+        QCOMPARE(a.xsectGeom1(), 5.0); // sibling preserved
         QCOMPARE(a.xsectShapeId(), 2);
 
         swmm_engine_destroy(e);
@@ -151,18 +156,17 @@ private slots:
         a.setXsectGeom2(9.0);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(a.xsectGeom2(), 9.0);
-        QCOMPARE(a.xsectShapeId(), 0);   // shape must not move
+        QCOMPARE(a.xsectShapeId(), 0); // shape must not move
 
         // geom1 likewise.
         a.setXsectGeom1(3.5);
         QCOMPARE(spy.count(), 2);
         QCOMPARE(a.xsectGeom1(), 3.5);
-        QCOMPARE(a.xsectGeom2(), 9.0);   // sibling preserved
+        QCOMPARE(a.xsectGeom2(), 9.0); // sibling preserved
 
         // Switching to RECT_CLOSED now finds the width already there —
         // the point of keeping the stored value.
-        QCOMPARE(swmm_link_set_xsect(e, idx, /*RECT_CLOSED=*/2, 3.5, 9.0, 0, 0),
-                 SWMM_OK);
+        QCOMPARE(swmm_link_set_xsect(e, idx, /*RECT_CLOSED=*/2, 3.5, 9.0, 0, 0), SWMM_OK);
         QCOMPARE(a.xsectGeom2(), 9.0);
 
         swmm_engine_destroy(e);
@@ -187,8 +191,7 @@ private slots:
         QCOMPARE(swmm_transect_add_station(e, ti, 0.0, 10.0), SWMM_OK);
         QCOMPARE(swmm_transect_add_station(e, ti, 5.0, 5.0), SWMM_OK);
         QCOMPARE(swmm_transect_add_station(e, ti, 10.0, 10.0), SWMM_OK);
-        QCOMPARE(swmm_link_set_xsect(e, idx, SWMM_XSECT_IRREGULAR, 0, 0, 0, 0),
-                 SWMM_OK);
+        QCOMPARE(swmm_link_set_xsect(e, idx, SWMM_XSECT_IRREGULAR, 0, 0, 0, 0), SWMM_OK);
 
         SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
         QSignalSpy spy(&a, &SWMMLinkPropertyAdapter::changed);
@@ -210,9 +213,9 @@ private slots:
     {
         using namespace openswmmvis;
         QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CUSTOM, 1));
-        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_CUSTOM, 2));
-        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_IRREGULAR, 1));
-        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_STREET, 1));
+        QVERIFY(xsectGeomIsPickerIndex(SWMM_XSECT_CUSTOM, 2));
+        QVERIFY(xsectGeomIsPickerIndex(SWMM_XSECT_IRREGULAR, 1));
+        QVERIFY(xsectGeomIsPickerIndex(SWMM_XSECT_STREET, 1));
         // Everything else is a plain stored dimension.
         QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CIRCULAR, 1));
         QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CIRCULAR, 2));
@@ -224,8 +227,10 @@ private slots:
     void geomsWritableOnXsectionKindsOnly()
     {
         const QStringList geoms = {
-            QStringLiteral("geom1"), QStringLiteral("geom2"),
-            QStringLiteral("geom3"), QStringLiteral("geom4"),
+            QStringLiteral("geom1"),
+            QStringLiteral("geom2"),
+            QStringLiteral("geom3"),
+            QStringLiteral("geom4"),
         };
         // Conduit / Orifice / Weir carry the inline geom rows…
         {
@@ -234,8 +239,7 @@ private slots:
             const auto *mo = a.metaObject();
             for (const QString &p : geoms) {
                 const int i = mo->indexOfProperty(p.toUtf8().constData());
-                QVERIFY2(i >= 0,
-                         qPrintable(QStringLiteral("conduit missing %1").arg(p)));
+                QVERIFY2(i >= 0, qPrintable(QStringLiteral("conduit missing %1").arg(p)));
                 QVERIFY(mo->property(i).isWritable());
                 QVERIFY(mo->property(i).hasNotifySignal());
             }
@@ -302,8 +306,7 @@ private slots:
         QCOMPARE(a.initialQualityRef().summary, QStringLiteral("1 set"));
 
         QVERIFY(a.metaObject()->indexOfProperty("initialQuality") >= 0);
-        QVERIFY(!a.displayLabelFor(
-            QStringLiteral("initialQuality")).isEmpty());
+        QVERIFY(!a.displayLabelFor(QStringLiteral("initialQuality")).isEmpty());
         swmm_engine_destroy(e);
     }
 
@@ -319,12 +322,13 @@ private slots:
     void statRowsPerSubclassReadOnlyZeroPreRun()
     {
         const QStringList shared = {
-            QStringLiteral("statMaxFlow"),     QStringLiteral("statMaxVelocity"),
-            QStringLiteral("statMaxFilling"),  QStringLiteral("statVolFlow"),
+            QStringLiteral("statMaxFlow"),       QStringLiteral("statMaxVelocity"),
+            QStringLiteral("statMaxFilling"),    QStringLiteral("statVolFlow"),
             QStringLiteral("statSurchargeTime"),
         };
         const QStringList pumpOnly = {
-            QStringLiteral("statPumpCycles"), QStringLiteral("statPumpOnTime"),
+            QStringLiteral("statPumpCycles"),
+            QStringLiteral("statPumpOnTime"),
             QStringLiteral("statPumpVolume"),
         };
 
@@ -348,8 +352,7 @@ private slots:
             SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
             checkProps(a, shared);
             for (const QString &prop : pumpOnly)
-                QVERIFY2(a.metaObject()->indexOfProperty(
-                             prop.toLatin1().constData()) < 0,
+                QVERIFY2(a.metaObject()->indexOfProperty(prop.toLatin1().constData()) < 0,
                          "pump utilisation rows must stay pump-only");
             swmm_engine_destroy(e);
         }

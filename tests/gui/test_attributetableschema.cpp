@@ -1,6 +1,6 @@
-/*!
- * \file   test_attributetableschema.cpp
- * \brief  Attribute Table column-schema contract.
+/**
+ * @file      test_attributetableschema.cpp
+ * @brief     Attribute Table column-schema contract.
  *
  * Guards three properties the schema has to keep:
  *
@@ -19,6 +19,10 @@
  *   3. The per-category attribute coverage that the engine C API exposes
  *      is actually surfaced (conduit Slope, subcatchment Tag, storage
  *      exfiltration triple, outfall RouteTo).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmmmodellayer.h"
@@ -45,14 +49,14 @@
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
-#include <openswmm/engine/openswmm_initial_quality.h>  // Initial-quality UI round
+#include <openswmm/engine/openswmm_initial_quality.h> // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
-#include <openswmm/engine/openswmm_model.h>            // swmm_options_set
+#include <openswmm/engine/openswmm_model.h> // swmm_options_set
 #include <openswmm/engine/openswmm_nodes.h>
-#include <openswmm/engine/openswmm_pollutants.h>       // Initial-quality UI round
+#include <openswmm/engine/openswmm_pollutants.h> // Initial-quality UI round
 #include <openswmm/engine/openswmm_subcatchments.h>
 
-#include <algorithm>   // std::reverse — ordering-override pin
+#include <algorithm> // std::reverse — ordering-override pin
 
 #include <QComboBox>
 #include <QDir>
@@ -69,7 +73,8 @@
 using openswmmvis::ColumnSpec;
 using openswmmvis::EditorKind;
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -79,10 +84,10 @@ QString dataDir()
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
-        QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp")),
-        nullptr);
+        QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp")), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
@@ -90,7 +95,8 @@ std::unique_ptr<SWMMModelLayer> openLayer()
 int colFor(const QList<ColumnSpec> &specs, const QString &key)
 {
     for (int i = 0; i < specs.size(); ++i)
-        if (specs[i].key == key) return i;
+        if (specs[i].key == key)
+            return i;
     return -1;
 }
 
@@ -98,16 +104,23 @@ int colFor(const QList<ColumnSpec> &specs, const QString &key)
 const char *engineIdFor(SWMM_Engine eng, SWMMModelLayer::Category cat, int idx)
 {
     switch (cat) {
-    case SWMMModelLayer::CatJunctions: case SWMMModelLayer::CatOutfalls:
-    case SWMMModelLayer::CatStorage:   case SWMMModelLayer::CatDividers:
+    case SWMMModelLayer::CatJunctions:
+    case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:
+    case SWMMModelLayer::CatDividers:
         return swmm_node_id(eng, idx);
-    case SWMMModelLayer::CatConduits:  case SWMMModelLayer::CatPumps:
-    case SWMMModelLayer::CatOrifices:  case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatConduits:
+    case SWMMModelLayer::CatPumps:
+    case SWMMModelLayer::CatOrifices:
+    case SWMMModelLayer::CatWeirs:
     case SWMMModelLayer::CatOutlets:
         return swmm_link_id(eng, idx);
-    case SWMMModelLayer::CatSubcatchments: return swmm_subcatch_id(eng, idx);
-    case SWMMModelLayer::CatRainGages:     return swmm_gage_id(eng, idx);
-    default: return nullptr;
+    case SWMMModelLayer::CatSubcatchments:
+        return swmm_subcatch_id(eng, idx);
+    case SWMMModelLayer::CatRainGages:
+        return swmm_gage_id(eng, idx);
+    default:
+        return nullptr;
     }
 }
 
@@ -115,12 +128,10 @@ const char *engineIdFor(SWMM_Engine eng, SWMMModelLayer::Category cat, int idx)
 QList<SWMMModelLayer::Category> allCategories()
 {
     return {
-        SWMMModelLayer::CatJunctions, SWMMModelLayer::CatOutfalls,
-        SWMMModelLayer::CatStorage,   SWMMModelLayer::CatDividers,
-        SWMMModelLayer::CatConduits,  SWMMModelLayer::CatPumps,
-        SWMMModelLayer::CatOrifices,  SWMMModelLayer::CatWeirs,
-        SWMMModelLayer::CatOutlets,   SWMMModelLayer::CatSubcatchments,
-        SWMMModelLayer::CatRainGages,
+        SWMMModelLayer::CatJunctions,     SWMMModelLayer::CatOutfalls,  SWMMModelLayer::CatStorage,
+        SWMMModelLayer::CatDividers,      SWMMModelLayer::CatConduits,  SWMMModelLayer::CatPumps,
+        SWMMModelLayer::CatOrifices,      SWMMModelLayer::CatWeirs,     SWMMModelLayer::CatOutlets,
+        SWMMModelLayer::CatSubcatchments, SWMMModelLayer::CatRainGages,
     };
 }
 
@@ -162,11 +173,13 @@ private slots:
         GroupedPropertyModel grouped;
         grouped.setSourceModel(&source);
         source.setData(QVariant::fromValue<QObject *>(&adapter));
-        QAbstractItemModelTester tester(&grouped, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QAbstractItemModelTester tester(&grouped,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
         auto find = [&](const QString &label, const QModelIndex &parent = QModelIndex()) {
             for (int r = 0; r < grouped.rowCount(parent); ++r) {
                 auto index = grouped.index(r, 0, parent);
-                if (index.data().toString() == label) return index;
+                if (index.data().toString() == label)
+                    return index;
             }
             return QModelIndex();
         };
@@ -191,7 +204,8 @@ private slots:
         QVERIFY(grouped.setData(invert, previous + 0.25));
         QCOMPARE(adapter.invertElev(), previous + 0.25);
         QVERIFY(grouped.setData(invert, previous));
-        const auto diameter = find(adapter.displayLabelFor("couplingDiameter"), geometry).siblingAtColumn(1);
+        const auto diameter =
+            find(adapter.displayLabelFor("couplingDiameter"), geometry).siblingAtColumn(1);
         QVERIFY(diameter.isValid());
         QVERIFY(grouped.setData(diameter, QStringLiteral("1.2")));
         QCOMPARE(adapter.couplingDiameter(), QStringLiteral("1.2"));
@@ -209,7 +223,6 @@ private slots:
         source.clear();
     }
 #endif
-
 
     // =====================================================================
     // 1 — conduit cross-section block
@@ -229,12 +242,9 @@ private slots:
             QVERIFY2(colFor(specs, QStringLiteral("Geom %1").arg(k)) >= 0,
                      qPrintable(QStringLiteral("Geom %1 column missing").arg(k)));
 
-        QCOMPARE(specs[colFor(specs, QStringLiteral("XSection"))].editor,
-                 EditorKind::Compound);
-        QCOMPARE(specs[colFor(specs, QStringLiteral("Barrels"))].editor,
-                 EditorKind::Integer);
-        QCOMPARE(specs[colFor(specs, QStringLiteral("Geom 1"))].editor,
-                 EditorKind::Numeric);
+        QCOMPARE(specs[colFor(specs, QStringLiteral("XSection"))].editor, EditorKind::Compound);
+        QCOMPARE(specs[colFor(specs, QStringLiteral("Barrels"))].editor, EditorKind::Integer);
+        QCOMPARE(specs[colFor(specs, QStringLiteral("Geom 1"))].editor, EditorKind::Numeric);
     }
 
     //! The regression this file exists for: on a CIRCULAR conduit, Geom 2-4
@@ -258,8 +268,7 @@ private slots:
             const int c = colFor(specs, QStringLiteral("Geom %1").arg(k));
             const QModelIndex idx = model.index(0, c);
             QVERIFY2(model.flags(idx) & Qt::ItemIsEditable,
-                     qPrintable(QStringLiteral("Geom %1 not editable on CIRCULAR")
-                                    .arg(k)));
+                     qPrintable(QStringLiteral("Geom %1 not editable on CIRCULAR").arg(k)));
             QVERIFY2(model.data(idx, Qt::DisplayRole).isValid(),
                      qPrintable(QStringLiteral("Geom %1 blank on CIRCULAR").arg(k)));
         }
@@ -283,9 +292,9 @@ private slots:
         const QString name = model.objectNameAt(0);
         const int li = swmm_link_index(layer->engine(), name.toUtf8().constData());
         QVERIFY(li >= 0);
-        int shape = 0; double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
-        QCOMPARE(swmm_link_get_xsect(layer->engine(), li, &shape,
-                                     &g1, &g2, &g3, &g4), SWMM_OK);
+        int shape = 0;
+        double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+        QCOMPARE(swmm_link_get_xsect(layer->engine(), li, &shape, &g1, &g2, &g3, &g4), SWMM_OK);
         QCOMPARE(g2, 2.75);
         // The shape itself must not have moved.
         QCOMPARE(shape, SWMM_XSECT_CIRCULAR);
@@ -318,8 +327,8 @@ private slots:
             QCOMPARE(swmm_transect_add_station(eng, ti, 5.0, 5.0), SWMM_OK);
             QCOMPARE(swmm_transect_add_station(eng, ti, 10.0, 10.0), SWMM_OK);
         }
-        QCOMPARE(swmm_link_set_xsect(layer->engine(), li,
-                                     SWMM_XSECT_IRREGULAR, 0, 0, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_link_set_xsect(layer->engine(), li, SWMM_XSECT_IRREGULAR, 0, 0, 0, 0),
+                 SWMM_OK);
         model.reload();
 
         const int g1 = colFor(specs, QStringLiteral("Geom 1"));
@@ -345,13 +354,18 @@ private slots:
             QSet<QString> completed;
             QString previous;
             for (int column = 0; column < model.columnCount(); ++column) {
-                QString group = model.headerData(column, Qt::Horizontal,
-                    openswmmvis::AttributeGroupRole).toString().section(" / ", 0, 0);
-                if (group.isEmpty()) group = QStringLiteral("Model Attributes");
+                QString group =
+                    model.headerData(column, Qt::Horizontal, openswmmvis::AttributeGroupRole)
+                        .toString()
+                        .section(" / ", 0, 0);
+                if (group.isEmpty())
+                    group = QStringLiteral("Model Attributes");
                 if (group != previous) {
                     QVERIFY2(!completed.contains(group),
-                        qPrintable(QString("Group %1 reappears in category %2 at column %3")
-                            .arg(group).arg(int(category)).arg(column)));
+                             qPrintable(QString("Group %1 reappears in category %2 at column %3")
+                                            .arg(group)
+                                            .arg(int(category))
+                                            .arg(column)));
                     completed.insert(group);
                     previous = group;
                 }
@@ -371,21 +385,26 @@ private slots:
             int firstDynamic = -1;
             for (int i = 0; i < specs.size(); ++i) {
                 if (isDynamics(specs[i])) {
-                    if (firstDynamic < 0) firstDynamic = i;
+                    if (firstDynamic < 0)
+                        firstDynamic = i;
                 } else if (firstDynamic >= 0) {
-                    QFAIL(qPrintable(
-                        QStringLiteral("category %1: input column '%2' at %3 sits "
-                                        "AFTER the dynamics block (starts at %4)")
-                            .arg(int(cat)).arg(specs[i].key).arg(i).arg(firstDynamic)));
+                    QFAIL(qPrintable(QStringLiteral("category %1: input column '%2' at %3 sits "
+                                                    "AFTER the dynamics block (starts at %4)")
+                                         .arg(int(cat))
+                                         .arg(specs[i].key)
+                                         .arg(i)
+                                         .arg(firstDynamic)));
                 }
             }
             // Whatever is in the block must be read-only — a statistic is not
             // an input, and commitValueDirect() refuses ReadOnly writes.
             for (int i = std::max(firstDynamic, 0); i < specs.size(); ++i) {
-                if (!isDynamics(specs[i])) continue;
+                if (!isDynamics(specs[i]))
+                    continue;
                 QCOMPARE(specs[i].editor, EditorKind::ReadOnly);
                 QVERIFY(model.headerData(i, Qt::Horizontal, openswmmvis::AttributeGroupRole)
-                            .toString().startsWith("Output Summary / "));
+                            .toString()
+                            .startsWith("Output Summary / "));
                 // Group headings must not become part of exported column names.
                 QVERIFY(!model.headerData(i, Qt::Horizontal).toString().contains("Output Summary"));
                 if (model.rowCount() > 0)
@@ -400,14 +419,18 @@ private slots:
         QVERIFY(layer);
         // Rain gages are the one category the engine keeps no statistics for.
         for (const auto cat : allCategories()) {
-            if (cat == SWMMModelLayer::CatRainGages) continue;
+            if (cat == SWMMModelLayer::CatRainGages)
+                continue;
             SWMMAttributeTableModel model;
             model.setSource(layer.get(), cat);
             const auto specs = model.columnSpecs();
             int n = 0;
-            for (const auto &s : specs) if (isDynamics(s)) ++n;
+            for (const auto &s : specs)
+                if (isDynamics(s))
+                    ++n;
             QVERIFY2(n > 0, qPrintable(QStringLiteral("category %1 has no dynamics "
-                                                       "columns").arg(int(cat))));
+                                                      "columns")
+                                           .arg(int(cat))));
         }
         SWMMAttributeTableModel gages;
         gages.setSource(layer.get(), SWMMModelLayer::CatRainGages);
@@ -450,18 +473,20 @@ private slots:
         bool ok = false;
         const double slope = model.data(idx, Qt::DisplayRole).toDouble(&ok);
         QVERIFY(ok);
-        QVERIFY(slope > 0.0);   // fixture drops 5 ft over 1000 ft
+        QVERIFY(slope > 0.0); // fixture drops 5 ft over 1000 ft
     }
 
     void snowPackPickerSharesAssignmentWithProperties()
     {
-        auto layer = openLayer(); QVERIFY(layer);
+        auto layer = openLayer();
+        QVERIFY(layer);
         SWMM_Engine eng = layer->engine();
         QCOMPARE(swmm_snowpack_add(eng, "Snow1"), SWMM_OK);
         SWMMAttributeTableModel model;
         model.setSource(layer.get(), SWMMModelLayer::CatSubcatchments);
         const int c = colFor(model.columnSpecs(), QStringLiteral("Snow pack"));
-        QVERIFY(c >= 0); QVERIFY(model.rowCount() > 0);
+        QVERIFY(c >= 0);
+        QVERIFY(model.rowCount() > 0);
         const auto idx = model.index(0, c);
         auto ref = model.data(idx, Qt::EditRole).value<DataObjectRef>();
         QCOMPARE(ref.kind, DataObjectRef::Snowpack);
@@ -470,32 +495,46 @@ private slots:
         const auto sub = layer->objectNameAt(SWMMModelLayer::CatSubcatchments, 0);
         SWMMSubcatchPropertyAdapter adapter(eng, sub);
         QCOMPARE(adapter.snowPackRef().currentName, QStringLiteral("Snow1"));
-        auto* registry = qobject_cast<openswmmvis::snowpack::SnowpackRegistry*>(layer->ensureSnowpackRegistry());
+        auto *registry = qobject_cast<openswmmvis::snowpack::SnowpackRegistry *>(
+            layer->ensureSnowpackRegistry());
         QVERIFY(registry);
         bool selected = false;
         QTimer::singleShot(0, [&] {
-            auto* dialog = qobject_cast<openswmmvis::ui::SnowpackEditorDialog*>(QApplication::activeModalWidget());
-            if (!dialog) return;
-            auto* buttons = dialog->findChild<QDialogButtonBox*>();
-            if (!buttons) { dialog->reject(); return; }
-            auto* use = buttons->button(QDialogButtonBox::Close);
+            auto *dialog = qobject_cast<openswmmvis::ui::SnowpackEditorDialog *>(
+                QApplication::activeModalWidget());
+            if (!dialog)
+                return;
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            if (!buttons) {
+                dialog->reject();
+                return;
+            }
+            auto *use = buttons->button(QDialogButtonBox::Close);
             selected = use && use->text() == QStringLiteral("Use Snow Pack");
-            if (use) QTest::mouseClick(use, Qt::LeftButton);
-            else dialog->reject();
+            if (use)
+                QTest::mouseClick(use, Qt::LeftButton);
+            else
+                dialog->reject();
         });
-        QCOMPARE(openswmmvis::ui::SnowpackEditorDialog::pickSnowpack(registry, layer.get(), "Snow1"), QStringLiteral("Snow1"));
+        QCOMPARE(
+            openswmmvis::ui::SnowpackEditorDialog::pickSnowpack(registry, layer.get(), "Snow1"),
+            QStringLiteral("Snow1"));
         QVERIFY(selected);
         registerDataObjectRefConverter();
         QTableView view;
         view.setModel(&model);
         for (int k = 0; k < model.columnCount(); ++k)
             view.setColumnHidden(k, k != c && model.columnSpecs()[k].key != QStringLiteral("Name"));
-        view.resize(640, 240); view.setWindowTitle(QStringLiteral("Subcatchment snow-pack assignment"));
-        view.show(); view.resizeColumnsToContents(); QTest::qWait(30);
+        view.resize(640, 240);
+        view.setWindowTitle(QStringLiteral("Subcatchment snow-pack assignment"));
+        view.show();
+        view.resizeColumnsToContents();
+        QTest::qWait(30);
         const QString out = QDir(dataDir()).filePath(QStringLiteral("surface_r1_out"));
         QVERIFY(QDir().mkpath(out));
         QVERIFY(view.grab().save(QDir(out).filePath(QStringLiteral("snowpack-assignment.png"))));
-        ref.currentName.clear(); adapter.setSnowPackRef(ref);
+        ref.currentName.clear();
+        adapter.setSnowPackRef(ref);
         model.refreshObject(sub);
         QVERIFY(model.data(idx, Qt::EditRole).value<DataObjectRef>().currentName.isEmpty());
     }
@@ -514,8 +553,7 @@ private slots:
         const QModelIndex idx = model.index(0, c);
         QVERIFY(model.flags(idx) & Qt::ItemIsEditable);
         QVERIFY(model.setData(idx, QStringLiteral("basin-7"), Qt::EditRole));
-        QCOMPARE(model.data(idx, Qt::DisplayRole).toString(),
-                 QStringLiteral("basin-7"));
+        QCOMPARE(model.data(idx, Qt::DisplayRole).toString(), QStringLiteral("basin-7"));
     }
 
     void storageExposesExfiltrationParameters()
@@ -526,9 +564,10 @@ private slots:
         model.setSource(layer.get(), SWMMModelLayer::CatStorage);
         const auto specs = model.columnSpecs();
         for (const char *key : {"Exfil suction", "Exfil conduct.", "Exfil deficit"})
-            QVERIFY2(colFor(specs, QString::fromLatin1(key)) >= 0,
-                     qPrintable(QStringLiteral("storage %1 column missing")
-                                    .arg(QString::fromLatin1(key))));
+            QVERIFY2(
+                colFor(specs, QString::fromLatin1(key)) >= 0,
+                qPrintable(
+                    QStringLiteral("storage %1 column missing").arg(QString::fromLatin1(key))));
     }
 
     void outfallExposesRouteTo()
@@ -574,16 +613,19 @@ private slots:
             auto *header = view->horizontalHeader();
             for (const int column : {0, numericColumn}) {
                 view->sortByColumn(column, Qt::DescendingOrder);
-                const QPoint click(header->sectionViewportPosition(column) + header->sectionSize(column) / 2,
+                const QPoint click(header->sectionViewportPosition(column) +
+                                       header->sectionSize(column) / 2,
                                    header->height() - 5); // ordinary label below the group band
                 for (const auto order : {Qt::AscendingOrder, Qt::DescendingOrder}) {
                     QTest::mouseClick(header->viewport(), Qt::LeftButton, Qt::NoModifier, click);
                     QCOMPARE(header->sortIndicatorSection(), column);
                     QCOMPARE(header->sortIndicatorOrder(), order);
                     QCOMPARE(view->model()->index(0, 0).data().toString(),
-                             order == Qt::AscendingOrder ? QStringLiteral("J1") : QStringLiteral("X1"));
+                             order == Qt::AscendingOrder ? QStringLiteral("J1")
+                                                         : QStringLiteral("X1"));
                     QCOMPARE(view->model()->index(1, 0).data().toString(),
-                             order == Qt::AscendingOrder ? QStringLiteral("X1") : QStringLiteral("J1"));
+                             order == Qt::AscendingOrder ? QStringLiteral("X1")
+                                                         : QStringLiteral("J1"));
                 }
             }
             // Reproduce header state saved by the broken grouped header.
@@ -607,8 +649,8 @@ private slots:
         // when their delegates were deleted. Returning to a wider table then
         // crashed in Qt's drawCell() on a null delegate.
         const QList<SWMMModelLayer::Category> categories = {
-            SWMMModelLayer::CatConduits, SWMMModelLayer::CatRainGages,
-            SWMMModelLayer::CatJunctions, SWMMModelLayer::CatOutfalls,
+            SWMMModelLayer::CatConduits,      SWMMModelLayer::CatRainGages,
+            SWMMModelLayer::CatJunctions,     SWMMModelLayer::CatOutfalls,
             SWMMModelLayer::CatSubcatchments, SWMMModelLayer::CatConduits};
         for (int pass = 0; pass < 3; ++pass) {
             for (const auto category : categories) {
@@ -618,11 +660,13 @@ private slots:
                 for (int column = 0; column < view->model()->columnCount(); ++column) {
                     QVERIFY2(view->itemDelegateForIndex(view->model()->index(0, column)),
                              qPrintable(QString("Missing delegate in category %1, column %2")
-                                            .arg(int(category)).arg(column)));
+                                            .arg(int(category))
+                                            .arg(column)));
                 }
                 // Retired editors must be released as well as detached.
-                QVERIFY(panel.findChildren<QStyledItemDelegate *>(QString(), Qt::FindDirectChildrenOnly).size()
-                        <= view->model()->columnCount());
+                QVERIFY(
+                    panel.findChildren<QStyledItemDelegate *>(QString(), Qt::FindDirectChildrenOnly)
+                        .size() <= view->model()->columnCount());
                 QCoreApplication::processEvents();
                 QVERIFY(!panel.grab().isNull());
             }
@@ -653,19 +697,18 @@ private slots:
 
         auto headerCol = [&](const QString &label) {
             for (int c = 0; c < m->columnCount(); ++c)
-                if (m->headerData(c, Qt::Horizontal).toString() == label) return c;
+                if (m->headerData(c, Qt::Horizontal).toString() == label)
+                    return c;
             return -1;
         };
 
         const int xs = headerCol(QStringLiteral("Cross Section"));
         QVERIFY(xs >= 0);
         QVERIFY(!view->isColumnHidden(xs));
-        auto *del = qobject_cast<QStyledItemDelegate *>(
-            view->itemDelegateForColumn(xs));
+        auto *del = qobject_cast<QStyledItemDelegate *>(view->itemDelegateForColumn(xs));
         QVERIFY2(del, "no delegate on the Cross Section column");
         // The compound cell renders a summary plus the "Edit…" affordance.
-        const QString shown =
-            del->displayText(m->index(0, xs).data(Qt::EditRole), QLocale());
+        const QString shown = del->displayText(m->index(0, xs).data(Qt::EditRole), QLocale());
         QVERIFY2(shown.contains(QStringLiteral("Edit")),
                  qPrintable(QStringLiteral("Cross Section cell shows '%1'").arg(shown)));
 
@@ -724,8 +767,7 @@ private slots:
 
         QString header;
         for (int c = 0; c < m->columnCount(); ++c)
-            if (m->headerData(c, Qt::Horizontal).toString()
-                    .startsWith(specs[col].label))
+            if (m->headerData(c, Qt::Horizontal).toString().startsWith(specs[col].label))
                 header = m->headerData(c, Qt::Horizontal).toString();
         QVERIFY(!header.isEmpty());
 
@@ -740,17 +782,17 @@ private slots:
         };
 
         // A predicate true for every row keeps every row...
-        QCOMPARE(matchCount(specs[col].key,   ">"), unfiltered);
+        QCOMPARE(matchCount(specs[col].key, ">"), unfiltered);
         QCOMPARE(matchCount(specs[col].label, ">"), unfiltered);
-        QCOMPARE(matchCount(header,           ">"), unfiltered);
+        QCOMPARE(matchCount(header, ">"), unfiltered);
 
         // ...and the same predicate inverted drops them all, which proves
         // the column is actually being READ rather than silently skipped
         // (a skipped column would leave the row count at `unfiltered` in
         // both directions).
-        QCOMPARE(matchCount(specs[col].key,   "<"), 0);
+        QCOMPARE(matchCount(specs[col].key, "<"), 0);
         QCOMPARE(matchCount(specs[col].label, "<"), 0);
-        QCOMPARE(matchCount(header,           "<"), 0);
+        QCOMPARE(matchCount(header, "<"), 0);
     }
 
     //! Unknown and compound fields report an error, retaining the valid filter.
@@ -778,7 +820,8 @@ private slots:
         QCOMPARE(view->model()->rowCount(), 1);
         QVERIFY(!edit->styleSheet().isEmpty());
         for (const auto &spec : model->columnSpecs()) {
-            if (spec.queryable) continue;
+            if (spec.queryable)
+                continue;
             edit->setText(QString("[%1] = 1").arg(spec.key));
             QTest::keyClick(edit, Qt::Key_Return);
             QCOMPARE(view->model()->rowCount(), 1);
@@ -818,8 +861,7 @@ private slots:
         // otherwise a later first-build would mask a missing invalidation.
         const QVariant before = model.data(idx, Qt::DisplayRole);
         QVERIFY(before.isValid());
-        const QString summaryBefore =
-            before.value<NodeCompoundEditRef>().summary;
+        const QString summaryBefore = before.value<NodeCompoundEditRef>().summary;
 
         // Add an inflow behind the model's back, exactly as the compound
         // dialog does (it writes to the engine, then the table is told to
@@ -828,18 +870,16 @@ private slots:
         QVERIFY(eng);
         const int ni = swmm_node_index(eng, name.toUtf8().constData());
         QVERIFY(ni >= 0);
-        QCOMPARE(swmm_ext_inflow_add(eng, ni, "FLOW", "", "FLOW",
-                                     1.0, 1.0, 2.5, ""), SWMM_OK);
+        QCOMPARE(swmm_ext_inflow_add(eng, ni, "FLOW", "", "FLOW", 1.0, 1.0, 2.5, ""), SWMM_OK);
 
         model.refreshObject(name);
 
         const QString summaryAfter =
             model.data(idx, Qt::DisplayRole).value<NodeCompoundEditRef>().summary;
         QVERIFY2(summaryAfter != summaryBefore,
-                 qPrintable(QStringLiteral(
-                     "compound summary stayed '%1' after an engine edit + "
-                     "refreshObject — the compound cache was not invalidated")
-                         .arg(summaryAfter)));
+                 qPrintable(QStringLiteral("compound summary stayed '%1' after an engine edit + "
+                                           "refreshObject — the compound cache was not invalidated")
+                                .arg(summaryAfter)));
     }
 
     // =====================================================================
@@ -867,9 +907,9 @@ private slots:
             for (int row = 0; row < n; ++row) {
                 const QString name = layer->objectNameAt(cat, row);
                 const int idx = layer->soaIndexAt(cat, row);
-                QVERIFY2(idx >= 0,
-                         qPrintable(QStringLiteral("cat %1 row %2: no index")
-                                        .arg(int(cat)).arg(row)));
+                QVERIFY2(
+                    idx >= 0,
+                    qPrintable(QStringLiteral("cat %1 row %2: no index").arg(int(cat)).arg(row)));
                 QCOMPARE(QString::fromUtf8(engineIdFor(eng, cat, idx)), name);
             }
         }
@@ -897,7 +937,8 @@ private slots:
         QVector<int> order = layer->objectOrder(cat);
         if (order.isEmpty()) {
             order.reserve(n);
-            for (int r = 0; r < n; ++r) order << layer->soaIndexAt(cat, r);
+            for (int r = 0; r < n; ++r)
+                order << layer->soaIndexAt(cat, r);
         }
         const QString firstBefore = layer->objectNameAt(cat, 0);
         std::reverse(order.begin(), order.end());
@@ -936,8 +977,7 @@ private slots:
         // Node and link categories carry one editable Text column per
         // pollutant; the reserved age column stays hidden while the
         // option is off.
-        for (auto cat : { SWMMModelLayer::CatJunctions,
-                          SWMMModelLayer::CatConduits }) {
+        for (auto cat : {SWMMModelLayer::CatJunctions, SWMMModelLayer::CatConduits}) {
             model.setSource(layer.get(), cat);
             const auto specs = model.columnSpecs();
             const int c = colFor(specs, tssKey);
@@ -970,8 +1010,7 @@ private slots:
 
         SWMMAttributeTableModel model;
         model.setSource(layer.get(), SWMMModelLayer::CatJunctions);
-        const int col = colFor(model.columnSpecs(),
-                               QStringLiteral("initq:TSS"));
+        const int col = colFor(model.columnSpecs(), QStringLiteral("initq:TSS"));
         QVERIFY(col >= 0);
         const int row = model.rowForName(QStringLiteral("J1"));
         QVERIFY(row >= 0);
@@ -987,14 +1026,12 @@ private slots:
         int is_link = 0, elem = -1;
         char cons[64];
         double v = 0.0;
-        QCOMPARE(swmm_init_quality_get(eng, 0, &is_link, &elem,
-                                       cons, sizeof(cons), &v), SWMM_OK);
+        QCOMPARE(swmm_init_quality_get(eng, 0, &is_link, &elem, cons, sizeof(cons), &v), SWMM_OK);
         QCOMPARE(is_link, 0);
         QCOMPARE(elem, swmm_node_index(eng, "J1"));
         QCOMPARE(QString::fromUtf8(cons), QStringLiteral("TSS"));
         QCOMPARE(v, 12.5);
-        QCOMPARE(model.data(idx, Qt::EditRole).toString(),
-                 QStringLiteral("12.5"));
+        QCOMPARE(model.data(idx, Qt::EditRole).toString(), QStringLiteral("12.5"));
 
         // Garbage and negative pollutant commits are refused and leave
         // the store untouched (the engine setter validates the sign).
@@ -1008,7 +1045,6 @@ private slots:
         QVERIFY(!model.data(idx, Qt::DisplayRole).isValid());
         QVERIFY(!model.commitValueDirect(idx, QString()));
     }
-
 };
 
 QTEST_MAIN(TestAttributeTableSchema)

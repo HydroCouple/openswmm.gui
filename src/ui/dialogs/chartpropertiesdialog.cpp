@@ -1,9 +1,12 @@
-/*!
- * \file   chartpropertiesdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      chartpropertiesdialog.cpp
+ * @brief     editor for one ChartProperties wrapper.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/chartpropertiesdialog.h"
 
 #include "plot/chartproperties.h"
@@ -16,12 +19,12 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::plot::ChartProperties;
 
-ChartPropertiesDialog::ChartPropertiesDialog(ChartProperties *props,
-                                              QWidget *parent)
+ChartPropertiesDialog::ChartPropertiesDialog(ChartProperties *props, QWidget *parent)
     : QDialog(parent), m_props(props)
 {
     setWindowTitle(tr("Chart Properties"));
@@ -31,7 +34,8 @@ ChartPropertiesDialog::ChartPropertiesDialog(ChartProperties *props,
     setAttribute(Qt::WA_DeleteOnClose);
     resize(360, 460);
 
-    if (m_props) m_props->setParent(this);
+    if (m_props)
+        m_props->setParent(this);
 
     auto *root = new QVBoxLayout(this);
 
@@ -57,8 +61,7 @@ ChartPropertiesDialog::ChartPropertiesDialog(ChartProperties *props,
 
     // Close the dialog automatically if the underlying chart disappears.
     if (m_props && m_props->chart()) {
-        connect(m_props->chart(), &QObject::destroyed,
-                this, &QDialog::close);
+        connect(m_props->chart(), &QObject::destroyed, this, &QDialog::close);
     }
 }
 

@@ -1,10 +1,12 @@
-/*!
- * \file   labelpainter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice US.B3 — shared label painter implementation.
+/**
+ * @file      labelpainter.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice US.B3 — shared label painter implementation.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/labelpainter.h"
 
 #include <QFontMetricsF>
@@ -32,17 +34,23 @@ bool LabelPainter::scaleVisible(const LabelConfig &cfg, double scaleDenominator)
 
 QPointF LabelPainter::placementOffset(const LabelConfig &cfg, const QSizeF &textSize)
 {
-    const qreal pad = 3.0;        // gap between anchor and text box
+    const qreal pad = 3.0; // gap between anchor and text box
     const qreal w = textSize.width();
     const qreal h = textSize.height();
     switch (cfg.placement) {
-    case LabelConfig::Above:  return { -w / 2.0, -h - pad };
-    case LabelConfig::Below:  return { -w / 2.0,  pad };
-    case LabelConfig::Left:   return { -w - pad, -h / 2.0 };
-    case LabelConfig::Right:  return {  pad,     -h / 2.0 };
-    case LabelConfig::Centre: return { -w / 2.0, -h / 2.0 };
+    case LabelConfig::Above:
+        return {-w / 2.0, -h - pad};
+    case LabelConfig::Below:
+        return {-w / 2.0, pad};
+    case LabelConfig::Left:
+        return {-w - pad, -h / 2.0};
+    case LabelConfig::Right:
+        return {pad, -h / 2.0};
+    case LabelConfig::Centre:
+        return {-w / 2.0, -h / 2.0};
     case LabelConfig::AutoPlacement:
-    default:                  return {  pad,     -h - pad }; // above-right
+    default:
+        return {pad, -h - pad}; // above-right
     }
 }
 
@@ -52,10 +60,11 @@ QRectF LabelPainter::labelRect(const LabelConfig &cfg, const QPointF &anchor,
     return QRectF(anchor + placementOffset(cfg, textSize), textSize);
 }
 
-void LabelPainter::drawLabel(QPainter &p, const QPointF &topLeft,
-                             const QString &text, const LabelConfig &cfg)
+void LabelPainter::drawLabel(QPainter &p, const QPointF &topLeft, const QString &text,
+                             const LabelConfig &cfg)
 {
-    if (text.isEmpty()) return;
+    if (text.isEmpty())
+        return;
 
     const QFont font = cfg.effectiveFont();
     const QFontMetricsF fm(font);
@@ -80,8 +89,8 @@ void LabelPainter::drawLabel(QPainter &p, const QPointF &topLeft,
 
     // 2) Halo — stroke the glyph outline so text reads over busy maps.
     if (cfg.haloEnabled && cfg.haloRadiusPx > 0.0) {
-        QPen halo(cfg.haloColor, std::max(1.0, cfg.haloRadiusPx) * 2.0,
-                  Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        QPen halo(cfg.haloColor, std::max(1.0, cfg.haloRadiusPx) * 2.0, Qt::SolidLine, Qt::RoundCap,
+                  Qt::RoundJoin);
         p.setPen(halo);
         p.setBrush(Qt::NoBrush);
         p.drawPath(path);
@@ -95,8 +104,8 @@ void LabelPainter::drawLabel(QPainter &p, const QPointF &topLeft,
     p.restore();
 }
 
-QRectF LabelPainter::drawLabelAt(QPainter &p, const QPointF &anchor,
-                                 const QString &text, const LabelConfig &cfg)
+QRectF LabelPainter::drawLabelAt(QPainter &p, const QPointF &anchor, const QString &text,
+                                 const LabelConfig &cfg)
 {
     const QFontMetricsF fm(cfg.effectiveFont());
     const QSizeF size(fm.horizontalAdvance(text), fm.height());

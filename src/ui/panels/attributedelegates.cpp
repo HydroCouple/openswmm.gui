@@ -1,7 +1,11 @@
-/*!
- * \file   attributedelegates.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      attributedelegates.cpp
+ * @brief     Shared edit delegates used by both the Attribute Table (Slice Z.1) and the Property
+ *            Browser (Slice AG.3, future).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/panels/attributedelegates.h"
@@ -16,7 +20,7 @@
 // editor widgets the Property Browser registers for those metatypes.
 #include "ui/properties/dataobjectpickereditor.h"
 #include "ui/properties/dataobjectref.h"
-#include "ui/properties/rainintervalref.h"   // DA.2 parity — H:MM presets/helpers
+#include "ui/properties/rainintervalref.h" // DA.2 parity — H:MM presets/helpers
 #include "ui/properties/userflagseditbutton.h"
 #include "ui/properties/subcatchcompoundeditbutton.h"
 #include "ui/properties/subcatchcompoundeditref.h"
@@ -33,63 +37,61 @@
 #include <QSignalBlocker>
 #include <QToolButton>
 
-namespace openswmmvis {
+namespace openswmmvis
+{
 
 // ---------------------------------------------------------------------------
 // NumericDelegate
 // ---------------------------------------------------------------------------
 
-NumericDelegate::NumericDelegate(QObject *parent, double minimum,
-                                  double maximum, int decimals, double step)
-    : QStyledItemDelegate(parent)
-    , m_min(minimum)
-    , m_max(maximum)
-    , m_decimals(decimals)
-    , m_step(step)
+NumericDelegate::NumericDelegate(QObject *parent, double minimum, double maximum, int decimals,
+                                 double step)
+    : QStyledItemDelegate(parent), m_min(minimum), m_max(maximum), m_decimals(decimals),
+      m_step(step)
 {
 }
 
-QWidget *NumericDelegate::createEditor(QWidget *parent,
-                                        const QStyleOptionViewItem & /*opt*/,
-                                        const QModelIndex & /*index*/) const
+QWidget *NumericDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
+                                       const QModelIndex & /*index*/) const
 {
     auto *spin = new QDoubleSpinBox(parent);
     spin->setDecimals(m_decimals);
     spin->setRange(m_min, m_max);
     spin->setSingleStep(m_step > 0.0 ? m_step : std::pow(10.0, -m_decimals + 1));
     spin->setKeyboardTracking(false);
-    QObject::connect(spin, &QDoubleSpinBox::valueChanged, spin, [spin] {
-        spin->setProperty("attributeValueEdited", true);
-    });
+    QObject::connect(spin, &QDoubleSpinBox::valueChanged, spin,
+                     [spin] { spin->setProperty("attributeValueEdited", true); });
     if (auto *line = spin->findChild<QLineEdit *>())
-        QObject::connect(line, &QLineEdit::textEdited, spin, [spin] {
-            spin->setProperty("attributeValueEdited", true);
-        });
+        QObject::connect(line, &QLineEdit::textEdited, spin,
+                         [spin] { spin->setProperty("attributeValueEdited", true); });
     return spin;
 }
 
-void NumericDelegate::setEditorData(QWidget *editor,
-                                     const QModelIndex &index) const
+void NumericDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     auto *spin = qobject_cast<QDoubleSpinBox *>(editor);
-    if (!spin) return;
+    if (!spin)
+        return;
     bool ok = false;
     const double v = index.data(Qt::EditRole).toDouble(&ok);
     const QSignalBlocker blocker(spin);
     spin->setValue(ok ? v : 0.0);
-    if (!ok) spin->clear();
+    if (!ok)
+        spin->clear();
     spin->setProperty("attributeValueWasNull", !ok);
     spin->setProperty("attributeValueEdited", false);
 }
 
 void NumericDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
-                                    const QModelIndex &index) const
+                                   const QModelIndex &index) const
 {
     auto *spin = qobject_cast<QDoubleSpinBox *>(editor);
-    if (!spin) return;
-    if (spin->property("attributeValueWasNull").toBool()
-        && !spin->property("attributeValueEdited").toBool()) return;
-    spin->interpretText();  // flush any pending typed value
+    if (!spin)
+        return;
+    if (spin->property("attributeValueWasNull").toBool() &&
+        !spin->property("attributeValueEdited").toBool())
+        return;
+    spin->interpretText(); // flush any pending typed value
     model->setData(index, spin->value(), Qt::EditRole);
 }
 
@@ -98,50 +100,48 @@ void NumericDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
 // ---------------------------------------------------------------------------
 
 IntegerDelegate::IntegerDelegate(QObject *parent, int minimum, int maximum)
-    : QStyledItemDelegate(parent)
-    , m_min(minimum)
-    , m_max(maximum)
+    : QStyledItemDelegate(parent), m_min(minimum), m_max(maximum)
 {
 }
 
-QWidget *IntegerDelegate::createEditor(QWidget *parent,
-                                        const QStyleOptionViewItem & /*opt*/,
-                                        const QModelIndex & /*index*/) const
+QWidget *IntegerDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
+                                       const QModelIndex & /*index*/) const
 {
     auto *spin = new QSpinBox(parent);
     spin->setRange(m_min, m_max);
     spin->setKeyboardTracking(false);
-    QObject::connect(spin, &QSpinBox::valueChanged, spin, [spin] {
-        spin->setProperty("attributeValueEdited", true);
-    });
+    QObject::connect(spin, &QSpinBox::valueChanged, spin,
+                     [spin] { spin->setProperty("attributeValueEdited", true); });
     if (auto *line = spin->findChild<QLineEdit *>())
-        QObject::connect(line, &QLineEdit::textEdited, spin, [spin] {
-            spin->setProperty("attributeValueEdited", true);
-        });
+        QObject::connect(line, &QLineEdit::textEdited, spin,
+                         [spin] { spin->setProperty("attributeValueEdited", true); });
     return spin;
 }
 
-void IntegerDelegate::setEditorData(QWidget *editor,
-                                     const QModelIndex &index) const
+void IntegerDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     auto *spin = qobject_cast<QSpinBox *>(editor);
-    if (!spin) return;
+    if (!spin)
+        return;
     bool ok = false;
     const int v = index.data(Qt::EditRole).toInt(&ok);
     const QSignalBlocker blocker(spin);
     spin->setValue(ok ? v : 0);
-    if (!ok) spin->clear();
+    if (!ok)
+        spin->clear();
     spin->setProperty("attributeValueWasNull", !ok);
     spin->setProperty("attributeValueEdited", false);
 }
 
 void IntegerDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
-                                    const QModelIndex &index) const
+                                   const QModelIndex &index) const
 {
     auto *spin = qobject_cast<QSpinBox *>(editor);
-    if (!spin) return;
-    if (spin->property("attributeValueWasNull").toBool()
-        && !spin->property("attributeValueEdited").toBool()) return;
+    if (!spin)
+        return;
+    if (spin->property("attributeValueWasNull").toBool() &&
+        !spin->property("attributeValueEdited").toBool())
+        return;
     spin->interpretText();
     model->setData(index, spin->value(), Qt::EditRole);
 }
@@ -151,39 +151,39 @@ void IntegerDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
 // ---------------------------------------------------------------------------
 
 EnumDelegate::EnumDelegate(QObject *parent, QVariantList values)
-    : QStyledItemDelegate(parent)
-    , m_values(std::move(values))
+    : QStyledItemDelegate(parent), m_values(std::move(values))
 {
 }
 
-QWidget *EnumDelegate::createEditor(QWidget *parent,
-                                     const QStyleOptionViewItem & /*opt*/,
-                                     const QModelIndex & /*index*/) const
+QWidget *EnumDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
+                                    const QModelIndex & /*index*/) const
 {
     auto *combo = new QComboBox(parent);
     for (const QVariant &v : m_values) {
         const QVariantList pair = v.toList();
-        if (pair.size() != 2) continue;
+        if (pair.size() != 2)
+            continue;
         combo->addItem(pair[0].toString(), pair[1]);
     }
     return combo;
 }
 
-void EnumDelegate::setEditorData(QWidget *editor,
-                                  const QModelIndex &index) const
+void EnumDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     auto *combo = qobject_cast<QComboBox *>(editor);
-    if (!combo) return;
+    if (!combo)
+        return;
     const QVariant data = index.data(Qt::EditRole);
     const int idx = combo->findData(data);
     combo->setCurrentIndex(idx >= 0 ? idx : 0);
 }
 
 void EnumDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
-                                 const QModelIndex &index) const
+                                const QModelIndex &index) const
 {
     auto *combo = qobject_cast<QComboBox *>(editor);
-    if (!combo) return;
+    if (!combo)
+        return;
     model->setData(index, combo->currentData(), Qt::EditRole);
 }
 
@@ -191,27 +191,23 @@ void EnumDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
 // IntervalDelegate
 // ---------------------------------------------------------------------------
 
-IntervalDelegate::IntervalDelegate(QObject *parent)
-    : QStyledItemDelegate(parent)
-{
-}
+IntervalDelegate::IntervalDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
-QWidget *IntervalDelegate::createEditor(QWidget *parent,
-                                        const QStyleOptionViewItem & /*opt*/,
+QWidget *IntervalDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
                                         const QModelIndex & /*index*/) const
 {
     auto *combo = new QComboBox(parent);
-    combo->setEditable(true);                       // legacy esComboEdit
+    combo->setEditable(true); // legacy esComboEdit
     combo->setInsertPolicy(QComboBox::NoInsert);
     combo->addItems(rain_interval::presetsHMM());
     return combo;
 }
 
-void IntervalDelegate::setEditorData(QWidget *editor,
-                                     const QModelIndex &index) const
+void IntervalDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     auto *combo = qobject_cast<QComboBox *>(editor);
-    if (!combo) return;
+    if (!combo)
+        return;
     combo->setCurrentText(index.data(Qt::EditRole).toString());
 }
 
@@ -219,7 +215,8 @@ void IntervalDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
                                     const QModelIndex &index) const
 {
     auto *combo = qobject_cast<QComboBox *>(editor);
-    if (!combo) return;
+    if (!combo)
+        return;
     // The model's setter (gageIntervalSet) parses the H:MM clock string and
     // rejects malformed input, so we can hand it the raw text.
     model->setData(index, combo->currentText(), Qt::EditRole);
@@ -229,52 +226,38 @@ void IntervalDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
 // CompoundEditDelegate
 // ---------------------------------------------------------------------------
 
-CompoundEditDelegate::CompoundEditDelegate(QObject *parent)
-    : QStyledItemDelegate(parent)
-{
-}
+CompoundEditDelegate::CompoundEditDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
-QString CompoundEditDelegate::displayText(const QVariant &value,
-                                            const QLocale & /*locale*/) const
+QString CompoundEditDelegate::displayText(const QVariant &value, const QLocale & /*locale*/) const
 {
     // §S.SC.1.c — Same delegate handles both node-side and link-side
     // compound cells. Dispatch on userType so each variant renders its
     // summary correctly without losing the "%1 — Edit…" affordance.
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
         const auto ref = value.value<NodeCompoundEditRef>();
-        return ref.summary.isEmpty()
-                   ? tr("Edit…")
-                   : tr("%1 — Edit…").arg(ref.summary);
+        return ref.summary.isEmpty() ? tr("Edit…") : tr("%1 — Edit…").arg(ref.summary);
     }
     if (value.userType() == qMetaTypeId<LinkCompoundEditRef>()) {
         const auto ref = value.value<LinkCompoundEditRef>();
-        return ref.summary.isEmpty()
-                   ? tr("Edit…")
-                   : tr("%1 — Edit…").arg(ref.summary);
+        return ref.summary.isEmpty() ? tr("Edit…") : tr("%1 — Edit…").arg(ref.summary);
     }
     if (value.userType() == qMetaTypeId<DataObjectRef>()) {
         const auto ref = value.value<DataObjectRef>();
-        return ref.currentName.isEmpty() ? tr("(unassigned)")
-                                         : ref.currentName;
+        return ref.currentName.isEmpty() ? tr("(unassigned)") : ref.currentName;
     }
     if (value.userType() == qMetaTypeId<UserFlagsEditRef>()) {
         const auto ref = value.value<UserFlagsEditRef>();
-        return ref.summary.isEmpty()
-                   ? tr("Edit…")
-                   : tr("%1 — Edit…").arg(ref.summary);
+        return ref.summary.isEmpty() ? tr("Edit…") : tr("%1 — Edit…").arg(ref.summary);
     }
     if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) {
         const auto ref = value.value<SubcatchCompoundEditRef>();
-        return ref.summary.isEmpty()
-                   ? tr("Edit…")
-                   : tr("%1 — Edit…").arg(ref.summary);
+        return ref.summary.isEmpty() ? tr("Edit…") : tr("%1 — Edit…").arg(ref.summary);
     }
     return value.toString();
 }
 
-QWidget *CompoundEditDelegate::createEditor(QWidget *parent,
-                                              const QStyleOptionViewItem & /*opt*/,
-                                              const QModelIndex &index) const
+QWidget *CompoundEditDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
+                                            const QModelIndex &index) const
 {
     // §S.SC.1.c — The cell value's type drives which button widget
     // we build. The button's dialog is the source of truth for the
@@ -291,8 +274,7 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent,
     return new NodeCompoundEditButton(parent);
 }
 
-void CompoundEditDelegate::setEditorData(QWidget *editor,
-                                           const QModelIndex &index) const
+void CompoundEditDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     const QVariant v = index.data(Qt::EditRole);
     if (auto *nb = qobject_cast<NodeCompoundEditButton *>(editor)) {
@@ -322,9 +304,8 @@ void CompoundEditDelegate::setEditorData(QWidget *editor,
     }
 }
 
-void CompoundEditDelegate::setModelData(QWidget *editor,
-                                          QAbstractItemModel *model,
-                                          const QModelIndex &index) const
+void CompoundEditDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
+                                        const QModelIndex &index) const
 {
     // After the dialog closes, the button holds a refreshed ref with
     // an updated summary. The model's commitValueDirect() path uses
@@ -356,8 +337,7 @@ void CompoundEditDelegate::setModelData(QWidget *editor,
     }
 }
 
-QVariantList EnumDelegate::makePairs(const QStringList &labels,
-                                      const QVariantList &data)
+QVariantList EnumDelegate::makePairs(const QStringList &labels, const QVariantList &data)
 {
     QVariantList out;
     const int n = std::min(labels.size(), data.size());
@@ -373,7 +353,8 @@ QVariantList EnumDelegate::makePairs(const QStringList &labels,
 // FileBrowseDelegate (multi-column series files, spec §4 task 4)
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 /*! Composite editor: line edit (the committed value) + "…" browse button.
  *  Plain QWidget — no signals of its own, so no Q_OBJECT/moc needed. The
@@ -383,9 +364,17 @@ namespace {
 class FileBrowseEditor : public QWidget
 {
 public:
+    /**
+     * @param[in] parent Optional QWidget owner, caller/view manages editor lifetime.
+     * @param[in] nameFilter Copied into click callback, passed unchanged to FileOpenDialog.
+     * @brief Create owned line/browse layout and line focus proxy.
+     * @note Browse synchronously opens persistent classified file chooser, starting at absolute
+     *   directory of trimmed current path or default. Nonempty selection sets line text only;
+     *   cancel preserves. No validation/opening file/model write, modal callback requires editor
+     *   lifetime preserved by host delegate flow.
+     */
     FileBrowseEditor(QWidget *parent, const QString &nameFilter)
-        : QWidget(parent)
-        , m_edit(new QLineEdit(this))
+        : QWidget(parent), m_edit(new QLineEdit(this))
     {
         auto *lay = new QHBoxLayout(this);
         lay->setContentsMargins(0, 0, 0, 0);
@@ -396,17 +385,21 @@ public:
         browse->setToolTip(QObject::tr("Browse…"));
         lay->addWidget(browse);
         setFocusProxy(m_edit);
-        QObject::connect(browse, &QToolButton::clicked, m_edit,
-                         [this, nameFilter]() {
+        QObject::connect(browse, &QToolButton::clicked, m_edit, [this, nameFilter]() {
             const QString start = m_edit->text().trimmed();
-            const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(openswmmvis::ui::FileOpenDialog::typeForFilter(nameFilter),
-                window(), QObject::tr("Choose data file"),
-                start.isEmpty() ? QString() : QFileInfo(start).absolutePath(),
-                nameFilter);
-            if (!path.isEmpty()) m_edit->setText(path);
+            const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+                openswmmvis::ui::FileOpenDialog::typeForFilter(nameFilter), window(),
+                QObject::tr("Choose data file"),
+                start.isEmpty() ? QString() : QFileInfo(start).absolutePath(), nameFilter);
+            if (!path.isEmpty())
+                m_edit->setText(path);
         });
     }
 
+    /**
+     * @return Borrowed composite-owned line edit storing eventual committed path. No ownership
+     *   transfer or synchronization.
+     */
     QLineEdit *lineEdit() const { return m_edit; }
 
 private:
@@ -416,20 +409,17 @@ private:
 } // anonymous
 
 FileBrowseDelegate::FileBrowseDelegate(QObject *parent, QString nameFilter)
-    : QStyledItemDelegate(parent)
-    , m_nameFilter(std::move(nameFilter))
+    : QStyledItemDelegate(parent), m_nameFilter(std::move(nameFilter))
 {
 }
 
-QWidget *FileBrowseDelegate::createEditor(QWidget *parent,
-                                          const QStyleOptionViewItem & /*opt*/,
+QWidget *FileBrowseDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
                                           const QModelIndex & /*index*/) const
 {
     return new FileBrowseEditor(parent, m_nameFilter);
 }
 
-void FileBrowseDelegate::setEditorData(QWidget *editor,
-                                       const QModelIndex &index) const
+void FileBrowseDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     if (auto *fb = static_cast<FileBrowseEditor *>(editor))
         fb->lineEdit()->setText(index.data(Qt::EditRole).toString());
@@ -447,27 +437,25 @@ void FileBrowseDelegate::setModelData(QWidget *editor, QAbstractItemModel *model
 // ---------------------------------------------------------------------------
 
 FileColumnDelegate::FileColumnDelegate(QObject *parent, int optionsRole)
-    : QStyledItemDelegate(parent)
-    , m_optionsRole(optionsRole)
+    : QStyledItemDelegate(parent), m_optionsRole(optionsRole)
 {
 }
 
-QWidget *FileColumnDelegate::createEditor(QWidget *parent,
-                                          const QStyleOptionViewItem & /*opt*/,
+QWidget *FileColumnDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
                                           const QModelIndex &index) const
 {
     auto *combo = new QComboBox(parent);
-    combo->setEditable(true);   // typable when the file is unreadable
+    combo->setEditable(true); // typable when the file is unreadable
     combo->setInsertPolicy(QComboBox::NoInsert);
     combo->addItems(index.data(m_optionsRole).toStringList());
     return combo;
 }
 
-void FileColumnDelegate::setEditorData(QWidget *editor,
-                                       const QModelIndex &index) const
+void FileColumnDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     auto *combo = qobject_cast<QComboBox *>(editor);
-    if (!combo) return;
+    if (!combo)
+        return;
     combo->setCurrentText(index.data(Qt::EditRole).toString());
 }
 
@@ -475,7 +463,8 @@ void FileColumnDelegate::setModelData(QWidget *editor, QAbstractItemModel *model
                                       const QModelIndex &index) const
 {
     auto *combo = qobject_cast<QComboBox *>(editor);
-    if (!combo) return;
+    if (!combo)
+        return;
     model->setData(index, combo->currentText().trimmed(), Qt::EditRole);
 }
 

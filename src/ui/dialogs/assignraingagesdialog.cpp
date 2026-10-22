@@ -1,7 +1,10 @@
-/*!
- * \file   assignraingagesdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      assignraingagesdialog.cpp
+ * @brief     Bind rain gages to subcatchments and RDII inflows spatially, in one undoable step.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/assignraingagesdialog.h"
@@ -33,7 +36,8 @@
 
 #include <utility>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 namespace rg = openswmmvis::assignment::raingage;
 
@@ -41,43 +45,38 @@ namespace rg = openswmmvis::assignment::raingage;
 // Construction
 // ===========================================================================
 
-AssignRainGagesDialog::AssignRainGagesDialog(SWMMModelLayer   *layer,
-                                             MapCanvas        *canvas,
-                                             SelectionManager *selection,
-                                             QWidget          *parent)
-    : QDialog(parent)
-    , m_layer(layer)
-    , m_canvas(canvas)
-    , m_selection(selection)
+AssignRainGagesDialog::AssignRainGagesDialog(SWMMModelLayer *layer, MapCanvas *canvas,
+                                             SelectionManager *selection, QWidget *parent)
+    : QDialog(parent), m_layer(layer), m_canvas(canvas), m_selection(selection)
 {
     setObjectName(QStringLiteral("AssignRainGagesDialog"));
     setWindowTitle(tr("Assign Rain Gages"));
     buildUi();
 
-    connect(&m_watcher, &QFutureWatcher<rg::Plan>::finished,
-            this, &AssignRainGagesDialog::onComputeFinished);
+    connect(&m_watcher, &QFutureWatcher<rg::Plan>::finished, this,
+            &AssignRainGagesDialog::onComputeFinished);
     m_progressTimer = new QTimer(this);
     m_progressTimer->setInterval(100);
     connect(m_progressTimer, &QTimer::timeout, this, [this]() {
-        if (!m_progress) return;
+        if (!m_progress)
+            return;
         const int total = m_progress->total.load();
         m_progressBar->setRange(0, std::max(1, total));
         m_progressBar->setValue(std::min(total, m_progress->done.load()));
     });
 
     // Any model change makes a computed plan stale.
-    if (m_layer)
-    {
-        connect(m_layer, &SWMMModelLayer::modelEdited,
-                this, &AssignRainGagesDialog::invalidatePlan);
-        connect(m_layer, &SWMMModelLayer::geometryChanged,
-                this, &AssignRainGagesDialog::invalidatePlan);
-        connect(m_layer, &SWMMModelLayer::attributeChanged,
-                this, &AssignRainGagesDialog::invalidatePlan);
-        connect(m_layer, &SWMMModelLayer::hydrographChanged,
-                this, &AssignRainGagesDialog::invalidatePlan);
-        connect(m_layer, &SWMMModelLayer::dataObjectsChanged,
-                this, &AssignRainGagesDialog::invalidatePlan);
+    if (m_layer) {
+        connect(m_layer, &SWMMModelLayer::modelEdited, this,
+                &AssignRainGagesDialog::invalidatePlan);
+        connect(m_layer, &SWMMModelLayer::geometryChanged, this,
+                &AssignRainGagesDialog::invalidatePlan);
+        connect(m_layer, &SWMMModelLayer::attributeChanged, this,
+                &AssignRainGagesDialog::invalidatePlan);
+        connect(m_layer, &SWMMModelLayer::hydrographChanged, this,
+                &AssignRainGagesDialog::invalidatePlan);
+        connect(m_layer, &SWMMModelLayer::dataObjectsChanged, this,
+                &AssignRainGagesDialog::invalidatePlan);
     }
 
     onMethodChanged();
@@ -87,7 +86,8 @@ AssignRainGagesDialog::AssignRainGagesDialog(SWMMModelLayer   *layer,
 
 AssignRainGagesDialog::~AssignRainGagesDialog()
 {
-    if (m_progress) m_progress->cancel = true;
+    if (m_progress)
+        m_progress->cancel = true;
     m_watcher.waitForFinished();
 }
 
@@ -108,8 +108,8 @@ void AssignRainGagesDialog::buildUi()
         m_methodProximity->setChecked(true);
         v->addWidget(m_methodProximity);
 
-        m_methodInterp = new QRadioButton(
-            tr("Natural-neighbour interpolation (creates gages)"), group);
+        m_methodInterp =
+            new QRadioButton(tr("Natural-neighbour interpolation (creates gages)"), group);
         m_methodInterp->setToolTip(
             tr("Area-average interpolation weights over the gage network, then "
                "create one gage and time series per distinct weight vector. "
@@ -128,9 +128,8 @@ void AssignRainGagesDialog::buildUi()
         m_tolSpin->setSingleStep(0.5);
         m_tolSpin->setValue(1.0);
         m_tolSpin->setSuffix(tr(" %"));
-        m_tolSpin->setToolTip(
-            tr("Objects whose interpolation weights agree within this tolerance "
-               "share one generated gage. Larger values create fewer objects."));
+        m_tolSpin->setToolTip(tr("Objects whose interpolation weights agree within this tolerance "
+                                 "share one generated gage. Larger values create fewer objects."));
         form->addRow(tr("Group weights within:"), m_tolSpin);
         v->addLayout(form);
 
@@ -145,8 +144,7 @@ void AssignRainGagesDialog::buildUi()
         m_targetSubcatch->setChecked(true);
         v->addWidget(m_targetSubcatch);
 
-        const int nRdii = (m_layer && m_layer->engine())
-                              ? swmm_rdii_count(m_layer->engine()) : 0;
+        const int nRdii = (m_layer && m_layer->engine()) ? swmm_rdii_count(m_layer->engine()) : 0;
         m_targetRdii = new QCheckBox(
             tr("RDII inflows (%n node entry/entries)", nullptr, std::max(0, nRdii)), group);
         m_targetRdii->setToolTip(
@@ -171,11 +169,11 @@ void AssignRainGagesDialog::buildUi()
         int nSelected = 0;
         if (m_selection)
             for (const SWMMObjectRef &ref : m_selection->selection())
-                if (ref.objectType == SWMMObjectRef::Subcatchment
-                    || ref.objectType == SWMMObjectRef::Node)
+                if (ref.objectType == SWMMObjectRef::Subcatchment ||
+                    ref.objectType == SWMMObjectRef::Node)
                     ++nSelected;
-        m_scopeSelected = new QRadioButton(
-            tr("Selected subcatchments and nodes (%1)").arg(nSelected), group);
+        m_scopeSelected =
+            new QRadioButton(tr("Selected subcatchments and nodes (%1)").arg(nSelected), group);
         m_scopeSelected->setEnabled(nSelected > 0);
         v->addWidget(m_scopeSelected);
 
@@ -208,28 +206,27 @@ void AssignRainGagesDialog::buildUi()
 
     auto *buttons = new QDialogButtonBox(this);
     m_previewBtn = buttons->addButton(tr("Preview"), QDialogButtonBox::ActionRole);
-    m_applyBtn   = buttons->addButton(tr("Apply"),   QDialogButtonBox::AcceptRole);
-    m_cancelBtn  = buttons->addButton(tr("Cancel"),  QDialogButtonBox::ActionRole);
+    m_applyBtn = buttons->addButton(tr("Apply"), QDialogButtonBox::AcceptRole);
+    m_cancelBtn = buttons->addButton(tr("Cancel"), QDialogButtonBox::ActionRole);
     m_cancelBtn->setToolTip(tr("Stop the computation in progress"));
     buttons->addButton(QDialogButtonBox::Close);
     connect(m_previewBtn, &QPushButton::clicked, this, &AssignRainGagesDialog::onPreview);
-    connect(m_applyBtn,   &QPushButton::clicked, this, &AssignRainGagesDialog::onApply);
-    connect(m_cancelBtn,  &QPushButton::clicked, this, &AssignRainGagesDialog::onCancelClicked);
+    connect(m_applyBtn, &QPushButton::clicked, this, &AssignRainGagesDialog::onApply);
+    connect(m_cancelBtn, &QPushButton::clicked, this, &AssignRainGagesDialog::onCancelClicked);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     outer->addWidget(buttons);
 
-    connect(m_methodProximity, &QRadioButton::toggled,
-            this, &AssignRainGagesDialog::onMethodChanged);
+    connect(m_methodProximity, &QRadioButton::toggled, this,
+            &AssignRainGagesDialog::onMethodChanged);
     // Every option feeds the plan.
-    for (QAbstractButton *b : {static_cast<QAbstractButton *>(m_methodProximity),
-                               static_cast<QAbstractButton *>(m_targetSubcatch),
-                               static_cast<QAbstractButton *>(m_targetRdii),
-                               static_cast<QAbstractButton *>(m_scopeAll)})
+    for (QAbstractButton *b :
+         {static_cast<QAbstractButton *>(m_methodProximity),
+          static_cast<QAbstractButton *>(m_targetSubcatch),
+          static_cast<QAbstractButton *>(m_targetRdii), static_cast<QAbstractButton *>(m_scopeAll)})
         connect(b, &QAbstractButton::toggled, this, &AssignRainGagesDialog::invalidatePlan);
-    connect(m_variantCombo, &QComboBox::currentIndexChanged,
-            this, &AssignRainGagesDialog::invalidatePlan);
-    connect(m_tolSpin, &QDoubleSpinBox::valueChanged,
-            this, &AssignRainGagesDialog::invalidatePlan);
+    connect(m_variantCombo, &QComboBox::currentIndexChanged, this,
+            &AssignRainGagesDialog::invalidatePlan);
+    connect(m_tolSpin, &QDoubleSpinBox::valueChanged, this, &AssignRainGagesDialog::invalidatePlan);
 
     resize(760, 600);
 }
@@ -237,8 +234,10 @@ void AssignRainGagesDialog::buildUi()
 void AssignRainGagesDialog::onMethodChanged()
 {
     const bool interp = m_methodInterp && m_methodInterp->isChecked();
-    if (m_variantCombo) m_variantCombo->setEnabled(interp);
-    if (m_tolSpin)      m_tolSpin->setEnabled(interp);
+    if (m_variantCombo)
+        m_variantCombo->setEnabled(interp);
+    if (m_tolSpin)
+        m_tolSpin->setEnabled(interp);
 
     QStringList unlocated, coincident;
     const QVector<rg::GageSite> gages = rg::eligibleGages(m_layer, &unlocated, &coincident);
@@ -247,12 +246,12 @@ void AssignRainGagesDialog::onMethodChanged()
         notes << tr("%n gage(s) have no map location and were excluded.", nullptr,
                     int(unlocated.size()));
     if (!coincident.isEmpty())
-        notes << tr("%n gage(s) share a location with another and were excluded: %1.",
-                    nullptr, int(coincident.size()))
+        notes << tr("%n gage(s) share a location with another and were excluded: %1.", nullptr,
+                    int(coincident.size()))
                      .arg(coincident.join(QStringLiteral(", ")));
-    m_gageCountLbl->setText(tr("%n usable rain gage(s).", nullptr, int(gages.size()))
-                            + (notes.isEmpty() ? QString()
-                                               : QStringLiteral(" ") + notes.join(QLatin1Char(' '))));
+    m_gageCountLbl->setText(
+        tr("%n usable rain gage(s).", nullptr, int(gages.size())) +
+        (notes.isEmpty() ? QString() : QStringLiteral(" ") + notes.join(QLatin1Char(' '))));
     updateButtons();
 }
 
@@ -260,9 +259,12 @@ void AssignRainGagesDialog::updateButtons()
 {
     const bool ready = m_layer && m_layer->engine();
     const bool running = busy();
-    if (m_previewBtn) m_previewBtn->setEnabled(ready && !running);
-    if (m_applyBtn)   m_applyBtn->setEnabled(ready && !running);
-    if (m_cancelBtn)  m_cancelBtn->setEnabled(running);
+    if (m_previewBtn)
+        m_previewBtn->setEnabled(ready && !running);
+    if (m_applyBtn)
+        m_applyBtn->setEnabled(ready && !running);
+    if (m_cancelBtn)
+        m_cancelBtn->setEnabled(running);
 }
 
 bool AssignRainGagesDialog::busy() const
@@ -291,8 +293,7 @@ rg::Options AssignRainGagesDialog::currentOptions() const
     o.rdii = m_targetRdii && m_targetRdii->isChecked() && m_targetRdii->isEnabled();
     o.selectedOnly = m_scopeSelected && m_scopeSelected->isChecked() && m_selection;
     if (o.selectedOnly)
-        for (const SWMMObjectRef &ref : m_selection->selection())
-        {
+        for (const SWMMObjectRef &ref : m_selection->selection()) {
             if (ref.objectType == SWMMObjectRef::Subcatchment)
                 o.selectedSubcatchments << ref.name;
             else if (ref.objectType == SWMMObjectRef::Node)
@@ -303,7 +304,8 @@ rg::Options AssignRainGagesDialog::currentOptions() const
 
 void AssignRainGagesDialog::startCompute(bool applyWhenDone)
 {
-    if (busy()) return;
+    if (busy())
+        return;
     m_applyWhenDone = applyWhenDone;
     m_havePlan = false;
     m_computing = true;
@@ -314,9 +316,8 @@ void AssignRainGagesDialog::startCompute(bool applyWhenDone)
     auto input = std::make_shared<rg::Input>(rg::gatherInput(m_layer, currentOptions()));
     m_progress = std::make_shared<rg::Progress>();
     auto progress = m_progress;
-    m_watcher.setFuture(QtConcurrent::run([input, progress]() {
-        return rg::computePlan(*input, progress.get());
-    }));
+    m_watcher.setFuture(
+        QtConcurrent::run([input, progress]() { return rg::computePlan(*input, progress.get()); }));
 
     m_statusLbl->setText(tr("Computing…"));
     m_progressBar->setRange(0, 0);
@@ -333,8 +334,7 @@ void AssignRainGagesDialog::onComputeFinished()
     // A change that landed while the worker ran makes this plan stale.
     m_havePlan = m_plan.error.isEmpty() && m_computeGeneration == m_generation;
     bool apply = std::exchange(m_applyWhenDone, false);
-    if (apply && !m_havePlan && m_plan.error.isEmpty())
-    {
+    if (apply && !m_havePlan && m_plan.error.isEmpty()) {
         m_plan.error = tr("The model changed while the assignment was being "
                           "computed. Nothing was applied; run it again.");
         apply = false;
@@ -349,7 +349,8 @@ void AssignRainGagesDialog::onComputeFinished()
 
 void AssignRainGagesDialog::onCancelClicked()
 {
-    if (m_progress) m_progress->cancel = true;
+    if (m_progress)
+        m_progress->cancel = true;
 }
 
 void AssignRainGagesDialog::onPreview()
@@ -377,8 +378,7 @@ void AssignRainGagesDialog::applyPlan(const rg::Plan &plan)
                              ? tr("Assign Rain Gages (Interpolated)")
                              : tr("Assign Rain Gages (Nearest)");
     QUndoCommand *cmd = rg::makeApplyCommand(m_layer, m_canvas, plan, text);
-    if (!cmd)
-    {
+    if (!cmd) {
         showPlan(plan, false);
         m_statusLbl->setText(plan.error.isEmpty() ? tr("Nothing to assign.") : plan.error);
         return;
@@ -387,34 +387,29 @@ void AssignRainGagesDialog::applyPlan(const rg::Plan &plan)
     // same fallback mesh::pushCellParamEdits uses.
     if (QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr)
         stack->push(cmd);
-    else
-    {
+    else {
         cmd->redo();
         delete cmd;
     }
-    m_havePlan = false;   // the model just changed
+    m_havePlan = false; // the model just changed
     showPlan(plan, true);
 }
 
 void AssignRainGagesDialog::showPlan(const rg::Plan &plan, bool applied)
 {
     m_preview->setRowCount(0);
-    if (!plan.error.isEmpty())
-    {
+    if (!plan.error.isEmpty()) {
         m_statusLbl->setText(plan.error);
         return;
     }
 
     m_preview->setUpdatesEnabled(false);
     m_preview->setRowCount(static_cast<int>(plan.rows.size()));
-    for (int r = 0; r < plan.rows.size(); ++r)
-    {
+    for (int r = 0; r < plan.rows.size(); ++r) {
         const rg::RowPlan &row = plan.rows[r];
-        const QString type = row.kind == rg::RowPlan::Kind::Rdii ? tr("RDII")
-                                                                 : tr("Subcatchment");
+        const QString type = row.kind == rg::RowPlan::Kind::Rdii ? tr("RDII") : tr("Subcatchment");
         const QStringList cells{row.object, type, row.oldGage, row.newGage, row.detail};
-        for (int c = 0; c < cells.size(); ++c)
-        {
+        for (int c = 0; c < cells.size(); ++c) {
             auto *item = new QTableWidgetItem(cells[c]);
             if (!row.changed)
                 item->setForeground(palette().brush(QPalette::Disabled, QPalette::Text));
@@ -425,25 +420,27 @@ void AssignRainGagesDialog::showPlan(const rg::Plan &plan, bool applied)
     m_preview->setUpdatesEnabled(true);
 
     QStringList summary;
-    summary << (applied ? tr("Assigned %1 of %2 object(s).").arg(plan.changed).arg(plan.scanned)
-                        : tr("%1 of %2 object(s) would change.").arg(plan.changed).arg(plan.scanned));
-    if (!plan.generated.isEmpty())
-    {
+    summary << (applied
+                    ? tr("Assigned %1 of %2 object(s).").arg(plan.changed).arg(plan.scanned)
+                    : tr("%1 of %2 object(s) would change.").arg(plan.changed).arg(plan.scanned));
+    if (!plan.generated.isEmpty()) {
         int created = 0, updated = 0;
         double worst = 0.0;
-        for (const rg::GeneratedGage &g : plan.generated)
-        {
+        for (const rg::GeneratedGage &g : plan.generated) {
             created += g.isNew ? 1 : 0;
             updated += g.isUpdate ? 1 : 0;
             worst = std::max(worst, g.relError);
         }
         summary << tr("%1 gage(s) created, %2 reused, %3 removed. Worst volume error %4.")
-                       .arg(created).arg(updated).arg(plan.staleGages.size())
+                       .arg(created)
+                       .arg(updated)
+                       .arg(plan.staleGages.size())
                        .arg(worst, 0, 'g', 3);
     }
     if (!plan.newGroups.isEmpty() || !plan.groupGages.isEmpty())
         summary << tr("%1 unit hydrograph group(s) re-gaged, %2 created.")
-                       .arg(plan.groupGages.size()).arg(plan.newGroups.size());
+                       .arg(plan.groupGages.size())
+                       .arg(plan.newGroups.size());
     summary += plan.warnings;
     m_statusLbl->setText(summary.join(QStringLiteral(" ")));
 }

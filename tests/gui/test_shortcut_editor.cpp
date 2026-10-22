@@ -3,6 +3,16 @@
 // duplicate of another command's binding hard-blocks Assign naming the
 // holder, reserved sequences only warn, and reset one/all restores
 // catalog defaults.
+
+/**
+ * @file      test_shortcut_editor.cpp
+ * @brief     Tests for shortcut editor.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QAction>
@@ -37,10 +47,16 @@ private:
     void wipeShortcutSettings();
 
     QMainWindow *mWindow = nullptr;
-    QAction *mRun = nullptr;      // sim.run,  default Ctrl+R
-    QAction *mMeasure = nullptr;  // map.measure, default Ctrl+Shift+M
+    QAction *mRun = nullptr;     // sim.run,  default Ctrl+R
+    QAction *mMeasure = nullptr; // map.measure, default Ctrl+Shift+M
 };
 
+/**
+ *
+ * @brief Remove the test application shortcut settings group without resetting the singleton
+ * registry or checking sync status.
+ *
+ */
 void TestShortcutEditor::wipeShortcutSettings()
 {
     QSettings settings;
@@ -49,6 +65,12 @@ void TestShortcutEditor::wipeShortcutSettings()
     settings.endGroup();
 }
 
+/**
+ *
+ * @brief Select the isolated shortcuteditor-test namespace, clear stored bindings and register
+ * window-owned Run/Measure actions for shared cases.
+ *
+ */
 void TestShortcutEditor::initTestCase()
 {
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
@@ -63,12 +85,24 @@ void TestShortcutEditor::initTestCase()
     ActionRegistry::instance()->registerFromCatalog(mWindow);
 }
 
+/**
+ *
+ * @brief Clear shortcut settings and delete the fixture window with its actions; retained member
+ * pointers are not nulled.
+ *
+ */
 void TestShortcutEditor::cleanupTestCase()
 {
     wipeShortcutSettings();
     delete mWindow;
 }
 
+/**
+ *
+ * @brief Require assigning Ctrl+7 to Run to update the action, persist the override and bold its
+ * editor row.
+ *
+ */
 void TestShortcutEditor::assignPersistsAndApplies()
 {
     ShortcutEditorWidget editor;
@@ -83,8 +117,7 @@ void TestShortcutEditor::assignPersistsAndApplies()
     QVERIFY(ActionRegistry::instance()->hasUserShortcut(QStringLiteral("sim.run")));
     QSettings settings;
     settings.beginGroup(QStringLiteral("SWMMVis::Shortcuts"));
-    QCOMPARE(settings.value(QStringLiteral("sim.run")).toString(),
-             QStringLiteral("Ctrl+7"));
+    QCOMPARE(settings.value(QStringLiteral("sim.run")).toString(), QStringLiteral("Ctrl+7"));
     settings.endGroup();
 
     // Row bolded as a custom binding.
@@ -92,6 +125,12 @@ void TestShortcutEditor::assignPersistsAndApplies()
     QVERIFY(editor.tree()->currentItem()->font(1).bold());
 }
 
+/**
+ *
+ * @brief Require assigning the preceding case Run chord to Measure to disable Assign and name
+ * Execute as the conflict holder.
+ *
+ */
 void TestShortcutEditor::duplicateBindingBlocked()
 {
     ShortcutEditorWidget editor;
@@ -102,15 +141,26 @@ void TestShortcutEditor::duplicateBindingBlocked()
     QVERIFY(editor.conflictLabel()->text().contains(QStringLiteral("Execute")));
 }
 
+/**
+ *
+ * @brief Require reserved Ctrl+W to show warning text while leaving Assign enabled; does not
+ * commit that binding.
+ *
+ */
 void TestShortcutEditor::reservedSequenceWarnsOnly()
 {
     ShortcutEditorWidget editor;
     editor.selectCommand(QStringLiteral("map.measure"));
     editor.sequenceEdit()->setKeySequence(QKeySequence(QStringLiteral("Ctrl+W")));
-    QVERIFY(editor.assignButton()->isEnabled());   // warned, not blocked
+    QVERIFY(editor.assignButton()->isEnabled()); // warned, not blocked
     QVERIFY(!editor.conflictLabel()->text().isEmpty());
 }
 
+/**
+ *
+ * @brief Require resetting the existing Run override to clear its stored flag and restore Ctrl+R.
+ *
+ */
 void TestShortcutEditor::resetRestoresDefault()
 {
     ShortcutEditorWidget editor;
@@ -121,11 +171,16 @@ void TestShortcutEditor::resetRestoresDefault()
     QVERIFY(!ActionRegistry::instance()->hasUserShortcut(QStringLiteral("sim.run")));
 }
 
+/**
+ *
+ * @brief Require Reset All to clear seeded Run/Measure overrides and restore both catalog
+ * defaults.
+ *
+ */
 void TestShortcutEditor::resetAllClearsEveryOverride()
 {
     auto *registry = ActionRegistry::instance();
-    registry->setUserShortcut(QStringLiteral("sim.run"),
-                              QKeySequence(QStringLiteral("Ctrl+8")));
+    registry->setUserShortcut(QStringLiteral("sim.run"), QKeySequence(QStringLiteral("Ctrl+8")));
     registry->setUserShortcut(QStringLiteral("map.measure"),
                               QKeySequence(QStringLiteral("Ctrl+9")));
 

@@ -1,9 +1,12 @@
-/*!
- * \file   stylemanagerdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      stylemanagerdialog.cpp
+ * @brief     user-level style library (Slice Z.17c).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/stylemanagerdialog.h"
 #include "ui/theme/themehelpers.h"
 
@@ -35,9 +38,11 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 constexpr const char *kStyleSuffix = "swmm-rule.json";
 
@@ -51,16 +56,16 @@ constexpr const char *kStyleSuffix = "swmm-rule.json";
     return path.endsWith(QStringLiteral(".qml"), Qt::CaseInsensitive);
 }
 
-[[nodiscard]] OpenSWMM::Render::RuleListIoResult
-saveByPath(const OpenSWMM::Render::RuleList *rl, const QString &path)
+[[nodiscard]] OpenSWMM::Render::RuleListIoResult saveByPath(const OpenSWMM::Render::RuleList *rl,
+                                                            const QString &path)
 {
     if (isQmlPath(path))
         return OpenSWMM::Render::QmlRuleListIO::save(rl, path);
     return OpenSWMM::Render::RuleListIO::save(rl, path);
 }
 
-[[nodiscard]] OpenSWMM::Render::RuleListIoResult
-loadByPath(const QString &path, OpenSWMM::Render::RuleList *rl)
+[[nodiscard]] OpenSWMM::Render::RuleListIoResult loadByPath(const QString &path,
+                                                            OpenSWMM::Render::RuleList *rl)
 {
     if (isQmlPath(path))
         return OpenSWMM::Render::QmlRuleListIO::load(path, rl);
@@ -72,9 +77,8 @@ loadByPath(const QString &path, OpenSWMM::Render::RuleList *rl)
  *  the user can open it in an editor if they want raw schema. The
  *  preview is a summary: one line per Rule plus its renderer id. */
 [[nodiscard]] QString summarisePreview(const OpenSWMM::Render::RuleList &rl,
-                                        const QStringList &warnings,
-                                        int rulesLoaded,
-                                        int rulesSkipped)
+                                       const QStringList &warnings, int rulesLoaded,
+                                       int rulesSkipped)
 {
     QString out;
     out += QObject::tr("Rules loaded: %1\n").arg(rulesLoaded);
@@ -83,12 +87,12 @@ loadByPath(const QString &path, OpenSWMM::Render::RuleList *rl)
     out += QObject::tr("\n— Rules —\n");
     for (int i = 0; i < rl.count(); ++i) {
         const auto *r = rl.at(i);
-        if (!r) continue;
+        if (!r)
+            continue;
         out += QStringLiteral("  %1. %2  (%3)%4\n")
                    .arg(i + 1)
                    .arg(r->name())
-                   .arg(r->renderer() ? r->renderer()->rendererId()
-                                       : QStringLiteral("?"))
+                   .arg(r->renderer() ? r->renderer()->rendererId() : QStringLiteral("?"))
                    .arg(r->isVisible() ? QString() : QObject::tr("  [hidden]"));
     }
     if (!warnings.isEmpty()) {
@@ -103,8 +107,7 @@ loadByPath(const QString &path, OpenSWMM::Render::RuleList *rl)
 
 // ---------------------------------------------------------------------------
 
-StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
-                                        QWidget *parent)
+StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer, QWidget *parent)
     : QDialog(parent), m_layer(activeLayer)
 {
     setWindowTitle(tr("Style Manager"));
@@ -149,10 +152,10 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     rightLay->addWidget(m_preview, 1);
 
     auto *actionRow = new QHBoxLayout;
-    m_applyBtn  = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("LayerStyling")),
-                                  tr("Apply to layer"), rightBox);
-    m_saveBtn   = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Save")),
-                                  tr("Save current…"), rightBox);
+    m_applyBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("LayerStyling")),
+                                 tr("Apply to layer"), rightBox);
+    m_saveBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Save")),
+                                tr("Save current…"), rightBox);
     m_importBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Open")),
                                   tr("Import…"), rightBox);
     m_exportBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
@@ -175,12 +178,10 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     outer->addWidget(m_btns);
 
     // ── Wiring ──────────────────────────────────────────────────────────
-    connect(m_list, &QListWidget::currentRowChanged,
-            this, [this](int) { onSelectionChanged(); });
-    connect(m_openDirBtn, &QPushButton::clicked,
-            this, &StyleManagerDialog::onOpenLibraryFolder);
-    connect(m_applyBtn,  &QPushButton::clicked, this, &StyleManagerDialog::onApply);
-    connect(m_saveBtn,   &QPushButton::clicked, this, &StyleManagerDialog::onSaveCurrent);
+    connect(m_list, &QListWidget::currentRowChanged, this, [this](int) { onSelectionChanged(); });
+    connect(m_openDirBtn, &QPushButton::clicked, this, &StyleManagerDialog::onOpenLibraryFolder);
+    connect(m_applyBtn, &QPushButton::clicked, this, &StyleManagerDialog::onApply);
+    connect(m_saveBtn, &QPushButton::clicked, this, &StyleManagerDialog::onSaveCurrent);
     connect(m_importBtn, &QPushButton::clicked, this, &StyleManagerDialog::onImport);
     connect(m_exportBtn, &QPushButton::clicked, this, &StyleManagerDialog::onExport);
     connect(m_deleteBtn, &QPushButton::clicked, this, &StyleManagerDialog::onDelete);
@@ -189,8 +190,8 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     // Apply / Save Current need a layer; if there's none, the buttons sit
     // disabled. Import / Export / Delete still work on the library directly.
     const bool haveLayer = (m_layer != nullptr);
-    m_applyBtn->setEnabled(false);   // also gated by selection — see onSelectionChanged
-    m_saveBtn ->setEnabled(haveLayer && m_layer->ruleList() != nullptr);
+    m_applyBtn->setEnabled(false); // also gated by selection — see onSelectionChanged
+    m_saveBtn->setEnabled(haveLayer && m_layer->ruleList() != nullptr);
 
     refreshLibrary();
     setLayer(activeLayer);
@@ -200,9 +201,11 @@ StyleManagerDialog::~StyleManagerDialog() = default;
 
 void StyleManagerDialog::setLayer(OpenSWMMVisLayer *layer)
 {
-    if (m_layer) disconnect(m_layer, &QObject::destroyed, this, nullptr);
+    if (m_layer)
+        disconnect(m_layer, &QObject::destroyed, this, nullptr);
     m_layer = layer;
-    if (layer) connect(layer, &QObject::destroyed, this, [this] { setLayer(nullptr); });
+    if (layer)
+        connect(layer, &QObject::destroyed, this, [this] { setLayer(nullptr); });
     m_saveBtn->setEnabled(layer && layer->ruleList());
     onSelectionChanged();
 }
@@ -214,9 +217,9 @@ QString StyleManagerDialog::resolveLibraryDir() const
     // QStandardPaths::AppLocalDataLocation gives a per-user, per-app
     // writable location. Creating "/styles" under it keeps the library
     // discoverable but doesn't pollute the root of that directory.
-    const QString base = QStandardPaths::writableLocation(
-        QStandardPaths::AppLocalDataLocation);
-    if (base.isEmpty()) return {};
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    if (base.isEmpty())
+        return {};
     const QString dir = base + QStringLiteral("/styles");
     QDir().mkpath(dir);
     return dir;
@@ -229,7 +232,8 @@ void StyleManagerDialog::refreshLibrary()
     const QString priorSelection = currentFilePath();
 
     m_list->clear();
-    if (m_libraryDir.isEmpty()) return;
+    if (m_libraryDir.isEmpty())
+        return;
 
     QDir d(m_libraryDir);
     // Slice Z.17b — the library accepts both native .swmm-rule.json and
@@ -258,7 +262,8 @@ void StyleManagerDialog::refreshPreview()
 {
     m_preview->clear();
     const QString path = currentFilePath();
-    if (path.isEmpty()) return;
+    if (path.isEmpty())
+        return;
 
     OpenSWMM::Render::RuleList tmp;
     const auto result = loadByPath(path, &tmp);
@@ -266,8 +271,8 @@ void StyleManagerDialog::refreshPreview()
         m_preview->setPlainText(tr("Failed to load: %1").arg(result.error));
         return;
     }
-    m_preview->setPlainText(summarisePreview(
-        tmp, result.warnings, result.rulesLoaded, result.rulesSkipped));
+    m_preview->setPlainText(
+        summarisePreview(tmp, result.warnings, result.rulesLoaded, result.rulesSkipped));
 }
 
 // ---------------------------------------------------------------------------
@@ -276,10 +281,10 @@ void StyleManagerDialog::onSelectionChanged()
 {
     refreshPreview();
     const bool haveSelection = (m_list->currentItem() != nullptr);
-    const bool haveLayer     = (m_layer != nullptr);
-    const bool haveLayerRL   = haveLayer && m_layer->ruleList() != nullptr;
+    const bool haveLayer = (m_layer != nullptr);
+    const bool haveLayerRL = haveLayer && m_layer->ruleList() != nullptr;
 
-    m_applyBtn ->setEnabled(haveSelection && haveLayerRL);
+    m_applyBtn->setEnabled(haveSelection && haveLayerRL);
     m_exportBtn->setEnabled(haveSelection);
     m_deleteBtn->setEnabled(haveSelection);
 }
@@ -288,9 +293,11 @@ void StyleManagerDialog::onSelectionChanged()
 
 QString StyleManagerDialog::currentFilePath() const
 {
-    if (!m_list) return {};
+    if (!m_list)
+        return {};
     const auto *item = m_list->currentItem();
-    if (!item) return {};
+    if (!item)
+        return {};
     return item->data(Qt::UserRole).toString();
 }
 
@@ -299,22 +306,23 @@ QString StyleManagerDialog::currentFilePath() const
 void StyleManagerDialog::onApply()
 {
     const QString path = currentFilePath();
-    if (path.isEmpty() || !m_layer) return;
+    if (path.isEmpty() || !m_layer)
+        return;
     auto *rl = m_layer->ruleList();
-    if (!rl) return;
+    if (!rl)
+        return;
 
     const auto result = loadByPath(path, rl);
     if (!result.ok) {
         QMessageBox::warning(this, tr("Apply style"),
-            tr("Could not load %1:\n%2").arg(path, result.error));
+                             tr("Could not load %1:\n%2").arg(path, result.error));
         return;
     }
     if (result.rulesSkipped > 0 || !result.warnings.isEmpty()) {
         QString msg = tr("Applied %1 rule(s).").arg(result.rulesLoaded);
         if (result.rulesSkipped > 0)
             msg += QLatin1Char('\n') +
-                   tr("Skipped %1 rule(s) with unknown renderer ids.")
-                       .arg(result.rulesSkipped);
+                   tr("Skipped %1 rule(s) with unknown renderer ids.").arg(result.rulesSkipped);
         QMessageBox::information(this, tr("Apply style"), msg);
     }
 }
@@ -323,41 +331,41 @@ void StyleManagerDialog::onApply()
 
 void StyleManagerDialog::onSaveCurrent()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     const auto *rl = m_layer->ruleList();
-    if (!rl) return;
+    if (!rl)
+        return;
 
     bool ok = false;
-    const QString name = QInputDialog::getText(
-        this,
-        tr("Save current style"),
-        tr("Library entry name:"),
-        QLineEdit::Normal,
-        m_layer->name(),
-        &ok);
-    if (!ok || name.trimmed().isEmpty()) return;
+    const QString name =
+        QInputDialog::getText(this, tr("Save current style"), tr("Library entry name:"),
+                              QLineEdit::Normal, m_layer->name(), &ok);
+    if (!ok || name.trimmed().isEmpty())
+        return;
 
     // Sanitize so it can sit on disk safely. Replace path separators +
     // unusual characters with '_'; leave dots intact (the suffix is added
     // back below).
     QString safe = name.trimmed();
-    safe.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")),
-                 QStringLiteral("_"));
+    safe.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")), QStringLiteral("_"));
 
-    const QString path = m_libraryDir + QLatin1Char('/') + safe +
-                          QLatin1Char('.') + QLatin1String(kStyleSuffix);
+    const QString path =
+        m_libraryDir + QLatin1Char('/') + safe + QLatin1Char('.') + QLatin1String(kStyleSuffix);
 
     if (QFile::exists(path)) {
-        const auto r = QMessageBox::question(this, tr("Overwrite?"),
-            tr("\"%1\" already exists in the library. Overwrite?").arg(safe),
-            QMessageBox::Yes | QMessageBox::No);
-        if (r != QMessageBox::Yes) return;
+        const auto r =
+            QMessageBox::question(this, tr("Overwrite?"),
+                                  tr("\"%1\" already exists in the library. Overwrite?").arg(safe),
+                                  QMessageBox::Yes | QMessageBox::No);
+        if (r != QMessageBox::Yes)
+            return;
     }
 
     const auto result = saveByPath(rl, path);
     if (!result.ok) {
         QMessageBox::warning(this, tr("Save current style"),
-            tr("Could not write %1:\n%2").arg(path, result.error));
+                             tr("Could not write %1:\n%2").arg(path, result.error));
         return;
     }
     refreshLibrary();
@@ -367,26 +375,26 @@ void StyleManagerDialog::onSaveCurrent()
 
 void StyleManagerDialog::onImport()
 {
-    const QString src = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("styles"),
-        this,
-        tr("Import style"),
-        QString(),
+    const QString src = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+        QStringLiteral("styles"), this, tr("Import style"), QString(),
         tr("Style files (*.%1 *.qml);;SWMM Rule (*.%1);;QGIS QML (*.qml);;All files (*)")
             .arg(kStyleSuffix));
-    if (src.isEmpty()) return;
+    if (src.isEmpty())
+        return;
 
-    const QString dst = m_libraryDir + QLatin1Char('/') +
-                         QFileInfo(src).fileName();
+    const QString dst = m_libraryDir + QLatin1Char('/') + QFileInfo(src).fileName();
     if (QFile::exists(dst)) {
-        const auto r = QMessageBox::question(this, tr("Overwrite?"),
+        const auto r = QMessageBox::question(
+            this, tr("Overwrite?"),
             tr("A file with that name already exists in the library. Overwrite?"),
             QMessageBox::Yes | QMessageBox::No);
-        if (r != QMessageBox::Yes) return;
+        if (r != QMessageBox::Yes)
+            return;
         QFile::remove(dst);
     }
     if (!QFile::copy(src, dst)) {
         QMessageBox::warning(this, tr("Import style"),
-            tr("Could not copy %1 to %2.").arg(src, dst));
+                             tr("Could not copy %1 to %2.").arg(src, dst));
         return;
     }
     refreshLibrary();
@@ -397,14 +405,14 @@ void StyleManagerDialog::onImport()
 void StyleManagerDialog::onExport()
 {
     const QString src = currentFilePath();
-    if (src.isEmpty()) return;
+    if (src.isEmpty())
+        return;
     const QString dst = QFileDialog::getSaveFileName(
-        this,
-        tr("Export style"),
-        QFileInfo(src).fileName(),
+        this, tr("Export style"), QFileInfo(src).fileName(),
         tr("Style files (*.%1 *.qml);;SWMM Rule (*.%1);;QGIS QML (*.qml);;All files (*)")
             .arg(kStyleSuffix));
-    if (dst.isEmpty()) return;
+    if (dst.isEmpty())
+        return;
 
     // Slice Z.17b — load through the source format, save through the
     // destination format. When the suffixes match, this is equivalent to
@@ -416,18 +424,18 @@ void StyleManagerDialog::onExport()
     const auto loadResult = loadByPath(src, &tmp);
     if (!loadResult.ok) {
         QMessageBox::warning(this, tr("Export style"),
-            tr("Could not load %1:\n%2").arg(src, loadResult.error));
+                             tr("Could not load %1:\n%2").arg(src, loadResult.error));
         return;
     }
     const auto saveResult = saveByPath(&tmp, dst);
     if (!saveResult.ok) {
         QMessageBox::warning(this, tr("Export style"),
-            tr("Could not write %1:\n%2").arg(dst, saveResult.error));
+                             tr("Could not write %1:\n%2").arg(dst, saveResult.error));
         return;
     }
     if (!saveResult.warnings.isEmpty()) {
         QMessageBox::information(this, tr("Export style"),
-            saveResult.warnings.join(QLatin1Char('\n')));
+                                 saveResult.warnings.join(QLatin1Char('\n')));
     }
 }
 
@@ -436,15 +444,17 @@ void StyleManagerDialog::onExport()
 void StyleManagerDialog::onDelete()
 {
     const QString path = currentFilePath();
-    if (path.isEmpty()) return;
-    const auto r = QMessageBox::question(this, tr("Delete style"),
-        tr("Remove \"%1\" from the library? This deletes the file on disk.")
-            .arg(QFileInfo(path).completeBaseName()),
-        QMessageBox::Yes | QMessageBox::No);
-    if (r != QMessageBox::Yes) return;
+    if (path.isEmpty())
+        return;
+    const auto r =
+        QMessageBox::question(this, tr("Delete style"),
+                              tr("Remove \"%1\" from the library? This deletes the file on disk.")
+                                  .arg(QFileInfo(path).completeBaseName()),
+                              QMessageBox::Yes | QMessageBox::No);
+    if (r != QMessageBox::Yes)
+        return;
     if (!QFile::remove(path)) {
-        QMessageBox::warning(this, tr("Delete style"),
-            tr("Could not delete %1.").arg(path));
+        QMessageBox::warning(this, tr("Delete style"), tr("Could not delete %1.").arg(path));
         return;
     }
     refreshLibrary();
@@ -454,7 +464,8 @@ void StyleManagerDialog::onDelete()
 
 void StyleManagerDialog::onOpenLibraryFolder()
 {
-    if (m_libraryDir.isEmpty()) return;
+    if (m_libraryDir.isEmpty())
+        return;
     QDesktopServices::openUrl(QUrl::fromLocalFile(m_libraryDir));
 }
 

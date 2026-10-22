@@ -1,9 +1,12 @@
-/*!
- * \file   twodpage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      twodpage.cpp
+ * @brief     Simulation Options → 2D Surface Routing.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/twodpage.h"
 #include "assignment/groundwaterassignment.h"
 #include "ui/hydrothermalstate.h"
@@ -37,9 +40,9 @@
 
 #include <qcustomeditors.h>
 
-#include <openswmm/engine/openswmm_gw_transport.h>   // U5: [GW_*] row count
+#include <openswmm/engine/openswmm_gw_transport.h> // U5: [GW_*] row count
 #include <openswmm/engine/openswmm_gw2d.h>
-#include <openswmm/engine/openswmm_infil2d.h>        // U1: INFILTRATION AUTO label
+#include <openswmm/engine/openswmm_infil2d.h> // U1: INFILTRATION AUTO label
 
 #include <algorithm>
 #include <vector>
@@ -52,8 +55,7 @@
 namespace openswmmvis::ui
 {
 
-TwoDPage::TwoDPage(SimOptionsContext &ctx, QWidget *parent)
-    : SimOptionsPage(ctx, parent)
+TwoDPage::TwoDPage(SimOptionsContext &ctx, QWidget *parent) : SimOptionsPage(ctx, parent)
 {
     buildUi();
     tagWidgets();
@@ -71,16 +73,18 @@ void TwoDPage::setScheduleHooks(ScheduleHooks hooks)
 
 bool TwoDPage::transport2DEnabled(int speciesClass) const
 {
-    return speciesClass >= 0 && speciesClass < 4 && m_transport2DBox[speciesClass]
-        && m_transport2DBox[speciesClass]->isChecked();
+    return speciesClass >= 0 && speciesClass < 4 && m_transport2DBox[speciesClass] &&
+           m_transport2DBox[speciesClass]->isChecked();
 }
 
 void TwoDPage::setTransport2DEnabled(int speciesClass, bool on)
 {
-    if (speciesClass < 0 || speciesClass >= 4) return;
+    if (speciesClass < 0 || speciesClass >= 4)
+        return;
     if (QCheckBox *box = m_transport2DBox[speciesClass]) {
-        if (!box->isEnabled()) return;
-        QSignalBlocker b(box);   // the caller already knows; don't echo back
+        if (!box->isEnabled())
+            return;
+        QSignalBlocker b(box); // the caller already knows; don't echo back
         box->setChecked(on);
     }
 }
@@ -88,11 +92,11 @@ void TwoDPage::setTransport2DEnabled(int speciesClass, bool on)
 void TwoDPage::scheduleChanged()
 {
     // Mirror the two project steps this page can follow, then re-estimate.
-    if (m_report2DStepSameBox && m_report2DStepSameBox->isChecked() &&
-        m_report2DStepEdit && m_schedule.reportStepSeconds)
+    if (m_report2DStepSameBox && m_report2DStepSameBox->isChecked() && m_report2DStepEdit &&
+        m_schedule.reportStepSeconds)
         m_report2DStepEdit->setTotalSeconds(m_schedule.reportStepSeconds());
-    if (m_infil2DStepSameBox && m_infil2DStepSameBox->isChecked() &&
-        m_infil2DStepEdit && m_schedule.wetStepSeconds)
+    if (m_infil2DStepSameBox && m_infil2DStepSameBox->isChecked() && m_infil2DStepEdit &&
+        m_schedule.wetStepSeconds)
         m_infil2DStepEdit->setTotalSeconds(m_schedule.wetStepSeconds());
     updateOutputSizeEstimate();
 }
@@ -109,25 +113,29 @@ void TwoDPage::buildUi()
     m_tabs->setObjectName(QStringLiteral("twoDTabs"));
     root->addWidget(m_tabs, 1);
 
-    auto *t2Hyd = new QWidget(m_tabs); auto *t2HydLay = new QVBoxLayout(t2Hyd);
-    auto *t2Msh = new QWidget(m_tabs); auto *t2MshLay = new QVBoxLayout(t2Msh);
-    auto *t2Cpl = new QWidget(m_tabs); auto *t2CplLay = new QVBoxLayout(t2Cpl);
-    auto *t2Prc = new QWidget(m_tabs); auto *t2PrcLay = new QVBoxLayout(t2Prc);
-    auto *t2Out = new QWidget(m_tabs); auto *t2OutLay = new QVBoxLayout(t2Out);
+    auto *t2Hyd = new QWidget(m_tabs);
+    auto *t2HydLay = new QVBoxLayout(t2Hyd);
+    auto *t2Msh = new QWidget(m_tabs);
+    auto *t2MshLay = new QVBoxLayout(t2Msh);
+    auto *t2Cpl = new QWidget(m_tabs);
+    auto *t2CplLay = new QVBoxLayout(t2Cpl);
+    auto *t2Prc = new QWidget(m_tabs);
+    auto *t2PrcLay = new QVBoxLayout(t2Prc);
+    auto *t2Out = new QWidget(m_tabs);
+    auto *t2OutLay = new QVBoxLayout(t2Out);
 
     // The explicit local-inertial marcher is the only 2D integrator (D2
     // retirement of the CVODE/ARKODE stack, 2026-07-29) — no selector, and
     // the marcher settings are always live.
     auto *stepGroup = new QGroupBox(tr("Time stepping"), t2Hyd);
-    auto *stepForm  = new QFormLayout(stepGroup);
+    auto *stepForm = new QFormLayout(stepGroup);
 
     m_maxTimestepSpin = new QDoubleSpinBox(stepGroup);
     m_maxTimestepSpin->setRange(0.001, 3600.0);
     m_maxTimestepSpin->setDecimals(4);
     m_maxTimestepSpin->setSuffix(QStringLiteral(" s"));
-    m_maxTimestepSpin->setToolTip(
-        tr("Upper bound on the marcher's CFL substeps and on the 1D↔2D "
-           "co-advance sync batch (default 10 s)."));
+    m_maxTimestepSpin->setToolTip(tr("Upper bound on the marcher's CFL substeps and on the 1D↔2D "
+                                     "co-advance sync batch (default 10 s)."));
     stepForm->addRow(tr("Max timestep:"), m_maxTimestepSpin);
 
     t2HydLay->addWidget(stepGroup);
@@ -139,20 +147,18 @@ void TwoDPage::buildUi()
     m_thetaSpin->setRange(0.05, 1.0);
     m_thetaSpin->setDecimals(2);
     m_thetaSpin->setSingleStep(0.05);
-    m_thetaSpin->setToolTip(
-        tr("θ-weighting of the face discharge in the momentum update. 1.0 is "
-           "the classic Bates (2010) scheme; values below 1 blend in the "
-           "neighbour discharges, damping thin-film checkerboarding on steep "
-           "faces (default 0.8)."));
+    m_thetaSpin->setToolTip(tr("θ-weighting of the face discharge in the momentum update. 1.0 is "
+                               "the classic Bates (2010) scheme; values below 1 blend in the "
+                               "neighbour discharges, damping thin-film checkerboarding on steep "
+                               "faces (default 0.8)."));
     marchForm->addRow(tr("Momentum &θ:"), m_thetaSpin);
 
     m_cflNumberSpin = new QDoubleSpinBox(m_marcherGroup);
     m_cflNumberSpin->setRange(0.05, 1.0);
     m_cflNumberSpin->setDecimals(2);
     m_cflNumberSpin->setSingleStep(0.05);
-    m_cflNumberSpin->setToolTip(
-        tr("Courant safety factor α on each cell's stable step "
-           "dt = α·L/√(g·h) (default 0.7)."));
+    m_cflNumberSpin->setToolTip(tr("Courant safety factor α on each cell's stable step "
+                                   "dt = α·L/√(g·h) (default 0.7)."));
     marchForm->addRow(tr("CFL number:"), m_cflNumberSpin);
 
     m_ltsTiersSpin = new QSpinBox(m_marcherGroup);
@@ -168,21 +174,18 @@ void TwoDPage::buildUi()
     m_hMoveSpin->setRange(0.0, 1.0);
     m_hMoveSpin->setDecimals(4);
     m_hMoveSpin->setSuffix(QStringLiteral(" m"));
-    m_hMoveSpin->setToolTip(
-        tr("Movement threshold: cells shallower than this stay in the lazy "
-           "(source-only) set — rain over thin films costs nothing until "
-           "water must move. Raising it shrinks the active set and speeds "
-           "up drainage tails (default 0.003 m)."));
+    m_hMoveSpin->setToolTip(tr("Movement threshold: cells shallower than this stay in the lazy "
+                               "(source-only) set — rain over thin films costs nothing until "
+                               "water must move. Raising it shrinks the active set and speeds "
+                               "up drainage tails (default 0.003 m)."));
     marchForm->addRow(tr("Movement threshold:"), m_hMoveSpin);
 
     // MOMENTUM_EQUATION (engine 2026-09-06): the marcher's momentum closure.
     m_momentum2DCombo = new QComboBox(m_marcherGroup);
-    m_momentum2DCombo->addItem(tr("Local inertial (default)"),
-                               QStringLiteral("LOCAL_INERTIAL"));
+    m_momentum2DCombo->addItem(tr("Local inertial (default)"), QStringLiteral("LOCAL_INERTIAL"));
     m_momentum2DCombo->addItem(tr("Full shallow-water (HLLC, shock capturing)"),
                                QStringLiteral("FULL_SWE"));
-    m_momentum2DCombo->addItem(tr("Diffusive wave"),
-                               QStringLiteral("DIFFUSIVE_WAVE"));
+    m_momentum2DCombo->addItem(tr("Diffusive wave"), QStringLiteral("DIFFUSIVE_WAVE"));
     m_momentum2DCombo->setToolTip(
         tr("Momentum closure of the explicit 2D marcher. Local inertial: "
            "de Almeida–Bates face update (valid Fr < ~0.5). Full shallow-water: "
@@ -193,9 +196,8 @@ void TwoDPage::buildUi()
 
     m_reconOrder2DSpin = new QSpinBox(m_marcherGroup);
     m_reconOrder2DSpin->setRange(1, 2);
-    m_reconOrder2DSpin->setToolTip(
-        tr("Full shallow-water only: 1 = first-order Godunov, 2 = MUSCL "
-           "(Barth–Jespersen) + SSP-RK2 (runs in global-dt mode)."));
+    m_reconOrder2DSpin->setToolTip(tr("Full shallow-water only: 1 = first-order Godunov, 2 = MUSCL "
+                                      "(Barth–Jespersen) + SSP-RK2 (runs in global-dt mode)."));
     marchForm->addRow(tr("Reconstruction order:"), m_reconOrder2DSpin);
 
     m_froudeMaxSpin = new QDoubleSpinBox(m_marcherGroup);
@@ -207,8 +209,7 @@ void TwoDPage::buildUi()
            "the local-inertial scheme (default 1.5)."));
     marchForm->addRow(tr("Max Froude number:"), m_froudeMaxSpin);
 
-    m_advection2DBox = new QCheckBox(
-        tr("Convective momentum flux (ADVECTION)"), m_marcherGroup);
+    m_advection2DBox = new QCheckBox(tr("Convective momentum flux (ADVECTION)"), m_marcherGroup);
     m_advection2DBox->setToolTip(
         tr("Local inertial only: include the convective momentum flux at interior faces "
            "(Stelling–Duinmeijer staggered upwind form). Restores velocity "
@@ -226,23 +227,23 @@ void TwoDPage::buildUi()
     // Same shape as the FV tab's "Finite volume performance" group: the
     // model's own backend request, persisted as [2D_OPTIONS] BACKEND.
     auto *perfGroup = new QGroupBox(tr("Performance"), t2Out);
-    auto *perfForm  = new QFormLayout(perfGroup);
+    auto *perfForm = new QFormLayout(perfGroup);
 
     m_backend2DCombo = new QComboBox(perfGroup);
-    m_backend2DCombo->addItem(tr("Auto (CPU in GUI)"),      QStringLiteral("AUTO"));
+    m_backend2DCombo->addItem(tr("Auto (CPU in GUI)"), QStringLiteral("AUTO"));
     m_backend2DCombo->addItem(tr("CPU (built-in marcher)"), QStringLiteral("CPU"));
-    m_backend2DCombo->addItem(tr("OpenMP (Kokkos)"),        QStringLiteral("OMP"));
-    m_backend2DCombo->addItem(tr("CUDA (experimental)"),    QStringLiteral("CUDA"));
-    m_backend2DCombo->addItem(tr("HIP (experimental)"),     QStringLiteral("HIP"));
-    m_backend2DCombo->addItem(tr("SYCL (experimental)"),    QStringLiteral("SYCL"));
-    m_backend2DCombo->setToolTip(
-        tr("Which marcher implementation runs the 2D mesh (BACKEND). Auto "
-           "uses the built-in CPU marcher for GUI runs. Other engine clients "
-           "may automatically select an installed accelerator. A named backend loads that plugin outright, "
-           "regardless of mesh size; if it is not installed or has no usable "
-           "device the run falls back to CPU with a notice. Pin CPU when a "
-           "model measures slower on the accelerator. The OPENSWMM_2D_BACKEND "
-           "environment variable overrides this setting when set."));
+    m_backend2DCombo->addItem(tr("OpenMP (Kokkos)"), QStringLiteral("OMP"));
+    m_backend2DCombo->addItem(tr("CUDA (experimental)"), QStringLiteral("CUDA"));
+    m_backend2DCombo->addItem(tr("HIP (experimental)"), QStringLiteral("HIP"));
+    m_backend2DCombo->addItem(tr("SYCL (experimental)"), QStringLiteral("SYCL"));
+    m_backend2DCombo->setToolTip(tr(
+        "Which marcher implementation runs the 2D mesh (BACKEND). Auto "
+        "uses the built-in CPU marcher for GUI runs. Other engine clients "
+        "may automatically select an installed accelerator. A named backend loads that plugin outright, "
+        "regardless of mesh size; if it is not installed or has no usable "
+        "device the run falls back to CPU with a notice. Pin CPU when a "
+        "model measures slower on the accelerator. The OPENSWMM_2D_BACKEND "
+        "environment variable overrides this setting when set."));
     perfForm->addRow(tr("Backend:"), m_backend2DCombo);
 
     t2OutLay->addWidget(perfGroup);
@@ -250,7 +251,7 @@ void TwoDPage::buildUi()
     // Not "Mesh": every knob here is a depth below which the solver stops
     // treating a cell as wet. Nothing in it describes the mesh.
     auto *depthGroup = new QGroupBox(tr("Depth thresholds"), t2Msh);
-    auto *meshForm  = new QFormLayout(depthGroup);
+    auto *meshForm = new QFormLayout(depthGroup);
 
     m_dryDepthSpin = new QDoubleSpinBox(depthGroup);
     m_dryDepthSpin->setRange(0.0, 1.0);
@@ -267,21 +268,19 @@ void TwoDPage::buildUi()
     m_fluxDhEpsSpin->setRange(0.0, 1.0);
     m_fluxDhEpsSpin->setDecimals(6);
     m_fluxDhEpsSpin->setSuffix(QStringLiteral(" m"));
-    m_fluxDhEpsSpin->setToolTip(
-        tr("Head-difference regularization for the 2D diffusive-wave flux. "
-           "0.004 m is the current recommended default from the road/weir "
-           "performance trials."));
+    m_fluxDhEpsSpin->setToolTip(tr("Head-difference regularization for the 2D diffusive-wave flux. "
+                                   "0.004 m is the current recommended default from the road/weir "
+                                   "performance trials."));
     meshForm->addRow(tr("Flux head epsilon:"), m_fluxDhEpsSpin);
 
     t2MshLay->addWidget(depthGroup);
 
     auto *closureGroup = new QGroupBox(tr("Cell closure"), t2Msh);
-    auto *closureForm  = new QFormLayout(closureGroup);
+    auto *closureForm = new QFormLayout(closureGroup);
 
     m_cellClosureCombo = new QComboBox(closureGroup);
     m_cellClosureCombo->addItem(tr("Flat (η = z̄ + V/A, legacy)"), QStringLiteral("FLAT"));
-    m_cellClosureCombo->addItem(tr("VFR (planar-bed volume/free-surface)"),
-                                QStringLiteral("VFR"));
+    m_cellClosureCombo->addItem(tr("VFR (planar-bed volume/free-surface)"), QStringLiteral("VFR"));
     m_cellClosureCombo->setToolTip(
         tr("How the free-surface elevation of a partially wet cell is reconstructed "
            "from its stored volume. Flat overstates the surface on slope/step cells "
@@ -291,8 +290,7 @@ void TwoDPage::buildUi()
     closureForm->addRow(tr("Cell closure:"), m_cellClosureCombo);
 
     m_faceReconCombo = new QComboBox(closureGroup);
-    m_faceReconCombo->addItem(tr("Mean (upwind cell depth, legacy)"),
-                              QStringLiteral("MEAN"));
+    m_faceReconCombo->addItem(tr("Mean (upwind cell depth, legacy)"), QStringLiteral("MEAN"));
     m_faceReconCombo->addItem(tr("VFR face (edge depth + wetting gate)"),
                               QStringLiteral("VFR_FACE"));
     m_faceReconCombo->setToolTip(
@@ -316,7 +314,7 @@ void TwoDPage::buildUi()
     t2MshLay->addWidget(closureGroup);
 
     auto *coupGroup = new QGroupBox(tr("1D ↔ 2D coupling"), t2Cpl);
-    auto *coupForm  = new QFormLayout(coupGroup);
+    auto *coupForm = new QFormLayout(coupGroup);
 
     m_couplingCdSpin = new QDoubleSpinBox(coupGroup);
     m_couplingCdSpin->setRange(0.0, 1.0);
@@ -431,9 +429,8 @@ void TwoDPage::buildUi()
            "one-span feedback delay can ring on rapidly filling ponds."));
     coupForm->addRow(tr("Exchange interval:"), m_couplingSyncSpin);
 
-    m_couplingAreaAutoBox = new QCheckBox(
-        tr("Derive exchange areas automatically (COUPLING_AREA AUTO)"),
-        coupGroup);
+    m_couplingAreaAutoBox =
+        new QCheckBox(tr("Derive exchange areas automatically (COUPLING_AREA AUTO)"), coupGroup);
     m_couplingAreaAutoBox->setToolTip(
         tr("Override every coupling point's exchange area with "
            "1.25 × the largest connected conduit area (clamped 0.05–2 m²). "
@@ -448,17 +445,15 @@ void TwoDPage::buildUi()
     // ([2D_OPTIONS] INFILTRATION / INFIL_STEP / INFIL_DEFAULT_METHOD /
     // INFIL_DESTINATION, EVAPORATION, TRANSPORT_*) beside RAINFALL_MODE.
     auto *rainfallGroup = new QGroupBox(tr("Processes"), t2Prc);
-    auto *rainfallForm  = new QFormLayout(rainfallGroup);
+    auto *rainfallForm = new QFormLayout(rainfallGroup);
 
     m_rainfall2DModeCombo = new QComboBox(rainfallGroup);
     m_rainfall2DModeCombo->addItem(tr("Natural neighbour (all gages)"),
                                    QStringLiteral("NATURAL_NEIGHBOUR"));
     m_rainfall2DModeCombo->addItem(tr("Nearest neighbour (closest gage)"),
                                    QStringLiteral("NEAREST_NEIGHBOUR"));
-    m_rainfall2DModeCombo->addItem(tr("System (uniform gage mean)"),
-                                   QStringLiteral("SYSTEM"));
-    m_rainfall2DModeCombo->addItem(tr("None (no direct rainfall)"),
-                                   QStringLiteral("NONE"));
+    m_rainfall2DModeCombo->addItem(tr("System (uniform gage mean)"), QStringLiteral("SYSTEM"));
+    m_rainfall2DModeCombo->addItem(tr("None (no direct rainfall)"), QStringLiteral("NONE"));
     m_rainfall2DModeCombo->setToolTip(
         tr("How raingage rainfall drives the 2D mesh. Natural neighbour spatially "
            "interpolates all located gages onto each cell (inverse-distance "
@@ -472,7 +467,7 @@ void TwoDPage::buildUi()
     m_infil2DModeCombo->setObjectName(QStringLiteral("infil2DModeCombo"));
     m_infil2DModeCombo->addItem(tr("Automatic (on when per-cell rows exist)"),
                                 QStringLiteral("AUTO"));
-    m_infil2DModeCombo->addItem(tr("On"),  QStringLiteral("YES"));
+    m_infil2DModeCombo->addItem(tr("On"), QStringLiteral("YES"));
     m_infil2DModeCombo->addItem(tr("Off (keep rows, run without infiltration)"),
                                 QStringLiteral("NO"));
     m_infil2DModeCombo->setToolTip(
@@ -506,12 +501,12 @@ void TwoDPage::buildUi()
     m_infil2DMethodCombo = new QComboBox(rainfallGroup);
     m_infil2DMethodCombo->setObjectName(QStringLiteral("infil2DMethodCombo"));
     m_infil2DMethodCombo->addItem(tr("None (no mesh-wide default)"), QStringLiteral("NONE"));
-    m_infil2DMethodCombo->addItem(tr("Horton"),                   QStringLiteral("HORTON"));
-    m_infil2DMethodCombo->addItem(tr("Modified Horton"),          QStringLiteral("MOD_HORTON"));
-    m_infil2DMethodCombo->addItem(tr("Green-Ampt"),               QStringLiteral("GREEN_AMPT"));
-    m_infil2DMethodCombo->addItem(tr("Modified Green-Ampt"),      QStringLiteral("MOD_GREEN_AMPT"));
-    m_infil2DMethodCombo->addItem(tr("Curve Number"),             QStringLiteral("CURVE_NUMBER"));
-    m_infil2DMethodCombo->addItem(tr("Constant rate"),            QStringLiteral("CONSTANT"));
+    m_infil2DMethodCombo->addItem(tr("Horton"), QStringLiteral("HORTON"));
+    m_infil2DMethodCombo->addItem(tr("Modified Horton"), QStringLiteral("MOD_HORTON"));
+    m_infil2DMethodCombo->addItem(tr("Green-Ampt"), QStringLiteral("GREEN_AMPT"));
+    m_infil2DMethodCombo->addItem(tr("Modified Green-Ampt"), QStringLiteral("MOD_GREEN_AMPT"));
+    m_infil2DMethodCombo->addItem(tr("Curve Number"), QStringLiteral("CURVE_NUMBER"));
+    m_infil2DMethodCombo->addItem(tr("Constant rate"), QStringLiteral("CONSTANT"));
     m_infil2DMethodCombo->setToolTip(
         tr("[2D_OPTIONS] INFIL_DEFAULT_METHOD — the method of the '*' row of "
            "[2D_INFILTRATION_DEFAULTS]. The row carries the parameters: pick "
@@ -555,19 +550,18 @@ void TwoDPage::buildUi()
         if (act) {
             act->trigger();
         } else {
-            QMessageBox::information(
-                this, tr("Per-cell infiltration"),
-                tr("Select cells on the map, then use Model ▸ Mesh ▸ Assign "
-                   "Infiltration to Selection…"));
+            QMessageBox::information(this, tr("Per-cell infiltration"),
+                                     tr("Select cells on the map, then use Model ▸ Mesh ▸ Assign "
+                                        "Infiltration to Selection…"));
         }
     });
     rainfallForm->addRow(QString(), m_editInfilCellsBtn);
 
     auto *snowAssignments = new QPushButton(tr("Snow options and assignments…"), rainfallGroup);
     snowAssignments->setObjectName(QStringLiteral("editMeshSnowBtn"));
-    snowAssignments->setToolTip(tr("Edit AUTO / enabled / disabled, the snow update interval, shared snowpacks and cell or region overrides."));
-    connect(snowAssignments, &QPushButton::clicked,
-            this, &TwoDPage::showSnowAssignmentsRequested);
+    snowAssignments->setToolTip(tr(
+        "Edit AUTO / enabled / disabled, the snow update interval, shared snowpacks and cell or region overrides."));
+    connect(snowAssignments, &QPushButton::clicked, this, &TwoDPage::showSnowAssignmentsRequested);
     rainfallForm->addRow(tr("Snowmelt:"), snowAssignments);
 
     // ── Evaporation ─────────────────────────────────────────────────────
@@ -577,18 +571,22 @@ void TwoDPage::buildUi()
     m_evap2DCombo->addItem(tr("Project climate rate ([EVAPORATION]) on unforced cells"),
                            QStringLiteral("CLIMATE"));
     m_evap2DCombo->addItem(tr("Off"), QStringLiteral("NO"));
-    m_evap2DCombo->setToolTip(
-        tr("[2D_OPTIONS] EVAPORATION. Forced only is the pre-existing sink: "
-           "cells evaporate only where swmm_2d_force_evap* prescribed a "
-           "rate. Project climate rate applies the [EVAPORATION] rate the "
-           "1D side uses (Climatology dialog) to every unforced cell. Off "
-           "books no evaporation."));
+    m_evap2DCombo->setToolTip(tr("[2D_OPTIONS] EVAPORATION. Forced only is the pre-existing sink: "
+                                 "cells evaporate only where swmm_2d_force_evap* prescribed a "
+                                 "rate. Project climate rate applies the [EVAPORATION] rate the "
+                                 "1D side uses (Climatology dialog) to every unforced cell. Off "
+                                 "books no evaporation."));
     rainfallForm->addRow(tr("Evaporation:"), m_evap2DCombo);
-    auto* editEvap=new QPushButton(tr("Edit project evaporation data…"),rainfallGroup);
-    editEvap->setAutoDefault(false);editEvap->setToolTip(tr("Accepted climate edits apply to the project and remain applied if Simulation Options is cancelled."));
+    auto *editEvap = new QPushButton(tr("Edit project evaporation data…"), rainfallGroup);
+    editEvap->setAutoDefault(false);
+    editEvap->setToolTip(tr(
+        "Accepted climate edits apply to the project and remain applied if Simulation Options is cancelled."));
     rainfallForm->addRow(editEvap);
-    connect(editEvap,&QPushButton::clicked,this,&TwoDPage::showEvaporationSettingsRequested);
-    connect(m_evap2DCombo,&QComboBox::currentIndexChanged,this,[this]{if(m_gwEtAllocation)refreshGates();});
+    connect(editEvap, &QPushButton::clicked, this, &TwoDPage::showEvaporationSettingsRequested);
+    connect(m_evap2DCombo, &QComboBox::currentIndexChanged, this, [this] {
+        if (m_gwEtAllocation)
+            refreshGates();
+    });
 
     // ── Transport (the 2D column of the Models page matrix) ─────────────
     auto *trBox = new QWidget(rainfallGroup);
@@ -603,7 +601,8 @@ void TwoDPage::buildUi()
             tr("[2D_OPTIONS] %1 — carry this class on the 2D mesh when the "
                "project enables it. Unticking is a real performance lever "
                "(each row costs per-cell memory and a reaction stage); the "
-               "1D side is unaffected.").arg(QLatin1String(transport2DKey(c))));
+               "1D side is unaffected.")
+                .arg(QLatin1String(transport2DKey(c))));
         trLay->addWidget(m_transport2DBox[c]);
         connect(m_transport2DBox[c], &QCheckBox::toggled, this,
                 [this](bool) { emit transportSelectionChanged(); });
@@ -643,45 +642,67 @@ void TwoDPage::buildUi()
 
     m_gw2DEtCombo = new QComboBox(m_gw2DGroup);
     m_gw2DEtCombo->setObjectName(QStringLiteral("gw2DEtCombo"));
-    m_gw2DEtCombo->addItem(tr("Automatic (depends on aquifer mode)"),QStringLiteral("AUTO"));
+    m_gw2DEtCombo->addItem(tr("Automatic (depends on aquifer mode)"), QStringLiteral("AUTO"));
     m_gw2DEtCombo->addItem(tr("None"), QStringLiteral("NONE"));
     m_gw2DEtCombo->addItem(tr("Capillary rise (from the water table)"),
                            QStringLiteral("CAPILLARY_RISE"));
     m_gw2DEtCombo->addItem(tr("Boundary ET (from the unsaturated column)"),
                            QStringLiteral("BOUNDARY_ET"));
     m_gw2DEtCombo->addItem(tr("Both"), QStringLiteral("BOTH"));
-    m_gw2DEtCombo->setToolTip(
-        tr("One atmospheric demand is shared by each mesh cell: actual surface evaporation spends it first, and soil ET spends the remainder with one moisture-stress factor. Capillary rise transfers water internally. Climate or explicit evaporation forcing supplies demand. This shared setting is stored in [2D_AQUIFER_OPTIONS]."));
+    m_gw2DEtCombo->setToolTip(tr(
+        "One atmospheric demand is shared by each mesh cell: actual surface evaporation spends it first, and soil ET spends the remainder with one moisture-stress factor. Capillary rise transfers water internally. Climate or explicit evaporation forcing supplies demand. This shared setting is stored in [2D_AQUIFER_OPTIONS]."));
     gwForm->addRow(tr("Evapotranspiration:"), m_gw2DEtCombo);
 
-    m_gwLinkCombo=new QComboBox(m_gw2DGroup);m_gwLinkCombo->setObjectName("gwLinkSeepageCombo");m_gwLinkCombo->setProperty("aquiferOptionKey","LINK_SEEPAGE");
-    m_gwLinkCombo->addItem(tr("Automatic (Two way with an active mesh aquifer)"),"DEFAULT");m_gwLinkCombo->addItem(tr("One way"),"ONE_WAY");m_gwLinkCombo->addItem(tr("Two way"),"TWO_WAY");m_gwLinkCombo->addItem(tr("Off"),"NONE");gwForm->addRow(tr("Link seepage:"),m_gwLinkCombo);
-    m_gwWiltingAuto=new QCheckBox(tr("Automatic wilting suction (150 m)"),m_gw2DGroup);m_gwWiltingAuto->setObjectName("gwWiltingAuto");gwForm->addRow(m_gwWiltingAuto);
-    m_gwWilting=new QDoubleSpinBox(m_gw2DGroup);m_gwWilting->setObjectName("gwWiltingSuction");m_gwWilting->setProperty("aquiferOptionKey","WILTING_SUCTION");m_gwWilting->setDecimals(9);m_gwWilting->setRange(1e-9,1e9);m_gwWilting->setToolTip(tr("Positive suction-head magnitude in project length units. Soil ET applies stress once at its extraction location. The automatic 150 m value retains the former bulk threshold; select a custom value for the modeled vegetation."));gwForm->addRow(tr("Wilting suction:"),m_gwWilting);
-    m_gwEtAllocation=new QLabel(m_gw2DGroup);m_gwEtAllocation->setObjectName("gwEtAllocationLabel");m_gwEtAllocation->setWordWrap(true);gwForm->addRow(tr("ET allocation:"),m_gwEtAllocation);
-    connect(m_gw2DEtCombo,&QComboBox::currentIndexChanged,this,[this]{refreshGates();});connect(m_gwWiltingAuto,&QCheckBox::toggled,this,[this]{refreshGates();});
+    m_gwLinkCombo = new QComboBox(m_gw2DGroup);
+    m_gwLinkCombo->setObjectName("gwLinkSeepageCombo");
+    m_gwLinkCombo->setProperty("aquiferOptionKey", "LINK_SEEPAGE");
+    m_gwLinkCombo->addItem(tr("Automatic (Two way with an active mesh aquifer)"), "DEFAULT");
+    m_gwLinkCombo->addItem(tr("One way"), "ONE_WAY");
+    m_gwLinkCombo->addItem(tr("Two way"), "TWO_WAY");
+    m_gwLinkCombo->addItem(tr("Off"), "NONE");
+    gwForm->addRow(tr("Link seepage:"), m_gwLinkCombo);
+    m_gwWiltingAuto = new QCheckBox(tr("Automatic wilting suction (150 m)"), m_gw2DGroup);
+    m_gwWiltingAuto->setObjectName("gwWiltingAuto");
+    gwForm->addRow(m_gwWiltingAuto);
+    m_gwWilting = new QDoubleSpinBox(m_gw2DGroup);
+    m_gwWilting->setObjectName("gwWiltingSuction");
+    m_gwWilting->setProperty("aquiferOptionKey", "WILTING_SUCTION");
+    m_gwWilting->setDecimals(9);
+    m_gwWilting->setRange(1e-9, 1e9);
+    m_gwWilting->setToolTip(tr(
+        "Positive suction-head magnitude in project length units. Soil ET applies stress once at its extraction location. The automatic 150 m value retains the former bulk threshold; select a custom value for the modeled vegetation."));
+    gwForm->addRow(tr("Wilting suction:"), m_gwWilting);
+    m_gwEtAllocation = new QLabel(m_gw2DGroup);
+    m_gwEtAllocation->setObjectName("gwEtAllocationLabel");
+    m_gwEtAllocation->setWordWrap(true);
+    gwForm->addRow(tr("ET allocation:"), m_gwEtAllocation);
+    connect(m_gw2DEtCombo, &QComboBox::currentIndexChanged, this, [this] { refreshGates(); });
+    connect(m_gwWiltingAuto, &QCheckBox::toggled, this, [this] { refreshGates(); });
     m_gw2DStatusLabel = new QLabel(m_gw2DGroup);
     m_gw2DStatusLabel->setObjectName(QStringLiteral("gw2DStatusLabel"));
     m_gw2DStatusLabel->setWordWrap(true);
     gwForm->addRow(tr("Transport:"), m_gw2DStatusLabel);
 
-    m_gw2DEditBtn = new QPushButton(tr("Initial temperatures and sources: Assign Groundwater…"), m_gw2DGroup);
+    m_gw2DEditBtn =
+        new QPushButton(tr("Initial temperatures and sources: Assign Groundwater…"), m_gw2DGroup);
     m_gw2DEditBtn->setObjectName(QStringLiteral("gw2DEditBtn"));
-    m_gw2DEditBtn->setEnabled(ctx_.projectWindow()!=nullptr);
-    connect(m_gw2DEditBtn,&QPushButton::clicked,this,&TwoDPage::showGroundwaterAssignmentsRequested);
-    m_gw2DEditBtn->setToolTip(
-        tr("Use the mesh toolbar Assign Groundwater action to edit initial temperatures, species and injection/extraction sources."));
+    m_gw2DEditBtn->setEnabled(ctx_.projectWindow() != nullptr);
+    connect(m_gw2DEditBtn, &QPushButton::clicked, this,
+            &TwoDPage::showGroundwaterAssignmentsRequested);
+    m_gw2DEditBtn->setToolTip(tr(
+        "Use the mesh toolbar Assign Groundwater action to edit initial temperatures, species and injection/extraction sources."));
     gwForm->addRow(QString(), m_gw2DEditBtn);
 
-    connect(m_gw2DEnableCombo, &QComboBox::currentIndexChanged, this,
-            [this](int) { refreshGates(); emit gateInputsChanged(); });
+    connect(m_gw2DEnableCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+        refreshGates();
+        emit gateInputsChanged();
+    });
     t2PrcLay->addWidget(m_gw2DGroup);
 
     auto *outGroup = new QGroupBox(tr("Output"), t2Out);
-    auto *outForm  = new QFormLayout(outGroup);
+    auto *outForm = new QFormLayout(outGroup);
 
-    m_report2DBox = new QCheckBox(tr("Write 2D results to output (REPORT_2D)"),
-                                  outGroup);
+    m_report2DBox = new QCheckBox(tr("Write 2D results to output (REPORT_2D)"), outGroup);
     outForm->addRow(QString(), m_report2DBox);
 
     auto *outRow = new QWidget(outGroup);
@@ -698,10 +719,10 @@ void TwoDPage::buildUi()
         QString start = m_output2DFileEdit->text().trimmed();
         if (start.isEmpty() && ctx_.modelLayer())
             start = QFileInfo(ctx_.modelLayer()->modelFilePath()).absolutePath();
-        const QString f = QFileDialog::getSaveFileName(
-            this, tr("2D results file"), start,
-            tr("HDF5 results (*.h5);;All files (*)"));
-        if (!f.isEmpty()) m_output2DFileEdit->setText(f);
+        const QString f = QFileDialog::getSaveFileName(this, tr("2D results file"), start,
+                                                       tr("HDF5 results (*.h5);;All files (*)"));
+        if (!f.isEmpty())
+            m_output2DFileEdit->setText(f);
     });
     outRowLay->addWidget(m_output2DFileEdit, 1);
     outRowLay->addWidget(outBrowse);
@@ -712,8 +733,7 @@ void TwoDPage::buildUi()
     m_output2DPrecisionCombo->setObjectName(QStringLiteral("output2DPrecisionCombo"));
     m_output2DPrecisionCombo->addItem(tr("Single (float32, half the size)"),
                                       QStringLiteral("FLOAT32"));
-    m_output2DPrecisionCombo->addItem(tr("Double (float64, bit-exact)"),
-                                      QStringLiteral("FLOAT64"));
+    m_output2DPrecisionCombo->addItem(tr("Double (float64, bit-exact)"), QStringLiteral("FLOAT64"));
     m_output2DPrecisionCombo->setToolTip(
         tr("Storage type of every time-varying dataset in the 2D results file "
            "([2D_OPTIONS] OUTPUT_PRECISION). The solver always runs in double; "
@@ -772,41 +792,45 @@ void TwoDPage::buildUi()
            "REPORT_2D_VARIABLES). Unticked groups are absent from the file; "
            "available GUI views depend on the groups present. Some groups "
            "require external post-processing. Depth is always written."));
-    struct VarDoc { const char *token; const char *label; const char *tip; };
+    struct VarDoc {
+        const char *token;
+        const char *label;
+        const char *tip;
+    };
     static const VarDoc kVarDocs[] = {
-        {"DEPTH",        "Depth & head (per cell)",
+        {"DEPTH", "Depth & head (per cell)",
          "Mesh2_face_depth / Mesh2_face_head — depth fill, contour bands and "
          "lines, cell depth / HGL plots. Always written."},
-        {"VELOCITY",     "Velocity (per cell)",
+        {"VELOCITY", "Velocity (per cell)",
          "Mesh2_face_vx / Mesh2_face_vy — cell-centred velocity components "
          "(exported for external post-processing; the GUI reconstructs velocity "
          "from edge fluxes)."},
-        {"EDGE_FLUX",    "Edge fluxes (per edge)",
+        {"EDGE_FLUX", "Edge fluxes (per edge)",
          "Mesh2_edge_flux — velocity vectors and velocity magnitude symbology, "
          "edge flow / flux plots, velocity plots."},
-        {"NODE_HEAD",    "Vertex head & depth (per vertex)",
+        {"NODE_HEAD", "Vertex head & depth (per vertex)",
          "Mesh2_node_head / Mesh2_node_depth — smooth (vertex-interpolated) "
          "depth rendering and flood-extent isolines; without them the GUI "
          "falls back to a coarser cell-average reconstruction."},
-        {"SPECIES",      "Water quality (per cell × species)",
+        {"SPECIES", "Water quality (per cell × species)",
          "Mesh2_face_species_conc — per-cell concentrations for enabled "
          "species, written for external post-processing. Rendering and plotting "
          "this dataset are not yet available in the GUI. Use the species list "
          "below to select which species are written."},
-        {"RAINFALL",     "Rainfall (per cell)",
+        {"RAINFALL", "Rainfall (per cell)",
          "Mesh2_face_rainfall / Mesh2_face_rain_cum — cell rainfall intensity "
          "and cumulative rain-volume plots."},
         {"INFILTRATION", "Infiltration (per cell)",
          "Mesh2_face_infil_rate / Mesh2_face_infil_cum — infiltration-rate "
          "and cumulative-loss plots and colour ramps."},
-        {"COUPLING",     "1D↔2D exchange (per cell)",
+        {"COUPLING", "1D↔2D exchange (per cell)",
          "Mesh2_face_coupling_flux / Mesh2_face_net_source — diagnostic "
          "exchange and net-source fields (no GUI consumer today)."},
-        {"GRADIENTS",    "Reconstruction gradients (diagnostic)",
+        {"GRADIENTS", "Reconstruction gradients (diagnostic)",
          "Mesh2_face_grad_* (4 fields) — solver diagnostics only."},
-        {"CONTINUITY",   "Continuity error (diagnostic)",
+        {"CONTINUITY", "Continuity error (diagnostic)",
          "Mesh2_face_continuity_err (+ its envelope) — solver diagnostics only."},
-        {"ENVELOPES",    "Run maxima (once per run)",
+        {"ENVELOPES", "Run maxima (once per run)",
          "Mesh2_face_max_depth / Mesh2_face_max_velocity — maximum-depth and "
          "maximum-velocity symbology and the flood-extent envelope; written "
          "once at the end of the run, negligible size."},
@@ -816,20 +840,24 @@ void TwoDPage::buildUi()
         const QString token = QString::fromLatin1(swmm_2d_output_variable_name(i));
         const VarDoc *doc = nullptr;
         for (const VarDoc &d : kVarDocs)
-            if (token.compare(QLatin1String(d.token), Qt::CaseInsensitive) == 0) { doc = &d; break; }
-        auto *item = new QListWidgetItem(
-            doc ? tr("%1  [%2]").arg(tr(doc->label), token) : token, m_report2DVarsList);
+            if (token.compare(QLatin1String(d.token), Qt::CaseInsensitive) == 0) {
+                doc = &d;
+                break;
+            }
+        auto *item = new QListWidgetItem(doc ? tr("%1  [%2]").arg(tr(doc->label), token) : token,
+                                         m_report2DVarsList);
         item->setData(Qt::UserRole, i);
         item->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
         item->setCheckState(Qt::Unchecked);
-        if (doc) item->setToolTip(tr(doc->tip));
+        if (doc)
+            item->setToolTip(tr(doc->tip));
         if (token.compare(QLatin1String("DEPTH"), Qt::CaseInsensitive) == 0) {
             item->setCheckState(Qt::Checked);
-            item->setFlags(Qt::ItemIsUserCheckable);   // always on, not editable
+            item->setFlags(Qt::ItemIsUserCheckable); // always on, not editable
         }
     }
-    m_report2DVarsList->setFixedHeight(
-        m_report2DVarsList->sizeHintForRow(0) * std::max(1, nVars) + 6);
+    m_report2DVarsList->setFixedHeight(m_report2DVarsList->sizeHintForRow(0) * std::max(1, nVars) +
+                                       6);
 
     auto *presetRow = new QWidget(varsBox);
     auto *presetLay = new QHBoxLayout(presetRow);
@@ -838,9 +866,8 @@ void TwoDPage::buildUi()
         auto *b = new QPushButton(label, presetRow);
         b->setObjectName(QStringLiteral("report2DPreset_") + QLatin1String(preset));
         b->setToolTip(tip);
-        connect(b, &QPushButton::clicked, this, [this, preset]() {
-            setReportVarsMask(swmm_2d_output_variable_mask(preset));
-        });
+        connect(b, &QPushButton::clicked, this,
+                [this, preset]() { setReportVarsMask(swmm_2d_output_variable_mask(preset)); });
         presetLay->addWidget(b);
     };
     addPreset(tr("Default"), "DEFAULT",
@@ -879,7 +906,8 @@ void TwoDPage::buildUi()
         const int nPol = swmm_pollutant_count(e);
         for (int i = 0; i < nPol; ++i) {
             const char *id = swmm_pollutant_id(e, i);
-            if (!id || !*id) continue;
+            if (!id || !*id)
+                continue;
             auto *it = new QListWidgetItem(QString::fromUtf8(id), m_report2DSpeciesList);
             it->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
             it->setCheckState(Qt::Unchecked);
@@ -887,12 +915,15 @@ void TwoDPage::buildUi()
         }
         const int nSp = swmm_reaction_species_count(e);
         for (int i = 0; i < nSp; ++i) {
-            char name[128] = {}; char units[32] = {};
-            int isWall = 0; double atol = 0.0, rtol = 0.0;
-            if (swmm_reaction_species_get(e, i, name, sizeof(name), &isWall,
-                                          units, sizeof(units), &atol, &rtol) != 0)
+            char name[128] = {};
+            char units[32] = {};
+            int isWall = 0;
+            double atol = 0.0, rtol = 0.0;
+            if (swmm_reaction_species_get(e, i, name, sizeof(name), &isWall, units, sizeof(units),
+                                          &atol, &rtol) != 0)
                 continue;
-            if (!name[0]) continue;
+            if (!name[0])
+                continue;
             const QString nm = QString::fromUtf8(name);
             if (!m_report2DSpeciesList->findItems(nm, Qt::MatchFixedString).isEmpty())
                 continue;
@@ -902,9 +933,9 @@ void TwoDPage::buildUi()
             it->setToolTip(tr("[REACTION_SPECIES] %1").arg(nm));
         }
     }
-    m_report2DSpeciesList->setFixedHeight(
-        m_report2DSpeciesList->sizeHintForRow(0) *
-            std::clamp(m_report2DSpeciesList->count(), 1, 6) + 6);
+    m_report2DSpeciesList->setFixedHeight(m_report2DSpeciesList->sizeHintForRow(0) *
+                                              std::clamp(m_report2DSpeciesList->count(), 1, 6) +
+                                          6);
     spLay->addWidget(m_report2DAllSpeciesBox);
     spLay->addWidget(m_report2DSpeciesList);
     outForm->addRow(tr("Species:"), spBox);
@@ -992,7 +1023,11 @@ void TwoDPage::tagWidgets()
     tagOption(m_gwWilting, "WILTING_SUCTION");
 }
 
-int TwoDPage::groundwaterRequested() const { const auto mode=m_gw2DEnableCombo->currentData().toString(); return mode=="NO"?0:mode=="YES"?1:-1; }
+int TwoDPage::groundwaterRequested() const
+{
+    const auto mode = m_gw2DEnableCombo->currentData().toString();
+    return mode == "NO" ? 0 : mode == "YES" ? 1 : -1;
+}
 
 void TwoDPage::refreshGates()
 {
@@ -1008,7 +1043,8 @@ void TwoDPage::refreshGates()
             ? tr("Convective momentum flux is included automatically.")
             : tr("Convective momentum flux is omitted by the diffusive-wave equation."));
 
-    if (!m_gw2DGroup) return;
+    if (!m_gw2DGroup)
+        return;
     // Tri-state: only an explicit "On" is a definite yes. Under Automatic the
     // answer depends on whether aquifer rows exist, which this dialog does not
     // count — so it leaves the destination free and lets the engine validate,
@@ -1016,45 +1052,58 @@ void TwoDPage::refreshGates()
     const QString mode = m_gw2DEnableCombo->currentData().toString();
     const bool off = (mode == QLatin1String("NO"));
     char configured[80]{}, aquiferMode[80]{};
-    const auto e=ctx_.engine();
-    if(e) {swmm_gw2d_option_get(e,"CONFIGURED",configured,sizeof configured);swmm_gw2d_option_get(e,"MODE",aquiferMode,sizeof aquiferMode);}
-    const auto state=groundwaterEtState(m_gw2DEtCombo->currentData().toString(),QString::fromUtf8(aquiferMode),!off,QString::fromUtf8(configured)=="YES");
-    m_gw2DEtCombo->setEnabled(!off); m_gwLinkCombo->setEnabled(!off);
+    const auto e = ctx_.engine();
+    if (e) {
+        swmm_gw2d_option_get(e, "CONFIGURED", configured, sizeof configured);
+        swmm_gw2d_option_get(e, "MODE", aquiferMode, sizeof aquiferMode);
+    }
+    const auto state =
+        groundwaterEtState(m_gw2DEtCombo->currentData().toString(), QString::fromUtf8(aquiferMode),
+                           !off, QString::fromUtf8(configured) == "YES");
+    m_gw2DEtCombo->setEnabled(!off);
+    m_gwLinkCombo->setEnabled(!off);
     m_gwWiltingAuto->setEnabled(state.boundary);
-    m_gwWilting->setEnabled(state.boundary&&!m_gwWiltingAuto->isChecked());
-    m_gwEtAllocation->setText(state.reason+" "+tr("Surface evaporation spends atmospheric demand first; soil ET uses the remainder. ")+
-        openswmmvis::assignment::groundwaterEtForcingStatus(e,m_evap2DCombo->currentData().toString()));
+    m_gwWilting->setEnabled(state.boundary && !m_gwWiltingAuto->isChecked());
+    m_gwEtAllocation->setText(
+        state.reason + " " +
+        tr("Surface evaporation spends atmospheric demand first; soil ET uses the remainder. ") +
+        openswmmvis::assignment::groundwaterEtForcingStatus(
+            e, m_evap2DCombo->currentData().toString()));
     // Aquifer ownership is resolved from coverage. It is independent of
     // the ordinary bank's destination; never synthesize the obsolete token.
     if (m_infil2DDestCombo) {
         const int aq = m_infil2DDestCombo->findData(QStringLiteral("AQUIFER_2D"));
         if (auto *items = qobject_cast<QStandardItemModel *>(m_infil2DDestCombo->model()))
-            if (auto *item = items->item(aq)) item->setEnabled(false);
+            if (auto *item = items->item(aq))
+                item->setEnabled(false);
         m_infil2DDestCombo->setEnabled(true);
-        m_infil2DDestCombo->setToolTip(tr("Destination for ordinary surface-bank cells. Aquifer-owned cells compute their receiving capacity from the aquifer. Use Assign Groundwater → Review infiltration ownership to migrate obsolete destinations."));
-        if (m_infil2DMethodCombo) m_infil2DMethodCombo->setEnabled(true);
+        m_infil2DDestCombo->setToolTip(tr(
+            "Destination for ordinary surface-bank cells. Aquifer-owned cells compute their receiving capacity from the aquifer. Use Assign Groundwater → Review infiltration ownership to migrate obsolete destinations."));
+        if (m_infil2DMethodCombo)
+            m_infil2DMethodCombo->setEnabled(true);
     }
 
     // Name the [GW_*] authoring surface and what a run will do with it.
     int rows = 0;
     if (SWMM_Engine e = ctx_.engine()) {
-        rows = std::max(0, swmm_gw_params_count(e)) +
-               std::max(0, swmm_gw_sorption_count(e)) +
+        rows = std::max(0, swmm_gw_params_count(e)) + std::max(0, swmm_gw_sorption_count(e)) +
                std::max(0, swmm_gw_init_quality_count(e)) +
                std::max(0, swmm_gw_boundary_quality_count(e)) +
                std::max(0, swmm_gw_source_count(e));
     }
-    const QString rowSummary = rows > 0
-        ? tr("%1 subsurface transport row(s) configured "
-             "([GW_TRANSPORT_PARAMS], [GW_SORPTION], [GW_INITIAL_QUALITY], "
-             "[GW_BOUNDARY_QUALITY], [GW_SOURCES]). These rows are saved "
-             "with the model.").arg(rows)
-        : tr("No subsurface transport rows configured.");
-    m_gw2DStatusLabel->setText(rowSummary + tr(
-        " Use Assign Groundwater for initial temperatures, concentrations and sources. "
-        "Groundwater temperature transport carries heat with exchanged water. "
-        "Porous soil heat storage and conduction are separate, opt-in processes: select POROUS_EQUILIBRIUM in Assign Groundwater and enable the required groundwater and heat-temperature transport parents. "
-        "Their boundaries, material mixing and thermal resolution are configured under Assign Groundwater → Transport and thermal settings."));
+    const QString rowSummary =
+        rows > 0 ? tr("%1 subsurface transport row(s) configured "
+                      "([GW_TRANSPORT_PARAMS], [GW_SORPTION], [GW_INITIAL_QUALITY], "
+                      "[GW_BOUNDARY_QUALITY], [GW_SOURCES]). These rows are saved "
+                      "with the model.")
+                       .arg(rows)
+                 : tr("No subsurface transport rows configured.");
+    m_gw2DStatusLabel->setText(
+        rowSummary +
+        tr(" Use Assign Groundwater for initial temperatures, concentrations and sources. "
+           "Groundwater temperature transport carries heat with exchanged water. "
+           "Porous soil heat storage and conduction are separate, opt-in processes: select POROUS_EQUILIBRIUM in Assign Groundwater and enable the required groundwater and heat-temperature transport parents. "
+           "Their boundaries, material mixing and thermal resolution are configured under Assign Groundwater → Transport and thermal settings."));
 }
 
 unsigned TwoDPage::reportVarsMask() const
@@ -1074,7 +1123,7 @@ void TwoDPage::setReportVarsMask(unsigned mask)
     for (int r = 0; r < m_report2DVarsList->count(); ++r) {
         QListWidgetItem *it = m_report2DVarsList->item(r);
         const int bit = it->data(Qt::UserRole).toInt();
-        const bool isDepth = bit == 0;   // DEPTH is bit 0 and always on
+        const bool isDepth = bit == 0; // DEPTH is bit 0 and always on
         it->setCheckState((isDepth || (mask & (1u << bit))) ? Qt::Checked : Qt::Unchecked);
     }
     updateOutputSizeEstimate();
@@ -1082,11 +1131,13 @@ void TwoDPage::setReportVarsMask(unsigned mask)
 
 QString TwoDPage::reportSpeciesText() const
 {
-    if (m_report2DAllSpeciesBox->isChecked()) return QStringLiteral("ALL");
+    if (m_report2DAllSpeciesBox->isChecked())
+        return QStringLiteral("ALL");
     QStringList names;
     for (int r = 0; r < m_report2DSpeciesList->count(); ++r) {
         const QListWidgetItem *it = m_report2DSpeciesList->item(r);
-        if (it->checkState() == Qt::Checked) names << it->text();
+        if (it->checkState() == Qt::Checked)
+            names << it->text();
     }
     // Nothing ticked means "all" to the engine (empty list = unfiltered);
     // spell it out so the .inp reads as intended.
@@ -1097,10 +1148,11 @@ void TwoDPage::setReportSpeciesText(const QString &text)
 {
     QSignalBlocker b1(m_report2DAllSpeciesBox);
     QSignalBlocker b2(m_report2DSpeciesList);
-    const QStringList names = text.split(QRegularExpression(QStringLiteral("[\\s,]+")),
-                                         Qt::SkipEmptyParts);
-    const bool all = names.isEmpty() ||
-        (names.size() == 1 && names.first().compare(QLatin1String("ALL"), Qt::CaseInsensitive) == 0);
+    const QStringList names =
+        text.split(QRegularExpression(QStringLiteral("[\\s,]+")), Qt::SkipEmptyParts);
+    const bool all =
+        names.isEmpty() || (names.size() == 1 &&
+                            names.first().compare(QLatin1String("ALL"), Qt::CaseInsensitive) == 0);
     for (int r = 0; r < m_report2DSpeciesList->count(); ++r)
         m_report2DSpeciesList->item(r)->setCheckState(Qt::Unchecked);
     if (!all) {
@@ -1123,9 +1175,13 @@ void TwoDPage::setReportSpeciesText(const QString &text)
 
 void TwoDPage::updateOutputSizeEstimate()
 {
-    if (!m_output2DSizeLabel) return;
+    if (!m_output2DSizeLabel)
+        return;
     SWMM_Engine e = ctx_.engine();
-    if (!e) { m_output2DSizeLabel->setText(QStringLiteral("—")); return; }
+    if (!e) {
+        m_output2DSizeLabel->setText(QStringLiteral("—"));
+        return;
+    }
 
     int nCells = 0, nVerts = 0, nQuads = 0;
     swmm_2d_cell_count(e, &nCells);
@@ -1137,11 +1193,10 @@ void TwoDPage::updateOutputSizeEstimate()
     }
     const int edgeStride = nQuads > 0 ? 4 : 3;
 
-    const qint64 durationSec = m_schedule.durationSeconds
-                                   ? m_schedule.durationSeconds() : 0;
+    const qint64 durationSec = m_schedule.durationSeconds ? m_schedule.durationSeconds() : 0;
     const qint64 stepSec = m_report2DStepSameBox->isChecked()
-        ? (m_schedule.reportStepSeconds ? m_schedule.reportStepSeconds() : 0)
-        : m_report2DStepEdit->totalSeconds();
+                               ? (m_schedule.reportStepSeconds ? m_schedule.reportStepSeconds() : 0)
+                               : m_report2DStepEdit->totalSeconds();
     if (stepSec <= 0 || durationSec <= 0) {
         m_output2DSizeLabel->setText(tr("Set a positive duration and report step."));
         return;
@@ -1152,58 +1207,71 @@ void TwoDPage::updateOutputSizeEstimate()
     if (m_report2DAllSpeciesBox->isChecked()) {
         nSpecies = swmm_pollutant_count(e);
         for (int r = 0; r < m_report2DSpeciesList->count(); ++r)
-            if (!m_report2DSpeciesList->item(r)->toolTip().startsWith(QLatin1String("[POLLUTANTS]")))
-                ++nSpecies;   // MSX species (the list de-duplicates by name)
+            if (!m_report2DSpeciesList->item(r)->toolTip().startsWith(
+                    QLatin1String("[POLLUTANTS]")))
+                ++nSpecies; // MSX species (the list de-duplicates by name)
     } else {
         for (int r = 0; r < m_report2DSpeciesList->count(); ++r)
-            if (m_report2DSpeciesList->item(r)->checkState() == Qt::Checked) ++nSpecies;
+            if (m_report2DSpeciesList->item(r)->checkState() == Qt::Checked)
+                ++nSpecies;
     }
 
     // Values per frame by group; bit order matches swmm_2d_output_variable_name.
     const unsigned mask = reportVarsMask();
-    auto on = [&](const char *token) {
-        return (mask & swmm_2d_output_variable_mask(token)) != 0u;
-    };
-    double perFrame = 1.0;                                        // time
-    if (on("DEPTH"))        perFrame += 2.0 * nCells;
-    if (on("VELOCITY"))     perFrame += 2.0 * nCells;
-    if (on("EDGE_FLUX"))    perFrame += static_cast<double>(nCells) * edgeStride;
-    if (on("NODE_HEAD"))    perFrame += 2.0 * nVerts;
-    if (on("SPECIES"))      perFrame += static_cast<double>(nSpecies) * nCells;
-    if (on("RAINFALL"))     perFrame += 2.0 * nCells;
-    if (on("INFILTRATION")) perFrame += 2.0 * nCells;
-    if (on("COUPLING"))     perFrame += 2.0 * nCells;
-    if (on("GRADIENTS"))    perFrame += 4.0 * nCells;
-    if (on("CONTINUITY"))   perFrame += 1.0 * nCells;
-    const double bytesPer = m_output2DPrecisionCombo->currentData().toString()
-                                .compare(QLatin1String("FLOAT64"), Qt::CaseInsensitive) == 0
-                            ? 8.0 : 4.0;
+    auto on = [&](const char *token) { return (mask & swmm_2d_output_variable_mask(token)) != 0u; };
+    double perFrame = 1.0; // time
+    if (on("DEPTH"))
+        perFrame += 2.0 * nCells;
+    if (on("VELOCITY"))
+        perFrame += 2.0 * nCells;
+    if (on("EDGE_FLUX"))
+        perFrame += static_cast<double>(nCells) * edgeStride;
+    if (on("NODE_HEAD"))
+        perFrame += 2.0 * nVerts;
+    if (on("SPECIES"))
+        perFrame += static_cast<double>(nSpecies) * nCells;
+    if (on("RAINFALL"))
+        perFrame += 2.0 * nCells;
+    if (on("INFILTRATION"))
+        perFrame += 2.0 * nCells;
+    if (on("COUPLING"))
+        perFrame += 2.0 * nCells;
+    if (on("GRADIENTS"))
+        perFrame += 4.0 * nCells;
+    if (on("CONTINUITY"))
+        perFrame += 1.0 * nCells;
+    const double bytesPer = m_output2DPrecisionCombo->currentData().toString().compare(
+                                QLatin1String("FLOAT64"), Qt::CaseInsensitive) == 0
+                                ? 8.0
+                                : 4.0;
     const double bytes = frames * perFrame * bytesPer;
 
     auto human = [](double b) {
         const char *units[] = {"B", "KB", "MB", "GB", "TB"};
         int u = 0;
-        while (b >= 1024.0 && u < 4) { b /= 1024.0; ++u; }
-        return QStringLiteral("%1 %2").arg(b, 0, 'f', u == 0 ? 0 : 1)
-                                      .arg(QLatin1String(units[u]));
+        while (b >= 1024.0 && u < 4) {
+            b /= 1024.0;
+            ++u;
+        }
+        return QStringLiteral("%1 %2").arg(b, 0, 'f', u == 0 ? 0 : 1).arg(QLatin1String(units[u]));
     };
-    m_output2DSizeLabel->setText(
-        tr("≈ %1 uncompressed (%2 frames × %3 values × %4 B)%5")
-            .arg(human(bytes))
-            .arg(static_cast<qint64>(frames))
-            .arg(QLocale().toString(static_cast<qint64>(perFrame)))
-            .arg(static_cast<int>(bytesPer))
-            .arg(m_output2DCompressionSpin->value() > 0
-                     ? tr("; deflate level %1 typically 2–5× smaller")
-                           .arg(m_output2DCompressionSpin->value())
-                     : QString()));
+    m_output2DSizeLabel->setText(tr("≈ %1 uncompressed (%2 frames × %3 values × %4 B)%5")
+                                     .arg(human(bytes))
+                                     .arg(static_cast<qint64>(frames))
+                                     .arg(QLocale().toString(static_cast<qint64>(perFrame)))
+                                     .arg(static_cast<int>(bytesPer))
+                                     .arg(m_output2DCompressionSpin->value() > 0
+                                              ? tr("; deflate level %1 typically 2–5× smaller")
+                                                    .arg(m_output2DCompressionSpin->value())
+                                              : QString()));
 }
 
 void TwoDPage::read()
 {
     SWMM_Engine e = ctx_.engine();
     auto getExt = [&](const char *key, const QString &fallback) -> QString {
-        if (!e) return fallback;
+        if (!e)
+            return fallback;
         char buf[256] = {};
         if (swmm_options_get_ext(e, key, buf, sizeof(buf)) == 0)
             return QString::fromUtf8(buf).trimmed();
@@ -1214,8 +1282,7 @@ void TwoDPage::read()
     // persist it as a real edit).
     auto extDouble = [&](const char *key, double fallback) {
         bool okNum = false;
-        const double v = getExt(key, QString::number(fallback, 'g', 8))
-                             .toDouble(&okNum);
+        const double v = getExt(key, QString::number(fallback, 'g', 8)).toDouble(&okNum);
         return okNum ? v : fallback;
     };
     auto extInt = [&](const char *key, int fallback) {
@@ -1231,36 +1298,37 @@ void TwoDPage::read()
     // matching what File→New would synthesize.
     const auto t = PreferencesManager::instance()->twoDDefaults();
 
-    m_maxTimestepSpin  ->setValue(extDouble("MAX_TIMESTEP",     t.maxTimestepSec));
-    m_dryDepthSpin     ->setValue(extDouble("DRY_DEPTH",        t.dryDepth));
-    m_limiterEpsSpin   ->setValue(extDouble("LIMITER_EPSILON",  t.limiterEpsilon));
-    m_fluxDhEpsSpin    ->setValue(extDouble("FLUX_DH_EPS",      t.fluxDhEps));
+    m_maxTimestepSpin->setValue(extDouble("MAX_TIMESTEP", t.maxTimestepSec));
+    m_dryDepthSpin->setValue(extDouble("DRY_DEPTH", t.dryDepth));
+    m_limiterEpsSpin->setValue(extDouble("LIMITER_EPSILON", t.limiterEpsilon));
+    m_fluxDhEpsSpin->setValue(extDouble("FLUX_DH_EPS", t.fluxDhEps));
     m_vfrMinWetFracSpin->setValue(extDouble("VFR_MIN_WET_FRAC", t.vfrMinWetFrac));
-    m_couplingCdSpin   ->setValue(extDouble("COUPLING_CD",      t.couplingCd));
-    m_couplingSyncSpin ->setValue(extDouble("COUPLING_SYNC",    t.couplingSync));
+    m_couplingCdSpin->setValue(extDouble("COUPLING_CD", t.couplingCd));
+    m_couplingSyncSpin->setValue(extDouble("COUPLING_SYNC", t.couplingSync));
 
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
-        if (idx >= 0) c->setCurrentIndex(idx);
+        if (idx >= 0)
+            c->setCurrentIndex(idx);
     };
-    selectComboByData(m_cellClosureCombo,    getExt("CELL_CLOSURE",        t.cellClosure));
-    selectComboByData(m_faceReconCombo,      getExt("FACE_RECONSTRUCTION", t.faceReconstruction));
-    selectComboByData(m_rainfall2DModeCombo, getExt("RAINFALL_MODE",       t.rainfallMode));
-    m_report2DBox->setChecked(SOD::parseEngineBool(
-        getExt("REPORT_2D", t.report2D ? "YES" : "NO")) == Qt::Checked);
+    selectComboByData(m_cellClosureCombo, getExt("CELL_CLOSURE", t.cellClosure));
+    selectComboByData(m_faceReconCombo, getExt("FACE_RECONSTRUCTION", t.faceReconstruction));
+    selectComboByData(m_rainfall2DModeCombo, getExt("RAINFALL_MODE", t.rainfallMode));
+    m_report2DBox->setChecked(
+        SOD::parseEngineBool(getExt("REPORT_2D", t.report2D ? "YES" : "NO")) == Qt::Checked);
 
     // Explicit-marcher configuration (the only 2D integrator; no INTEGRATOR
     // read/write — the engine default is EXPLICIT).
-    m_thetaSpin    ->setValue(extDouble("THETA",      t.theta));
+    m_thetaSpin->setValue(extDouble("THETA", t.theta));
     m_cflNumberSpin->setValue(extDouble("CFL_NUMBER", t.cflNumber));
-    m_ltsTiersSpin ->setValue(extInt("LTS_TIERS",     t.ltsTiers));
-    m_hMoveSpin    ->setValue(extDouble("H_MOVE",     t.hMove));
+    m_ltsTiersSpin->setValue(extInt("LTS_TIERS", t.ltsTiers));
+    m_hMoveSpin->setValue(extDouble("H_MOVE", t.hMove));
     m_froudeMaxSpin->setValue(extDouble("FROUDE_MAX", t.froudeMax));
     selectComboByData(m_momentum2DCombo,
                       getExt("MOMENTUM_EQUATION", QStringLiteral("LOCAL_INERTIAL")));
     m_reconOrder2DSpin->setValue(extInt("RECONSTRUCTION_ORDER", 1));
-    m_advection2DBox->setChecked(SOD::parseEngineBool(
-        getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
+    m_advection2DBox->setChecked(
+        SOD::parseEngineBool(getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
     // No preferences default: the engine's AUTO is the only sensible seed.
     selectComboByData(m_backend2DCombo, getExt("BACKEND", QStringLiteral("AUTO")));
     m_couplingAreaAutoBox->setChecked(
@@ -1268,10 +1336,11 @@ void TwoDPage::read()
             .compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0);
     // An engine that reports nothing for these keys predates them: show the
     // legacy behaviour it runs, not the new-model preference.
-    selectComboByData(m_couplingLawCombo,    getExt("COUPLING_LAW",    QStringLiteral("ORIFICE")));
+    selectComboByData(m_couplingLawCombo, getExt("COUPLING_LAW", QStringLiteral("ORIFICE")));
     selectComboByData(m_couplingCoeffsCombo, getExt("COUPLING_COEFFS", QStringLiteral("DEFAULT")));
-    selectComboByData(m_couplingHeadCombo,   getExt("COUPLING_HEAD",   QStringLiteral("CELL")));
-    selectComboByData(m_couplingPondCombo,   getExt("COUPLING_POND_MODE", QStringLiteral("FOOTPRINT")));
+    selectComboByData(m_couplingHeadCombo, getExt("COUPLING_HEAD", QStringLiteral("CELL")));
+    selectComboByData(m_couplingPondCombo,
+                      getExt("COUPLING_POND_MODE", QStringLiteral("FOOTPRINT")));
     m_couplingPondRelaxSpin->setValue(extDouble("COUPLING_POND_RELAX", 0.0));
     {
         const QString band = getExt("COUPLING_RIM_BAND", QStringLiteral("DEFAULT"));
@@ -1279,7 +1348,8 @@ void TwoDPage::read()
         const double v = band.toDouble(&okNum);
         m_couplingRimBandSpin->setValue(okNum && v >= 0.0 ? v : m_couplingRimBandSpin->minimum());
     }
-    selectComboByData(m_couplingEqualizeCombo, getExt("COUPLING_EQUALIZE", QStringLiteral("DEFAULT")));
+    selectComboByData(m_couplingEqualizeCombo,
+                      getExt("COUPLING_EQUALIZE", QStringLiteral("DEFAULT")));
 
     // OUTPUT_FILE has no preferences default — blank means "auto-derive
     // <model>.2d.h5 at run time" (see SimulationRunner / run wiring).
@@ -1288,7 +1358,8 @@ void TwoDPage::read()
     // E1 — output precision / compression / cadence / variables / species.
     // A species list can exceed the 256-byte getExt buffer; read it wide.
     auto getExtWide = [&](const char *key) -> QString {
-        if (!e) return {};
+        if (!e)
+            return {};
         std::vector<char> buf(4096, '\0');
         if (swmm_options_get_ext(e, key, buf.data(), static_cast<int>(buf.size())) == 0)
             return QString::fromUtf8(buf.data()).trimmed();
@@ -1310,9 +1381,10 @@ void TwoDPage::read()
     }
     {
         const QString varsText = getExtWide("REPORT_2D_VARIABLES");
-        unsigned mask = varsText.isEmpty() ? 0u
-                      : swmm_2d_output_variable_mask(varsText.toUtf8().constData());
-        if (mask == 0u) mask = swmm_2d_output_variable_mask("DEFAULT");
+        unsigned mask =
+            varsText.isEmpty() ? 0u : swmm_2d_output_variable_mask(varsText.toUtf8().constData());
+        if (mask == 0u)
+            mask = swmm_2d_output_variable_mask("DEFAULT");
         setReportVarsMask(mask);
     }
     setReportSpeciesText(getExtWide("REPORT_2D_SPECIES"));
@@ -1335,47 +1407,51 @@ void TwoDPage::read()
         for (int i = 0; nDefaults == 0 && i < nCells && i < scanLimit && !anyCellRow; ++i) {
             SWMM_Infil2DRow row{};
             int isOverride = 0;
-            if (swmm_infil2d_get_cell(e, i, &row, &isOverride) == SWMM_OK &&
-                isOverride && row.has_method)
+            if (swmm_infil2d_get_cell(e, i, &row, &isOverride) == SWMM_OK && isOverride &&
+                row.has_method)
                 anyCellRow = true;
         }
         const bool rows = nDefaults > 0 || anyCellRow;
-        m_infil2DModeCombo->setItemText(
-            m_infil2DModeCombo->findData(QStringLiteral("AUTO")),
-            (nDefaults == 0 && nCells > scanLimit && !anyCellRow)
-                ? tr("Automatic (on when per-cell rows exist)")
-                : (rows ? tr("Automatic — on (per-cell rows exist)")
-                        : tr("Automatic — off (no per-cell rows)")));
+        m_infil2DModeCombo->setItemText(m_infil2DModeCombo->findData(QStringLiteral("AUTO")),
+                                        (nDefaults == 0 && nCells > scanLimit && !anyCellRow)
+                                            ? tr("Automatic (on when per-cell rows exist)")
+                                            : (rows ? tr("Automatic — on (per-cell rows exist)")
+                                                    : tr("Automatic — off (no per-cell rows)")));
     }
     {
-        const qint64 step =
-            SOD::parseStepSeconds(getExt("INFIL_STEP", QStringLiteral("0")), 0);
+        const qint64 step = SOD::parseStepSeconds(getExt("INFIL_STEP", QStringLiteral("0")), 0);
         QSignalBlocker b1(m_infil2DStepSameBox);
         QSignalBlocker b2(m_infil2DStepEdit);
         m_infil2DStepSameBox->setChecked(step <= 0);
         m_infil2DStepEdit->setEnabled(step > 0);
         m_infil2DStepEdit->setTotalSeconds(
-            step > 0 ? step
-                     : (m_schedule.wetStepSeconds ? m_schedule.wetStepSeconds() : 0));
+            step > 0 ? step : (m_schedule.wetStepSeconds ? m_schedule.wetStepSeconds() : 0));
     }
     selectComboByData(m_infil2DMethodCombo, getExt("INFIL_DEFAULT_METHOD", QStringLiteral("NONE")));
-    selectComboByData(m_infil2DDestCombo,   getExt("INFIL_DESTINATION",    QStringLiteral("LOST")));
-    selectComboByData(m_evap2DCombo,        getExt("EVAPORATION",          QStringLiteral("YES")));
+    selectComboByData(m_infil2DDestCombo, getExt("INFIL_DESTINATION", QStringLiteral("LOST")));
+    selectComboByData(m_evap2DCombo, getExt("EVAPORATION", QStringLiteral("YES")));
     for (int c = 0; c < 4; ++c) {
         QSignalBlocker b(m_transport2DBox[c]);
         m_transport2DBox[c]->setChecked(
-            SOD::parseEngineBool(getExt(transport2DKey(c), QStringLiteral("YES")))
-                != Qt::Unchecked);
+            SOD::parseEngineBool(getExt(transport2DKey(c), QStringLiteral("YES"))) !=
+            Qt::Unchecked);
     }
     emit transportSelectionChanged();
 
     // U5 — groundwater process enables. GROUNDWATER reports AS STORED, so
     // AUTO seeds AUTO and an unedited Apply writes nothing.
-    selectComboByData(m_gw2DEnableCombo,
-                      getExt("GROUNDWATER", QStringLiteral("AUTO")));
+    selectComboByData(m_gw2DEnableCombo, getExt("GROUNDWATER", QStringLiteral("AUTO")));
     selectComboByData(m_gw2DEtCombo, getExt("GW_ET", QStringLiteral("AUTO")));
-    char link[80]{},wilting[80]{},effective[80]{};swmm_gw2d_option_get(ctx_.engine(),"LINK_SEEPAGE",link,sizeof link);swmm_gw2d_option_get(ctx_.engine(),"WILTING_SUCTION",wilting,sizeof wilting);swmm_gw2d_option_get(ctx_.engine(),"WILTING_SUCTION_EFFECTIVE",effective,sizeof effective);
-    selectComboByData(m_gwLinkCombo,QString::fromUtf8(link));m_gwWiltingAuto->setChecked(QString::fromUtf8(wilting)=="AUTO");const QString flow=ctx_.option("FLOW_UNITS");const bool us=QStringList{"CFS","GPM","MGD"}.contains(flow.toUpper());m_gwWilting->setSuffix(us?" ft":" m");m_gwWilting->setValue(QString::fromUtf8(effective).toDouble());
+    char link[80]{}, wilting[80]{}, effective[80]{};
+    swmm_gw2d_option_get(ctx_.engine(), "LINK_SEEPAGE", link, sizeof link);
+    swmm_gw2d_option_get(ctx_.engine(), "WILTING_SUCTION", wilting, sizeof wilting);
+    swmm_gw2d_option_get(ctx_.engine(), "WILTING_SUCTION_EFFECTIVE", effective, sizeof effective);
+    selectComboByData(m_gwLinkCombo, QString::fromUtf8(link));
+    m_gwWiltingAuto->setChecked(QString::fromUtf8(wilting) == "AUTO");
+    const QString flow = ctx_.option("FLOW_UNITS");
+    const bool us = QStringList{"CFS", "GPM", "MGD"}.contains(flow.toUpper());
+    m_gwWilting->setSuffix(us ? " ft" : " m");
+    m_gwWilting->setValue(QString::fromUtf8(effective).toDouble());
     refreshGates();
 }
 
@@ -1384,14 +1460,16 @@ int TwoDPage::write()
     SWMM_Engine e = ctx_.engine();
     int n = 0;
     auto getExt = [&](const char *key) -> QString {
-        if (!e) return {};
+        if (!e)
+            return {};
         char buf[256] = {};
         if (swmm_options_get_ext(e, key, buf, sizeof(buf)) == 0)
             return QString::fromUtf8(buf).trimmed();
         return {};
     };
     auto setExt = [&](const char *key, const QString &v) -> bool {
-        if (!e) return false;
+        if (!e)
+            return false;
         return swmm_options_set_ext(e, key, v.toUtf8().constData()) == 0;
     };
     auto writeIfChanged = [&](const char *key, const QString &nv) {
@@ -1401,47 +1479,40 @@ int TwoDPage::write()
         // through the context either way.
         ctx_.recordWrittenKey(key);
         // Numeric-aware compare, same rationale as the [OPTIONS] pages.
-        if (SimulationOptionsDialog::optionValueEquals(getExt(key), nv)) return;
-        if (setExt(key, nv)) ++n;
+        if (SimulationOptionsDialog::optionValueEquals(getExt(key), nv))
+            return;
+        if (setExt(key, nv))
+            ++n;
     };
     using SOD = SimulationOptionsDialog;
 
-    writeIfChanged("MAX_TIMESTEP",
-                   QString::number(m_maxTimestepSpin->value(), 'g', 8));
-    writeIfChanged("DRY_DEPTH",
-                   QString::number(m_dryDepthSpin->value(), 'g', 8));
-    writeIfChanged("LIMITER_EPSILON",
-                   QString::number(m_limiterEpsSpin->value(), 'g', 8));
-    writeIfChanged("FLUX_DH_EPS",
-                   QString::number(m_fluxDhEpsSpin->value(), 'g', 8));
-    writeIfChanged("CELL_CLOSURE",        m_cellClosureCombo->currentData().toString());
+    writeIfChanged("MAX_TIMESTEP", QString::number(m_maxTimestepSpin->value(), 'g', 8));
+    writeIfChanged("DRY_DEPTH", QString::number(m_dryDepthSpin->value(), 'g', 8));
+    writeIfChanged("LIMITER_EPSILON", QString::number(m_limiterEpsSpin->value(), 'g', 8));
+    writeIfChanged("FLUX_DH_EPS", QString::number(m_fluxDhEpsSpin->value(), 'g', 8));
+    writeIfChanged("CELL_CLOSURE", m_cellClosureCombo->currentData().toString());
     writeIfChanged("FACE_RECONSTRUCTION", m_faceReconCombo->currentData().toString());
-    writeIfChanged("VFR_MIN_WET_FRAC",
-                   QString::number(m_vfrMinWetFracSpin->value(), 'g', 6));
-    writeIfChanged("COUPLING_CD",
-                   QString::number(m_couplingCdSpin->value(), 'f', 4));
-    writeIfChanged("COUPLING_SYNC",
-                   QString::number(m_couplingSyncSpin->value(), 'g', 6));
-    writeIfChanged("RAINFALL_MODE",     m_rainfall2DModeCombo->currentData().toString());
-    writeIfChanged("REPORT_2D",         SOD::engineBoolString(m_report2DBox->isChecked()));
+    writeIfChanged("VFR_MIN_WET_FRAC", QString::number(m_vfrMinWetFracSpin->value(), 'g', 6));
+    writeIfChanged("COUPLING_CD", QString::number(m_couplingCdSpin->value(), 'f', 4));
+    writeIfChanged("COUPLING_SYNC", QString::number(m_couplingSyncSpin->value(), 'g', 6));
+    writeIfChanged("RAINFALL_MODE", m_rainfall2DModeCombo->currentData().toString());
+    writeIfChanged("REPORT_2D", SOD::engineBoolString(m_report2DBox->isChecked()));
 
     // Explicit-marcher configuration (the only 2D integrator).
-    writeIfChanged("THETA",         QString::number(m_thetaSpin->value(), 'g', 6));
-    writeIfChanged("CFL_NUMBER",    QString::number(m_cflNumberSpin->value(), 'g', 6));
-    writeIfChanged("LTS_TIERS",     QString::number(m_ltsTiersSpin->value()));
-    writeIfChanged("H_MOVE",        QString::number(m_hMoveSpin->value(), 'g', 6));
-    writeIfChanged("FROUDE_MAX",    QString::number(m_froudeMaxSpin->value(), 'g', 6));
+    writeIfChanged("THETA", QString::number(m_thetaSpin->value(), 'g', 6));
+    writeIfChanged("CFL_NUMBER", QString::number(m_cflNumberSpin->value(), 'g', 6));
+    writeIfChanged("LTS_TIERS", QString::number(m_ltsTiersSpin->value()));
+    writeIfChanged("H_MOVE", QString::number(m_hMoveSpin->value(), 'g', 6));
+    writeIfChanged("FROUDE_MAX", QString::number(m_froudeMaxSpin->value(), 'g', 6));
     writeIfChanged("MOMENTUM_EQUATION", m_momentum2DCombo->currentData().toString());
-    writeIfChanged("RECONSTRUCTION_ORDER",
-                   QString::number(m_reconOrder2DSpin->value()));
-    writeIfChanged("ADVECTION",     SOD::engineBoolString(m_advection2DBox->isChecked()));
-    writeIfChanged("BACKEND",       m_backend2DCombo->currentData().toString());
-    writeIfChanged("COUPLING_AREA", m_couplingAreaAutoBox->isChecked()
-                                        ? QStringLiteral("AUTO")
-                                        : QStringLiteral("DEFAULT"));
-    writeIfChanged("COUPLING_LAW",       m_couplingLawCombo->currentData().toString());
-    writeIfChanged("COUPLING_COEFFS",    m_couplingCoeffsCombo->currentData().toString());
-    writeIfChanged("COUPLING_HEAD",      m_couplingHeadCombo->currentData().toString());
+    writeIfChanged("RECONSTRUCTION_ORDER", QString::number(m_reconOrder2DSpin->value()));
+    writeIfChanged("ADVECTION", SOD::engineBoolString(m_advection2DBox->isChecked()));
+    writeIfChanged("BACKEND", m_backend2DCombo->currentData().toString());
+    writeIfChanged("COUPLING_AREA", m_couplingAreaAutoBox->isChecked() ? QStringLiteral("AUTO")
+                                                                       : QStringLiteral("DEFAULT"));
+    writeIfChanged("COUPLING_LAW", m_couplingLawCombo->currentData().toString());
+    writeIfChanged("COUPLING_COEFFS", m_couplingCoeffsCombo->currentData().toString());
+    writeIfChanged("COUPLING_HEAD", m_couplingHeadCombo->currentData().toString());
     writeIfChanged("COUPLING_POND_MODE", m_couplingPondCombo->currentData().toString());
     writeIfChanged("COUPLING_POND_RELAX",
                    QString::number(m_couplingPondRelaxSpin->value(), 'g', 6));
@@ -1449,37 +1520,35 @@ int TwoDPage::write()
                    m_couplingRimBandSpin->value() < 0.0
                        ? QStringLiteral("DEFAULT")
                        : QString::number(m_couplingRimBandSpin->value(), 'g', 6));
-    writeIfChanged("COUPLING_EQUALIZE",  m_couplingEqualizeCombo->currentData().toString());
+    writeIfChanged("COUPLING_EQUALIZE", m_couplingEqualizeCombo->currentData().toString());
     // Empty clears the key — InpWriter omits OUTPUT_FILE when unset and the
     // run wiring falls back to <model>.2d.h5.
-    writeIfChanged("OUTPUT_FILE",   m_output2DFileEdit->text().trimmed());
+    writeIfChanged("OUTPUT_FILE", m_output2DFileEdit->text().trimmed());
 
     // E1 — precision / compression / cadence / variables / species.
     auto getExtWide = [&](const char *key) -> QString {
-        if (!e) return {};
+        if (!e)
+            return {};
         std::vector<char> buf(4096, '\0');
         if (swmm_options_get_ext(e, key, buf.data(), static_cast<int>(buf.size())) == 0)
             return QString::fromUtf8(buf.data()).trimmed();
         return {};
     };
-    writeIfChanged("OUTPUT_PRECISION",
-                   m_output2DPrecisionCombo->currentData().toString());
-    writeIfChanged("OUTPUT_COMPRESSION",
-                   QString::number(m_output2DCompressionSpin->value()));
+    writeIfChanged("OUTPUT_PRECISION", m_output2DPrecisionCombo->currentData().toString());
+    writeIfChanged("OUTPUT_COMPRESSION", QString::number(m_output2DCompressionSpin->value()));
     {
         // Engine formats the key as HH:MM:SS; compare in seconds so an
         // untouched value is not re-written.
         ctx_.recordWrittenKey("REPORT_2D_STEP");
         const qint64 cur = SOD::parseStepSeconds(getExt("REPORT_2D_STEP"), 0);
-        const qint64 nv  = m_report2DStepSameBox->isChecked()
-                               ? 0 : m_report2DStepEdit->totalSeconds();
+        const qint64 nv =
+            m_report2DStepSameBox->isChecked() ? 0 : m_report2DStepEdit->totalSeconds();
         if (cur != nv) {
             const qint64 h = nv / 3600, m = (nv % 3600) / 60, s = nv % 60;
-            if (setExt("REPORT_2D_STEP",
-                       QStringLiteral("%1:%2:%3")
-                           .arg(h, 2, 10, QLatin1Char('0'))
-                           .arg(m, 2, 10, QLatin1Char('0'))
-                           .arg(s, 2, 10, QLatin1Char('0'))))
+            if (setExt("REPORT_2D_STEP", QStringLiteral("%1:%2:%3")
+                                             .arg(h, 2, 10, QLatin1Char('0'))
+                                             .arg(m, 2, 10, QLatin1Char('0'))
+                                             .arg(s, 2, 10, QLatin1Char('0'))))
                 ++n;
         }
     }
@@ -1488,19 +1557,20 @@ int TwoDPage::write()
         ctx_.recordWrittenKey("REPORT_2D_VARIABLES");
         const QString curText = getExtWide("REPORT_2D_VARIABLES");
         const unsigned cur = curText.isEmpty()
-            ? swmm_2d_output_variable_mask("DEFAULT")
-            : swmm_2d_output_variable_mask(curText.toUtf8().constData());
+                                 ? swmm_2d_output_variable_mask("DEFAULT")
+                                 : swmm_2d_output_variable_mask(curText.toUtf8().constData());
         const unsigned nv = reportVarsMask();
-        if (cur != nv && setExt("REPORT_2D_VARIABLES",
-                                QString::fromLatin1(swmm_2d_output_variable_text(nv))))
+        if (cur != nv &&
+            setExt("REPORT_2D_VARIABLES", QString::fromLatin1(swmm_2d_output_variable_text(nv))))
             ++n;
     }
     {
         ctx_.recordWrittenKey("REPORT_2D_SPECIES");
         const QString cur = getExtWide("REPORT_2D_SPECIES");
-        const QString nv  = reportSpeciesText();
-        const bool curAll = cur.isEmpty() || cur.compare(QLatin1String("ALL"), Qt::CaseInsensitive) == 0;
-        const bool nvAll  = nv.compare(QLatin1String("ALL"), Qt::CaseInsensitive) == 0;
+        const QString nv = reportSpeciesText();
+        const bool curAll =
+            cur.isEmpty() || cur.compare(QLatin1String("ALL"), Qt::CaseInsensitive) == 0;
+        const bool nvAll = nv.compare(QLatin1String("ALL"), Qt::CaseInsensitive) == 0;
         if (!(curAll && nvAll) && cur.compare(nv, Qt::CaseInsensitive) != 0 &&
             setExt("REPORT_2D_SPECIES", nv))
             ++n;
@@ -1513,8 +1583,7 @@ int TwoDPage::write()
         // compare in seconds (engine spells HH:MM:SS).
         ctx_.recordWrittenKey("INFIL_STEP");
         const qint64 cur = SOD::parseStepSeconds(getExt("INFIL_STEP"), 0);
-        const qint64 nv  = m_infil2DStepSameBox->isChecked()
-                               ? 0 : m_infil2DStepEdit->totalSeconds();
+        const qint64 nv = m_infil2DStepSameBox->isChecked() ? 0 : m_infil2DStepEdit->totalSeconds();
         if (cur != nv) {
             const qint64 h = nv / 3600, m = (nv % 3600) / 60, sec = nv % 60;
             if (setExt("INFIL_STEP", QStringLiteral("%1:%2:%3")
@@ -1525,22 +1594,37 @@ int TwoDPage::write()
         }
     }
     writeIfChanged("INFIL_DEFAULT_METHOD", m_infil2DMethodCombo->currentData().toString());
-    writeIfChanged("INFIL_DESTINATION",    m_infil2DDestCombo->currentData().toString());
-    writeIfChanged("EVAPORATION",          m_evap2DCombo->currentData().toString());
+    writeIfChanged("INFIL_DESTINATION", m_infil2DDestCombo->currentData().toString());
+    writeIfChanged("EVAPORATION", m_evap2DCombo->currentData().toString());
     for (int c = 0; c < 4; ++c)
-        writeIfChanged(transport2DKey(c),
-                       SOD::engineBoolString(m_transport2DBox[c]->isChecked()));
+        writeIfChanged(transport2DKey(c), SOD::engineBoolString(m_transport2DBox[c]->isChecked()));
 
     // U5 — groundwater process enables. GW_ET writes through the alias into
     // [2D_AQUIFER_OPTIONS], so this and the Mesh 2D aquifer editor set the
     // same value.
     writeIfChanged("GROUNDWATER", m_gw2DEnableCombo->currentData().toString());
-    for(const auto key:{"GW_ET","LINK_SEEPAGE","WILTING_SUCTION"})ctx_.recordWrittenKey(key);
-    char oldEt[80]{},oldLink[80]{},oldWilting[80]{};swmm_gw2d_option_get(e,"GW_ET",oldEt,sizeof oldEt);swmm_gw2d_option_get(e,"LINK_SEEPAGE",oldLink,sizeof oldLink);swmm_gw2d_option_get(e,"WILTING_SUCTION",oldWilting,sizeof oldWilting);
-    const auto et=m_gw2DEtCombo->currentData().toString(),link=m_gwLinkCombo->currentData().toString();QString wilting=m_gwWiltingAuto->isChecked()?QString("AUTO"):QString::number(m_gwWilting->value(),'g',17);
-    if(wilting!="AUTO"&&QString::fromUtf8(oldWilting)!="AUTO"&&std::abs(wilting.toDouble()-QString::fromUtf8(oldWilting).toDouble())<=5e-10)wilting=QString::fromUtf8(oldWilting);
-    if(et!=QString::fromUtf8(oldEt)||link!=QString::fromUtf8(oldLink)||wilting!=QString::fromUtf8(oldWilting)){
-        if(swmm_gw2d_process_options_set(e,et.toUtf8().constData(),link.toUtf8().constData(),wilting.toUtf8().constData(),1)==SWMM_OK){++n;if(ctx_.modelLayer())emit ctx_.modelLayer()->optionsChanged({"GW_ET","LINK_SEEPAGE","WILTING_SUCTION"});}
+    for (const auto key : {"GW_ET", "LINK_SEEPAGE", "WILTING_SUCTION"})
+        ctx_.recordWrittenKey(key);
+    char oldEt[80]{}, oldLink[80]{}, oldWilting[80]{};
+    swmm_gw2d_option_get(e, "GW_ET", oldEt, sizeof oldEt);
+    swmm_gw2d_option_get(e, "LINK_SEEPAGE", oldLink, sizeof oldLink);
+    swmm_gw2d_option_get(e, "WILTING_SUCTION", oldWilting, sizeof oldWilting);
+    const auto et = m_gw2DEtCombo->currentData().toString(),
+               link = m_gwLinkCombo->currentData().toString();
+    QString wilting = m_gwWiltingAuto->isChecked() ? QString("AUTO")
+                                                   : QString::number(m_gwWilting->value(), 'g', 17);
+    if (wilting != "AUTO" && QString::fromUtf8(oldWilting) != "AUTO" &&
+        std::abs(wilting.toDouble() - QString::fromUtf8(oldWilting).toDouble()) <= 5e-10)
+        wilting = QString::fromUtf8(oldWilting);
+    if (et != QString::fromUtf8(oldEt) || link != QString::fromUtf8(oldLink) ||
+        wilting != QString::fromUtf8(oldWilting)) {
+        if (swmm_gw2d_process_options_set(e, et.toUtf8().constData(), link.toUtf8().constData(),
+                                          wilting.toUtf8().constData(), 1) == SWMM_OK) {
+            ++n;
+            if (ctx_.modelLayer())
+                emit ctx_.modelLayer()->optionsChanged(
+                    {"GW_ET", "LINK_SEEPAGE", "WILTING_SUCTION"});
+        }
     }
     return n;
 }

@@ -1,8 +1,9 @@
-/*!
- * \file   attributetablepanel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      attributetablepanel.h
+ * @brief     Attribute Tables dock.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice Z.1 — Attribute Tables dock.  Holds a QTableView over the
  * active SWMM project's objects, partitioned by Category via a combo
@@ -12,6 +13,7 @@
  * Z.2 (SQL-like query bar) and Z.3 (selection ops) are layered on top
  * of this panel in later slices.  Z.4 (tabular file uploads) plugs in
  * a second model kind through the same view.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef ATTRIBUTETABLEPANEL_H
@@ -40,14 +42,17 @@ class SWMMAttributeTableModel;
 class TabularDataLayer;
 class TabularDataTableModel;
 class GISVectorLayer;
-class GISVectorAttributeTableModel;   // read-only OGR-feature source (defined in the .cpp)
+class GISVectorAttributeTableModel; // read-only OGR-feature source (defined in the .cpp)
 class MapCanvas;
-class MeshAttributeTableModel;        // 2D mesh vertices / edges / cells source
-class DataObjectAttributeTableModel;  // pollutants / land uses / aquifers / streets / inlets
+class MeshAttributeTableModel;       // 2D mesh vertices / edges / cells source
+class DataObjectAttributeTableModel; // pollutants / land uses / aquifers / streets / inlets
 class SWMM2DMeshLayer;
 class SWMMResultsLayer;
 
-namespace openswmmvis { struct ColumnSpec; }
+namespace openswmmvis
+{
+struct ColumnSpec;
+}
 
 class AttributeTablePanel : public QWidget
 {
@@ -58,9 +63,7 @@ public:
 
     /*! Bind to the active project — model layer + selection bus +
      *  canvas (used for "Zoom to selected").  Pass nulls to detach. */
-    void setProject(SWMMModelLayer *layer,
-                    SelectionManager *selMgr,
-                    MapCanvas *canvas = nullptr);
+    void setProject(SWMMModelLayer *layer, SelectionManager *selMgr, MapCanvas *canvas = nullptr);
 
     /*! Rebuild the category combo + reload the table model.  Called
      *  on `modelLoaded`. */
@@ -92,8 +95,7 @@ public:
      *  (setResultsSource). \p model must be the bound project's model; any
      *  other is ignored. Called from the layer tree's object-type rows
      *  (FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §7). */
-    void showModelCategory(SWMMModelLayer *model, int category,
-                           SWMMResultsLayer *run = nullptr);
+    void showModelCategory(SWMMModelLayer *model, int category, SWMMResultsLayer *run = nullptr);
 
     /*! Show mesh \p mesh's vertices (0), edges (1) or cells (2) table —
      *  MeshAttributeTableModel::Kind order. */
@@ -243,8 +245,7 @@ private:
 
     /*! Delegate installation for an arbitrary `ColumnSpec` list, so the
      *  SWMM source and the 2D-mesh source share one implementation. */
-    void installColumnDelegates(const QList<openswmmvis::ColumnSpec> &specs,
-                                int clearUpTo);
+    void installColumnDelegates(const QList<openswmmvis::ColumnSpec> &specs, int clearUpTo);
 
     /*! Delegates currently installed on the view — the outgoing set is
      *  deleted (not just detached) on the next install, closing the
@@ -324,54 +325,52 @@ private:
      *  `promptBulkValue` pops the right input dialog for the column's
      *  editor kind (double / int / enum / text). */
     QList<int> selectedSourceRows() const;
-    void applyValueToSelectedRows(int column, const QList<int> &sourceRows,
-                                  const QVariant &value);
-    QVariant promptBulkValue(int column, const QVariant &current,
-                             bool *ok) const;
+    void applyValueToSelectedRows(int column, const QList<int> &sourceRows, const QVariant &value);
+    QVariant promptBulkValue(int column, const QVariant &current, bool *ok) const;
 
-    QPointer<SWMMModelLayer>   m_layer;
+    QPointer<SWMMModelLayer> m_layer;
     QPointer<SelectionManager> m_selMgr;
-    QPointer<MapCanvas>        m_canvas;
+    QPointer<MapCanvas> m_canvas;
 
-    QComboBox               *m_categoryCombo = nullptr;
-    QTableView              *m_view          = nullptr;
-    QToolBar                *m_toolbar       = nullptr;
-    QAction                 *m_copyAct       = nullptr;
-    SWMMAttributeTableModel *m_model         = nullptr;
-    TabularDataTableModel   *m_tabularModel  = nullptr;  ///< Z.4.3 — alt source
-    GISVectorAttributeTableModel *m_gisModel = nullptr;  ///< external OGR feature-layer source
-    MeshAttributeTableModel *m_meshModel     = nullptr;  ///< 2D mesh elements source
+    QComboBox *m_categoryCombo = nullptr;
+    QTableView *m_view = nullptr;
+    QToolBar *m_toolbar = nullptr;
+    QAction *m_copyAct = nullptr;
+    SWMMAttributeTableModel *m_model = nullptr;
+    TabularDataTableModel *m_tabularModel = nullptr;      ///< Z.4.3 — alt source
+    GISVectorAttributeTableModel *m_gisModel = nullptr;   ///< external OGR feature-layer source
+    MeshAttributeTableModel *m_meshModel = nullptr;       ///< 2D mesh elements source
     DataObjectAttributeTableModel *m_dataModel = nullptr; ///< non-spatial data-object source
-    QSortFilterProxyModel   *m_proxy         = nullptr;
-    QLabel                  *m_selectionCount = nullptr; ///< "12 of 1205 selected" footer
+    QSortFilterProxyModel *m_proxy = nullptr;
+    QLabel *m_selectionCount = nullptr; ///< "12 of 1205 selected" footer
 
     // Slice Z.2 — Query bar
-    QLineEdit               *m_queryEdit     = nullptr;
-    QPushButton             *m_queryApply    = nullptr;
-    QPushButton             *m_queryClear    = nullptr;
-    QLabel                  *m_queryStatus   = nullptr;  ///< "47 of 1205 rows"
+    QLineEdit *m_queryEdit = nullptr;
+    QPushButton *m_queryApply = nullptr;
+    QPushButton *m_queryClear = nullptr;
+    QLabel *m_queryStatus = nullptr; ///< "47 of 1205 rows"
 
     // Slice Z.3 — Selection-op radios + single Apply button.  IDs
     // assigned to the buttons in `buildUi()` are read back in
     // `onSelectionApplyClicked()` and dispatched to the matching
     // SelectionManager op.
     enum SelectionMode {
-        SelReplace   = 0,
-        SelAdd       = 1,
-        SelSubtract  = 2,
+        SelReplace = 0,
+        SelAdd = 1,
+        SelSubtract = 2,
         SelIntersect = 3,
-        SelInvert    = 4,
+        SelInvert = 4,
     };
-    QButtonGroup            *m_selGroup      = nullptr;
-    QRadioButton            *m_selReplaceR   = nullptr;
-    QRadioButton            *m_selAddR       = nullptr;
-    QRadioButton            *m_selSubtractR  = nullptr;
-    QRadioButton            *m_selIntersectR = nullptr;
-    QRadioButton            *m_selInvertR    = nullptr;
+    QButtonGroup *m_selGroup = nullptr;
+    QRadioButton *m_selReplaceR = nullptr;
+    QRadioButton *m_selAddR = nullptr;
+    QRadioButton *m_selSubtractR = nullptr;
+    QRadioButton *m_selIntersectR = nullptr;
+    QRadioButton *m_selInvertR = nullptr;
 
-    bool m_applyingFromBus = false;   ///< Reentrancy guard mirroring ObjectBrowserPanel.
+    bool m_applyingFromBus = false; ///< Reentrancy guard mirroring ObjectBrowserPanel.
     bool m_showSelectedOnly = false;
-    bool m_suppressEditForward = false;  ///< Set during onObjectEditedExternally to break loop.
+    bool m_suppressEditForward = false; ///< Set during onObjectEditedExternally to break loop.
 };
 
 #endif // ATTRIBUTETABLEPANEL_H

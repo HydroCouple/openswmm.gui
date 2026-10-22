@@ -1,9 +1,9 @@
-/*!
- * \file   iattributeprovider.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Layer-side seam for "what attributes can I theme by?" — Slice DM.1.
+/**
+ * @file      iattributeprovider.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Layer-side seam for "what attributes can I theme by?" — Slice DM.1.
  *
  *         The renderer panels (Graduated / Categorized / the AN.* raster
  *         adapters' attribute slot) need to populate their attribute
@@ -23,6 +23,7 @@
  *         legacy free-text QLineEdit behaviour.
  *
  *         See docs/RENDERING_DIALOG_DEMO_PLAN.md §2.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_IATTRIBUTEPROVIDER_H
@@ -49,13 +50,12 @@ namespace OpenSWMM::Render
  *        \c isDynamic marks attributes that vary per animation frame —
  *        Z.7 already gates "Recompute breaks per frame" on this flag.
  */
-struct AttributeField
-{
-    QString          name;                          /*!< Canonical lookup key. */
-    QString          displayName;                   /*!< i18n label for the picker. */
-    QMetaType::Type  type = QMetaType::Double;      /*!< Storage type — drives delegate choice. */
-    bool             isDynamic = false;             /*!< True if value varies per animation frame. */
-    QString          unit;                          /*!< "m", "m/s", "m³/s", … (free-form). */
+struct AttributeField {
+    QString name;                             /*!< Canonical lookup key. */
+    QString displayName;                      /*!< i18n label for the picker. */
+    QMetaType::Type type = QMetaType::Double; /*!< Storage type — drives delegate choice. */
+    bool isDynamic = false;                   /*!< True if value varies per animation frame. */
+    QString unit;                             /*!< "m", "m/s", "m³/s", … (free-form). */
 };
 
 /*!
@@ -72,6 +72,7 @@ struct AttributeField
 class IAttributeProvider
 {
 public:
+    /** @brief Destroy a provider through its interface without owning its consumers. */
     virtual ~IAttributeProvider() = default;
 
     /*! Available themeable fields for \p cat. Empty list is a valid
@@ -79,9 +80,12 @@ public:
      *  on this category (e.g. SWMMModelLayer::CatRainGages has no per-
      *  feature engine fields).
      *
-     *  Order = preferred picker order. Callers should NOT re-sort. */
+     *  Order = preferred picker order. Callers should NOT re-sort.
+     * @param cat Category whose attributes will be offered for classification.
+     * @return Owned metadata vector in picker order; keys use the provider's
+     * canonical spelling and units describe the corresponding values. */
     [[nodiscard]] virtual QVector<AttributeField>
-        availableAttributes(OpenSWMMVis::SwmmCategory cat) const = 0;
+    availableAttributes(OpenSWMMVis::SwmmCategory cat) const = 0;
 };
 
 } // namespace OpenSWMM::Render

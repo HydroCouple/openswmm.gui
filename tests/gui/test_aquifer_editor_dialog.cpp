@@ -1,12 +1,16 @@
-/*!
- * \file   test_aquifer_editor_dialog.cpp
- * \brief  Phase G2 — the rebuilt Aquifer editor: add / rename / delete through
+/**
+ * @file      test_aquifer_editor_dialog.cpp
+ * @brief     Phase G2 — the rebuilt Aquifer editor: add / rename / delete through
  *         the registry, spin-box ↔ provider sync, evaporation-pattern round
  *         trip to the engine, soft-validation warnings and the live diagram.
  *
  * Fixture models are written to a persistent, reviewable directory under
  * the GUI test data dir (SWMMVIS_GUI_TEST_DATA/aquifer_editor/), never to
  * temp dirs. Mirrors test_landuse_unified_editor.cpp.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest/QtTest>
@@ -34,7 +38,8 @@ using openswmmvis::aquifer::AquiferProvider;
 using openswmmvis::aquifer::AquiferRegistry;
 using openswmmvis::ui::AquiferEditorDialog;
 
-namespace {
+namespace
+{
 
 QString fixtureDir()
 {
@@ -47,7 +52,8 @@ QString writeFixture(const QString &tag)
     QDir().mkpath(fixtureDir());
     const QString path = fixtureDir() + QStringLiteral("/%1.inp").arg(tag);
     QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return {};
     QTextStream out(&f);
     out << "[OPTIONS]\n"
            "FLOW_UNITS           CFS\n"
@@ -100,12 +106,12 @@ struct EngineFixture {
     explicit EngineFixture(const QString &tag)
     {
         const QString inp = writeFixture(tag);
-        if (inp.isEmpty()) return;
+        if (inp.isEmpty())
+            return;
         engine = swmm_engine_create();
         const QString rpt = fixtureDir() + QStringLiteral("/%1.rpt").arg(tag);
         const QString out = fixtureDir() + QStringLiteral("/%1.out").arg(tag);
-        if (swmm_engine_open(engine, inp.toUtf8().constData(),
-                             rpt.toUtf8().constData(),
+        if (swmm_engine_open(engine, inp.toUtf8().constData(), rpt.toUtf8().constData(),
                              out.toUtf8().constData(), nullptr) != SWMM_OK) {
             swmm_engine_destroy(engine);
             engine = nullptr;
@@ -113,14 +119,16 @@ struct EngineFixture {
     }
     ~EngineFixture()
     {
-        if (engine) swmm_engine_destroy(engine);
+        if (engine)
+            swmm_engine_destroy(engine);
     }
 };
 
 QString engineEvapPattern(SWMM_Engine e, const char *aquifer)
 {
     const int idx = swmm_aquifer_index(e, aquifer);
-    if (idx < 0) return QStringLiteral("<missing>");
+    if (idx < 0)
+        return QStringLiteral("<missing>");
     char buf[256] = {};
     if (swmm_aquifer_get_evap_pattern(e, idx, buf, sizeof buf) != SWMM_OK)
         return QStringLiteral("<error>");
@@ -132,7 +140,8 @@ int countLeadersContaining(const openswmmvis::sectionview::SectionDiagramModel &
 {
     int n = 0;
     for (const auto &l : m.leaders)
-        if (l.text.contains(needle)) ++n;
+        if (l.text.contains(needle))
+            ++n;
     return n;
 }
 
@@ -175,12 +184,13 @@ void TestAquiferEditorDialog::bindsFirstAquiferIntoForm()
 
     // Engine bounds are the spin ranges: fractions in [0,1], elevations may
     // be negative, the rest non-negative.
-    for (int k : { 0, 1, 2, 6, 11 }) {
+    for (int k : {0, 1, 2, 6, 11}) {
         QCOMPARE(dlg.spinBox(k)->minimum(), 0.0);
         QCOMPARE(dlg.spinBox(k)->maximum(), 1.0);
     }
-    for (int k : { 9, 10 }) QVERIFY(dlg.spinBox(k)->minimum() < 0.0);
-    for (int k : { 3, 4, 5, 7, 8 }) {
+    for (int k : {9, 10})
+        QVERIFY(dlg.spinBox(k)->minimum() < 0.0);
+    for (int k : {3, 4, 5, 7, 8}) {
         QCOMPARE(dlg.spinBox(k)->minimum(), 0.0);
         QVERIFY(dlg.spinBox(k)->maximum() > 1.0);
     }
@@ -297,7 +307,7 @@ void TestAquiferEditorDialog::spinEditsReachProvider()
     dlg.listView()->setCurrentIndex(dlg.listModel()->index(1));
     QCOMPARE(dlg.currentProvider(), aq2);
     QCOMPARE(dlg.spinBox(AquiferProvider::Porosity)->value(), 0.4);
-    QCOMPARE(dlg.evapPatternCombo()->currentIndex(), 0);   // "(none)"
+    QCOMPARE(dlg.evapPatternCombo()->currentIndex(), 0); // "(none)"
     // …and did not disturb the one just left.
     QCOMPARE(aq1->param(AquiferProvider::Porosity), 0.45);
 }
@@ -351,7 +361,7 @@ void TestAquiferEditorDialog::softValidationWarnings()
     QVERIFY(dlg.validationWarnings().isEmpty());
     QVERIFY(dlg.warningLabel()->text().isEmpty());
 
-    dlg.spinBox(AquiferProvider::WiltingPoint)->setValue(0.35);     // > FC 0.30
+    dlg.spinBox(AquiferProvider::WiltingPoint)->setValue(0.35); // > FC 0.30
     QStringList w = dlg.validationWarnings();
     QCOMPARE(w.size(), 1);
     QVERIFY(w.first().contains(QStringLiteral("Wilting Point")));
@@ -359,11 +369,12 @@ void TestAquiferEditorDialog::softValidationWarnings()
     QVERIFY(dlg.warningLabel()->text().contains(QStringLiteral("Wilting Point")));
     // …and forwarded to the diagram as a warning callout.
     QCOMPARE(countLeadersContaining(dlg.diagram()->model(),
-                                    openswmmvis::sectionview::aquiferWarningCalloutPrefix()), 1);
+                                    openswmmvis::sectionview::aquiferWarningCalloutPrefix()),
+             1);
 
-    dlg.spinBox(AquiferProvider::FieldCapacity)->setValue(0.6);      // > Por 0.5, fixes WP
-    dlg.spinBox(AquiferProvider::UpperMoisture)->setValue(0.55);     // > Por
-    dlg.spinBox(AquiferProvider::WaterTableElev)->setValue(80.0);    // < Ebot 90
+    dlg.spinBox(AquiferProvider::FieldCapacity)->setValue(0.6);   // > Por 0.5, fixes WP
+    dlg.spinBox(AquiferProvider::UpperMoisture)->setValue(0.55);  // > Por
+    dlg.spinBox(AquiferProvider::WaterTableElev)->setValue(80.0); // < Ebot 90
     w = dlg.validationWarnings();
     QCOMPARE(w.size(), 3);
     QVERIFY(w.join(QLatin1Char(' ')).contains(QStringLiteral("Field Capacity exceeds Porosity")));
@@ -371,7 +382,8 @@ void TestAquiferEditorDialog::softValidationWarnings()
     QVERIFY(w.join(QLatin1Char(' ')).contains(QStringLiteral("below Bottom Elevation")));
     QCOMPARE(dlg.warningLabel()->text().split(QLatin1Char('\n')).size(), 3);
     QCOMPARE(countLeadersContaining(dlg.diagram()->model(),
-                                    openswmmvis::sectionview::aquiferWarningCalloutPrefix()), 3);
+                                    openswmmvis::sectionview::aquiferWarningCalloutPrefix()),
+             3);
 
     // Back in range → clean.
     dlg.spinBox(AquiferProvider::WiltingPoint)->setValue(0.15);

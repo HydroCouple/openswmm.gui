@@ -1,8 +1,11 @@
-/*!
- * \file   newfeaturelayerdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      newfeaturelayerdialog.h
+ * @brief     Create an editable feature layer — role first
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §5, R4; supersedes
+ *            MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §5.2).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Create an editable feature layer — role first
  * (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §5, R4;
@@ -21,6 +24,7 @@
  * and 2D / 3D decide the GeoPackage table's OGR geometry type; the CRS is the
  * canvas CRS. The schema and the Z SOURCE can be changed later from the
  * Features dock.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef NEWFEATURELAYERDIALOG_H
@@ -48,7 +52,8 @@ class QToolButton;
 class QWidget;
 class MapCanvas;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class NewFeatureLayerDialog : public QDialog
 {
@@ -106,34 +111,34 @@ private:
     void refreshZSummary();
     [[nodiscard]] int rowOf(const QString &name) const;
 
-    MapCanvas        *m_canvas = nullptr;
+    MapCanvas *m_canvas = nullptr;
 
-    QComboBox        *m_roleCombo     = nullptr;
-    QLabel           *m_roleSummary   = nullptr;
-    QLabel           *m_roleNote      = nullptr;
-    QLineEdit        *m_nameEdit      = nullptr;
-    QWidget          *m_geomBox       = nullptr;
-    QButtonGroup     *m_geomGroup     = nullptr;
-    QLabel           *m_crsLabel      = nullptr;
+    QComboBox *m_roleCombo = nullptr;
+    QLabel *m_roleSummary = nullptr;
+    QLabel *m_roleNote = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QWidget *m_geomBox = nullptr;
+    QButtonGroup *m_geomGroup = nullptr;
+    QLabel *m_crsLabel = nullptr;
 
-    QTableWidget     *m_fieldTable    = nullptr;
-    QPushButton      *m_addFieldBtn   = nullptr;
-    QPushButton      *m_removeFieldBtn = nullptr;
+    QTableWidget *m_fieldTable = nullptr;
+    QPushButton *m_addFieldBtn = nullptr;
+    QPushButton *m_removeFieldBtn = nullptr;
 
-    QToolButton      *m_zToggle       = nullptr;
-    QWidget          *m_zBody         = nullptr;
-    QComboBox        *m_zSourceCombo  = nullptr;   ///< None / Constant / Raster / Mesh
-    QComboBox        *m_zLayerCombo   = nullptr;   ///< raster or mesh layers
-    QSpinBox         *m_zBandSpin     = nullptr;
-    QDoubleSpinBox   *m_zConstantSpin = nullptr;
-    QDoubleSpinBox   *m_zScaleSpin    = nullptr;
-    QDoubleSpinBox   *m_zDensifySpin  = nullptr;
-    QCheckBox        *m_zResampleBox  = nullptr;
-    QLabel           *m_zHint         = nullptr;
+    QToolButton *m_zToggle = nullptr;
+    QWidget *m_zBody = nullptr;
+    QComboBox *m_zSourceCombo = nullptr; ///< None / Constant / Raster / Mesh
+    QComboBox *m_zLayerCombo = nullptr;  ///< raster or mesh layers
+    QSpinBox *m_zBandSpin = nullptr;
+    QDoubleSpinBox *m_zConstantSpin = nullptr;
+    QDoubleSpinBox *m_zScaleSpin = nullptr;
+    QDoubleSpinBox *m_zDensifySpin = nullptr;
+    QCheckBox *m_zResampleBox = nullptr;
+    QLabel *m_zHint = nullptr;
 
-    QDialogButtonBox *m_buttons       = nullptr;
+    QDialogButtonBox *m_buttons = nullptr;
 };
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
 #endif // NEWFEATURELAYERDIALOG_H

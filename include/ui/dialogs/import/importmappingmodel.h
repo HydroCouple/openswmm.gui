@@ -1,8 +1,9 @@
-/*!
- * \file   importmappingmodel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      importmappingmodel.h
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — QAbstractTableModel over the attribute mapping table.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * FEATURE_LAYER_TO_SWMM_IMPORT — QAbstractTableModel over the attribute
  * mapping table. Rows = target attributes of the chosen kind; columns:
@@ -14,7 +15,9 @@
  * The model owns nothing — it edits the ImportMapping value object in
  * place (MVC: the mapping is the model state, this class adapts it to
  * the view).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_IMPORT_IMPORTMAPPINGMODEL_H
 #define OPENSWMMVIS_UI_DIALOGS_IMPORT_IMPORTMAPPINGMODEL_H
 
@@ -24,7 +27,8 @@
 #include <QStringList>
 #include <QStyledItemDelegate>
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
 class ImportMappingModel : public QAbstractTableModel
 {
@@ -58,8 +62,7 @@ public:
     [[nodiscard]] ImportMapping &mappingRef() { return m_mapping; }
 
     [[nodiscard]] QStringList sourceFields() const { return m_sourceFields; }
-    [[nodiscard]] const QVector<TargetAttribute> &attributes() const
-    { return m_attributes; }
+    [[nodiscard]] const QVector<TargetAttribute> &attributes() const { return m_attributes; }
 
     /*! Empty when every required row is satisfied; otherwise a
      *  human-readable reason (drives the dialog's inline error label +
@@ -70,20 +73,18 @@ public:
     [[nodiscard]] int rowCount(const QModelIndex &parent = {}) const override;
     [[nodiscard]] int columnCount(const QModelIndex &parent = {}) const override;
     [[nodiscard]] QVariant data(const QModelIndex &idx, int role) const override;
-    [[nodiscard]] QVariant headerData(int section, Qt::Orientation o,
-                                      int role) const override;
+    [[nodiscard]] QVariant headerData(int section, Qt::Orientation o, int role) const override;
     [[nodiscard]] Qt::ItemFlags flags(const QModelIndex &idx) const override;
-    bool setData(const QModelIndex &idx, const QVariant &value,
-                 int role) override;
+    bool setData(const QModelIndex &idx, const QVariant &value, int role) override;
 
 signals:
     /*! Emitted after any binding edit — the dialog revalidates. */
     void mappingEdited();
 
 private:
-    ImportMapping            m_mapping;
+    ImportMapping m_mapping;
     QVector<TargetAttribute> m_attributes;
-    QStringList              m_sourceFields;
+    QStringList m_sourceFields;
 };
 
 /*! Combo-box delegate for the Source Column cells: field names plus a
@@ -93,8 +94,7 @@ class SourceFieldDelegate : public QStyledItemDelegate
     Q_OBJECT
 
 public:
-    explicit SourceFieldDelegate(ImportMappingModel *model,
-                                 QObject *parent = nullptr);
+    explicit SourceFieldDelegate(ImportMappingModel *model, QObject *parent = nullptr);
 
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
                           const QModelIndex &idx) const override;

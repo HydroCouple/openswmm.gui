@@ -1,9 +1,9 @@
-/*!
- * \file   kindrendererpanel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Renderer-mode chooser + classification controls (Slice S2+S5).
+/**
+ * @file      kindrendererpanel.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Renderer-mode chooser + classification controls (Slice S2+S5).
  *
  *         Embedded in each FeatureStyleEditor below the basic single-symbol
  *         controls. Lets the user override the per-kind paint with a
@@ -22,7 +22,9 @@
  *         hostLayer->setKindRenderer(category, ...) (or Rule::setRenderer)
  *         which fires the layer's repaintRequested. Cancel rollback is handled
  *         at the dialog level via the ILayerStyleSubject snapshot.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_KINDRENDERERPANEL_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_KINDRENDERERPANEL_H
 
@@ -41,12 +43,14 @@ class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 
-namespace OpenSWMM::Render {
+namespace OpenSWMM::Render
+{
 class IFeatureRenderer;
-class Rule;          // Slice B.6a — Rule-aware ctor below.
+class Rule; // Slice B.6a — Rule-aware ctor below.
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ClassificationEditor;
 class FlowArrowEditor;
@@ -60,15 +64,13 @@ public:
      *                    The panel uses the layer's kindRenderer /
      *                    setKindRenderer / resetKindRendererToDefaults
      *                    API to read and write per-kind renderers. */
-    KindRendererPanel(OpenSWMMVisLayer *hostLayer,
-                      OpenSWMMVis::SwmmCategory category,
+    KindRendererPanel(OpenSWMMVisLayer *hostLayer, OpenSWMMVis::SwmmCategory category,
                       QWidget *parent = nullptr);
 
     /*! Slice B.6a — Rule-aware constructor. The panel reads/writes the
      *  Rule's owned IFeatureRenderer directly. \p rule must outlive
      *  the panel; the panel does not take ownership. */
-    explicit KindRendererPanel(OpenSWMM::Render::Rule *rule,
-                                QWidget *parent = nullptr);
+    explicit KindRendererPanel(OpenSWMM::Render::Rule *rule, QWidget *parent = nullptr);
 
     /*! Rule-aware constructor that ALSO knows which kind of which layer the
      *  Rule mirrors.
@@ -85,10 +87,8 @@ public:
      *  and a `CatJunctions` sentinel category, so `isLinkKind()` was false and
      *  the arrow group stayed hidden for every rule-backed kind — which is
      *  every kind on a results layer. */
-    KindRendererPanel(OpenSWMM::Render::Rule *rule,
-                      OpenSWMMVisLayer *hostLayer,
-                      OpenSWMMVis::SwmmCategory category,
-                      QWidget *parent = nullptr);
+    KindRendererPanel(OpenSWMM::Render::Rule *rule, OpenSWMMVisLayer *hostLayer,
+                      OpenSWMMVis::SwmmCategory category, QWidget *parent = nullptr);
 
     // Out-of-line so unique_ptr<GraduatedRendererBinding> (forward-declared)
     // is destroyed where the type is complete.
@@ -125,9 +125,9 @@ private:
      *  layer (two QObject parents up). */
     OpenSWMMVisLayer *attributeProviderHost() const;
 
-    OpenSWMMVisLayer       *m_hostLayer = nullptr;
-    SWMMModelLayer         *m_modelLayer = nullptr;     // either m_modelLayer
-    SWMMResultsLayer       *m_resultsLayer = nullptr;   // or m_resultsLayer is set
+    OpenSWMMVisLayer *m_hostLayer = nullptr;
+    SWMMModelLayer *m_modelLayer = nullptr;     // either m_modelLayer
+    SWMMResultsLayer *m_resultsLayer = nullptr; // or m_resultsLayer is set
     OpenSWMMVis::SwmmCategory m_category = OpenSWMMVis::CatJunctions;
 
     // Slice B.6a — Rule-aware mode. When non-null, m_modelLayer /
@@ -136,20 +136,20 @@ private:
     OpenSWMM::Render::Rule *m_rule = nullptr;
 
     // Controls — 1D glue retained by this panel.
-    QComboBox          *m_modeCombo    = nullptr;
-    QComboBox          *m_attrCombo    = nullptr;   // Slice DM.2
-    QWidget            *m_attrRow      = nullptr;   // Slice DM.2 — hidden when no provider
-    QWidget            *m_graduatedBox = nullptr;
+    QComboBox *m_modeCombo = nullptr;
+    QComboBox *m_attrCombo = nullptr; // Slice DM.2
+    QWidget *m_attrRow = nullptr;     // Slice DM.2 — hidden when no provider
+    QWidget *m_graduatedBox = nullptr;
     // Gap A4.5 — output-axis row, archetype-gated (size → points,
     // width → lines, hidden for polygons).
-    QWidget            *m_axisRow      = nullptr;
-    QCheckBox          *m_axisCheck    = nullptr;
-    QDoubleSpinBox     *m_axisMinSpin  = nullptr;
-    QDoubleSpinBox     *m_axisMaxSpin  = nullptr;
+    QWidget *m_axisRow = nullptr;
+    QCheckBox *m_axisCheck = nullptr;
+    QDoubleSpinBox *m_axisMinSpin = nullptr;
+    QDoubleSpinBox *m_axisMaxSpin = nullptr;
     // Independent size attribute picker ("Size by:") — row hidden when the
     // axis row is hidden; combo disabled until the axis toggle is on.
-    QWidget            *m_sizeAttrRow   = nullptr;
-    QComboBox          *m_sizeAttrCombo = nullptr;
+    QWidget *m_sizeAttrRow = nullptr;
+    QComboBox *m_sizeAttrCombo = nullptr;
 
     // Flow-direction arrows — a property of the LINK KIND, not of the
     // renderer, so it belongs on every editor a link kind can mount. The
@@ -160,10 +160,10 @@ private:
     // Bound to whichever channel the host exposes — see FlowArrowEditor
     // for the two-channel split. Hidden on results layers, whose kind page
     // carries an Arrows tab.
-    FlowArrowEditor    *m_arrowBox      = nullptr;
+    FlowArrowEditor *m_arrowBox = nullptr;
 
     // Slice US.1 — shared classification block.
-    ClassificationEditor                     *m_classEditor = nullptr;
+    ClassificationEditor *m_classEditor = nullptr;
     std::unique_ptr<GraduatedRendererBinding> m_binding;
 
     // Re-entrancy guard while rebuilding the controls from the renderer.

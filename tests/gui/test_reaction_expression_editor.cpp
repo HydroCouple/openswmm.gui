@@ -1,10 +1,10 @@
-/*!
- * \file   test_reaction_expression_editor.cpp
- * \brief  The reaction-expression editing stack: live model vocabulary in the
+/**
+ * @file      test_reaction_expression_editor.cpp
+ * @brief     The reaction-expression editing stack: live model vocabulary in the
  *         completer, the drift guard against the engine grammar, and the
  *         debounced validation signal.
  *
- * \details `TRANSPORT_QUALITY_GUI_PLAN_2026-08-12.md:450` asked for a mirror
+ * @details `TRANSPORT_QUALITY_GUI_PLAN_2026-08-12.md:450` asked for a mirror
  *          of `test_treatment_expression_editor.cpp`. It was never written, so
  *          until now the newer and more capable of the two editors — the one
  *          the MSX Reaction System dialog hosts — had NO observer for its
@@ -27,6 +27,10 @@
  *
  *          No gate here writes a file, so there is no output directory and
  *          no fixture literal for the `b85b802d` collision guard to police.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/widgets/reactionexpressionedit.h"
@@ -44,27 +48,43 @@
 using openswmmvis::ui::ReactionExpressionEdit;
 using openswmmvis::ui::ReactionSyntaxHighlighter;
 
-namespace {
+namespace
+{
 
-/*! BUILDING engine carrying one of every identifier family the completer
- *  publishes. The reaction CRUD mutators validate eagerly and roll back
- *  (D-RC5), so every add here is also an assertion that the system still
- *  compiles. */
+/**
+ *
+ * @brief Create a BUILDING engine with attempted J0 junction, C1 conduit and TSS pollutant
+ * fixture entries.
+ * @return Newly owned handle to destroy with swmm_engine_destroy, or nullptr on
+ * allocation failure. Individual add statuses are unchecked; species/coefficients/
+ * terms are added and checked by the calling cases. No file open or simulation.
+ *
+ */
 SWMM_Engine makeEngine()
 {
     SWMM_Engine e = swmm_engine_new();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
     swmm_node_add(e, "J0", 0 /*JUNCTION*/);
     swmm_link_add(e, "C1", 0 /*CONDUIT*/);
     swmm_pollutant_add(e, "TSS", 0 /*MG/L*/);
     return e;
 }
 
+/**
+ *
+ * @brief Copy displayed words from the first reaction-editor completer model.
+ * @param edit Borrowed live widget queried on the GUI thread.
+ * @return Owned first-column DisplayRole strings for root rows, or empty without
+ * a completer/model. Does not recurse child rows, filter completions or change state.
+ *
+ */
 QStringList completerWords(const ReactionExpressionEdit &edit)
 {
     QStringList out;
     auto *c = edit.findChild<QCompleter *>();
-    if (!c || !c->model()) return out;
+    if (!c || !c->model())
+        return out;
     for (int i = 0; i < c->model()->rowCount(); ++i)
         out << c->model()->index(i, 0).data().toString();
     return out;
@@ -87,10 +107,8 @@ private slots:
     {
         SWMM_Engine e = makeEngine();
         QVERIFY(e);
-        QCOMPARE(swmm_reaction_species_add(e, "AS3", 0, "MG", 0.0, 0.0),
-                 SWMM_OK);
-        QCOMPARE(swmm_reaction_coeff_add(e, "Kw", 0 /*CONSTANT*/, 1.0),
-                 SWMM_OK);
+        QCOMPARE(swmm_reaction_species_add(e, "AS3", 0, "MG", 0.0, 0.0), SWMM_OK);
+        QCOMPARE(swmm_reaction_coeff_add(e, "Kw", 0 /*CONSTANT*/, 1.0), SWMM_OK);
         QCOMPARE(swmm_reaction_term_add(e, "Kf", "1.0"), SWMM_OK);
 
         ReactionExpressionEdit edit(e, SWMM_RXN_SCOPE_PIPE);
@@ -107,8 +125,7 @@ private slots:
 
         // Added AFTER construction: the widget must re-pull, not serve a
         // snapshot taken in its constructor.
-        QCOMPARE(swmm_reaction_species_add(e, "NH2CL", 0, "MG", 0.0, 0.0),
-                 SWMM_OK);
+        QCOMPARE(swmm_reaction_species_add(e, "NH2CL", 0, "MG", 0.0, 0.0), SWMM_OK);
         QVERIFY2(!completerWords(edit).contains(QStringLiteral("NH2CL")),
                  "the completer changed without refreshVocabulary() — this "
                  "gate can no longer tell a re-pull from a snapshot");
@@ -137,8 +154,7 @@ private slots:
     {
         SWMM_Engine e = makeEngine();
         QVERIFY(e);
-        QCOMPARE(swmm_reaction_species_add(e, "AS3", 0, "MG", 0.0, 0.0),
-                 SWMM_OK);
+        QCOMPARE(swmm_reaction_species_add(e, "AS3", 0, "MG", 0.0, 0.0), SWMM_OK);
         QCOMPARE(swmm_reaction_coeff_add(e, "Kw", 0, 1.0), SWMM_OK);
         QCOMPARE(swmm_reaction_term_add(e, "Kf", "1.0"), SWMM_OK);
 
@@ -172,17 +188,16 @@ private slots:
         // alone; the species and form are separate columns in the dialog. A
         // bare identifier is a complete expression, so probe each word as-is.
         char err[256] = {};
-        int  col = -1;
+        int col = -1;
         for (const QString &w : completerWords(edit)) {
-            if (engineSourced.contains(w)) continue;
+            if (engineSourced.contains(w))
+                continue;
             const int rc = swmm_reaction_validate_expression(
-                e, SWMM_RXN_SCOPE_PIPE, w.toUtf8().constData(),
-                err, sizeof(err), &col);
+                e, SWMM_RXN_SCOPE_PIPE, w.toUtf8().constData(), err, sizeof(err), &col);
             QVERIFY2(rc == SWMM_OK,
-                     qPrintable(QStringLiteral(
-                         "the completer offers \"%1\" but the engine rejects "
-                         "it as an operand: %2")
-                         .arg(w, QString::fromUtf8(err))));
+                     qPrintable(QStringLiteral("the completer offers \"%1\" but the engine rejects "
+                                               "it as an operand: %2")
+                                    .arg(w, QString::fromUtf8(err))));
         }
 
         swmm_engine_destroy(e);
@@ -196,8 +211,7 @@ private slots:
     {
         SWMM_Engine e = makeEngine();
         QVERIFY(e);
-        QCOMPARE(swmm_reaction_species_add(e, "AS3", 0, "MG", 0.0, 0.0),
-                 SWMM_OK);
+        QCOMPARE(swmm_reaction_species_add(e, "AS3", 0, "MG", 0.0, 0.0), SWMM_OK);
 
         ReactionExpressionEdit edit(e, SWMM_RXN_SCOPE_PIPE);
         QSignalSpy spy(&edit, &ReactionExpressionEdit::validationChanged);
@@ -212,10 +226,8 @@ private slots:
         spy.clear();
         edit.setExpression(QStringLiteral("NOT_A_SPECIES * 2"));
         auto bad = spy.takeLast();
-        QVERIFY2(!bad.at(0).toBool(),
-                 "an unknown identifier was reported valid");
-        QVERIFY2(!bad.at(1).toString().isEmpty(),
-                 "an invalid expression produced no diagnostic");
+        QVERIFY2(!bad.at(0).toBool(), "an unknown identifier was reported valid");
+        QVERIFY2(!bad.at(1).toString().isEmpty(), "an invalid expression produced no diagnostic");
 
         // Empty clears the expression — a non-error, per the widget contract.
         spy.clear();

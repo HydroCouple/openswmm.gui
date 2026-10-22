@@ -1,8 +1,9 @@
-/*!
- * \file   test_comparisonplot_chartproperties.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_comparisonplot_chartproperties.cpp
+ * @brief     Tests for comparisonplot chartproperties.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AT.3 — pins ChartProperties' wrapper semantics:
  *   - Y-range setters apply to the chart's first vertical axis
@@ -12,7 +13,9 @@
  *   - The wrapper survives chart deletion (setters become no-ops)
  *
  * Self-contained: links chartproperties.cpp + Qt6 Charts.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/chartproperties.h"
 #include "plot/utctimeaxis.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
@@ -56,8 +59,10 @@ private:
         series->append(0.0, 0.0);
         series->append(1.0, 10.0);
         chart->addSeries(series);
-        auto *xAxis = new QValueAxis;  xAxis->setRange(0.0, 1.0);
-        auto *yAxis = new QValueAxis;  yAxis->setRange(0.0, 10.0);
+        auto *xAxis = new QValueAxis;
+        xAxis->setRange(0.0, 1.0);
+        auto *yAxis = new QValueAxis;
+        yAxis->setRange(0.0, 10.0);
         chart->addAxis(xAxis, Qt::AlignBottom);
         chart->addAxis(yAxis, Qt::AlignLeft);
         series->attachAxis(xAxis);
@@ -75,8 +80,8 @@ void TestComparisonPlotChartProperties::legendPositionAppliesThroughProperties()
     QVERIFY(props.metaObject()->indexOfProperty("legendPosition") >= 0);
     QCOMPARE(props.displayLabelFor("legendPosition"), QString("Legend — Position"));
     QSignalSpy changed(&props, &ChartProperties::legendPositionChanged);
-    const Qt::Alignment alignments[] = {Qt::AlignTop, Qt::AlignBottom,
-                                       Qt::AlignLeft, Qt::AlignRight};
+    const Qt::Alignment alignments[] = {Qt::AlignTop, Qt::AlignBottom, Qt::AlignLeft,
+                                        Qt::AlignRight};
     for (int position : {1, 2, 3, 0}) {
         const auto value = static_cast<ChartProperties::LegendPosition>(position);
         QVERIFY(props.setProperty("legendPosition", QVariant::fromValue(value)));
@@ -104,7 +109,7 @@ void TestComparisonPlotChartProperties::yRangeSettersApplyToAxis()
     QCOMPARE(props.yMin(), 2.5);
     QCOMPARE(props.yMax(), 7.5);
 
-    auto *yAxis = qobject_cast<QValueAxis*>(chart->axes(Qt::Vertical).first());
+    auto *yAxis = qobject_cast<QValueAxis *>(chart->axes(Qt::Vertical).first());
     QVERIFY(yAxis);
     QCOMPARE(yAxis->min(), 2.5);
     QCOMPARE(yAxis->max(), 7.5);
@@ -215,16 +220,14 @@ void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughP
     props.setStatisticsFormat(QStringLiteral("%.3g ft"));
 
     auto format = props.statisticsNumberFormat();
-    QCOMPARE(static_cast<int>(format.mode),
-             static_cast<int>(NumberFormatMode::SignificantFigures));
+    QCOMPARE(static_cast<int>(format.mode), static_cast<int>(NumberFormatMode::SignificantFigures));
     QCOMPARE(format.count, 4);
     QCOMPARE(format.custom, QStringLiteral("%.3g ft"));
 
     props.setStatisticsNumberFormat(
         NumberFormat{NumberFormatMode::Decimals, 2, QStringLiteral("%.2f")});
     format = props.statisticsNumberFormat();
-    QCOMPARE(static_cast<int>(format.mode),
-             static_cast<int>(NumberFormatMode::Decimals));
+    QCOMPARE(static_cast<int>(format.mode), static_cast<int>(NumberFormatMode::Decimals));
     QCOMPARE(format.count, 2);
     QCOMPARE(format.custom, QStringLiteral("%.2f"));
 
@@ -247,14 +250,14 @@ void TestComparisonPlotChartProperties::xLabelFormatSkipsUtcTimeAxis()
     auto *xAxis = new openswmmvis::plot::UtcTimeAxis;
     xAxis->setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
     xAxis->setTickCount(3);
-    auto *yAxis = new QValueAxis;  yAxis->setRange(0.0, 10.0);
+    auto *yAxis = new QValueAxis;
+    yAxis->setRange(0.0, 10.0);
     chart->addAxis(xAxis, Qt::AlignBottom);
     chart->addAxis(yAxis, Qt::AlignLeft);
     series->attachAxis(xAxis);
     series->attachAxis(yAxis);
     xAxis->setRange(t0, t1);
-    const QStringList dates{QStringLiteral("2026-01-01 00:00"),
-                            QStringLiteral("2026-01-01 12:00"),
+    const QStringList dates{QStringLiteral("2026-01-01 00:00"), QStringLiteral("2026-01-01 12:00"),
                             QStringLiteral("2026-01-02 00:00")};
     QCOMPARE(xAxis->categoriesLabels(), dates);
 
@@ -263,9 +266,9 @@ void TestComparisonPlotChartProperties::xLabelFormatSkipsUtcTimeAxis()
     props.setYAxisNumberFormat(ChartProperties::Decimals3);
 
     QCOMPARE(xAxis->categoriesLabels(), dates);
-    QVERIFY2(xAxis->labelFormat().isEmpty(),
-             qPrintable(QStringLiteral("time axis got a numeric spec: %1")
-                            .arg(xAxis->labelFormat())));
+    QVERIFY2(
+        xAxis->labelFormat().isEmpty(),
+        qPrintable(QStringLiteral("time axis got a numeric spec: %1").arg(xAxis->labelFormat())));
     QCOMPARE(yAxis->labelFormat(), QStringLiteral("%.3f"));
     delete chart;
 }

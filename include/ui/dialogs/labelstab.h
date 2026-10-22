@@ -1,9 +1,9 @@
-/*!
- * \file   labelstab.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Labels tab content for LayerStyleDialog.  Slice X.18.
+/**
+ * @file      labelstab.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Labels tab content for LayerStyleDialog.  Slice X.18.
  *
  *         A GIS-aligned label-style editor — Enabled toggle, font family
  *         + size + bold/italic, text colour, halo (colour + radius),
@@ -16,7 +16,9 @@
  *         Hosted in the Labels tab of `LayerStyleDialog`.  Capability
  *         gating in the dialog skips this tab for layer kinds that don't
  *         paint text labels.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_LABELSTAB_H
 #define OPENSWMMVIS_UI_DIALOGS_LABELSTAB_H
 
@@ -25,7 +27,8 @@
 
 class OpenSWMMVisLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class LabelConfigEditor;
 

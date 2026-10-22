@@ -1,9 +1,9 @@
-/*!
- * \file   comparisonplotdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BL — Multi-pane Comparison Plot Dialog.
+/**
+ * @file      comparisonplotdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BL — Multi-pane Comparison Plot Dialog.
  *
  * Replaces the single-series TimeSeriesPlotDialog with a comparison /
  * analysis surface. Slice AT spec §4819-5093 of GUI_IMPLEMENTATION_PLAN.md.
@@ -16,7 +16,9 @@
  * CF.3-ready: any IRunLayer (1D SwmmOutRunLayer or 2D SWMM2DResultsLayer)
  * can be added as a RunSource, and the dialog auto-spawns chart rows
  * keyed by PlotAttribute — including the five Mesh2D* enumerators.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_COMPARISONPLOTDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_COMPARISONPLOTDIALOG_H
 
@@ -41,7 +43,10 @@ class QLabel;
 class QChart;
 class QLineSeries;
 class QScatterSeries;
-namespace openswmmvis::plot { class UtcTimeAxis; }
+namespace openswmmvis::plot
+{
+class UtcTimeAxis;
+}
 class QValueAxis;
 class QSplitter;
 class QTreeWidget;
@@ -59,7 +64,8 @@ class QPushButton;
 class SWMMResultsLayer;
 class SWMM2DResultsLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class InteractiveChartView;
 class RangeSliderWidget;
@@ -76,13 +82,12 @@ public:
 
     /*! \brief Underlying model — exposed so callers (Object Browser wiring,
      *  CF.3's openComparisonPlotForCells) can add runs/series directly. */
-    openswmmvis::plot::ComparisonPlotModel* model() noexcept { return m_model.get(); }
+    openswmmvis::plot::ComparisonPlotModel *model() noexcept { return m_model.get(); }
 
     /*! \brief Convenience helper: add a 1D RunSource for the given results
      *  layer (or update the existing one if already added) and return its
      *  run index. */
-    int ensureRunSourceForLayer(::SWMMResultsLayer *layer,
-                                bool makeBaseline = false);
+    int ensureRunSourceForLayer(::SWMMResultsLayer *layer, bool makeBaseline = false);
 
     /*! \brief CF.3 — add a 2D RunSource for the given mesh results layer
      *  (or return the existing one) and return its run index. */
@@ -90,35 +95,32 @@ public:
 
     /*! \brief Convenience helper: add a series in one call. Returns the new
      *  series index, or -1 on failure. */
-    int addSeries(int runIndex,
-                  const openswmmvis::plot::ObjectRef& ref,
+    int addSeries(int runIndex, const openswmmvis::plot::ObjectRef &ref,
                   openswmmvis::plot::PlotAttribute attr);
 
     /*! \brief Y2b-2 (amendment D-Y4): descriptor-shaped overload — a
      *  fixed attribute or a species BY NAME. The enum overload above
      *  forwards here. */
-    int addSeries(int runIndex,
-                  const openswmmvis::plot::ObjectRef& ref,
-                  const openswmmvis::plot::ResultDescriptor& descriptor);
+    int addSeries(int runIndex, const openswmmvis::plot::ObjectRef &ref,
+                  const openswmmvis::plot::ResultDescriptor &descriptor);
 
     /*! \brief Add several (object, descriptor) series to one run with a
      *  single tree/chart rebuild. Invalid pairs are skipped. Returns the
      *  count of series added. */
-    int addSeriesBatch(int runIndex,
-                       const QVector<QPair<openswmmvis::plot::ObjectRef,
-                                           openswmmvis::plot::ResultDescriptor>>& items);
+    int addSeriesBatch(
+        int runIndex,
+        const QVector<QPair<openswmmvis::plot::ObjectRef, openswmmvis::plot::ResultDescriptor>>
+            &items);
 
     /*! \brief CF.3 — add per-cell series for the supplied attribute list.
      *  Returns the count of series successfully added. */
-    int addCellSeries(int runIndex,
-                       const QVector<int>& triIdxList,
-                       const QVector<openswmmvis::plot::PlotAttribute>& attributes);
+    int addCellSeries(int runIndex, const QVector<int> &triIdxList,
+                      const QVector<openswmmvis::plot::PlotAttribute> &attributes);
 
     /*! \brief Per-cell series for any descriptor — fixed attributes and the
      *  2D source's catalog variables (groundwater, infiltration, species). */
-    int addCellDescriptorSeries(int runIndex,
-                                const QVector<int>& triIdxList,
-                                const QVector<openswmmvis::plot::ResultDescriptor>& descriptors);
+    int addCellDescriptorSeries(int runIndex, const QVector<int> &triIdxList,
+                                const QVector<openswmmvis::plot::ResultDescriptor> &descriptors);
 
     /*! \brief Slice AT.2 — programmatically set the Add-from-Map toolbar
      *  action's checked state. Used by SWMMVis when the user cancels the
@@ -184,14 +186,15 @@ private slots:
     void onConfigure1v1Clicked();
 
 private:
-    void observeSourceLifetime(QObject *layer, const std::shared_ptr<openswmmvis::plot::IRunLayer> &source);
+    void observeSourceLifetime(QObject *layer,
+                               const std::shared_ptr<openswmmvis::plot::IRunLayer> &source);
     void buildUi();
     void buildToolBar();
     void rebuildSeriesTree();
     void rebuildCharts();
     /*! \brief Resolve a series' chart legend name: spec.legendOverride
      *  if non-empty, else the auto label "<run> — <object> (<attr>)". */
-    QString legendNameFor(const openswmmvis::plot::SeriesSpec& spec) const;
+    QString legendNameFor(const openswmmvis::plot::SeriesSpec &spec) const;
     void updateChartForRow(int rowIndex);
     void applyAnimationCursorToCharts();
     /*! \brief Push the current toolbar Mode into every row's
@@ -205,90 +208,91 @@ private:
     /*! \brief Prompt for a CSV / SWMM .dat path and write the given series
      *  (model indices). Shared by the toolbar Export Data action, the chart
      *  row context menu, and the series-tree context menu. */
-    void exportSeriesData(const QVector<int>& seriesIndices);
+    void exportSeriesData(const QVector<int> &seriesIndices);
 
     std::unique_ptr<openswmmvis::plot::ComparisonPlotModel> m_model;
 
     // UI
-    QSplitter   *m_splitter         = nullptr;   ///< outer: series panel | charts pane
-    QTreeWidget *m_seriesTree       = nullptr;
-    QPushButton *m_addBtn           = nullptr;
-    QPushButton *m_loadObsBtn       = nullptr;
-    QPushButton *m_removeBtn        = nullptr;
-    QScrollArea *m_chartsScroll     = nullptr;   ///< wraps the vertical splitter for >6 rows
-    QSplitter   *m_chartsSplitter   = nullptr;   ///< Slice AT.2: rows stack vertically here
-    QSplitter   *m_chartsOuter      = nullptr;   ///< Slice AT.3: outer splitter (charts | range slider | stats panel)
-    RangeSliderWidget *m_rangeSlider = nullptr;  ///< AT.3 — X-range slider under the chart rows
-    QLabel      *m_rangeLabel       = nullptr;   ///< AT.3 polish — datetime label for slider window
-    QWidget     *m_sliderHost       = nullptr;   ///< CP.1 — slider row container (toggle target)
-    QWidget     *m_leftHost         = nullptr;   ///< CP.1 — series tree container (toggle target)
-    StatsSummaryPanel *m_statsPanel  = nullptr;  ///< AT.3 — stats tabs docked under range slider
+    QSplitter *m_splitter = nullptr; ///< outer: series panel | charts pane
+    QTreeWidget *m_seriesTree = nullptr;
+    QPushButton *m_addBtn = nullptr;
+    QPushButton *m_loadObsBtn = nullptr;
+    QPushButton *m_removeBtn = nullptr;
+    QScrollArea *m_chartsScroll = nullptr; ///< wraps the vertical splitter for >6 rows
+    QSplitter *m_chartsSplitter = nullptr; ///< Slice AT.2: rows stack vertically here
+    QSplitter *m_chartsOuter =
+        nullptr; ///< Slice AT.3: outer splitter (charts | range slider | stats panel)
+    RangeSliderWidget *m_rangeSlider = nullptr; ///< AT.3 — X-range slider under the chart rows
+    QLabel *m_rangeLabel = nullptr;             ///< AT.3 polish — datetime label for slider window
+    QWidget *m_sliderHost = nullptr;            ///< CP.1 — slider row container (toggle target)
+    QWidget *m_leftHost = nullptr;              ///< CP.1 — series tree container (toggle target)
+    StatsSummaryPanel *m_statsPanel = nullptr;  ///< AT.3 — stats tabs docked under range slider
 
     // Slice AT.2 — top toolbar
-    QToolBar     *m_toolBar         = nullptr;
-    QActionGroup *m_modeActions     = nullptr;
-    QAction      *m_actSelect       = nullptr;
-    QAction      *m_actPan          = nullptr;
-    QAction      *m_actZoomIn       = nullptr;
-    QAction      *m_actZoomOut      = nullptr;
-    QAction      *m_actFit          = nullptr;
-    QAction      *m_actExport       = nullptr;
-    QAction      *m_actExportData   = nullptr;
-    QAction      *m_actAnimCursor   = nullptr;
-    QAction      *m_actAddSystem    = nullptr;
-    QAction      *m_actAddFromMap   = nullptr;
+    QToolBar *m_toolBar = nullptr;
+    QActionGroup *m_modeActions = nullptr;
+    QAction *m_actSelect = nullptr;
+    QAction *m_actPan = nullptr;
+    QAction *m_actZoomIn = nullptr;
+    QAction *m_actZoomOut = nullptr;
+    QAction *m_actFit = nullptr;
+    QAction *m_actExport = nullptr;
+    QAction *m_actExportData = nullptr;
+    QAction *m_actAnimCursor = nullptr;
+    QAction *m_actAddSystem = nullptr;
+    QAction *m_actAddFromMap = nullptr;
 
     // CP.1 — View toggles. Each is checkable + persistent across the
     // session. Toggling "Charts Only" off snapshots the current visible
     // state so the previous user-set splitter sizes restore on toggle-on.
-    QAction      *m_actShowSeries   = nullptr;  ///< Show/hide left series panel
-    QAction      *m_actShowStats    = nullptr;  ///< Show/hide bottom stats panel
-    QAction      *m_actShowSlider   = nullptr;  ///< Show/hide X-range slider row
-    QAction      *m_actChartsOnly   = nullptr;  ///< Convenience: all three off
-    QAction      *m_actShow1v1      = nullptr;  ///< Show/hide 1v1 scatter column
-    QAction      *m_actConfig1v1    = nullptr;  ///< Open the 1v1 pairs editor
+    QAction *m_actShowSeries = nullptr; ///< Show/hide left series panel
+    QAction *m_actShowStats = nullptr;  ///< Show/hide bottom stats panel
+    QAction *m_actShowSlider = nullptr; ///< Show/hide X-range slider row
+    QAction *m_actChartsOnly = nullptr; ///< Convenience: all three off
+    QAction *m_actShow1v1 = nullptr;    ///< Show/hide 1v1 scatter column
+    QAction *m_actConfig1v1 = nullptr;  ///< Open the 1v1 pairs editor
 
     // Cached splitter sizes for restore when a pane is re-shown.
-    QList<int>    m_savedSplitterSizes;       ///< outer (series | charts)
-    QList<int>    m_savedChartsOuterSizes;    ///< charts | slider | stats
+    QList<int> m_savedSplitterSizes;    ///< outer (series | charts)
+    QList<int> m_savedChartsOuterSizes; ///< charts | slider | stats
     bool m_seriesPanelResized = false;
 
     // Per-row chart bookkeeping. Key = row index in model->rows().
     struct RowWidgets {
         openswmmvis::plot::ResultDescriptor descriptor;
         // Outer per-row frame placed into m_chartsSplitter.
-        QWidget            *rowFrame  = nullptr;
+        QWidget *rowFrame = nullptr;
 
         // Column 0 — time series.
-        InteractiveChartView *view       = nullptr;
-        QChart               *chart      = nullptr;
-        openswmmvis::plot::UtcTimeAxis        *xAxis      = nullptr;
-        QValueAxis           *yAxis      = nullptr;
-        QLineSeries          *cursorLine = nullptr;
-        QVector<QLineSeries*> series;     ///< Parallel to model row's seriesIndices.
-        QVector<int>          consumed;   ///< Parallel to series: periods already plotted (live tail cursor).
+        InteractiveChartView *view = nullptr;
+        QChart *chart = nullptr;
+        openswmmvis::plot::UtcTimeAxis *xAxis = nullptr;
+        QValueAxis *yAxis = nullptr;
+        QLineSeries *cursorLine = nullptr;
+        QVector<QLineSeries *> series; ///< Parallel to model row's seriesIndices.
+        QVector<int> consumed; ///< Parallel to series: periods already plotted (live tail cursor).
 
         // Column 1 — 1v1 scatter (visible only when ≥2 runs produce
         // baseline↔comparison pairs). InteractiveChartView so toolbar
         // modes + wheel zoom apply (COMPARISON_PLOT_1V1_AND_TREE_PLAN).
-        InteractiveChartView *scatterView  = nullptr;
-        QChart             *scatterChart  = nullptr;
-        QValueAxis         *scatterXAxis  = nullptr;
-        QValueAxis         *scatterYAxis  = nullptr;
-        QLineSeries        *identityLine  = nullptr;   ///< 45° dashed.
-        QVector<QScatterSeries*> scatterSeries;
+        InteractiveChartView *scatterView = nullptr;
+        QChart *scatterChart = nullptr;
+        QValueAxis *scatterXAxis = nullptr;
+        QValueAxis *scatterYAxis = nullptr;
+        QLineSeries *identityLine = nullptr; ///< 45° dashed.
+        QVector<QScatterSeries *> scatterSeries;
     };
     QVector<RowWidgets> m_rowWidgets;
 
-    QDateTime m_curAnimTime;          ///< Cached for cursor updates on row rebuilds.
-    bool      m_syncingX     = false; ///< Re-entry guard for linked X-axis sync.
-    bool      m_showCursor   = true;  ///< Animation-cursor master toggle.
+    QDateTime m_curAnimTime;  ///< Cached for cursor updates on row rebuilds.
+    bool m_syncingX = false;  ///< Re-entry guard for linked X-axis sync.
+    bool m_showCursor = true; ///< Animation-cursor master toggle.
 
     // Slice AT.3 — full X-range of all loaded data, captured at rebuildCharts;
     // used to map [0..1] from the range slider to absolute QDateTime bounds.
     QDateTime m_xFullMin;
     QDateTime m_xFullMax;
-    bool      m_syncingSlider = false; ///< Guard so axis→slider updates don't recurse.
+    bool m_syncingSlider = false; ///< Guard so axis→slider updates don't recurse.
 
     // AT.3 polish — cached Shift-drag X selection so Fit can refit Y to the
     // windowed data when a selection is active.
@@ -308,13 +312,13 @@ private:
     /*! \brief Read saved files synchronously while off (explicit exports). */
     void setMeshFileDeferral_(bool on);
     std::shared_ptr<ResultLoad> m_load;
-    std::thread   m_loadThread;
-    bool          m_loadScheduled = false;
-    QWidget      *m_loadStrip    = nullptr;
-    QLabel       *m_loadLabel    = nullptr;
+    std::thread m_loadThread;
+    bool m_loadScheduled = false;
+    QWidget *m_loadStrip = nullptr;
+    QLabel *m_loadLabel = nullptr;
     QProgressBar *m_loadProgress = nullptr;
-    QPushButton  *m_loadButton   = nullptr;   ///< Cancel while loading; Retry after a cancel
-    QTimer       *m_loadTimer    = nullptr;
+    QPushButton *m_loadButton = nullptr; ///< Cancel while loading; Retry after a cancel
+    QTimer *m_loadTimer = nullptr;
 };
 
 } // namespace openswmmvis::ui

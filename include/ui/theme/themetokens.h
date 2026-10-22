@@ -1,8 +1,10 @@
 #ifndef THEMETOKENS_H
 #define THEMETOKENS_H
 
-/*!
- * \file themetokens.h
+/**
+ * @file      themetokens.h
+ * @brief     UI redesign P2 — the design-token layer: one semantic color vocabulary generating
+ *            both the light and dark chrome themes.
  *
  * UI redesign P2 — the design-token layer: one semantic color vocabulary
  * generating both the light and dark chrome themes. Chrome code consumes
@@ -16,27 +18,32 @@
  * Data symbology (color ramps, categorical palettes, series cycles) is
  * NOT part of this vocabulary — those encode data, not chrome, and stay
  * untouched by theming.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QColor>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 struct ThemeColors {
     // Surfaces (back to front) and primary content.
-    QColor surfaceWindow;    ///< window / toolbar background
-    QColor surfaceRaised;    ///< views, editors, cards (QPalette::Base)
-    QColor surfaceSunken;    ///< wells, alternate rows
-    QColor text;             ///< primary text on any surface tier
-    QColor hintText;         ///< secondary/placeholder text (AA on surfaces)
-    QColor border;           ///< separators, frames
+    QColor surfaceWindow; ///< window / toolbar background
+    QColor surfaceRaised; ///< views, editors, cards (QPalette::Base)
+    QColor surfaceSunken; ///< wells, alternate rows
+    QColor text;          ///< primary text on any surface tier
+    QColor hintText;      ///< secondary/placeholder text (AA on surfaces)
+    QColor border;        ///< separators, frames
 
     // Interaction.
-    QColor accent;           ///< brand/interactive color (links, checked)
-    QColor accentText;       ///< text painted on accent fills
-    QColor focusRing;        ///< keyboard-focus outline (≥ 3:1 on surfaces)
-    QColor selectionFill;    ///< item-view selection background
-    QColor selectionText;    ///< text on selectionFill
+    QColor accent;        ///< brand/interactive color (links, checked)
+    QColor accentText;    ///< text painted on accent fills
+    QColor focusRing;     ///< keyboard-focus outline (≥ 3:1 on surfaces)
+    QColor selectionFill; ///< item-view selection background
+    QColor selectionText; ///< text on selectionFill
 
     // Semantic status (used as text colors on surfaces).
     QColor error;
@@ -45,9 +52,9 @@ struct ThemeColors {
     QColor info;
 
     // Inline banners (message strips inside dialogs).
-    QColor bannerErrorBg,   bannerErrorFg;
+    QColor bannerErrorBg, bannerErrorFg;
     QColor bannerSuccessBg, bannerSuccessFg;
-    QColor bannerInfoBg,    bannerInfoFg;
+    QColor bannerInfoBg, bannerInfoFg;
 
     // Plot chrome (profile/mesh plot widgets — axes, not data series).
     QColor plotBackground;
@@ -61,6 +68,10 @@ struct ThemeColors {
     QColor canvasSelectionHighlight;
 };
 
+/**
+ * @brief Access the compiled light-theme semantic colour vocabulary.
+ * @return Immutable process-lifetime table reference; contains chrome colours rather than data-series colour ramps.
+ */
 inline const ThemeColors &lightColors()
 {
     static const ThemeColors c = {
@@ -101,6 +112,10 @@ inline const ThemeColors &lightColors()
     return c;
 }
 
+/**
+ * @brief Access the compiled dark-theme semantic colour vocabulary.
+ * @return Immutable process-lifetime table reference. No palette/application mutation occurs.
+ */
 inline const ThemeColors &darkColors()
 {
     static const ThemeColors c = {
@@ -141,6 +156,6 @@ inline const ThemeColors &darkColors()
     return c;
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
 #endif // THEMETOKENS_H

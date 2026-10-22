@@ -1,9 +1,9 @@
-/*!
- * \file   profileattributesampler.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Attribute-tracks feature — fetches an along-the-path profile of
+/**
+ * @file      profileattributesampler.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Attribute-tracks feature — fetches an along-the-path profile of
  *         one generic result attribute (node depth / head / …, link flow /
  *         velocity / …) from an open .out file.
  *
@@ -19,10 +19,12 @@
  *  - short series (fewer periods than the longest source) are permitted —
  *    consumers render the frames that exist (LIVE_1D plan contract).
  *
- * Thread-safety mirrors ProfileSourceFetcher::fetch — callable off the GUI
- * thread as long as the layer outlives the call (callers pass QPointer-
- * checked layers from a snapshot, exactly like rebindSources()).
+ * This sampler uses the layer's output reader directly. Callers must keep
+ * the layer alive and serialize access to that reader and its metadata.
+ * ProfileSourceFetcher instead opens a private reader for worker use.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_PLOT_PROFILEATTRIBUTESAMPLER_H
 #define OPENSWMMVIS_PLOT_PROFILEATTRIBUTESAMPLER_H
 
@@ -47,21 +49,22 @@ namespace ProfileAttributeSampler
  * output file. `minByPath`/`maxByPath` are the per-element envelope over
  * all periods; NaN where the row is empty.
  */
-struct AttributeProfile
-{
-    openswmmvis::plot::PlotAttribute attribute =
-        openswmmvis::plot::PlotAttribute::Unknown;
+struct AttributeProfile {
+    openswmmvis::plot::PlotAttribute attribute = openswmmvis::plot::PlotAttribute::Unknown;
     bool isNodeAttribute = true;
-    int  periodCount     = 0;
+    int periodCount = 0;
 
-    QVector<QVector<float>> byPath;     ///< [pathIdx][period]
-    QVector<float>          minByPath;  ///< [pathIdx], NaN when no data
-    QVector<float>          maxByPath;  ///< [pathIdx], NaN when no data
+    QVector<QVector<float>> byPath; ///< [pathIdx][period]
+    QVector<float> minByPath;       ///< [pathIdx], NaN when no data
+    QVector<float> maxByPath;       ///< [pathIdx], NaN when no data
 };
 
 /*! \brief True for the six Node* attributes, false for everything else.
  *  Inline (header-only) so UI code and tests can classify attributes
- *  without linking the sampler's engine/results-layer dependency chain. */
+ *  without linking the sampler's engine/results-layer dependency chain.
+ * @param[in] attr Fixed result identifier.
+ * @return True only for the six node quantities; does not inspect a source or species scope.
+ */
 [[nodiscard]] inline bool isNodeAttribute(openswmmvis::plot::PlotAttribute attr)
 {
     using PA = openswmmvis::plot::PlotAttribute;
@@ -78,11 +81,15 @@ struct AttributeProfile
     }
 }
 
-/*! \brief True when \p attr is one of the 11 attributes a track can show. */
+/*! \brief True when \p attr is one of the 11 attributes a track can show.
+ * @param[in] attr Fixed identifier.
+ * @return True for six node or five link fields, false for subcatchment/system/mesh/unknown quantities.
+ */
 [[nodiscard]] inline bool isTrackableAttribute(openswmmvis::plot::PlotAttribute attr)
 {
     using PA = openswmmvis::plot::PlotAttribute;
-    if (isNodeAttribute(attr)) return true;
+    if (isNodeAttribute(attr))
+        return true;
     switch (attr) {
     case PA::LinkFlow:
     case PA::LinkDepth:
@@ -101,6 +108,11 @@ struct AttributeProfile
  *
  * Returns a default-constructed (empty `byPath`) profile when the layer is
  * null, has no open output handle, or \p attr is not trackable.
+ * @param[in] resultsLayer Optional borrowed results layer; its handle, names and period metadata must stay valid/stable during the call.
+ * @param[in] path Ordered path names used to resolve output-file indices; no path geometry is modified.
+ * @param[in] attr One of the eleven trackable fixed quantities.
+ * @return Owned path-indexed rows in raw output units and finite-only min/max envelopes; unreadable/unknown objects have empty rows and NaN extrema. Metadata records attr/isNodeAttribute even on an early empty return. Read failures are represented by missing rows, without a diagnostic list.
+ * @note Uses the layer's shared output handle directly. Caller must serialize access with other consumers of that reader; layer lifetime alone does not establish thread safety.
  */
 [[nodiscard]] AttributeProfile fetch(SWMMResultsLayer *resultsLayer,
                                      const ProfileBuilder::PathStatic &path,
@@ -117,12 +129,15 @@ struct AttributeProfile
  * species leaves every row EMPTY — same "no data ≠ 0.0" contract as the
  * enum overload. `attribute` in the result stays `Unknown`; the species
  * identity lives with the caller.
+ * @param[in] resultsLayer Optional borrowed layer/handle; keep stable and serialize shared-reader access throughout.
+ * @param[in] path Node/link names in desired path order.
+ * @param[in] species Exact case-sensitive run species name; empty returns an empty profile.
+ * @param[in] nodeScope True samples nodes, false links.
+ * @return Owned rows and finite-only extrema in source units. Missing species leaves correctly sized empty rows/NaN extrema when a handle exists; attribute remains Unknown. No interpolated timestamps or unit conversion are supplied.
  */
-[[nodiscard]] AttributeProfile fetchSpecies(
-    SWMMResultsLayer *resultsLayer,
-    const ProfileBuilder::PathStatic &path,
-    const QString &species,
-    bool nodeScope);
+[[nodiscard]] AttributeProfile fetchSpecies(SWMMResultsLayer *resultsLayer,
+                                            const ProfileBuilder::PathStatic &path,
+                                            const QString &species, bool nodeScope);
 
 } // namespace ProfileAttributeSampler
 

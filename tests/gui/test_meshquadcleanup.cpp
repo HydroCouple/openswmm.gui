@@ -1,8 +1,9 @@
-/*!
- * \file   test_meshquadcleanup.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_meshquadcleanup.cpp
+ * @brief     Tests for meshquadcleanup.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Quad redesign gate 6 (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md
  * §4.4g–h, §7.6) — QtTest coverage for mesh/meshquadcleanup.h: doublet
@@ -11,7 +12,9 @@
  * lattice (min SJ never drops, boundary vertices never move), a diagonal
  * swap that lowers the valence deviation of a 5/3 pair, and
  * reorderTrianglesFirst.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QHash>
 #include <QPair>
@@ -31,8 +34,17 @@
 
 using namespace mesh;
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Append one default-valued mesh vertex at the requested planar position.
+ * @param[in,out] m Owned mutable fixture; only vertices grows, connectivity is untouched.
+ * @param[in] x Horizontal coordinate in arbitrary shared planar units.
+ * @param[in] y Vertical planar coordinate in the same units.
+ * @return Zero-based appended vertex index; allocation may fail, no validation or ownership
+ * transfer.
+ */
 int addVertex(MeshResult &m, double x, double y)
 {
     MeshVertex v;
@@ -41,72 +53,113 @@ int addVertex(MeshResult &m, double x, double y)
     return m.vertices.size() - 1;
 }
 
+/**
+ * @brief Reverse clockwise fixture cells in place while retaining their geometry and metadata.
+ * @param[in,out] m Mesh with valid cell vertex indices; negative signed-area quads swap v1/v3,
+ * triangles swap v1/v2. Zero-area cells are unchanged; vertices and container order are
+ * preserved. No convexity repair, allocation or project mutation.
+ */
 void makeCCW(MeshResult &m)
 {
     for (MeshTriangle &c : m.triangles)
-        if (cellSignedArea(m.vertices, c) < 0.0)
-        {
-            if (c.isQuad()) std::swap(c.v1, c.v3); else std::swap(c.v1, c.v2);
+        if (cellSignedArea(m.vertices, c) < 0.0) {
+            if (c.isQuad())
+                std::swap(c.v1, c.v3);
+            else
+                std::swap(c.v1, c.v2);
         }
 }
 
 /*! Minimum scaled Jacobian over every cell (triangles via triangleScaledJacobian). */
+/**
+ * @brief Compute the minimum quad or triangle scaled Jacobian in a fixture.
+ * @param[in] m Stable mesh with valid cell vertex indices, preserved.
+ * @return Minimum metric, starting from sentinel 2 for an empty mesh; triangles use
+ * triangleScaledJacobian. No geometry repair or output allocation.
+ */
 double minCellSJ(const MeshResult &m)
 {
     double mn = 2.0;
-    for (const MeshTriangle &c : m.triangles)
-    {
-        if (c.isQuad()) mn = std::min(mn, quadQuality(m.vertices, c).scaledJacobian);
-        else mn = std::min(mn, triangleScaledJacobian(m.vertices[c.v0].xy, m.vertices[c.v1].xy, m.vertices[c.v2].xy));
+    for (const MeshTriangle &c : m.triangles) {
+        if (c.isQuad())
+            mn = std::min(mn, quadQuality(m.vertices, c).scaledJacobian);
+        else
+            mn = std::min(mn, triangleScaledJacobian(m.vertices[c.v0].xy, m.vertices[c.v1].xy,
+                                                     m.vertices[c.v2].xy));
     }
     return mn;
 }
 
 /*! Σ |valence − 4| over every vertex touched by a cell (valence = distinct
  *  incident edges). */
+/**
+ * @brief Sum absolute deviation from edge valence four over vertices touched by cells.
+ * @param[in] m Stable mesh with valid connectivity; duplicate cell edges count once regardless
+ * of orientation.
+ * @return Sum abs(distinctIncidentEdges-4), zero for no cells; isolated vertices are excluded.
+ * Allocates local edge/set maps only; no fixture mutation.
+ */
 int valenceDeviation(const MeshResult &m)
 {
     QSet<QPair<int, int>> edges;
     for (const MeshTriangle &c : m.triangles)
-        for (int k = 0; k < c.vertexCount(); ++k)
-        {
+        for (int k = 0; k < c.vertexCount(); ++k) {
             int a = 0, b = 0;
             edgeEndpoints(c, k, a, b);
             edges.insert(edgeKey(a, b));
         }
     QHash<int, int> valence;
-    for (const auto &e : edges) { ++valence[e.first]; ++valence[e.second]; }
+    for (const auto &e : edges) {
+        ++valence[e.first];
+        ++valence[e.second];
+    }
     int dev = 0;
-    for (auto it = valence.cbegin(); it != valence.cend(); ++it) dev += std::abs(it.value() - 4);
+    for (auto it = valence.cbegin(); it != valence.cend(); ++it)
+        dev += std::abs(it.value() - 4);
     return dev;
 }
 
 /*! (N+1)² lattice of unit quads; interior vertices jittered by ±jitter·h. */
+/**
+ * @brief Construct a deterministic unit-spaced quad lattice with perturbed interior vertices.
+ * @param[in] N Nonnegative cells per side; produces(N+1)^2 vertices and N^2 cells, unchecked
+ * size arithmetic.
+ * @param[in] jitter Nonnegative finite maximum x/y displacement in unit spacing; callers keep
+ * geometry valid.
+ * @param[in] seed Seed copied into local mt19937; global random state is untouched.
+ * @param[out] movable Optional borrowed set, cleared then filled with interior vertex indices;
+ * null skips output.
+ * @return Owned mesh marked ok; boundaries remain exact integer coordinates, no convexity
+ * validation. No external geometry or project ownership retained.
+ */
 MeshResult jitteredLattice(int N, double jitter, unsigned seed, QSet<int> *movable)
 {
     MeshResult m;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> u(-jitter, jitter);
     for (int j = 0; j <= N; ++j)
-        for (int i = 0; i <= N; ++i)
-        {
+        for (int i = 0; i <= N; ++i) {
             MeshVertex v;
             v.xy = QPointF(i, j);
-            if (i > 0 && i < N && j > 0 && j < N) v.xy += QPointF(u(rng), u(rng));
+            if (i > 0 && i < N && j > 0 && j < N)
+                v.xy += QPointF(u(rng), u(rng));
             m.vertices.append(v);
         }
     auto id = [N](int i, int j) { return j * (N + 1) + i; };
     for (int j = 0; j < N; ++j)
-        for (int i = 0; i < N; ++i)
-        {
+        for (int i = 0; i < N; ++i) {
             MeshTriangle q;
-            q.v0 = id(i, j); q.v1 = id(i + 1, j); q.v2 = id(i + 1, j + 1); q.v3 = id(i, j + 1);
+            q.v0 = id(i, j);
+            q.v1 = id(i + 1, j);
+            q.v2 = id(i + 1, j + 1);
+            q.v3 = id(i, j + 1);
             m.triangles.append(q);
         }
-    if (movable)
-    {
+    if (movable) {
         movable->clear();
-        for (int j = 1; j < N; ++j) for (int i = 1; i < N; ++i) movable->insert(id(i, j));
+        for (int j = 1; j < N; ++j)
+            for (int i = 1; i < N; ++i)
+                movable->insert(id(i, j));
     }
     m.ok = true;
     return m;
@@ -119,6 +172,10 @@ class TestMeshQuadCleanup : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     * @brief Register triangle/quad and winding combinations at origins 0,500000 and 1e9.
+     * @note Twelve QtTest rows exercise translation-stable signed area on small cells.
+     */
     void translatedCellOrientation_data()
     {
         QTest::addColumn<double>("origin");
@@ -127,22 +184,47 @@ private slots:
         for (double origin : {0.0, 500000.0, 1e9})
             for (bool clockwise : {false, true})
                 for (bool quad : {false, true})
-                    QTest::newRow(qPrintable(QString("origin%1-cw%2-quad%3").arg(origin).arg(clockwise).arg(quad)))
+                    QTest::newRow(qPrintable(
+                        QString("origin%1-cw%2-quad%3").arg(origin).arg(clockwise).arg(quad)))
                         << origin << clockwise << quad;
     }
 
+    /**
+     * @brief Verify signed cell area remains exact for both windings at projected coordinate
+     * scales.
+     * @note Rectangle dimensions.25 by.125 give quad area.03125 and triangle.015625, sign
+     * follows winding; local vertices/connectivity only.
+     */
     void translatedCellOrientation()
     {
-        QFETCH(double, origin); QFETCH(bool, clockwise); QFETCH(bool, quad);
+        QFETCH(double, origin);
+        QFETCH(bool, clockwise);
+        QFETCH(bool, quad);
         MeshResult mesh;
-        addVertex(mesh, origin, origin); addVertex(mesh, origin + 0.25, origin);
-        addVertex(mesh, origin + 0.25, origin + 0.125); addVertex(mesh, origin, origin + 0.125);
-        MeshTriangle cell; cell.v0=0; cell.v1=1; cell.v2=2; cell.v3=quad ? 3 : -1;
-        if (clockwise) { if (quad) std::swap(cell.v1,cell.v3); else std::swap(cell.v1,cell.v2); }
+        addVertex(mesh, origin, origin);
+        addVertex(mesh, origin + 0.25, origin);
+        addVertex(mesh, origin + 0.25, origin + 0.125);
+        addVertex(mesh, origin, origin + 0.125);
+        MeshTriangle cell;
+        cell.v0 = 0;
+        cell.v1 = 1;
+        cell.v2 = 2;
+        cell.v3 = quad ? 3 : -1;
+        if (clockwise) {
+            if (quad)
+                std::swap(cell.v1, cell.v3);
+            else
+                std::swap(cell.v1, cell.v2);
+        }
         const double area = (quad ? 0.03125 : 0.015625) * (clockwise ? -1 : 1);
         QCOMPARE(cellSignedArea(mesh.vertices, cell), area);
     }
 
+    /**
+     * @brief Register projected and large origins for guarded smoothing invariance.
+     * @note Offsets 500000 and 1e9 translate both planar coordinates; no mesh allocation until
+     * test body.
+     */
     void smoothing_translatedLattice_data()
     {
         QTest::addColumn<double>("origin");
@@ -150,12 +232,20 @@ private slots:
         QTest::newRow("large-origin") << 1e9;
     }
 
+    /**
+     * @brief Verify translated jittered lattices smooth without moving boundaries or degrading
+     * minimum quality.
+     * @note 5 by 5 lattice, jitter.2,seed 7; doublet removal/swaps disabled. Requires moved
+     * interiors, minimum Jacobian>=initial-1e-7 and>.95,25 convex CCW quads and unchanged vertex
+     * count/boundary coordinates.
+     */
     void smoothing_translatedLattice()
     {
         QFETCH(double, origin);
         QSet<int> movable;
         auto mesh = jitteredLattice(5, 0.2, 7u, &movable);
-        for (auto &vertex : mesh.vertices) vertex.xy += QPointF(origin, origin);
+        for (auto &vertex : mesh.vertices)
+            vertex.xy += QPointF(origin, origin);
         const auto before = mesh.vertices;
         const double initialSJ = minCellSJ(mesh);
         QuadCleanupOptions options;
@@ -167,7 +257,7 @@ private slots:
         QVERIFY(minCellSJ(mesh) > 0.95);
         QCOMPARE(mesh.vertices.size(), before.size());
         QCOMPARE(mesh.triangles.size(), 25);
-        for (int i=0; i<mesh.vertices.size(); ++i)
+        for (int i = 0; i < mesh.vertices.size(); ++i)
             if (!movable.contains(i)) {
                 QCOMPARE(mesh.vertices[i].xy.x(), before[i].xy.x());
                 QCOMPARE(mesh.vertices[i].xy.y(), before[i].xy.y());
@@ -178,6 +268,11 @@ private slots:
         }
     }
 
+    /**
+     * @brief Register permissive, crossed, already-exceeded and unlimited aspect caps for one
+     * smoothing move.
+     * @note Caps 4/2.8/2/0 carry expected move/no-move result; no global option changes.
+     */
     void smoothing_respectsAspectLimit_data()
     {
         QTest::addColumn<double>("cap");
@@ -188,14 +283,26 @@ private slots:
         QTest::newRow("unbounded") << 0.0 << true;
     }
 
+    /**
+     * @brief Verify smoothing respects active aspect limits and never worsens an
+     * already-exceeded cap.
+     * @note Moves only vertex 2 of one trapezoid toward(3,1), with topology cleanup disabled;
+     * compares expected exact position and final aspect<=max(cap,before)+1e-12 when bounded.
+     */
     void smoothing_respectsAspectLimit()
     {
         QFETCH(double, cap);
         QFETCH(bool, moves);
         MeshResult m;
-        addVertex(m, 0, 0); addVertex(m, 3, 0);
-        addVertex(m, 2.5, 1); addVertex(m, 0, 1);
-        MeshTriangle q; q.v0 = 0; q.v1 = 1; q.v2 = 2; q.v3 = 3;
+        addVertex(m, 0, 0);
+        addVertex(m, 3, 0);
+        addVertex(m, 2.5, 1);
+        addVertex(m, 0, 1);
+        MeshTriangle q;
+        q.v0 = 0;
+        q.v1 = 1;
+        q.v2 = 2;
+        q.v3 = 3;
         m.triangles.append(q);
         m.ok = true;
         QuadCleanupOptions o;
@@ -207,9 +314,9 @@ private slots:
         QCOMPARE(st.verticesMoved > 0, moves);
         QCOMPARE(m.vertices[2].xy, moves ? QPointF(3, 1) : QPointF(2.5, 1));
         if (cap > 0)
-            QVERIFY(quadQuality(m.vertices, m.triangles.first()).aspect <= std::max(cap, before) + 1e-12);
+            QVERIFY(quadQuality(m.vertices, m.triangles.first()).aspect <=
+                    std::max(cap, before) + 1e-12);
     }
-
 
     /*! Doublet: vertex v (movable, valence 2) shared by exactly two quads →
      *  one quad, v removed and compacted, remap has exactly one −1, the
@@ -219,13 +326,24 @@ private slots:
         MeshResult m;
         const int a = addVertex(m, 0, 0), x = addVertex(m, 1, -1), b = addVertex(m, 2, 0),
                   y = addVertex(m, 1, 1), v = addVertex(m, 1, 0.1);
-        MeshTriangle q1; q1.v0 = v; q1.v1 = a; q1.v2 = x; q1.v3 = b; q1.tag = QStringLiteral("d");
-        MeshTriangle q2; q2.v0 = v; q2.v1 = b; q2.v2 = y; q2.v3 = a; q2.tag = QStringLiteral("d");
+        MeshTriangle q1;
+        q1.v0 = v;
+        q1.v1 = a;
+        q1.v2 = x;
+        q1.v3 = b;
+        q1.tag = QStringLiteral("d");
+        MeshTriangle q2;
+        q2.v0 = v;
+        q2.v1 = b;
+        q2.v2 = y;
+        q2.v3 = a;
+        q2.tag = QStringLiteral("d");
         m.triangles = {q1, q2};
         makeCCW(m);
         // v sits 0.1 above the a–b line, so q2 (the upper quad) is slightly
         // concave at v — exactly the shape a doublet has in practice.
-        QVERIFY(!cellIsConvex(m.vertices, m.triangles[1]) || !cellIsConvex(m.vertices, m.triangles[0]));
+        QVERIFY(!cellIsConvex(m.vertices, m.triangles[1]) ||
+                !cellIsConvex(m.vertices, m.triangles[0]));
 
         QuadCleanupOptions o;
         o.smoothingIterations = 0;
@@ -236,11 +354,21 @@ private slots:
         QCOMPARE(m.vertices.size(), 4);
         QCOMPARE(vmap.size(), 5);
         int removed = 0;
-        for (int i = 0; i < 5; ++i)
-        {
-            if (vmap[i] < 0) { ++removed; QCOMPARE(i, v); }
-            else { QVERIFY(vmap[i] < 4); QCOMPARE(m.vertices[vmap[i]].xy, QPointF(i == a ? 0 : i == x ? 1 : i == b ? 2 : 1,
-                                                                                    i == a ? 0 : i == x ? -1 : i == b ? 0 : 1)); }
+        for (int i = 0; i < 5; ++i) {
+            if (vmap[i] < 0) {
+                ++removed;
+                QCOMPARE(i, v);
+            } else {
+                QVERIFY(vmap[i] < 4);
+                QCOMPARE(m.vertices[vmap[i]].xy, QPointF(i == a   ? 0
+                                                         : i == x ? 1
+                                                         : i == b ? 2
+                                                                  : 1,
+                                                         i == a   ? 0
+                                                         : i == x ? -1
+                                                         : i == b ? 0
+                                                                  : 1));
+            }
         }
         QCOMPARE(removed, 1);
         const MeshTriangle &q = m.triangles[0];
@@ -249,14 +377,24 @@ private slots:
         QVERIFY(cellSignedArea(m.vertices, q) > 0.0);
         QVERIFY(std::abs(cellGeom(m.vertices, q).area - 2.0) < 1e-12);
         QCOMPARE(q.tag, QStringLiteral("d"));
-        for (int i : {a, x, b, y}) QVERIFY(q.hasVertex(vmap[i]));
+        for (int i : {a, x, b, y})
+            QVERIFY(q.hasVertex(vmap[i]));
 
         // A non-movable doublet vertex is left alone; remap is the identity.
         MeshResult keep;
-        const int a2 = addVertex(keep, 0, 0), x2 = addVertex(keep, 1, -1), b2 = addVertex(keep, 2, 0),
-                  y2 = addVertex(keep, 1, 1), v2 = addVertex(keep, 1, 0.1);
-        MeshTriangle k1; k1.v0 = v2; k1.v1 = a2; k1.v2 = x2; k1.v3 = b2;
-        MeshTriangle k2; k2.v0 = v2; k2.v1 = b2; k2.v2 = y2; k2.v3 = a2;
+        const int a2 = addVertex(keep, 0, 0), x2 = addVertex(keep, 1, -1),
+                  b2 = addVertex(keep, 2, 0), y2 = addVertex(keep, 1, 1),
+                  v2 = addVertex(keep, 1, 0.1);
+        MeshTriangle k1;
+        k1.v0 = v2;
+        k1.v1 = a2;
+        k1.v2 = x2;
+        k1.v3 = b2;
+        MeshTriangle k2;
+        k2.v0 = v2;
+        k2.v1 = b2;
+        k2.v2 = y2;
+        k2.v3 = a2;
         keep.triangles = {k1, k2};
         makeCCW(keep);
         QVector<int> idmap;
@@ -277,9 +415,9 @@ private slots:
         QCOMPARE(movable.size(), 16);
         const QVector<MeshVertex> before = m.vertices;
         const double sjBefore = minCellSJ(m);
-        QVERIFY(sjBefore < 0.95);           // the jitter actually degrades the lattice
+        QVERIFY(sjBefore < 0.95); // the jitter actually degrades the lattice
 
-        QuadCleanupOptions o;             // defaults: 10 smoothing iterations
+        QuadCleanupOptions o; // defaults: 10 smoothing iterations
         QCOMPARE(o.smoothingIterations, 10);
         QVector<int> vmap;
         const QuadCleanupStats st = cleanupAndSmoothQuads(m, movable, o, &vmap);
@@ -288,16 +426,17 @@ private slots:
         QVERIFY(st.verticesMoved > 0);
         QCOMPARE(m.triangles.size(), 25);
         QCOMPARE(m.vertices.size(), 36);
-        for (int i = 0; i < 36; ++i) QCOMPARE(vmap[i], i);
+        for (int i = 0; i < 36; ++i)
+            QCOMPARE(vmap[i], i);
 
         const double sjAfter = minCellSJ(m);
         QVERIFY2(sjAfter >= sjBefore - 1e-12,
                  qPrintable(QStringLiteral("min SJ %1 -> %2").arg(sjBefore).arg(sjAfter)));
         QVERIFY2(sjAfter > 0.95, qPrintable(QStringLiteral("min SJ after %1").arg(sjAfter)));
         for (int i = 0; i < 36; ++i)
-            if (!movable.contains(i)) QCOMPARE(m.vertices[i].xy, before[i].xy);
-        for (const MeshTriangle &c : m.triangles)
-        {
+            if (!movable.contains(i))
+                QCOMPARE(m.vertices[i].xy, before[i].xy);
+        for (const MeshTriangle &c : m.triangles) {
             QVERIFY(c.isQuad());
             QVERIFY(cellIsConvex(m.vertices, c));
             QVERIFY(cellSignedArea(m.vertices, c) > 0.0);
@@ -308,7 +447,8 @@ private slots:
         o.smoothingIterations = 0;
         const QuadCleanupStats st0 = cleanupAndSmoothQuads(m0, movable, o, nullptr);
         QCOMPARE(st0.verticesMoved, 0);
-        for (int i = 0; i < 36; ++i) QCOMPARE(m0.vertices[i].xy, before[i].xy);
+        for (int i = 0; i < 36; ++i)
+            QCOMPARE(m0.vertices[i].xy, before[i].xy);
     }
 
     /*! Mixed cells: a lattice with one quad split into two triangles is
@@ -318,8 +458,14 @@ private slots:
         QSet<int> movable;
         MeshResult m = jitteredLattice(4, 0.2, 11u, &movable);
         const MeshTriangle q = m.triangles[5];
-        MeshTriangle t1; t1.v0 = q.v0; t1.v1 = q.v1; t1.v2 = q.v2;
-        MeshTriangle t2; t2.v0 = q.v0; t2.v1 = q.v2; t2.v2 = q.v3;
+        MeshTriangle t1;
+        t1.v0 = q.v0;
+        t1.v1 = q.v1;
+        t1.v2 = q.v2;
+        MeshTriangle t2;
+        t2.v0 = q.v0;
+        t2.v1 = q.v2;
+        t2.v2 = q.v3;
         m.triangles.removeAt(5);
         m.triangles.append(t1);
         m.triangles.append(t2);
@@ -330,8 +476,10 @@ private slots:
         const double after = minCellSJ(m);
         QVERIFY(after >= before - 1e-12);
         QVERIFY(!m.triangles[0].isQuad() && !m.triangles[1].isQuad());
-        for (int i = 2; i < m.triangles.size(); ++i) QVERIFY(m.triangles[i].isQuad());
-        for (const MeshTriangle &c : m.triangles) QVERIFY(cellSignedArea(m.vertices, c) > 0.0);
+        for (int i = 2; i < m.triangles.size(); ++i)
+            QVERIFY(m.triangles[i].isQuad());
+        for (const MeshTriangle &c : m.triangles)
+            QVERIFY(cellSignedArea(m.vertices, c) > 0.0);
     }
 
     /*! Diagonal swap: a regular hexagon split into two quads by the diagonal
@@ -342,17 +490,38 @@ private slots:
     void diagonalSwap_valencePair()
     {
         MeshResult d;
-        const int B = addVertex(d, 0, -1), C1 = addVertex(d, 0.9, -0.5), D1 = addVertex(d, 0.9, 0.5),
-                  A = addVertex(d, 0, 1), C2 = addVertex(d, -0.9, 0.5), D2 = addVertex(d, -0.9, -0.5);
-        MeshTriangle q1; q1.v0 = A; q1.v1 = B; q1.v2 = C1; q1.v3 = D1;
-        MeshTriangle q2; q2.v0 = B; q2.v1 = A; q2.v2 = C2; q2.v3 = D2;
+        const int B = addVertex(d, 0, -1), C1 = addVertex(d, 0.9, -0.5),
+                  D1 = addVertex(d, 0.9, 0.5), A = addVertex(d, 0, 1), C2 = addVertex(d, -0.9, 0.5),
+                  D2 = addVertex(d, -0.9, -0.5);
+        MeshTriangle q1;
+        q1.v0 = A;
+        q1.v1 = B;
+        q1.v2 = C1;
+        q1.v3 = D1;
+        MeshTriangle q2;
+        q2.v0 = B;
+        q2.v1 = A;
+        q2.v2 = C2;
+        q2.v3 = D2;
         d.triangles = {q1, q2};
-        const int T1 = addVertex(d, 0.6, 2), T1b = addVertex(d, -0.6, 2), T2 = addVertex(d, 0.6, -2), T2b = addVertex(d, -0.6, -2);
-        auto tri = [&](int a, int b, int c) { MeshTriangle t; t.v0 = a; t.v1 = b; t.v2 = c; d.triangles.append(t); };
-        tri(A, D1, T1); tri(A, T1, T1b); tri(A, T1b, C2);
-        tri(B, T2, C1); tri(B, T2b, T2); tri(B, D2, T2b);
+        const int T1 = addVertex(d, 0.6, 2), T1b = addVertex(d, -0.6, 2),
+                  T2 = addVertex(d, 0.6, -2), T2b = addVertex(d, -0.6, -2);
+        auto tri = [&](int a, int b, int c) {
+            MeshTriangle t;
+            t.v0 = a;
+            t.v1 = b;
+            t.v2 = c;
+            d.triangles.append(t);
+        };
+        tri(A, D1, T1);
+        tri(A, T1, T1b);
+        tri(A, T1b, C2);
+        tri(B, T2, C1);
+        tri(B, T2b, T2);
+        tri(B, D2, T2b);
         makeCCW(d);
-        for (const MeshTriangle &c : d.triangles) QVERIFY(cellIsConvex(d.vertices, c));
+        for (const MeshTriangle &c : d.triangles)
+            QVERIFY(cellIsConvex(d.vertices, c));
 
         const int devBefore = valenceDeviation(d);
         QuadCleanupOptions o;
@@ -360,20 +529,26 @@ private slots:
         o.removeDoublets = false;
         // The hexagon's quads are far from rectangles; loosen the bounds so
         // the swap is judged on valence alone.
-        o.bounds.minAngleDeg = 30.0; o.bounds.maxAngleDeg = 150.0;
-        o.bounds.minScaledJacobian = 0.4; o.bounds.maxAspect = 0.0;
+        o.bounds.minAngleDeg = 30.0;
+        o.bounds.maxAngleDeg = 150.0;
+        o.bounds.minScaledJacobian = 0.4;
+        o.bounds.maxAspect = 0.0;
         const QuadCleanupStats st = cleanupAndSmoothQuads(d, {A, B}, o, nullptr);
-        QVERIFY2(st.diagonalSwaps >= 1, qPrintable(QStringLiteral("swaps %1").arg(st.diagonalSwaps)));
+        QVERIFY2(st.diagonalSwaps >= 1,
+                 qPrintable(QStringLiteral("swaps %1").arg(st.diagonalSwaps)));
         const int devAfter = valenceDeviation(d);
-        QVERIFY2(devAfter < devBefore, qPrintable(QStringLiteral("valence deviation %1 -> %2").arg(devBefore).arg(devAfter)));
+        QVERIFY2(
+            devAfter < devBefore,
+            qPrintable(QStringLiteral("valence deviation %1 -> %2").arg(devBefore).arg(devAfter)));
         QCOMPARE(d.triangles.size(), 8);
-        for (const MeshTriangle &c : d.triangles)
-        {
+        for (const MeshTriangle &c : d.triangles) {
             QVERIFY(cellSignedArea(d.vertices, c) > 0.0);
             QVERIFY(cellIsConvex(d.vertices, c));
-            if (c.isQuad()) QVERIFY(!(c.hasVertex(A) && c.hasVertex(B)));
+            if (c.isQuad())
+                QVERIFY(!(c.hasVertex(A) && c.hasVertex(B)));
         }
-        for (int i = 0; i < 6; ++i) QVERIFY(!d.triangles[i].isQuad());
+        for (int i = 0; i < 6; ++i)
+            QVERIFY(!d.triangles[i].isQuad());
         QVERIFY(d.triangles[6].isQuad() && d.triangles[7].isQuad());
         // Vertices were not moved (smoothing off) and none removed.
         QCOMPARE(d.vertices.size(), 10);
@@ -383,8 +558,12 @@ private slots:
         QCOMPARE(again.diagonalSwaps, 0);
         // With swaps disabled nothing happens on the original fixture.
         MeshResult d2;
-        addVertex(d2, 0, -1); addVertex(d2, 0.9, -0.5); addVertex(d2, 0.9, 0.5);
-        addVertex(d2, 0, 1); addVertex(d2, -0.9, 0.5); addVertex(d2, -0.9, -0.5);
+        addVertex(d2, 0, -1);
+        addVertex(d2, 0.9, -0.5);
+        addVertex(d2, 0.9, 0.5);
+        addVertex(d2, 0, 1);
+        addVertex(d2, -0.9, 0.5);
+        addVertex(d2, -0.9, -0.5);
         d2.triangles = {q1, q2};
         makeCCW(d2);
         QuadCleanupOptions off = o;
@@ -396,15 +575,30 @@ private slots:
     void reorderTrianglesFirst_mixed()
     {
         MeshResult r;
-        for (int i = 0; i < 4; ++i) addVertex(r, i, i);
-        MeshTriangle q; q.v0 = 0; q.v1 = 1; q.v2 = 2; q.v3 = 3; q.tag = QStringLiteral("q");
-        MeshTriangle t; t.v0 = 0; t.v1 = 1; t.v2 = 2; t.tag = QStringLiteral("t");
-        MeshTriangle q2 = q; q2.tag = QStringLiteral("q2");
-        MeshTriangle t2 = t; t2.tag = QStringLiteral("t2");
+        for (int i = 0; i < 4; ++i)
+            addVertex(r, i, i);
+        MeshTriangle q;
+        q.v0 = 0;
+        q.v1 = 1;
+        q.v2 = 2;
+        q.v3 = 3;
+        q.tag = QStringLiteral("q");
+        MeshTriangle t;
+        t.v0 = 0;
+        t.v1 = 1;
+        t.v2 = 2;
+        t.tag = QStringLiteral("t");
+        MeshTriangle q2 = q;
+        q2.tag = QStringLiteral("q2");
+        MeshTriangle t2 = t;
+        t2.tag = QStringLiteral("t2");
         r.triangles = {q, t, q2, t2};
-        CellCoupling cc; cc.tri = 0; cc.nodeId = QStringLiteral("J1");
+        CellCoupling cc;
+        cc.tri = 0;
+        cc.nodeId = QStringLiteral("J1");
         r.cellCouplings.append(cc);
-        cc.tri = 3; cc.nodeId = QStringLiteral("J2");
+        cc.tri = 3;
+        cc.nodeId = QStringLiteral("J2");
         r.cellCouplings.append(cc);
         InfilRow row;
         r.infilOverrides.insert(2, row);

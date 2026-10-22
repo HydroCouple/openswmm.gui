@@ -1,8 +1,9 @@
-/*!
- * \file   test_meshinfil.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_meshinfil.cpp
+ * @brief     Tests for meshinfil.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Phase GG0 gates for per-cell 2D infiltration
  * (INTEGRATED2D_GW_GUI_PLAN_2026-08-15.md §3.2a–§3.6).
@@ -19,7 +20,9 @@
  *    inheriting: `infilOverrides` must not contain it. A cell that comes back
  *    carrying an override with identical numbers looks correct in every UI and
  *    silently stops tracking its region.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QTemporaryDir>
 
@@ -34,7 +37,8 @@
 
 using namespace mesh;
 
-namespace {
+namespace
+{
 
 /*! Four triangles in a 2x1 strip of quads. Tags give the resolution order
  *  something to resolve: LAWN, WOODS, LAWN, (untagged). */
@@ -42,29 +46,64 @@ MeshResult makeTaggedMesh()
 {
     MeshResult m;
     for (int x = 0; x <= 2; ++x) {
-        MeshVertex b; b.xy = QPointF(double(x) * 10.0, 0.0);  b.z = 10.0; m.vertices.append(b);
-        MeshVertex t; t.xy = QPointF(double(x) * 10.0, 10.0); t.z = 10.0; m.vertices.append(t);
+        MeshVertex b;
+        b.xy = QPointF(double(x) * 10.0, 0.0);
+        b.z = 10.0;
+        m.vertices.append(b);
+        MeshVertex t;
+        t.xy = QPointF(double(x) * 10.0, 10.0);
+        t.z = 10.0;
+        m.vertices.append(t);
     }
     const char *tags[4] = {"LAWN", "WOODS", "LAWN", ""};
     for (int x = 0; x < 2; ++x) {
         const int b0 = x * 2, t0 = x * 2 + 1, b1 = (x + 1) * 2, t1 = (x + 1) * 2 + 1;
-        MeshTriangle a; a.v0 = b0; a.v1 = b1; a.v2 = t1; a.mannings = 0.03;
-        MeshTriangle c; c.v0 = b0; c.v1 = t1; c.v2 = t0; c.mannings = 0.03;
+        MeshTriangle a;
+        a.v0 = b0;
+        a.v1 = b1;
+        a.v2 = t1;
+        a.mannings = 0.03;
+        MeshTriangle c;
+        c.v0 = b0;
+        c.v1 = t1;
+        c.v2 = t0;
+        c.mannings = 0.03;
         m.triangles.append(a);
         m.triangles.append(c);
     }
-    for (int i = 0; i < 4; ++i) m.triangles[i].tag = QString::fromLatin1(tags[i]);
+    for (int i = 0; i < 4; ++i)
+        m.triangles[i].tag = QString::fromLatin1(tags[i]);
     m.ok = true;
     return m;
 }
 
-InfilRow row(InfilMethod method, double p0,
-             double p1 = qQNaN(), double p2 = qQNaN(),
+/**
+ * @brief Construct an infiltration fixture row with explicit positional parameters and Lost
+ * destination.
+ * @param[in] method Method enum copied without validation; determines positional parameter
+ * meaning.
+ * @param[in] p0 Horton initial rate, Green-Ampt suction, CurveNumber CN, or Constant rate, in
+ * project infiltration units as appropriate; required even for methods not using it.
+ * @param[in] p1 Horton minimum rate or Green-Ampt saturated conductivity; default NaN marks
+ * unset/unused.
+ * @param[in] p2 Horton decay in 1/hour, Green-Ampt dimensionless moisture deficit, or
+ * CurveNumber drying in days; default NaN, no range checks.
+ * @param[in] p3 Horton drying time in days, otherwise unused; default NaN.
+ * @param[in] p4 Horton maximum infiltrated depth in project infiltration units, otherwise
+ * unused; default NaN.
+ * @return Owned row with all five values copied and destinationLost; no inheritance resolution,
+ * unit conversion or model mutation. Fixture writer supplies CMS project for persisted examples.
+ */
+InfilRow row(InfilMethod method, double p0, double p1 = qQNaN(), double p2 = qQNaN(),
              double p3 = qQNaN(), double p4 = qQNaN())
 {
     InfilRow r;
     r.method = method;
-    r.p[0] = p0; r.p[1] = p1; r.p[2] = p2; r.p[3] = p3; r.p[4] = p4;
+    r.p[0] = p0;
+    r.p[1] = p1;
+    r.p[2] = p2;
+    r.p[3] = p3;
+    r.p[4] = p4;
     r.dest = InfilDest::Lost;
     return r;
 }
@@ -74,22 +113,33 @@ InfilRow row(InfilMethod method, double p0,
 MeshResult makeConfiguredMesh()
 {
     MeshResult m = makeTaggedMesh();
-    m.infilDefaults.append({QStringLiteral("*"),
-                            row(InfilMethod::Constant, 1.0)});
-    m.infilDefaults.append({QStringLiteral("LAWN"),
-                            row(InfilMethod::Horton, 3.0, 0.5, 4.14, 7.0, 0.0)});
+    m.infilDefaults.append({QStringLiteral("*"), row(InfilMethod::Constant, 1.0)});
+    m.infilDefaults.append(
+        {QStringLiteral("LAWN"), row(InfilMethod::Horton, 3.0, 0.5, 4.14, 7.0, 0.0)});
     m.infilOverrides.insert(2, row(InfilMethod::CurveNumber, 85.0, qQNaN(), 7.0));
     m.infilOptions.infilStep = 120.0;
     return m;
 }
 
+/**
+ * @brief Compare method, destination and all infiltration parameters with matching unset-NaN
+ * semantics.
+ * @param[in] a Stable reference infiltration row, preserved.
+ * @param[in] b Stable candidate row, preserved.
+ * @return False for method/destination mismatch, exactly oneNaN, or finite difference>1e-9; true
+ * otherwise. Tolerance uses each positional slot's own units, not relative error. Does not
+ * compare provenance or validate infinities; inf-infNaN difference does not trigger rejection.
+ */
 bool sameRow(const InfilRow &a, const InfilRow &b)
 {
-    if (a.method != b.method || a.dest != b.dest) return false;
+    if (a.method != b.method || a.dest != b.dest)
+        return false;
     for (int i = 0; i < kInfilMaxParams; ++i) {
         const bool na = std::isnan(a.p[i]), nb = std::isnan(b.p[i]);
-        if (na != nb) return false;
-        if (!na && std::abs(a.p[i] - b.p[i]) > 1e-9) return false;
+        if (na != nb)
+            return false;
+        if (!na && std::abs(a.p[i] - b.p[i]) > 1e-9)
+            return false;
     }
     return true;
 }
@@ -111,25 +161,25 @@ private slots:
     {
         const MeshResult m = makeConfiguredMesh();
 
-        const ResolvedInfil r0 = resolveInfil(m, 0);   // LAWN
+        const ResolvedInfil r0 = resolveInfil(m, 0); // LAWN
         QCOMPARE(r0.row.method, InfilMethod::Horton);
         QCOMPARE(r0.provenance, InfilProvenance::Tag);
         QCOMPARE(r0.sourceTag, QStringLiteral("LAWN"));
         QVERIFY(r0.isInherited());
         QVERIFY(!r0.isOverride());
 
-        const ResolvedInfil r1 = resolveInfil(m, 1);   // WOODS -> falls to '*'
+        const ResolvedInfil r1 = resolveInfil(m, 1); // WOODS -> falls to '*'
         QCOMPARE(r1.row.method, InfilMethod::Constant);
         QCOMPARE(r1.provenance, InfilProvenance::Star);
         QVERIFY(r1.isInherited());
 
-        const ResolvedInfil r2 = resolveInfil(m, 2);   // LAWN, overridden
+        const ResolvedInfil r2 = resolveInfil(m, 2); // LAWN, overridden
         QCOMPARE(r2.row.method, InfilMethod::CurveNumber);
         QCOMPARE(r2.provenance, InfilProvenance::Override);
         QVERIFY(r2.isOverride());
         QVERIFY(!r2.isInherited());
 
-        const ResolvedInfil r3 = resolveInfil(m, 3);   // untagged -> '*'
+        const ResolvedInfil r3 = resolveInfil(m, 3); // untagged -> '*'
         QCOMPARE(r3.row.method, InfilMethod::Constant);
         QCOMPARE(r3.provenance, InfilProvenance::Star);
     }
@@ -149,11 +199,11 @@ private slots:
     /*! Per-method parameter masking — what the attribute table greys out. */
     void masks_matchTheDocumentedPositionalLayout()
     {
-        QCOMPARE(infilParamCount(InfilMethod::Horton),       5);
-        QCOMPARE(infilParamCount(InfilMethod::ModHorton),    5);
-        QCOMPARE(infilParamCount(InfilMethod::GreenAmpt),    3);
+        QCOMPARE(infilParamCount(InfilMethod::Horton), 5);
+        QCOMPARE(infilParamCount(InfilMethod::ModHorton), 5);
+        QCOMPARE(infilParamCount(InfilMethod::GreenAmpt), 3);
         QCOMPARE(infilParamCount(InfilMethod::ModGreenAmpt), 3);
-        QCOMPARE(infilParamCount(InfilMethod::Constant),     1);
+        QCOMPARE(infilParamCount(InfilMethod::Constant), 1);
 
         // Curve Number's middle column is a documented no-op.
         QVERIFY(infilUsesParam(InfilMethod::CurveNumber, 0));
@@ -172,17 +222,17 @@ private slots:
      *  will not reload. */
     void tokens_matchTheEngineSpelling()
     {
-        QCOMPARE(infilMethodToken(InfilMethod::Horton),       QStringLiteral("HORTON"));
-        QCOMPARE(infilMethodToken(InfilMethod::ModHorton),    QStringLiteral("MODIFIED_HORTON"));
-        QCOMPARE(infilMethodToken(InfilMethod::GreenAmpt),    QStringLiteral("GREEN_AMPT"));
-        QCOMPARE(infilMethodToken(InfilMethod::ModGreenAmpt), QStringLiteral("MODIFIED_GREEN_AMPT"));
-        QCOMPARE(infilMethodToken(InfilMethod::CurveNumber),  QStringLiteral("CURVE_NUMBER"));
-        QCOMPARE(infilMethodToken(InfilMethod::Constant),     QStringLiteral("CONSTANT"));
-        QCOMPARE(infilMethodToken(InfilMethod::None),         QStringLiteral("NONE"));
+        QCOMPARE(infilMethodToken(InfilMethod::Horton), QStringLiteral("HORTON"));
+        QCOMPARE(infilMethodToken(InfilMethod::ModHorton), QStringLiteral("MODIFIED_HORTON"));
+        QCOMPARE(infilMethodToken(InfilMethod::GreenAmpt), QStringLiteral("GREEN_AMPT"));
+        QCOMPARE(infilMethodToken(InfilMethod::ModGreenAmpt),
+                 QStringLiteral("MODIFIED_GREEN_AMPT"));
+        QCOMPARE(infilMethodToken(InfilMethod::CurveNumber), QStringLiteral("CURVE_NUMBER"));
+        QCOMPARE(infilMethodToken(InfilMethod::Constant), QStringLiteral("CONSTANT"));
+        QCOMPARE(infilMethodToken(InfilMethod::None), QStringLiteral("NONE"));
 
-        for (auto m : {InfilMethod::Horton, InfilMethod::ModHorton,
-                       InfilMethod::GreenAmpt, InfilMethod::ModGreenAmpt,
-                       InfilMethod::CurveNumber, InfilMethod::Constant,
+        for (auto m : {InfilMethod::Horton, InfilMethod::ModHorton, InfilMethod::GreenAmpt,
+                       InfilMethod::ModGreenAmpt, InfilMethod::CurveNumber, InfilMethod::Constant,
                        InfilMethod::None}) {
             bool ok = false;
             QCOMPARE(infilMethodFromToken(infilMethodToken(m), &ok), m);
@@ -198,13 +248,13 @@ private slots:
      *  contiguous from None = -1. Nothing else checks this. */
     void enumEncoding_isContiguousFromNone()
     {
-        QCOMPARE(int(InfilMethod::None),         -1);
-        QCOMPARE(int(InfilMethod::Horton),        0);
-        QCOMPARE(int(InfilMethod::ModHorton),     1);
-        QCOMPARE(int(InfilMethod::GreenAmpt),     2);
-        QCOMPARE(int(InfilMethod::ModGreenAmpt),  3);
-        QCOMPARE(int(InfilMethod::CurveNumber),   4);
-        QCOMPARE(int(InfilMethod::Constant),      5);
+        QCOMPARE(int(InfilMethod::None), -1);
+        QCOMPARE(int(InfilMethod::Horton), 0);
+        QCOMPARE(int(InfilMethod::ModHorton), 1);
+        QCOMPARE(int(InfilMethod::GreenAmpt), 2);
+        QCOMPARE(int(InfilMethod::ModGreenAmpt), 3);
+        QCOMPARE(int(InfilMethod::CurveNumber), 4);
+        QCOMPARE(int(InfilMethod::Constant), 5);
     }
 
     // -----------------------------------------------------------------
@@ -258,15 +308,18 @@ private slots:
             const QString text = readAll(inp);
             QVERIFY2(text.contains(QStringLiteral("[2D_INFILTRATION_DEFAULTS]")),
                      qPrintable(QStringLiteral("pass %1 dropped "
-                                "[2D_INFILTRATION_DEFAULTS] — it is missing "
-                                "from the strip list or from "
-                                "patchAttributeSections()").arg(pass)));
+                                               "[2D_INFILTRATION_DEFAULTS] — it is missing "
+                                               "from the strip list or from "
+                                               "patchAttributeSections()")
+                                    .arg(pass)));
             QVERIFY2(text.contains(QStringLiteral("[2D_INFILTRATION]")),
                      qPrintable(QStringLiteral("pass %1 dropped "
-                                "[2D_INFILTRATION]").arg(pass)));
+                                               "[2D_INFILTRATION]")
+                                    .arg(pass)));
             QVERIFY2(text.contains(QStringLiteral("[2D_INFILTRATION_OPTIONS]")),
                      qPrintable(QStringLiteral("pass %1 dropped "
-                                "[2D_INFILTRATION_OPTIONS]").arg(pass)));
+                                               "[2D_INFILTRATION_OPTIONS]")
+                                    .arg(pass)));
 
             // A duplicated section is as broken as a dropped one: the engine
             // would append the rows twice.
@@ -286,16 +339,15 @@ private slots:
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
-        const QString inp  = dir.filePath(QStringLiteral("ext.inp"));
+        const QString inp = dir.filePath(QStringLiteral("ext.inp"));
         const QString mesh = dir.filePath(QStringLiteral("ext.2dm"));
 
         const MeshResult src = makeConfiguredMesh();
         // Sidecar carries the mesh + infiltration; the .inp only references it.
         writeText(mesh, InpMeshWriter::buildSectionText(src, CouplingMap{}));
-        writeText(inp,
-                  QStringLiteral("[OPTIONS]\nFLOW_UNITS CMS\n\n"
-                                 "[2D_MESH_FILE]\nFILE %1\n")
-                      .arg(QFileInfo(mesh).fileName()));
+        writeText(inp, QStringLiteral("[OPTIONS]\nFLOW_UNITS CMS\n\n"
+                                      "[2D_MESH_FILE]\nFILE %1\n")
+                           .arg(QFileInfo(mesh).fileName()));
 
         const InpMeshReadResult back = InpMeshReader::read(inp);
         QVERIFY2(back.hasMesh, qPrintable(back.errorMsg));
@@ -332,9 +384,8 @@ private slots:
         const ResolvedInfil pre = resolveInfil(layer.mesh(), 0);
         QCOMPARE(pre.provenance, InfilProvenance::Tag);
 
-        MeshSetTriangleInfilCommand cmd(
-            &layer, {0}, row(InfilMethod::Constant, 2.5),
-            {pre.row}, {pre.provenance}, QStringLiteral("infil"), nullptr);
+        MeshSetTriangleInfilCommand cmd(&layer, {0}, row(InfilMethod::Constant, 2.5), {pre.row},
+                                        {pre.provenance}, QStringLiteral("infil"), nullptr);
 
         cmd.redo();
         QVERIFY(layer.mesh().infilOverrides.contains(0));
@@ -367,9 +418,8 @@ private slots:
         const ResolvedInfil pre = resolveInfil(layer.mesh(), 2);
         QCOMPARE(pre.provenance, InfilProvenance::Override);
 
-        MeshSetTriangleInfilCommand cmd(
-            &layer, {2}, row(InfilMethod::Constant, 9.0),
-            {pre.row}, {pre.provenance}, QStringLiteral("infil"), nullptr);
+        MeshSetTriangleInfilCommand cmd(&layer, {2}, row(InfilMethod::Constant, 9.0), {pre.row},
+                                        {pre.provenance}, QStringLiteral("infil"), nullptr);
         cmd.redo();
         cmd.undo();
 
@@ -387,7 +437,7 @@ private slots:
         const InfilRow before2 = layer.mesh().infilOverrides.value(2);
 
         QVector<int> tris{0, 1, 2, 3};
-        QVector<InfilRow>        oldRows;
+        QVector<InfilRow> oldRows;
         QVector<InfilProvenance> oldProv;
         for (int t : tris) {
             const ResolvedInfil r = resolveInfil(layer.mesh(), t);
@@ -398,9 +448,8 @@ private slots:
         // this would not be testing the mixed case it claims to.
         QCOMPARE(oldProv.count(InfilProvenance::Override), 1);
 
-        MeshSetTriangleInfilCommand cmd(
-            &layer, tris, row(InfilMethod::Constant, 4.0), oldRows, oldProv,
-            QStringLiteral("infil"), nullptr);
+        MeshSetTriangleInfilCommand cmd(&layer, tris, row(InfilMethod::Constant, 4.0), oldRows,
+                                        oldProv, QStringLiteral("infil"), nullptr);
 
         cmd.redo();
         QCOMPARE(layer.mesh().infilOverrides.size(), 4);
@@ -424,11 +473,9 @@ private slots:
         QCOMPARE(indexOfDefault(layer.mesh(), QStringLiteral("WOODS")), -1);
         QCOMPARE(resolveInfil(layer.mesh(), 1).provenance, InfilProvenance::Star);
 
-        MeshSetInfilDefaultsCommand cmd(
-            &layer, {QStringLiteral("WOODS")},
-            {row(InfilMethod::Constant, 2.0)},
-            {InfilRow{}}, {false},
-            QStringLiteral("defaults"), nullptr);
+        MeshSetInfilDefaultsCommand cmd(&layer, {QStringLiteral("WOODS")},
+                                        {row(InfilMethod::Constant, 2.0)}, {InfilRow{}}, {false},
+                                        QStringLiteral("defaults"), nullptr);
 
         cmd.redo();
         QVERIFY(indexOfDefault(layer.mesh(), QStringLiteral("WOODS")) >= 0);
@@ -441,8 +488,7 @@ private slots:
         QCOMPARE(resolveInfil(layer.mesh(), 1).provenance, InfilProvenance::Star);
 
         // And the proof it matters: a later '*' edit must still reach WOODS.
-        QVERIFY(layer.applyMeshInfilDefault(QStringLiteral("*"),
-                                            row(InfilMethod::Constant, 7.0)));
+        QVERIFY(layer.applyMeshInfilDefault(QStringLiteral("*"), row(InfilMethod::Constant, 7.0)));
         const ResolvedInfil after = resolveInfil(layer.mesh(), 1);
         QCOMPARE(after.provenance, InfilProvenance::Star);
         QCOMPARE(after.row.p[0], 7.0);
@@ -457,11 +503,9 @@ private slots:
         QVERIFY(idx >= 0);
         const InfilRow before = layer.mesh().infilDefaults[idx].row;
 
-        MeshSetInfilDefaultsCommand cmd(
-            &layer, {QStringLiteral("LAWN")},
-            {row(InfilMethod::Constant, 3.0)},
-            {before}, {true},
-            QStringLiteral("defaults"), nullptr);
+        MeshSetInfilDefaultsCommand cmd(&layer, {QStringLiteral("LAWN")},
+                                        {row(InfilMethod::Constant, 3.0)}, {before}, {true},
+                                        QStringLiteral("defaults"), nullptr);
 
         cmd.redo();
         cmd.undo();
@@ -473,6 +517,15 @@ private slots:
     }
 
 private:
+    /**
+     * @brief Write a UTF8 text fixture file after asserting it can be opened.
+     * @param[in] path Destination in a test-owned QTemporaryDirdirectory; existing file
+     * truncated.
+     * @param[in] text Stable Unicode payload encoded to UTF8 and written synchronously.
+     * @note QtTest assertion records open failure/returns from helper; write count/flush errors
+     * not checked, so caller readback assertions verify payload. Closes handle locally, no
+     * parent creation/ownership transfer.
+     */
     static void writeText(const QString &path, const QString &text)
     {
         QFile f(path);
@@ -480,24 +533,49 @@ private:
         f.write(text.toUtf8());
     }
 
+    /**
+     * @brief Read a fixture text file as UTF8 for persistence assertions.
+     * @param[in] path Read-only test fixture path, borrowed synchronously.
+     * @return Owned decoded text, empty for open failure or empty file; read/encoding errors not
+     * distinguished. Closes file locally, no source mutation.
+     */
     static QString readAll(const QString &path)
     {
         QFile f(path);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            return {};
         return QString::fromUtf8(f.readAll());
     }
 
     /*! A minimal .inp carrying the mesh (and its infiltration) inline. */
+    /**
+     * @brief Serialize an inline mesh/infiltration fixture under a minimal CMS project options
+     * header.
+     * @param[in] path Test-owned writable destination, existing file truncated by writeText.
+     * @param[in] m Stable mesh with valid geometry/parameter fixtures, preserved.
+     * @note Builds section text with empty CouplingMap then delegates writeText assertions; no
+     * native engine or project save transaction, no caller pointer retained, may allocate and
+     * leave partial output on IOerror.
+     */
     static void writeInlineModel(const QString &path, const MeshResult &m)
     {
-        writeText(path,
-                  QStringLiteral("[OPTIONS]\nFLOW_UNITS CMS\n\n")
-                      + InpMeshWriter::buildSectionText(m, CouplingMap{}));
+        writeText(path, QStringLiteral("[OPTIONS]\nFLOW_UNITS CMS\n\n") +
+                            InpMeshWriter::buildSectionText(m, CouplingMap{}));
     }
 
     /*! Every triangle must resolve to the same row AND the same provenance
      *  on both sides — comparing only the numbers would let a round-trip that
      *  materialized every inherited cell as an override pass. */
+    /**
+     * @brief Assert cell-by-cell infiltration values and inheritance provenance agree after a
+     * round-trip.
+     * @param[in] a Stable expected mesh with valid cell indexing.
+     * @param[in] b Stable actual mesh, must have equal cell count or helper assertion returns
+     * early.
+     * @note Resolves every cell and compares rows through sameRow plus exact provenance,
+     * catching materialized inheritance even with identical numbers. QtTest failures record
+     * diagnostics/return; no mesh mutation, file IO, ownership transfer or boolean result.
+     */
     static void compareResolved(const MeshResult &a, const MeshResult &b)
     {
         QCOMPARE(b.triangles.size(), a.triangles.size());
@@ -506,12 +584,15 @@ private:
             const ResolvedInfil rb = resolveInfil(b, t);
             QVERIFY2(sameRow(ra.row, rb.row),
                      qPrintable(QStringLiteral("triangle %1 resolved to a "
-                                "different row after the round-trip").arg(t)));
+                                               "different row after the round-trip")
+                                    .arg(t)));
             QVERIFY2(ra.provenance == rb.provenance,
                      qPrintable(QStringLiteral("triangle %1 changed provenance "
-                                "%2 -> %3 across the round-trip — inheritance "
-                                "was not preserved")
-                                .arg(t).arg(int(ra.provenance)).arg(int(rb.provenance))));
+                                               "%2 -> %3 across the round-trip — inheritance "
+                                               "was not preserved")
+                                    .arg(t)
+                                    .arg(int(ra.provenance))
+                                    .arg(int(rb.provenance))));
         }
     }
 };

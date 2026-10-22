@@ -1,9 +1,9 @@
-/*!
- * \file   flowarroweditor.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  "Flow direction arrows" group for a SWMM link kind.
+/**
+ * @file      flowarroweditor.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     "Flow direction arrows" group for a SWMM link kind.
  *
  *         Arrows are a property of the LINK KIND, not of the renderer, and
  *         two channels carry them, chosen by the host:
@@ -16,7 +16,9 @@
  *                              arrowLengthPx / arrowWidthPx / arrowColor.
  *         Anything else (no host, non-link kind) has no channel and the
  *         group hides itself.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_EDITORS_FLOWARROWEDITOR_H
 #define OPENSWMMVIS_UI_DIALOGS_EDITORS_FLOWARROWEDITOR_H
 
@@ -31,7 +33,8 @@ class SWMMResultsLayer;
 class QCheckBox;
 class QDoubleSpinBox;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ColorButton;
 
@@ -52,14 +55,14 @@ public:
 private:
     void onChanged();
 
-    SWMMModelLayer   *m_modelLayer   = nullptr;
+    SWMMModelLayer *m_modelLayer = nullptr;
     SWMMResultsLayer *m_resultsLayer = nullptr;
     OpenSWMMVis::SwmmCategory m_category = OpenSWMMVis::CatJunctions;
 
-    QCheckBox      *m_showChk  = nullptr;
-    QDoubleSpinBox *m_sizeSpin = nullptr;   ///< length ALONG the link
-    QDoubleSpinBox *m_widSpin  = nullptr;   ///< width ACROSS the link
-    ColorButton    *m_colorBtn = nullptr;
+    QCheckBox *m_showChk = nullptr;
+    QDoubleSpinBox *m_sizeSpin = nullptr; ///< length ALONG the link
+    QDoubleSpinBox *m_widSpin = nullptr;  ///< width ACROSS the link
+    ColorButton *m_colorBtn = nullptr;
 };
 
 } // namespace openswmmvis::ui

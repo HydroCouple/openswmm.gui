@@ -1,6 +1,6 @@
-/*!
- * \file   test_savepathperf.cpp
- * \brief  Save-path perf harness — times the stages of a project save against
+/**
+ * @file      test_savepathperf.cpp
+ * @brief     Save-path perf harness — times the stages of a project save against
  *         a large synthetic mesh, without needing a GUI or a canvas.
  *
  * The save path's dominant cost is mesh::pushMeshEditsToEngine, which the GUI
@@ -23,7 +23,12 @@
  *
  * Per CLAUDE.md §4.1 the written model lands next to the fixture, not in a
  * temp dir, so it can be reviewed.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include <QByteArray>
@@ -44,8 +49,16 @@
 #include <cstdlib>
 #include <cstdio>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Read the optional save benchmark fixture path from the process environment.
+ * @return Owned UTF-8 SWMM_PROFILE_SAVE_INP text or empty if unset/empty. No path
+ * normalization, existence check, environment mutation or file I/O.
+ *
+ */
 QString profileTarget()
 {
     const char *p = std::getenv("SWMM_PROFILE_SAVE_INP");
@@ -54,14 +67,23 @@ QString profileTarget()
 
 } // namespace
 
+/**
+ *
+ * @brief Measure layer mesh read, uninitialized engine open, mesh synchronization and model
+ * write.
+ * Skips unless SWMM_PROFILE_SAVE_INP is set; requires an existing mesh INP fixture.
+ * Creates/replaces adjacent .saveperf.rpt/.out/.inp artifacts, prints counts/timings
+ * in milliseconds and warnings, and asserts successful push/write without a speed
+ * threshold. Owns/destroys engine on success; fatal assertion paths lack RAII cleanup.
+ *
+ */
 TEST(SavePathPerf, StageBreakdown)
 {
     const QString inPath = profileTarget();
     if (inPath.isEmpty())
         GTEST_SKIP() << "set SWMM_PROFILE_SAVE_INP=<abs path to .inp> to run";
-    ASSERT_TRUE(QFileInfo::exists(inPath))
-        << "fixture missing: " << inPath.toStdString()
-        << " — regenerate with the mesh_perf_generator target";
+    ASSERT_TRUE(QFileInfo::exists(inPath)) << "fixture missing: " << inPath.toStdString()
+                                           << " — regenerate with the mesh_perf_generator target";
 
     QElapsedTimer t;
 
@@ -71,33 +93,32 @@ TEST(SavePathPerf, StageBreakdown)
     const qint64 readMs = t.restart();
     ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
 
-    mesh::MeshResult          meshState = rr.mesh;
-    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+    mesh::MeshResult meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs = rr.edgeBCs;
 
     // ---- Stage 2: engine open (OPENED, deliberately NOT initialized) -----
     t.restart();
     SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
-    const QByteArray inUtf8  = inPath.toUtf8();
+    const QByteArray inUtf8 = inPath.toUtf8();
     const QByteArray rptUtf8 = (inPath + QStringLiteral(".saveperf.rpt")).toUtf8();
     const QByteArray outUtf8 = (inPath + QStringLiteral(".saveperf.out")).toUtf8();
-    ASSERT_EQ(swmm_engine_open(e, inUtf8.constData(), rptUtf8.constData(),
-                               outUtf8.constData(), nullptr), 0);
+    ASSERT_EQ(
+        swmm_engine_open(e, inUtf8.constData(), rptUtf8.constData(), outUtf8.constData(), nullptr),
+        0);
     const qint64 openMs = t.restart();
 
     // ---- Stage 3: the mesh push — the hot spot ---------------------------
     QStringList warnings;
-    bool        trianglesSynced = false;
+    bool trianglesSynced = false;
     t.restart();
-    const bool pushed = mesh::pushMeshEditsToEngine(e, meshState, bcs,
-                                                    &warnings, &trianglesSynced);
+    const bool pushed = mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings, &trianglesSynced);
     const qint64 syncMs = t.restart();
     for (const QString &w : warnings)
         std::fprintf(stderr, "  warn: %s\n", w.toUtf8().constData());
 
     // ---- Stage 4: the engine's model write -------------------------------
-    const QByteArray writeUtf8 =
-        (inPath + QStringLiteral(".saveperf.inp")).toUtf8();
+    const QByteArray writeUtf8 = (inPath + QStringLiteral(".saveperf.inp")).toUtf8();
     t.restart();
     const int rc = swmm_model_write_with_plugin(e, writeUtf8.constData(), nullptr);
     const qint64 writeMs = t.restart();
@@ -115,12 +136,9 @@ TEST(SavePathPerf, StageBreakdown)
                  QFileInfo(inPath).fileName().toUtf8().constData(),
                  static_cast<long long>(meshState.vertices.size()),
                  static_cast<long long>(meshState.triangles.size()),
-                 static_cast<long long>(bcs.size()),
-                 static_cast<long long>(readMs),
-                 static_cast<long long>(openMs),
-                 static_cast<long long>(syncMs),
-                 static_cast<long long>(writeMs),
-                 pushed ? 1 : 0, trianglesSynced ? 1 : 0, rc);
+                 static_cast<long long>(bcs.size()), static_cast<long long>(readMs),
+                 static_cast<long long>(openMs), static_cast<long long>(syncMs),
+                 static_cast<long long>(writeMs), pushed ? 1 : 0, trianglesSynced ? 1 : 0, rc);
 
     EXPECT_TRUE(pushed) << "mesh push bailed out — the timing above is not "
                            "representative of a real save";

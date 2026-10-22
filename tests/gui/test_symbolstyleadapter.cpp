@@ -1,14 +1,15 @@
-/*!
- * \file   test_symbolstyleadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice B.6c — SymbolStyleAdapter.
+/**
+ * @file      test_symbolstyleadapter.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice B.6c — SymbolStyleAdapter.
  *
  *         Success criterion: each Q_PROPERTY reads / writes through the
  *         Rule's SingleSymbolRenderer SymbolStyle correctly; setters
  *         emit the coalesced `changed` signal; external renderer swap
  *         (rendererReplaced) fires `changed` too so editors refresh.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QColor>
@@ -29,30 +30,112 @@ class TestSymbolStyleAdapter : public QObject
     Q_OBJECT
 private slots:
     // Opacity
+    /**
+     *
+     * @brief Require adapter opacity to read the underlying single-symbol style value .55.
+     *
+     */
     void opacity_readsRendererSymbolOpacity();
+    /**
+     *
+     * @brief Require adapter opacity writes above/below [0,1] to clamp to 1/0.
+     *
+     */
     void opacity_writeClampsAndPersists();
+    /**
+     *
+     * @brief Require an identical opacity write to emit no changed signal.
+     *
+     */
     void opacity_idempotentNoSignal();
 
     // Color writers
+    /**
+     *
+     * @brief Require an adapter fill-color write to read back unchanged.
+     *
+     */
     void fillColor_roundTripsThroughProps();
+    /**
+     *
+     * @brief Require stroke-color write to populate both color and outlineColor keys.
+     *
+     */
     void strokeColor_writesBothCanonicalKeys();
+    /**
+     *
+     * @brief Require a style with only the line color key to supply adapter stroke color.
+     * This case does not separately exercise outline-only fallback.
+     *
+     */
     void strokeColor_readsLineColorOrOutlineColor();
 
     // Width
+    /**
+     *
+     * @brief Require stroke width 2.5 logical pixels to populate width and outlineWidth.
+     *
+     */
     void strokeWidth_writesBothWidthAndOutlineWidth();
+    /**
+     *
+     * @brief Require a line-width-only property to supply adapter stroke width.
+     * This case does not separately exercise outline-only precedence/fallback.
+     *
+     */
     void strokeWidth_readsLineWidthFirstThenOutline();
 
     // Marker
+    /**
+     *
+     * @brief Require marker logical-pixel size write/read to preserve 12.
+     *
+     */
     void markerSize_roundTrips();
+    /**
+     *
+     * @brief Require typed Cross shape setter/readback to agree; the public setter accepts
+     * MarkerShape.
+     *
+     */
     void markerShape_roundTripsAsInt();
 
     // Signal behavior
+    /**
+     *
+     * @brief Require three distinct adapter writes to emit at least three changed notifications.
+     *
+     */
     void changed_emittedOnEachWrite();
+    /**
+     *
+     * @brief Require replacing the rule renderer with GraduatedRenderer to notify adapter
+     * observers.
+     *
+     */
     void changed_emittedOnRendererReplaced();
+    /**
+     *
+     * @brief Require opacity/size writes against a graduated renderer to emit no adapter changed
+     * signal.
+     *
+     */
     void changed_notEmittedWhenRendererIsNotSingleSymbol();
 
     // Robustness
+    /**
+     *
+     * @brief Require empty-layer single-symbol style to retain opacity and default
+     * invalid-fill/zero-size/Circle reads.
+     *
+     */
     void readsReturnDefaultsForEmptySymbol();
+    /**
+     *
+     * @brief Require a marker-size write against a graduated renderer to leave the adapter size
+     * fallback zero.
+     *
+     */
     void writesNoOpWhenRendererIsNotSingleSymbol();
 };
 
@@ -86,7 +169,7 @@ void TestSymbolStyleAdapter::opacity_idempotentNoSignal()
     SymbolStyleAdapter adapter(&rule);
     adapter.setOpacity(0.75);
     QSignalSpy spy(&adapter, &SymbolStyleAdapter::changed);
-    adapter.setOpacity(0.75);  // same value
+    adapter.setOpacity(0.75); // same value
     QCOMPARE(spy.count(), 0);
 }
 
@@ -110,10 +193,8 @@ void TestSymbolStyleAdapter::strokeColor_writesBothCanonicalKeys()
     QVERIFY(ssr);
     QVERIFY(!ssr->symbol().layers.isEmpty());
     const auto &props = ssr->symbol().layers.first().props;
-    QCOMPARE(props.value(QStringLiteral("color")).value<QColor>(),
-             QColor(10, 20, 30));
-    QCOMPARE(props.value(QStringLiteral("outlineColor")).value<QColor>(),
-             QColor(10, 20, 30));
+    QCOMPARE(props.value(QStringLiteral("color")).value<QColor>(), QColor(10, 20, 30));
+    QCOMPARE(props.value(QStringLiteral("outlineColor")).value<QColor>(), QColor(10, 20, 30));
 }
 
 void TestSymbolStyleAdapter::strokeColor_readsLineColorOrOutlineColor()
@@ -228,10 +309,10 @@ void TestSymbolStyleAdapter::readsReturnDefaultsForEmptySymbol()
     Rule rule(QStringLiteral("r"), std::move(renderer));
     SymbolStyleAdapter adapter(&rule);
 
-    QCOMPARE(adapter.opacity(), 0.42);   // opacity still readable
+    QCOMPARE(adapter.opacity(), 0.42); // opacity still readable
     QCOMPARE(adapter.fillColor(), QColor());
     QCOMPARE(adapter.markerSize(), 0.0);
-    QCOMPARE(adapter.markerShape(), MarkerShape::Circle);  // default fallback
+    QCOMPARE(adapter.markerShape(), MarkerShape::Circle); // default fallback
 }
 
 void TestSymbolStyleAdapter::writesNoOpWhenRendererIsNotSingleSymbol()
@@ -239,7 +320,7 @@ void TestSymbolStyleAdapter::writesNoOpWhenRendererIsNotSingleSymbol()
     Rule rule(QStringLiteral("g"), std::make_unique<GraduatedRenderer>());
     SymbolStyleAdapter adapter(&rule);
     adapter.setMarkerSize(50.0);
-    QCOMPARE(adapter.markerSize(), 0.0);  // no SingleSymbol → no-op
+    QCOMPARE(adapter.markerSize(), 0.0); // no SingleSymbol → no-op
 }
 
 QTEST_MAIN(TestSymbolStyleAdapter)

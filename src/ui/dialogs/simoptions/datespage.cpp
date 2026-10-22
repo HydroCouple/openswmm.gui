@@ -1,9 +1,12 @@
-/*!
- * \file   datespage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      datespage.cpp
+ * @brief     Simulation Options → Dates & Times.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/datespage.h"
 
 #include <QAbstractItemView>
@@ -33,7 +36,8 @@
 namespace openswmmvis::ui
 {
 
-namespace {
+namespace
+{
 
 // Clicking a cell WIDGET never reaches the table's mousePressEvent, so the
 // row under the click is not selected and row-based actions (Remove) see no
@@ -42,10 +46,25 @@ namespace {
 class EventEditorFocusFilter : public QObject
 {
 public:
-    EventEditorFocusFilter(QTableWidget *table, QObject *parent)
-        : QObject(parent), m_table(table) {}
+    /**
+     * @brief Bind row-selection mirroring to a borrowed event table.
+     * @param table Borrowed table that must remain alive while this filter receives events.
+     * @param parent QObject owner, normally the watched editor; owns this filter.
+     * Does not take table ownership or change selection until a focus event arrives.
+     */
+    EventEditorFocusFilter(QTableWidget *table, QObject *parent) : QObject(parent), m_table(table)
+    {
+    }
 
 protected:
+    /**
+     * @brief Select the row whose cell widget received focus without consuming the event.
+     * @param watched Borrowed QObject receiving the event; only QWidget cell identities match.
+     * @param ev Borrowed non-null event valid for this call; only FocusIn triggers a scan.
+     * @return Always false so normal editor focus handling continues. Scans exact cell
+     * widget identities and returns after the first match; non-widget/unmatched events
+     * and a null table leave selection unchanged. Table must remain valid during access.
+     */
     bool eventFilter(QObject *watched, QEvent *ev) override
     {
         if (ev->type() == QEvent::FocusIn && m_table) {
@@ -69,6 +88,15 @@ private:
 // Wrap a QDateTimeEdit inside a QTableWidget cell.  Centralised so every
 // row uses the same display format / calendar policy.  HH:MM precision
 // (legacy SWMM 5 parity, decided 2026-05-21).
+/**
+ * @brief Allocate a calendar date/time editor for one event cell.
+ * @param dt Initial date/time copied into the editor; seconds can remain stored although
+ * the display shows only month/day/year and hour/minute.
+ * @param parent Optional widget owner, normally the table that later adopts the cell.
+ * @return Newly allocated editor; parent/cell ownership manages destruction, otherwise
+ * caller owns it. With a QTableWidget parent, installs an editor-owned focus filter
+ * borrowing that table to keep row selection synchronized. Does not write engine data.
+ */
 QDateTimeEdit *makeEventCellEditor(const QDateTime &dt, QWidget *parent)
 {
     auto *edit = new QDateTimeEdit(dt, parent);
@@ -82,8 +110,7 @@ QDateTimeEdit *makeEventCellEditor(const QDateTime &dt, QWidget *parent)
 
 } // namespace
 
-DatesPage::DatesPage(SimOptionsContext &ctx, QWidget *parent)
-    : SimOptionsPage(ctx, parent)
+DatesPage::DatesPage(SimOptionsContext &ctx, QWidget *parent) : SimOptionsPage(ctx, parent)
 {
     buildUi();
     tagWidgets();
@@ -106,7 +133,8 @@ qint64 DatesPage::reportStepSeconds() const
 
 qint64 DatesPage::durationSeconds() const
 {
-    if (!m_startEdit || !m_endEdit) return 0;
+    if (!m_startEdit || !m_endEdit)
+        return 0;
     return std::max<qint64>(0, m_startEdit->dateTime().secsTo(m_endEdit->dateTime()));
 }
 
@@ -118,13 +146,16 @@ void DatesPage::buildUi()
     m_tabs->setObjectName(QStringLiteral("datesTabs"));
     root->addWidget(m_tabs, 1);
 
-    auto *winTab  = new QWidget(m_tabs); auto *winTabLay  = new QVBoxLayout(winTab);
-    auto *stepTab = new QWidget(m_tabs); auto *stepTabLay = new QVBoxLayout(stepTab);
-    auto *evTab   = new QWidget(m_tabs); auto *evTabLay   = new QVBoxLayout(evTab);
+    auto *winTab = new QWidget(m_tabs);
+    auto *winTabLay = new QVBoxLayout(winTab);
+    auto *stepTab = new QWidget(m_tabs);
+    auto *stepTabLay = new QVBoxLayout(stepTab);
+    auto *evTab = new QWidget(m_tabs);
+    auto *evTabLay = new QVBoxLayout(evTab);
 
     // ── Simulation window ──────────────────────────────────────────────
     auto *winGroup = new QGroupBox(tr("Simulation window"), winTab);
-    auto *winForm  = new QFormLayout(winGroup);
+    auto *winForm = new QFormLayout(winGroup);
 
     m_startEdit = new QDateTimeEdit(winGroup);
     m_startEdit->setCalendarPopup(true);
@@ -148,22 +179,20 @@ void DatesPage::buildUi()
     winTabLay->addWidget(winGroup);
 
     // Keep reporting inside the current simulation window.
-    connect(m_startEdit, &QDateTimeEdit::dateTimeChanged,
-            this, [this](const QDateTime &) {
-                updateReportStartRange();
-                updateDurationLabel();
-                emit scheduleChanged();
-            });
-    connect(m_endEdit, &QDateTimeEdit::dateTimeChanged,
-            this, [this](const QDateTime &) {
-                updateReportStartRange();
-                updateDurationLabel();
-                emit scheduleChanged();
-            });
+    connect(m_startEdit, &QDateTimeEdit::dateTimeChanged, this, [this](const QDateTime &) {
+        updateReportStartRange();
+        updateDurationLabel();
+        emit scheduleChanged();
+    });
+    connect(m_endEdit, &QDateTimeEdit::dateTimeChanged, this, [this](const QDateTime &) {
+        updateReportStartRange();
+        updateDurationLabel();
+        emit scheduleChanged();
+    });
 
     // ── Time steps ─────────────────────────────────────────────────────
     auto *stepGroup = new QGroupBox(tr("Time steps"), stepTab);
-    auto *stepForm  = new QFormLayout(stepGroup);
+    auto *stepForm = new QFormLayout(stepGroup);
 
     m_reportStepEdit = new QCustomTimespanEdit(stepGroup);
     m_reportStepEdit->setToolTip(tr("Reporting step (REPORT_STEP)."));
@@ -179,7 +208,7 @@ void DatesPage::buildUi()
 
     m_ruleStepEdit = new QCustomTimespanEdit(stepGroup);
     m_ruleStepEdit->setToolTip(tr("Control-rule evaluation step (RULE_STEP). "
-                                   "0 means rules are evaluated every routing step."));
+                                  "0 means rules are evaluated every routing step."));
     stepForm->addRow(tr("Control rule step:"), m_ruleStepEdit);
 
     // Routing step — plain floating-point text box (no spin buttons),
@@ -202,7 +231,7 @@ void DatesPage::buildUi()
 
     // ── Sweep / antecedent ─────────────────────────────────────────────
     auto *sweepGroup = new QGroupBox(tr("Sweep / antecedent"), winTab);
-    auto *sweepForm  = new QFormLayout(sweepGroup);
+    auto *sweepForm = new QFormLayout(sweepGroup);
 
     // SWEEP_START / SWEEP_END are MM/DD only — use a fixed year (2000, a
     // leap year so 02/29 stays selectable) internally and strip it on
@@ -234,11 +263,10 @@ void DatesPage::buildUi()
     // Start and End.  Cells use a QDateTimeEdit inline editor.  HH:MM
     // precision (legacy SWMM 5 parity, decided 2026-05-21).
     auto *evGroup = new QGroupBox(tr("Events ([EVENTS])"), evTab);
-    auto *evLay   = new QVBoxLayout(evGroup);
-    evGroup->setToolTip(tr(
-        "Optional list of routing-active time windows. When Skip Steady State "
-        "is on the engine routes full dynamic-wave hydraulics only inside "
-        "these windows."));
+    auto *evLay = new QVBoxLayout(evGroup);
+    evGroup->setToolTip(tr("Optional list of routing-active time windows. When Skip Steady State "
+                           "is on the engine routes full dynamic-wave hydraulics only inside "
+                           "these windows."));
 
     m_eventsTable = new QTableWidget(0, 2, evGroup);
     m_eventsTable->setHorizontalHeaderLabels(
@@ -251,7 +279,7 @@ void DatesPage::buildUi()
     evLay->addWidget(m_eventsTable);
 
     auto *evBtnRow = new QHBoxLayout();
-    m_eventsAddBtn    = new QPushButton(tr("Add row"),         evGroup);
+    m_eventsAddBtn = new QPushButton(tr("Add row"), evGroup);
     m_eventsRemoveBtn = new QPushButton(tr("Remove selected"), evGroup);
     m_eventsRemoveBtn->setEnabled(false);
     evBtnRow->addWidget(m_eventsAddBtn);
@@ -259,10 +287,8 @@ void DatesPage::buildUi()
     evBtnRow->addStretch();
     evLay->addLayout(evBtnRow);
 
-    connect(m_eventsAddBtn,    &QPushButton::clicked,
-            this, &DatesPage::addEventRow);
-    connect(m_eventsRemoveBtn, &QPushButton::clicked,
-            this, &DatesPage::removeSelectedEventRows);
+    connect(m_eventsAddBtn, &QPushButton::clicked, this, &DatesPage::addEventRow);
+    connect(m_eventsRemoveBtn, &QPushButton::clicked, this, &DatesPage::removeSelectedEventRows);
     // Gate on the selection MODEL, not selectedItems(): the cells hold only
     // setCellWidget() editors (no QTableWidgetItems), so selectedItems() is
     // always empty and an item-based gate leaves Remove permanently disabled.
@@ -276,9 +302,9 @@ void DatesPage::buildUi()
     winTabLay->addStretch();
     stepTabLay->addStretch();
 
-    m_tabs->addTab(winTab,  tr("Simulation Window"));
+    m_tabs->addTab(winTab, tr("Simulation Window"));
     m_tabs->addTab(stepTab, tr("Time Steps"));
-    m_tabs->addTab(evTab,   tr("Events"));
+    m_tabs->addTab(evTab, tr("Events"));
 }
 
 void DatesPage::tagWidgets()
@@ -315,22 +341,20 @@ void DatesPage::updateReportStartRange()
 
 void DatesPage::updateDurationLabel()
 {
-    if (!m_durationLabel || !m_startEdit || !m_endEdit) return;
+    if (!m_durationLabel || !m_startEdit || !m_endEdit)
+        return;
     const qint64 secs = m_startEdit->dateTime().secsTo(m_endEdit->dateTime());
     if (secs <= 0) {
         m_durationLabel->setText(QStringLiteral("—"));
         return;
     }
-    const qint64 days  = secs / 86400;
+    const qint64 days = secs / 86400;
     const qint64 hours = (secs % 86400) / 3600;
-    const qint64 mins  = (secs % 3600) / 60;
-    const qint64 ss    = secs % 60;
-    m_durationLabel->setText(
-        QString::asprintf("%lldd %02lld:%02lld:%02lld",
-                          static_cast<long long>(days),
-                          static_cast<long long>(hours),
-                          static_cast<long long>(mins),
-                          static_cast<long long>(ss)));
+    const qint64 mins = (secs % 3600) / 60;
+    const qint64 ss = secs % 60;
+    m_durationLabel->setText(QString::asprintf(
+        "%lldd %02lld:%02lld:%02lld", static_cast<long long>(days), static_cast<long long>(hours),
+        static_cast<long long>(mins), static_cast<long long>(ss)));
 }
 
 void DatesPage::read()
@@ -349,19 +373,21 @@ void DatesPage::read()
         QSignalBlocker be(m_endEdit);
         QSignalBlocker br(m_reportStartEdit);
 
-        QDateTime start = SOD::parseEngineDateTime(
-            ctx_.option("START_DATE"), ctx_.option("START_TIME", "00:00:00"));
-        if (start.isValid()) m_startEdit->setDateTime(start);
+        QDateTime start = SOD::parseEngineDateTime(ctx_.option("START_DATE"),
+                                                   ctx_.option("START_TIME", "00:00:00"));
+        if (start.isValid())
+            m_startEdit->setDateTime(start);
 
-        QDateTime end = SOD::parseEngineDateTime(
-            ctx_.option("END_DATE"),   ctx_.option("END_TIME",   "00:00:00"));
-        if (end.isValid()) m_endEdit->setDateTime(end);
+        QDateTime end =
+            SOD::parseEngineDateTime(ctx_.option("END_DATE"), ctx_.option("END_TIME", "00:00:00"));
+        if (end.isValid())
+            m_endEdit->setDateTime(end);
 
         updateReportStartRange();
-        QDateTime rpt = SOD::parseEngineDateTime(
-            ctx_.option("REPORT_START_DATE"),
-            ctx_.option("REPORT_START_TIME", "00:00:00"));
-        if (rpt.isValid()) m_reportStartEdit->setDateTime(rpt);
+        QDateTime rpt = SOD::parseEngineDateTime(ctx_.option("REPORT_START_DATE"),
+                                                 ctx_.option("REPORT_START_TIME", "00:00:00"));
+        if (rpt.isValid())
+            m_reportStartEdit->setDateTime(rpt);
     }
     updateDurationLabel();
 
@@ -369,48 +395,43 @@ void DatesPage::read()
     // plain seconds ("900"), decimal seconds ("900.000000") or as HH:MM:SS
     // ("00:15:00", "48:00:00"). The static parseStepSeconds() helper
     // (simulationoptionshelpers.cpp, unit-tested) accepts all three.
-    m_reportStepEdit->setTotalSeconds(
-        SOD::parseStepSeconds(ctx_.option("REPORT_STEP", QString::number(sim.reportStepSec)),
-                              sim.reportStepSec));
-    m_dryStepEdit->setTotalSeconds(
-        SOD::parseStepSeconds(ctx_.option("DRY_STEP", QString::number(sim.dryStepSec)),
-                              sim.dryStepSec));
-    m_wetStepEdit->setTotalSeconds(
-        SOD::parseStepSeconds(ctx_.option("WET_STEP", QString::number(sim.wetStepSec)),
-                              sim.wetStepSec));
-    m_ruleStepEdit->setTotalSeconds(
-        SOD::parseStepSeconds(ctx_.option("RULE_STEP", QString::number(sim.ruleStepSec)),
-                              sim.ruleStepSec));
+    m_reportStepEdit->setTotalSeconds(SOD::parseStepSeconds(
+        ctx_.option("REPORT_STEP", QString::number(sim.reportStepSec)), sim.reportStepSec));
+    m_dryStepEdit->setTotalSeconds(SOD::parseStepSeconds(
+        ctx_.option("DRY_STEP", QString::number(sim.dryStepSec)), sim.dryStepSec));
+    m_wetStepEdit->setTotalSeconds(SOD::parseStepSeconds(
+        ctx_.option("WET_STEP", QString::number(sim.wetStepSec)), sim.wetStepSec));
+    m_ruleStepEdit->setTotalSeconds(SOD::parseStepSeconds(
+        ctx_.option("RULE_STEP", QString::number(sim.ruleStepSec)), sim.ruleStepSec));
 
     bool ok = false;
-    const double routeStep = ctx_.option("ROUTING_STEP",
-                                         QString::number(sim.routingStepSec, 'g', 6))
-                                 .toDouble(&ok);
-    m_routingStepEdit->setText(
-        QString::number(ok ? routeStep : sim.routingStepSec, 'g', 6));
+    const double routeStep =
+        ctx_.option("ROUTING_STEP", QString::number(sim.routingStepSec, 'g', 6)).toDouble(&ok);
+    m_routingStepEdit->setText(QString::number(ok ? routeStep : sim.routingStepSec, 'g', 6));
 
-    const double dryDays = ctx_.option("DRY_DAYS", QString::number(sim.dryDays, 'g', 6))
-                               .toDouble(&ok);
+    const double dryDays =
+        ctx_.option("DRY_DAYS", QString::number(sim.dryDays, 'g', 6)).toDouble(&ok);
     m_dryDaysSpin->setValue(ok ? dryDays : sim.dryDays);
 
     // Sweep window — engine stores "MM/DD"; map into a fixed-year QDate
     // (2000 is a leap year so 02/29 stays selectable).
     auto parseSweep = [](const QString &s, QDate fallback) {
         const QStringList parts = s.split(QLatin1Char('/'));
-        if (parts.size() != 2) return fallback;
+        if (parts.size() != 2)
+            return fallback;
         bool okM = false, okD = false;
         const int m = parts[0].toInt(&okM);
         const int d = parts[1].toInt(&okD);
-        if (!okM || !okD) return fallback;
+        if (!okM || !okD)
+            return fallback;
         const QDate q(2000, m, d);
         return q.isValid() ? q : fallback;
     };
     const QDate sweepStartPref = parseSweep(sim.sweepStart, QDate(2000, 1, 1));
-    const QDate sweepEndPref   = parseSweep(sim.sweepEnd,   QDate(2000, 12, 31));
-    m_sweepStartEdit->setDate(parseSweep(ctx_.option("SWEEP_START", sim.sweepStart),
-                                         sweepStartPref));
-    m_sweepEndEdit->setDate(parseSweep(ctx_.option("SWEEP_END", sim.sweepEnd),
-                                       sweepEndPref));
+    const QDate sweepEndPref = parseSweep(sim.sweepEnd, QDate(2000, 12, 31));
+    m_sweepStartEdit->setDate(
+        parseSweep(ctx_.option("SWEEP_START", sim.sweepStart), sweepStartPref));
+    m_sweepEndEdit->setDate(parseSweep(ctx_.option("SWEEP_END", sim.sweepEnd), sweepEndPref));
 
     readEventsFromEngine();
     emit scheduleChanged();
@@ -434,14 +455,10 @@ int DatesPage::write()
     n += ctx_.writeIfChanged("REPORT_START_DATE", d);
     n += ctx_.writeIfChanged("REPORT_START_TIME", t);
 
-    n += ctx_.writeIfChanged("REPORT_STEP",
-                             QString::number(m_reportStepEdit->totalSeconds()));
-    n += ctx_.writeIfChanged("DRY_STEP",
-                             QString::number(m_dryStepEdit->totalSeconds()));
-    n += ctx_.writeIfChanged("WET_STEP",
-                             QString::number(m_wetStepEdit->totalSeconds()));
-    n += ctx_.writeIfChanged("RULE_STEP",
-                             QString::number(m_ruleStepEdit->totalSeconds()));
+    n += ctx_.writeIfChanged("REPORT_STEP", QString::number(m_reportStepEdit->totalSeconds()));
+    n += ctx_.writeIfChanged("DRY_STEP", QString::number(m_dryStepEdit->totalSeconds()));
+    n += ctx_.writeIfChanged("WET_STEP", QString::number(m_wetStepEdit->totalSeconds()));
+    n += ctx_.writeIfChanged("RULE_STEP", QString::number(m_ruleStepEdit->totalSeconds()));
     {
         // Routing step is a plain text box; preserve the user's typed
         // decimal precision but normalise to a canonical %g rendering.
@@ -450,12 +467,10 @@ int DatesPage::write()
         if (ok)
             n += ctx_.writeIfChanged("ROUTING_STEP", QString::number(v, 'g', 6));
     }
-    n += ctx_.writeIfChanged("DRY_DAYS",
-                             QString::number(m_dryDaysSpin->value(), 'f', 2));
+    n += ctx_.writeIfChanged("DRY_DAYS", QString::number(m_dryDaysSpin->value(), 'f', 2));
     n += ctx_.writeIfChanged("SWEEP_START",
                              m_sweepStartEdit->date().toString(QStringLiteral("MM/dd")));
-    n += ctx_.writeIfChanged("SWEEP_END",
-                             m_sweepEndEdit->date().toString(QStringLiteral("MM/dd")));
+    n += ctx_.writeIfChanged("SWEEP_END", m_sweepEndEdit->date().toString(QStringLiteral("MM/dd")));
 
     // [EVENTS] (Slice CW). writeEventsToEngine() returns the number of rows
     // it actually pushed; folded into n so wroteChanges flips.
@@ -472,35 +487,35 @@ int DatesPage::write()
 
 void DatesPage::addEventRow()
 {
-    if (!m_eventsTable) return;
+    if (!m_eventsTable)
+        return;
     const int row = m_eventsTable->rowCount();
     m_eventsTable->insertRow(row);
     // Default both columns to (project start, project end) so the user only
     // edits the deltas.  Fall back to "now" when the window edits haven't
     // been populated yet (shouldn't happen — buildUi seeds them).
-    const QDateTime defStart = m_startEdit ? m_startEdit->dateTime()
-                                           : QDateTime::currentDateTime();
-    const QDateTime defEnd   = m_endEdit   ? m_endEdit->dateTime()
-                                           : defStart.addDays(1);
+    const QDateTime defStart = m_startEdit ? m_startEdit->dateTime() : QDateTime::currentDateTime();
+    const QDateTime defEnd = m_endEdit ? m_endEdit->dateTime() : defStart.addDays(1);
     m_eventsTable->setCellWidget(row, 0, makeEventCellEditor(defStart, m_eventsTable));
-    m_eventsTable->setCellWidget(row, 1, makeEventCellEditor(defEnd,   m_eventsTable));
+    m_eventsTable->setCellWidget(row, 1, makeEventCellEditor(defEnd, m_eventsTable));
 }
 
 void DatesPage::removeSelectedEventRows()
 {
-    if (!m_eventsTable) return;
+    if (!m_eventsTable)
+        return;
     // Distinct rows, descending, so removeRow() doesn't shift the indices
     // we still need to delete. Shares the query with the Remove-button
     // enable gate so the two can't disagree about what counts as selected.
-    const QList<int> rows =
-        SimulationOptionsDialog::selectedRowsDescending(m_eventsTable);
+    const QList<int> rows = SimulationOptionsDialog::selectedRowsDescending(m_eventsTable);
     for (int r : rows)
         m_eventsTable->removeRow(r);
 }
 
 void DatesPage::readEventsFromEngine()
 {
-    if (!m_eventsTable) return;
+    if (!m_eventsTable)
+        return;
 
     // Wipe before refilling — read() is also called after a write pass to
     // surface engine-normalised values.
@@ -508,14 +523,17 @@ void DatesPage::readEventsFromEngine()
     m_eventsSnapshot.clear();
 
     SWMM_Engine e = ctx_.engine();
-    if (!e) return;
+    if (!e)
+        return;
 
     int count = 0;
-    if (swmm_events_count(e, &count) != 0) return;
+    if (swmm_events_count(e, &count) != 0)
+        return;
 
     for (int i = 0; i < count; ++i) {
         double start = 0.0, end = 0.0;
-        if (swmm_events_get(e, i, &start, &end) != 0) continue;
+        if (swmm_events_get(e, i, &start, &end) != 0)
+            continue;
         const QDateTime qs = SimulationOptionsDialog::qDateTimeFromOaDate(start);
         const QDateTime qe = SimulationOptionsDialog::qDateTimeFromOaDate(end);
 
@@ -529,7 +547,8 @@ void DatesPage::readEventsFromEngine()
 
 bool DatesPage::validate(QString *warn)
 {
-    if (!m_eventsTable) return true;
+    if (!m_eventsTable)
+        return true;
 
     bool anyInvalid = false;
     QList<QPair<QDateTime, QDateTime>> rows;
@@ -537,49 +556,45 @@ bool DatesPage::validate(QString *warn)
     rows.reserve(n);
     // Tokenized error fill (D5) — the old hardcoded #ffc8c8 was
     // illegible on the dark theme.
-    const QString badStyle = QStringLiteral("QDateTimeEdit { %1 }")
-                                 .arg(openswmmvis::ui::theme::errorFillStyle());
+    const QString badStyle =
+        QStringLiteral("QDateTimeEdit { %1 }").arg(openswmmvis::ui::theme::errorFillStyle());
     for (int r = 0; r < n; ++r) {
-        auto *startEdit = qobject_cast<QDateTimeEdit *>(
-            m_eventsTable->cellWidget(r, 0));
-        auto *endEdit   = qobject_cast<QDateTimeEdit *>(
-            m_eventsTable->cellWidget(r, 1));
-        if (!startEdit || !endEdit) { anyInvalid = true; continue; }
+        auto *startEdit = qobject_cast<QDateTimeEdit *>(m_eventsTable->cellWidget(r, 0));
+        auto *endEdit = qobject_cast<QDateTimeEdit *>(m_eventsTable->cellWidget(r, 1));
+        if (!startEdit || !endEdit) {
+            anyInvalid = true;
+            continue;
+        }
         const QDateTime s = startEdit->dateTime();
         const QDateTime e = endEdit->dateTime();
         rows.append(qMakePair(s, e));
 
         const bool bad = !(s < e);
         startEdit->setStyleSheet(bad ? badStyle : QString());
-        endEdit  ->setStyleSheet(bad ? badStyle : QString());
-        const QString tip = bad ? tr("Start must be earlier than End.")
-                                : QString();
+        endEdit->setStyleSheet(bad ? badStyle : QString());
+        const QString tip = bad ? tr("Start must be earlier than End.") : QString();
         startEdit->setToolTip(tip);
-        endEdit  ->setToolTip(tip);
-        if (bad) anyInvalid = true;
+        endEdit->setToolTip(tip);
+        if (bad)
+            anyInvalid = true;
     }
 
     if (warn) {
         // Out-of-range check against the simulation window.
         const QDateTime simStart = m_startEdit ? m_startEdit->dateTime() : QDateTime();
-        const QDateTime simEnd   = m_endEdit   ? m_endEdit->dateTime()   : QDateTime();
+        const QDateTime simEnd = m_endEdit ? m_endEdit->dateTime() : QDateTime();
         for (int r = 0; r < rows.size(); ++r) {
             const auto &p = rows[r];
-            if (simStart.isValid() && simEnd.isValid()
-                && (p.second <= simStart || p.first >= simEnd))
-            {
-                *warn += tr("Row %1 lies entirely outside the simulation window.\n")
-                            .arg(r + 1);
+            if (simStart.isValid() && simEnd.isValid() &&
+                (p.second <= simStart || p.first >= simEnd)) {
+                *warn += tr("Row %1 lies entirely outside the simulation window.\n").arg(r + 1);
             }
         }
         // Overlap detection: O(n^2) — n is small (typically << 20).
         for (int i = 0; i < rows.size(); ++i)
             for (int j = i + 1; j < rows.size(); ++j)
-                if (rows[i].first < rows[j].second &&
-                    rows[j].first < rows[i].second)
-                {
-                    *warn += tr("Rows %1 and %2 overlap.\n")
-                                .arg(i + 1).arg(j + 1);
+                if (rows[i].first < rows[j].second && rows[j].first < rows[i].second) {
+                    *warn += tr("Rows %1 and %2 overlap.\n").arg(i + 1).arg(j + 1);
                 }
     }
 
@@ -589,23 +604,23 @@ bool DatesPage::validate(QString *warn)
 int DatesPage::writeEventsToEngine()
 {
     SWMM_Engine e = ctx_.engine();
-    if (!m_eventsTable || !e) return 0;
+    if (!m_eventsTable || !e)
+        return 0;
 
     // Snapshot the table into a flat list for diffing against m_eventsSnapshot.
     QList<QPair<QDateTime, QDateTime>> current;
     const int n = m_eventsTable->rowCount();
     current.reserve(n);
     for (int r = 0; r < n; ++r) {
-        auto *startEdit = qobject_cast<QDateTimeEdit *>(
-            m_eventsTable->cellWidget(r, 0));
-        auto *endEdit   = qobject_cast<QDateTimeEdit *>(
-            m_eventsTable->cellWidget(r, 1));
-        if (!startEdit || !endEdit) continue;
+        auto *startEdit = qobject_cast<QDateTimeEdit *>(m_eventsTable->cellWidget(r, 0));
+        auto *endEdit = qobject_cast<QDateTimeEdit *>(m_eventsTable->cellWidget(r, 1));
+        if (!startEdit || !endEdit)
+            continue;
         current.append(qMakePair(startEdit->dateTime(), endEdit->dateTime()));
     }
 
     if (current == m_eventsSnapshot)
-        return 0;   // no change → no write, no dirty flag
+        return 0; // no change → no write, no dirty flag
 
     if (swmm_events_clear(e) != 0)
         return 0;
@@ -613,8 +628,9 @@ int DatesPage::writeEventsToEngine()
     int written = 0;
     for (const auto &p : current) {
         const double start = SimulationOptionsDialog::oaDateFromQDateTime(p.first);
-        const double end   = SimulationOptionsDialog::oaDateFromQDateTime(p.second);
-        if (!(start < end)) continue;   // skip invalid rows defensively
+        const double end = SimulationOptionsDialog::oaDateFromQDateTime(p.second);
+        if (!(start < end))
+            continue; // skip invalid rows defensively
         if (swmm_events_add(e, start, end, nullptr) == 0)
             ++written;
     }

@@ -1,3 +1,13 @@
+/**
+ * @file      commandpalettemodel.cpp
+ * @brief     UI redesign P7 — list model behind the command palette: a filtered, relevance-sorted
+ *            view over ActionRegistry's registered actions.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/widgets/commandpalettemodel.h"
 
 #include "ui/actioncatalog.h"
@@ -8,7 +18,8 @@
 
 #include <algorithm>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 int fuzzyScore(const QString &pattern, const QString &candidate)
 {
@@ -30,16 +41,16 @@ int fuzzyScore(const QString &pattern, const QString &candidate)
             }
         }
         if (found < 0)
-            return -1;   // not a subsequence
+            return -1; // not a subsequence
 
         if (found == 0)
-            score += 8;                                   // starts the string
+            score += 8; // starts the string
         else if (!c.at(found - 1).isLetterOrNumber())
-            score += 6;                                   // starts a word
+            score += 6; // starts a word
         else if (found == lastMatch + 1)
-            score += 4;                                   // consecutive run
+            score += 4; // consecutive run
         else
-            score += 1;                                   // scattered hit
+            score += 1; // scattered hit
         lastMatch = found;
         ++ci;
     }
@@ -48,10 +59,7 @@ int fuzzyScore(const QString &pattern, const QString &candidate)
     return score;
 }
 
-CommandPaletteModel::CommandPaletteModel(QObject *parent)
-    : QAbstractListModel(parent)
-{
-}
+CommandPaletteModel::CommandPaletteModel(QObject *parent) : QAbstractListModel(parent) {}
 
 void CommandPaletteModel::reload()
 {
@@ -93,20 +101,19 @@ void CommandPaletteModel::rebuildVisible()
             mVisible.append(i);
         return;
     }
-    QList<QPair<int, int>> scored;   // (score, index)
+    QList<QPair<int, int>> scored; // (score, index)
     for (int i = 0; i < mAll.size(); ++i) {
         // Match against "Category Text" so e.g. "panels layers" works.
         const int direct = fuzzyScore(mPattern, mAll[i].cleanText);
-        const int withCategory = fuzzyScore(
-            mPattern, mAll[i].category + QLatin1Char(' ') + mAll[i].cleanText);
+        const int withCategory =
+            fuzzyScore(mPattern, mAll[i].category + QLatin1Char(' ') + mAll[i].cleanText);
         const int best = qMax(direct, withCategory);
         if (best >= 0)
             scored.append({best, i});
     }
-    std::stable_sort(scored.begin(), scored.end(),
-                     [](const QPair<int, int> &a, const QPair<int, int> &b) {
-                         return a.first > b.first;
-                     });
+    std::stable_sort(
+        scored.begin(), scored.end(),
+        [](const QPair<int, int> &a, const QPair<int, int> &b) { return a.first > b.first; });
     for (const auto &pair : scored)
         mVisible.append(pair.second);
 }
@@ -144,4 +151,4 @@ QVariant CommandPaletteModel::data(const QModelIndex &index, int role) const
     }
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

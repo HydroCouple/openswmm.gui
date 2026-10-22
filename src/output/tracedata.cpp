@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      tracedata.cpp
+ * @brief     Value types for flow balance and travel-time analysis results.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "output/tracedata.h"
 #include <QCryptographicHash>
 #include <QJsonArray>
@@ -19,8 +29,7 @@ QJsonObject Snapshot::toJson() const
                               {"geometry", n.hasGeometry},
                               {"x", n.point.x()},
                               {"y", n.point.y()}});
-    for (const auto &l : links)
-    {
+    for (const auto &l : links) {
         QJsonArray points;
         for (auto p : l.points)
             points.append(QJsonArray{p.x(), p.y()});
@@ -38,8 +47,7 @@ Snapshot Snapshot::fromJson(const QJsonObject &j)
     Snapshot s;
     s.wkt = j["wkt"].toString();
     s.modelFingerprint = j["modelFingerprint"].toString();
-    for (auto v : j["nodes"].toArray())
-    {
+    for (auto v : j["nodes"].toArray()) {
         auto n = v.toObject();
         s.nodes.append({n["id"].toString(),
                         n["type"].toInt(),
@@ -47,13 +55,11 @@ Snapshot Snapshot::fromJson(const QJsonObject &j)
                         {n["x"].toDouble(), n["y"].toDouble()},
                         n["geometry"].toBool()});
     }
-    for (auto v : j["links"].toArray())
-    {
+    for (auto v : j["links"].toArray()) {
         auto n = v.toObject();
         Link l{n["id"].toString(), n["from"].toInt(-1),    n["to"].toInt(-1),
                n["type"].toInt(),  n["length"].toDouble(), {}};
-        for (auto p : n["points"].toArray())
-        {
+        for (auto p : n["points"].toArray()) {
             auto a = p.toArray();
             if (a.size() == 2)
                 l.points.append({a[0].toDouble(), a[1].toDouble()});
@@ -64,8 +70,7 @@ Snapshot Snapshot::fromJson(const QJsonObject &j)
 }
 bool Snapshot::valid(QString *error) const
 {
-    auto fail = [&](const QString &m)
-    {
+    auto fail = [&](const QString &m) {
         if (error)
             *error = m;
         return false;
@@ -73,8 +78,7 @@ bool Snapshot::valid(QString *error) const
     if (nodes.isEmpty())
         return fail(QStringLiteral("No nodes in the model snapshot."));
     QSet<QString> ids;
-    for (const auto &n : nodes)
-    {
+    for (const auto &n : nodes) {
         if (n.id.isEmpty() || ids.contains(n.id) || n.type < 0 || n.type > 3)
             return fail(QStringLiteral("Invalid or duplicate node ID/type."));
         ids.insert(n.id);
@@ -82,8 +86,7 @@ bool Snapshot::valid(QString *error) const
             return fail(QStringLiteral("Invalid node coordinates."));
     }
     ids.clear();
-    for (const auto &l : links)
-    {
+    for (const auto &l : links) {
         if (l.id.isEmpty() || ids.contains(l.id) || l.from < 0 || l.to < 0 ||
             l.from >= nodes.size() || l.to >= nodes.size() || !std::isfinite(l.length) ||
             l.length < 0)
@@ -220,8 +223,7 @@ SWMM_Trace createHandle(const Snapshot &s, const SWMM_TraceOptions &o, QString *
     QVector<SWMM_TraceLinkInput> ls;
     for (int i = 0; i < s.nodes.size(); ++i)
         ns.append({ids[i].constData(), s.nodes[i].type, s.nodes[i].flags});
-    for (int i = 0; i < s.links.size(); ++i)
-    {
+    for (int i = 0; i < s.links.size(); ++i) {
         auto &l = s.links[i];
         ls.append({ids[s.nodes.size() + i].constData(), l.from, l.to, l.type, l.length});
     }

@@ -1,9 +1,13 @@
-/*!
- * \file   selectionops.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      selectionops.cpp
+ * @brief     Pure selection algebra over a loaded `SWMMModelLayer` — the logic behind the
+ *            toolbar's Invert Selection / Select Upstream / Select Downstream actions.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "selection/selectionops.h"
 
 #include "layers/swmmmodellayer.h"
@@ -14,20 +18,25 @@
 #include <QList>
 #include <QVector>
 
-#include <utility>   // std::as_const
+#include <utility> // std::as_const
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
-namespace {
+namespace
+{
 
 using Category = SWMMModelLayer::Category;
 
 //! Coarse selection kind for a fine category. The four node categories all
 //! collapse to `Node` and the five link categories to `Link` — the ObjectType
 //! is only the *identity* namespace, the Category is what invert scopes on.
+/**
+ * @param[in] c Fine model category.
+ * @return Coarse node/link/subcatchment/gage identity kind, or Unknown for other categories.
+ */
 SWMMObjectRef::ObjectType objectTypeFor(Category c)
 {
     switch (c) {
@@ -52,20 +61,27 @@ SWMMObjectRef::ObjectType objectTypeFor(Category c)
 }
 
 //! Subcatchment drainage topology, read once per trace.
-struct SubcatchTopology
-{
-    int                      count = 0;
-    QVector<int>             outNode;              ///< subcatch idx → outlet node idx (-1 if none)
-    QVector<int>             outSub;               ///< subcatch idx → outlet subcatch idx (-1 if none)
-    QHash<int, QVector<int>> subsDrainingToNode;   ///< node idx     → subcatchments draining to it
-    QHash<int, QVector<int>> subsDrainingToSub;    ///< subcatch idx → subcatchments draining to it
+struct SubcatchTopology {
+    int count = 0;
+    QVector<int> outNode; ///< subcatch idx → outlet node idx (-1 if none)
+    QVector<int> outSub;  ///< subcatch idx → outlet subcatch idx (-1 if none)
+    QHash<int, QVector<int>> subsDrainingToNode; ///< node idx     → subcatchments draining to it
+    QHash<int, QVector<int>> subsDrainingToSub;  ///< subcatch idx → subcatchments draining to it
 };
 
+/**
+ * @brief Snapshot forward and reverse subcatchment drainage links.
+ * @param[in] e Borrowed engine under caller serialization.
+ * @return Owning topology; ignores failed outlets, out-of-range subcatchment targets, and self drainage. Node outlets take precedence.
+ */
 SubcatchTopology buildSubcatchTopology(SWMM_Engine e)
 {
     SubcatchTopology t;
     t.count = swmm_subcatch_count(e);
-    if (t.count <= 0) { t.count = 0; return t; }
+    if (t.count <= 0) {
+        t.count = 0;
+        return t;
+    }
 
     t.outNode.fill(-1, t.count);
     t.outSub.fill(-1, t.count);
@@ -75,11 +91,11 @@ SubcatchTopology buildSubcatchTopology(SWMM_Engine e)
         if (swmm_subcatch_get_outlet(e, i, &nodeIdx) == 0 && nodeIdx >= 0) {
             t.outNode[i] = nodeIdx;
             t.subsDrainingToNode[nodeIdx].push_back(i);
-            continue;   // a subcatchment drains to a node OR a subcatchment, never both
+            continue; // a subcatchment drains to a node OR a subcatchment, never both
         }
         int scIdx = -1;
-        if (swmm_subcatch_get_outlet_subcatch(e, i, &scIdx) == 0
-                && scIdx >= 0 && scIdx < t.count && scIdx != i) {
+        if (swmm_subcatch_get_outlet_subcatch(e, i, &scIdx) == 0 && scIdx >= 0 && scIdx < t.count &&
+            scIdx != i) {
             t.outSub[i] = scIdx;
             t.subsDrainingToSub[scIdx].push_back(i);
         }
@@ -89,28 +105,31 @@ SubcatchTopology buildSubcatchTopology(SWMM_Engine e)
 
 } // namespace
 
-namespace SelectionOps {
+namespace SelectionOps
+{
 
-QSet<SWMMObjectRef> invert(SWMMModelLayer *model,
-                           const QSet<SWMMObjectRef> &current)
+QSet<SWMMObjectRef> invert(SWMMModelLayer *model, const QSet<SWMMObjectRef> &current)
 {
     QSet<SWMMObjectRef> next;
-    if (!model || !model->engine()) return next;
+    if (!model || !model->engine())
+        return next;
 
     // 1. Universe per category + reverse map. Keyed on the *ref* (type+name),
     //    so the legal gage/subcatchment and node/link name collisions SWMM
     //    permits can't cross-contaminate the scope test.
-    QVector<QSet<SWMMObjectRef>>     byCategory(SWMMModelLayer::NumCategories);
-    QHash<SWMMObjectRef, Category>   catOf;
+    QVector<QSet<SWMMObjectRef>> byCategory(SWMMModelLayer::NumCategories);
+    QHash<SWMMObjectRef, Category> catOf;
 
     for (int ci = 0; ci < SWMMModelLayer::NumCategories; ++ci) {
         const auto c = static_cast<Category>(ci);
         const SWMMObjectRef::ObjectType t = objectTypeFor(c);
-        if (t == SWMMObjectRef::Unknown) continue;
+        if (t == SWMMObjectRef::Unknown)
+            continue;
         const int n = model->categoryCount(c);
         for (int row = 0; row < n; ++row) {
             const QString name = model->objectNameAt(c, row);
-            if (name.isEmpty()) continue;
+            if (name.isEmpty())
+                continue;
             const SWMMObjectRef ref(t, name);
             byCategory[ci].insert(ref);
             catOf.insert(ref, c);
@@ -122,8 +141,10 @@ QSet<SWMMObjectRef> invert(SWMMModelLayer *model,
     QSet<SWMMObjectRef> spatial;
     QSet<SWMMObjectRef> passthrough;
     for (const SWMMObjectRef &r : current) {
-        if (catOf.contains(r)) spatial.insert(r);
-        else                   passthrough.insert(r);
+        if (catOf.contains(r))
+            spatial.insert(r);
+        else
+            passthrough.insert(r);
     }
 
     // 3. Scope: one category → invert within it; zero or many → invert across
@@ -144,31 +165,32 @@ QSet<SWMMObjectRef> invert(SWMMModelLayer *model,
     // 4. next = (universe − selected) ∪ passthrough
     next.reserve(universe.size());
     for (const SWMMObjectRef &r : universe)
-        if (!spatial.contains(r)) next.insert(r);
+        if (!spatial.contains(r))
+            next.insert(r);
     next.unite(passthrough);
 
     return next;
 }
 
-TraceResult trace(SWMMModelLayer *model,
-                  const QSet<SWMMObjectRef> &seeds,
-                  bool upstream)
+TraceResult trace(SWMMModelLayer *model, const QSet<SWMMObjectRef> &seeds, bool upstream)
 {
     TraceResult res;
-    if (!model || !model->engine()) return res;
+    if (!model || !model->engine())
+        return res;
     SWMM_Engine e = model->engine();
 
     const SubcatchTopology topo = buildSubcatchTopology(e);
 
     // ── Seeding ────────────────────────────────────────────────────────────
     QSet<int> nodeSeeds;
-    QSet<int> subcatchResult;   // subcatchments already known to be in the trace
+    QSet<int> subcatchResult; // subcatchments already known to be in the trace
 
     for (const SWMMObjectRef &r : seeds) {
         switch (r.objectType) {
         case SWMMObjectRef::Node: {
             const int idx = swmm_node_index(e, r.name.toUtf8().constData());
-            if (idx >= 0) nodeSeeds.insert(idx);
+            if (idx >= 0)
+                nodeSeeds.insert(idx);
             break;
         }
         case SWMMObjectRef::Link: {
@@ -176,25 +198,33 @@ TraceResult trace(SWMMModelLayer *model,
             if (li >= 0) {
                 const int a = model->linkFromNodeIdx(li);
                 const int b = model->linkToNodeIdx(li);
-                if (a >= 0) nodeSeeds.insert(a);
-                if (b >= 0) nodeSeeds.insert(b);
+                if (a >= 0)
+                    nodeSeeds.insert(a);
+                if (b >= 0)
+                    nodeSeeds.insert(b);
             }
             break;
         }
         case SWMMObjectRef::Subcatchment: {
             const int si = swmm_subcatch_index(e, r.name.toUtf8().constData());
-            if (si < 0 || si >= topo.count) break;
+            if (si < 0 || si >= topo.count)
+                break;
             subcatchResult.insert(si);
-            if (upstream) break;   // nothing but other subcatchments lies upstream of one
+            if (upstream)
+                break; // nothing but other subcatchments lies upstream of one
 
             // Downstream: walk the outlet chain. Each subcatchment hop joins
             // the result; the terminal outlet node seeds the link-graph BFS.
             int cur = si;
             QSet<int> walked{si};
             while (cur >= 0) {
-                if (topo.outNode[cur] >= 0) { nodeSeeds.insert(topo.outNode[cur]); break; }
+                if (topo.outNode[cur] >= 0) {
+                    nodeSeeds.insert(topo.outNode[cur]);
+                    break;
+                }
                 const int nextSub = topo.outSub[cur];
-                if (nextSub < 0 || walked.contains(nextSub)) break;   // dead end or cycle
+                if (nextSub < 0 || walked.contains(nextSub))
+                    break; // dead end or cycle
                 walked.insert(nextSub);
                 subcatchResult.insert(nextSub);
                 cur = nextSub;
@@ -202,17 +232,18 @@ TraceResult trace(SWMMModelLayer *model,
             break;
         }
         default:
-            break;   // mesh + data refs are not traceable
+            break; // mesh + data refs are not traceable
         }
     }
 
-    if (nodeSeeds.isEmpty() && subcatchResult.isEmpty()) return res;
+    if (nodeSeeds.isEmpty() && subcatchResult.isEmpty())
+        return res;
     res.noSeeds = false;
 
     // ── Node BFS over the directed link graph ──────────────────────────────
     const ProfileRouter::Graph g = ProfileNetworkAdapter::buildGraphFromModel(model);
 
-    QHash<int, QVector<int>> adj;   // traverse-from node → outgoing edge indices
+    QHash<int, QVector<int>> adj; // traverse-from node → outgoing edge indices
     for (int i = 0; i < g.edges.size(); ++i)
         adj[upstream ? g.edges[i].toNode : g.edges[i].fromNode].push_back(i);
 
@@ -222,7 +253,10 @@ TraceResult trace(SWMMModelLayer *model,
         const int n = queue.takeFirst();
         for (int ei : adj.value(n)) {
             const int nx = upstream ? g.edges[ei].fromNode : g.edges[ei].toNode;
-            if (nx >= 0 && !visited.contains(nx)) { visited.insert(nx); queue.push_back(nx); }
+            if (nx >= 0 && !visited.contains(nx)) {
+                visited.insert(nx);
+                queue.push_back(nx);
+            }
         }
     }
 
@@ -243,7 +277,10 @@ TraceResult trace(SWMMModelLayer *model,
         while (!sq.isEmpty()) {
             const int s = sq.takeFirst();
             for (int up : topo.subsDrainingToSub.value(s))
-                if (!subcatchResult.contains(up)) { subcatchResult.insert(up); sq.push_back(up); }
+                if (!subcatchResult.contains(up)) {
+                    subcatchResult.insert(up);
+                    sq.push_back(up);
+                }
         }
     }
     // Downstream: nothing to add — drainage never runs node → subcatchment, so
@@ -253,11 +290,13 @@ TraceResult trace(SWMMModelLayer *model,
     // ── Materialise refs ───────────────────────────────────────────────────
     for (int n : visited) {
         const char *id = swmm_node_id(e, n);
-        if (id && *id) res.refs.insert(SWMMObjectRef(SWMMObjectRef::Node, QString::fromUtf8(id)));
+        if (id && *id)
+            res.refs.insert(SWMMObjectRef(SWMMObjectRef::Node, QString::fromUtf8(id)));
     }
     for (int li : interiorLinks) {
         const char *id = swmm_link_id(e, li);
-        if (id && *id) res.refs.insert(SWMMObjectRef(SWMMObjectRef::Link, QString::fromUtf8(id)));
+        if (id && *id)
+            res.refs.insert(SWMMObjectRef(SWMMObjectRef::Link, QString::fromUtf8(id)));
     }
     for (int si : subcatchResult) {
         const char *id = swmm_subcatch_id(e, si);
@@ -265,8 +304,8 @@ TraceResult trace(SWMMModelLayer *model,
             res.refs.insert(SWMMObjectRef(SWMMObjectRef::Subcatchment, QString::fromUtf8(id)));
     }
 
-    res.nodeCount     = static_cast<int>(visited.size());
-    res.linkCount     = static_cast<int>(interiorLinks.size());
+    res.nodeCount = static_cast<int>(visited.size());
+    res.linkCount = static_cast<int>(interiorLinks.size());
     res.subcatchCount = static_cast<int>(subcatchResult.size());
     return res;
 }

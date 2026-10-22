@@ -1,9 +1,14 @@
-/*!
- * \file   colorcelldelegate.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      colorcelldelegate.cpp
+ * @brief     Paints the cell's Qt::BackgroundRole colour as a rounded swatch (checkerboard behind
+ *            translucent colours) and opens QColorDialog on double-click, writing the pick back to
+ *            Qt::BackgroundRole.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/colorcelldelegate.h"
 
 #include <QColor>
@@ -11,7 +16,8 @@
 #include <QEvent>
 #include <QPainter>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 void ColorCellDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
                               const QModelIndex &idx) const
@@ -30,8 +36,7 @@ void ColorCellDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
             for (int y = inner.top(); y < inner.bottom(); y += cell) {
                 for (int x = inner.left(); x < inner.right(); x += cell) {
                     if (((x / cell) + (y / cell)) & 1)
-                        p->fillRect(QRect(x, y, cell, cell),
-                                    QColor(255, 255, 255));
+                        p->fillRect(QRect(x, y, cell, cell), QColor(255, 255, 255));
                 }
             }
         }
@@ -48,16 +53,17 @@ QWidget *ColorCellDelegate::createEditor(QWidget *, const QStyleOptionViewItem &
     return nullptr;
 }
 
-bool ColorCellDelegate::editorEvent(QEvent *e, QAbstractItemModel *m,
-                                    const QStyleOptionViewItem &, const QModelIndex &idx)
+bool ColorCellDelegate::editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &,
+                                    const QModelIndex &idx)
 {
-    if (e->type() != QEvent::MouseButtonDblClick) return false;
+    if (e->type() != QEvent::MouseButtonDblClick)
+        return false;
     QColor cur = idx.data(Qt::BackgroundRole).value<QColor>();
-    const QColor picked = QColorDialog::getColor(
-        cur.isValid() ? cur : QColor(Qt::white),
-        nullptr, QObject::tr("Class colour"),
-        QColorDialog::ShowAlphaChannel);
-    if (!picked.isValid()) return true;
+    const QColor picked =
+        QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white), nullptr,
+                               QObject::tr("Class colour"), QColorDialog::ShowAlphaChannel);
+    if (!picked.isValid())
+        return true;
     m->setData(idx, picked, Qt::BackgroundRole);
     return true;
 }

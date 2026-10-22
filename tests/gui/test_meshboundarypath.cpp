@@ -1,9 +1,9 @@
-/*!
- * \file   test_meshboundarypath.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  SWMM2DMeshLayer::boundaryGraph() — the lazily built, cached
+/**
+ * @file      test_meshboundarypath.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     SWMM2DMeshLayer::boundaryGraph() — the lazily built, cached
  *         boundary-edge graph behind the edge tool's Ctrl-click shortest-path
  *         selection.
  *
@@ -13,7 +13,9 @@
  *   - a progressive (deferHeavyGeometry) load reports an EMPTY graph until
  *     sceneGeometryReady() fires, then builds it for real — i.e. the lazy
  *     cache is not poisoned by the half-loaded state.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmm2dmeshlayer.h"
 #include "mesh/meshresult.h"
 #include "mesh/meshcellgeom.h"
@@ -21,33 +23,63 @@
 #include <QSignalSpy>
 #include <QTest>
 
-namespace {
+namespace
+{
 
 /*! `wide` × 1 strip of unit quads, each split into two triangles.
  *  Vertex for column x, row y is `x * 2 + y`. Boundary = 2*wide + 2 edges. */
+/**
+ * @brief Build an owned unit-width triangular strip for boundary topology tests.
+ * @param[in] wide Positive number of unit quads, each split into two triangles; arithmetic must
+ * fit.
+ * @return ok MeshResult with 2*(wide+1) vertices and 2*wide triangles, xy in arbitrary planar
+ * units, vertex index x*2+y, boundary 2*wide+2 edges for positive wide. No external state;
+ * allocates Qt vectors.
+ */
 mesh::MeshResult makeStrip(int wide)
 {
     mesh::MeshResult m;
     for (int x = 0; x <= wide; ++x) {
-        mesh::MeshVertex b; b.xy = QPointF(double(x), 0.0); m.vertices.append(b);
-        mesh::MeshVertex t; t.xy = QPointF(double(x), 1.0); m.vertices.append(t);
+        mesh::MeshVertex b;
+        b.xy = QPointF(double(x), 0.0);
+        m.vertices.append(b);
+        mesh::MeshVertex t;
+        t.xy = QPointF(double(x), 1.0);
+        m.vertices.append(t);
     }
     for (int x = 0; x < wide; ++x) {
         const int b0 = x * 2, t0 = x * 2 + 1, b1 = (x + 1) * 2, t1 = (x + 1) * 2 + 1;
-        mesh::MeshTriangle a; a.v0 = b0; a.v1 = b1; a.v2 = t1; m.triangles.append(a);
-        mesh::MeshTriangle c; c.v0 = b0; c.v1 = t1; c.v2 = t0; m.triangles.append(c);
+        mesh::MeshTriangle a;
+        a.v0 = b0;
+        a.v1 = b1;
+        a.v2 = t1;
+        m.triangles.append(a);
+        mesh::MeshTriangle c;
+        c.v0 = b0;
+        c.v1 = t1;
+        c.v2 = t0;
+        m.triangles.append(c);
     }
     m.ok = true;
     return m;
 }
 
 /*! First boundary slot on \p layer whose endpoints are {va, vb}; -1 if none. */
+/**
+ * @brief Find the first flagged boundary edge matching an unordered vertex pair.
+ * @param[in] layer Stable completed mesh layer/triangle topology and boundary flags.
+ * @param[in] va First vertex ID matched by equality, no dereference of this supplied ID.
+ * @param[in] vb Second vertex ID, orientation irrelevant.
+ * @return Packed edgeSlot(triangle,localEdge), or-1 absent. Does not build/advance layer, take
+ * ownership or mutate mesh; valid triangle endpoint indexing is a fixture precondition.
+ */
 int slotFor(const SWMM2DMeshLayer &layer, int va, int vb)
 {
     const auto &tris = layer.mesh().triangles;
     for (int t = 0; t < int(tris.size()); ++t) {
         for (int e = 0; e < tris[t].vertexCount(); ++e) {
-            if (!layer.isBoundaryEdge(t, e)) continue;
+            if (!layer.isBoundaryEdge(t, e))
+                continue;
             int a = -1, b = -1;
             mesh::edgeEndpoints(tris[t], e, a, b);
             if ((a == va && b == vb) || (a == vb && b == va))
@@ -64,13 +96,19 @@ class TestMeshBoundaryPath : public QObject
     Q_OBJECT
 private slots:
 
+    /**
+     * @brief Verify cached boundary graph exactly matches every packed boundary-edge flag.
+     * @note Four-quad strip expects 10 graph edges; compares containment against isBoundaryEdge
+     * for all triangle/stride slots and equal flagged count. Layer owned on stack, no physical
+     * engine/file IO.
+     */
     void graph_matches_boundary_flags()
     {
         SWMM2DMeshLayer layer(makeStrip(4), QString());
         const auto &g = layer.boundaryGraph();
 
         QVERIFY(!g.isEmpty());
-        QCOMPARE(g.edgeCount(), 10);          // 4 bottom + 4 top + left + right
+        QCOMPARE(g.edgeCount(), 10); // 4 bottom + 4 top + left + right
 
         // Every slot in the graph is a boundary slot and vice versa.
         int flagged = 0;
@@ -78,39 +116,59 @@ private slots:
             for (int e = 0; e < mesh::kEdgeStride; ++e) {
                 const bool boundary = layer.isBoundaryEdge(t, e);
                 QCOMPARE(g.contains(mesh::edgeSlot(t, e)), boundary);
-                if (boundary) ++flagged;
+                if (boundary)
+                    ++flagged;
             }
         QCOMPARE(flagged, g.edgeCount());
     }
 
+    /**
+     * @brief Verify shortest boundary path joins nearby top/bottom edges through the left end.
+     * @note Four-quad strip asserts three slots, exact start/end, includes left edge and
+     * excludes far right edge. Endpoint slot helper must find each requested edge; QtTest
+     * reports topology regression.
+     */
     void path_takes_the_short_way_round()
     {
         SWMM2DMeshLayer layer(makeStrip(4), QString());
 
-        const int bottomLeft = slotFor(layer, 0, 2);   // (0,0)-(1,0)
-        const int topLeft    = slotFor(layer, 1, 3);   // (0,1)-(1,1)
-        const int left       = slotFor(layer, 0, 1);   // (0,0)-(0,1)
-        const int right      = slotFor(layer, 8, 9);   // (4,0)-(4,1)
+        const int bottomLeft = slotFor(layer, 0, 2); // (0,0)-(1,0)
+        const int topLeft = slotFor(layer, 1, 3);    // (0,1)-(1,1)
+        const int left = slotFor(layer, 0, 1);       // (0,0)-(0,1)
+        const int right = slotFor(layer, 8, 9);      // (4,0)-(4,1)
         QVERIFY(bottomLeft >= 0 && topLeft >= 0 && left >= 0 && right >= 0);
 
-        const QVector<int> path =
-            layer.boundaryGraph().shortestPath(bottomLeft, topLeft);
+        const QVector<int> path = layer.boundaryGraph().shortestPath(bottomLeft, topLeft);
         QCOMPARE(path.size(), 3);
         QCOMPARE(path.first(), bottomLeft);
-        QCOMPARE(path.last(),  topLeft);
+        QCOMPARE(path.last(), topLeft);
         QVERIFY(path.contains(left));
         QVERIFY(!path.contains(right));
     }
 
+    /**
+     * @brief Verify repeated boundaryGraph access returns one stable cache object with expected
+     * 8 edges.
+     * @note Three-quad strip, compares addresses across calls rather than only values; local
+     * layer owns cache and its lifetime, no mutation or asynchronous worker started.
+     */
     void cached_graph_is_stable_between_calls()
     {
         SWMM2DMeshLayer layer(makeStrip(3), QString());
-        const auto *first  = &layer.boundaryGraph();
+        const auto *first = &layer.boundaryGraph();
         const auto *second = &layer.boundaryGraph();
-        QCOMPARE(first, second);              // built once, then cached
+        QCOMPARE(first, second); // built once, then cached
         QCOMPARE(second->edgeCount(), 8);
     }
 
+    /**
+     * @brief Verify deferred geometry reports empty boundary graph until asynchronous completion
+     * without poisoning cache.
+     * @note Four-quad progressive layer starts incomplete; starts worker, waits
+     * sceneGeometryReady up to 10000 ms, then asserts complete 10-edge graph and three-edge
+     * shortest path. Requires Qt GUI event loop; stack layer stays alive through completion,
+     * timeout/assertion reports failure, no native simulation.
+     */
     void progressive_load_defers_then_builds()
     {
         // deferHeavyGeometry: the boundary flags arrive with the background
@@ -130,7 +188,7 @@ private slots:
         QCOMPARE(g.edgeCount(), 10);
 
         const int bottomLeft = slotFor(layer, 0, 2);
-        const int topLeft    = slotFor(layer, 1, 3);
+        const int topLeft = slotFor(layer, 1, 3);
         QVERIFY(bottomLeft >= 0 && topLeft >= 0);
         QCOMPARE(g.shortestPath(bottomLeft, topLeft).size(), 3);
     }

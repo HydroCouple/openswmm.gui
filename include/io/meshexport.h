@@ -1,8 +1,10 @@
-/*!
- * \file   meshexport.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshexport.h
+ * @brief     Collector for "Export mesh…"
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.2, R10).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Collector for "Export mesh…"
  * (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §8.2, R10).
@@ -14,6 +16,7 @@
  * (z, tag, coupled node). Pure data in, data out: it reads a MeshResult and
  * the per-edge BCs, never the layer, so it can be unit-tested and called
  * before the write moves to a worker.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMMVIS_IO_MESHEXPORT_H
@@ -26,15 +29,15 @@
 #include <QString>
 #include <QVector>
 
-namespace openswmmvis::io {
+namespace openswmmvis::io
+{
 
 /*! Which mesh tables to write (a bit set). */
-enum MeshExportPart : unsigned
-{
-    MeshExportCells    = 1u << 0,
-    MeshExportEdges    = 1u << 1,
+enum MeshExportPart : unsigned {
+    MeshExportCells = 1u << 0,
+    MeshExportEdges = 1u << 1,
     MeshExportVertices = 1u << 2,
-    MeshExportAll      = MeshExportCells | MeshExportEdges | MeshExportVertices
+    MeshExportAll = MeshExportCells | MeshExportEdges | MeshExportVertices
 };
 
 /*!
@@ -46,12 +49,13 @@ enum MeshExportPart : unsigned
  * \returns The tables "mesh_cells", "mesh_edges", "mesh_vertices" that
  *          \p parts asks for, in that order. Every interior edge is listed
  *          once, under its lower slot, as the mesh attribute table lists it.
+ * @brief Snapshot requested native mesh elements into independent export tables.
+ * @details Coordinates and attributes are copied without unit conversion or IO; lengthUnit labels values only. Invalid element geometry is skipped with table diagnostics. Returned values have no borrowed pointers into mesh or bcs.
  */
 [[nodiscard]] QVector<ExportTable> meshTables(const mesh::MeshResult &mesh,
-                                              const QVector<mesh::MeshEdgeBC> &bcs,
-                                              unsigned parts,
+                                              const QVector<mesh::MeshEdgeBC> &bcs, unsigned parts,
                                               const QString &lengthUnit = QString());
 
-}   // namespace openswmmvis::io
+} // namespace openswmmvis::io
 
 #endif // OPENSWMMVIS_IO_MESHEXPORT_H

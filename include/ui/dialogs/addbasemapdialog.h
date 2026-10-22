@@ -1,10 +1,10 @@
-/*!
- * \file   addbasemapdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \brief  Unified "Add Basemap" dialog with tabs for XYZ, WMS/WMTS, and ArcGIS REST.
+/**
+ * @file      addbasemapdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @brief     Unified "Add Basemap" dialog with tabs for XYZ, WMS/WMTS, and ArcGIS REST.
  *
- * \details
+ * @details
  * The dialog has five tabs:
  *  - Tab 0: XYZ Tiles  — URL template, zoom range, tile pixel ratio, axis order,
  *                         authentication, HTTP headers, Test Connection button.
@@ -22,7 +22,10 @@
  * accepted state (caller takes ownership).
  *
  * The dialog also persists connections via `BasemapConnectionStore`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #ifndef ADDBASEMAPDIALOG_H
 #define ADDBASEMAPDIALOG_H
 
@@ -85,14 +88,7 @@ public:
      * index -- renumbering would silently open somebody's saved dialog on a
      * different service.
      */
-    enum Tab {
-        XyzTiles   = 0,
-        WmsWmts    = 1,
-        Wcs        = 2,
-        ArcGisRest = 3,
-        LocalFile  = 4,
-        Wfs        = 5
-    };
+    enum Tab { XyzTiles = 0, WmsWmts = 1, Wcs = 2, ArcGisRest = 3, LocalFile = 4, Wfs = 5 };
 
     explicit AddBasemapDialog(QWidget *parent = nullptr);
     ~AddBasemapDialog() override;
@@ -192,11 +188,9 @@ private:
     void setupUiWCS(QWidget *page);
     void setupUiArcGIS(QWidget *page);
     void setupUiLocal(QWidget *page);
-    void buildConnectionBar(QWidget *parent, QComboBox *&combo,
-                            QPushButton *&newBtn, QPushButton *&editBtn,
-                            QPushButton *&delBtn);
-    void buildAuthGroup(QWidget *parent, QGroupBox *&box,
-                        QLineEdit *&user, QLineEdit *&pass,
+    void buildConnectionBar(QWidget *parent, QComboBox *&combo, QPushButton *&newBtn,
+                            QPushButton *&editBtn, QPushButton *&delBtn);
+    void buildAuthGroup(QWidget *parent, QGroupBox *&box, QLineEdit *&user, QLineEdit *&pass,
                         QPushButton *&eyeBtn);
     void togglePasswordVisibility(QLineEdit *passEdit, QPushButton *eyeBtn);
 
@@ -207,21 +201,21 @@ private:
     void refreshLocalCombo();
 
     void populateXYZ(const XYZConnection &conn, const BasemapAuth &auth);
-    void populateWMS(const WMSConnection  &conn, const BasemapAuth &auth);
+    void populateWMS(const WMSConnection &conn, const BasemapAuth &auth);
     void populateWCS(const struct WCSConnection &conn, const BasemapAuth &auth);
     void populateArcGIS(const ArcGISRestConnection &conn, const BasemapAuth &auth);
     void populateLocal(const LocalRasterConnection &conn);
     void updateLocalGeorefStatus();
 
-    void populateWMSTree(const struct WMSServiceInfo  &info);
+    void populateWMSTree(const struct WMSServiceInfo &info);
     void populateWMTSTree(const struct WMTSServiceInfo &info);
-    void populateWCSTree(const struct WCSServiceInfo   &info);
+    void populateWCSTree(const struct WCSServiceInfo &info);
 
     // Helpers for createLayer()
-    [[nodiscard]] OpenSWMMVisLayer *buildXYZLayer(QObject *parent)    const;
-    [[nodiscard]] OpenSWMMVisLayer *buildWMSLayer(QObject *parent)    const;
-    [[nodiscard]] OpenSWMMVisLayer *buildWMTSLayer(QObject *parent)   const;
-    [[nodiscard]] OpenSWMMVisLayer *buildWCSLayer(QObject *parent)    const;
+    [[nodiscard]] OpenSWMMVisLayer *buildXYZLayer(QObject *parent) const;
+    [[nodiscard]] OpenSWMMVisLayer *buildWMSLayer(QObject *parent) const;
+    [[nodiscard]] OpenSWMMVisLayer *buildWMTSLayer(QObject *parent) const;
+    [[nodiscard]] OpenSWMMVisLayer *buildWCSLayer(QObject *parent) const;
     [[nodiscard]] OpenSWMMVisLayer *buildArcGISLayer(QObject *parent) const;
     [[nodiscard]] OpenSWMMVisLayer *buildLocalRasterLayer(QObject *parent) const;
 
@@ -231,125 +225,125 @@ private:
     QDialogButtonBox *m_buttonBox = nullptr;
 
     // XYZ
-    QComboBox   *m_xyzCombo    = nullptr;
-    QPushButton *m_xyzNew      = nullptr;
-    QPushButton *m_xyzEdit     = nullptr;
-    QPushButton *m_xyzDel      = nullptr;
-    QLineEdit   *m_xyzName     = nullptr;
-    QLineEdit   *m_xyzUrl      = nullptr;
-    QSpinBox    *m_xyzZMin     = nullptr;
-    QSpinBox    *m_xyzZMax     = nullptr;
-    QComboBox   *m_xyzPixRatio = nullptr;    // 0/1/2
-    QComboBox   *m_xyzAxis     = nullptr;    // ZXY / ZYX
-    QGroupBox   *m_xyzAuthBox  = nullptr;
-    QLineEdit   *m_xyzUser     = nullptr;
-    QLineEdit   *m_xyzPass     = nullptr;
-    QPushButton *m_xyzEye      = nullptr;
+    QComboBox *m_xyzCombo = nullptr;
+    QPushButton *m_xyzNew = nullptr;
+    QPushButton *m_xyzEdit = nullptr;
+    QPushButton *m_xyzDel = nullptr;
+    QLineEdit *m_xyzName = nullptr;
+    QLineEdit *m_xyzUrl = nullptr;
+    QSpinBox *m_xyzZMin = nullptr;
+    QSpinBox *m_xyzZMax = nullptr;
+    QComboBox *m_xyzPixRatio = nullptr; // 0/1/2
+    QComboBox *m_xyzAxis = nullptr;     // ZXY / ZYX
+    QGroupBox *m_xyzAuthBox = nullptr;
+    QLineEdit *m_xyzUser = nullptr;
+    QLineEdit *m_xyzPass = nullptr;
+    QPushButton *m_xyzEye = nullptr;
     BasemapHttpHeadersWidget *m_xyzHeaders = nullptr;
-    QPushButton *m_xyzTestBtn  = nullptr;
-    QLabel      *m_xyzTestLabel = nullptr;
+    QPushButton *m_xyzTestBtn = nullptr;
+    QLabel *m_xyzTestLabel = nullptr;
 
     // WMS / WMTS
-    QComboBox   *m_wmsCombo    = nullptr;
-    QPushButton *m_wmsNew      = nullptr;
-    QPushButton *m_wmsEdit     = nullptr;
-    QPushButton *m_wmsDel      = nullptr;
-    QLineEdit   *m_wmsUrl      = nullptr;
-    QPushButton *m_wmsConnect  = nullptr;
-    QLabel      *m_wmsProtocol = nullptr;  // shows "WMS" or "WMTS"
-    QGroupBox   *m_wmsAuthBox  = nullptr;
-    QLineEdit   *m_wmsUser     = nullptr;
-    QLineEdit   *m_wmsPass     = nullptr;
-    QPushButton *m_wmsEye      = nullptr;
-    QTreeWidget *m_wmsTree     = nullptr;
-    QComboBox   *m_wmsStyle    = nullptr;
-    QComboBox   *m_wmsFmt      = nullptr;
-    QComboBox   *m_wmsCrs      = nullptr;
-    QComboBox   *m_wmsTms      = nullptr;   // tile matrix set (WMTS only)
-    QLabel      *m_wmsTmsLabel = nullptr;
+    QComboBox *m_wmsCombo = nullptr;
+    QPushButton *m_wmsNew = nullptr;
+    QPushButton *m_wmsEdit = nullptr;
+    QPushButton *m_wmsDel = nullptr;
+    QLineEdit *m_wmsUrl = nullptr;
+    QPushButton *m_wmsConnect = nullptr;
+    QLabel *m_wmsProtocol = nullptr; // shows "WMS" or "WMTS"
+    QGroupBox *m_wmsAuthBox = nullptr;
+    QLineEdit *m_wmsUser = nullptr;
+    QLineEdit *m_wmsPass = nullptr;
+    QPushButton *m_wmsEye = nullptr;
+    QTreeWidget *m_wmsTree = nullptr;
+    QComboBox *m_wmsStyle = nullptr;
+    QComboBox *m_wmsFmt = nullptr;
+    QComboBox *m_wmsCrs = nullptr;
+    QComboBox *m_wmsTms = nullptr; // tile matrix set (WMTS only)
+    QLabel *m_wmsTmsLabel = nullptr;
     // Advanced
-    QComboBox   *m_wmsDpiMode  = nullptr;
-    QComboBox   *m_wmsRatio    = nullptr;
-    QCheckBox   *m_wmsIgnoreUri       = nullptr;
-    QCheckBox   *m_wmsIgnoreAxis      = nullptr;
-    QCheckBox   *m_wmsInvertAxis      = nullptr;
-    QCheckBox   *m_wmsSmooth          = nullptr;
+    QComboBox *m_wmsDpiMode = nullptr;
+    QComboBox *m_wmsRatio = nullptr;
+    QCheckBox *m_wmsIgnoreUri = nullptr;
+    QCheckBox *m_wmsIgnoreAxis = nullptr;
+    QCheckBox *m_wmsInvertAxis = nullptr;
+    QCheckBox *m_wmsSmooth = nullptr;
     BasemapHttpHeadersWidget *m_wmsHeaders = nullptr;
-    QLabel      *m_wmsStatus   = nullptr;
+    QLabel *m_wmsStatus = nullptr;
 
     // WCS
-    QComboBox   *m_wcsCombo      = nullptr;
-    QPushButton *m_wcsNew        = nullptr;
-    QPushButton *m_wcsDel        = nullptr;
-    QLineEdit   *m_wcsUrl        = nullptr;
-    QPushButton *m_wcsConnect    = nullptr;
-    QLabel      *m_wcsStatus     = nullptr;
-    QTreeWidget *m_wcsCovTree    = nullptr;
-    QComboBox   *m_wcsFmt        = nullptr;
-    QComboBox   *m_wcsCrs        = nullptr;
-    QLineEdit   *m_wcsRange      = nullptr;
-    QComboBox   *m_wcsInterp     = nullptr;
-    QGroupBox   *m_wcsAuthBox    = nullptr;
-    QLineEdit   *m_wcsUser       = nullptr;
-    QLineEdit   *m_wcsPass       = nullptr;
-    QPushButton *m_wcsEye        = nullptr;
+    QComboBox *m_wcsCombo = nullptr;
+    QPushButton *m_wcsNew = nullptr;
+    QPushButton *m_wcsDel = nullptr;
+    QLineEdit *m_wcsUrl = nullptr;
+    QPushButton *m_wcsConnect = nullptr;
+    QLabel *m_wcsStatus = nullptr;
+    QTreeWidget *m_wcsCovTree = nullptr;
+    QComboBox *m_wcsFmt = nullptr;
+    QComboBox *m_wcsCrs = nullptr;
+    QLineEdit *m_wcsRange = nullptr;
+    QComboBox *m_wcsInterp = nullptr;
+    QGroupBox *m_wcsAuthBox = nullptr;
+    QLineEdit *m_wcsUser = nullptr;
+    QLineEdit *m_wcsPass = nullptr;
+    QPushButton *m_wcsEye = nullptr;
     BasemapHttpHeadersWidget *m_wcsHeaders = nullptr;
 
     // ------ WFS tab ---------------------------------------------------
-    QComboBox   *m_wfsCombo      = nullptr;
-    QPushButton *m_wfsNew        = nullptr;
-    QPushButton *m_wfsDel        = nullptr;
-    QLineEdit   *m_wfsUrl        = nullptr;
-    QPushButton *m_wfsConnect    = nullptr;
-    QLabel      *m_wfsStatus     = nullptr;
-    QListWidget *m_wfsTypes      = nullptr;
-    QGroupBox   *m_wfsAuthBox    = nullptr;
-    QLineEdit   *m_wfsUser       = nullptr;
-    QLineEdit   *m_wfsPass       = nullptr;
-    QPushButton *m_wfsEye        = nullptr;
+    QComboBox *m_wfsCombo = nullptr;
+    QPushButton *m_wfsNew = nullptr;
+    QPushButton *m_wfsDel = nullptr;
+    QLineEdit *m_wfsUrl = nullptr;
+    QPushButton *m_wfsConnect = nullptr;
+    QLabel *m_wfsStatus = nullptr;
+    QListWidget *m_wfsTypes = nullptr;
+    QGroupBox *m_wfsAuthBox = nullptr;
+    QLineEdit *m_wfsUser = nullptr;
+    QLineEdit *m_wfsPass = nullptr;
+    QPushButton *m_wfsEye = nullptr;
     BasemapHttpHeadersWidget *m_wfsHeaders = nullptr;
 
     // ArcGIS
-    QComboBox   *m_arcCombo       = nullptr;
-    QPushButton *m_arcNew         = nullptr;
-    QPushButton *m_arcEdit        = nullptr;
-    QPushButton *m_arcDel         = nullptr;
-    QLineEdit   *m_arcUrl         = nullptr;
-    QLineEdit   *m_arcPrefix      = nullptr;
-    QLineEdit   *m_arcContent     = nullptr;
-    QLineEdit   *m_arcCommunity   = nullptr;
-    QGroupBox   *m_arcAuthBox     = nullptr;
-    QLineEdit   *m_arcUser        = nullptr;
-    QLineEdit   *m_arcPass        = nullptr;
-    QPushButton *m_arcEye         = nullptr;
+    QComboBox *m_arcCombo = nullptr;
+    QPushButton *m_arcNew = nullptr;
+    QPushButton *m_arcEdit = nullptr;
+    QPushButton *m_arcDel = nullptr;
+    QLineEdit *m_arcUrl = nullptr;
+    QLineEdit *m_arcPrefix = nullptr;
+    QLineEdit *m_arcContent = nullptr;
+    QLineEdit *m_arcCommunity = nullptr;
+    QGroupBox *m_arcAuthBox = nullptr;
+    QLineEdit *m_arcUser = nullptr;
+    QLineEdit *m_arcPass = nullptr;
+    QPushButton *m_arcEye = nullptr;
     BasemapHttpHeadersWidget *m_arcHeaders = nullptr;
-    QPushButton *m_arcConnect     = nullptr;
-    QLabel      *m_arcInfoLabel   = nullptr;
+    QPushButton *m_arcConnect = nullptr;
+    QLabel *m_arcInfoLabel = nullptr;
 
     // Local file
-    QComboBox   *m_localCombo       = nullptr;
-    QPushButton *m_localNew         = nullptr;
-    QPushButton *m_localDel         = nullptr;
-    QLineEdit   *m_localName        = nullptr;
-    QLineEdit   *m_localFile        = nullptr;
-    QPushButton *m_localFileBrowse  = nullptr;
-    QLineEdit   *m_localWorld       = nullptr;
+    QComboBox *m_localCombo = nullptr;
+    QPushButton *m_localNew = nullptr;
+    QPushButton *m_localDel = nullptr;
+    QLineEdit *m_localName = nullptr;
+    QLineEdit *m_localFile = nullptr;
+    QPushButton *m_localFileBrowse = nullptr;
+    QLineEdit *m_localWorld = nullptr;
     QPushButton *m_localWorldBrowse = nullptr;
-    QLineEdit   *m_localCrs         = nullptr;   // read-only; set via CRS dialog
-    QPushButton *m_localCrsBtn      = nullptr;
-    QLabel      *m_localStatus      = nullptr;
+    QLineEdit *m_localCrs = nullptr; // read-only; set via CRS dialog
+    QPushButton *m_localCrsBtn = nullptr;
+    QLabel *m_localStatus = nullptr;
 
     // ---------- Runtime state ----------------------------------------------
 
     QNetworkAccessManager *m_nam = nullptr;
 
     // WMS runtime
-    bool                      m_isWMTS       = false;
-    std::unique_ptr<WMSServiceInfo>  m_wmsInfo;
+    bool m_isWMTS = false;
+    std::unique_ptr<WMSServiceInfo> m_wmsInfo;
     std::unique_ptr<WMTSServiceInfo> m_wmtsInfo;
 
     // WCS runtime
-    struct WCSServiceInfo    *m_wcsInfo      = nullptr;
+    struct WCSServiceInfo *m_wcsInfo = nullptr;
 
     // ------ WFS state -------------------------------------------------
     void setupUiWFS(QWidget *page);
@@ -385,14 +379,14 @@ private:
 
     [[nodiscard]] HydroCouple::Ogc::ServiceCredentials wfsCredentials() const;
 
-    HydroCouple::Ogc::HttpClient   *m_wfsClient = nullptr;
+    HydroCouple::Ogc::HttpClient *m_wfsClient = nullptr;
     HydroCouple::Ogc::WfsCapabilities m_wfsCaps;
 
     //! Type name, and why it cannot be used. Empty reason means it can.
     QList<QPair<QString, QString>> m_wfsChoices;
 
-    QRectF   m_preferredExtent;
-    QString  m_wfsStatusText;
+    QRectF m_preferredExtent;
+    QString m_wfsStatusText;
 
     /*!
      * \brief The fetched layer, awaiting collection by createLayer().
@@ -404,7 +398,7 @@ private:
     mutable WFSLayer *m_wfsLayer = nullptr;
 
     // ArcGIS runtime — derived XYZ connection built after Connect
-    XYZConnection             m_arcDerivedXYZ;
+    XYZConnection m_arcDerivedXYZ;
 };
 
 #endif // ADDBASEMAPDIALOG_H

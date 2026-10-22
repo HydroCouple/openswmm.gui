@@ -1,8 +1,11 @@
-/*!
- * \file   markershapeeditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      markershapeeditor.cpp
+ * @brief     combo-box whose 13 entries each carry an icon rendered by drawMarkerShape() plus the
+ *            enum name as the label.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/editors/markershapeeditor.h"
@@ -18,9 +21,11 @@
 #include <QPen>
 #include <QPixmap>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 // Render a single MarkerShape into a QIcon. The pixmap is small enough
 // to sit in a combo-box row but big enough to read the silhouette; the
@@ -35,18 +40,14 @@ QIcon makeShapeIcon(OpenSWMM::Render::MarkerShape shape, int pxSize = 18)
     const QBrush fill(QColor(80, 130, 200));
     QPen outline(QColor(40, 40, 40));
     outline.setWidthF(1.0);
-    OpenSWMM::Render::drawMarkerShape(
-        &p, shape,
-        QPointF(pxSize * 0.5, pxSize * 0.5),
-        pxSize - 4.0,
-        fill, outline);
+    OpenSWMM::Render::drawMarkerShape(&p, shape, QPointF(pxSize * 0.5, pxSize * 0.5), pxSize - 4.0,
+                                      fill, outline);
     return QIcon(pix);
 }
 
 } // namespace
 
-MarkerShapeEditor::MarkerShapeEditor(QWidget *parent)
-    : QBasePropertyItemEditor(parent)
+MarkerShapeEditor::MarkerShapeEditor(QWidget *parent) : QBasePropertyItemEditor(parent)
 {
     m_combo = new QComboBox(this);
 
@@ -64,57 +65,57 @@ MarkerShapeEditor::MarkerShapeEditor(QWidget *parent)
         const QMetaEnum me = mo.enumerator(idx);
         for (int i = 0; i < me.keyCount(); ++i) {
             const auto shape = static_cast<OpenSWMM::Render::MarkerShape>(me.value(i));
-            m_combo->addItem(makeShapeIcon(shape),
-                             QString::fromLatin1(me.key(i)),
+            m_combo->addItem(makeShapeIcon(shape), QString::fromLatin1(me.key(i)),
                              QVariant::fromValue(shape));
         }
     } else {
         using OpenSWMM::Render::MarkerShape;
         const std::pair<MarkerShape, const char *> fallback[] = {
-            {MarkerShape::Circle,              "Circle"},
-            {MarkerShape::Square,              "Square"},
-            {MarkerShape::Triangle,            "Triangle"},
-            {MarkerShape::Diamond,             "Diamond"},
-            {MarkerShape::Star,                "Star"},
-            {MarkerShape::Cross,               "Cross"},
-            {MarkerShape::Plus,                "Plus"},
-            {MarkerShape::XCross,              "XCross"},
-            {MarkerShape::Pentagon,            "Pentagon"},
-            {MarkerShape::Hexagon,             "Hexagon"},
-            {MarkerShape::Arrow,               "Arrow"},
+            {MarkerShape::Circle, "Circle"},
+            {MarkerShape::Square, "Square"},
+            {MarkerShape::Triangle, "Triangle"},
+            {MarkerShape::Diamond, "Diamond"},
+            {MarkerShape::Star, "Star"},
+            {MarkerShape::Cross, "Cross"},
+            {MarkerShape::Plus, "Plus"},
+            {MarkerShape::XCross, "XCross"},
+            {MarkerShape::Pentagon, "Pentagon"},
+            {MarkerShape::Hexagon, "Hexagon"},
+            {MarkerShape::Arrow, "Arrow"},
             {MarkerShape::EquilateralTriangle, "EquilateralTriangle"},
-            {MarkerShape::HalfCircle,          "HalfCircle"},
+            {MarkerShape::HalfCircle, "HalfCircle"},
         };
         for (const auto &[shape, name] : fallback)
-            m_combo->addItem(makeShapeIcon(shape),
-                             QString::fromLatin1(name),
+            m_combo->addItem(makeShapeIcon(shape), QString::fromLatin1(name),
                              QVariant::fromValue(shape));
     }
 
     // Commit on every selection change so the canvas updates live.
-    connect(m_combo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int) { emit valueChanged(this); });
+    connect(m_combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { emit valueChanged(this); });
 }
 
 MarkerShapeEditor::~MarkerShapeEditor() = default;
 
 void MarkerShapeEditor::setValue(const QVariant &value)
 {
-    if (!m_combo) return;
+    if (!m_combo)
+        return;
     OpenSWMM::Render::MarkerShape current{};
     bool resolved = false;
     if (value.canConvert<OpenSWMM::Render::MarkerShape>()) {
-        current  = value.value<OpenSWMM::Render::MarkerShape>();
+        current = value.value<OpenSWMM::Render::MarkerShape>();
         resolved = true;
     } else {
         bool ok = false;
         const int asInt = value.toInt(&ok);
         if (ok) {
-            current  = static_cast<OpenSWMM::Render::MarkerShape>(asInt);
+            current = static_cast<OpenSWMM::Render::MarkerShape>(asInt);
             resolved = true;
         }
     }
-    if (!resolved) return;
+    if (!resolved)
+        return;
     for (int i = 0; i < m_combo->count(); ++i) {
         if (m_combo->itemData(i).value<OpenSWMM::Render::MarkerShape>() == current) {
             m_combo->setCurrentIndex(i);
@@ -125,7 +126,8 @@ void MarkerShapeEditor::setValue(const QVariant &value)
 
 QVariant MarkerShapeEditor::getValue() const
 {
-    if (!m_combo) return {};
+    if (!m_combo)
+        return {};
     return m_combo->itemData(m_combo->currentIndex());
 }
 

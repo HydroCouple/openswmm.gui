@@ -1,8 +1,11 @@
-/*!
- * \file   meshedgebc.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshedgebc.h
+ * @brief     Slice §V.VA — per-edge boundary condition value, stored on the SWMM2DMeshLayer in a
+ *            SoA QVector indexed flat: `mesh::edgeSlot(cell, edgeLocal)` (stride mesh::kEdgeStride
+ *            = 4; slot 3 of a triangle is padding).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice §V.VA — per-edge boundary condition value, stored on the
  * SWMM2DMeshLayer in a SoA QVector indexed flat: `mesh::edgeSlot(cell, edgeLocal)`
@@ -10,7 +13,9 @@
  * Mirrors openswmm::twoD::BoundaryData on the engine side. Interior-edge
  * slots are populated with `Wall` defaults but never consulted by the engine
  * (interior edges have a neighbour).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_MESHEDGEBC_H
 #define OPENSWMMVIS_MESH_MESHEDGEBC_H
 
@@ -18,30 +23,44 @@
 
 #include <QString>
 
-namespace mesh {
-
-struct MeshEdgeBC
+namespace mesh
 {
-    MeshBCTypes::Type type      = MeshBCTypes::Type::Wall;
-    double            head      = 0.0;    ///< Stage for SpecifiedStageConst (project vert. units)
-    double            slope     = 0.0;    ///< Bed slope for NormalFlow (dimensionless; must be > 0 — the engine treats 0 as a wall)
-    double            flow      = 0.0;    ///< Discharge per metre for SpecifiedFlowConst (flow units / m)
-    QString           tseries;            ///< TS name for *TS variants
-    QString           curve;              ///< Curve name for RatingCurve
-    QString           group;              ///< Optional named group ("" = none)
+
+struct MeshEdgeBC {
+    MeshBCTypes::Type type = MeshBCTypes::Type::Wall;
+    double head = 0.0; ///< Stage for SpecifiedStageConst (project vert. units)
+    double slope =
+        0.0; ///< Bed slope for NormalFlow (dimensionless; must be > 0 — the engine treats 0 as a wall)
+    double flow = 0.0; ///< Discharge per metre for SpecifiedFlowConst (flow units / m)
+    QString tseries;   ///< TS name for *TS variants
+    QString curve;     ///< Curve name for RatingCurve
+    QString group;     ///< Optional named group ("" = none)
     /// Engine §11A — per-edge flux attenuation in [0, 1]. Default 1.0
     /// (unrestricted). Multiplies the flux in SurfaceFluxCalculator. Applies
     /// to ALL edges (interior + boundary) — orthogonal to `type`. Interior
     /// edges store the same value in both neighbour slots; the layer's
     /// applyMeshEdgeConveyance helper enforces the mirror.
-    double            conveyance = 1.0;
+    double conveyance = 1.0;
 
+    /**
+     * @brief Compare every stored boundary-condition and conveyance attribute exactly.
+     * @param[in] o Borrowed other value, unchanged.
+     * @return True only if type, head, slope, flow, timeseries, curve, group and conveyance all
+     * compare equal. No floating tolerance or normalization is applied; NaN fields compare
+     * unequal even to themselves. No allocation, mesh mutation or engine synchronization.
+     */
     bool operator==(const MeshEdgeBC &o) const noexcept
     {
-        return type == o.type && head == o.head && slope == o.slope
-            && flow == o.flow && tseries == o.tseries && curve == o.curve
-            && group == o.group && conveyance == o.conveyance;
+        return type == o.type && head == o.head && slope == o.slope && flow == o.flow &&
+               tseries == o.tseries && curve == o.curve && group == o.group &&
+               conveyance == o.conveyance;
     }
+    /**
+     * @brief Negate exact all-field boundary-condition equality.
+     * @param[in] o Borrowed other value, unchanged.
+     * @return Logical negation of operator==, including its exact floating/string comparisons
+     * and NaN behavior. No boundary validation, mutation or engine synchronization.
+     */
     bool operator!=(const MeshEdgeBC &o) const noexcept { return !(*this == o); }
 };
 

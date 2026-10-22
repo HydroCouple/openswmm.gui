@@ -1,15 +1,17 @@
-/*!
- * \file   lidcontroleditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  CRUD editor for SWMM LID controls ([LID_CONTROLS]).
+/**
+ * @file      lidcontroleditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     CRUD editor for SWMM LID controls ([LID_CONTROLS]).
  *
  * List pane and property tabs for standard LID controls, with an ordered
  * layer editor for NODE controls. Physical parameters and per-layer pollutant
  * rates/expressions share the current control selection and Apply workflow.
  * Existing definitions are loaded through the registry's engine getters.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_LIDCONTROLEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_LIDCONTROLEDITORDIALOG_H
 
@@ -31,14 +33,19 @@ class QStandardItemModel;
 class SWMMModelLayer;
 class QTableView;
 
-namespace openswmmvis::lid {
+namespace openswmmvis::lid
+{
 class LidControlProvider;
 class LidControlRegistry;
 }
 
-namespace openswmmvis::sectionview { class SectionPreviewWidget; }
+namespace openswmmvis::sectionview
+{
+class SectionPreviewWidget;
+}
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class LidControlListModel;
 class LidNodeLayerModel;
@@ -50,22 +57,19 @@ public:
     enum class Mode { Edit, CreateNew };
     Q_ENUM(Mode)
 
-    LidControlEditorDialog(openswmmvis::lid::LidControlRegistry *registry,
-                           SWMMModelLayer *layer,
+    LidControlEditorDialog(openswmmvis::lid::LidControlRegistry *registry, SWMMModelLayer *layer,
                            QWidget *parent = nullptr);
     ~LidControlEditorDialog() override;
 
-    static LidControlEditorDialog *createNew(
-        openswmmvis::lid::LidControlRegistry *registry,
-        SWMMModelLayer *layer,
-        QWidget *parent = nullptr);
+    static LidControlEditorDialog *createNew(openswmmvis::lid::LidControlRegistry *registry,
+                                             SWMMModelLayer *layer, QWidget *parent = nullptr);
 
     Mode mode() const noexcept { return m_mode; }
     openswmmvis::lid::LidControlProvider *currentProvider() const noexcept;
 
-    QListView          *listView() const noexcept { return m_listView; }
+    QListView *listView() const noexcept { return m_listView; }
     LidControlListModel *listModel() const noexcept { return m_listModel; }
-    QLineEdit          *nameEdit()  const noexcept { return m_nameEdit; }
+    QLineEdit *nameEdit() const noexcept { return m_nameEdit; }
 
     void invokeNew();
 
@@ -82,8 +86,8 @@ private slots:
     void onDeleteClicked_();
     void onNameEdited_();
     void onFieldEdited_();
-    void onProviderRenamed_(openswmmvis::lid::LidControlProvider *p,
-                              const QString &prev, const QString &now);
+    void onProviderRenamed_(openswmmvis::lid::LidControlProvider *p, const QString &prev,
+                            const QString &now);
 
 private:
     void buildUi_();
@@ -104,7 +108,7 @@ private:
     bool m_layerDraftDirty = false;
 
     QPointer<openswmmvis::lid::LidControlRegistry> m_registry;
-    QPointer<SWMMModelLayer>                       m_layer;
+    QPointer<SWMMModelLayer> m_layer;
     QPointer<openswmmvis::lid::LidControlProvider> m_current;
     QTableView *m_nodeLayerTable = nullptr;
     LidNodeLayerModel *m_nodeLayerModel = nullptr;
@@ -119,28 +123,29 @@ private:
     QWidget *m_richardsSettings = nullptr;
     QLabel *m_richardsBoundaryNotice = nullptr;
     QSpinBox *m_richardsCells = nullptr;
-    QDoubleSpinBox *m_richardsAtol = nullptr, *m_richardsRtol = nullptr, *m_richardsMaxStep = nullptr;
+    QDoubleSpinBox *m_richardsAtol = nullptr, *m_richardsRtol = nullptr,
+                   *m_richardsMaxStep = nullptr;
     QWidget *m_retentionCurves = nullptr;
     bool m_syncLayerFields = false;
     QTableView *m_treatmentTable = nullptr;
     QStandardItemModel *m_treatmentModel = nullptr;
     QLabel *m_treatmentMessage = nullptr;
     bool m_syncTreatment = false;
-    Mode                                           m_mode = Mode::Edit;
+    Mode m_mode = Mode::Edit;
 
     QSplitter *m_splitter = nullptr;
 
     /*! Slice SP.6 — right-hand layer-stack drawing: which layers this LID type
      *  has, their relative thicknesses, and the active tab highlighted. */
     openswmmvis::sectionview::SectionPreviewWidget *m_diagram = nullptr;
-    QTabWidget                                     *m_tabs    = nullptr;
+    QTabWidget *m_tabs = nullptr;
 
-    QListView           *m_listView  = nullptr;
+    QListView *m_listView = nullptr;
     LidControlListModel *m_listModel = nullptr;
-    QPushButton         *m_addBtn    = nullptr;
-    QPushButton         *m_delBtn    = nullptr;
+    QPushButton *m_addBtn = nullptr;
+    QPushButton *m_delBtn = nullptr;
 
-    QLineEdit *m_nameEdit  = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
     QComboBox *m_typeCombo = nullptr;
 
     // Surface.

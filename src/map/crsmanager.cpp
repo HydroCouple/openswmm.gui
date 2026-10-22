@@ -1,11 +1,11 @@
-/*!
- * \file   crsmanager.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
+/**
+ * @file      crsmanager.cpp
+ * @brief     managing recently used coordinate reference systems.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/crsmanager.h"
@@ -18,18 +18,32 @@
 #include <QFileInfo>
 #include <QSettings>
 
-namespace {
+namespace
+{
+/**
+ * @param[in] eType GDAL OSRCRSType enum value.
+ * @return Static English type label, Unknown for unmapped value; borrowed process-lifetime literal,
+ *   no caller deletion.
+ */
 const char *osrCRSTypeToString(OSRCRSType eType)
 {
     switch (eType) {
-    case OSR_CRS_TYPE_GEOGRAPHIC_2D: return "Geographic 2D";
-    case OSR_CRS_TYPE_GEOGRAPHIC_3D: return "Geographic 3D";
-    case OSR_CRS_TYPE_GEOCENTRIC:    return "Geocentric";
-    case OSR_CRS_TYPE_PROJECTED:     return "Projected";
-    case OSR_CRS_TYPE_VERTICAL:      return "Vertical";
-    case OSR_CRS_TYPE_COMPOUND:      return "Compound";
-    case OSR_CRS_TYPE_OTHER:         return "Other";
-    default:                         return "Unknown";
+    case OSR_CRS_TYPE_GEOGRAPHIC_2D:
+        return "Geographic 2D";
+    case OSR_CRS_TYPE_GEOGRAPHIC_3D:
+        return "Geographic 3D";
+    case OSR_CRS_TYPE_GEOCENTRIC:
+        return "Geocentric";
+    case OSR_CRS_TYPE_PROJECTED:
+        return "Projected";
+    case OSR_CRS_TYPE_VERTICAL:
+        return "Vertical";
+    case OSR_CRS_TYPE_COMPOUND:
+        return "Compound";
+    case OSR_CRS_TYPE_OTHER:
+        return "Other";
+    default:
+        return "Unknown";
     }
 }
 
@@ -40,6 +54,12 @@ const char *osrCRSTypeToString(OSRCRSType eType)
 // PROJ reports zero systems instead of failing, so the dialog silently comes up
 // blank. Log enough to tell "data not deployed" from "data deployed but not
 // found" without attaching a debugger.
+/**
+ * @param[in] count Current enumeration count; positive suppresses warning.
+ * @note Nonpositive count logs executable/PROJ_DATA/proj.db/GDAL_DATA diagnostic once per process,
+ *   no filesystem repair/settings change. Static warning guard unsynchronized, so normal GUI-thread
+ *   query usage expected.
+ */
 void warnIfCrsDatabaseUnavailable(int count)
 {
     static bool warned = false;
@@ -53,17 +73,18 @@ void warnIfCrsDatabaseUnavailable(int count)
     QString projDbState = QStringLiteral("PROJ_DATA unset");
     if (!projData.isEmpty()) {
         const QString projDb = QDir(projData).filePath(QStringLiteral("proj.db"));
-        projDbState = QFileInfo::exists(projDb)
-                          ? QStringLiteral("present at %1").arg(projDb)
-                          : QStringLiteral("MISSING at %1").arg(projDb);
+        projDbState = QFileInfo::exists(projDb) ? QStringLiteral("present at %1").arg(projDb)
+                                                : QStringLiteral("MISSING at %1").arg(projDb);
     }
 
     qWarning().noquote().nospace()
         << "CRS database returned no coordinate reference systems.\n"
         << "  executable dir : " << QCoreApplication::applicationDirPath() << "\n"
-        << "  PROJ_DATA      : " << (projData.isEmpty() ? QStringLiteral("<unset>") : projData) << "\n"
+        << "  PROJ_DATA      : " << (projData.isEmpty() ? QStringLiteral("<unset>") : projData)
+        << "\n"
         << "  proj.db        : " << projDbState << "\n"
-        << "  GDAL_DATA      : " << (gdalData.isEmpty() ? QStringLiteral("<unset>") : gdalData) << "\n"
+        << "  GDAL_DATA      : " << (gdalData.isEmpty() ? QStringLiteral("<unset>") : gdalData)
+        << "\n"
         << "  This build did not deploy the PROJ data directory beside the "
            "executable; CRS selection will be unavailable.";
 }
@@ -82,8 +103,7 @@ CRSManager &CRSManager::instance()
     return s_instance;
 }
 
-CRSManager::CRSManager(QObject *parent)
-    : QObject(parent)
+CRSManager::CRSManager(QObject *parent) : QObject(parent)
 {
     GDALAllRegister();
     initBuiltins();
@@ -99,7 +119,7 @@ CRSManager::~CRSManager()
 
 void CRSManager::initBuiltins()
 {
-    m_wgs84       = new SpatialReferenceSystem("EPSG", 4326, this);
+    m_wgs84 = new SpatialReferenceSystem("EPSG", 4326, this);
     m_webMercator = new SpatialReferenceSystem("EPSG", 3857, this);
 }
 
@@ -107,9 +127,8 @@ void CRSManager::initBuiltins()
 // Database queries
 // ---------------------------------------------------------------------------
 
-QList<CRSInfo> CRSManager::queryDatabase(const QString &keyword,
-                                          const QString &authority,
-                                          bool includeDeprecated) const
+QList<CRSInfo> CRSManager::queryDatabase(const QString &keyword, const QString &authority,
+                                         bool includeDeprecated) const
 {
     QList<CRSInfo> results;
 
@@ -121,36 +140,37 @@ QList<CRSInfo> CRSManager::queryDatabase(const QString &keyword,
     // constData() off the temporary returned by toUtf8() leaves authFilter
     // dangling the moment this statement ends.
     const QByteArray authorityUtf8 = authority.toUtf8();
-    const char *authFilter = authority.isEmpty() ? nullptr
-                                                 : authorityUtf8.constData();
+    const char *authFilter = authority.isEmpty() ? nullptr : authorityUtf8.constData();
 
     OSRCRSInfo **list = OSRGetCRSInfoListFromDatabase(authFilter, nullptr, &count);
 
     warnIfCrsDatabaseUnavailable(list ? count : 0);
 
-    if (!list) return results;
+    if (!list)
+        return results;
 
     const QString kwLower = keyword.toLower();
 
-    for (int i = 0; i < count; ++i)
-    {
+    for (int i = 0; i < count; ++i) {
         const OSRCRSInfo *info = list[i];
-        if (!info) continue;
-        if (!includeDeprecated && info->bDeprecated) continue;
+        if (!info)
+            continue;
+        if (!includeDeprecated && info->bDeprecated)
+            continue;
 
         CRSInfo entry;
-        entry.authName   = QString::fromUtf8(info->pszAuthName ? info->pszAuthName : "");
-        entry.code       = info->pszCode ? QString::fromUtf8(info->pszCode).toInt() : -1;
-        entry.name       = QString::fromUtf8(info->pszName ? info->pszName : "");
-        entry.type       = QString::fromUtf8(osrCRSTypeToString(info->eType));
-        entry.areaName   = QString::fromUtf8(info->pszAreaName ? info->pszAreaName : "");
+        entry.authName = QString::fromUtf8(info->pszAuthName ? info->pszAuthName : "");
+        entry.code = info->pszCode ? QString::fromUtf8(info->pszCode).toInt() : -1;
+        entry.name = QString::fromUtf8(info->pszName ? info->pszName : "");
+        entry.type = QString::fromUtf8(osrCRSTypeToString(info->eType));
+        entry.areaName = QString::fromUtf8(info->pszAreaName ? info->pszAreaName : "");
         entry.deprecated = info->bDeprecated;
 
-        if (!kwLower.isEmpty())
-        {
+        if (!kwLower.isEmpty()) {
             const bool nameMatch = entry.name.toLower().contains(kwLower);
             const bool codeMatch = QString::number(entry.code).contains(kwLower);
-            if (!nameMatch && !codeMatch) continue;
+            if (!nameMatch && !codeMatch)
+                continue;
         }
 
         results.append(entry);
@@ -165,7 +185,8 @@ int CRSManager::totalCRSCount() const
 {
     int count = 0;
     OSRCRSInfo **list = OSRGetCRSInfoListFromDatabase(nullptr, nullptr, &count);
-    if (list) OSRDestroyCRSInfoList(list);
+    if (list)
+        OSRDestroyCRSInfoList(list);
     return count;
 }
 
@@ -175,13 +196,13 @@ QStringList CRSManager::availableAuthorities() const
     OSRCRSInfo **list = OSRGetCRSInfoListFromDatabase(nullptr, nullptr, &count);
 
     QSet<QString> seen;
-    for (int i = 0; i < count && list; ++i)
-    {
+    for (int i = 0; i < count && list; ++i) {
         if (list[i] && list[i]->pszAuthName)
             seen.insert(QString::fromUtf8(list[i]->pszAuthName));
     }
 
-    if (list) OSRDestroyCRSInfoList(list);
+    if (list)
+        OSRDestroyCRSInfoList(list);
 
     QStringList out(seen.begin(), seen.end());
     out.sort();
@@ -192,21 +213,19 @@ QStringList CRSManager::availableAuthorities() const
 // Factory
 // ---------------------------------------------------------------------------
 
-SpatialReferenceSystem *CRSManager::createFromAuthCode(const QString &authName,
-                                                        int code,
-                                                        QObject *parent) const
+SpatialReferenceSystem *CRSManager::createFromAuthCode(const QString &authName, int code,
+                                                       QObject *parent) const
 {
     return SpatialReferenceSystem::fromAuthCode(authName, code, parent);
 }
 
 SpatialReferenceSystem *CRSManager::createFromWktOrProj(const QString &wktOrProj,
-                                                         QObject *parent) const
+                                                        QObject *parent) const
 {
     return SpatialReferenceSystem::fromWktOrProj(wktOrProj, parent);
 }
 
-bool CRSManager::areSameCRS(const SpatialReferenceSystem &a,
-                             const SpatialReferenceSystem &b) const
+bool CRSManager::areSameCRS(const SpatialReferenceSystem &a, const SpatialReferenceSystem &b) const
 {
     return a.equals(b);
 }
@@ -215,14 +234,23 @@ bool CRSManager::areSameCRS(const SpatialReferenceSystem &a,
 // Built-ins
 // ---------------------------------------------------------------------------
 
-SpatialReferenceSystem *CRSManager::wgs84() const  { return m_wgs84; }
-SpatialReferenceSystem *CRSManager::webMercator() const { return m_webMercator; }
+SpatialReferenceSystem *CRSManager::wgs84() const
+{
+    return m_wgs84;
+}
+SpatialReferenceSystem *CRSManager::webMercator() const
+{
+    return m_webMercator;
+}
 
 // ---------------------------------------------------------------------------
 // Recent / favourites
 // ---------------------------------------------------------------------------
 
-QList<QPair<QString, int>> CRSManager::recentCRSes() const { return m_recentCRSes; }
+QList<QPair<QString, int>> CRSManager::recentCRSes() const
+{
+    return m_recentCRSes;
+}
 
 void CRSManager::addRecentCRS(const QString &authName, int code)
 {
@@ -245,11 +273,10 @@ void CRSManager::loadSettings()
     QSettings settings;
     settings.beginGroup("CRSManager/RecentCRSes");
     const int count = settings.beginReadArray("crs");
-    for (int i = 0; i < count; ++i)
-    {
+    for (int i = 0; i < count; ++i) {
         settings.setArrayIndex(i);
         const QString auth = settings.value("authName").toString();
-        const int     code = settings.value("code", -1).toInt();
+        const int code = settings.value("code", -1).toInt();
         if (!auth.isEmpty() && code > 0)
             m_recentCRSes.append({auth, code});
     }
@@ -262,11 +289,10 @@ void CRSManager::saveSettings() const
     QSettings settings;
     settings.beginGroup("CRSManager/RecentCRSes");
     settings.beginWriteArray("crs", m_recentCRSes.size());
-    for (int i = 0; i < m_recentCRSes.size(); ++i)
-    {
+    for (int i = 0; i < m_recentCRSes.size(); ++i) {
         settings.setArrayIndex(i);
         settings.setValue("authName", m_recentCRSes[i].first);
-        settings.setValue("code",     m_recentCRSes[i].second);
+        settings.setValue("code", m_recentCRSes[i].second);
     }
     settings.endArray();
     settings.endGroup();

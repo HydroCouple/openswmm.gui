@@ -1,8 +1,10 @@
-/*!
- * \file   infilassigntoselectiondialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      infilassigntoselectiondialog.h
+ * @brief     "Assign Infiltration to Selection…" — GUI plan
+ *            `workplans/INTEGRATED2D_GW_GUI_PLAN_2026-08-15.md` §3.5(4), phase GG0c.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * "Assign Infiltration to Selection…" — GUI plan
  * `workplans/INTEGRATED2D_GW_GUI_PLAN_2026-08-15.md` §3.5(4), phase GG0c.
@@ -36,7 +38,9 @@
  * Singleton-raise per `[[feedback_mvc_synchronized_uis]]`: showFor() keeps a
  * `static QPointer` so the toolbar action and the menu mirror raise one window
  * rather than stacking two views over the same selection.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_INFILASSIGNTOSELECTIONDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_INFILASSIGNTOSELECTIONDIALOG_H
 
@@ -57,7 +61,8 @@ class QLabel;
 class QPushButton;
 class QRadioButton;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class InfilAssignToSelectionDialog : public QDialog
 {
@@ -69,23 +74,16 @@ public:
      *  Re-binds an existing instance to the (possibly different) layer /
      *  canvas / selection before raising it, so switching project windows
      *  cannot leave the dialog writing into the previous project's mesh. */
-    static void showFor(SWMM2DMeshLayer  *meshLayer,
-                        MapCanvas        *canvas,
-                        SelectionManager *selection,
-                        const QString    &depthUnitLabel,
-                        QWidget          *parent);
+    static void showFor(SWMM2DMeshLayer *meshLayer, MapCanvas *canvas, SelectionManager *selection,
+                        const QString &depthUnitLabel, QWidget *parent);
 
-    InfilAssignToSelectionDialog(SWMM2DMeshLayer  *meshLayer,
-                                 MapCanvas        *canvas,
-                                 SelectionManager *selection,
-                                 const QString    &depthUnitLabel,
-                                 QWidget          *parent = nullptr);
+    InfilAssignToSelectionDialog(SWMM2DMeshLayer *meshLayer, MapCanvas *canvas,
+                                 SelectionManager *selection, const QString &depthUnitLabel,
+                                 QWidget *parent = nullptr);
 
     /*! \brief Point the dialog at another project's mesh / canvas / selection. */
-    void rebind(SWMM2DMeshLayer  *meshLayer,
-                MapCanvas        *canvas,
-                SelectionManager *selection,
-                const QString    &depthUnitLabel);
+    void rebind(SWMM2DMeshLayer *meshLayer, MapCanvas *canvas, SelectionManager *selection,
+                const QString &depthUnitLabel);
 
 private slots:
     void onMethodChanged();
@@ -120,20 +118,20 @@ private:
      *  availability, and the Apply button. */
     void refreshSelectionState();
 
-    QPointer<SWMM2DMeshLayer>  m_mesh;
-    QPointer<MapCanvas>        m_canvas;
+    QPointer<SWMM2DMeshLayer> m_mesh;
+    QPointer<MapCanvas> m_canvas;
     QPointer<SelectionManager> m_selection;
-    QString                    m_depthUnitLabel;
+    QString m_depthUnitLabel;
 
-    QLabel         *m_selectionLbl = nullptr;
-    QComboBox      *m_methodCombo  = nullptr;
-    QLabel         *m_paramLabels[mesh::kInfilMaxParams]  = {};
-    QDoubleSpinBox *m_paramSpins[mesh::kInfilMaxParams]   = {};
-    QComboBox      *m_destCombo    = nullptr;
-    QRadioButton   *m_writeCells   = nullptr;
-    QRadioButton   *m_writeTag     = nullptr;
-    QLabel         *m_statusLbl    = nullptr;
-    QPushButton    *m_applyBtn     = nullptr;
+    QLabel *m_selectionLbl = nullptr;
+    QComboBox *m_methodCombo = nullptr;
+    QLabel *m_paramLabels[mesh::kInfilMaxParams] = {};
+    QDoubleSpinBox *m_paramSpins[mesh::kInfilMaxParams] = {};
+    QComboBox *m_destCombo = nullptr;
+    QRadioButton *m_writeCells = nullptr;
+    QRadioButton *m_writeTag = nullptr;
+    QLabel *m_statusLbl = nullptr;
+    QPushButton *m_applyBtn = nullptr;
 };
 
 } // namespace openswmmvis::ui

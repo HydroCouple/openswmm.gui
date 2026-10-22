@@ -1,13 +1,16 @@
-/*!
- * \file   test_dtmraster_samplemany.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_dtmraster_samplemany.cpp
+ * @brief     Tests for dtmraster samplemany.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
- * DTMRaster::sampleMany must be bit-identical to per-point sampleAt() —
+ * DTMRaster::sampleMany must numerically match per-point sampleAt() with NaN equivalence —
  * including NoData handling, half-pixel edge clamping, out-of-range NaNs,
  * and strip-boundary bilinear windows when the read buffer is tiny.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QPointF>
 #include <QRandomGenerator>
@@ -23,12 +26,23 @@
 #include <limits>
 #include <vector>
 
-namespace {
+namespace
+{
 
 // NaN-aware exact equality: both NaN, or identical finite doubles.
+/**
+ *
+ * @brief Compare scalar samples using numeric equality with NaN equivalence.
+ * @param a First elevation/result, permitted non-finite.
+ * @param b Second elevation/result, permitted non-finite.
+ * @return True for two NaNs or operator== equality, including signed-zero or equal
+ * infinities; false otherwise. This is not a raw floating-point bit comparison.
+ *
+ */
 bool sameValue(double a, double b)
 {
-    if (std::isnan(a) && std::isnan(b)) return true;
+    if (std::isnan(a) && std::isnan(b))
+        return true;
     return a == b;
 }
 
@@ -39,23 +53,34 @@ class TestDTMRasterSampleMany : public QObject
     Q_OBJECT
 
 private:
-    static constexpr int    kW      = 64;
-    static constexpr int    kH      = 64;
+    static constexpr int kW = 64;
+    static constexpr int kH = 64;
     static constexpr double kNoData = -9999.0;
 
     /*! Build a kW×kH GTiff where elevation = col + 100*(H-1-row), north-up,
      *  origin (0, kH), pixel size 1.  Optionally punch NoData into a block
      *  of cells so 2×2 windows across it must return NaN. */
+    /**
+     *
+     * @brief Write the sixty-four-square Float64 north-up ramp fixture.
+     * @param dir Borrowed valid temporary directory owning ramp64.tif lifetime.
+     * @param punchNoData Replace rows 20..25 and columns 30..37 with -9999 when true.
+     * @return Owned file path or empty on absent driver/dataset allocation failure.
+     * Unit pixels contain column plus 100 times bottom-up row; writes/geotransform/
+     * NoData metadata statuses are unchecked and no CRS is declared. Registers GDAL globally.
+     *
+     */
     QString buildRamp(QTemporaryDir &dir, bool punchNoData) const
     {
         GDALAllRegister();
 
         const QString path = dir.filePath("ramp64.tif");
         GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
-        if (!drv) return {};
-        GDALDataset *ds = drv->Create(path.toUtf8().constData(), kW, kH, 1,
-                                      GDT_Float64, nullptr);
-        if (!ds) return {};
+        if (!drv)
+            return {};
+        GDALDataset *ds = drv->Create(path.toUtf8().constData(), kW, kH, 1, GDT_Float64, nullptr);
+        if (!ds)
+            return {};
 
         double geo[6] = {0.0, 1.0, 0.0, double(kH), 0.0, -1.0};
         ds->SetGeoTransform(geo);
@@ -68,8 +93,8 @@ private:
             for (int r = 20; r < 26; ++r)
                 for (int c = 30; c < 38; ++c)
                     buf[r * kW + c] = kNoData;
-        ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, kW, kH, buf.data(),
-                                       kW, kH, GDT_Float64, 0, 0);
+        ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, kW, kH, buf.data(), kW, kH, GDT_Float64, 0,
+                                       0);
         ds->GetRasterBand(1)->SetNoDataValue(kNoData);
         GDALClose(ds);
         return path;
@@ -77,12 +102,19 @@ private:
 
     /*! Deterministic query set: interior points, edge/half-pixel band,
      *  just-outside points, and exact pixel centres. */
+    /**
+     *
+     * @brief Build repeatable random, pixel-center and corner-band sampling queries.
+     * @return Owned points using seed 20260731: ten thousand coordinates spanning
+     * -2..66, stride-seven pixel centers and two quarter-pixel corner points.
+     * Coordinates use fixture map units; the generator does not read a raster.
+     *
+     */
     QVector<QPointF> makeQueries() const
     {
         QVector<QPointF> pts;
         QRandomGenerator rng(20260731u);
-        for (int i = 0; i < 10000; ++i)
-        {
+        for (int i = 0; i < 10000; ++i) {
             // Span [-2, kW+2] so out-of-range and clamp branches are hit.
             const double x = rng.generateDouble() * (kW + 4.0) - 2.0;
             const double y = rng.generateDouble() * (kH + 4.0) - 2.0;
@@ -90,32 +122,48 @@ private:
         }
         for (int c = 0; c < kW; c += 7)
             for (int r = 0; r < kH; r += 7)
-                pts.append(QPointF(c + 0.5, r + 0.5));   // pixel centres
-        pts.append(QPointF(0.25, 0.25));                 // corner clamp band
+                pts.append(QPointF(c + 0.5, r + 0.5)); // pixel centres
+        pts.append(QPointF(0.25, 0.25));               // corner clamp band
         pts.append(QPointF(kW - 0.25, kH - 0.25));
         return pts;
     }
 
-    void verifyParity(const mesh::DTMRaster &t, const QVector<QPointF> &pts,
-                      qint64 maxBufBytes)
+    /**
+     *
+     * @brief Assert ordered bulk samples numerically equal scalar samples with NaN equivalence.
+     * @param t Borrowed open ramp raster; queried without changing its logical contents.
+     * @param pts Borrowed map-coordinate queries, including out-of-range points.
+     * @param maxBufBytes Bulk read-buffer budget in bytes, passed through unchanged.
+     * Records QtTest size/value failures; a failed assertion returns from this helper
+     * only. Does not compare raw bits or instrument raster read counts.
+     *
+     */
+    void verifyParity(const mesh::DTMRaster &t, const QVector<QPointF> &pts, qint64 maxBufBytes)
     {
         QVector<double> batch;
         t.sampleMany(pts, &batch, maxBufBytes);
         QCOMPARE(batch.size(), pts.size());
-        for (int i = 0; i < pts.size(); ++i)
-        {
+        for (int i = 0; i < pts.size(); ++i) {
             const double one = t.sampleAt(pts[i].x(), pts[i].y());
             QVERIFY2(sameValue(batch[i], one),
-                     qPrintable(QStringLiteral(
-                         "mismatch at %1 (%2, %3): batch %4 vs sampleAt %5 "
-                         "(bufBytes %6)")
-                         .arg(i).arg(pts[i].x()).arg(pts[i].y())
-                         .arg(batch[i]).arg(one).arg(maxBufBytes)));
+                     qPrintable(QStringLiteral("mismatch at %1 (%2, %3): batch %4 vs sampleAt %5 "
+                                               "(bufBytes %6)")
+                                    .arg(i)
+                                    .arg(pts[i].x())
+                                    .arg(pts[i].y())
+                                    .arg(batch[i])
+                                    .arg(one)
+                                    .arg(maxBufBytes)));
         }
     }
 
 private slots:
 
+    /**
+     *
+     * @brief Require an unopened raster bulk query to return one NaN per input point.
+     *
+     */
     void notOpen_allNaN()
     {
         mesh::DTMRaster t;
@@ -126,17 +174,28 @@ private slots:
         QVERIFY(std::isnan(z[1]));
     }
 
+    /**
+     *
+     * @brief Require empty queries to clear an already populated output vector.
+     *
+     */
     void emptyInput_emptyOutput()
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         mesh::DTMRaster t;
         QVERIFY2(t.open(buildRamp(dir, false)), qPrintable(t.errorMsg()));
-        QVector<double> z {1.0, 2.0};   // pre-filled: must be cleared
+        QVector<double> z{1.0, 2.0}; // pre-filled: must be cleared
         t.sampleMany({}, &z);
         QCOMPARE(z.size(), 0);
     }
 
+    /**
+     *
+     * @brief Require two outside queries to return NaNs with matching count.
+     * The assertions do not instrument or prove the number of raster reads.
+     *
+     */
     void allOutOfBounds_allNaN_noRead()
     {
         QTemporaryDir dir;
@@ -150,6 +209,11 @@ private slots:
         QVERIFY(std::isnan(z[1]));
     }
 
+    /**
+     *
+     * @brief Require seeded bulk/scalar sampling parity under the default read-buffer budget.
+     *
+     */
     void parity_defaultBudget()
     {
         QTemporaryDir dir;
@@ -159,6 +223,12 @@ private slots:
         verifyParity(t, makeQueries(), mesh::DTMRaster::kMaxReadBufBytesDefault);
     }
 
+    /**
+     *
+     * @brief Require seeded and explicit NoData-boundary queries to match scalar results,
+     * including a known fully missing sample.
+     *
+     */
     void parity_withNoDataHoles()
     {
         QTemporaryDir dir;
@@ -185,6 +255,12 @@ private slots:
      *  uninitialised) Anchor. Regression test for the large-DEM segfault
      *  where a network straddling the DEM edge generates exactly these
      *  edge-exact queries. */
+    /**
+     *
+     * @brief Require edge/corner/interior/far-outside queries to match scalar results under
+     * default and 256-byte budgets, guarding strip-anchor boundary handling.
+     *
+     */
     void parity_edgeExact_mixedBatch()
     {
         QTemporaryDir dir;
@@ -208,11 +284,17 @@ private slots:
         pts.append(QPointF(1e12, -1e12));
 
         verifyParity(t, pts, mesh::DTMRaster::kMaxReadBufBytesDefault);
-        verifyParity(t, pts, 256);   // 2-row strips: every window near a seam
+        verifyParity(t, pts, 256); // 2-row strips: every window near a seam
     }
 
     /*! A 256-byte budget forces 2-row strips (stride 1), so nearly every
      *  bilinear window spans a strip boundary and rides the overlap row. */
+    /**
+     *
+     * @brief Require the 256-byte strip budget to match scalar sampling and default-budget bulk
+     * results, including NoData windows.
+     *
+     */
     void parity_tinyBudget_multiStrip()
     {
         QTemporaryDir dir;

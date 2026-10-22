@@ -1,8 +1,9 @@
-/*!
- * \file   marchingtriangles.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      marchingtriangles.h
+ * @brief     marching-triangles contour line extraction.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BJ.2-lite — marching-triangles contour line extraction.
  *
@@ -27,7 +28,9 @@
  *  - per-level pen / colour overrides (caller assigns)
  *  - contour labels (waits for BI.2 LabelExpression)
  *  - raster (marching squares — separate algorithm)
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_CONTOUR_MARCHINGTRIANGLES_H
 #define OPENSWMMVIS_CONTOUR_MARCHINGTRIANGLES_H
 
@@ -38,7 +41,8 @@
 #include <cmath>
 #include <vector>
 
-namespace OpenSWMM::Contour {
+namespace OpenSWMM::Contour
+{
 
 /*!
  * \brief Sample a 5-stop Viridis-inspired colour ramp at `t` in [0, 1].
@@ -48,37 +52,37 @@ namespace OpenSWMM::Contour {
  * legacy-no-ramp case). Stops follow matplotlib's Viridis closely enough
  * for an engineering audience to read elevation rank correctly without
  * the colour-vision-deficiency pitfalls of jet/rainbow.
+ * @param[in] t Finite normalized scalar, clamped to [0,1].
+ * @return Opaque RGB color linearly interpolated between adjacent ramp stops.
  */
 inline QColor viridisAt(double t)
 {
-    struct Stop { double t; quint8 r, g, b; };
+    struct Stop {
+        double t;
+        quint8 r, g, b;
+    };
     static const Stop stops[] = {
-        {0.00, 0x44, 0x01, 0x54},
-        {0.25, 0x3b, 0x52, 0x8b},
-        {0.50, 0x21, 0x91, 0x8c},
-        {0.75, 0x5e, 0xc9, 0x62},
-        {1.00, 0xfd, 0xe7, 0x25},
+        {0.00, 0x44, 0x01, 0x54}, {0.25, 0x3b, 0x52, 0x8b}, {0.50, 0x21, 0x91, 0x8c},
+        {0.75, 0x5e, 0xc9, 0x62}, {1.00, 0xfd, 0xe7, 0x25},
     };
     constexpr int N = int(sizeof(stops) / sizeof(*stops));
     t = std::clamp(t, 0.0, 1.0);
     int i = 0;
-    while (i < N - 2 && stops[i + 1].t <= t) ++i;
+    while (i < N - 2 && stops[i + 1].t <= t)
+        ++i;
     const Stop &lo = stops[i], &hi = stops[i + 1];
     const double f = (hi.t > lo.t) ? (t - lo.t) / (hi.t - lo.t) : 0.0;
     const int r = int(lo.r + f * (hi.r - lo.r) + 0.5);
     const int g = int(lo.g + f * (hi.g - lo.g) + 0.5);
     const int b = int(lo.b + f * (hi.b - lo.b) + 0.5);
-    return QColor(std::clamp(r, 0, 255),
-                  std::clamp(g, 0, 255),
-                  std::clamp(b, 0, 255));
+    return QColor(std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255));
 }
 
 /*! \brief A single contour iso-line segment in scene space. */
-struct IsoLineSegment
-{
+struct IsoLineSegment {
     QPointF a;
     QPointF b;
-    double  level;   ///< the iso-level this segment was generated for
+    double level; ///< the iso-level this segment was generated for
 };
 
 /*!
@@ -103,64 +107,71 @@ struct IsoLineSegment
  * on real meshes is well under 30% so the constant factor stays small.
  */
 template <typename TriRange, typename Extract>
-std::vector<IsoLineSegment>
-marchingTriangles(const TriRange         &tris,
-                  const std::vector<double> &levels,
-                  Extract                  extract)
+/**
+ * @return Owned unsorted segments in extracted point coordinates, tagged with their scalar level; empty for no levels or usable crossings. Flat or nonfinite scalar triangles are skipped.
+ * @details The extractor executes synchronously for each triangle; coordinates must be finite and values/levels must use the same scalar units.
+ */
+std::vector<IsoLineSegment> marchingTriangles(const TriRange &tris,
+                                              const std::vector<double> &levels, Extract extract)
 {
     std::vector<IsoLineSegment> out;
-    if (levels.empty()) return out;
+    if (levels.empty())
+        return out;
 
     out.reserve(/* heuristic */ levels.size() * 32);
 
     QPointF p0, p1, p2;
-    double  v0, v1, v2;
+    double v0, v1, v2;
 
     for (const auto &t : tris) {
         extract(t, p0, p1, p2, v0, v1, v2);
-        if (!std::isfinite(v0) || !std::isfinite(v1) || !std::isfinite(v2)) continue;
+        if (!std::isfinite(v0) || !std::isfinite(v1) || !std::isfinite(v2))
+            continue;
 
         // Triangle-level early-out: clamp range so far-out levels skip
         // immediately. Computed once per triangle.
         const double vMin = std::min({v0, v1, v2});
         const double vMax = std::max({v0, v1, v2});
-        if (!(vMax > vMin)) continue;   // degenerate (flat) triangle
+        if (!(vMax > vMin))
+            continue; // degenerate (flat) triangle
 
         for (const double level : levels) {
-            if (level < vMin || level > vMax) continue;
+            if (level < vMin || level > vMax)
+                continue;
 
             // Classify vertices: bit i = 1 means vertex i is below `level`.
             // Cases 0 (000) and 7 (111) produce no segment.
-            const int below = (v0 < level ? 1 : 0)
-                            | (v1 < level ? 2 : 0)
-                            | (v2 < level ? 4 : 0);
-            if (below == 0 || below == 7) continue;
+            const int below = (v0 < level ? 1 : 0) | (v1 < level ? 2 : 0) | (v2 < level ? 4 : 0);
+            if (below == 0 || below == 7)
+                continue;
 
             // Edges are (0,1), (1,2), (0,2). An edge is "crossed" iff its
             // two endpoints have opposite below-flags. Exactly two edges
             // are crossed in every below ∈ {1,2,3,4,5,6} case.
             QPointF endpoints[2];
-            int     k = 0;
+            int k = 0;
 
-            auto cross = [&](const QPointF &pa, double va,
-                             const QPointF &pb, double vb) {
+            auto cross = [&](const QPointF &pa, double va, const QPointF &pb, double vb) {
                 const double denom = vb - va;
                 if (denom == 0.0) {
                     endpoints[k++] = pa;
                     return;
                 }
                 const double t = (level - va) / denom;
-                endpoints[k++] = QPointF(pa.x() + t * (pb.x() - pa.x()),
-                                         pa.y() + t * (pb.y() - pa.y()));
+                endpoints[k++] =
+                    QPointF(pa.x() + t * (pb.x() - pa.x()), pa.y() + t * (pb.y() - pa.y()));
             };
 
             const bool b0 = (below & 1);
             const bool b1 = (below & 2);
             const bool b2 = (below & 4);
 
-            if (b0 != b1) cross(p0, v0, p1, v1);
-            if (b1 != b2) cross(p1, v1, p2, v2);
-            if (b2 != b0) cross(p2, v2, p0, v0);
+            if (b0 != b1)
+                cross(p0, v0, p1, v1);
+            if (b1 != b2)
+                cross(p1, v1, p2, v2);
+            if (b2 != b0)
+                cross(p2, v2, p0, v0);
 
             // k must be exactly 2 for cases 1..6. If a vertex sits exactly
             // on the level both incident edges register a "crossing" at
@@ -183,12 +194,16 @@ marchingTriangles(const TriRange         &tris,
  * are excluded because a level exactly equal to vMin or vMax produces
  * either no segments (above/below flip never happens) or coincident-edge
  * artifacts that aren't useful visually.
+ * @param[in] vMin Lower scalar bound.
+ * @param[in] vMax Upper scalar bound in the same units, strictly greater than vMin.
+ * @param[in] count Number of interior levels requested; must be positive.
+ * @return Ascending interior levels or empty for an invalid count/range. Finite representable input bounds are required.
  */
-inline std::vector<double>
-evenlySpacedLevels(double vMin, double vMax, int count)
+inline std::vector<double> evenlySpacedLevels(double vMin, double vMax, int count)
 {
     std::vector<double> out;
-    if (count < 1 || !(vMax > vMin)) return out;
+    if (count < 1 || !(vMax > vMin))
+        return out;
     out.reserve(size_t(count));
     const double step = (vMax - vMin) / double(count + 1);
     for (int i = 1; i <= count; ++i)
@@ -204,32 +219,36 @@ evenlySpacedLevels(double vMin, double vMax, int count)
  * the data-range endpoints, otherwise the boundary triangles get clipped
  * away. Returns an empty vector if levelCount < 2 or the range is
  * degenerate.
+ * @param[in] vMin Lower scalar bound.
+ * @param[in] vMax Upper scalar bound in the same units, strictly greater than vMin.
+ * @param[in] levelCount Number of breaks, at least two.
+ * @return Ascending breaks including exact vMax as the last entry; empty for invalid count/range. Finite representable input bounds are required.
  */
-inline std::vector<double>
-evenlySpacedLevelsInclusive(double vMin, double vMax, int levelCount)
+inline std::vector<double> evenlySpacedLevelsInclusive(double vMin, double vMax, int levelCount)
 {
     std::vector<double> out;
-    if (levelCount < 2 || !(vMax > vMin)) return out;
+    if (levelCount < 2 || !(vMax > vMin))
+        return out;
     out.reserve(size_t(levelCount));
     const double step = (vMax - vMin) / double(levelCount - 1);
     for (int i = 0; i < levelCount; ++i)
         out.push_back(vMin + step * double(i));
-    out.back() = vMax;   // guard against floating-point drift on the last sample
+    out.back() = vMax; // guard against floating-point drift on the last sample
     return out;
 }
 
 /*! \brief One filled-isoband polygon in scene space. Convex (Sutherland-
  *  Hodgman of a triangle yields a convex polygon with ≤ 5 vertices). */
-struct IsoBandPolygon
-{
-    std::vector<QPointF> verts;     ///< convex polygon vertices in order
-    double               bandLo;    ///< lower break level
-    double               bandHi;    ///< upper break level
-    int                  bandIndex; ///< 0-based — which band in the level
-                                    ///< sequence (drives palette sampling)
+struct IsoBandPolygon {
+    std::vector<QPointF> verts; ///< convex polygon vertices in order
+    double bandLo;              ///< lower break level
+    double bandHi;              ///< upper break level
+    int bandIndex;              ///< 0-based — which band in the level
+                                ///< sequence (drives palette sampling)
 };
 
-namespace detail {
+namespace detail
+{
 
 /*!
  * \brief Sutherland-Hodgman clip of a convex polygon against the half-plane
@@ -240,29 +259,31 @@ namespace detail {
  * are tracked alongside vertices so chained clips against multiple levels
  * stay numerically consistent. New vertices introduced by edge intersections
  * receive value = L exactly.
+ * @param[in] inPts Ordered convex polygon vertices; storage must not alias output buffers.
+ * @param[in] inVals One scalar per input vertex, index-aligned with inPts.
+ * @param[in] L Scalar boundary in the input value units.
+ * @param[in] keepAbove True keeps values at least L; false keeps values at most L.
+ * @param[out] outPts Cleared and filled with retained/interpolated vertices.
+ * @param[out] outVals Cleared and filled with parallel scalars; intersection scalars equal L.
  */
-inline void clipHalfplane(const std::vector<QPointF> &inPts,
-                          const std::vector<double>  &inVals,
-                          double                      L,
-                          bool                        keepAbove,
-                          std::vector<QPointF>       &outPts,
-                          std::vector<double>        &outVals)
+inline void clipHalfplane(const std::vector<QPointF> &inPts, const std::vector<double> &inVals,
+                          double L, bool keepAbove, std::vector<QPointF> &outPts,
+                          std::vector<double> &outVals)
 {
     outPts.clear();
     outVals.clear();
     const size_t n = inPts.size();
-    if (n == 0) return;
+    if (n == 0)
+        return;
 
-    auto isInside = [&](double v) {
-        return keepAbove ? (v >= L) : (v <= L);
-    };
+    auto isInside = [&](double v) { return keepAbove ? (v >= L) : (v <= L); };
 
     for (size_t i = 0; i < n; ++i) {
-        const size_t  j  = (i + 1) % n;
-        const QPointF &pi = inPts[i],  &pj = inPts[j];
-        const double   vi = inVals[i],  vj = inVals[j];
-        const bool    inI = isInside(vi);
-        const bool    inJ = isInside(vj);
+        const size_t j = (i + 1) % n;
+        const QPointF &pi = inPts[i], &pj = inPts[j];
+        const double vi = inVals[i], vj = inVals[j];
+        const bool inI = isInside(vi);
+        const bool inJ = isInside(vj);
 
         if (inI) {
             outPts.push_back(pi);
@@ -275,8 +296,8 @@ inline void clipHalfplane(const std::vector<QPointF> &inPts,
                 outVals.push_back(L);
             } else {
                 const double t = (L - vi) / denom;
-                outPts.push_back(QPointF(pi.x() + t * (pj.x() - pi.x()),
-                                          pi.y() + t * (pj.y() - pi.y())));
+                outPts.push_back(
+                    QPointF(pi.x() + t * (pj.x() - pi.x()), pi.y() + t * (pj.y() - pi.y())));
                 outVals.push_back(L);
             }
         }
@@ -304,27 +325,40 @@ inline void clipHalfplane(const std::vector<QPointF> &inPts,
  * the band lies entirely outside the triangle's value range.
  */
 template <typename TriRange, typename Extract, typename Consume>
-void forEachTriangleIsoband(const TriRange         &tris,
-                          const std::vector<double> &levels,
-                          Extract                  extract,
-                          Consume                  consume,
-                          double                   minimumVisibleValue = -std::numeric_limits<double>::infinity())
+/**
+ * @tparam TriRange Forward iterable of triangle handles.
+ * @tparam Extract Callable filling three QPointF coordinates and three double scalar values from each handle.
+ * @tparam Consume Callable receiving a borrowed ordered polygon, lower/upper break values and zero-based band index.
+ * @param[in] tris Triangle range visited synchronously, unchanged by this algorithm.
+ * @param[in] levels Ascending scalar breaks; at least two are needed. Degenerate adjacent bands are skipped.
+ * @param[in] extract Vertex/value extraction callback, using the same units as levels.
+ * @param[in] consume Callback invoked for each surviving polygon; copy vertices if they must survive the call, because scratch buffers are reused.
+ * @param[in] minimumVisibleValue Physical cutoff in scalar units; negative infinity disables it. Flat values exactly at the cutoff are excluded.
+ * @details Nonfinite scalar triangles are skipped. The final band saturates above its nominal high break. Callback exceptions propagate.
+ */
+void forEachTriangleIsoband(const TriRange &tris, const std::vector<double> &levels,
+                            Extract extract, Consume consume,
+                            double minimumVisibleValue = -std::numeric_limits<double>::infinity())
 {
-    if (levels.size() < 2) return;
+    if (levels.size() < 2)
+        return;
     const double lowerLimit = std::max(levels.front(), minimumVisibleValue);
 
     QPointF p0, p1, p2;
-    double  v0, v1, v2;
+    double v0, v1, v2;
 
     // Scratch buffers reused across iterations
     std::vector<QPointF> a, b;
-    std::vector<double>  aV, bV;
-    a.reserve(8);  b.reserve(8);
-    aV.reserve(8); bV.reserve(8);
+    std::vector<double> aV, bV;
+    a.reserve(8);
+    b.reserve(8);
+    aV.reserve(8);
+    bV.reserve(8);
 
     for (const auto &t : tris) {
         extract(t, p0, p1, p2, v0, v1, v2);
-        if (!std::isfinite(v0) || !std::isfinite(v1) || !std::isfinite(v2)) continue;
+        if (!std::isfinite(v0) || !std::isfinite(v1) || !std::isfinite(v2))
+            continue;
 
         const double vMin = std::min({v0, v1, v2});
         const double vMax = std::max({v0, v1, v2});
@@ -337,11 +371,11 @@ void forEachTriangleIsoband(const TriRange         &tris,
             // the renderer's per-cell bucketing: upper_bound over the interior
             // breaks. The color minimum is inclusive; the physical dry
             // cutoff is exclusive. Above the last break always saturates.
-            if (vMin < lowerLimit || vMin <= minimumVisibleValue) continue;
-            const int nb = int(levels.size()) - 1;   // number of bands (>= 1)
-            int k = int(std::upper_bound(levels.begin() + 1, levels.end() - 1,
-                                         vMin)
-                        - (levels.begin() + 1));
+            if (vMin < lowerLimit || vMin <= minimumVisibleValue)
+                continue;
+            const int nb = int(levels.size()) - 1; // number of bands (>= 1)
+            int k = int(std::upper_bound(levels.begin() + 1, levels.end() - 1, vMin) -
+                        (levels.begin() + 1));
             k = std::clamp(k, 0, nb - 1);
             a = {p0, p1, p2};
             consume(a, levels[size_t(k)], levels[size_t(k) + 1], k);
@@ -352,10 +386,12 @@ void forEachTriangleIsoband(const TriRange         &tris,
             const double L1 = levels[k];
             const double L2 = levels[k + 1];
             const double lower = std::max(L1, lowerLimit);
-            const double upper = k + 2 == levels.size()
-                ? std::numeric_limits<double>::infinity() : L2;
-            if (upper < vMin || lower > vMax) continue;
-            if (!(L2 > L1)) continue;   // degenerate band
+            const double upper =
+                k + 2 == levels.size() ? std::numeric_limits<double>::infinity() : L2;
+            if (upper < vMin || lower > vMax)
+                continue;
+            if (!(L2 > L1))
+                continue; // degenerate band
 
             // Initialise polygon = triangle
             a = {p0, p1, p2};
@@ -375,21 +411,36 @@ void forEachTriangleIsoband(const TriRange         &tris,
 
 // Preserve the value-returning API; streaming consumers avoid retaining a
 // separate heap object and vertex vector for every polygon.
+/**
+ * @brief Collect streamed triangle isobands into owning polygon records.
+ * @tparam TriRange Forward iterable of triangle handles.
+ * @tparam Extract Callable with the extraction contract of marchingTriangles().
+ * @param[in] tris Triangles to extract without mutation.
+ * @param[in] levels Ascending scalar breaks defining bands; at least two are required.
+ * @param[in] extract Synchronous per-triangle vertex/value extractor.
+ * @param[in] minimumVisibleValue Additional scalar cutoff, forwarded to forEachTriangleIsoband().
+ * @return Owned polygons and nominal band bounds/indexes; empty when no polygons survive. Final-band geometry can exceed its nominal high bound.
+ */
 template <typename TriRange, typename Extract>
 std::vector<IsoBandPolygon>
-marchingTrianglesIsobands(const TriRange& tris, const std::vector<double>& levels,
-                          Extract extract,
+marchingTrianglesIsobands(const TriRange &tris, const std::vector<double> &levels, Extract extract,
                           double minimumVisibleValue = -std::numeric_limits<double>::infinity())
 {
     std::vector<IsoBandPolygon> out;
-    if(levels.size()<2)return out;
-    out.reserve(levels.size()*32);
-    forEachTriangleIsoband(tris, levels, extract,
-        [&](const std::vector<QPointF>& points, double lo, double hi, int index) {
+    if (levels.size() < 2)
+        return out;
+    out.reserve(levels.size() * 32);
+    forEachTriangleIsoband(
+        tris, levels, extract,
+        [&](const std::vector<QPointF> &points, double lo, double hi, int index) {
             IsoBandPolygon polygon;
-            polygon.verts=points;polygon.bandLo=lo;polygon.bandHi=hi;polygon.bandIndex=index;
+            polygon.verts = points;
+            polygon.bandLo = lo;
+            polygon.bandHi = hi;
+            polygon.bandIndex = index;
             out.push_back(std::move(polygon));
-        }, minimumVisibleValue);
+        },
+        minimumVisibleValue);
     return out;
 }
 

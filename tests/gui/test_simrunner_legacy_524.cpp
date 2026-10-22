@@ -1,6 +1,6 @@
-/*!
- * \file   test_simrunner_legacy_524.cpp
- * \brief  SimulationRunner drives a model on EPA SWMM 5.2.4 through the
+/**
+ * @file      test_simrunner_legacy_524.cpp
+ * @brief     SimulationRunner drives a model on EPA SWMM 5.2.4 through the
  *         bundled openswmm-legacy-worker-5.2.4 (built by
  *         cmake/EngineVersions.cmake from the pinned build-v5.2.4 tag):
  *         the worker is found by version, the JSON protocol arrives
@@ -10,7 +10,12 @@
  *
  * Decks and artefacts land in the reviewable output_simrunner_legacy_524/
  * dir (under SWMMVIS_GUI_TEST_DATA, else the working directory).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <QtTest>
 #include <QSignalSpy>
 #include <QDir>
@@ -26,7 +31,8 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -43,7 +49,8 @@ QString outputDir()
 QString readAll(const QString &path)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     return QString::fromUtf8(f.readAll());
 }
 
@@ -53,26 +60,29 @@ QString stageDeck(const QString &name, const QString &extra = QString())
 {
     const QString src = QDir(dataDir()).filePath(QStringLiteral("selection_trace_fixture.inp"));
     QString text = readAll(src);
-    if (text.isEmpty()) return {};
-    if (!extra.isEmpty()) text += QStringLiteral("\n") + extra;
+    if (text.isEmpty())
+        return {};
+    if (!extra.isEmpty())
+        text += QStringLiteral("\n") + extra;
     const QString inp = QDir(outputDir()).filePath(name + QStringLiteral(".inp"));
     QFile f(inp);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return {};
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+        return {};
     f.write(text.toUtf8());
     return inp;
 }
 
 struct RunResult {
-    bool     success       = false;
-    int      errorCode     = 0;
-    QString  message;
-    double   runoffErrFrac = std::nan("");
-    double   routingErrFrac= std::nan("");
-    int      datesCount    = 0;
+    bool success = false;
+    int errorCode = 0;
+    QString message;
+    double runoffErrFrac = std::nan("");
+    double routingErrFrac = std::nan("");
+    int datesCount = 0;
     QDateTime start, end;
-    int      progressCount = 0;
+    int progressCount = 0;
     QStringList warnings;
-    QString  outPath;
+    QString outPath;
 };
 
 /// Run `inp` on `engineVersion` exactly as SWMMVis wires a runner; returns
@@ -82,13 +92,14 @@ RunResult runToEnd(QObject *parent, SimulationStatusModel &model, const QString 
 {
     const QString rpt = QDir(outputDir()).filePath(name + QStringLiteral(".rpt"));
     const QString out = QDir(outputDir()).filePath(name + QStringLiteral(".out"));
-    QFile::remove(rpt); QFile::remove(out);
+    QFile::remove(rpt);
+    QFile::remove(out);
 
     const int jobId = model.addJob(name + QStringLiteral(".inp"), inp);
     auto *runner = new SimulationRunner(jobId, name + QStringLiteral(".inp"), inp, rpt, out,
                                         engineVersion, parent);
-    QObject::connect(runner, &SimulationRunner::finished,
-                     &model, &SimulationStatusModel::finishJob);
+    QObject::connect(runner, &SimulationRunner::finished, &model,
+                     &SimulationStatusModel::finishJob);
     QSignalSpy finishedSpy(runner, &SimulationRunner::finished);
     QSignalSpy datesSpy(runner, &SimulationRunner::simulationDatesKnown);
     QSignalSpy progressSpy(runner, &SimulationRunner::progressChanged);
@@ -102,15 +113,15 @@ RunResult runToEnd(QObject *parent, SimulationStatusModel &model, const QString 
         return r;
     }
     const QList<QVariant> a = finishedSpy.last();
-    r.success        = a.at(1).toBool();
-    r.errorCode      = a.at(2).toInt();
-    r.message        = a.at(3).toString();
-    r.runoffErrFrac  = a.at(4).toDouble();
+    r.success = a.at(1).toBool();
+    r.errorCode = a.at(2).toInt();
+    r.message = a.at(3).toString();
+    r.runoffErrFrac = a.at(4).toDouble();
     r.routingErrFrac = a.at(5).toDouble();
-    r.datesCount     = datesSpy.count();
+    r.datesCount = datesSpy.count();
     if (r.datesCount > 0) {
         r.start = datesSpy.first().at(1).toDateTime();
-        r.end   = datesSpy.first().at(2).toDateTime();
+        r.end = datesSpy.first().at(2).toDateTime();
     }
     r.progressCount = progressSpy.count();
     for (const QList<QVariant> &w : warningSpy)
@@ -130,13 +141,14 @@ private slots:
     void runsToCompletion()
     {
         const QString inp = stageDeck(QStringLiteral("run524"));
-        QVERIFY2(!inp.isEmpty(), "fixture selection_trace_fixture.inp not found in SWMMVIS_GUI_TEST_DATA");
+        QVERIFY2(!inp.isEmpty(),
+                 "fixture selection_trace_fixture.inp not found in SWMMVIS_GUI_TEST_DATA");
 
         SimulationStatusModel model;
-        const RunResult r = runToEnd(this, model, QStringLiteral("run524"), inp,
-                                     QStringLiteral("5.2.4"));
-        QVERIFY2(r.success, qPrintable(QStringLiteral("run failed: [%1] %2")
-                                           .arg(r.errorCode).arg(r.message)));
+        const RunResult r =
+            runToEnd(this, model, QStringLiteral("run524"), inp, QStringLiteral("5.2.4"));
+        QVERIFY2(r.success,
+                 qPrintable(QStringLiteral("run failed: [%1] %2").arg(r.errorCode).arg(r.message)));
         QCOMPARE(r.errorCode, 0);
 
         // dates: one line, the deck's own window (2 h from 2026-01-01 00:00).
@@ -157,23 +169,24 @@ private slots:
         SWMM_Output h = swmm_output_open(r.outPath.toUtf8().constData());
         QVERIFY2(h != nullptr, "swmm_output_open failed on the 5.2.4 .out");
         QCOMPARE(swmm_output_get_version(h), 52004);
-        QCOMPARE(swmm_output_get_period_count(h), 120);              // 2 h / 1 min
+        QCOMPARE(swmm_output_get_period_count(h), 120); // 2 h / 1 min
         swmm_output_close(h);
     }
 
     // v6-only content is skipped with a warning (the backports), not fatal.
     void unknownSectionAndOptionWarnButRun()
     {
-        const QString inp = stageDeck(QStringLiteral("run524_v6content"),
-            QStringLiteral("[OPTIONS]\nNODE_CONTINUITY  YES\n\n"
-                           "[USER_FLAGS]\n;; v6-only section\nJ1  review\n"));
+        const QString inp =
+            stageDeck(QStringLiteral("run524_v6content"),
+                      QStringLiteral("[OPTIONS]\nNODE_CONTINUITY  YES\n\n"
+                                     "[USER_FLAGS]\n;; v6-only section\nJ1  review\n"));
         QVERIFY(!inp.isEmpty());
 
         SimulationStatusModel model;
-        const RunResult r = runToEnd(this, model, QStringLiteral("run524_v6content"), inp,
-                                     QStringLiteral("5.2.4"));
-        QVERIFY2(r.success, qPrintable(QStringLiteral("run failed: [%1] %2")
-                                           .arg(r.errorCode).arg(r.message)));
+        const RunResult r =
+            runToEnd(this, model, QStringLiteral("run524_v6content"), inp, QStringLiteral("5.2.4"));
+        QVERIFY2(r.success,
+                 qPrintable(QStringLiteral("run failed: [%1] %2").arg(r.errorCode).arg(r.message)));
 
         const QString all = r.warnings.join(QLatin1Char('\n'));
         QVERIFY2(all.contains(QStringLiteral("Unknown section")),
@@ -191,8 +204,8 @@ private slots:
         QVERIFY(!inp.isEmpty());
 
         SimulationStatusModel model;
-        const RunResult r = runToEnd(this, model, QStringLiteral("run599"), inp,
-                                     QStringLiteral("5.9.9"));
+        const RunResult r =
+            runToEnd(this, model, QStringLiteral("run599"), inp, QStringLiteral("5.9.9"));
         QVERIFY(!r.success);
         QVERIFY2(r.message.contains(QStringLiteral("openswmm-legacy-worker-5.9.9")),
                  qPrintable(QStringLiteral("message does not name the worker: ") + r.message));

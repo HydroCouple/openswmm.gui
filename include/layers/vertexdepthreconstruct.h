@@ -1,9 +1,9 @@
-/*!
- * \file   vertexdepthreconstruct.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Triangle/quad geometric stage-storage closures and the legacy
+/**
+ * @file      vertexdepthreconstruct.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Triangle/quad geometric stage-storage closures and the legacy
  *         depth-weighted vertex reconstruction.
  *
  *         Current maps, profiles and depth queries use the scalar closures
@@ -13,6 +13,7 @@
  *
  *         Header-only so the closures and their numerical tests use the
  *         same implementation without the full results-layer link closure.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef VERTEX_DEPTH_RECONSTRUCT_H
@@ -33,64 +34,88 @@ namespace VertexDepthReconstruct
  *  VertexReconstruction.cpp). For a PARTIALLY wet cell (η < highest vertex)
  *  this pools the water over the wetted fraction instead of the flat closure
  *  z̄ + h̄, which overstates η on cells spanning a bed step — the other half of
- *  the "water climbs the step" artifact. Fully wet reduces exactly to z̄ + h̄. */
+ *  the "water climbs the step" artifact. Fully wet reduces exactly to z̄ + h̄.
+ * @param[in] h Mean nonnegative water depth in the same vertical unit as bed heights. A value not greater than zero, including NaN, selects the minimum-bed return.
+ * @param[in] za,zb,zc Finite triangle bed elevations in any order, with one vertical datum/unit.
+ * @return Stage in that datum/unit, minimum bed for dry input, flat/full-wet analytic closure or safeguarded local-height root for partial wetting. No XY area is needed because depth is area-normalized; nonfinite bed/overflow has no status output.
+ */
 inline double cellEtaFromMeanDepth(double h, double za, double zb, double zc)
 {
     double z1 = za, z2 = zb, z3 = zc;
-    if (z1 > z2) std::swap(z1, z2);
-    if (z2 > z3) std::swap(z2, z3);
-    if (z1 > z2) std::swap(z1, z2);
+    if (z1 > z2)
+        std::swap(z1, z2);
+    if (z2 > z3)
+        std::swap(z2, z3);
+    if (z1 > z2)
+        std::swap(z1, z2);
 
-    if (!(h > 0.0)) return z1;
+    if (!(h > 0.0))
+        return z1;
 
-    const double zbar   = (z1 + z2 + z3) / 3.0;
+    const double zbar = (z1 + z2 + z3) / 3.0;
     const double relief = z3 - z1;
     if (relief == 0.0 || h >= z3 - zbar)
-        return zbar + h;                              // flat / fully wet
+        return zbar + h; // flat / fully wet
 
     const double h_at_z2 = (z2 - z1) * (z2 - z1) / (3.0 * relief);
-    if (h <= h_at_z2)                                 // waterline below z2
+    if (h <= h_at_z2) // waterline below z2
         return z1 + std::cbrt(3.0 * h * (z2 - z1) * relief);
 
     // Solve in the local height u=eta-z2. Expanding the storage polynomial
     // about z2 avoids subtracting large nearly equal terms for shallow pools
     // when the two low corners have equal (or nearly equal) elevations.
-    const double gap = z3-z2, lowGap = z2-z1;
+    const double gap = z3 - z2, lowGap = z2 - z1;
     double lo = 0.0, hi = gap;
-    double u = std::clamp(zbar+h-z2,0.0,gap);
-    if (!(u > lo && u < hi)) u = 0.5*gap;
+    double u = std::clamp(zbar + h - z2, 0.0, gap);
+    if (!(u > lo && u < hi))
+        u = 0.5 * gap;
     for (int it = 0; it < 80; ++it) {
-        const double storage = h_at_z2 + u*(lowGap + u*(1.0-u/(3.0*gap)))/relief;
-        const double f = storage-h;
-        if (std::abs(f) <= 4.0*std::numeric_limits<double>::epsilon()*h) return z2+u;
-        if (f > 0.0) hi = u; else lo = u;
-        const double df = (lowGap + u*(2.0-u/gap))/relief;
-        double next = df > 0.0 ? u-f/df : 0.5*(lo+hi);
-        if (!(next > lo && next < hi)) next = 0.5*(lo+hi);
-        if (next == u) return z2+u;
+        const double storage = h_at_z2 + u * (lowGap + u * (1.0 - u / (3.0 * gap))) / relief;
+        const double f = storage - h;
+        if (std::abs(f) <= 4.0 * std::numeric_limits<double>::epsilon() * h)
+            return z2 + u;
+        if (f > 0.0)
+            hi = u;
+        else
+            lo = u;
+        const double df = (lowGap + u * (2.0 - u / gap)) / relief;
+        double next = df > 0.0 ? u - f / df : 0.5 * (lo + hi);
+        if (!(next > lo && next < hi))
+            next = 0.5 * (lo + hi);
+        if (next == u)
+            return z2 + u;
         u = next;
     }
-    return z2+u;
+    return z2 + u;
 }
 
 /*! Exact planar-triangle mean depth h̄(η) — the forward stage–storage relation
- *  \ref cellEtaFromMeanDepth inverts (B&S 2006). \p za,\p zb,\p zc in any order. */
+ *  \ref cellEtaFromMeanDepth inverts (B&S 2006). \p za,\p zb,\p zc in any order.
+ * @param[in] eta Finite free-surface elevation sharing the bed datum/unit.
+ * @param[in] za,zb,zc Finite triangle bed elevations in any order.
+ * @return Area-normalized positive-part depth in the vertical unit, zero at/below minimum bed; exact planar stage-storage polynomial otherwise. No coordinate area or input mutation is required.
+ */
 inline double triMeanDepthFromEta(double eta, double za, double zb, double zc)
 {
     double z1 = za, z2 = zb, z3 = zc;
-    if (z1 > z2) std::swap(z1, z2);
-    if (z2 > z3) std::swap(z2, z3);
-    if (z1 > z2) std::swap(z1, z2);
-    if (eta <= z1) return 0.0;
+    if (z1 > z2)
+        std::swap(z1, z2);
+    if (z2 > z3)
+        std::swap(z2, z3);
+    if (z1 > z2)
+        std::swap(z1, z2);
+    if (eta <= z1)
+        return 0.0;
     const double relief = z3 - z1;
-    const double zbar   = (z1 + z2 + z3) / 3.0;
-    if (relief == 0.0 || eta >= z3) return eta - zbar;
+    const double zbar = (z1 + z2 + z3) / 3.0;
+    if (relief == 0.0 || eta >= z3)
+        return eta - zbar;
     if (eta <= z2) {
         const double d = eta - z1;
         return d * d * d / (3.0 * (z2 - z1) * relief);
     }
-    const double a = z2-z1, u = eta-z2, gap = z3-z2;
-    return a*a/(3.0*relief) + u*(a + u*(1.0-u/(3.0*gap)))/relief;
+    const double a = z2 - z1, u = eta - z2, gap = z3 - z2;
+    return a * a / (3.0 * relief) + u * (a + u * (1.0 - u / (3.0 * gap))) / relief;
 }
 
 /*!
@@ -102,13 +127,15 @@ inline double triMeanDepthFromEta(double eta, double za, double zb, double zc)
  * (Begnudelli & Sanders 2007 diagonal). A triangle has nSub == 1 and
  * sub[0] == {v0,v1,v2}; the areas are only consulted for a quad.
  */
-struct CellSplit
-{
-    std::array<int, 4>                 v{{-1, -1, -1, -1}}; ///< cell vertices; v[3] = -1 for a triangle
-    int                                nSub = 1;            ///< 1 (triangle) or 2 (quad)
-    std::array<std::array<int, 3>, 2>  sub{};               ///< sub-triangle vertex indices
-    std::array<double, 2>              area{{0.0, 0.0}};    ///< planimetric sub-triangle areas (quad)
+struct CellSplit {
+    std::array<int, 4> v{{-1, -1, -1, -1}};  ///< cell vertices; v[3] = -1 for a triangle
+    int nSub = 1;                            ///< 1 (triangle) or 2 (quad)
+    std::array<std::array<int, 3>, 2> sub{}; ///< sub-triangle vertex indices
+    std::array<double, 2> area{{0.0, 0.0}};  ///< planimetric sub-triangle areas (quad)
 
+    /**
+     * @return Four when v[3] is nonnegative, otherwise three; does not validate other indices, nSub or areas.
+     */
     int vertexCount() const noexcept { return v[3] >= 0 ? 4 : 3; }
 };
 
@@ -117,37 +144,52 @@ struct CellSplit
  *  h̄(η) = [A₁·d̄₁(η) + A₂·d̄₂(η)] / (A₁+A₂) (mirror of the engine's
  *  quadEtaFromMeanDepth, QuadVfr.hpp, ε = 0). Closed form when fully wet;
  *  bisection on the monotone sum otherwise. \p zs holds the six sub-triangle
- *  vertex elevations (sub 1 then sub 2, any order within a triple). */
+ *  vertex elevations (sub 1 then sub 2, any order within a triple).
+ * @param[in] zs Required readable six finite bed heights: first subtriangle triple then second, with shared datum/unit.
+ * @param[in] a1,a2 Positive finite subtriangle areas in the same squared horizontal unit; only relative weights matter for valid geometry.
+ * @param[in] h Mean water depth in the bed vertical unit; nonpositive/NaN selects minimum bed for valid total area.
+ * @return Common quad stage from the combined storage relation, using full-wet closure or at most64 bisections with 1e-12*(1+relief) vertical stopping tolerance. Nonpositive total area falls back to the six-height arithmetic mean plus positive h; this fallback is not a valid quad storage inversion.
+ */
 inline double quadEtaFromMeanDepth(const double zs[6], double a1, double a2, double h)
 {
     const double A = a1 + a2;
     if (!(A > 0.0)) {
         // Degenerate quad — fall back to the flat closure over its mean bed.
         double zm = 0.0;
-        for (int k = 0; k < 6; ++k) zm += zs[k];
+        for (int k = 0; k < 6; ++k)
+            zm += zs[k];
         return zm / 6.0 + ((h > 0.0) ? h : 0.0);
     }
     const double zbar1 = (zs[0] + zs[1] + zs[2]) / 3.0;
     const double zbar2 = (zs[3] + zs[4] + zs[5]) / 3.0;
-    const double zw    = (a1 * zbar1 + a2 * zbar2) / A;
+    const double zw = (a1 * zbar1 + a2 * zbar2) / A;
     double zlow = zs[0], ztop = zs[0];
     for (int k = 1; k < 6; ++k) {
-        if (zs[k] < zlow) zlow = zs[k];
-        if (zs[k] > ztop) ztop = zs[k];
+        if (zs[k] < zlow)
+            zlow = zs[k];
+        if (zs[k] > ztop)
+            ztop = zs[k];
     }
-    if (!(h > 0.0)) return zlow;
+    if (!(h > 0.0))
+        return zlow;
     const double relief = ztop - zlow;
-    if (relief == 0.0 || h >= ztop - zw) return zw + h;      // flat / fully wet
+    if (relief == 0.0 || h >= ztop - zw)
+        return zw + h; // flat / fully wet
 
     auto meanDepth = [&](double eta) {
-        return (a1 * triMeanDepthFromEta(eta, zs[0], zs[1], zs[2])
-              + a2 * triMeanDepthFromEta(eta, zs[3], zs[4], zs[5])) / A;
+        return (a1 * triMeanDepthFromEta(eta, zs[0], zs[1], zs[2]) +
+                a2 * triMeanDepthFromEta(eta, zs[3], zs[4], zs[5])) /
+               A;
     };
     double lo = zlow, hi = ztop;
     for (int it = 0; it < 64; ++it) {
         const double mid = 0.5 * (lo + hi);
-        if (meanDepth(mid) < h) lo = mid; else hi = mid;
-        if (hi - lo < 1.0e-12 * (1.0 + relief)) break;
+        if (meanDepth(mid) < h)
+            lo = mid;
+        else
+            hi = mid;
+        if (hi - lo < 1.0e-12 * (1.0 + relief))
+            break;
     }
     return 0.5 * (lo + hi);
 }
@@ -167,34 +209,44 @@ inline double quadEtaFromMeanDepth(const double zs[6], double a1, double a2, dou
  * vz.size(); a vertex with no qualifying incident cell yields 0. After the
  * call \p wsum[v] > 0 iff vertex v had a qualifying (wet, corner-reaching)
  * incident cell this frame.
+ * @param[in] cells Stable mesh connectivity; quads must supply valid in-range subtriangle indices and positive finite areas consistent with v.
+ * @param[in] cellDepths Cell mean depths; only common prefix with connectivity is processed. Cells failing h>=dryF or finite weighted-stage checks are skipped.
+ * @param[in] cellZc Cell-centre bed fallback heights; must cover every processed cell because invalid corner geometry can access this vector directly. Same datum/unit as vz.
+ * @param[in] vz Vertex bed heights defining output length; nonfinite heights yield no finite output vote.
+ * @param[in] dryF Positive finite wet-cell depth threshold in the same vertical unit; h equal to threshold can contribute.
+ * @param[out] vsum Resized/reset weighted-stage accumulator, one float per vertex. Must not alias other scratch/input/output vectors.
+ * @param[out] wsum Resized/reset depth-weight accumulator, one float per vertex, positive only for corner-reaching votes.
+ * @param[out] outVertexDepth Resized/reset vertex signed-depth output; no vote/nonfinite result becomes zero sentinel.
+ * @note Uses caller-owned buffers without synchronization; distinct calls need distinct scratch/output. Corner-reaching requires eta>bed. Triangle votes weigh h, quad votes3h/4; no solver cell state/volumes are modified.
  */
-inline void reconstructVertexSignedDepths(
-    const std::vector<CellSplit>& cells,
-    const std::vector<float>&  cellDepths,
-    const std::vector<float>&  cellZc,
-    const std::vector<double>& vz,
-    float dryF,
-    std::vector<float>& vsum,
-    std::vector<float>& wsum,
-    std::vector<float>& outVertexDepth)
+inline void reconstructVertexSignedDepths(const std::vector<CellSplit> &cells,
+                                          const std::vector<float> &cellDepths,
+                                          const std::vector<float> &cellZc,
+                                          const std::vector<double> &vz, float dryF,
+                                          std::vector<float> &vsum, std::vector<float> &wsum,
+                                          std::vector<float> &outVertexDepth)
 {
     const int nVert = static_cast<int>(vz.size());
     vsum.assign(static_cast<size_t>(nVert), 0.0f);
     wsum.assign(static_cast<size_t>(nVert), 0.0f);
-    const int nCell = std::min<int>(static_cast<int>(cells.size()),
-                                    static_cast<int>(cellDepths.size()));
+    const int nCell =
+        std::min<int>(static_cast<int>(cells.size()), static_cast<int>(cellDepths.size()));
     for (int i = 0; i < nCell; ++i) {
         const float h = cellDepths[i];
         // NaN-robust dry skip: `h < dryF` is false for NaN, so a non-finite
         // depth would NOT be skipped and would poison vsum/wsum at all of the
         // cell's vertices (→ streaked triangle fans in the Gouraud fill).
-        if (!(h >= dryF)) continue;                // only wetted cells contribute
-        const CellSplit& c = cells[i];
+        if (!(h >= dryF))
+            continue; // only wetted cells contribute
+        const CellSplit &c = cells[i];
         const int nv = c.vertexCount();
         bool zOk = true;
         for (int k = 0; k < nv; ++k) {
             const int vi = c.v[k];
-            if (vi < 0 || vi >= nVert || !std::isfinite(vz[vi])) { zOk = false; break; }
+            if (vi < 0 || vi >= nVert || !std::isfinite(vz[vi])) {
+                zOk = false;
+                break;
+            }
         }
         // Cell free surface via the planar-bed stage–storage inversion when
         // the vertex elevations are usable; flat closure z_c + h as the
@@ -205,21 +257,24 @@ inline void reconstructVertexSignedDepths(
         } else if (nv == 3) {
             eta = cellEtaFromMeanDepth(double(h), vz[c.v[0]], vz[c.v[1]], vz[c.v[2]]);
         } else {
-            const double zs[6] = { vz[c.sub[0][0]], vz[c.sub[0][1]], vz[c.sub[0][2]],
-                                   vz[c.sub[1][0]], vz[c.sub[1][1]], vz[c.sub[1][2]] };
+            const double zs[6] = {vz[c.sub[0][0]], vz[c.sub[0][1]], vz[c.sub[0][2]],
+                                  vz[c.sub[1][0]], vz[c.sub[1][1]], vz[c.sub[1][2]]};
             eta = quadEtaFromMeanDepth(zs, c.area[0], c.area[1], double(h));
         }
-        const float w  = (nv == 3) ? h : h * 0.75f;  // depth weight × 3/nv
-        const float we = w * float(eta);            // weighted η contribution
-        if (!std::isfinite(we)) continue;           // non-finite z_c must not spread
+        const float w = (nv == 3) ? h : h * 0.75f; // depth weight × 3/nv
+        const float we = w * float(eta);           // weighted η contribution
+        if (!std::isfinite(we))
+            continue; // non-finite z_c must not spread
         for (int k = 0; k < nv; ++k) {
             const int vi = c.v[k];
-            if (vi < 0 || vi >= nVert) continue;
+            if (vi < 0 || vi >= nVert)
+                continue;
             // Wetted-contact gate (mirror of the engine): this cell's water
             // votes at corner vi only if its surface reaches the corner.
             // NaN vz[vi] compares false → skipped, consistent with the
             // non-finite handling at output.
-            if (!(eta > vz[vi])) continue;
+            if (!(eta > vz[vi]))
+                continue;
             vsum[vi] += we;
             wsum[vi] += w;
         }
@@ -235,24 +290,30 @@ inline void reconstructVertexSignedDepths(
 }
 
 /*! All-triangle convenience overload (historical signature): wraps each
- *  triangle as a one-sub-triangle \ref CellSplit and delegates. */
-inline void reconstructVertexSignedDepths(
-    const std::vector<std::array<int, 3>>& tris,
-    const std::vector<float>&  cellDepths,
-    const std::vector<float>&  cellZc,
-    const std::vector<double>& vz,
-    float dryF,
-    std::vector<float>& vsum,
-    std::vector<float>& wsum,
-    std::vector<float>& outVertexDepth)
+ *  triangle as a one-sub-triangle \ref CellSplit and delegates.
+ * @param[in] tris Stable mesh connectivity; each triangle is wrapped into a temporary one-half CellSplit before delegation.
+ * @param[in] cellDepths Cell mean depths; only common prefix with connectivity is processed. Cells failing h>=dryF or finite weighted-stage checks are skipped.
+ * @param[in] cellZc Cell-centre bed fallback heights; must cover every processed cell because invalid corner geometry can access this vector directly. Same datum/unit as vz.
+ * @param[in] vz Vertex bed heights defining output length; nonfinite heights yield no finite output vote.
+ * @param[in] dryF Positive finite wet-cell depth threshold in the same vertical unit; h equal to threshold can contribute.
+ * @param[out] vsum Resized/reset weighted-stage accumulator, one float per vertex. Must not alias other scratch/input/output vectors.
+ * @param[out] wsum Resized/reset depth-weight accumulator, one float per vertex, positive only for corner-reaching votes.
+ * @param[out] outVertexDepth Resized/reset vertex signed-depth output; no vote/nonfinite result becomes zero sentinel.
+ * @note Uses caller-owned buffers without synchronization; distinct calls need distinct scratch/output. Corner-reaching requires eta>bed. Triangle votes weigh h, quad votes3h/4; no solver cell state/volumes are modified.
+ */
+inline void reconstructVertexSignedDepths(const std::vector<std::array<int, 3>> &tris,
+                                          const std::vector<float> &cellDepths,
+                                          const std::vector<float> &cellZc,
+                                          const std::vector<double> &vz, float dryF,
+                                          std::vector<float> &vsum, std::vector<float> &wsum,
+                                          std::vector<float> &outVertexDepth)
 {
     std::vector<CellSplit> cells(tris.size());
     for (size_t i = 0; i < tris.size(); ++i) {
-        cells[i].v      = {tris[i][0], tris[i][1], tris[i][2], -1};
+        cells[i].v = {tris[i][0], tris[i][1], tris[i][2], -1};
         cells[i].sub[0] = tris[i];
     }
-    reconstructVertexSignedDepths(cells, cellDepths, cellZc, vz, dryF,
-                                  vsum, wsum, outVertexDepth);
+    reconstructVertexSignedDepths(cells, cellDepths, cellZc, vz, dryF, vsum, wsum, outVertexDepth);
 }
 
 /*!
@@ -261,8 +322,8 @@ inline void reconstructVertexSignedDepths(
  * \param z0,z1,z2    Corner bed elevations.
  * \param sd0,sd1,sd2 Corner signed depths (η−z); exactly 0 == no data. Dry
  *                    corners of a cell that has at least one wet corner are
- *                    overwritten with maxEta − z_k (negative where the bed
- *                    stands above the pool).
+ *                    overwritten with maxEta − z_k only at or above the
+ *                    driving head; lower dry corners remain unchanged.
  *
  * The map's marching-triangles bands/isolines and the Gouraud fills interpolate
  * these corner values LINEARLY, but the sentinel is not a depth — reading it as
@@ -283,29 +344,38 @@ inline void reconstructVertexSignedDepths(
  * propagate into ground the solver never wetted.
  *
  * Fully-wet (all sd > 0) and fully-dry (no sd > 0) cells are left byte-for-byte
- * unchanged. A filled corner below the pool is non-supplying in
+ * unchanged. A filled corner above the pool is non-supplying in
  * CellSurfaceInterp (sd < 0) exactly as the sentinel was, so the profile path
  * is unaffected on the canonical bank case.
+ * @note z and signed-depth values use one vertical datum/unit (normally metres). Only finite wet-corner stages supply maxEta; nonfinite bed corners remain untouched. Nonpositive/NaN depth corners at/above that head can receive a nonpositive value, but dry corners below it remain unchanged to avoid adding downhill water. No allocation or intercell propagation occurs.
  */
-inline void extrapolateDryCorners(double z0, double z1, double z2,
-                                  float& sd0, float& sd1, float& sd2)
+inline void extrapolateDryCorners(double z0, double z1, double z2, float &sd0, float &sd1,
+                                  float &sd2)
 {
-    float* const sd[3] = { &sd0, &sd1, &sd2 };
-    const double z[3]  = { z0, z1, z2 };
+    float *const sd[3] = {&sd0, &sd1, &sd2};
+    const double z[3] = {z0, z1, z2};
 
-    bool   any    = false;
+    bool any = false;
     double maxEta = 0.0;
     for (int k = 0; k < 3; ++k) {
-        if (!(*sd[k] > 0.0f)) continue;
+        if (!(*sd[k] > 0.0f))
+            continue;
         const double e = z[k] + double(*sd[k]);
-        if (!std::isfinite(e)) continue;
-        if (!any || e > maxEta) { maxEta = e; any = true; }
+        if (!std::isfinite(e))
+            continue;
+        if (!any || e > maxEta) {
+            maxEta = e;
+            any = true;
+        }
     }
-    if (!any) return;                       // fully dry — nothing to extend
+    if (!any)
+        return; // fully dry — nothing to extend
 
     for (int k = 0; k < 3; ++k) {
-        if (*sd[k] > 0.0f) continue;        // wet corner keeps its own η
-        if (!std::isfinite(z[k])) continue; // nodata bed stays the sentinel
+        if (*sd[k] > 0.0f)
+            continue; // wet corner keeps its own η
+        if (!std::isfinite(z[k]))
+            continue; // nodata bed stays the sentinel
         const double d = maxEta - z[k];
         // ADVERSE SLOPE ONLY. A dry corner standing above the driving head is
         // the pooling case: the surface runs level into the cell and meets the
@@ -316,7 +386,8 @@ inline void extrapolateDryCorners(double z0, double z1, double z2,
         // inject d metres of standing water into a dry cell and spread the
         // pool downhill one cell in every direction, which is the flood-fill
         // behaviour this feature explicitly does not do. Leave the sentinel.
-        if (d > 0.0) continue;
+        if (d > 0.0)
+            continue;
         *sd[k] = float(d);
     }
 }

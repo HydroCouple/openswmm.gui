@@ -1,9 +1,9 @@
-/*!
- * \file   test_userflagsmodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Phase 1 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — UserFlagsModel
+/**
+ * @file      test_userflagsmodel.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Phase 1 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — UserFlagsModel
  *         define/undefine/value round-trips against a real engine handle,
  *         signal emission, and INP persistence ([USER_FLAGS] /
  *         [USER_FLAG_VALUES]) through swmm_model_write + swmm_engine_open.
@@ -11,7 +11,9 @@
  *         The round-trip INP is written to the gui-test data directory
  *         (SWMMVIS_GUI_TEST_DATA) so the file is reviewable after the run,
  *         per the repo guideline on transparent test file IO.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/models/userflagsmodel.h"
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -33,6 +35,14 @@ class TestUserFlagsModel : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require normalized flag definitions, ordered enumeration, change signals and removal
+     * of associated values.
+     * Checks unknown undefine diagnostics without additional signals using an in-memory
+     * engine; no file IO.
+     *
+     */
     void defineUndefineEnumerate()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -44,13 +54,12 @@ private slots:
                              QStringLiteral("Field inspected?")));
         QVERIFY(model.define(QStringLiteral("PRIORITY"), FlagType::Integer,
                              QStringLiteral("Maintenance priority")));
-        QVERIFY(model.define(QStringLiteral("ASSET_ID"), FlagType::String,
-                             QString()));
+        QVERIFY(model.define(QStringLiteral("ASSET_ID"), FlagType::String, QString()));
         QCOMPARE(defsSpy.count(), 3);
 
         const auto &defs = model.defs();
         QCOMPARE(defs.size(), 3);
-        QCOMPARE(defs[0].name, QStringLiteral("INSPECTED"));  // uppercased
+        QCOMPARE(defs[0].name, QStringLiteral("INSPECTED")); // uppercased
         QCOMPARE(defs[0].type, FlagType::Boolean);
         QCOMPARE(defs[0].description, QStringLiteral("Field inspected?"));
         QCOMPARE(defs[1].name, QStringLiteral("PRIORITY"));
@@ -59,14 +68,13 @@ private slots:
 
         // Undefine drops the definition and its values; cache refreshes.
         QVERIFY(model.setValue(QStringLiteral("NODE"), QStringLiteral("J1"),
-                               QStringLiteral("INSPECTED"),
-                               QStringLiteral("YES")));
+                               QStringLiteral("INSPECTED"), QStringLiteral("YES")));
         QVERIFY(model.undefine(QStringLiteral("INSPECTED")));
         QCOMPARE(defsSpy.count(), 4);
         QCOMPARE(model.defs().size(), 2);
         bool found = true;
-        model.value(QStringLiteral("NODE"), QStringLiteral("J1"),
-                    QStringLiteral("INSPECTED"), &found);
+        model.value(QStringLiteral("NODE"), QStringLiteral("J1"), QStringLiteral("INSPECTED"),
+                    &found);
         QVERIFY(!found);
 
         // Undefining an unknown flag fails with an error message, no signal.
@@ -78,6 +86,14 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require unset/set/clear semantics, real-value validation and selected valueChanged
+     * payload/counts.
+     * Rejects nonnumeric and undefined flags and permits repeated clear; the second
+     * clear result is checked without an additional signal-count assertion.
+     *
+     */
     void valueSetGetClear()
     {
         SWMM_Engine eng = swmm_engine_new();
@@ -85,8 +101,7 @@ private slots:
         UserFlagsModel model(eng);
         QSignalSpy valueSpy(&model, &UserFlagsModel::valueChanged);
 
-        QVERIFY(model.define(QStringLiteral("ROUGHNESS_ADJ"), FlagType::Real,
-                             QString()));
+        QVERIFY(model.define(QStringLiteral("ROUGHNESS_ADJ"), FlagType::Real, QString()));
 
         // Unset reads as empty + found == false.
         bool found = true;
@@ -96,11 +111,9 @@ private slots:
         QVERIFY(!found);
 
         QVERIFY(model.setValue(QStringLiteral("LINK"), QStringLiteral("C1"),
-                               QStringLiteral("ROUGHNESS_ADJ"),
-                               QStringLiteral("1.05")));
+                               QStringLiteral("ROUGHNESS_ADJ"), QStringLiteral("1.05")));
         QCOMPARE(valueSpy.count(), 1);
-        QCOMPARE(valueSpy.last().at(2).toString(),
-                 QStringLiteral("ROUGHNESS_ADJ"));
+        QCOMPARE(valueSpy.last().at(2).toString(), QStringLiteral("ROUGHNESS_ADJ"));
         QCOMPARE(model.value(QStringLiteral("LINK"), QStringLiteral("C1"),
                              QStringLiteral("ROUGHNESS_ADJ"), &found),
                  QStringLiteral("1.05"));
@@ -110,22 +123,20 @@ private slots:
         // and emits nothing.
         QString err;
         QVERIFY(!model.setValue(QStringLiteral("LINK"), QStringLiteral("C1"),
-                                QStringLiteral("ROUGHNESS_ADJ"),
-                                QStringLiteral("abc"), &err));
+                                QStringLiteral("ROUGHNESS_ADJ"), QStringLiteral("abc"), &err));
         QVERIFY(!err.isEmpty());
         QCOMPARE(valueSpy.count(), 1);
 
         // Setting on an undefined flag is rejected.
         QVERIFY(!model.setValue(QStringLiteral("LINK"), QStringLiteral("C1"),
-                                QStringLiteral("UNDEFINED"),
-                                QStringLiteral("1")));
+                                QStringLiteral("UNDEFINED"), QStringLiteral("1")));
 
         // Clear marks unset and notifies; idempotent.
         QVERIFY(model.clearValue(QStringLiteral("LINK"), QStringLiteral("C1"),
                                  QStringLiteral("ROUGHNESS_ADJ")));
         QCOMPARE(valueSpy.count(), 2);
-        model.value(QStringLiteral("LINK"), QStringLiteral("C1"),
-                    QStringLiteral("ROUGHNESS_ADJ"), &found);
+        model.value(QStringLiteral("LINK"), QStringLiteral("C1"), QStringLiteral("ROUGHNESS_ADJ"),
+                    &found);
         QVERIFY(!found);
         QVERIFY(model.clearValue(QStringLiteral("LINK"), QStringLiteral("C1"),
                                  QStringLiteral("ROUGHNESS_ADJ")));
@@ -133,11 +144,19 @@ private slots:
         swmm_engine_destroy(eng);
     }
 
+    /**
+     *
+     * @brief Require four typed flag definitions and per-object values to survive an engine INP
+     * write/open round trip.
+     * Writes/overwrites userflags_roundtrip_out.inp under SWMMVIS_GUI_TEST_DATA or the
+     * current directory, including a space-containing quoted string; needs writable
+     * output and a readable generated model. Does not simulate.
+     *
+     */
     void inpRoundTrip()
     {
         // Output goes to the reviewable gui-test data directory.
-        const QString dataDir =
-            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
+        const QString dataDir = qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
         const QString inpPath =
             QDir(dataDir).filePath(QStringLiteral("userflags_roundtrip_out.inp"));
 
@@ -149,29 +168,20 @@ private slots:
 
         {
             UserFlagsModel model(eng);
-            QVERIFY(model.define(QStringLiteral("INSPECTED"),
-                                 FlagType::Boolean,
+            QVERIFY(model.define(QStringLiteral("INSPECTED"), FlagType::Boolean,
                                  QStringLiteral("Field inspected?")));
-            QVERIFY(model.define(QStringLiteral("PRIORITY"),
-                                 FlagType::Integer, QString()));
-            QVERIFY(model.define(QStringLiteral("ROUGHNESS_ADJ"),
-                                 FlagType::Real, QString()));
-            QVERIFY(model.define(QStringLiteral("ASSET_ID"),
-                                 FlagType::String, QString()));
+            QVERIFY(model.define(QStringLiteral("PRIORITY"), FlagType::Integer, QString()));
+            QVERIFY(model.define(QStringLiteral("ROUGHNESS_ADJ"), FlagType::Real, QString()));
+            QVERIFY(model.define(QStringLiteral("ASSET_ID"), FlagType::String, QString()));
             QVERIFY(model.setValue(QStringLiteral("NODE"), QStringLiteral("J1"),
-                                   QStringLiteral("INSPECTED"),
-                                   QStringLiteral("YES")));
+                                   QStringLiteral("INSPECTED"), QStringLiteral("YES")));
             QVERIFY(model.setValue(QStringLiteral("NODE"), QStringLiteral("J1"),
-                                   QStringLiteral("PRIORITY"),
-                                   QStringLiteral("-5")));
-            QVERIFY(model.setValue(QStringLiteral("LINK"),
-                                   QStringLiteral("C_MAIN"),
-                                   QStringLiteral("ROUGHNESS_ADJ"),
-                                   QStringLiteral("1.05")));
-            QVERIFY(model.setValue(QStringLiteral("LINK"),
-                                   QStringLiteral("C_MAIN"),
+                                   QStringLiteral("PRIORITY"), QStringLiteral("-5")));
+            QVERIFY(model.setValue(QStringLiteral("LINK"), QStringLiteral("C_MAIN"),
+                                   QStringLiteral("ROUGHNESS_ADJ"), QStringLiteral("1.05")));
+            QVERIFY(model.setValue(QStringLiteral("LINK"), QStringLiteral("C_MAIN"),
                                    QStringLiteral("ASSET_ID"),
-                                   QStringLiteral("AM 00341")));   // space → quoted in INP
+                                   QStringLiteral("AM 00341"))); // space → quoted in INP
         }
 
         const QByteArray inpUtf8 = inpPath.toUtf8();
@@ -189,8 +199,7 @@ private slots:
         // that is precisely what new() is for.
         SWMM_Engine eng2 = swmm_engine_create();
         QVERIFY(eng2 != nullptr);
-        QVERIFY2(swmm_engine_open(eng2, inpUtf8.constData(), nullptr, nullptr,
-                                  nullptr) == SWMM_OK,
+        QVERIFY2(swmm_engine_open(eng2, inpUtf8.constData(), nullptr, nullptr, nullptr) == SWMM_OK,
                  swmm_get_last_error_msg(eng2));
         {
             UserFlagsModel model(eng2);
@@ -209,33 +218,38 @@ private slots:
             QCOMPARE(model.value(QStringLiteral("NODE"), QStringLiteral("J1"),
                                  QStringLiteral("PRIORITY"), nullptr),
                      QStringLiteral("-5"));
-            QCOMPARE(model.value(QStringLiteral("LINK"),
-                                 QStringLiteral("C_MAIN"),
+            QCOMPARE(model.value(QStringLiteral("LINK"), QStringLiteral("C_MAIN"),
                                  QStringLiteral("ROUGHNESS_ADJ"), nullptr),
                      QStringLiteral("1.05"));
-            QCOMPARE(model.value(QStringLiteral("LINK"),
-                                 QStringLiteral("C_MAIN"),
+            QCOMPARE(model.value(QStringLiteral("LINK"), QStringLiteral("C_MAIN"),
                                  QStringLiteral("ASSET_ID"), nullptr),
-                     QStringLiteral("AM 00341"));  // quotes stripped on parse
+                     QStringLiteral("AM 00341")); // quotes stripped on parse
         }
         swmm_engine_destroy(eng2);
     }
 
+    /**
+     *
+     * @brief Require a null-engine model to read no definitions/values and reject
+     * definition/value writes with appropriate empty/error results.
+     * Despite the name, this uses nullptr rather than a live CLOSED-state engine.
+     *
+     */
     void closedEngineIsSafe()
     {
         UserFlagsModel model(nullptr);
         QVERIFY(model.defs().isEmpty());
         QString err;
-        QVERIFY(!model.define(QStringLiteral("X"), FlagType::Boolean,
-                              QString(), &err));
+        QVERIFY(!model.define(QStringLiteral("X"), FlagType::Boolean, QString(), &err));
         QVERIFY(!err.isEmpty());
-        QVERIFY(!model.setValue(QStringLiteral("NODE"), QStringLiteral("J1"),
-                                QStringLiteral("X"), QStringLiteral("YES")));
-        QVERIFY(!model.clearValue(QStringLiteral("NODE"), QStringLiteral("J1"),
-                                  QStringLiteral("X")));
+        QVERIFY(!model.setValue(QStringLiteral("NODE"), QStringLiteral("J1"), QStringLiteral("X"),
+                                QStringLiteral("YES")));
+        QVERIFY(
+            !model.clearValue(QStringLiteral("NODE"), QStringLiteral("J1"), QStringLiteral("X")));
         bool found = true;
-        QCOMPARE(model.value(QStringLiteral("NODE"), QStringLiteral("J1"),
-                             QStringLiteral("X"), &found), QString());
+        QCOMPARE(
+            model.value(QStringLiteral("NODE"), QStringLiteral("J1"), QStringLiteral("X"), &found),
+            QString());
         QVERIFY(!found);
     }
 };

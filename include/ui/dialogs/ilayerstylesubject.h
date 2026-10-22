@@ -1,9 +1,9 @@
-/*!
- * \file   ilayerstylesubject.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  One styleable subject for the unified LayerStyleDialog.
+/**
+ * @file      ilayerstylesubject.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     One styleable subject for the unified LayerStyleDialog.
  *
  *         Slice U-2. A layer can present one or more ILayerStyleSubjects to
  *         the dialog, each becoming a tab (or tab-group) of property
@@ -18,7 +18,9 @@
  *         (or, when the object is a SublayerStyle subclass, defers to its
  *         toJson()/fromJson() overrides which already exist for .oswp
  *         persistence).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_ILAYERSTYLESUBJECT_H
 #define OPENSWMMVIS_UI_DIALOGS_ILAYERSTYLESUBJECT_H
 
@@ -26,7 +28,8 @@
 #include <QObject>
 #include <QString>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /*!
  * \brief One styleable thing the dialog can edit.
@@ -70,25 +73,22 @@ public:
 class LayerStyleSubject : public ILayerStyleSubject
 {
 public:
-    LayerStyleSubject(QString title,
-                      QObject *propertyObject,
-                      QString routingId = {},
-                      QString section   = {})
-        : m_title(std::move(title))
-        , m_section(std::move(section))
-        , m_routingId(std::move(routingId))
-        , m_propertyObject(propertyObject)
-    {}
+    LayerStyleSubject(QString title, QObject *propertyObject, QString routingId = {},
+                      QString section = {})
+        : m_title(std::move(title)), m_section(std::move(section)),
+          m_routingId(std::move(routingId)), m_propertyObject(propertyObject)
+    {
+    }
 
-    [[nodiscard]] QString  title()          const override { return m_title; }
-    [[nodiscard]] QString  section()        const override { return m_section; }
-    [[nodiscard]] QString  routingId()      const override { return m_routingId; }
+    [[nodiscard]] QString title() const override { return m_title; }
+    [[nodiscard]] QString section() const override { return m_section; }
+    [[nodiscard]] QString routingId() const override { return m_routingId; }
     [[nodiscard]] QObject *propertyObject() const override { return m_propertyObject; }
 
 private:
-    QString  m_title;
-    QString  m_section;
-    QString  m_routingId;
+    QString m_title;
+    QString m_section;
+    QString m_routingId;
     QObject *m_propertyObject = nullptr;
 };
 

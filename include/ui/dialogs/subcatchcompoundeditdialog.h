@@ -1,14 +1,18 @@
-/*!
- * \file   subcatchcompoundeditdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      subcatchcompoundeditdialog.h
+ * @brief     compound editor for subcatchment attributes that don't fit a single property row:
+ *            land-use coverage, LID usage and initial loadings (groundwater exchange lives in
+ *            GroundwaterExchangeDialog).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Phase 3 — compound editor for subcatchment attributes that don't fit a
  * single property row: land-use coverage, LID usage and initial loadings
  * (groundwater exchange lives in GroundwaterExchangeDialog). Mirror of
  * NodeCompoundEditDialog: one QStackedWidget page per Kind, apply-as-you-go
  * engine writes, summary tracked in m_ref.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef SUBCATCHCOMPOUNDEDITDIALOG_H
@@ -31,8 +35,7 @@ class SubcatchCompoundEditDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit SubcatchCompoundEditDialog(SubcatchCompoundEditRef ref,
-                                        QWidget *parent = nullptr);
+    explicit SubcatchCompoundEditDialog(SubcatchCompoundEditRef ref, QWidget *parent = nullptr);
 
     [[nodiscard]] QString updatedSummary() const { return m_ref.summary; }
 
@@ -53,33 +56,33 @@ private:
      *  GroundwaterExchangeDialog instead). */
     [[nodiscard]] static int pageIndexFor(SubcatchCompoundEditRef::Kind kind);
 
-    [[nodiscard]] int subIdx() const;   // swmm_subcatch_index, or -1
+    [[nodiscard]] int subIdx() const; // swmm_subcatch_index, or -1
 
     SubcatchCompoundEditRef m_ref;
 
     // Land-use page — iteration 4: editable full matrix (one row per
     // defined land use, editable percent column, live sum footer).
-    QLabel       *m_luSummary  = nullptr;
-    QTableWidget *m_luTable    = nullptr;
-    bool          m_luRefreshing = false;
+    QLabel *m_luSummary = nullptr;
+    QTableWidget *m_luTable = nullptr;
+    bool m_luRefreshing = false;
 
     // Loadings page (iteration 4) — [LOADINGS] initial buildup per pollutant.
-    QLabel       *m_loadSummary = nullptr;
-    QTableWidget *m_loadTable   = nullptr;
-    bool          m_loadRefreshing = false;
+    QLabel *m_loadSummary = nullptr;
+    QTableWidget *m_loadTable = nullptr;
+    bool m_loadRefreshing = false;
 
     // LID usage page
-    QLabel       *m_lidSummary   = nullptr;
-    QTableWidget *m_lidTable     = nullptr;
-    QPushButton  *m_lidRemoveBtn = nullptr;
-    QComboBox    *m_lidCombo     = nullptr;
-    QSpinBox     *m_lidNumber    = nullptr;
-    QDoubleSpinBox *m_lidArea    = nullptr;
-    QDoubleSpinBox *m_lidWidth   = nullptr;
+    QLabel *m_lidSummary = nullptr;
+    QTableWidget *m_lidTable = nullptr;
+    QPushButton *m_lidRemoveBtn = nullptr;
+    QComboBox *m_lidCombo = nullptr;
+    QSpinBox *m_lidNumber = nullptr;
+    QDoubleSpinBox *m_lidArea = nullptr;
+    QDoubleSpinBox *m_lidWidth = nullptr;
     QDoubleSpinBox *m_lidInitSat = nullptr;
     QDoubleSpinBox *m_lidFromImp = nullptr;
 
-    QStackedWidget   *m_stack   = nullptr;
+    QStackedWidget *m_stack = nullptr;
     QDialogButtonBox *m_buttons = nullptr;
 };
 

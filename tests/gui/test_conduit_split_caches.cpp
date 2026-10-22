@@ -1,9 +1,9 @@
-/*!
- * \file   test_conduit_split_caches.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Render-cache invariants across a conduit split
+/**
+ * @file      test_conduit_split_caches.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Render-cache invariants across a conduit split
  *         (workplans/HANDOFF_SPLIT_LINK_DISAPPEARS_2026-09-10.md §Verification).
  *
  *         Inserting a junction on a conduit splits it in two through
@@ -24,6 +24,7 @@
  *         Both refreshSceneCoordsForLink branches are covered: a straight
  *         conduit (in-place rewrite) and one with an interior vertex (vertex
  *         count changes → full rebuildSceneCoords).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "layers/swmmmodellayer.h"
@@ -42,7 +43,8 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -53,7 +55,8 @@ std::unique_ptr<SWMMModelLayer> openLayer(const QString &fixture)
 {
     auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(fixture), nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
@@ -64,50 +67,71 @@ bool samePoint(const QPointF &a, const QPointF &b)
 
 /*! Every invariant the handoff lists, as one call so it can be repeated
  *  after redo / undo / redo. Returns an empty string on success. */
-QString checkSplitInvariants(SWMMModelLayer *layer, const QString &origLink,
-                             const QString &newLink, const QString &newNode,
-                             const QString &toNode, int expectedTotalPoints)
+QString checkSplitInvariants(SWMMModelLayer *layer, const QString &origLink, const QString &newLink,
+                             const QString &newNode, const QString &toNode, int expectedTotalPoints)
 {
     if (layer->renderLinkCount() != layer->cachedLinkCount())
-        return QStringLiteral("render SoA / m_links diverged: renderLinkCount=%1 cachedLinkCount=%2")
-            .arg(layer->renderLinkCount()).arg(layer->cachedLinkCount());
+        return QStringLiteral(
+                   "render SoA / m_links diverged: renderLinkCount=%1 cachedLinkCount=%2")
+            .arg(layer->renderLinkCount())
+            .arg(layer->cachedLinkCount());
 
     const int newIdx = layer->linkIndex(newLink);
-    if (newIdx < 0) return QStringLiteral("%1 not found in the layer").arg(newLink);
+    if (newIdx < 0)
+        return QStringLiteral("%1 not found in the layer").arg(newLink);
     const int engIdx = swmm_link_index(layer->engine(), newLink.toUtf8().constData());
     if (newIdx != engIdx)
-        return QStringLiteral("%1: layer index %2 != engine index %3").arg(newLink).arg(newIdx).arg(engIdx);
+        return QStringLiteral("%1: layer index %2 != engine index %3")
+            .arg(newLink)
+            .arg(newIdx)
+            .arg(engIdx);
     if (newIdx >= layer->renderLinkCount())
         return QStringLiteral("%1 index %2 is outside the render SoA (%3)")
-            .arg(newLink).arg(newIdx).arg(layer->renderLinkCount());
+            .arg(newLink)
+            .arg(newIdx)
+            .arg(layer->renderLinkCount());
 
     const int origIdx = layer->linkIndex(origLink);
-    if (origIdx < 0) return QStringLiteral("%1 not found in the layer").arg(origLink);
+    if (origIdx < 0)
+        return QStringLiteral("%1 not found in the layer").arg(origLink);
 
-    const QVector<QPointF> polyNew  = layer->cachedLinkPolyline(newIdx);
+    const QVector<QPointF> polyNew = layer->cachedLinkPolyline(newIdx);
     const QVector<QPointF> polyOrig = layer->cachedLinkPolyline(origIdx);
     if (polyNew.size() < 2)
         return QStringLiteral("%1 polyline has %2 point(s) — an endpoint was dropped")
-            .arg(newLink).arg(polyNew.size());
+            .arg(newLink)
+            .arg(polyNew.size());
     if (polyOrig.size() < 2)
         return QStringLiteral("%1 polyline has %2 point(s) — an endpoint was dropped")
-            .arg(origLink).arg(polyOrig.size());
+            .arg(origLink)
+            .arg(polyOrig.size());
     if (polyNew.size() + polyOrig.size() != expectedTotalPoints)
         return QStringLiteral("halves carry %1 + %2 points, expected %3 in total")
-            .arg(polyOrig.size()).arg(polyNew.size()).arg(expectedTotalPoints);
+            .arg(polyOrig.size())
+            .arg(polyNew.size())
+            .arg(expectedTotalPoints);
 
     const int nodeIdx = layer->nodeIndex(newNode);
-    if (nodeIdx < 0) return QStringLiteral("%1 not found in the layer").arg(newNode);
+    if (nodeIdx < 0)
+        return QStringLiteral("%1 not found in the layer").arg(newNode);
     double nx = 0.0, ny = 0.0;
     if (!layer->cachedNodeCoord(nodeIdx, &nx, &ny))
         return QStringLiteral("%1 has no cached coordinate").arg(newNode);
     const QPointF split(nx, ny);
     if (!samePoint(polyOrig.last(), split))
         return QStringLiteral("%1 does not end at the inserted node (%2,%3) but at (%4,%5)")
-            .arg(origLink).arg(nx).arg(ny).arg(polyOrig.last().x()).arg(polyOrig.last().y());
+            .arg(origLink)
+            .arg(nx)
+            .arg(ny)
+            .arg(polyOrig.last().x())
+            .arg(polyOrig.last().y());
     if (!samePoint(polyNew.first(), split))
         return QStringLiteral("%1 does not start at the inserted node (%2,%3) but at (%4,%5)")
-            .arg(newLink).arg(nx).arg(ny).arg(polyNew.first().x()).arg(polyNew.first().y());
+            .arg(newLink)
+            .arg(nx)
+            .arg(ny)
+            .arg(polyNew.first().x())
+            .arg(polyNew.first().y());
 
     double tx = 0.0, ty = 0.0;
     if (!layer->cachedNodeCoord(layer->nodeIndex(toNode), &tx, &ty))
@@ -122,18 +146,21 @@ QString checkSplitInvariants(SWMMModelLayer *layer, const QString &origLink,
 
 /*! The pre-split state: one link fewer, the original back on its old
  *  downstream node, and the SoA still in step with m_links. */
-QString checkFusedInvariants(SWMMModelLayer *layer, const QString &origLink,
-                             const QString &newLink, const QString &newNode,
-                             const QString &toNode, int linkCount)
+QString checkFusedInvariants(SWMMModelLayer *layer, const QString &origLink, const QString &newLink,
+                             const QString &newNode, const QString &toNode, int linkCount)
 {
     if (layer->renderLinkCount() != layer->cachedLinkCount())
         return QStringLiteral("after fuse: renderLinkCount=%1 cachedLinkCount=%2")
-            .arg(layer->renderLinkCount()).arg(layer->cachedLinkCount());
+            .arg(layer->renderLinkCount())
+            .arg(layer->cachedLinkCount());
     if (layer->cachedLinkCount() != linkCount)
         return QStringLiteral("after fuse: %1 links, expected %2")
-            .arg(layer->cachedLinkCount()).arg(linkCount);
-    if (layer->linkIndex(newLink) >= 0) return QStringLiteral("%1 survived the fuse").arg(newLink);
-    if (layer->nodeIndex(newNode) >= 0) return QStringLiteral("%1 survived the fuse").arg(newNode);
+            .arg(layer->cachedLinkCount())
+            .arg(linkCount);
+    if (layer->linkIndex(newLink) >= 0)
+        return QStringLiteral("%1 survived the fuse").arg(newLink);
+    if (layer->nodeIndex(newNode) >= 0)
+        return QStringLiteral("%1 survived the fuse").arg(newNode);
     const QVector<QPointF> poly = layer->cachedLinkPolyline(layer->linkIndex(origLink));
     double tx = 0.0, ty = 0.0;
     if (!layer->cachedNodeCoord(layer->nodeIndex(toNode), &tx, &ty))
@@ -156,19 +183,18 @@ private slots:
         QTest::addColumn<QString>("link");
         QTest::addColumn<QString>("toNode");
         QTest::addColumn<double>("t");
-        QTest::addColumn<int>("totalPoints");   // orig + new polyline points
+        QTest::addColumn<int>("totalPoints"); // orig + new polyline points
 
         // C1 J1(0,0) → J2(1000,0), no [VERTICES]: the in-place
         // refreshSceneCoordsForLink branch. 2 + 2 points.
-        QTest::newRow("straight")
-            << QStringLiteral("selection_trace_fixture.inp")
-            << QStringLiteral("C1") << QStringLiteral("J2") << 0.5 << 4;
+        QTest::newRow("straight") << QStringLiteral("selection_trace_fixture.inp")
+                                  << QStringLiteral("C1") << QStringLiteral("J2") << 0.5 << 4;
         // C1 J1(0,0) → (500,50) → X1(1000,0): the interior vertex ends up on
         // one half, so its vertex count changes and refreshSceneCoordsForLink
         // falls through to a full rebuildSceneCoords(). 2 + 3 points.
         QTest::newRow("interior-vertex")
-            << QStringLiteral("typed_selection_fixture.inp")
-            << QStringLiteral("C1") << QStringLiteral("X1") << 0.25 << 5;
+            << QStringLiteral("typed_selection_fixture.inp") << QStringLiteral("C1")
+            << QStringLiteral("X1") << 0.25 << 5;
     }
 
     void splitKeepsRenderCachesInStep()
@@ -189,15 +215,16 @@ private slots:
         const QString newLink = link + QStringLiteral("_B");
 
         MapUndoStack stack;
-        stack.push(new InsertJunctionSplitCommand(layer.get(), link, t,
-                                                  newNode, newLink, /*canvas=*/nullptr));
+        stack.push(new InsertJunctionSplitCommand(layer.get(), link, t, newNode, newLink,
+                                                  /*canvas=*/nullptr));
         QCOMPARE(layer->cachedLinkCount(), linksBefore + 1);
-        QString err = checkSplitInvariants(layer.get(), link, newLink, newNode, toNode, totalPoints);
+        QString err =
+            checkSplitInvariants(layer.get(), link, newLink, newNode, toNode, totalPoints);
         QVERIFY2(err.isEmpty(), qPrintable(QStringLiteral("after split: ") + err));
 
         // The tool selects the inserted node right after the push, which
         // re-derives the selection / hidden flag arrays.
-        layer->setSelectedElements({ { newNode, SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements({{newNode, SWMMModelLayer::kKindNode}});
         err = checkSplitInvariants(layer.get(), link, newLink, newNode, toNode, totalPoints);
         QVERIFY2(err.isEmpty(), qPrintable(QStringLiteral("after selection: ") + err));
 
@@ -213,8 +240,8 @@ private slots:
         // A second split on the same original conduit (handoff smoke step 5).
         const QString newNode2 = QStringLiteral("JS2");
         const QString newLink2 = link + QStringLiteral("_B1");
-        stack.push(new InsertJunctionSplitCommand(layer.get(), link, 0.5,
-                                                  newNode2, newLink2, nullptr));
+        stack.push(
+            new InsertJunctionSplitCommand(layer.get(), link, 0.5, newNode2, newLink2, nullptr));
         QCOMPARE(layer->cachedLinkCount(), linksBefore + 2);
         QCOMPARE(layer->renderLinkCount(), layer->cachedLinkCount());
         QVERIFY(layer->cachedLinkPolyline(layer->linkIndex(newLink2)).size() >= 2);
@@ -234,22 +261,22 @@ private slots:
     {
         auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
         QVERIFY(layer);
-        const QString link    = QStringLiteral("C1");
+        const QString link = QStringLiteral("C1");
         const QString newNode = QStringLiteral("JS1");
         const QString newLink = QStringLiteral("C1_B");
 
         // Stale state under the names the split is about to generate — the
         // sidecar restore path (setObjectsVisible by name) and a selection
         // left over from the previous incarnation.
-        layer->setObjectsVisible({ newLink, newNode }, /*visible=*/false);
+        layer->setObjectsVisible({newLink, newNode}, /*visible=*/false);
         QVERIFY(layer->hiddenObjects().contains(newLink));
-        layer->setSelectedElements({ { newLink, SWMMModelLayer::kKindLink },
-                                     { QStringLiteral("J1"), SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements({{newLink, SWMMModelLayer::kKindLink},
+                                    {QStringLiteral("J1"), SWMMModelLayer::kKindNode}});
         QVERIFY(layer->selectedElementNames().contains(newLink));
 
         MapUndoStack stack;
-        stack.push(new InsertJunctionSplitCommand(layer.get(), link, 0.5,
-                                                  newNode, newLink, nullptr));
+        stack.push(
+            new InsertJunctionSplitCommand(layer.get(), link, 0.5, newNode, newLink, nullptr));
         const int newIdx = layer->linkIndex(newLink);
         QVERIFY(newIdx >= 0);
 
@@ -259,13 +286,14 @@ private slots:
         QVERIFY(!layer->hiddenObjects().contains(newLink));
         QVERIFY(!layer->hiddenObjects().contains(newNode));
         QVERIFY(!layer->selectedElementNames().contains(newLink));
-        QVERIFY(layer->selectedElementNames().contains(QStringLiteral("J1")));   // unrelated selection kept
+        QVERIFY(layer->selectedElementNames().contains(
+            QStringLiteral("J1"))); // unrelated selection kept
         QCOMPARE(layer->categoryCheckState(SWMMModelLayer::CatConduits), Qt::Checked);
         QVERIFY(!layer->renderLinkHidden(newIdx));
 
         // … and still after the tool selects the inserted node, which is the
         // rebuildFlagArrays() call that used to re-derive the stale hidden bit.
-        layer->setSelectedElements({ { newNode, SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements({{newNode, SWMMModelLayer::kKindNode}});
         QVERIFY2(!layer->renderLinkHidden(newIdx),
                  "the renderer-facing hidden flag came back for the new link");
         QVERIFY(layer->isObjectVisible(newLink, SWMMModelLayer::CatConduits));
@@ -277,7 +305,7 @@ private slots:
         stack.redo();
         const int againIdx = layer->linkIndex(newLink);
         QVERIFY(againIdx >= 0);
-        layer->setSelectedElements({ { newNode, SWMMModelLayer::kKindNode } });
+        layer->setSelectedElements({{newNode, SWMMModelLayer::kKindNode}});
         QVERIFY(layer->isObjectVisible(newLink, SWMMModelLayer::CatConduits));
         QVERIFY(!layer->renderLinkHidden(againIdx));
     }
@@ -313,8 +341,8 @@ private slots:
         const QString newLink = link + QStringLiteral("_B");
 
         MapUndoStack stack;
-        auto *cmd = new InsertNodeSplitCommand(layer.get(), link, 0.5, node, newLink,
-                                               nodeType, /*canvas=*/nullptr);
+        auto *cmd = new InsertNodeSplitCommand(layer.get(), link, 0.5, node, newLink, nodeType,
+                                               /*canvas=*/nullptr);
         stack.push(cmd);
         QVERIFY2(cmd->retyped(), qPrintable(cmd->warnings().join(QStringLiteral("; "))));
 
@@ -333,9 +361,9 @@ private slots:
             QVERIFY2(depth > 0.0, "storage creation defaults were not applied");
         }
         // The Object Browser bucket follows the converted type.
-        QCOMPARE(layer->objectNameAt(nodeType == 2 ? SWMMModelLayer::CatStorage
-                                                   : SWMMModelLayer::CatDividers,
-                                     0), node);
+        QCOMPARE(layer->objectNameAt(
+                     nodeType == 2 ? SWMMModelLayer::CatStorage : SWMMModelLayer::CatDividers, 0),
+                 node);
 
         // Undo: back to a junction, then fused away.
         stack.undo();
@@ -347,7 +375,8 @@ private slots:
         stack.redo();
         QVERIFY(cmd->retyped());
         type = -1;
-        QCOMPARE(swmm_node_get_type(eng, swmm_node_index(eng, node.toUtf8().constData()), &type), 0);
+        QCOMPARE(swmm_node_get_type(eng, swmm_node_index(eng, node.toUtf8().constData()), &type),
+                 0);
         QCOMPARE(type, nodeType);
         QCOMPARE(layer->renderLinkCount(), layer->cachedLinkCount());
         QCOMPARE(layer->cachedLinkCount(), linksBefore + 1);

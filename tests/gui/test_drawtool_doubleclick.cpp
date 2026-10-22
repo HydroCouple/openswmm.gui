@@ -1,6 +1,6 @@
-/*!
- * \file   test_drawtool_doubleclick.cpp
- * \brief  Double-click finishes a drawing INCLUDING the clicked point.
+/**
+ * @file      test_drawtool_doubleclick.cpp
+ * @brief     Double-click finishes a drawing INCLUDING the clicked point.
  *
  * Qt delivers `Press, Release, DblClick, Release` for a double-click: the
  * second click arrives as MouseButtonDblClick, never as a second
@@ -18,7 +18,12 @@
  * There was no double-click coverage anywhere in the repo before this file —
  * which is why the bug shipped. These gates drive the real tools on a real
  * MapCanvas under the offscreen QPA, following tests/gui/test_asyncload.cpp.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <QtTest>
 
 #include "core/preferencesmanager.h"
@@ -49,10 +54,10 @@ private slots:
     void doubleClickInPlaceDoesNotDuplicateAVertex();
 
 private:
-    OpenSWMMVisWorkspace   *m_workspace = nullptr;
-    SWMMVisProjectWindow   *m_window    = nullptr;
-    MapCanvas              *m_canvas    = nullptr;
-    SWMMModelLayer         *m_layer     = nullptr;
+    OpenSWMMVisWorkspace *m_workspace = nullptr;
+    SWMMVisProjectWindow *m_window = nullptr;
+    MapCanvas *m_canvas = nullptr;
+    SWMMModelLayer *m_layer = nullptr;
 
     /*! Subcatchment count, so each gate reads its own effect. */
     int catchmentCount() const { return m_layer->cachedSubcatchCount(); }
@@ -64,13 +69,13 @@ void TestDrawToolDoubleClick::initTestCase()
     QVERIFY(m_workspace != nullptr);
 
     SWMMModelLayer::NewProjectSpec spec;
-    spec.name          = QStringLiteral("Untitled");
-    spec.forNewEngine  = true;
+    spec.name = QStringLiteral("Untitled");
+    spec.forNewEngine = true;
     spec.startDateTime = QDateTime(QDate(2026, 9, 8), QTime(0, 0));
-    spec.endDateTime   = spec.startDateTime.addSecs(3600);
-    spec.sim           = PreferencesManager::SimulationDefaults{};
-    spec.sim.flowUnits = QStringLiteral("CFS");     // → Local (ft)
-    spec.twoD          = PreferencesManager::TwoDDefaults{};
+    spec.endDateTime = spec.startDateTime.addSecs(3600);
+    spec.sim = PreferencesManager::SimulationDefaults{};
+    spec.sim.flowUnits = QStringLiteral("CFS"); // → Local (ft)
+    spec.twoD = PreferencesManager::TwoDDefaults{};
 
     m_window = new SWMMVisProjectWindow(m_workspace, QString(), nullptr);
     m_window->markUntitled();
@@ -84,11 +89,11 @@ void TestDrawToolDoubleClick::initTestCase()
     QTest::qWait(150);
 
     m_canvas = m_window->canvas();
-    m_layer  = m_window->modelLayer();
+    m_layer = m_window->modelLayer();
     QVERIFY(m_canvas && m_layer);
-    QVERIFY2(m_canvas->width() > 200 && m_canvas->height() > 200,
-             qPrintable(QStringLiteral("canvas %1x%2")
-                            .arg(m_canvas->width()).arg(m_canvas->height())));
+    QVERIFY2(
+        m_canvas->width() > 200 && m_canvas->height() > 200,
+        qPrintable(QStringLiteral("canvas %1x%2").arg(m_canvas->width()).arg(m_canvas->height())));
 }
 
 void TestDrawToolDoubleClick::cleanupTestCase()
@@ -108,26 +113,24 @@ void TestDrawToolDoubleClick::doubleClickKeepsTheClickedVertex()
     const QPoint p1(200, 200);
     const QPoint p2(400, 200);
     const QPoint p3(400, 400);
-    const QPoint p4(200, 400);      // the double-clicked corner
+    const QPoint p4(200, 400); // the double-clicked corner
 
     {
         OpenSWMMVisMapToolAddSubcatchment tool(m_canvas);
         m_canvas->setActiveTool(&tool);
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, p1);
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, p2);
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, p3);
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, p1);
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, p2);
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, p3);
         QTest::mouseDClick(m_canvas, Qt::LeftButton, Qt::NoModifier, p4);
         m_canvas->setActiveTool(nullptr);
     }
 
     QCOMPARE(catchmentCount(), before + 1);
 
-    const QVector<QPointF> poly =
-        m_layer->cachedSubcatchVertices(catchmentCount() - 1);
-    QVERIFY2(poly.size() == 4,
-             qPrintable(QStringLiteral("expected 4 vertices, got %1 — the "
-                                       "double-clicked corner was dropped")
-                            .arg(poly.size())));
+    const QVector<QPointF> poly = m_layer->cachedSubcatchVertices(catchmentCount() - 1);
+    QVERIFY2(poly.size() == 4, qPrintable(QStringLiteral("expected 4 vertices, got %1 — the "
+                                                         "double-clicked corner was dropped")
+                                              .arg(poly.size())));
 
     // …and it is the corner the user actually double-clicked, not some other
     // point: compare against the click transformed into layer coordinates.
@@ -135,11 +138,14 @@ void TestDrawToolDoubleClick::doubleClickKeepsTheClickedVertex()
     m_canvas->toMapCoords(p4.x(), p4.y(), cx, cy);
     m_layer->transformCanvasToLayer(cx, cy, lx, ly);
     const QPointF last = poly.last();
-    QVERIFY2(qAbs(last.x() - lx) < 1e-6 * qMax(1.0, qAbs(lx))
-             && qAbs(last.y() - ly) < 1e-6 * qMax(1.0, qAbs(ly)),
+    QVERIFY2(qAbs(last.x() - lx) < 1e-6 * qMax(1.0, qAbs(lx)) &&
+                 qAbs(last.y() - ly) < 1e-6 * qMax(1.0, qAbs(ly)),
              qPrintable(QStringLiteral("final vertex (%1,%2) is not the "
                                        "double-clicked point (%3,%4)")
-                            .arg(last.x()).arg(last.y()).arg(lx).arg(ly)));
+                            .arg(last.x())
+                            .arg(last.y())
+                            .arg(lx)
+                            .arg(ly)));
 }
 
 // ---------------------------------------------------------------------------
@@ -153,8 +159,8 @@ void TestDrawToolDoubleClick::triangleFromThreeGesturesIsCreated()
     {
         OpenSWMMVisMapToolAddSubcatchment tool(m_canvas);
         m_canvas->setActiveTool(&tool);
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(500, 200));
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(650, 200));
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(500, 200));
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(650, 200));
         QTest::mouseDClick(m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(650, 350));
         m_canvas->setActiveTool(nullptr);
     }
@@ -177,20 +183,18 @@ void TestDrawToolDoubleClick::doubleClickInPlaceDoesNotDuplicateAVertex()
     {
         OpenSWMMVisMapToolAddSubcatchment tool(m_canvas);
         m_canvas->setActiveTool(&tool);
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(150, 500));
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(300, 500));
-        QTest::mouseClick (m_canvas, Qt::LeftButton, Qt::NoModifier, corner);
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(150, 500));
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, QPoint(300, 500));
+        QTest::mouseClick(m_canvas, Qt::LeftButton, Qt::NoModifier, corner);
         QTest::mouseDClick(m_canvas, Qt::LeftButton, Qt::NoModifier, corner);
         m_canvas->setActiveTool(nullptr);
     }
 
     QCOMPARE(catchmentCount(), before + 1);
-    const QVector<QPointF> poly =
-        m_layer->cachedSubcatchVertices(catchmentCount() - 1);
-    QVERIFY2(poly.size() == 3,
-             qPrintable(QStringLiteral("expected 3 distinct vertices, got %1 — "
-                                       "a coincident vertex was kept")
-                            .arg(poly.size())));
+    const QVector<QPointF> poly = m_layer->cachedSubcatchVertices(catchmentCount() - 1);
+    QVERIFY2(poly.size() == 3, qPrintable(QStringLiteral("expected 3 distinct vertices, got %1 — "
+                                                         "a coincident vertex was kept")
+                                              .arg(poly.size())));
 }
 
 QTEST_MAIN(TestDrawToolDoubleClick)

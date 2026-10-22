@@ -1,9 +1,9 @@
-/*!
- * \file   userflagsdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  User Flags Manager — Phase 2 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md.
+/**
+ * @file      userflagsdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     User Flags Manager — Phase 2 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md.
  *
  * Modal editor for the [USER_FLAGS] schema: one row per flag definition
  * (Name, Type, Description) with Add / Remove. Edits are staged in the
@@ -11,7 +11,9 @@
  * (Cancel discards), mirroring SimulationOptionsDialog's read-on-open /
  * write-on-apply round trip. The caller marks the project dirty off
  * wroteAnyChanges(), exactly like onSimulationOptions does.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef USERFLAGSDIALOG_H
 #define USERFLAGSDIALOG_H
 
@@ -37,8 +39,7 @@ class UserFlagsDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit UserFlagsDialog(openswmmvis::ui::UserFlagsModel *model,
-                             QWidget *parent = nullptr);
+    explicit UserFlagsDialog(openswmmvis::ui::UserFlagsModel *model, QWidget *parent = nullptr);
 
     /*! True once any Apply/OK round actually changed the engine. */
     [[nodiscard]] bool wroteAnyChanges() const noexcept { return m_wroteAnyChanges; }
@@ -57,8 +58,7 @@ public:
     [[nodiscard]] QTableWidget *table() const noexcept { return m_table; }
 
     /*! Append a staged row. Exposed for the Add button and tests. */
-    void addRow(const QString &name,
-                openswmmvis::ui::UserFlagsModel::FlagType type,
+    void addRow(const QString &name, openswmmvis::ui::UserFlagsModel::FlagType type,
                 const QString &description);
 
 private slots:
@@ -72,12 +72,12 @@ private:
     [[nodiscard]] openswmmvis::ui::UserFlagsModel::FlagType rowType(int row) const;
 
     openswmmvis::ui::UserFlagsModel *m_model = nullptr;
-    QTableWidget     *m_table       = nullptr;
-    QPushButton      *m_addButton   = nullptr;
-    QPushButton      *m_removeButton = nullptr;
-    QDialogButtonBox *m_buttonBox   = nullptr;
-    bool              m_wroteAnyChanges      = false;
-    bool              m_confirmationsEnabled = true;
+    QTableWidget *m_table = nullptr;
+    QPushButton *m_addButton = nullptr;
+    QPushButton *m_removeButton = nullptr;
+    QDialogButtonBox *m_buttonBox = nullptr;
+    bool m_wroteAnyChanges = false;
+    bool m_confirmationsEnabled = true;
 };
 
 #endif // USERFLAGSDIALOG_H

@@ -1,8 +1,19 @@
-/*!
- * \file   addbasemapdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      addbasemapdialog.cpp
+ * @brief     The dialog has five tabs: - Tab 0: XYZ Tiles  — URL template, zoom range, tile pixel
+ *            ratio, axis order, authentication, HTTP headers, Test Connection button. - Tab 1:
+ *            WMS/WMTS   — URL with protocol auto-detection, Connect, layer tree,
+ *            style/format/CRS/tile-matrix-set, Advanced options, authentication, HTTP headers. -
+ *            Tab 2: WCS        — URL, Connect, coverage tree, format/CRS/range/interpolation,
+ *            authentication, HTTP headers. - Tab 3: ArcGIS REST — URL, Portal endpoint fields,
+ *            Connect, result info panel, authentication, HTTP headers. - Tab 4: Local File  —
+ *            local raster file (GeoTIFF/PNG/JPEG/BMP/…), optional world file, CRS selection.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "ui/dialogs/addbasemapdialog.h"
 #include "ui/dialogs/crsselectiondialog.h"
 #include "ui/widgets/basemaphttpheaderswidget.h"
@@ -68,11 +79,8 @@ static bool urlIsWMTS(const QString &url)
 // ---------------------------------------------------------------------------
 
 AddBasemapDialog::AddBasemapDialog(QWidget *parent)
-    : QDialog(parent)
-    , m_nam(new QNetworkAccessManager(this))
-    , m_wmsInfo(nullptr)
-    , m_wmtsInfo(nullptr)
-    , m_wcsInfo(nullptr)
+    : QDialog(parent), m_nam(new QNetworkAccessManager(this)), m_wmsInfo(nullptr),
+      m_wmtsInfo(nullptr), m_wcsInfo(nullptr)
 {
     setWindowTitle(tr("Add Basemap"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -83,11 +91,11 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
 
     m_tabs = new QTabWidget(this);
 
-    auto *xyzPage    = new QWidget;
-    auto *wmsPage    = new QWidget;
-    auto *wcsPage    = new QWidget;
-    auto *arcPage    = new QWidget;
-    auto *localPage  = new QWidget;
+    auto *xyzPage = new QWidget;
+    auto *wmsPage = new QWidget;
+    auto *wcsPage = new QWidget;
+    auto *arcPage = new QWidget;
+    auto *localPage = new QWidget;
 
     setupUiXYZ(xyzPage);
     setupUiWMS(wmsPage);
@@ -129,8 +137,7 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
 
     // OK means something different per page, so its availability follows the
     // page.
-    connect(m_tabs, &QTabWidget::currentChanged,
-            this, [this](int) { updateOkEnabled(); });
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int) { updateOkEnabled(); });
 
     updateOkEnabled();
 
@@ -162,27 +169,25 @@ AddBasemapDialog::~AddBasemapDialog()
 // UI setup helpers
 // ---------------------------------------------------------------------------
 
-void AddBasemapDialog::buildConnectionBar(QWidget *parent, QComboBox *&combo,
-                                           QPushButton *&newBtn, QPushButton *&editBtn,
-                                           QPushButton *&delBtn)
+void AddBasemapDialog::buildConnectionBar(QWidget *parent, QComboBox *&combo, QPushButton *&newBtn,
+                                          QPushButton *&editBtn, QPushButton *&delBtn)
 {
     auto *row = new QHBoxLayout;
     row->addWidget(new QLabel(tr("Saved connections:"), parent));
-    combo  = new QComboBox(parent);
+    combo = new QComboBox(parent);
     combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     row->addWidget(combo);
-    newBtn  = new QPushButton(tr("New"),    parent);
-    editBtn = new QPushButton(tr("Edit"),   parent);
-    delBtn  = new QPushButton(tr("Delete"), parent);
+    newBtn = new QPushButton(tr("New"), parent);
+    editBtn = new QPushButton(tr("Edit"), parent);
+    delBtn = new QPushButton(tr("Delete"), parent);
     row->addWidget(newBtn);
     row->addWidget(editBtn);
     row->addWidget(delBtn);
     qobject_cast<QVBoxLayout *>(parent->layout())->addLayout(row);
 }
 
-void AddBasemapDialog::buildAuthGroup(QWidget *parent, QGroupBox *&box,
-                                       QLineEdit *&user, QLineEdit *&pass,
-                                       QPushButton *&eyeBtn)
+void AddBasemapDialog::buildAuthGroup(QWidget *parent, QGroupBox *&box, QLineEdit *&user,
+                                      QLineEdit *&pass, QPushButton *&eyeBtn)
 {
     box = new QGroupBox(tr("Authentication (Basic)"), parent);
     box->setCheckable(true);
@@ -222,34 +227,40 @@ void AddBasemapDialog::setupUiXYZ(QWidget *page)
 
     auto *form = new QFormLayout;
     m_xyzName = new QLineEdit(page);
-    m_xyzUrl  = new QLineEdit(page);
+    m_xyzUrl = new QLineEdit(page);
     m_xyzUrl->setPlaceholderText("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
 
     auto *zoomRow = new QHBoxLayout;
-    m_xyzZMin = new QSpinBox(page); m_xyzZMin->setRange(0, 30); m_xyzZMin->setValue(0);
-    m_xyzZMax = new QSpinBox(page); m_xyzZMax->setRange(0, 30); m_xyzZMax->setValue(19);
-    zoomRow->addWidget(new QLabel(tr("Min:"), page)); zoomRow->addWidget(m_xyzZMin);
+    m_xyzZMin = new QSpinBox(page);
+    m_xyzZMin->setRange(0, 30);
+    m_xyzZMin->setValue(0);
+    m_xyzZMax = new QSpinBox(page);
+    m_xyzZMax->setRange(0, 30);
+    m_xyzZMax->setValue(19);
+    zoomRow->addWidget(new QLabel(tr("Min:"), page));
+    zoomRow->addWidget(m_xyzZMin);
     zoomRow->addSpacing(12);
-    zoomRow->addWidget(new QLabel(tr("Max:"), page)); zoomRow->addWidget(m_xyzZMax);
+    zoomRow->addWidget(new QLabel(tr("Max:"), page));
+    zoomRow->addWidget(m_xyzZMax);
     zoomRow->addStretch();
 
     m_xyzPixRatio = new QComboBox(page);
-    m_xyzPixRatio->addItem(tr("Undefined"),           0);
-    m_xyzPixRatio->addItem(tr("Standard 96 DPI"),     1);
-    m_xyzPixRatio->addItem(tr("HiDPI 192 DPI"),       2);
+    m_xyzPixRatio->addItem(tr("Undefined"), 0);
+    m_xyzPixRatio->addItem(tr("Standard 96 DPI"), 1);
+    m_xyzPixRatio->addItem(tr("HiDPI 192 DPI"), 2);
 
     m_xyzAxis = new QComboBox(page);
-    m_xyzAxis->addItem(tr("ZXY  (standard OSM)"),     static_cast<int>(TileAxisOrder::ZXY));
-    m_xyzAxis->addItem(tr("ZYX  (ArcGIS REST)"),      static_cast<int>(TileAxisOrder::ZYX));
+    m_xyzAxis->addItem(tr("ZXY  (standard OSM)"), static_cast<int>(TileAxisOrder::ZXY));
+    m_xyzAxis->addItem(tr("ZYX  (ArcGIS REST)"), static_cast<int>(TileAxisOrder::ZYX));
 
-    form->addRow(tr("Name:"),             m_xyzName);
-    form->addRow(tr("URL template:"),     m_xyzUrl);
+    form->addRow(tr("Name:"), m_xyzName);
+    form->addRow(tr("URL template:"), m_xyzUrl);
     // A row layout gets a buddy-less label that would show "&Zoom".
     auto *zoomLabel = new QLabel(tr("&Zoom range:"), page);
     zoomLabel->setBuddy(m_xyzZMin);
-    form->addRow(zoomLabel,               zoomRow);
+    form->addRow(zoomLabel, zoomRow);
     form->addRow(tr("Tile pixel ratio:"), m_xyzPixRatio);
-    form->addRow(tr("Axis order:"),       m_xyzAxis);
+    form->addRow(tr("Axis order:"), m_xyzAxis);
     vlay->addLayout(form);
 
     buildAuthGroup(page, m_xyzAuthBox, m_xyzUser, m_xyzPass, m_xyzEye);
@@ -258,7 +269,7 @@ void AddBasemapDialog::setupUiXYZ(QWidget *page)
     vlay->addWidget(m_xyzHeaders);
 
     auto *testRow = new QHBoxLayout;
-    m_xyzTestBtn   = new QPushButton(tr("Test Connection"), page);
+    m_xyzTestBtn = new QPushButton(tr("Test Connection"), page);
     m_xyzTestLabel = new QLabel(page);
     testRow->addWidget(m_xyzTestBtn);
     testRow->addWidget(m_xyzTestLabel);
@@ -267,15 +278,14 @@ void AddBasemapDialog::setupUiXYZ(QWidget *page)
     vlay->addStretch();
 
     // Wiring
-    connect(m_xyzCombo,   &QComboBox::currentTextChanged,
-            this, &AddBasemapDialog::onXYZConnectionSelected);
-    connect(m_xyzNew,     &QPushButton::clicked, this, &AddBasemapDialog::onXYZNew);
-    connect(m_xyzEdit,    &QPushButton::clicked, this, &AddBasemapDialog::onXYZEdit);
-    connect(m_xyzDel,     &QPushButton::clicked, this, &AddBasemapDialog::onXYZDelete);
+    connect(m_xyzCombo, &QComboBox::currentTextChanged, this,
+            &AddBasemapDialog::onXYZConnectionSelected);
+    connect(m_xyzNew, &QPushButton::clicked, this, &AddBasemapDialog::onXYZNew);
+    connect(m_xyzEdit, &QPushButton::clicked, this, &AddBasemapDialog::onXYZEdit);
+    connect(m_xyzDel, &QPushButton::clicked, this, &AddBasemapDialog::onXYZDelete);
     connect(m_xyzTestBtn, &QPushButton::clicked, this, &AddBasemapDialog::onXYZTest);
-    connect(m_xyzEye,     &QPushButton::toggled, this, [this](bool) {
-        togglePasswordVisibility(m_xyzPass, m_xyzEye);
-    });
+    connect(m_xyzEye, &QPushButton::toggled, this,
+            [this](bool) { togglePasswordVisibility(m_xyzPass, m_xyzEye); });
 }
 
 // ---------------------------------------------------------------------------
@@ -311,16 +321,16 @@ void AddBasemapDialog::setupUiWMS(QWidget *page)
     m_wmsTree->setHeaderLabel(tr("Available Layers"));
 
     auto *optWidget = new QWidget(splitter);
-    auto *optForm   = new QFormLayout(optWidget);
-    m_wmsStyle   = new QComboBox(optWidget);
-    m_wmsFmt     = new QComboBox(optWidget);
-    m_wmsCrs     = new QComboBox(optWidget);
+    auto *optForm = new QFormLayout(optWidget);
+    m_wmsStyle = new QComboBox(optWidget);
+    m_wmsFmt = new QComboBox(optWidget);
+    m_wmsCrs = new QComboBox(optWidget);
     m_wmsTmsLabel = new QLabel(tr("Tile matrix set:"), optWidget);
-    m_wmsTms      = new QComboBox(optWidget);
-    optForm->addRow(tr("St&yle:"),          m_wmsStyle);
-    optForm->addRow(tr("Format:"),         m_wmsFmt);
-    optForm->addRow(tr("CRS:"),            m_wmsCrs);
-    optForm->addRow(m_wmsTmsLabel,         m_wmsTms);
+    m_wmsTms = new QComboBox(optWidget);
+    optForm->addRow(tr("St&yle:"), m_wmsStyle);
+    optForm->addRow(tr("Format:"), m_wmsFmt);
+    optForm->addRow(tr("CRS:"), m_wmsCrs);
+    optForm->addRow(m_wmsTmsLabel, m_wmsTms);
     splitter->addWidget(m_wmsTree);
     splitter->addWidget(optWidget);
     vlay->addWidget(splitter);
@@ -330,23 +340,23 @@ void AddBasemapDialog::setupUiWMS(QWidget *page)
     advBox->setCheckable(true);
     advBox->setChecked(false);
     auto *advForm = new QFormLayout(advBox);
-    m_wmsDpiMode   = new QComboBox(advBox);
-    m_wmsDpiMode->addItem(tr("All"),        7);
-    m_wmsDpiMode->addItem(tr("None"),       0);
-    m_wmsDpiMode->addItem(tr("QGIS"),       1);
+    m_wmsDpiMode = new QComboBox(advBox);
+    m_wmsDpiMode->addItem(tr("All"), 7);
+    m_wmsDpiMode->addItem(tr("None"), 0);
+    m_wmsDpiMode->addItem(tr("QGIS"), 1);
     m_wmsDpiMode->addItem(tr("UMN MapServer"), 2);
-    m_wmsDpiMode->addItem(tr("GeoServer"),  4);
-    m_wmsRatio     = new QComboBox(advBox);
-    m_wmsRatio->addItem(tr("Undefined"),        0);
-    m_wmsRatio->addItem(tr("Standard 96 DPI"),  1);
-    m_wmsRatio->addItem(tr("HiDPI 192 DPI"),    2);
-    m_wmsIgnoreUri  = new QCheckBox(tr("Ignore GetMap URI"),          advBox);
-    m_wmsIgnoreAxis = new QCheckBox(tr("Ignore axis orientation"),    advBox);
-    m_wmsInvertAxis = new QCheckBox(tr("Invert axis orientation"),    advBox);
-    m_wmsSmooth     = new QCheckBox(tr("Smooth pixmap transform"),    advBox);
+    m_wmsDpiMode->addItem(tr("GeoServer"), 4);
+    m_wmsRatio = new QComboBox(advBox);
+    m_wmsRatio->addItem(tr("Undefined"), 0);
+    m_wmsRatio->addItem(tr("Standard 96 DPI"), 1);
+    m_wmsRatio->addItem(tr("HiDPI 192 DPI"), 2);
+    m_wmsIgnoreUri = new QCheckBox(tr("Ignore GetMap URI"), advBox);
+    m_wmsIgnoreAxis = new QCheckBox(tr("Ignore axis orientation"), advBox);
+    m_wmsInvertAxis = new QCheckBox(tr("Invert axis orientation"), advBox);
+    m_wmsSmooth = new QCheckBox(tr("Smooth pixmap transform"), advBox);
     m_wmsSmooth->setChecked(true);
-    advForm->addRow(tr("DPI mode:"),        m_wmsDpiMode);
-    advForm->addRow(tr("Tile pixel ratio:"),m_wmsRatio);
+    advForm->addRow(tr("DPI mode:"), m_wmsDpiMode);
+    advForm->addRow(tr("Tile pixel ratio:"), m_wmsRatio);
     advForm->addRow(m_wmsIgnoreUri);
     advForm->addRow(m_wmsIgnoreAxis);
     advForm->addRow(m_wmsInvertAxis);
@@ -360,18 +370,17 @@ void AddBasemapDialog::setupUiWMS(QWidget *page)
     vlay->addWidget(m_wmsStatus);
 
     // Wiring
-    connect(m_wmsCombo,    &QComboBox::currentTextChanged,
-            this, &AddBasemapDialog::onWMSConnectionSelected);
-    connect(m_wmsNew,      &QPushButton::clicked, this, &AddBasemapDialog::onWMSNew);
-    connect(m_wmsEdit,     &QPushButton::clicked, this, &AddBasemapDialog::onWMSEdit);
-    connect(m_wmsDel,      &QPushButton::clicked, this, &AddBasemapDialog::onWMSDelete);
-    connect(m_wmsConnect,  &QPushButton::clicked, this, &AddBasemapDialog::onWMSConnect);
-    connect(m_wmsTree,     &QTreeWidget::itemSelectionChanged,
-            this, &AddBasemapDialog::onWMSLayerSelectionChanged);
-    connect(m_wmsEye,      &QPushButton::toggled, this, [this](bool) {
-        togglePasswordVisibility(m_wmsPass, m_wmsEye);
-    });
-    connect(m_wmsUrl,      &QLineEdit::textChanged, this, [this](const QString &t) {
+    connect(m_wmsCombo, &QComboBox::currentTextChanged, this,
+            &AddBasemapDialog::onWMSConnectionSelected);
+    connect(m_wmsNew, &QPushButton::clicked, this, &AddBasemapDialog::onWMSNew);
+    connect(m_wmsEdit, &QPushButton::clicked, this, &AddBasemapDialog::onWMSEdit);
+    connect(m_wmsDel, &QPushButton::clicked, this, &AddBasemapDialog::onWMSDelete);
+    connect(m_wmsConnect, &QPushButton::clicked, this, &AddBasemapDialog::onWMSConnect);
+    connect(m_wmsTree, &QTreeWidget::itemSelectionChanged, this,
+            &AddBasemapDialog::onWMSLayerSelectionChanged);
+    connect(m_wmsEye, &QPushButton::toggled, this,
+            [this](bool) { togglePasswordVisibility(m_wmsPass, m_wmsEye); });
+    connect(m_wmsUrl, &QLineEdit::textChanged, this, [this](const QString &t) {
         const bool wmts = urlIsWMTS(t);
         m_wmsProtocol->setText(wmts ? tr("Protocol: WMTS (auto-detected)")
                                     : tr("Protocol: WMS (auto-detected)"));
@@ -399,7 +408,7 @@ void AddBasemapDialog::setupUiWCS(QWidget *page)
     m_wcsCombo = new QComboBox(page);
     m_wcsCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     connRow->addWidget(m_wcsCombo);
-    m_wcsNew = new QPushButton(tr("New"),    page);
+    m_wcsNew = new QPushButton(tr("New"), page);
     m_wcsDel = new QPushButton(tr("Delete"), page);
     connRow->addWidget(m_wcsNew);
     connRow->addWidget(m_wcsDel);
@@ -425,18 +434,18 @@ void AddBasemapDialog::setupUiWCS(QWidget *page)
     m_wcsCovTree->setHeaderLabel(tr("Available Coverages"));
 
     auto *optWidget = new QWidget(splitter);
-    auto *optForm   = new QFormLayout(optWidget);
+    auto *optForm = new QFormLayout(optWidget);
 
-    m_wcsFmt   = new QComboBox(optWidget);
-    m_wcsCrs   = new QComboBox(optWidget);
+    m_wcsFmt = new QComboBox(optWidget);
+    m_wcsCrs = new QComboBox(optWidget);
     m_wcsRange = new QLineEdit(optWidget);
     m_wcsRange->setPlaceholderText(tr("e.g. band[1]  (leave blank for all)"));
     m_wcsInterp = new QComboBox(optWidget);
-    m_wcsInterp->addItems({ tr("nearest"), tr("bilinear"), tr("bicubic") });
+    m_wcsInterp->addItems({tr("nearest"), tr("bilinear"), tr("bicubic")});
 
-    optForm->addRow(tr("Format:"),        m_wcsFmt);
-    optForm->addRow(tr("Output CRS:"),    m_wcsCrs);
-    optForm->addRow(tr("Ran&ge subset:"),  m_wcsRange);
+    optForm->addRow(tr("Format:"), m_wcsFmt);
+    optForm->addRow(tr("Output CRS:"), m_wcsCrs);
+    optForm->addRow(tr("Ran&ge subset:"), m_wcsRange);
     optForm->addRow(tr("Interpolation:"), m_wcsInterp);
 
     splitter->addWidget(m_wcsCovTree);
@@ -450,16 +459,15 @@ void AddBasemapDialog::setupUiWCS(QWidget *page)
     vlay->addStretch();
 
     // Wiring
-    connect(m_wcsCombo,   &QComboBox::currentTextChanged,
-            this, &AddBasemapDialog::onWCSConnectionSelected);
-    connect(m_wcsNew,     &QPushButton::clicked, this, &AddBasemapDialog::onWCSNew);
-    connect(m_wcsDel,     &QPushButton::clicked, this, &AddBasemapDialog::onWCSDelete);
+    connect(m_wcsCombo, &QComboBox::currentTextChanged, this,
+            &AddBasemapDialog::onWCSConnectionSelected);
+    connect(m_wcsNew, &QPushButton::clicked, this, &AddBasemapDialog::onWCSNew);
+    connect(m_wcsDel, &QPushButton::clicked, this, &AddBasemapDialog::onWCSDelete);
     connect(m_wcsConnect, &QPushButton::clicked, this, &AddBasemapDialog::onWCSConnect);
-    connect(m_wcsCovTree, &QTreeWidget::itemSelectionChanged,
-            this, &AddBasemapDialog::onWCSCoverageSelectionChanged);
-    connect(m_wcsEye, &QPushButton::toggled, this, [this](bool) {
-        togglePasswordVisibility(m_wcsPass, m_wcsEye);
-    });
+    connect(m_wcsCovTree, &QTreeWidget::itemSelectionChanged, this,
+            &AddBasemapDialog::onWCSCoverageSelectionChanged);
+    connect(m_wcsEye, &QPushButton::toggled, this,
+            [this](bool) { togglePasswordVisibility(m_wcsPass, m_wcsEye); });
 }
 
 // ---------------------------------------------------------------------------
@@ -474,16 +482,16 @@ void AddBasemapDialog::setupUiArcGIS(QWidget *page)
     buildConnectionBar(page, m_arcCombo, m_arcNew, m_arcEdit, m_arcDel);
 
     auto *form = new QFormLayout;
-    m_arcUrl       = new QLineEdit(page);
+    m_arcUrl = new QLineEdit(page);
     m_arcUrl->setPlaceholderText("https://server.arcgisonline.com/arcgis/rest/services/...");
-    m_arcPrefix    = new QLineEdit(page);
-    m_arcContent   = new QLineEdit(page);
+    m_arcPrefix = new QLineEdit(page);
+    m_arcContent = new QLineEdit(page);
     m_arcContent->setPlaceholderText(tr("…/sharing/rest/content  (Portal only)"));
     m_arcCommunity = new QLineEdit(page);
     m_arcCommunity->setPlaceholderText(tr("…/sharing/rest/community  (Portal only)"));
-    form->addRow(tr("URL:"),                m_arcUrl);
-    form->addRow(tr("URL Prefix:"),         m_arcPrefix);
-    form->addRow(tr("Content endpoint:"),   m_arcContent);
+    form->addRow(tr("URL:"), m_arcUrl);
+    form->addRow(tr("URL Prefix:"), m_arcPrefix);
+    form->addRow(tr("Content endpoint:"), m_arcContent);
     form->addRow(tr("Community endpoint:"), m_arcCommunity);
     vlay->addLayout(form);
 
@@ -501,15 +509,14 @@ void AddBasemapDialog::setupUiArcGIS(QWidget *page)
     vlay->addStretch();
 
     // Wiring
-    connect(m_arcCombo,    &QComboBox::currentTextChanged,
-            this, &AddBasemapDialog::onArcGISConnectionSelected);
-    connect(m_arcNew,      &QPushButton::clicked, this, &AddBasemapDialog::onArcGISNew);
-    connect(m_arcEdit,     &QPushButton::clicked, this, &AddBasemapDialog::onArcGISEdit);
-    connect(m_arcDel,      &QPushButton::clicked, this, &AddBasemapDialog::onArcGISDelete);
-    connect(m_arcConnect,  &QPushButton::clicked, this, &AddBasemapDialog::onArcGISConnect);
-    connect(m_arcEye,      &QPushButton::toggled, this, [this](bool) {
-        togglePasswordVisibility(m_arcPass, m_arcEye);
-    });
+    connect(m_arcCombo, &QComboBox::currentTextChanged, this,
+            &AddBasemapDialog::onArcGISConnectionSelected);
+    connect(m_arcNew, &QPushButton::clicked, this, &AddBasemapDialog::onArcGISNew);
+    connect(m_arcEdit, &QPushButton::clicked, this, &AddBasemapDialog::onArcGISEdit);
+    connect(m_arcDel, &QPushButton::clicked, this, &AddBasemapDialog::onArcGISDelete);
+    connect(m_arcConnect, &QPushButton::clicked, this, &AddBasemapDialog::onArcGISConnect);
+    connect(m_arcEye, &QPushButton::toggled, this,
+            [this](bool) { togglePasswordVisibility(m_arcPass, m_arcEye); });
 }
 
 // ---------------------------------------------------------------------------
@@ -527,7 +534,7 @@ void AddBasemapDialog::setupUiLocal(QWidget *page)
     m_localCombo = new QComboBox(page);
     m_localCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     connRow->addWidget(m_localCombo);
-    m_localNew = new QPushButton(tr("New"),    page);
+    m_localNew = new QPushButton(tr("New"), page);
     m_localDel = new QPushButton(tr("Delete"), page);
     connRow->addWidget(m_localNew);
     connRow->addWidget(m_localDel);
@@ -558,27 +565,25 @@ void AddBasemapDialog::setupUiLocal(QWidget *page)
     crsRow->addWidget(m_localCrs);
     crsRow->addWidget(m_localCrsBtn);
 
-    form->addRow(tr("Name:"),        m_localName);
+    form->addRow(tr("Name:"), m_localName);
     form->addRow(tr("Raster file:"), fileRow);
-    form->addRow(QString(),          m_localStatus);
-    form->addRow(tr("World file:"),  worldRow);
-    form->addRow(tr("CRS:"),         crsRow);
+    form->addRow(QString(), m_localStatus);
+    form->addRow(tr("World file:"), worldRow);
+    form->addRow(tr("CRS:"), crsRow);
     vlay->addLayout(form);
     vlay->addStretch();
 
     // Wiring
-    connect(m_localCombo, &QComboBox::currentTextChanged,
-            this, &AddBasemapDialog::onLocalConnectionSelected);
+    connect(m_localCombo, &QComboBox::currentTextChanged, this,
+            &AddBasemapDialog::onLocalConnectionSelected);
     connect(m_localNew, &QPushButton::clicked, this, &AddBasemapDialog::onLocalNew);
     connect(m_localDel, &QPushButton::clicked, this, &AddBasemapDialog::onLocalDelete);
-    connect(m_localFileBrowse,  &QPushButton::clicked,
-            this, &AddBasemapDialog::onLocalBrowseFile);
-    connect(m_localWorldBrowse, &QPushButton::clicked,
-            this, &AddBasemapDialog::onLocalBrowseWorldFile);
-    connect(m_localCrsBtn, &QPushButton::clicked,
-            this, &AddBasemapDialog::onLocalSelectCrs);
-    connect(m_localFile, &QLineEdit::editingFinished,
-            this, &AddBasemapDialog::updateLocalGeorefStatus);
+    connect(m_localFileBrowse, &QPushButton::clicked, this, &AddBasemapDialog::onLocalBrowseFile);
+    connect(m_localWorldBrowse, &QPushButton::clicked, this,
+            &AddBasemapDialog::onLocalBrowseWorldFile);
+    connect(m_localCrsBtn, &QPushButton::clicked, this, &AddBasemapDialog::onLocalSelectCrs);
+    connect(m_localFile, &QLineEdit::editingFinished, this,
+            &AddBasemapDialog::updateLocalGeorefStatus);
 }
 
 // ---------------------------------------------------------------------------
@@ -594,7 +599,8 @@ void AddBasemapDialog::refreshXYZCombo()
         m_xyzCombo->addItem(b.name);
     const QStringList saved = BasemapConnectionStore::instance()->xyzConnectionNames();
     for (const QString &n : saved)
-        if (m_xyzCombo->findText(n) < 0) m_xyzCombo->addItem(n);
+        if (m_xyzCombo->findText(n) < 0)
+            m_xyzCombo->addItem(n);
     m_xyzCombo->blockSignals(false);
 }
 
@@ -691,7 +697,8 @@ void AddBasemapDialog::populateWCS(const WCSConnection &conn, const BasemapAuth 
         m_wcsFmt->addItem(conn.outputFormat);
     m_wcsFmt->setCurrentText(conn.outputFormat);
     const int interpIdx = m_wcsInterp->findText(conn.interpolation);
-    if (interpIdx >= 0) m_wcsInterp->setCurrentIndex(interpIdx);
+    if (interpIdx >= 0)
+        m_wcsInterp->setCurrentIndex(interpIdx);
 }
 
 void AddBasemapDialog::populateWCSTree(const WCSServiceInfo &info)
@@ -705,8 +712,7 @@ void AddBasemapDialog::populateWCSTree(const WCSServiceInfo &info)
     }
 }
 
-void AddBasemapDialog::populateArcGIS(const ArcGISRestConnection &conn,
-                                       const BasemapAuth          &auth)
+void AddBasemapDialog::populateArcGIS(const ArcGISRestConnection &conn, const BasemapAuth &auth)
 {
     m_arcUrl->setText(conn.url);
     m_arcPrefix->setText(conn.urlPrefix);
@@ -732,15 +738,17 @@ void AddBasemapDialog::updateLocalGeorefStatus()
     namespace rg = openswmmvis::io::rastergeoref;
 
     const QString path = m_localFile->text().trimmed();
-    if (path.isEmpty()) { m_localStatus->clear(); return; }
+    if (path.isEmpty()) {
+        m_localStatus->clear();
+        return;
+    }
     if (!QFile::exists(path)) {
         m_localStatus->setText(tr("File not found."));
         return;
     }
 
     const rg::GeorefProbe probe = rg::probeGeoref(path);
-    const QString crsText = probe.crsAuthCode.isEmpty() ? probe.crsDescription
-                                                        : probe.crsAuthCode;
+    const QString crsText = probe.crsAuthCode.isEmpty() ? probe.crsDescription : probe.crsAuthCode;
     if (probe.hasGeoTransform && !crsText.isEmpty())
         m_localStatus->setText(tr("Embedded CRS: %1; georeferenced").arg(crsText));
     else if (probe.hasGeoTransform)
@@ -759,7 +767,10 @@ void AddBasemapDialog::updateLocalGeorefStatus()
     if (m_localWorld->text().isEmpty() && !probe.hasGeoTransform) {
         const QStringList candidates = rg::worldFileCandidates(path);
         for (const QString &c : candidates) {
-            if (QFile::exists(c)) { m_localWorld->setText(c); break; }
+            if (QFile::exists(c)) {
+                m_localWorld->setText(c);
+                break;
+            }
         }
     }
 
@@ -774,7 +785,10 @@ void AddBasemapDialog::updateLocalGeorefStatus()
 void AddBasemapDialog::onXYZConnectionSelected(const QString &name)
 {
     if (name.isEmpty() || name.startsWith("—")) {
-        m_xyzName->clear(); m_xyzUrl->clear(); m_xyzHeaders->clear(); return;
+        m_xyzName->clear();
+        m_xyzUrl->clear();
+        m_xyzHeaders->clear();
+        return;
     }
     // Saved edits override a name-identical built-in preset.
     if (BasemapConnectionStore::instance()->xyzConnectionNames().contains(name)) {
@@ -783,22 +797,28 @@ void AddBasemapDialog::onXYZConnectionSelected(const QString &name)
         return;
     }
     for (const XYZConnection &b : XYZConnection::builtins()) {
-        if (b.name == name) { populateXYZ(b, {}); return; }
+        if (b.name == name) {
+            populateXYZ(b, {});
+            return;
+        }
     }
     const XYZConnection conn = BasemapConnectionStore::instance()->loadXYZ(name);
-    const BasemapAuth   auth = BasemapConnectionStore::instance()->loadXYZAuth(name);
+    const BasemapAuth auth = BasemapConnectionStore::instance()->loadXYZAuth(name);
     populateXYZ(conn, auth);
 }
 
 void AddBasemapDialog::onXYZNew()
 {
     m_xyzCombo->setCurrentIndex(0);
-    m_xyzName->clear(); m_xyzUrl->clear();
-    m_xyzZMin->setValue(0); m_xyzZMax->setValue(19);
+    m_xyzName->clear();
+    m_xyzUrl->clear();
+    m_xyzZMin->setValue(0);
+    m_xyzZMax->setValue(19);
     m_xyzPixRatio->setCurrentIndex(0);
     m_xyzAxis->setCurrentIndex(0);
     m_xyzHeaders->clear();
-    m_xyzUser->clear(); m_xyzPass->clear();
+    m_xyzUser->clear();
+    m_xyzPass->clear();
     m_xyzAuthBox->setChecked(false);
 }
 
@@ -810,13 +830,16 @@ void AddBasemapDialog::onXYZEdit()
 void AddBasemapDialog::onXYZDelete()
 {
     const QString name = m_xyzCombo->currentText();
-    if (name.isEmpty() || name.startsWith("—")) return;
+    if (name.isEmpty() || name.startsWith("—"))
+        return;
     // Prevent deletion of builtins
     for (const XYZConnection &b : XYZConnection::builtins())
-        if (b.name == name) return;
+        if (b.name == name)
+            return;
 
     if (QMessageBox::question(this, tr("Delete Connection"),
-            tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes) return;
+                              tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes)
+        return;
     BasemapConnectionStore::instance()->removeXYZ(name);
     refreshXYZCombo();
 }
@@ -824,7 +847,10 @@ void AddBasemapDialog::onXYZDelete()
 void AddBasemapDialog::onXYZTest()
 {
     const QString url = m_xyzUrl->text().trimmed();
-    if (url.isEmpty()) { m_xyzTestLabel->setText(tr("Enter a URL first.")); return; }
+    if (url.isEmpty()) {
+        m_xyzTestLabel->setText(tr("Enter a URL first."));
+        return;
+    }
 
     QString testUrl = url;
     testUrl.replace("{s}", "a").replace("{z}", "0").replace("{x}", "0").replace("{y}", "0");
@@ -835,7 +861,8 @@ void AddBasemapDialog::onXYZTest()
         req.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
 
     if (m_xyzAuthBox->isChecked() && !m_xyzUser->text().isEmpty()) {
-        const QByteArray cred = QByteArray((m_xyzUser->text() + ':' + m_xyzPass->text()).toUtf8()).toBase64();
+        const QByteArray cred =
+            QByteArray((m_xyzUser->text() + ':' + m_xyzPass->text()).toUtf8()).toBase64();
         req.setRawHeader("Authorization", "Basic " + cred);
     }
 
@@ -856,19 +883,26 @@ void AddBasemapDialog::onXYZTest()
 
 void AddBasemapDialog::onWMSConnectionSelected(const QString &name)
 {
-    if (name.isEmpty() || name.startsWith("—")) return;
+    if (name.isEmpty() || name.startsWith("—"))
+        return;
     const WMSConnection conn = BasemapConnectionStore::instance()->loadWMS(name);
-    const BasemapAuth   auth = BasemapConnectionStore::instance()->loadWMSAuth(name);
+    const BasemapAuth auth = BasemapConnectionStore::instance()->loadWMSAuth(name);
     populateWMS(conn, auth);
 }
 
 void AddBasemapDialog::onWMSNew()
 {
     m_wmsCombo->setCurrentIndex(0);
-    m_wmsUrl->clear(); m_wmsUser->clear(); m_wmsPass->clear();
-    m_wmsAuthBox->setChecked(false); m_wmsHeaders->clear();
-    m_wmsTree->clear(); m_wmsStyle->clear(); m_wmsFmt->clear();
-    m_wmsCrs->clear(); m_wmsTms->clear();
+    m_wmsUrl->clear();
+    m_wmsUser->clear();
+    m_wmsPass->clear();
+    m_wmsAuthBox->setChecked(false);
+    m_wmsHeaders->clear();
+    m_wmsTree->clear();
+    m_wmsStyle->clear();
+    m_wmsFmt->clear();
+    m_wmsCrs->clear();
+    m_wmsTms->clear();
 }
 
 void AddBasemapDialog::onWMSEdit() {}
@@ -876,9 +910,11 @@ void AddBasemapDialog::onWMSEdit() {}
 void AddBasemapDialog::onWMSDelete()
 {
     const QString name = m_wmsCombo->currentText();
-    if (name.isEmpty() || name.startsWith("—")) return;
+    if (name.isEmpty() || name.startsWith("—"))
+        return;
     if (QMessageBox::question(this, tr("Delete Connection"),
-            tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes) return;
+                              tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes)
+        return;
     BasemapConnectionStore::instance()->removeWMS(name);
     refreshWMSCombo();
 }
@@ -886,7 +922,8 @@ void AddBasemapDialog::onWMSDelete()
 void AddBasemapDialog::onWMSConnect()
 {
     const QString urlText = m_wmsUrl->text().trimmed();
-    if (urlText.isEmpty()) return;
+    if (urlText.isEmpty())
+        return;
 
     m_isWMTS = urlIsWMTS(urlText);
     m_wmsStatus->setText(tr("Connecting…"));
@@ -900,28 +937,28 @@ void AddBasemapDialog::onWMSConnect()
                 &AddBasemapDialog::onWMSCapabilitiesError);
         // On error the temporary layer self-destructs; on success it is torn
         // down inside the handler below, only after its serviceInfo() is read.
-        connect(layer, &WMTSLayer::capabilitiesError,   layer, &QObject::deleteLater);
+        connect(layer, &WMTSLayer::capabilitiesError, layer, &QObject::deleteLater);
         m_wmtsInfo.reset();
         connect(layer, &WMTSLayer::capabilitiesFetched, this, [this, layer]() {
             m_wmtsInfo = std::make_unique<WMTSServiceInfo>(layer->serviceInfo());
             populateWMTSTree(*m_wmtsInfo);
-            layer->deleteLater();   // done reading from layer; schedule teardown
+            layer->deleteLater(); // done reading from layer; schedule teardown
         });
         layer->fetchCapabilities();
     } else {
         auto *layer = new WMSLayer(QUrl(urlText), nullptr);
         connect(layer, &WMSLayer::capabilitiesFetched, this,
                 &AddBasemapDialog::onWMSCapabilitiesFetched);
-        connect(layer, &WMSLayer::capabilitiesError,  this,
+        connect(layer, &WMSLayer::capabilitiesError, this,
                 &AddBasemapDialog::onWMSCapabilitiesError);
         // On error the temporary layer self-destructs; on success it is torn
         // down inside the handler below, only after its serviceInfo() is read.
-        connect(layer, &WMSLayer::capabilitiesError,   layer, &QObject::deleteLater);
+        connect(layer, &WMSLayer::capabilitiesError, layer, &QObject::deleteLater);
         m_wmsInfo.reset();
         connect(layer, &WMSLayer::capabilitiesFetched, this, [this, layer]() {
             m_wmsInfo = std::make_unique<WMSServiceInfo>(layer->serviceInfo());
             populateWMSTree(*m_wmsInfo);
-            layer->deleteLater();   // done reading from layer; schedule teardown
+            layer->deleteLater(); // done reading from layer; schedule teardown
         });
         layer->fetchCapabilities();
     }
@@ -966,15 +1003,18 @@ void AddBasemapDialog::populateWMTSTree(const WMTSServiceInfo &info)
 void AddBasemapDialog::onWMSLayerSelectionChanged()
 {
     const QList<QTreeWidgetItem *> sel = m_wmsTree->selectedItems();
-    if (sel.isEmpty()) return;
+    if (sel.isEmpty())
+        return;
     if (!m_isWMTS && m_wmsInfo) {
         const QString layerName = sel.first()->data(0, Qt::UserRole).toString();
         m_wmsStyle->clear();
         m_wmsCrs->clear();
         for (const WMSLayerInfo &l : m_wmsInfo->layers) {
             if (l.name == layerName) {
-                for (const QString &s : l.styles)     m_wmsStyle->addItem(s);
-                for (const QString &c : l.crsIdentifiers) m_wmsCrs->addItem(c);
+                for (const QString &s : l.styles)
+                    m_wmsStyle->addItem(s);
+                for (const QString &c : l.crsIdentifiers)
+                    m_wmsCrs->addItem(c);
                 break;
             }
         }
@@ -984,8 +1024,10 @@ void AddBasemapDialog::onWMSLayerSelectionChanged()
         m_wmsFmt->clear();
         for (const WMTSLayerInfo &l : m_wmtsInfo->layers) {
             if (l.identifier == layerId) {
-                for (const QString &s : l.styles)  m_wmsStyle->addItem(s);
-                for (const QString &f : l.formats) m_wmsFmt->addItem(f);
+                for (const QString &s : l.styles)
+                    m_wmsStyle->addItem(s);
+                for (const QString &f : l.formats)
+                    m_wmsFmt->addItem(f);
                 break;
             }
         }
@@ -998,9 +1040,10 @@ void AddBasemapDialog::onWMSLayerSelectionChanged()
 
 void AddBasemapDialog::onWCSConnectionSelected(const QString &name)
 {
-    if (name.isEmpty() || name.startsWith(QStringLiteral("—"))) return;
+    if (name.isEmpty() || name.startsWith(QStringLiteral("—")))
+        return;
     const WCSConnection conn = BasemapConnectionStore::instance()->loadWCS(name);
-    const BasemapAuth   auth = BasemapConnectionStore::instance()->loadWCSAuth(name);
+    const BasemapAuth auth = BasemapConnectionStore::instance()->loadWCSAuth(name);
     populateWCS(conn, auth);
 }
 
@@ -1025,9 +1068,11 @@ void AddBasemapDialog::onWCSNew()
 void AddBasemapDialog::onWCSDelete()
 {
     const QString name = m_wcsCombo->currentText();
-    if (name.isEmpty() || name.startsWith(QStringLiteral("—"))) return;
+    if (name.isEmpty() || name.startsWith(QStringLiteral("—")))
+        return;
     if (QMessageBox::question(this, tr("Delete Connection"),
-            tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes) return;
+                              tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes)
+        return;
     BasemapConnectionStore::instance()->removeWCS(name);
     refreshWCSCombo();
 }
@@ -1035,7 +1080,8 @@ void AddBasemapDialog::onWCSDelete()
 void AddBasemapDialog::onWCSConnect()
 {
     const QString urlText = m_wcsUrl->text().trimmed();
-    if (urlText.isEmpty()) return;
+    if (urlText.isEmpty())
+        return;
 
     m_wcsStatus->setText(tr("Connecting…"));
 
@@ -1047,25 +1093,22 @@ void AddBasemapDialog::onWCSConnect()
 
     connect(layer, &WCSLayer::capabilitiesFetched, this,
             &AddBasemapDialog::onWCSCapabilitiesFetched);
-    connect(layer, &WCSLayer::capabilitiesError, this,
-            &AddBasemapDialog::onWCSCapabilitiesError);
+    connect(layer, &WCSLayer::capabilitiesError, this, &AddBasemapDialog::onWCSCapabilitiesError);
     connect(layer, &WCSLayer::capabilitiesFetched, layer, &QObject::deleteLater);
-    connect(layer, &WCSLayer::capabilitiesError,   layer, &QObject::deleteLater);
+    connect(layer, &WCSLayer::capabilitiesError, layer, &QObject::deleteLater);
 
-    connect(layer, &WCSLayer::capabilitiesFetched, this,
-            [this, layer](const WCSServiceInfo &) {
-                delete m_wcsInfo;
-                m_wcsInfo = new WCSServiceInfo(layer->serviceInfo());
-                populateWCSTree(*m_wcsInfo);
-            });
+    connect(layer, &WCSLayer::capabilitiesFetched, this, [this, layer](const WCSServiceInfo &) {
+        delete m_wcsInfo;
+        m_wcsInfo = new WCSServiceInfo(layer->serviceInfo());
+        populateWCSTree(*m_wcsInfo);
+    });
 
     layer->fetchCapabilities();
 }
 
 void AddBasemapDialog::onWCSCapabilitiesFetched(const WCSServiceInfo &info)
 {
-    m_wcsStatus->setText(tr("Connected — %1 coverage(s) found.")
-                             .arg(info.coverages.size()));
+    m_wcsStatus->setText(tr("Connected — %1 coverage(s) found.").arg(info.coverages.size()));
 }
 
 void AddBasemapDialog::onWCSCapabilitiesError(const QString &error)
@@ -1076,7 +1119,8 @@ void AddBasemapDialog::onWCSCapabilitiesError(const QString &error)
 void AddBasemapDialog::onWCSCoverageSelectionChanged()
 {
     const QList<QTreeWidgetItem *> sel = m_wcsCovTree->selectedItems();
-    if (sel.isEmpty() || !m_wcsInfo) return;
+    if (sel.isEmpty() || !m_wcsInfo)
+        return;
 
     const QString covId = sel.first()->data(0, Qt::UserRole).toString();
     m_wcsFmt->clear();
@@ -1084,16 +1128,18 @@ void AddBasemapDialog::onWCSCoverageSelectionChanged()
 
     for (const WCSCoverageInfo &ci : m_wcsInfo->coverages) {
         if (ci.identifier == covId) {
-            for (const QString &f : ci.supportedFormats) m_wcsFmt->addItem(f);
+            for (const QString &f : ci.supportedFormats)
+                m_wcsFmt->addItem(f);
             // Always ensure GeoTIFF is available as a fallback
             if (m_wcsFmt->findText(QStringLiteral("image/tiff"), Qt::MatchContains) < 0)
                 m_wcsFmt->addItem(QStringLiteral("image/tiff"));
             // Prefer GeoTIFF
-            const int tiffIdx = m_wcsFmt->findText(
-                QStringLiteral("image/tiff"), Qt::MatchContains);
-            if (tiffIdx >= 0) m_wcsFmt->setCurrentIndex(tiffIdx);
+            const int tiffIdx = m_wcsFmt->findText(QStringLiteral("image/tiff"), Qt::MatchContains);
+            if (tiffIdx >= 0)
+                m_wcsFmt->setCurrentIndex(tiffIdx);
 
-            for (const QString &c : ci.supportedCrs) m_wcsCrs->addItem(c);
+            for (const QString &c : ci.supportedCrs)
+                m_wcsCrs->addItem(c);
             // Always ensure EPSG:4326 is available as a fallback
             if (m_wcsCrs->findText(QStringLiteral("EPSG:4326"), Qt::MatchContains) < 0)
                 m_wcsCrs->addItem(QStringLiteral("EPSG:4326"));
@@ -1114,19 +1160,24 @@ void AddBasemapDialog::onWCSCoverageSelectionChanged()
 
 void AddBasemapDialog::onArcGISConnectionSelected(const QString &name)
 {
-    if (name.isEmpty() || name.startsWith("—")) return;
+    if (name.isEmpty() || name.startsWith("—"))
+        return;
     const ArcGISRestConnection conn = BasemapConnectionStore::instance()->loadArcGIS(name);
-    const BasemapAuth          auth = BasemapConnectionStore::instance()->loadArcGISAuth(name);
+    const BasemapAuth auth = BasemapConnectionStore::instance()->loadArcGISAuth(name);
     populateArcGIS(conn, auth);
 }
 
 void AddBasemapDialog::onArcGISNew()
 {
     m_arcCombo->setCurrentIndex(0);
-    m_arcUrl->clear(); m_arcPrefix->clear();
-    m_arcContent->clear(); m_arcCommunity->clear();
-    m_arcUser->clear(); m_arcPass->clear();
-    m_arcAuthBox->setChecked(false); m_arcHeaders->clear();
+    m_arcUrl->clear();
+    m_arcPrefix->clear();
+    m_arcContent->clear();
+    m_arcCommunity->clear();
+    m_arcUser->clear();
+    m_arcPass->clear();
+    m_arcAuthBox->setChecked(false);
+    m_arcHeaders->clear();
     m_arcInfoLabel->clear();
     m_arcDerivedXYZ = XYZConnection{};
 }
@@ -1136,9 +1187,11 @@ void AddBasemapDialog::onArcGISEdit() {}
 void AddBasemapDialog::onArcGISDelete()
 {
     const QString name = m_arcCombo->currentText();
-    if (name.isEmpty() || name.startsWith("—")) return;
+    if (name.isEmpty() || name.startsWith("—"))
+        return;
     if (QMessageBox::question(this, tr("Delete Connection"),
-            tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes) return;
+                              tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes)
+        return;
     BasemapConnectionStore::instance()->removeArcGIS(name);
     refreshArcGISCombo();
 }
@@ -1146,14 +1199,17 @@ void AddBasemapDialog::onArcGISDelete()
 void AddBasemapDialog::onArcGISConnect()
 {
     QString base = m_arcUrl->text().trimmed();
-    if (base.endsWith('/')) base.chop(1);
-    if (base.isEmpty()) return;
+    if (base.endsWith('/'))
+        base.chop(1);
+    if (base.isEmpty())
+        return;
 
     // Normalise: if the user pasted the full MapServer URL, don't double-append.
     // ArcGIS REST tile endpoint: {serviceBase}/tile/{z}/{row}/{col}
     // ArcGIS REST metadata endpoint: {serviceBase}?f=json
-    const bool endsWithMapServer = base.endsWith(QStringLiteral("/mapserver"), Qt::CaseInsensitive)
-                                || base.endsWith(QStringLiteral("/featureserver"), Qt::CaseInsensitive);
+    const bool endsWithMapServer =
+        base.endsWith(QStringLiteral("/mapserver"), Qt::CaseInsensitive) ||
+        base.endsWith(QStringLiteral("/featureserver"), Qt::CaseInsensitive);
     const QString serviceBase = endsWithMapServer ? base : base + QStringLiteral("/MapServer");
 
     m_arcInfoLabel->setText(tr("Connecting…"));
@@ -1162,7 +1218,8 @@ void AddBasemapDialog::onArcGISConnect()
     QNetworkRequest req{metaUrl};
 
     if (m_arcAuthBox->isChecked() && !m_arcUser->text().isEmpty()) {
-        const QByteArray cred = QByteArray((m_arcUser->text() + ':' + m_arcPass->text()).toUtf8()).toBase64();
+        const QByteArray cred =
+            QByteArray((m_arcUser->text() + ':' + m_arcPass->text()).toUtf8()).toBase64();
         req.setRawHeader("Authorization", "Basic " + cred);
     }
 
@@ -1178,7 +1235,10 @@ void AddBasemapDialog::onArcGISConnect()
         qDebug() << "[ArcGIS] metadata bytes=" << data.size()
                  << "contentType=" << reply->header(QNetworkRequest::ContentTypeHeader).toString();
         const QJsonObject obj = QJsonDocument::fromJson(data).object();
-        if (obj.isEmpty()) { onArcGISMetadataError(tr("Empty JSON response")); return; }
+        if (obj.isEmpty()) {
+            onArcGISMetadataError(tr("Empty JSON response"));
+            return;
+        }
 
         const QString serviceName = obj.value("mapName").toString(
             obj.value("documentInfo").toObject().value("Title").toString("ArcGIS Layer"));
@@ -1192,18 +1252,18 @@ void AddBasemapDialog::onArcGISConnect()
             }
         }
 
-        m_arcDerivedXYZ.name        = serviceName;
+        m_arcDerivedXYZ.name = serviceName;
         m_arcDerivedXYZ.urlTemplate = serviceBase + QStringLiteral("/tile/{z}/{x}/{y}");
-        m_arcDerivedXYZ.zMin        = zMin;
-        m_arcDerivedXYZ.zMax        = zMax;
-        m_arcDerivedXYZ.axisOrder   = TileAxisOrder::ZYX;
+        m_arcDerivedXYZ.zMin = zMin;
+        m_arcDerivedXYZ.zMax = zMax;
+        m_arcDerivedXYZ.axisOrder = TileAxisOrder::ZYX;
         m_arcDerivedXYZ.httpHeaders = m_arcHeaders->headers();
 
-        qDebug() << "[ArcGIS] template=" << m_arcDerivedXYZ.urlTemplate
-                 << "zMin=" << zMin << "zMax=" << zMax;
+        qDebug() << "[ArcGIS] template=" << m_arcDerivedXYZ.urlTemplate << "zMin=" << zMin
+                 << "zMax=" << zMax;
 
-        m_arcInfoLabel->setText(tr("Service: %1\nTile levels: %2 – %3")
-            .arg(serviceName).arg(zMin).arg(zMax));
+        m_arcInfoLabel->setText(
+            tr("Service: %1\nTile levels: %2 – %3").arg(serviceName).arg(zMin).arg(zMax));
 
         onArcGISMetadataFetched();
     });
@@ -1221,9 +1281,9 @@ void AddBasemapDialog::onArcGISMetadataError(const QString &error)
 
 void AddBasemapDialog::onLocalConnectionSelected(const QString &name)
 {
-    if (name.isEmpty() || name.startsWith(QStringLiteral("—"))) return;
-    const LocalRasterConnection conn =
-        BasemapConnectionStore::instance()->loadLocalRaster(name);
+    if (name.isEmpty() || name.startsWith(QStringLiteral("—")))
+        return;
+    const LocalRasterConnection conn = BasemapConnectionStore::instance()->loadLocalRaster(name);
     populateLocal(conn);
 }
 
@@ -1240,39 +1300,44 @@ void AddBasemapDialog::onLocalNew()
 void AddBasemapDialog::onLocalDelete()
 {
     const QString name = m_localCombo->currentText();
-    if (name.isEmpty() || name.startsWith(QStringLiteral("—"))) return;
+    if (name.isEmpty() || name.startsWith(QStringLiteral("—")))
+        return;
     if (QMessageBox::question(this, tr("Delete Connection"),
-            tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes) return;
+                              tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes)
+        return;
     BasemapConnectionStore::instance()->removeLocalRaster(name);
     refreshLocalCombo();
 }
 
 void AddBasemapDialog::onLocalBrowseFile()
 {
-    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("raster"), this,
-        tr("Select Raster File"), m_localFile->text(),
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+        QStringLiteral("raster"), this, tr("Select Raster File"), m_localFile->text(),
         tr("GeoTIFF (*.tif *.tiff);;PNG (*.png);;JPEG (*.jpg *.jpeg);;"
            "BMP (*.bmp);;All GDAL rasters (*)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty())
+        return;
     m_localFile->setText(path);
     updateLocalGeorefStatus();
 }
 
 void AddBasemapDialog::onLocalBrowseWorldFile()
 {
-    const QString start = m_localWorld->text().isEmpty() ? m_localFile->text()
-                                                         : m_localWorld->text();
-    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(QStringLiteral("world-files"), this,
-        tr("Select World File"), start,
+    const QString start =
+        m_localWorld->text().isEmpty() ? m_localFile->text() : m_localWorld->text();
+    const QString path = openswmmvis::ui::FileOpenDialog::getOpenFileName(
+        QStringLiteral("world-files"), this, tr("Select World File"), start,
         tr("World files (*.tfw *.pgw *.jgw *.bpw *.wld);;All files (*)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty())
+        return;
     m_localWorld->setText(path);
 }
 
 void AddBasemapDialog::onLocalSelectCrs()
 {
     CRSSelectionDialog dlg(this);
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted)
+        return;
     const QString code = dlg.selectedAuthCode();
     if (!code.isEmpty())
         m_localCrs->setText(code);
@@ -1297,7 +1362,7 @@ void AddBasemapDialog::setupUiWFS(QWidget *page)
     m_wfsCombo = new QComboBox(page);
     m_wfsCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     connRow->addWidget(m_wfsCombo);
-    m_wfsNew = new QPushButton(tr("New"),    page);
+    m_wfsNew = new QPushButton(tr("New"), page);
     m_wfsDel = new QPushButton(tr("Delete"), page);
     connRow->addWidget(m_wfsNew);
     connRow->addWidget(m_wfsDel);
@@ -1327,10 +1392,9 @@ void AddBasemapDialog::setupUiWFS(QWidget *page)
     // No format or resolution options, unlike the other service pages. What
     // a collection can be read in is the service's answer, not the user's
     // choice, and it is settled at Connect from what the service advertises.
-    auto *note = new QLabel(
-        tr("Features are fetched once, in the area the map is showing, and "
-           "join the layer tree where they can be queried and styled."),
-        page);
+    auto *note = new QLabel(tr("Features are fetched once, in the area the map is showing, and "
+                               "join the layer tree where they can be queried and styled."),
+                            page);
     note->setWordWrap(true);
     note->setEnabled(false);
     vlay->addWidget(note);
@@ -1341,13 +1405,12 @@ void AddBasemapDialog::setupUiWFS(QWidget *page)
     vlay->addWidget(m_wfsHeaders);
 
     // Wiring
-    connect(m_wfsCombo, &QComboBox::currentTextChanged,
-            this, &AddBasemapDialog::onWFSConnectionSelected);
-    connect(m_wfsNew,     &QPushButton::clicked, this, &AddBasemapDialog::onWFSNew);
-    connect(m_wfsDel,     &QPushButton::clicked, this, &AddBasemapDialog::onWFSDelete);
+    connect(m_wfsCombo, &QComboBox::currentTextChanged, this,
+            &AddBasemapDialog::onWFSConnectionSelected);
+    connect(m_wfsNew, &QPushButton::clicked, this, &AddBasemapDialog::onWFSNew);
+    connect(m_wfsDel, &QPushButton::clicked, this, &AddBasemapDialog::onWFSDelete);
     connect(m_wfsConnect, &QPushButton::clicked, this, &AddBasemapDialog::onWFSConnect);
-    connect(m_wfsTypes, &QListWidget::currentRowChanged,
-            this, [this](int) { updateOkEnabled(); });
+    connect(m_wfsTypes, &QListWidget::currentRowChanged, this, [this](int) { updateOkEnabled(); });
     connect(m_wfsEye, &QPushButton::toggled, this, [this](bool on) {
         m_wfsPass->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
     });
@@ -1357,22 +1420,21 @@ void AddBasemapDialog::setupUiWFS(QWidget *page)
 
 void AddBasemapDialog::refreshWFSCombo()
 {
-    if (!m_wfsCombo) return;
+    if (!m_wfsCombo)
+        return;
 
     const QString current = m_wfsCombo->currentText();
 
     QSignalBlocker block(m_wfsCombo);
     m_wfsCombo->clear();
     m_wfsCombo->addItem(QString());
-    m_wfsCombo->addItems(
-        BasemapConnectionStore::instance()->wfsConnectionNames());
+    m_wfsCombo->addItems(BasemapConnectionStore::instance()->wfsConnectionNames());
 
     const int idx = m_wfsCombo->findText(current);
     m_wfsCombo->setCurrentIndex(idx >= 0 ? idx : 0);
 }
 
-void AddBasemapDialog::populateWFS(const WFSConnection &conn,
-                                    const BasemapAuth   &auth)
+void AddBasemapDialog::populateWFS(const WFSConnection &conn, const BasemapAuth &auth)
 {
     m_wfsUrl->setText(conn.url);
     m_wfsHeaders->setHeaders(conn.httpHeaders);
@@ -1411,7 +1473,8 @@ void AddBasemapDialog::setPreferredExtent(const QRectF &lonLatBounds)
 
 void AddBasemapDialog::onWFSConnectionSelected(const QString &name)
 {
-    if (name.isEmpty()) return;
+    if (name.isEmpty())
+        return;
 
     populateWFS(BasemapConnectionStore::instance()->loadWFS(name),
                 BasemapConnectionStore::instance()->loadWFSAuth(name));
@@ -1420,16 +1483,16 @@ void AddBasemapDialog::onWFSConnectionSelected(const QString &name)
 void AddBasemapDialog::onWFSNew()
 {
     bool ok = false;
-    const QString name = QInputDialog::getText(
-        this, tr("Save WFS Connection"), tr("Name:"), QLineEdit::Normal,
-        QString(), &ok);
+    const QString name = QInputDialog::getText(this, tr("Save WFS Connection"), tr("Name:"),
+                                               QLineEdit::Normal, QString(), &ok);
 
-    if (!ok || name.trimmed().isEmpty()) return;
+    if (!ok || name.trimmed().isEmpty())
+        return;
 
     WFSConnection conn;
-    conn.name        = name.trimmed();
-    conn.url         = m_wfsUrl->text().trimmed();
-    conn.version     = m_wfsCaps.version;
+    conn.name = name.trimmed();
+    conn.url = m_wfsUrl->text().trimmed();
+    conn.version = m_wfsCaps.version;
     conn.httpHeaders = m_wfsHeaders->headers();
 
     const int row = m_wfsTypes->currentRow();
@@ -1450,7 +1513,8 @@ void AddBasemapDialog::onWFSNew()
 void AddBasemapDialog::onWFSDelete()
 {
     const QString name = m_wfsCombo->currentText();
-    if (name.isEmpty()) return;
+    if (name.isEmpty())
+        return;
 
     BasemapConnectionStore::instance()->removeWFS(name);
     refreshWFSCombo();
@@ -1469,8 +1533,8 @@ void AddBasemapDialog::connectToWFS()
     delete m_wfsLayer;
     m_wfsLayer = nullptr;
 
-    const QString url = HydroCouple::Ogc::buildCapabilitiesUrl(
-        m_wfsUrl->text(), HydroCouple::Ogc::ServiceKind::Wfs);
+    const QString url = HydroCouple::Ogc::buildCapabilitiesUrl(m_wfsUrl->text(),
+                                                               HydroCouple::Ogc::ServiceKind::Wfs);
 
     if (url.isEmpty()) {
         m_wfsStatusText = tr("That is not a web address.");
@@ -1497,26 +1561,23 @@ void AddBasemapDialog::showWFSCollections(const QByteArray &body)
     if (!m_wfsCaps.ok) {
         // The service's own account of what is wrong, which it sends in the
         // body under an HTTP 200 as often as not.
-        m_wfsStatusText = m_wfsCaps.message.isEmpty()
-                              ? tr("That address is not a WFS.")
-                              : m_wfsCaps.message;
+        m_wfsStatusText =
+            m_wfsCaps.message.isEmpty() ? tr("That address is not a WFS.") : m_wfsCaps.message;
         m_wfsStatus->setText(m_wfsStatusText);
         return;
     }
 
-    const QString service = m_wfsCaps.title.isEmpty() ? m_wfsUrl->text()
-                                                      : m_wfsCaps.title;
+    const QString service = m_wfsCaps.title.isEmpty() ? m_wfsUrl->text() : m_wfsCaps.title;
     int usable = 0;
 
     for (const HydroCouple::Ogc::WfsFeatureType &type : m_wfsCaps.featureTypes) {
         const QString title = type.title.isEmpty() ? type.name : type.title;
         QString reason;
 
-        if (HydroCouple::Ogc::preferredOutputFormat(type,
-                                                    m_wfsCaps.outputFormats)
-                .isEmpty()) {
+        if (HydroCouple::Ogc::preferredOutputFormat(type, m_wfsCaps.outputFormats).isEmpty()) {
             reason = tr("“%1” is offered only in formats this program cannot "
-                        "read.").arg(title);
+                        "read.")
+                         .arg(title);
         }
 
         m_wfsChoices.append({type.name, reason});
@@ -1533,11 +1594,11 @@ void AddBasemapDialog::showWFSCollections(const QByteArray &body)
         }
     }
 
-    m_wfsStatusText =
-        usable > 0
-            ? tr("%1: %2 of %3 collections can be read.")
-                  .arg(service).arg(usable).arg(m_wfsChoices.size())
-            : tr("%1 holds nothing this program can read.").arg(service);
+    m_wfsStatusText = usable > 0 ? tr("%1: %2 of %3 collections can be read.")
+                                       .arg(service)
+                                       .arg(usable)
+                                       .arg(m_wfsChoices.size())
+                                 : tr("%1 holds nothing this program can read.").arg(service);
     m_wfsStatus->setText(m_wfsStatusText);
 
     for (int row = 0; row < m_wfsChoices.size(); ++row) {
@@ -1554,17 +1615,18 @@ void AddBasemapDialog::fetchWFSThenAccept()
 {
     const int row = m_wfsTypes->currentRow();
 
-    if (row < 0 || row >= m_wfsChoices.size()) return;
+    if (row < 0 || row >= m_wfsChoices.size())
+        return;
 
     const HydroCouple::Ogc::WfsFeatureType *type =
         m_wfsCaps.featureType(m_wfsChoices.at(row).first);
 
-    if (!type) return;
+    if (!type)
+        return;
 
     HydroCouple::Ogc::WfsGetFeatureRequest request;
     request.typeName = type->name;
-    request.outputFormat =
-        HydroCouple::Ogc::preferredOutputFormat(*type, m_wfsCaps.outputFormats);
+    request.outputFormat = HydroCouple::Ogc::preferredOutputFormat(*type, m_wfsCaps.outputFormats);
 
     // Asked for in longitude and latitude when the collection publishes them,
     // so the ground the map is looking at can be named in the same terms. A
@@ -1575,8 +1637,7 @@ void AddBasemapDialog::fetchWFSThenAccept()
     if (!request.crs.isEmpty() && !m_preferredExtent.isNull())
         request.extent = m_preferredExtent;
 
-    const QString url =
-        HydroCouple::Ogc::buildGetFeatureUrl(m_wfsCaps, request);
+    const QString url = HydroCouple::Ogc::buildGetFeatureUrl(m_wfsCaps, request);
 
     if (url.isEmpty()) {
         m_wfsStatusText = tr("That collection cannot be asked for.");
@@ -1584,9 +1645,9 @@ void AddBasemapDialog::fetchWFSThenAccept()
         return;
     }
 
-    const QString title    = m_wfsTypes->item(row)->text();
+    const QString title = m_wfsTypes->item(row)->text();
     const QString typeName = type->name;
-    const QString service  = m_wfsUrl->text();
+    const QString service = m_wfsUrl->text();
 
     m_wfsStatusText = tr("Fetching %1…").arg(title);
     m_wfsStatus->setText(m_wfsStatusText);
@@ -1597,8 +1658,7 @@ void AddBasemapDialog::fetchWFSThenAccept()
 
     m_wfsClient->get(
         QUrl(url), wfsCredentials(),
-        [this, title, typeName, service](
-            const HydroCouple::Ogc::HttpResponse &response) {
+        [this, title, typeName, service](const HydroCouple::Ogc::HttpResponse &response) {
             auto *layer = new WFSLayer(title);
             QString message;
 
@@ -1625,15 +1685,15 @@ void AddBasemapDialog::fetchWFSThenAccept()
 
 void AddBasemapDialog::updateOkEnabled()
 {
-    if (!m_buttonBox) return;
+    if (!m_buttonBox)
+        return;
 
     bool ready = true;
 
     if (m_tabs->currentIndex() == Wfs) {
         const int row = m_wfsTypes ? m_wfsTypes->currentRow() : -1;
 
-        ready = row >= 0 && row < m_wfsChoices.size()
-                && m_wfsChoices.at(row).second.isEmpty();
+        ready = row >= 0 && row < m_wfsChoices.size() && m_wfsChoices.at(row).second.isEmpty();
     }
 
     m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ready);
@@ -1645,7 +1705,8 @@ OpenSWMMVisLayer *AddBasemapDialog::buildWFSLayer(QObject *parent) const
     WFSLayer *layer = m_wfsLayer;
     m_wfsLayer = nullptr;
 
-    if (layer) layer->setParent(parent);
+    if (layer)
+        layer->setParent(parent);
 
     return layer;
 }
@@ -1653,20 +1714,28 @@ OpenSWMMVisLayer *AddBasemapDialog::buildWFSLayer(QObject *parent) const
 OpenSWMMVisLayer *AddBasemapDialog::createLayer(QObject *parent) const
 {
     switch (m_tabs->currentIndex()) {
-    case XyzTiles:   return buildXYZLayer(parent);
-    case WmsWmts:    return m_isWMTS ? buildWMTSLayer(parent) : buildWMSLayer(parent);
-    case Wcs:        return buildWCSLayer(parent);
-    case ArcGisRest: return buildArcGISLayer(parent);
-    case LocalFile:  return buildLocalRasterLayer(parent);
-    case Wfs:        return buildWFSLayer(parent);
-    default: return nullptr;
+    case XyzTiles:
+        return buildXYZLayer(parent);
+    case WmsWmts:
+        return m_isWMTS ? buildWMTSLayer(parent) : buildWMSLayer(parent);
+    case Wcs:
+        return buildWCSLayer(parent);
+    case ArcGisRest:
+        return buildArcGISLayer(parent);
+    case LocalFile:
+        return buildLocalRasterLayer(parent);
+    case Wfs:
+        return buildWFSLayer(parent);
+    default:
+        return nullptr;
     }
 }
 
 OpenSWMMVisLayer *AddBasemapDialog::buildXYZLayer(QObject *parent) const
 {
     const QString url = m_xyzUrl->text().trimmed();
-    if (url.isEmpty()) return nullptr;
+    if (url.isEmpty())
+        return nullptr;
 
     auto *layer = new XYZTileLayer(url, 256, parent);
     layer->setName(m_xyzName->text().isEmpty() ? url : m_xyzName->text());
@@ -1679,13 +1748,13 @@ OpenSWMMVisLayer *AddBasemapDialog::buildXYZLayer(QObject *parent) const
     // Save connection if name is filled
     if (!m_xyzName->text().isEmpty()) {
         XYZConnection conn;
-        conn.name           = m_xyzName->text();
-        conn.urlTemplate    = url;
-        conn.zMin           = m_xyzZMin->value();
-        conn.zMax           = m_xyzZMax->value();
+        conn.name = m_xyzName->text();
+        conn.urlTemplate = url;
+        conn.zMin = m_xyzZMin->value();
+        conn.zMax = m_xyzZMax->value();
         conn.tilePixelRatio = m_xyzPixRatio->currentData().toInt();
-        conn.axisOrder      = static_cast<TileAxisOrder>(m_xyzAxis->currentData().toInt());
-        conn.httpHeaders    = m_xyzHeaders->headers();
+        conn.axisOrder = static_cast<TileAxisOrder>(m_xyzAxis->currentData().toInt());
+        conn.httpHeaders = m_xyzHeaders->headers();
         BasemapAuth auth;
         if (m_xyzAuthBox->isChecked()) {
             auth.username = m_xyzUser->text();
@@ -1698,9 +1767,11 @@ OpenSWMMVisLayer *AddBasemapDialog::buildXYZLayer(QObject *parent) const
 
 OpenSWMMVisLayer *AddBasemapDialog::buildWMSLayer(QObject *parent) const
 {
-    if (!m_wmsInfo) return nullptr;
+    if (!m_wmsInfo)
+        return nullptr;
     const QList<QTreeWidgetItem *> sel = m_wmsTree->selectedItems();
-    if (sel.isEmpty()) return nullptr;
+    if (sel.isEmpty())
+        return nullptr;
 
     const QString layerName = sel.first()->data(0, Qt::UserRole).toString();
     auto *layer = new WMSLayer(QUrl(m_wmsUrl->text().trimmed()),
@@ -1716,16 +1787,21 @@ OpenSWMMVisLayer *AddBasemapDialog::buildWMSLayer(QObject *parent) const
         layer->setBasicAuth(m_wmsUser->text(), m_wmsPass->text());
     // Set display name from service info
     for (const WMSLayerInfo &li : m_wmsInfo->layers) {
-        if (li.name == layerName) { layer->setName(li.title.isEmpty() ? li.name : li.title); break; }
+        if (li.name == layerName) {
+            layer->setName(li.title.isEmpty() ? li.name : li.title);
+            break;
+        }
     }
     return layer;
 }
 
 OpenSWMMVisLayer *AddBasemapDialog::buildWMTSLayer(QObject *parent) const
 {
-    if (!m_wmtsInfo) return nullptr;
+    if (!m_wmtsInfo)
+        return nullptr;
     const QList<QTreeWidgetItem *> sel = m_wmsTree->selectedItems();
-    if (sel.isEmpty()) return nullptr;
+    if (sel.isEmpty())
+        return nullptr;
 
     const QString layerId = sel.first()->data(0, Qt::UserRole).toString();
     auto *layer = new WMTSLayer(QUrl(m_wmsUrl->text().trimmed()),
@@ -1739,16 +1815,21 @@ OpenSWMMVisLayer *AddBasemapDialog::buildWMTSLayer(QObject *parent) const
     if (m_wmsAuthBox->isChecked() && !m_wmsUser->text().isEmpty())
         layer->setBasicAuth(m_wmsUser->text(), m_wmsPass->text());
     for (const WMTSLayerInfo &li : m_wmtsInfo->layers) {
-        if (li.identifier == layerId) { layer->setName(li.title.isEmpty() ? li.identifier : li.title); break; }
+        if (li.identifier == layerId) {
+            layer->setName(li.title.isEmpty() ? li.identifier : li.title);
+            break;
+        }
     }
     return layer;
 }
 
 OpenSWMMVisLayer *AddBasemapDialog::buildWCSLayer(QObject *parent) const
 {
-    if (!m_wcsInfo) return nullptr;
+    if (!m_wcsInfo)
+        return nullptr;
     const QList<QTreeWidgetItem *> sel = m_wcsCovTree->selectedItems();
-    if (sel.isEmpty()) return nullptr;
+    if (sel.isEmpty())
+        return nullptr;
 
     const QString covId = sel.first()->data(0, Qt::UserRole).toString();
     auto *layer = new WCSLayer(QUrl(m_wcsUrl->text().trimmed()),
@@ -1779,15 +1860,15 @@ OpenSWMMVisLayer *AddBasemapDialog::buildWCSLayer(QObject *parent) const
     // Persist connection
     if (!m_wcsUrl->text().isEmpty()) {
         WCSConnection conn;
-        conn.name          = layer->name();
-        conn.url           = m_wcsUrl->text().trimmed();
-        conn.version       = m_wcsInfo->version;
-        conn.coverageId    = covId;
-        conn.outputFormat  = m_wcsFmt->currentText();
-        conn.outputCrs     = m_wcsCrs->currentText();
-        conn.rangeSubset   = m_wcsRange->text().trimmed();
+        conn.name = layer->name();
+        conn.url = m_wcsUrl->text().trimmed();
+        conn.version = m_wcsInfo->version;
+        conn.coverageId = covId;
+        conn.outputFormat = m_wcsFmt->currentText();
+        conn.outputCrs = m_wcsCrs->currentText();
+        conn.rangeSubset = m_wcsRange->text().trimmed();
         conn.interpolation = m_wcsInterp->currentText();
-        conn.httpHeaders   = m_wcsHeaders->headers();
+        conn.httpHeaders = m_wcsHeaders->headers();
         BasemapAuth auth;
         if (m_wcsAuthBox->isChecked()) {
             auth.username = m_wcsUser->text();
@@ -1800,11 +1881,11 @@ OpenSWMMVisLayer *AddBasemapDialog::buildWCSLayer(QObject *parent) const
 
 OpenSWMMVisLayer *AddBasemapDialog::buildArcGISLayer(QObject *parent) const
 {
-    if (m_arcDerivedXYZ.urlTemplate.isEmpty()) return nullptr;
+    if (m_arcDerivedXYZ.urlTemplate.isEmpty())
+        return nullptr;
 
     // ArcGIS REST tiles are just an XYZTileLayer with ZYX axis order
-    auto *layer = new XYZTileLayer(m_arcDerivedXYZ.urlTemplate,
-                                   256,
+    auto *layer = new XYZTileLayer(m_arcDerivedXYZ.urlTemplate, 256,
                                    qobject_cast<OpenSWMMVisWorkspace *>(parent));
     layer->setName(m_arcDerivedXYZ.name);
     layer->setAxisOrder(TileAxisOrder::ZYX);
@@ -1815,12 +1896,12 @@ OpenSWMMVisLayer *AddBasemapDialog::buildArcGISLayer(QObject *parent) const
     // Save connection
     if (!m_arcUrl->text().isEmpty()) {
         ArcGISRestConnection conn;
-        conn.name              = m_arcDerivedXYZ.name;
-        conn.url               = m_arcUrl->text().trimmed();
-        conn.urlPrefix         = m_arcPrefix->text().trimmed();
-        conn.contentEndpoint   = m_arcContent->text().trimmed();
+        conn.name = m_arcDerivedXYZ.name;
+        conn.url = m_arcUrl->text().trimmed();
+        conn.urlPrefix = m_arcPrefix->text().trimmed();
+        conn.contentEndpoint = m_arcContent->text().trimmed();
         conn.communityEndpoint = m_arcCommunity->text().trimmed();
-        conn.httpHeaders       = m_arcHeaders->headers();
+        conn.httpHeaders = m_arcHeaders->headers();
         BasemapAuth auth;
         if (m_arcAuthBox->isChecked()) {
             auth.username = m_arcUser->text();
@@ -1841,44 +1922,42 @@ OpenSWMMVisLayer *AddBasemapDialog::buildLocalRasterLayer(QObject *parent) const
 
     const QString imagePath = m_localFile->text().trimmed();
     const QString worldPath = m_localWorld->text().trimmed();
-    const QString crsCode   = m_localCrs->text().trimmed();
+    const QString crsCode = m_localCrs->text().trimmed();
 
     if (imagePath.isEmpty() || !QFile::exists(imagePath)) {
-        QMessageBox::warning(self, tr("Add Basemap"),
-            tr("Select an existing raster file."));
+        QMessageBox::warning(self, tr("Add Basemap"), tr("Select an existing raster file."));
         return nullptr;
     }
     if (!worldPath.isEmpty() && !QFile::exists(worldPath)) {
         QMessageBox::warning(self, tr("Add Basemap"),
-            tr("World file \"%1\" does not exist.").arg(worldPath));
+                             tr("World file \"%1\" does not exist.").arg(worldPath));
         return nullptr;
     }
 
     const rg::GeorefProbe probe = rg::probeGeoref(imagePath);
     if (!probe.hasGeoTransform && worldPath.isEmpty()) {
         QMessageBox::warning(self, tr("Add Basemap"),
-            tr("The image has no georeferencing — a world file is required."));
+                             tr("The image has no georeferencing — a world file is required."));
         return nullptr;
     }
     // crsDescription is set whenever the image carries any CRS — including one
     // without an authority code — matching what updateLocalGeorefStatus() shows.
-    if (probe.crsAuthCode.isEmpty() && probe.crsDescription.isEmpty()
-        && crsCode.isEmpty()) {
+    if (probe.crsAuthCode.isEmpty() && probe.crsDescription.isEmpty() && crsCode.isEmpty()) {
         QMessageBox::warning(self, tr("Add Basemap"),
-            tr("The image has no embedded CRS — select a CRS."));
+                             tr("The image has no embedded CRS — select a CRS."));
         return nullptr;
     }
 
     // Persist georeferencing (world file and/or CRS override) so every later
     // plain GDAL open — including the pooled tile-warp handles — sees it.
-    double        gt[6];
+    double gt[6];
     const double *gtPtr = nullptr;
     if (!worldPath.isEmpty()) {
         rg::WorldFileParams wf;
         QString err;
         if (!rg::parseWorldFile(worldPath, &wf, &err)) {
             QMessageBox::warning(self, tr("Add Basemap"),
-                tr("Failed to parse world file: %1").arg(err));
+                                 tr("Failed to parse world file: %1").arg(err));
             return nullptr;
         }
         rg::worldFileToGeoTransform(wf, gt);
@@ -1886,13 +1965,12 @@ OpenSWMMVisLayer *AddBasemapDialog::buildLocalRasterLayer(QObject *parent) const
     }
 
     QString crsWkt;
-    if (!crsCode.isEmpty()
-        && (probe.crsAuthCode.isEmpty() || crsCode != probe.crsAuthCode)) {
+    if (!crsCode.isEmpty() && (probe.crsAuthCode.isEmpty() || crsCode != probe.crsAuthCode)) {
         QString err;
         crsWkt = rg::authCodeToWkt(crsCode, &err);
         if (crsWkt.isEmpty()) {
             QMessageBox::warning(self, tr("Add Basemap"),
-                tr("Failed to resolve CRS \"%1\": %2").arg(crsCode, err));
+                                 tr("Failed to resolve CRS \"%1\": %2").arg(crsCode, err));
             return nullptr;
         }
     }
@@ -1901,26 +1979,24 @@ OpenSWMMVisLayer *AddBasemapDialog::buildLocalRasterLayer(QObject *parent) const
         QString err;
         if (!rg::applyPamGeoref(imagePath, gtPtr, crsWkt, &err)) {
             QMessageBox::warning(self, tr("Add Basemap"),
-                tr("Failed to write georeferencing: %1").arg(err));
+                                 tr("Failed to write georeferencing: %1").arg(err));
             return nullptr;
         }
     }
 
-    auto *layer = new GISRasterLayer(QString(),
-                                     qobject_cast<OpenSWMMVisWorkspace *>(parent));
+    auto *layer = new GISRasterLayer(QString(), qobject_cast<OpenSWMMVisWorkspace *>(parent));
     layer->setIsBasemap(true);
-    layer->setName(m_localName->text().isEmpty()
-                       ? QFileInfo(imagePath).completeBaseName()
-                       : m_localName->text());
+    layer->setName(m_localName->text().isEmpty() ? QFileInfo(imagePath).completeBaseName()
+                                                 : m_localName->text());
     layer->openAsync(imagePath);
 
     // Save connection if name is filled
     if (!m_localName->text().isEmpty()) {
         LocalRasterConnection conn;
-        conn.name          = m_localName->text();
-        conn.filePath      = imagePath;
+        conn.name = m_localName->text();
+        conn.filePath = imagePath;
         conn.worldFilePath = worldPath;
-        conn.crsAuthCode   = crsCode;
+        conn.crsAuthCode = crsCode;
         BasemapConnectionStore::instance()->saveLocalRaster(conn);
     }
     return layer;

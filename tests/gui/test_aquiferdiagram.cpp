@@ -1,12 +1,16 @@
-/*!
- * \file   test_aquiferdiagram.cpp
- * \brief  Phase G2 — the two-zone groundwater (aquifer) illustration builder.
+/**
+ * @file      test_aquiferdiagram.cpp
+ * @brief     Phase G2 — the two-zone groundwater (aquifer) illustration builder.
  *
  * `buildAquiferDiagram` is a pure value → value builder, so the assertions are
  * on the model: every [AQUIFERS] parameter gets exactly one callout, the water
  * table sits Egw − Ebot above the aquifer bottom, an Egw at or below Ebot
  * collapses the saturated zone to an "unknown" hatch, and the focused field's
  * callout is the one emphasised. No engine, no widget.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest>
@@ -16,25 +20,26 @@
 
 using namespace openswmmvis::sectionview;
 
-namespace {
+namespace
+{
 
 //! A fully-entered aquifer in feet / in/hr (the SWMM manual's example).
 AquiferDiagramInput sampleInput()
 {
     AquiferDiagramInput in;
-    in.name           = QStringLiteral("AQ1");
-    in.porosity       = 0.5;
-    in.wiltingPoint   = 0.15;
-    in.fieldCapacity  = 0.30;
-    in.conductivity   = 5.0;
-    in.conductSlope   = 10.0;
-    in.tensionSlope   = 15.0;
-    in.upperEvapFrac  = 0.35;
+    in.name = QStringLiteral("AQ1");
+    in.porosity = 0.5;
+    in.wiltingPoint = 0.15;
+    in.fieldCapacity = 0.30;
+    in.conductivity = 5.0;
+    in.conductSlope = 10.0;
+    in.tensionSlope = 15.0;
+    in.upperEvapFrac = 0.35;
     in.lowerEvapDepth = 2.0;
     in.lowerLossCoeff = 0.002;
-    in.bottomElev     = 0.0;
+    in.bottomElev = 0.0;
     in.waterTableElev = 10.0;
-    in.upperMoisture  = 0.35;
+    in.upperMoisture = 0.35;
     return in;
 }
 
@@ -42,7 +47,8 @@ int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
 {
     int n = 0;
     for (const DiagramLeader &l : m.leaders)
-        if (l.text.contains(needle)) ++n;
+        if (l.text.contains(needle))
+            ++n;
     return n;
 }
 
@@ -50,14 +56,16 @@ int countDimsContaining(const SectionDiagramModel &m, const QString &needle)
 {
     int n = 0;
     for (const DiagramDim &d : m.dims)
-        if (d.text.contains(needle)) ++n;
+        if (d.text.contains(needle))
+            ++n;
     return n;
 }
 
 const DiagramPolyline *waterTableLine(const SectionDiagramModel &m)
 {
     for (const DiagramPolyline &pl : m.polylines)
-        if (pl.wavy) return &pl;
+        if (pl.wavy)
+            return &pl;
     return nullptr;
 }
 
@@ -104,13 +112,14 @@ void TestAquiferDiagram::everyParameterHasOneCallout()
     // Nothing is emphasised or warned about by default.
     QCOMPARE(countLeadersContaining(m, aquiferActiveCalloutPrefix()), 0);
     QCOMPARE(countLeadersContaining(m, aquiferWarningCalloutPrefix()), 0);
-    for (const DiagramDim &d : m.dims) QVERIFY(!d.accent);
+    for (const DiagramDim &d : m.dims)
+        QVERIFY(!d.accent);
 
     // Pattern name rides on the ETu callout only when set.
     AquiferDiagramInput withPat = sampleInput();
     withPat.evapPattern = QStringLiteral("EVAP_MONTHLY");
-    QCOMPARE(countLeadersContaining(buildAquiferDiagram(withPat),
-                                    QStringLiteral("EVAP_MONTHLY")), 1);
+    QCOMPARE(countLeadersContaining(buildAquiferDiagram(withPat), QStringLiteral("EVAP_MONTHLY")),
+             1);
     QCOMPARE(countLeadersContaining(m, QStringLiteral("pattern")), 0);
 }
 
@@ -119,11 +128,12 @@ void TestAquiferDiagram::fluxArrowsAndSchematicNodePresent()
     const SectionDiagramModel m = buildAquiferDiagram(sampleInput());
 
     QStringList labels;
-    for (const DiagramArrow &a : m.arrows) labels << a.label;
+    for (const DiagramArrow &a : m.arrows)
+        labels << a.label;
     QVERIFY(labels.filter(QStringLiteral("FI")).size() == 1);
     QVERIFY(labels.filter(QStringLiteral("ETu")).size() == 1);
     QVERIFY(labels.filter(QStringLiteral("ETs")).size() == 1);
-    QVERIFY(labels.filter(QStringLiteral("percolation")).size() == 2);   // upper→lower + deep
+    QVERIFY(labels.filter(QStringLiteral("percolation")).size() == 2); // upper→lower + deep
     QVERIFY(labels.filter(QStringLiteral("lateral")).size() == 1);
 
     // Ground surface with planting, and a manhole-cover glyph on the node.
@@ -140,7 +150,8 @@ void TestAquiferDiagram::fluxArrowsAndSchematicNodePresent()
     noEts.lowerEvapDepth = 0.0;
     const SectionDiagramModel m2 = buildAquiferDiagram(noEts);
     QStringList labels2;
-    for (const DiagramArrow &a : m2.arrows) labels2 << a.label;
+    for (const DiagramArrow &a : m2.arrows)
+        labels2 << a.label;
     QCOMPARE(labels2.filter(QStringLiteral("ETs")).size(), 0);
     QCOMPARE(countDimsContaining(m2, QStringLiteral("ETs")), 1);
 }
@@ -160,7 +171,8 @@ void TestAquiferDiagram::waterTablePlacedAtEgwAboveEbot()
 
     // The Egw dimension runs from the water table down to the bottom (y = 0).
     for (const DiagramDim &d : m.dims) {
-        if (!d.text.contains(QStringLiteral("Egw"))) continue;
+        if (!d.text.contains(QStringLiteral("Egw")))
+            continue;
         QCOMPARE(d.from.y(), 10.0);
         QCOMPARE(d.to.y(), 0.0);
         QVERIFY(d.text.contains(QStringLiteral("10.00 ft")));
@@ -184,9 +196,9 @@ void TestAquiferDiagram::waterTablePlacedAtEgwAboveEbot()
 
 void TestAquiferDiagram::unknownHatchWhenWaterTableNotAboveBottom()
 {
-    for (double egw : { 0.0, -3.0 }) {
+    for (double egw : {0.0, -3.0}) {
         AquiferDiagramInput in = sampleInput();
-        in.waterTableElev = egw;     // Ebot = 0
+        in.waterTableElev = egw; // Ebot = 0
         const SectionDiagramModel m = buildAquiferDiagram(in);
 
         QVERIFY(m.polys.size() >= 2);
@@ -209,21 +221,24 @@ void TestAquiferDiagram::unknownHatchWhenWaterTableNotAboveBottom()
 void TestAquiferDiagram::activeParamEmphasisesItsCallout()
 {
     // Leader-style params (0..6, 8, 9, 11) get the prefix on exactly one leader.
-    for (int param : { 0, 1, 2, 3, 4, 5, 6, 8, 9, 11 }) {
+    for (int param : {0, 1, 2, 3, 4, 5, 6, 8, 9, 11}) {
         AquiferDiagramInput in = sampleInput();
         in.activeParam = param;
         const SectionDiagramModel m = buildAquiferDiagram(in);
         QCOMPARE(countLeadersContaining(m, aquiferActiveCalloutPrefix()), 1);
-        for (const DiagramDim &d : m.dims) QVERIFY(!d.accent);
+        for (const DiagramDim &d : m.dims)
+            QVERIFY(!d.accent);
     }
     // Dimension-style params (7 = ETs, 10 = Egw) accent their dim instead.
-    for (int param : { 7, 10 }) {
+    for (int param : {7, 10}) {
         AquiferDiagramInput in = sampleInput();
         in.activeParam = param;
         const SectionDiagramModel m = buildAquiferDiagram(in);
         QCOMPARE(countLeadersContaining(m, aquiferActiveCalloutPrefix()), 0);
         int accented = 0;
-        for (const DiagramDim &d : m.dims) if (d.accent) ++accented;
+        for (const DiagramDim &d : m.dims)
+            if (d.accent)
+                ++accented;
         QCOMPARE(accented, 1);
         const QString key = (param == 7) ? QStringLiteral("ETs") : QStringLiteral("Egw");
         for (const DiagramDim &d : m.dims)
@@ -251,7 +266,8 @@ void TestAquiferDiagram::warningsBecomeCallouts()
     QPointF first, second;
     int seen = 0;
     for (const DiagramLeader &l : m.leaders) {
-        if (!l.text.startsWith(aquiferWarningCalloutPrefix())) continue;
+        if (!l.text.startsWith(aquiferWarningCalloutPrefix()))
+            continue;
         (seen++ == 0 ? first : second) = l.pixelOffset;
     }
     QVERIFY(first != second);
@@ -261,11 +277,11 @@ void TestAquiferDiagram::unitLabelsFlowThrough()
 {
     AquiferDiagramInput in = sampleInput();
     in.lengthLabel = QStringLiteral("m");
-    in.rateLabel   = QStringLiteral("mm/hr");
+    in.rateLabel = QStringLiteral("mm/hr");
     const SectionDiagramModel m = buildAquiferDiagram(in);
-    QVERIFY(countLeadersContaining(m, QStringLiteral("5.00 mm/hr")) == 1);   // Ksat
-    QVERIFY(countDimsContaining(m, QStringLiteral("10.00 m")) == 1);         // Egw
-    QVERIFY(countDimsContaining(m, QStringLiteral("2.00 m")) == 1);          // ETs
+    QVERIFY(countLeadersContaining(m, QStringLiteral("5.00 mm/hr")) == 1); // Ksat
+    QVERIFY(countDimsContaining(m, QStringLiteral("10.00 m")) == 1);       // Egw
+    QVERIFY(countDimsContaining(m, QStringLiteral("2.00 m")) == 1);        // ETs
     QVERIFY(countLeadersContaining(m, QStringLiteral("ft")) == 0);
 }
 

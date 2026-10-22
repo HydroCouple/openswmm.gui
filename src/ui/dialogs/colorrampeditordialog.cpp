@@ -1,8 +1,11 @@
-/*!
- * \file   colorrampeditordialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      colorrampeditordialog.cpp
+ * @brief     Authors a stand-alone RasterColorRamp for the user's custom-ramp library
+ *            (PreferencesManager → Rendering/CustomRamps).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/colorrampeditordialog.h"
@@ -26,9 +29,11 @@
 
 #include <algorithm>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /*! Live gradient strip. Paints in paintEvent by sampling the ramp per
  *  pixel column (so HSV interpolation renders truthfully) — inherently
@@ -55,15 +60,13 @@ protected:
         const int sq = 6;
         for (int y = strip.top(); y < strip.bottom(); y += sq)
             for (int x = strip.left(); x < strip.right(); x += sq)
-                p.fillRect(QRect(x, y, sq, sq).intersected(strip),
-                           (((x / sq) + (y / sq)) % 2) ? QColor(200, 200, 200)
-                                                       : QColor(255, 255, 255));
+                p.fillRect(QRect(x, y, sq, sq).intersected(strip), (((x / sq) + (y / sq)) % 2)
+                                                                       ? QColor(200, 200, 200)
+                                                                       : QColor(255, 255, 255));
 
-        for (int x = strip.left(); x < strip.right(); ++x)
-        {
-            const double t = (strip.width() > 1)
-                ? double(x - strip.left()) / double(strip.width() - 1)
-                : 0.0;
+        for (int x = strip.left(); x < strip.right(); ++x) {
+            const double t =
+                (strip.width() > 1) ? double(x - strip.left()) / double(strip.width() - 1) : 0.0;
             p.setPen(m_ramp->colorAt(t));
             p.drawLine(x, strip.top(), x, strip.bottom());
         }
@@ -72,12 +75,10 @@ protected:
 
         // Stop markers.
         p.setRenderHint(QPainter::Antialiasing, true);
-        for (const QGradientStop &s : m_ramp->stops)
-        {
+        for (const QGradientStop &s : m_ramp->stops) {
             const int x = strip.left() + int(s.first * (strip.width() - 1));
             QPolygonF tri;
-            tri << QPointF(x, strip.bottom() + 1)
-                << QPointF(x - 4, strip.bottom() + markerH)
+            tri << QPointF(x, strip.bottom() + 1) << QPointF(x - 4, strip.bottom() + markerH)
                 << QPointF(x + 4, strip.bottom() + markerH);
             p.setPen(palette().color(QPalette::Text));
             p.setBrush(s.second);
@@ -89,15 +90,13 @@ private:
     const RasterColorRamp *m_ramp;
 };
 
-constexpr int kColPos   = 0;
+constexpr int kColPos = 0;
 constexpr int kColColor = 1;
 
 } // namespace
 
-ColorRampEditorDialog::ColorRampEditorDialog(const RasterColorRamp &initial,
-                                             QWidget *parent)
-    : QDialog(parent)
-    , m_ramp(initial)
+ColorRampEditorDialog::ColorRampEditorDialog(const RasterColorRamp &initial, QWidget *parent)
+    : QDialog(parent), m_ramp(initial)
 {
     setWindowTitle(tr("Edit Custom Color Ramp"));
     if (m_ramp.stops.size() < 2)
@@ -140,8 +139,7 @@ void ColorRampEditorDialog::buildUi()
         m_nameWarning->setVisible(false);
         lay->addWidget(m_nameWarning);
 
-        connect(m_nameEdit, &QLineEdit::textChanged,
-                this, &ColorRampEditorDialog::onNameEdited);
+        connect(m_nameEdit, &QLineEdit::textChanged, this, &ColorRampEditorDialog::onNameEdited);
     }
 
     // ── Preset / interpolation / reverse ────────────────────────────────
@@ -158,11 +156,10 @@ void ColorRampEditorDialog::buildUi()
 
         row->addWidget(new QLabel(tr("Interpolation:"), this));
         m_interpCombo = new QComboBox(this);
-        m_interpCombo->addItem(tr("RGB"),         int(RampInterp::Rgb));
+        m_interpCombo->addItem(tr("RGB"), int(RampInterp::Rgb));
         m_interpCombo->addItem(tr("HSV (short)"), int(RampInterp::HsvShort));
-        m_interpCombo->addItem(tr("HSV (long)"),  int(RampInterp::HsvLong));
-        m_interpCombo->setCurrentIndex(
-            m_interpCombo->findData(int(m_ramp.interp)));
+        m_interpCombo->addItem(tr("HSV (long)"), int(RampInterp::HsvLong));
+        m_interpCombo->setCurrentIndex(m_interpCombo->findData(int(m_ramp.interp)));
         row->addWidget(m_interpCombo);
 
         m_reverseBtn = new QToolButton(this);
@@ -171,12 +168,12 @@ void ColorRampEditorDialog::buildUi()
         row->addWidget(m_reverseBtn);
         lay->addLayout(row);
 
-        connect(m_presetCombo, qOverload<int>(&QComboBox::activated),
-                this, &ColorRampEditorDialog::onPresetChanged);
-        connect(m_interpCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-                this, &ColorRampEditorDialog::onInterpChanged);
-        connect(m_reverseBtn, &QToolButton::clicked,
-                this, &ColorRampEditorDialog::onReverseClicked);
+        connect(m_presetCombo, qOverload<int>(&QComboBox::activated), this,
+                &ColorRampEditorDialog::onPresetChanged);
+        connect(m_interpCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                &ColorRampEditorDialog::onInterpChanged);
+        connect(m_reverseBtn, &QToolButton::clicked, this,
+                &ColorRampEditorDialog::onReverseClicked);
     }
 
     // ── Live preview ────────────────────────────────────────────────────
@@ -202,10 +199,8 @@ void ColorRampEditorDialog::buildUi()
         row->addStretch(1);
         lay->addLayout(row);
 
-        connect(m_addStopBtn, &QPushButton::clicked,
-                this, &ColorRampEditorDialog::onAddStop);
-        connect(m_removeStopBtn, &QPushButton::clicked,
-                this, &ColorRampEditorDialog::onRemoveStop);
+        connect(m_addStopBtn, &QPushButton::clicked, this, &ColorRampEditorDialog::onAddStop);
+        connect(m_removeStopBtn, &QPushButton::clicked, this, &ColorRampEditorDialog::onRemoveStop);
     }
 
     // ── Saved custom ramps (load / delete) ──────────────────────────────
@@ -220,10 +215,9 @@ void ColorRampEditorDialog::buildUi()
         row->addWidget(m_deleteSavedBtn);
         lay->addLayout(row);
 
-        connect(m_loadSavedBtn, &QPushButton::clicked,
-                this, &ColorRampEditorDialog::onLoadSaved);
-        connect(m_deleteSavedBtn, &QPushButton::clicked,
-                this, &ColorRampEditorDialog::onDeleteSaved);
+        connect(m_loadSavedBtn, &QPushButton::clicked, this, &ColorRampEditorDialog::onLoadSaved);
+        connect(m_deleteSavedBtn, &QPushButton::clicked, this,
+                &ColorRampEditorDialog::onDeleteSaved);
     }
 
     // ── OK / Cancel ─────────────────────────────────────────────────────
@@ -238,8 +232,7 @@ void ColorRampEditorDialog::rebuildStopTable()
 {
     m_suppress = true;
     m_stopTable->setRowCount(int(m_ramp.stops.size()));
-    for (int i = 0; i < m_ramp.stops.size(); ++i)
-    {
+    for (int i = 0; i < m_ramp.stops.size(); ++i) {
         const QGradientStop &s = m_ramp.stops.at(i);
 
         auto *posSpin = new QDoubleSpinBox(m_stopTable);
@@ -248,14 +241,13 @@ void ColorRampEditorDialog::rebuildStopTable()
         posSpin->setSingleStep(0.05);
         posSpin->setValue(s.first);
         posSpin->setFrame(false);
-        connect(posSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                this, &ColorRampEditorDialog::onStopEdited);
+        connect(posSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                &ColorRampEditorDialog::onStopEdited);
         m_stopTable->setCellWidget(i, kColPos, posSpin);
 
         auto *colBtn = new ColorButton(s.second, m_stopTable);
         colBtn->setAccessibleName(tr("Stop %1 colour").arg(i + 1));
-        connect(colBtn, &ColorButton::colorChanged,
-                this, &ColorRampEditorDialog::onStopEdited);
+        connect(colBtn, &ColorButton::colorChanged, this, &ColorRampEditorDialog::onStopEdited);
         m_stopTable->setCellWidget(i, kColColor, colBtn);
     }
     m_suppress = false;
@@ -267,22 +259,23 @@ void ColorRampEditorDialog::readStopsFromTable()
 {
     QGradientStops stops;
     stops.reserve(m_stopTable->rowCount());
-    for (int i = 0; i < m_stopTable->rowCount(); ++i)
-    {
+    for (int i = 0; i < m_stopTable->rowCount(); ++i) {
         const auto *posSpin = qobject_cast<QDoubleSpinBox *>(m_stopTable->cellWidget(i, kColPos));
-        const auto *colBtn  = qobject_cast<ColorButton *>(m_stopTable->cellWidget(i, kColColor));
-        if (!posSpin || !colBtn) continue;
+        const auto *colBtn = qobject_cast<ColorButton *>(m_stopTable->cellWidget(i, kColColor));
+        if (!posSpin || !colBtn)
+            continue;
         stops.append({posSpin->value(), colBtn->color()});
     }
-    std::stable_sort(stops.begin(), stops.end(),
-                     [](const QGradientStop &a, const QGradientStop &b)
-                     { return a.first < b.first; });
+    std::stable_sort(
+        stops.begin(), stops.end(),
+        [](const QGradientStop &a, const QGradientStop &b) { return a.first < b.first; });
     m_ramp.stops = stops;
 }
 
 void ColorRampEditorDialog::onPresetChanged(int index)
 {
-    if (index <= 0) return;   // "(custom)" placeholder
+    if (index <= 0)
+        return; // "(custom)" placeholder
     const QString name = m_presetCombo->itemText(index);
     const RasterColorRamp preset = RasterColorRamp::builtin(name);
     m_ramp.stops = preset.stops;
@@ -319,19 +312,17 @@ void ColorRampEditorDialog::onAddStop()
     // and immediately draggable to where the user wants it.
     double bestPos = 0.5;
     double bestGap = -1.0;
-    for (int i = 0; i + 1 < m_ramp.stops.size(); ++i)
-    {
+    for (int i = 0; i + 1 < m_ramp.stops.size(); ++i) {
         const double gap = m_ramp.stops[i + 1].first - m_ramp.stops[i].first;
-        if (gap > bestGap)
-        {
+        if (gap > bestGap) {
             bestGap = gap;
             bestPos = m_ramp.stops[i].first + gap / 2.0;
         }
     }
     m_ramp.stops.append({bestPos, m_ramp.colorAt(bestPos)});
-    std::stable_sort(m_ramp.stops.begin(), m_ramp.stops.end(),
-                     [](const QGradientStop &a, const QGradientStop &b)
-                     { return a.first < b.first; });
+    std::stable_sort(
+        m_ramp.stops.begin(), m_ramp.stops.end(),
+        [](const QGradientStop &a, const QGradientStop &b) { return a.first < b.first; });
     markCustomised();
     rebuildStopTable();
 }
@@ -340,7 +331,7 @@ void ColorRampEditorDialog::onRemoveStop()
 {
     const int row = m_stopTable->currentRow();
     if (row < 0 || m_stopTable->rowCount() <= 2)
-        return;   // a ramp needs at least two stops
+        return; // a ramp needs at least two stops
     readStopsFromTable();
     if (row < m_ramp.stops.size())
         m_ramp.stops.removeAt(row);
@@ -350,7 +341,8 @@ void ColorRampEditorDialog::onRemoveStop()
 
 void ColorRampEditorDialog::onStopEdited()
 {
-    if (m_suppress) return;
+    if (m_suppress)
+        return;
     readStopsFromTable();
     markCustomised();
     m_preview->update();
@@ -359,11 +351,11 @@ void ColorRampEditorDialog::onStopEdited()
 void ColorRampEditorDialog::onNameEdited(const QString &text)
 {
     const QString name = text.trimmed();
-    const bool clash = !name.isEmpty()
-        && PreferencesManager::instance()->customColorRamps().contains(name);
-    m_nameWarning->setText(clash
-        ? tr("A custom ramp named \"%1\" already exists and will be overwritten.").arg(name)
-        : QString());
+    const bool clash =
+        !name.isEmpty() && PreferencesManager::instance()->customColorRamps().contains(name);
+    m_nameWarning->setText(
+        clash ? tr("A custom ramp named \"%1\" already exists and will be overwritten.").arg(name)
+              : QString());
     m_nameWarning->setVisible(clash);
     refreshOkEnabled();
 }
@@ -371,10 +363,12 @@ void ColorRampEditorDialog::onNameEdited(const QString &text)
 void ColorRampEditorDialog::onLoadSaved()
 {
     const QString name = m_savedCombo->currentText();
-    if (name.isEmpty()) return;
+    if (name.isEmpty())
+        return;
     const auto customs = PreferencesManager::instance()->customColorRamps();
     const auto it = customs.constFind(name);
-    if (it == customs.constEnd()) return;
+    if (it == customs.constEnd())
+        return;
     m_ramp.stops = it.value().stops;
     m_ramp.interp = it.value().interp;
     {
@@ -388,13 +382,16 @@ void ColorRampEditorDialog::onLoadSaved()
 void ColorRampEditorDialog::onDeleteSaved()
 {
     const QString name = m_savedCombo->currentText();
-    if (name.isEmpty()) return;
-    const auto ret = QMessageBox::question(
-        this, tr("Delete Custom Ramp"),
-        tr("Delete the custom ramp \"%1\"? Styles already using it keep "
-           "their colors (the ramp is embedded in the style), but it will "
-           "no longer be offered in ramp lists.").arg(name));
-    if (ret != QMessageBox::Yes) return;
+    if (name.isEmpty())
+        return;
+    const auto ret =
+        QMessageBox::question(this, tr("Delete Custom Ramp"),
+                              tr("Delete the custom ramp \"%1\"? Styles already using it keep "
+                                 "their colors (the ramp is embedded in the style), but it will "
+                                 "no longer be offered in ramp lists.")
+                                  .arg(name));
+    if (ret != QMessageBox::Yes)
+        return;
     PreferencesManager::instance()->removeCustomColorRamp(name);
     refreshSavedCombo();
     onNameEdited(m_nameEdit->text());
@@ -409,7 +406,8 @@ void ColorRampEditorDialog::refreshSavedCombo()
     for (auto it = customs.constBegin(); it != customs.constEnd(); ++it)
         m_savedCombo->addItem(it.key());
     const int idx = m_savedCombo->findText(prev);
-    if (idx >= 0) m_savedCombo->setCurrentIndex(idx);
+    if (idx >= 0)
+        m_savedCombo->setCurrentIndex(idx);
     const bool any = m_savedCombo->count() > 0;
     m_loadSavedBtn->setEnabled(any);
     m_deleteSavedBtn->setEnabled(any);
@@ -423,7 +421,7 @@ void ColorRampEditorDialog::refreshOkEnabled()
 void ColorRampEditorDialog::markCustomised()
 {
     QSignalBlocker b(m_presetCombo);
-    m_presetCombo->setCurrentIndex(0);   // "(custom)"
+    m_presetCombo->setCurrentIndex(0); // "(custom)"
 }
 
 } // namespace openswmmvis::ui

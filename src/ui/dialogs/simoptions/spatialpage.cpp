@@ -1,9 +1,12 @@
-/*!
- * \file   spatialpage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      spatialpage.cpp
+ * @brief     Simulation Options → Spatial & CRS.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/spatialpage.h"
 
 #include <QFormLayout>
@@ -21,8 +24,7 @@
 namespace openswmmvis::ui
 {
 
-SpatialPage::SpatialPage(SimOptionsContext &ctx, QWidget *parent)
-    : SimOptionsPage(ctx, parent)
+SpatialPage::SpatialPage(SimOptionsContext &ctx, QWidget *parent) : SimOptionsPage(ctx, parent)
 {
     buildUi();
 }
@@ -37,7 +39,7 @@ void SpatialPage::buildUi()
     auto *vlay = new QVBoxLayout(this);
 
     auto *crsGroup = new QGroupBox(tr("Coordinate reference system"), this);
-    auto *crsForm  = new QFormLayout(crsGroup);
+    auto *crsForm = new QFormLayout(crsGroup);
 
     auto *crsRow = new QWidget(crsGroup);
     auto *crsRowLay = new QHBoxLayout(crsRow);
@@ -49,9 +51,9 @@ void SpatialPage::buildUi()
     m_crsChangeButton->setToolTip(tr("Open the CRS picker (writes to swmm_spatial_set_crs)."));
     m_crsDetectButton = new QToolButton(crsRow);
     m_crsDetectButton->setText(tr("Detect from coordinates"));
-    m_crsDetectButton->setToolTip(tr(
-        "Inspect the model's coordinate ranges and suggest EPSG:4326 if all\n"
-        "coordinates fall within geographic bounds (±180° lon, ±85° lat)."));
+    m_crsDetectButton->setToolTip(
+        tr("Inspect the model's coordinate ranges and suggest EPSG:4326 if all\n"
+           "coordinates fall within geographic bounds (±180° lon, ±85° lat)."));
     crsRowLay->addWidget(m_crsLabel, 1);
     crsRowLay->addWidget(m_crsChangeButton);
     crsRowLay->addWidget(m_crsDetectButton);
@@ -62,11 +64,10 @@ void SpatialPage::buildUi()
     m_extentLabel->setWordWrap(true);
     crsForm->addRow(tr("Model extent:"), m_extentLabel);
 
-    auto *note = new QLabel(
-        tr("<i>Changing the CRS here updates the layer's stored CRS only. "
-           "To permanently transform stored coordinates, use the canvas-CRS "
-           "button on the status bar (Phase 0.7 reproject prompt).</i>"),
-        crsGroup);
+    auto *note = new QLabel(tr("<i>Changing the CRS here updates the layer's stored CRS only. "
+                               "To permanently transform stored coordinates, use the canvas-CRS "
+                               "button on the status bar (Phase 0.7 reproject prompt).</i>"),
+                            crsGroup);
     note->setWordWrap(true);
     crsForm->addRow(note);
 
@@ -78,13 +79,10 @@ void SpatialPage::buildUi()
     // built, laid out and left permanently unconnected. Restored here because
     // the phase's own acceptance criterion is that the CRS pick path still
     // marks the dialog dirty, which is unreachable while the connect is dead.
-    connect(m_crsChangeButton, &QToolButton::clicked,
-            this, &SpatialPage::onPickCRS);
-    connect(m_crsDetectButton, &QToolButton::clicked,
-            this, &SpatialPage::onDetectCRS);
+    connect(m_crsChangeButton, &QToolButton::clicked, this, &SpatialPage::onPickCRS);
+    connect(m_crsDetectButton, &QToolButton::clicked, this, &SpatialPage::onDetectCRS);
 
-    if (!ctx_.modelLayer())
-    {
+    if (!ctx_.modelLayer()) {
         m_crsChangeButton->setEnabled(false);
         m_crsDetectButton->setEnabled(false);
     }
@@ -104,37 +102,28 @@ int SpatialPage::write()
 
 void SpatialPage::refreshSummary()
 {
-    if (!m_crsLabel) return;
+    if (!m_crsLabel)
+        return;
 
-    if (SWMMModelLayer *layer = ctx_.modelLayer())
-    {
-        if (auto *srs = layer->srs())
-        {
+    if (SWMMModelLayer *layer = ctx_.modelLayer()) {
+        if (auto *srs = layer->srs()) {
             const QString auth = srs->toAuthority();
             m_crsLabel->setText(auth.isEmpty() ? tr("(local)") : auth);
-        }
-        else
-        {
+        } else {
             m_crsLabel->setText(tr("(none)"));
         }
 
         const MapExtent ext = layer->extent();
-        if (ext.isValid())
-        {
-            m_extentLabel->setText(
-                tr("X: [%1, %2]   Y: [%3, %4]")
-                    .arg(ext.xMin(), 0, 'g', 8)
-                    .arg(ext.xMax(), 0, 'g', 8)
-                    .arg(ext.yMin(), 0, 'g', 8)
-                    .arg(ext.yMax(), 0, 'g', 8));
-        }
-        else
-        {
+        if (ext.isValid()) {
+            m_extentLabel->setText(tr("X: [%1, %2]   Y: [%3, %4]")
+                                       .arg(ext.xMin(), 0, 'g', 8)
+                                       .arg(ext.xMax(), 0, 'g', 8)
+                                       .arg(ext.yMin(), 0, 'g', 8)
+                                       .arg(ext.yMax(), 0, 'g', 8));
+        } else {
             m_extentLabel->setText(tr("(extent invalid / not yet computed)"));
         }
-    }
-    else
-    {
+    } else {
         m_crsLabel->setText(tr("(no layer)"));
         m_extentLabel->setText(tr("(no layer)"));
     }
@@ -143,17 +132,19 @@ void SpatialPage::refreshSummary()
 void SpatialPage::onPickCRS()
 {
     SWMMModelLayer *layer = ctx_.modelLayer();
-    if (!layer) return;
+    if (!layer)
+        return;
     CRSSelectionDialog dlg(this);
     dlg.setCurrentCRS(layer->srs());
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted)
+        return;
     SpatialReferenceSystem *srs = dlg.selectedSRS();
-    if (!srs) return;
+    if (!srs)
+        return;
 
     layer->setSRS(srs, true);
     // Also write the engine's CRS option so it round-trips through .inp save.
-    ctx_.writeIfChanged("CRS", srs->toAuthority().isEmpty() ? srs->toWkt()
-                                                            : srs->toAuthority());
+    ctx_.writeIfChanged("CRS", srs->toAuthority().isEmpty() ? srs->toWkt() : srs->toAuthority());
     emit crsChanged();
     refreshSummary();
 }
@@ -161,25 +152,21 @@ void SpatialPage::onPickCRS()
 void SpatialPage::onDetectCRS()
 {
     SWMMModelLayer *layer = ctx_.modelLayer();
-    if (!layer) return;
+    if (!layer)
+        return;
     const MapExtent ext = layer->extent();
     if (!ext.isValid())
         return;
 
     const bool inGeographic =
-        ext.xMin() >= -180.0 && ext.xMax() <=  180.0 &&
-        ext.yMin() >=  -90.0 && ext.yMax() <=   90.0;
+        ext.xMin() >= -180.0 && ext.xMax() <= 180.0 && ext.yMin() >= -90.0 && ext.yMax() <= 90.0;
 
-    if (inGeographic)
-    {
+    if (inGeographic) {
         // Suggest EPSG:4326. Update the label as a hint; the user must press
         // Change… to actually apply (so detection is non-destructive).
         m_crsLabel->setText(tr("(suggested: EPSG:4326 — press Change… to apply)"));
-    }
-    else
-    {
-        m_crsLabel->setText(tr(
-            "(coordinates exceed geographic bounds — pick a projected CRS)"));
+    } else {
+        m_crsLabel->setText(tr("(coordinates exceed geographic bounds — pick a projected CRS)"));
     }
 }
 

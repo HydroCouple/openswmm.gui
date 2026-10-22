@@ -1,12 +1,17 @@
-/*!
- * \file   main.cpp
- * \brief  Standalone (Qt-free) checks for ui/util/externalcolumnfilecore.h —
+/**
+ * @file      main.cpp
+ * @brief     Standalone (Qt-free) checks for ui/util/externalcolumnfilecore.h —
  *         the pure parsing core behind the external-column-file util
  *         (workplans/MULTICOLUMN_SERIES_SINGLE_READ_2026-08-17.md, GUI
  *         handoff §Build & verification). Compile + run with any C++17
  *         compiler; see README.md. The Qt-level readHeaders/readColumn
  *         wrapper is covered by tests/unit/test_externalcolumnfile.cpp.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "../../include/ui/util/externalcolumnfilecore.h"
 
 #include <fstream>
@@ -18,15 +23,21 @@ namespace ec = openswmmvis::ui::extcol;
 
 static int g_failures = 0;
 
-#define CHECK(cond)                                                        \
-    do {                                                                   \
-        if (!(cond)) {                                                     \
-            ++g_failures;                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  "    \
-                      << #cond << "\n";                                    \
-        }                                                                  \
+#define CHECK(cond)                                                                                \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            ++g_failures;                                                                          \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " << #cond << "\n";          \
+        }                                                                                          \
     } while (0)
 
+/**
+ *
+ * @brief Check trimming/outer-quote removal, quote-aware comma splitting and preservation of
+ * trailing empty tab cells.
+ * Failures increment the global nonfatal counter and print stderr; no file access.
+ *
+ */
 static void testCellTrimAndSplit()
 {
     CHECK(ec::cellTrim("  x \r\n") == "x");
@@ -40,13 +51,21 @@ static void testCellTrimAndSplit()
 
     const auto tabs = ec::splitCells("t1\tt2\t", '\t');
     CHECK(tabs.size() == 3);
-    CHECK(tabs[2].empty());         // trailing empty cell preserved
+    CHECK(tabs[2].empty()); // trailing empty cell preserved
 }
 
+/**
+ *
+ * @brief Check first-line BOM/line-end normalization, blank/comment detection and
+ * case-insensitive TSF IDs headers.
+ * Mutates local strings only; failures increment the global counter.
+ *
+ */
 static void testLineClassification()
 {
     // Split literals so "\xBF" isn't glued to the 'D' (hex-escape greed).
-    std::string bom = "\xEF\xBB\xBF" "Date,V";
+    std::string bom = "\xEF\xBB\xBF"
+                      "Date,V";
     ec::normalizeLine(bom, /*firstLine=*/true);
     CHECK(bom == "Date,V");
 
@@ -61,21 +80,28 @@ static void testLineClassification()
     CHECK(!ec::isBlankOrComment("2007-01-01,1.0"));
 
     CHECK(ec::isTsfHeader("IDs:\tRG1\tRG2"));
-    CHECK(ec::isTsfHeader("ids:\tRG1"));      // case-insensitive (engine parity)
+    CHECK(ec::isTsfHeader("ids:\tRG1")); // case-insensitive (engine parity)
     CHECK(!ec::isTsfHeader("Identifiers"));
 }
 
+/**
+ *
+ * @brief Check tab/comma/semicolon detection, comma fallback, tab tie precedence and ignoring
+ * quoted delimiters.
+ * Records nonfatal global failures without parsing external files.
+ *
+ */
 static void testSniffDelimiter()
 {
     CHECK(ec::sniffDelimiter("a\tb\tc") == '\t');
     CHECK(ec::sniffDelimiter("a,b,c") == ',');
     CHECK(ec::sniffDelimiter("a;b;c") == ';');
-    CHECK(ec::sniffDelimiter("abc") == ',');       // default
+    CHECK(ec::sniffDelimiter("abc") == ','); // default
     // Real tie-break: 1 tab vs 1 comma. The old check used "a\tb,c\td"
     // (2 tabs vs 1 comma), which passes under `tabs > commas` too — so it
     // never exercised the `>=` (review E-3.6). This one fails if the rule
     // is weakened.
-    CHECK(ec::sniffDelimiter("a\tb,c") == '\t');   // tabs == commas → tab
+    CHECK(ec::sniffDelimiter("a\tb,c") == '\t'); // tabs == commas → tab
 
     // Quote-aware counting (review B-8): delimiters inside a quoted column
     // name must not be counted. Both of these mis-sniffed as comma before.
@@ -86,6 +112,14 @@ static void testSniffDelimiter()
     CHECK(ec::sniffDelimiter("Date,\"Rain, North\",R2") == ',');
 }
 
+/**
+ *
+ * @brief Check ISO/US date-time fields, midnight/noon and lowercase meridiem plus one invalid
+ * string.
+ * Uses shared production parser calendar fields without timezone conversion; records
+ * nonfatal global failures and writes no files.
+ *
+ */
 static void testDatetimes()
 {
     ec::DateTimeParts p{};
@@ -102,13 +136,13 @@ static void testDatetimes()
 
     // 12-hour AM/PM (the PCSWMM .tsf form) — engine-mirroring edges.
     CHECK(ec::parseSeriesDateTime("1/1/2007 12:00:00 AM", p));
-    CHECK(p.hour == 0 && p.minute == 0);            // 12 AM → midnight
+    CHECK(p.hour == 0 && p.minute == 0); // 12 AM → midnight
     CHECK(ec::parseSeriesDateTime("1/1/2007 12:30:00 PM", p));
-    CHECK(p.hour == 12 && p.minute == 30);          // 12 PM → noon
+    CHECK(p.hour == 12 && p.minute == 30); // 12 PM → noon
     CHECK(ec::parseSeriesDateTime("1/1/2007 8:15:00 PM", p));
     CHECK(p.hour == 20 && p.minute == 15);
     CHECK(ec::parseSeriesDateTime("1/1/2007 8:15 am", p));
-    CHECK(p.hour == 8 && p.minute == 15);           // lowercase meridiem
+    CHECK(p.hour == 8 && p.minute == 15); // lowercase meridiem
 
     // Single-digit 24-hour US.
     CHECK(ec::parseSeriesDateTime("1/5/2020 3:04", p));
@@ -117,10 +151,13 @@ static void testDatetimes()
     CHECK(!ec::parseSeriesDateTime("not a date", p));
 }
 
-/*! Unified colon-split rule (review B-2): LAST colon, drive letter exempt,
- *  and only a suffix free of path separators counts as a column. Both engine
- *  readers now use the same rule, so a file referenced by a gage AND a
- *  timeseries derives the same cache key and is parsed once. */
+/**
+ *
+ * @brief Check last-colon column parsing, Windows drive exemption, directory colons and
+ * compose/split round trips.
+ * Path strings are metadata only; no referenced file is opened. Failures accumulate globally.
+ *
+ */
 static void testPathColumnTokens()
 {
     std::string path, col;
@@ -172,8 +209,8 @@ static void testPathColumnTokens()
 
     // Compose → split round-trips for every shape above, including the
     // colon-in-a-directory ones (the point of the unified rule).
-    const char *paths[] = {"rain.csv", "data/rain.csv", "C:\\data\\rain.csv",
-                           "/x/Data:2024/f.csv", "C:\\Data:2024\\f.csv"};
+    const char *paths[] = {"rain.csv", "data/rain.csv", "C:\\data\\rain.csv", "/x/Data:2024/f.csv",
+                           "C:\\Data:2024\\f.csv"};
     for (const char *pth : paths) {
         ec::splitPathColumn(ec::composePathColumn(pth, "EAST"), path, col);
         CHECK(path == pth && col == "EAST");
@@ -182,25 +219,41 @@ static void testPathColumnTokens()
     }
 }
 
-/*! The fabricated-name convention is defined once, in the core. It is a
- *  DISPLAY name only — never persisted (review B-4). */
+/**
+ *
+ * @brief Require one-based display-column labels col_1 and col_12 from the shared parser core.
+ * Records nonfatal failures; does not persist fabricated names or access files.
+ *
+ */
 static void testFabricatedColumnNames()
 {
     CHECK(ec::fabricatedColumnName(1) == "col_1");
     CHECK(ec::fabricatedColumnName(12) == "col_12");
 }
 
+/**
+ *
+ * @brief Require case-insensitive header lookup to return zero-based indices and -1 for an
+ * unknown column.
+ * Reads local header strings only and accumulates nonfatal failures.
+ *
+ */
 static void testFindColumn()
 {
     const std::vector<std::string> headers{"RG_EAST", "RG_WEST"};
     CHECK(ec::findColumn(headers, "RG_WEST") == 1);
-    CHECK(ec::findColumn(headers, "rg_east") == 0);   // case-insensitive
+    CHECK(ec::findColumn(headers, "rg_east") == 0); // case-insensitive
     CHECK(ec::findColumn(headers, "NOPE") == -1);
 }
 
-/*! Drive the actual TSF header flow over the bundled fixture: detect the
- *  IDs row, enumerate columns, skip the parameter + units rows, parse the
- *  first data row's AM/PM datetime and cell values. */
+/**
+ *
+ * @brief Read the bundled TSF IDs/data rows and check AM/PM calendar plus two raw scalar cells.
+ * Tries sample.tsf in cwd then repository-relative fallback; no writes. Records a
+ * failed-open check and returns if absent. Requires the valid bundled three-column
+ * fixture: later nonfatal size checks do not guard subsequent indexed access.
+ *
+ */
 static void testTsfFixture()
 {
     std::ifstream in("sample.tsf");
@@ -209,7 +262,8 @@ static void testTsfFixture()
         in.open("tests/standalone_externalcolumn/sample.tsf");
     }
     CHECK(in.is_open());
-    if (!in.is_open()) return;
+    if (!in.is_open())
+        return;
 
     std::string line;
     CHECK(static_cast<bool>(std::getline(in, line)));
@@ -220,8 +274,8 @@ static void testTsfFixture()
     CHECK(ids.size() == 3);
     CHECK(ids[1] == "RG1" && ids[2] == "RG2");
 
-    std::getline(in, line);   // parameter row (Date/Time  Rainfall …)
-    std::getline(in, line);   // units row (in.  in.)
+    std::getline(in, line); // parameter row (Date/Time  Rainfall …)
+    std::getline(in, line); // units row (in.  in.)
 
     CHECK(static_cast<bool>(std::getline(in, line)));
     ec::normalizeLine(line, false);
@@ -231,10 +285,18 @@ static void testTsfFixture()
     ec::DateTimeParts p{};
     CHECK(ec::parseSeriesDateTime(cells[0], p));
     CHECK(p.year == 2007 && p.month == 1 && p.day == 1);
-    CHECK(p.hour == 0 && p.minute == 0);   // "12:00:00 AM" → midnight
+    CHECK(p.hour == 0 && p.minute == 0); // "12:00:00 AM" → midnight
     CHECK(cells[1] == "0.00" && cells[2] == "0.05");
 }
 
+/**
+ *
+ * @brief Run all eight standalone parser checks and report accumulated failures.
+ * @return 0 with success text when g_failures is zero, otherwise 1 with failure count.
+ * No Qt runtime or arguments are needed; bundled TSF path must resolve relative to
+ * cwd or repository root. Does not stop at individual failed checks or write artifacts.
+ *
+ */
 int main()
 {
     testCellTrimAndSplit();

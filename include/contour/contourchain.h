@@ -1,15 +1,19 @@
-/*!
- * \file   contourchain.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      contourchain.h
+ * @brief     chain unordered marching-triangles segments of ONE iso-level into polylines by
+ *            matching quantised endpoints.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * VS.8 — chain unordered marching-triangles segments of ONE iso-level into
  * polylines by matching quantised endpoints. The result drives along-line
  * label placement (one label every N screen pixels). Shared by the
  * QPainter isoline pass (SWMM2DResultsGraphicsItem) and the QSG renderer
  * (SWMM2DResultsQSGRenderer).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_CONTOUR_CONTOURCHAIN_H
 #define OPENSWMMVIS_CONTOUR_CONTOURCHAIN_H
 
@@ -20,7 +24,8 @@
 
 #include <cmath>
 
-namespace OpenSWMM::Contour {
+namespace OpenSWMM::Contour
+{
 
 /*!
  * \brief Chain unordered iso-line segments into polylines.
@@ -30,12 +35,15 @@ namespace OpenSWMM::Contour {
  *                endpoints identical up to floating-point op order, so a
  *                tolerance a few orders below the cell size links them
  *                reliably.
+ * @return Polylines in source coordinates, consuming each segment once; empty for no input or a nonpositive quantum. Branching endpoint matches select one unused continuation in hash iteration order.
+ * @pre Finite coordinates and quantum with rounded coordinate/quantum values representable as qint32.
+ * @details Endpoints are matched by rounded bins rather than moved/snapped; original segment coordinates are preserved.
  */
-inline QVector<QPolygonF>
-chainIsoSegments(const QVector<QLineF> &segs, double quantum)
+inline QVector<QPolygonF> chainIsoSegments(const QVector<QLineF> &segs, double quantum)
 {
     QVector<QPolygonF> chains;
-    if (segs.isEmpty() || quantum <= 0.0) return chains;
+    if (segs.isEmpty() || quantum <= 0.0)
+        return chains;
 
     auto key = [quantum](const QPointF &pt) -> quint64 {
         const auto qx = qint32(std::lround(pt.x() / quantum));
@@ -56,7 +64,8 @@ chainIsoSegments(const QVector<QLineF> &segs, double quantum)
         const auto range = byEndpoint.equal_range(key(tip));
         for (auto it = range.first; it != range.second; ++it) {
             const int j = it.value();
-            if (used[j]) continue;
+            if (used[j])
+                continue;
             used[j] = true;
             // Continue from whichever endpoint matched the tip.
             const QLineF &s = segs[j];
@@ -67,14 +76,17 @@ chainIsoSegments(const QVector<QLineF> &segs, double quantum)
     };
 
     for (int i = 0; i < segs.size(); ++i) {
-        if (used[i]) continue;
+        if (used[i])
+            continue;
         used[i] = true;
         QPolygonF poly;
         poly << segs[i].p1() << segs[i].p2();
 
         QPointF next;
-        while (takeNext(poly.last(), next))   poly.append(next);
-        while (takeNext(poly.first(), next))  poly.prepend(next);
+        while (takeNext(poly.last(), next))
+            poly.append(next);
+        while (takeNext(poly.first(), next))
+            poly.prepend(next);
         chains.append(std::move(poly));
     }
     return chains;

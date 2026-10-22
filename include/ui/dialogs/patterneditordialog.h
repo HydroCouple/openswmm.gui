@@ -1,9 +1,9 @@
-/*!
- * \file   patterneditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.2 — three-pane non-modal editor for SWMM
+/**
+ * @file      patterneditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.2 — three-pane non-modal editor for SWMM
  *         time patterns.
  *
  * Layout (left → right):
@@ -38,7 +38,9 @@
  * Pure view code — every mutation goes through the bound provider so
  * that the Object Browser, DWF inflow picker, and any other open view
  * stays synchronized (per [[feedback_mvc_synchronized_uis]]).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_PATTERNEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_PATTERNEDITORDIALOG_H
 
@@ -67,12 +69,14 @@ class QLineSeries;
 class QScatterSeries;
 class QValueAxis;
 
-namespace openswmmvis::pattern {
+namespace openswmmvis::pattern
+{
 class PatternProvider;
 class PatternRegistry;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class InteractiveChartView;
 class PatternEditChartView;
@@ -92,19 +96,16 @@ public:
     /*! \brief Edit-mode entry point: bind to the registry and select \p initial
      *  (or the first pattern if null/missing). The dialog is non-modal and
      *  re-bindable via the list-view selection. */
-    PatternEditorDialog(openswmmvis::pattern::PatternRegistry *registry,
-                         QUndoStack *undoStack,
-                         QWidget *parent = nullptr);
+    PatternEditorDialog(openswmmvis::pattern::PatternRegistry *registry, QUndoStack *undoStack,
+                        QWidget *parent = nullptr);
 
     ~PatternEditorDialog() override;
 
     /*! \brief Slice BM.0-Add-New factory: same dialog, started in
      *  CreateNew mode. Caller owns the returned dialog (use
      *  Qt::WA_DeleteOnClose for fire-and-forget). */
-    static PatternEditorDialog *createNew(
-        openswmmvis::pattern::PatternRegistry *registry,
-        QUndoStack *undoStack,
-        QWidget *parent = nullptr);
+    static PatternEditorDialog *createNew(openswmmvis::pattern::PatternRegistry *registry,
+                                          QUndoStack *undoStack, QWidget *parent = nullptr);
 
     /*! \brief Bring the dialog forward and select \p name in the list (no-op
      *  if absent). Convenience for the Object Browser double-click path. */
@@ -118,9 +119,8 @@ public:
      *  commit happened. All edits persist through the registry/provider
      *  MVC layer regardless of which button closes the dialog. */
     static QString pickPattern(openswmmvis::pattern::PatternRegistry *registry,
-                                QUndoStack    *undoStack,
-                                const QString &initialName,
-                                QWidget       *parent = nullptr);
+                               QUndoStack *undoStack, const QString &initialName,
+                               QWidget *parent = nullptr);
 
     /*! \brief Current mode. */
     Mode mode() const noexcept { return m_mode; }
@@ -130,18 +130,18 @@ public:
 
     // ── Test hooks ──────────────────────────────────────────────────────────
 
-    QListView                *listView() const noexcept { return m_listView; }
-    QTableView               *factorTable() const noexcept { return m_table; }
-    PatternEditChartView     *chartView() const noexcept { return m_chartView; }
-    PatternFactorTableModel  *tableModel() const noexcept { return m_tableModel; }
-    QLineSeries              *previewLineSeries() const noexcept { return m_lineSeries; }
-    QScatterSeries           *previewMarkerSeries() const noexcept { return m_scatterSeries; }
-    QLineEdit                *searchEdit() const noexcept { return m_searchEdit; }
+    QListView *listView() const noexcept { return m_listView; }
+    QTableView *factorTable() const noexcept { return m_table; }
+    PatternEditChartView *chartView() const noexcept { return m_chartView; }
+    PatternFactorTableModel *tableModel() const noexcept { return m_tableModel; }
+    QLineSeries *previewLineSeries() const noexcept { return m_lineSeries; }
+    QScatterSeries *previewMarkerSeries() const noexcept { return m_scatterSeries; }
+    QLineEdit *searchEdit() const noexcept { return m_searchEdit; }
 
     /*! \brief The source (unfiltered) list model. Tests cast to QStandardItemModel
      *  to inspect row count and item text; the view itself binds to a
      *  QSortFilterProxyModel so the search edit can hide rows. */
-    QStandardItemModel       *patternListModel() const noexcept { return m_listModel; }
+    QStandardItemModel *patternListModel() const noexcept { return m_listModel; }
 
     /*! \brief CreateNew-mode: name in the create-card. Empty in Edit mode. */
     QString pendingName() const;
@@ -209,8 +209,8 @@ private slots:
     void onShowPlotStyleMenu_(const QPoint &globalPos);
     void onProviderAdded_(openswmmvis::pattern::PatternProvider *p);
     void onProviderRemoved_(openswmmvis::pattern::PatternProvider *p);
-    void onProviderRenamed_(openswmmvis::pattern::PatternProvider *p,
-                              const QString &prev, const QString &now);
+    void onProviderRenamed_(openswmmvis::pattern::PatternProvider *p, const QString &prev,
+                            const QString &now);
     void onProviderFactorChanged_();
     void onProviderFactorsChanged_();
     void onProviderTypeChanged_();
@@ -233,54 +233,54 @@ private:
     bool m_contextValid = true;
     QPointer<openswmmvis::pattern::PatternRegistry> m_registry;
     QPointer<QUndoStack> m_undoStack;
-    QPointer<openswmmvis::pattern::PatternProvider>  m_current;
-    Mode                                             m_mode      = Mode::Edit;
+    QPointer<openswmmvis::pattern::PatternProvider> m_current;
+    Mode m_mode = Mode::Edit;
 
-    QSplitter                *m_splitter   = nullptr;
-    QListView                *m_listView   = nullptr;
-    QStandardItemModel       *m_listModel  = nullptr;
-    QSortFilterProxyModel    *m_listProxy  = nullptr;
-    QLineEdit                *m_searchEdit = nullptr;
+    QSplitter *m_splitter = nullptr;
+    QListView *m_listView = nullptr;
+    QStandardItemModel *m_listModel = nullptr;
+    QSortFilterProxyModel *m_listProxy = nullptr;
+    QLineEdit *m_searchEdit = nullptr;
 
-    QLabel                   *m_typeLabel  = nullptr;
-    QTableView               *m_table      = nullptr;
-    PatternFactorTableModel  *m_tableModel = nullptr;
-    QPushButton              *m_normalizeBtn = nullptr;
-    QDoubleSpinBox           *m_normalizeTargetSpin = nullptr;
-    QStatusBar               *m_status     = nullptr;
-    QLabel                   *m_sumLabel   = nullptr;
+    QLabel *m_typeLabel = nullptr;
+    QTableView *m_table = nullptr;
+    PatternFactorTableModel *m_tableModel = nullptr;
+    QPushButton *m_normalizeBtn = nullptr;
+    QDoubleSpinBox *m_normalizeTargetSpin = nullptr;
+    QStatusBar *m_status = nullptr;
+    QLabel *m_sumLabel = nullptr;
 
-    PatternEditChartView     *m_chartView  = nullptr;
-    QChart                   *m_chart      = nullptr;
-    ChartAxisFormatController *m_axisFmt   = nullptr;  ///< Per-chart axis number format.
-    QLineSeries              *m_lineSeries = nullptr;   ///< Step-line (or smooth) factor preview.
-    QScatterSeries           *m_scatterSeries = nullptr; ///< Slot-centre markers.
-    QCategoryAxis            *m_xAxis      = nullptr;   ///< Categorical labels (Jan, Sun, 00:00 …).
-    QValueAxis               *m_yAxis      = nullptr;
+    PatternEditChartView *m_chartView = nullptr;
+    QChart *m_chart = nullptr;
+    ChartAxisFormatController *m_axisFmt = nullptr; ///< Per-chart axis number format.
+    QLineSeries *m_lineSeries = nullptr;            ///< Step-line (or smooth) factor preview.
+    QScatterSeries *m_scatterSeries = nullptr;      ///< Slot-centre markers.
+    QCategoryAxis *m_xAxis = nullptr;               ///< Categorical labels (Jan, Sun, 00:00 …).
+    QValueAxis *m_yAxis = nullptr;
 
-    bool                      m_smoothPreview = false;  ///< false = step-line; persisted.
-    bool                      m_markersOn     = true;   ///< persisted.
+    bool m_smoothPreview = false; ///< false = step-line; persisted.
+    bool m_markersOn = true;      ///< persisted.
 
     // CreateNew-mode UI (always built; hidden in Edit mode and revealed
     // by the "+ New" button or the createNew factory).
-    QFrame                   *m_createCard          = nullptr;
-    QLineEdit                *m_nameEdit            = nullptr;
-    QLabel                   *m_nameValidationLabel = nullptr;
-    QComboBox                *m_typeCombo           = nullptr;
-    QPushButton              *m_createBtn           = nullptr;
-    QPushButton              *m_cancelCreateBtn     = nullptr;
+    QFrame *m_createCard = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QLabel *m_nameValidationLabel = nullptr;
+    QComboBox *m_typeCombo = nullptr;
+    QPushButton *m_createBtn = nullptr;
+    QPushButton *m_cancelCreateBtn = nullptr;
 
     // List-pane CRUD buttons.
-    QPushButton              *m_newBtn              = nullptr;
-    QPushButton              *m_renameBtn           = nullptr;
-    QPushButton              *m_duplicateBtn        = nullptr;
-    QPushButton              *m_deleteBtn           = nullptr;
+    QPushButton *m_newBtn = nullptr;
+    QPushButton *m_renameBtn = nullptr;
+    QPushButton *m_duplicateBtn = nullptr;
+    QPushButton *m_deleteBtn = nullptr;
 
     // Suppress feedback loop when we reset list item text on collision.
-    bool                      m_suppressListItemRename = false;
+    bool m_suppressListItemRename = false;
     // Guards to break the chart<->table selection feedback loop.
-    bool                      m_suppressTableSelectionSync = false;
-    bool                      m_suppressChartSelectionSync = false;
+    bool m_suppressTableSelectionSync = false;
+    bool m_suppressChartSelectionSync = false;
 };
 
 } // namespace openswmmvis::ui

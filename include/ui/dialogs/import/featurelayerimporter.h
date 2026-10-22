@@ -1,8 +1,10 @@
-/*!
- * \file   featurelayerimporter.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      featurelayerimporter.h
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — controller between the import dialog (view) and the
+ *            model side (GISVectorLayer source, SWMMModelLayer target).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * FEATURE_LAYER_TO_SWMM_IMPORT — controller between the import dialog
  * (view) and the model side (GISVectorLayer source, SWMMModelLayer
@@ -18,7 +20,9 @@
  *      Add*Commands + SetAdapterPropertiesCommand / geometry commands.
  *
  * No widget dependencies — unit-testable headless.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_IMPORT_FEATURELAYERIMPORTER_H
 #define OPENSWMMVIS_UI_DIALOGS_IMPORT_FEATURELAYERIMPORTER_H
 
@@ -36,18 +40,19 @@ class GISVectorLayer;
 class MapCanvas;
 class SWMMModelLayer;
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
 /*! Everything the worker thread needs to read the source features —
  *  plain data, no QObject/layer pointers cross the thread boundary. */
 struct SourceSpec {
-    QString filePath;      ///< OGR datasource path
-    QString layerName;     ///< OGR sublayer name; empty = first layer
-    QString filterExpr;    ///< current OGR attribute filter of the layer
-    bool    selectedOnly = false;
-    QSet<long long> selectedFids;   ///< honored when selectedOnly
-    QString sourceWkt;     ///< source-layer CRS WKT; empty = none
-    QString targetWkt;     ///< model-layer CRS WKT; empty = none
+    QString filePath;   ///< OGR datasource path
+    QString layerName;  ///< OGR sublayer name; empty = first layer
+    QString filterExpr; ///< current OGR attribute filter of the layer
+    bool selectedOnly = false;
+    QSet<long long> selectedFids; ///< honored when selectedOnly
+    QString sourceWkt;            ///< source-layer CRS WKT; empty = none
+    QString targetWkt;            ///< model-layer CRS WKT; empty = none
 };
 
 class FeatureLayerImporter : public QObject
@@ -55,11 +60,8 @@ class FeatureLayerImporter : public QObject
     Q_OBJECT
 
 public:
-    FeatureLayerImporter(GISVectorLayer *source,
-                         SWMMModelLayer *target,
-                         MapCanvas      *canvas,
-                         ImportMapping   mapping,
-                         QObject        *parent = nullptr);
+    FeatureLayerImporter(GISVectorLayer *source, SWMMModelLayer *target, MapCanvas *canvas,
+                         ImportMapping mapping, QObject *parent = nullptr);
 
     [[nodiscard]] const ImportMapping &mapping() const { return m_mapping; }
     void setMapping(const ImportMapping &m) { m_mapping = m; }
@@ -76,8 +78,8 @@ public:
      *  every coordinate source-CRS → model-CRS, and reduce to plain
      *  SourceFeatures. On open failure returns an empty list and sets
      *  \p errorOut. */
-    [[nodiscard]] static QVector<SourceFeature>
-        readSourceFeatures(const SourceSpec &spec, QString *errorOut = nullptr);
+    [[nodiscard]] static QVector<SourceFeature> readSourceFeatures(const SourceSpec &spec,
+                                                                   QString *errorOut = nullptr);
 
     /*! MAIN thread — apply \p plan as ONE undo macro on the canvas
      *  stack. Returns a copy of the plan with engine-level failures
@@ -85,14 +87,13 @@ public:
      *  \p progress (optional) receives (done, total) after each item;
      *  return false from it to stop pushing further items (already
      *  pushed items stay, as one undoable macro). */
-    ImportPlan execute(const ImportPlan &plan,
-                       const std::function<bool(int, int)> &progress = {});
+    ImportPlan execute(const ImportPlan &plan, const std::function<bool(int, int)> &progress = {});
 
 private:
     GISVectorLayer *m_source = nullptr;
     SWMMModelLayer *m_target = nullptr;
-    MapCanvas      *m_canvas = nullptr;
-    ImportMapping   m_mapping;
+    MapCanvas *m_canvas = nullptr;
+    ImportMapping m_mapping;
 };
 
 } // namespace openswmmvis::import

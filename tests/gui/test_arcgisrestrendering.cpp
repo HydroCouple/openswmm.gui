@@ -1,6 +1,6 @@
-/*!
- * \file   test_arcgisrestrendering.cpp
- * \brief  Unit tests for ArcGIS REST tile layer rendering.
+/**
+ * @file      test_arcgisrestrendering.cpp
+ * @brief     Unit tests for ArcGIS REST tile layer rendering.
  *
  * Covers:
  *   - URL building for ZXY (standard OSM) and ZYX (ArcGIS REST) axis orders.
@@ -12,6 +12,10 @@
  *
  * The private helpers are accessed via XYZTileLayerAccessor (declared friend in
  * xyztilelayer.h) to avoid exposing them in the production API.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/xyztilelayer.h"
@@ -34,15 +38,13 @@ public:
         return layer.buildUrl(z, x, y);
     }
 
-    static int bestZoom(const XYZTileLayer &layer,
-                        const QRectF &wgs84Extent, int vpWidth)
+    static int bestZoom(const XYZTileLayer &layer, const QRectF &wgs84Extent, int vpWidth)
     {
         return layer.bestZoom(wgs84Extent, vpWidth);
     }
 
-    static void latLonToTileXY(const XYZTileLayer &layer,
-                                double lat, double lon, int z,
-                                int &tx, int &ty)
+    static void latLonToTileXY(const XYZTileLayer &layer, double lat, double lon, int z, int &tx,
+                               int &ty)
     {
         layer.latLonToTileXY(lat, lon, z, tx, ty);
     }
@@ -123,9 +125,8 @@ void TestArcGISRestRendering::initTestCase()
  */
 void TestArcGISRestRendering::zxyUrlOrder_standardOSM()
 {
-    auto *layer = makeLayer(
-        QStringLiteral("https://tiles.example.com/{z}/{x}/{y}.png"),
-        TileAxisOrder::ZXY);
+    auto *layer =
+        makeLayer(QStringLiteral("https://tiles.example.com/{z}/{x}/{y}.png"), TileAxisOrder::ZXY);
 
     // z=5, col=3, row=7  →  tile/5/3/7
     const QString url = XYZTileLayerAccessor::buildUrl(*layer, 5, 3, 7);
@@ -148,8 +149,7 @@ void TestArcGISRestRendering::zyxUrlOrder_arcGISRestDerivedTemplate()
 {
     const QString base = QStringLiteral(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer");
-    auto *layer = makeLayer(base + QStringLiteral("/tile/{z}/{x}/{y}"),
-                            TileAxisOrder::ZYX);
+    auto *layer = makeLayer(base + QStringLiteral("/tile/{z}/{x}/{y}"), TileAxisOrder::ZYX);
 
     // col=512, row=341 at zoom 10
     // ZYX swap: {x} ← row=341, {y} ← col=512
@@ -200,9 +200,8 @@ void TestArcGISRestRendering::zyxUrlOrder_esriWorldImageryBuiltinTemplate()
 
 void TestArcGISRestRendering::subdomainSubstitution()
 {
-    auto *layer = makeLayer(
-        QStringLiteral("https://{s}.tiles.example.com/{z}/{x}/{y}.png"),
-        TileAxisOrder::ZXY);
+    auto *layer = makeLayer(QStringLiteral("https://{s}.tiles.example.com/{z}/{x}/{y}.png"),
+                            TileAxisOrder::ZXY);
 
     const QString url = XYZTileLayerAccessor::buildUrl(*layer, 3, 2, 5);
     // {s} is one of a/b/c — just verify it is replaced with something
@@ -217,7 +216,8 @@ void TestArcGISRestRendering::noSubdomainInTemplate()
 {
     // ArcGIS REST endpoints have no {s} placeholder — must not crash.
     auto *layer = makeLayer(
-        QStringLiteral("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}"),
+        QStringLiteral(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}"),
         TileAxisOrder::ZYX);
 
     const QString url = XYZTileLayerAccessor::buildUrl(*layer, 5, 10, 8);
@@ -260,8 +260,8 @@ void TestArcGISRestRendering::latLonToTileXY_london_zoom2()
 
     int tx = -1, ty = -1;
     XYZTileLayerAccessor::latLonToTileXY(*layer, 51.5, 0.0, 2, tx, ty);
-    QCOMPARE(tx, 2);   // column 2 (central longitude)
-    QCOMPARE(ty, 1);   // row 1 (northern hemisphere, upper half)
+    QCOMPARE(tx, 2); // column 2 (central longitude)
+    QCOMPARE(ty, 1); // row 1 (northern hemisphere, upper half)
 
     delete layer;
 }
@@ -295,7 +295,7 @@ void TestArcGISRestRendering::latLonToTileXY_antimeridianEdge()
     int tx = -1, ty = -1;
     XYZTileLayerAccessor::latLonToTileXY(*layer, 0.0, 179.9999, 1, tx, ty);
 
-    const int maxTile = (1 << 1) - 1;  // = 1 at zoom 1
+    const int maxTile = (1 << 1) - 1; // = 1 at zoom 1
     QVERIFY(tx >= 0 && tx <= maxTile);
     QVERIFY(ty >= 0 && ty <= maxTile);
 
@@ -320,10 +320,10 @@ void TestArcGISRestRendering::tileBoundsWGS84_zoom0_wholeWorld()
 
     const QRectF bounds = XYZTileLayerAccessor::tileBoundsWGS84(*layer, 0, 0, 0);
 
-    QVERIFY2(qAbs(bounds.left()   - (-180.0)) < 0.01, "lonMin should be -180");
-    QVERIFY2(qAbs(bounds.right()  -   180.0)  < 0.01, "lonMax should be +180");
-    QVERIFY2(qAbs(bounds.top()    - (-85.05)) < 0.05, "latMin should be ~-85.05");
-    QVERIFY2(qAbs(bounds.bottom() -   85.05)  < 0.05, "latMax should be ~+85.05");
+    QVERIFY2(qAbs(bounds.left() - (-180.0)) < 0.01, "lonMin should be -180");
+    QVERIFY2(qAbs(bounds.right() - 180.0) < 0.01, "lonMax should be +180");
+    QVERIFY2(qAbs(bounds.top() - (-85.05)) < 0.05, "latMin should be ~-85.05");
+    QVERIFY2(qAbs(bounds.bottom() - 85.05) < 0.05, "latMax should be ~+85.05");
 
     delete layer;
 }
@@ -338,10 +338,10 @@ void TestArcGISRestRendering::tileBoundsWGS84_zoom1_nwQuadrant()
 
     const QRectF bounds = XYZTileLayerAccessor::tileBoundsWGS84(*layer, 1, 0, 0);
 
-    QVERIFY2(qAbs(bounds.left()   - (-180.0)) < 0.01, "lonMin should be -180");
-    QVERIFY2(qAbs(bounds.right()  -     0.0)  < 0.01, "lonMax should be 0");
-    QVERIFY2(qAbs(bounds.top()    -     0.0)  < 0.01, "latMin should be 0");
-    QVERIFY2(bounds.bottom() > 85.0,                  "latMax should be ~+85.05");
+    QVERIFY2(qAbs(bounds.left() - (-180.0)) < 0.01, "lonMin should be -180");
+    QVERIFY2(qAbs(bounds.right() - 0.0) < 0.01, "lonMax should be 0");
+    QVERIFY2(qAbs(bounds.top() - 0.0) < 0.01, "latMin should be 0");
+    QVERIFY2(bounds.bottom() > 85.0, "latMax should be ~+85.05");
 
     delete layer;
 }
@@ -356,10 +356,10 @@ void TestArcGISRestRendering::tileBoundsWGS84_zoom1_seQuadrant()
 
     const QRectF bounds = XYZTileLayerAccessor::tileBoundsWGS84(*layer, 1, 1, 1);
 
-    QVERIFY2(qAbs(bounds.left()   -   0.0)  < 0.01, "lonMin should be 0");
-    QVERIFY2(qAbs(bounds.right()  - 180.0)  < 0.01, "lonMax should be 180");
-    QVERIFY2(bounds.top() < -85.0,                   "latMin should be ~-85.05");
-    QVERIFY2(qAbs(bounds.bottom()) < 0.01,           "latMax should be 0");
+    QVERIFY2(qAbs(bounds.left() - 0.0) < 0.01, "lonMin should be 0");
+    QVERIFY2(qAbs(bounds.right() - 180.0) < 0.01, "lonMax should be 180");
+    QVERIFY2(bounds.top() < -85.0, "latMin should be ~-85.05");
+    QVERIFY2(qAbs(bounds.bottom()) < 0.01, "latMax should be 0");
 
     delete layer;
 }
@@ -393,7 +393,7 @@ void TestArcGISRestRendering::bestZoom_cityView_1024px()
 {
     auto *layer = makeLayer(QStringLiteral("https://example.com/{z}/{x}/{y}.png"));
 
-    const QRectF cityExtent(-87.65, 41.83, 0.1, 0.05);  // central Chicago
+    const QRectF cityExtent(-87.65, 41.83, 0.1, 0.05); // central Chicago
     const int z = XYZTileLayerAccessor::bestZoom(*layer, cityExtent, 1024);
     QVERIFY2(z >= 12 && z <= 16,
              qPrintable(QStringLiteral("Expected zoom 12–16 for city view, got %1").arg(z)));

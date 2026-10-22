@@ -1,9 +1,9 @@
-/*!
- * \file   test_objectbrowser_tree_refresh.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Object Browser refresh on data-object mutations
+/**
+ * @file      test_objectbrowser_tree_refresh.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Object Browser refresh on data-object mutations
  *         (SWMMModelLayer::dataObjectsChanged → SWMMObjectTreeModel
  *         coalesced reload, registry-preferred counts).
  *
@@ -16,7 +16,9 @@
  *         Uses tests/gui/data/typed_selection_fixture.inp (one inline
  *         time series "TS1"). Each slot loads a fresh layer so slots are
  *         independent of execution order.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
@@ -36,7 +38,8 @@
 using openswmmvis::timeseries::TimeseriesRegistry;
 using DataCategory = SWMMModelLayer::DataCategory;
 
-namespace {
+namespace
+{
 
 QString dataDir()
 {
@@ -69,7 +72,8 @@ void drainEventLoop()
 QStringList timeSeriesLeafNames(const SWMMObjectTreeModel &model)
 {
     const int top = model.topRowForDataCategory(SWMMModelLayer::DataTimeSeries);
-    if (top < 0) return {};
+    if (top < 0)
+        return {};
     const QModelIndex parent = model.index(top, 0, QModelIndex());
     QStringList names;
     const int n = model.rowCount(parent);
@@ -105,10 +109,10 @@ private slots:
 
         auto *reg = qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
         QVERIFY(reg != nullptr);
-        drainEventLoop();  // settle any reload scheduled by registry seeding
+        drainEventLoop(); // settle any reload scheduled by registry seeding
 
         const int before = layer->dataObjectCount(SWMMModelLayer::DataTimeSeries);
-        QCOMPARE(before, 1);  // fixture's TS1, mirrored into the registry
+        QCOMPARE(before, 1); // fixture's TS1, mirrored into the registry
 
         QVERIFY(reg->create(QStringLiteral("TS_NEW")) != nullptr);
         drainEventLoop();
@@ -213,8 +217,8 @@ private slots:
         QCOMPARE(model.topRowForDataCategory(SWMMModelLayer::DataPatterns), -1);
 
         QString err;
-        QVERIFY2(layer->createDataObject(SWMMModelLayer::DataPatterns,
-                                          QStringLiteral("Pattern1"), {}, &err),
+        QVERIFY2(layer->createDataObject(SWMMModelLayer::DataPatterns, QStringLiteral("Pattern1"),
+                                         {}, &err),
                  qPrintable(err));
         drainEventLoop();
 
@@ -235,7 +239,7 @@ private slots:
 
         QString err;
         QVERIFY2(layer->createDataObject(SWMMModelLayer::DataTimeSeries,
-                                          QStringLiteral("TS_ENGINE"), {}, &err),
+                                         QStringLiteral("TS_ENGINE"), {}, &err),
                  qPrintable(err));
 
         QCOMPARE(reg->providerCount(), 2);

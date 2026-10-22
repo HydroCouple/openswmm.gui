@@ -1,11 +1,11 @@
-/*!
- * \file   wmsconnectiondialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
+/**
+ * @file      wmsconnectiondialog.h
+ * @brief     Dialog for connecting to an OGC WMS service and selecting a layer to add.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #ifndef WMSCONNECTIONDIALOG_H
@@ -55,7 +55,6 @@ class WMSConnectionDialog : public QDialog
     Q_OBJECT
 
 public:
-
     explicit WMSConnectionDialog(QWidget *parent = nullptr);
     ~WMSConnectionDialog() override;
 
@@ -79,17 +78,17 @@ private:
     void saveRecentUrls();
     void loadRecentUrls();
 
-    QComboBox         *m_urlCombo        = nullptr;
-    QTreeWidget       *m_layerTree       = nullptr;
-    QComboBox         *m_styleCombo      = nullptr;
-    QComboBox         *m_formatCombo     = nullptr;
-    QComboBox         *m_crsCombo        = nullptr;
-    QLabel            *m_serviceTitle    = nullptr;
-    QDialogButtonBox  *m_buttonBox       = nullptr;
+    QComboBox *m_urlCombo = nullptr;
+    QTreeWidget *m_layerTree = nullptr;
+    QComboBox *m_styleCombo = nullptr;
+    QComboBox *m_formatCombo = nullptr;
+    QComboBox *m_crsCombo = nullptr;
+    QLabel *m_serviceTitle = nullptr;
+    QDialogButtonBox *m_buttonBox = nullptr;
 
-    WMSLayer          *m_pendingLayer    = nullptr; /*!< Temporary layer for caps fetch. */
-    WMSServiceInfo    *m_serviceInfo     = nullptr;
-    QString            m_selectedLayerName;
+    WMSLayer *m_pendingLayer = nullptr; /*!< Temporary layer for caps fetch. */
+    WMSServiceInfo *m_serviceInfo = nullptr;
+    QString m_selectedLayerName;
 };
 
 #endif // WMSCONNECTIONDIALOG_H

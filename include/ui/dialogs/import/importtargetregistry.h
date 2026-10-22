@@ -1,8 +1,10 @@
-/*!
- * \file   importtargetregistry.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      importtargetregistry.h
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — static schema registry for the "Import Feature Layer →
+ *            SWMM Objects" dialog.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * FEATURE_LAYER_TO_SWMM_IMPORT — static schema registry for the
  * "Import Feature Layer → SWMM Objects" dialog. Describes every
@@ -16,7 +18,9 @@
  * (SWMM*PropertyAdapter). Keys with an empty adapterProperty
  * ("name", "fromNode", "toNode") are consumed by the creation call
  * itself (applyNodeAdd / applyLinkAdd / applyGageAdd).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_IMPORT_IMPORTTARGETREGISTRY_H
 #define OPENSWMMVIS_UI_DIALOGS_IMPORT_IMPORTTARGETREGISTRY_H
 
@@ -25,30 +29,39 @@
 #include <QString>
 #include <QVector>
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
 /*! Importable SWMM object kinds. Point-geometry kinds first, then
  *  polyline-geometry kinds. Order is the dialog's combo order. */
 enum class TargetKind {
-    Junction = 0, Outfall, Storage, Divider, RainGage,   // points
-    Conduit, Pump, Orifice, Weir, Outlet                 // polylines
+    Junction = 0,
+    Outfall,
+    Storage,
+    Divider,
+    RainGage, // points
+    Conduit,
+    Pump,
+    Orifice,
+    Weir,
+    Outlet // polylines
 };
 
 /*! One (label, engine code) pair of an enum-typed attribute.
  *  Codes mirror the adapter Q_ENUMs, which mirror the engine. */
 struct EnumChoice {
-    QString label;   ///< canonical key, e.g. "FREE" — matched case-insensitively
-    int     code;    ///< engine integer written through the adapter
+    QString label; ///< canonical key, e.g. "FREE" — matched case-insensitively
+    int code;      ///< engine integer written through the adapter
 };
 
 /*! One mappable attribute of a target kind. */
 struct TargetAttribute {
-    QString             key;              ///< stable id, e.g. "invertElev"
-    QString             label;            ///< translated display label
-    QMetaType::Type     type = QMetaType::Double; ///< Double / QString / Int
-    bool                required = false; ///< must be mapped for import
-    QString             adapterProperty;  ///< Q_PROPERTY name; empty = ctor-consumed
-    QVector<EnumChoice> enumChoices;      ///< non-empty ⇒ enum-typed (type == Int)
+    QString key;                              ///< stable id, e.g. "invertElev"
+    QString label;                            ///< translated display label
+    QMetaType::Type type = QMetaType::Double; ///< Double / QString / Int
+    bool required = false;                    ///< must be mapped for import
+    QString adapterProperty;                  ///< Q_PROPERTY name; empty = ctor-consumed
+    QVector<EnumChoice> enumChoices;          ///< non-empty ⇒ enum-typed (type == Int)
 };
 
 class ImportTargetRegistry
@@ -86,8 +99,7 @@ public:
 
     /*! Lookup one attribute by key; returns an entry with empty key
      *  when \p key is unknown for \p kind. */
-    [[nodiscard]] static TargetAttribute attribute(TargetKind kind,
-                                                   const QString &key);
+    [[nodiscard]] static TargetAttribute attribute(TargetKind kind, const QString &key);
 };
 
 } // namespace openswmmvis::import

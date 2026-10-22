@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      tracesnapshot.cpp
+ * @brief     Immutable model snapshots for flow balance and travel-time analysis.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "layers/swmmmodellayer.h"
 #include "map/spatialreferencesystem.h"
 #include "output/tracedata.h"
@@ -15,8 +25,7 @@ namespace openswmmvis::trace
 Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
 {
     Snapshot s;
-    if (!model || !model->engine())
-    {
+    if (!model || !model->engine()) {
         if (error)
             *error = QStringLiteral("Open a model first.");
         return s;
@@ -25,11 +34,9 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
     int units = 0;
     swmm_get_flow_units(e, &units);
     double lengthFactor = units < 3 ? 0.3048 : 1;
-    for (int i = 0; i < swmm_node_count(e); ++i)
-    {
+    for (int i = 0; i < swmm_node_count(e); ++i) {
         const char *id = swmm_node_id(e, i);
-        if (!id)
-        {
+        if (!id) {
             if (error)
                 *error = QStringLiteral("Cannot read node ID.");
             return {};
@@ -44,8 +51,7 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
         int routed = -1;
         if (n.type == 1 && swmm_node_get_outfall_route_to(e, i, &routed) == 0 && routed >= 0)
             n.flags |= SWMM_TRACE_ROUTED_OUTFALL;
-        if (n.type == 2)
-        {
+        if (n.type == 2) {
             double suction = 0, ksat = 0, deficit = 0;
             swmm_node_get_exfil_params(e, i, &suction, &ksat, &deficit);
             int evaporation = 0;
@@ -58,11 +64,9 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
         n.point = {x, y};
         s.nodes.append(n);
     }
-    for (int i = 0; i < swmm_link_count(e); ++i)
-    {
+    for (int i = 0; i < swmm_link_count(e); ++i) {
         const char *id = swmm_link_id(e, i);
-        if (!id)
-        {
+        if (!id) {
             if (error)
                 *error = QStringLiteral("Cannot read link ID.");
             return {};
@@ -80,8 +84,7 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
             l.to < s.nodes.size() && s.nodes[l.from].hasGeometry && s.nodes[l.to].hasGeometry)
             l.points = {s.nodes[l.from].point, s.nodes[l.to].point};
         double seep = 0;
-        if (swmm_link_get_seep_rate(e, i, &seep) == 0 && seep > 0)
-        {
+        if (swmm_link_get_seep_rate(e, i, &seep) == 0 && seep > 0) {
             if (l.from >= 0 && l.from < s.nodes.size())
                 s.nodes[l.from].flags |= SWMM_TRACE_UNKNOWN_LOSSES;
             if (l.to >= 0 && l.to < s.nodes.size())
@@ -91,8 +94,7 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
     }
     int count = 0;
     swmm_2d_vertex_count(e, &count);
-    for (int i = 0; i < count; ++i)
-    {
+    for (int i = 0; i < count; ++i) {
         int node = -1;
         swmm_2d_vertex_get_coupled_node(e, i, &node);
         if (node >= 0 && node < s.nodes.size())
@@ -100,8 +102,7 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
     }
     count = 0;
     swmm_2d_triangle_count(e, &count);
-    for (int i = 0; i < count; ++i)
-    {
+    for (int i = 0; i < count; ++i) {
         int node = -1;
         swmm_2d_triangle_get_coupled_node(e, i, &node);
         if (node >= 0 && node < s.nodes.size())
@@ -112,11 +113,9 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
     QJsonObject topology = s.toJson();
     topology.remove("wkt");
     // Coordinates belong to the saved geometry, not the hydraulic cache identity.
-    for (const QString &key : {QStringLiteral("nodes"), QStringLiteral("links")})
-    {
+    for (const QString &key : {QStringLiteral("nodes"), QStringLiteral("links")}) {
         QJsonArray objects;
-        for (auto value : topology.value(key).toArray())
-        {
+        for (auto value : topology.value(key).toArray()) {
             auto object = value.toObject();
             object.remove("x");
             object.remove("y");

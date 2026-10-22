@@ -1,3 +1,12 @@
+/**
+ * @file      mesh2dscalarframe.h
+ * @brief     Immutable scalar frames retaining dataset units and validity.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #ifndef OPENSWMMVIS_IO_MESH2DSCALARFRAME_H
 #define OPENSWMMVIS_IO_MESH2DSCALARFRAME_H
 
@@ -6,12 +15,12 @@
 #include <vector>
 #include <limits>
 
-namespace openswmmvis::io {
+namespace openswmmvis::io
+{
 
 // Immutable once published. Values remain in the dataset's declared units;
 // map coordinate conversions never alter concentrations or groundwater data.
-struct Mesh2DScalarFrame
-{
+struct Mesh2DScalarFrame {
     Mesh2DResultVariable descriptor;
     std::vector<float> values;
     std::vector<Mesh2DValueStatus> status;

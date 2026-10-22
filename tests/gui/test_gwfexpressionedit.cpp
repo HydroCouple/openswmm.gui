@@ -1,8 +1,12 @@
-/*!
- * \file   test_gwfexpressionedit.cpp
- * \brief  [GWF] expression editing stack (AQUIFER_GROUNDWATER_EXCHANGE_GUI_PLAN
+/**
+ * @file      test_gwfexpressionedit.cpp
+ * @brief     [GWF] expression editing stack (AQUIFER_GROUNDWATER_EXCHANGE_GUI_PLAN
  *         G4): engine-sourced vocabulary, completer proposals, engine-backed
  *         validation states (error column, empty = clear).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/widgets/gwfexpressionedit.h"
@@ -23,6 +27,12 @@ class TestGwfExpressionEdit : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require groundwater editor vocabulary counts to agree with the engine and contain
+     * selected variables/functions with nonempty descriptions.
+     *
+     */
     void vocabularyComesFromEngine()
     {
         SWMM_Engine e = swmm_engine_new();
@@ -43,6 +53,12 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require HG completion to include HGW/HGS but exclude HSW and uppercase SQ to
+     * complete sqrt.
+     *
+     */
     void completerProposesVariablesForPrefix()
     {
         SWMM_Engine e = swmm_engine_new();
@@ -73,6 +89,12 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require valid groundwater expression, unknown HGWW at zero-based column four,
+     * malformed-parenthesis error and valid empty-clear status.
+     *
+     */
     void validationStates()
     {
         SWMM_Engine e = swmm_engine_new();
@@ -114,6 +136,12 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require cursor insertion to produce 2*HGW and Enter to commit once without a
+     * newline.
+     *
+     */
     void insertAtCursorAndEnterCommit()
     {
         SWMM_Engine e = swmm_engine_new();

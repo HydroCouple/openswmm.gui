@@ -1,9 +1,9 @@
-/*!
- * \file   test_addnode_split_tool.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The generic add-node tools split a conduit when the click lands on
+/**
+ * @file      test_addnode_split_tool.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The generic add-node tools split a conduit when the click lands on
  *         one (ADDNODE_SPLIT_REDESIGN_PLAN_2026-09-10.md step 3), through the
  *         real canvas event path (press + release on a MapCanvas inside a
  *         SWMMVisProjectWindow):
@@ -13,6 +13,7 @@
  *           - Storage on a conduit → split + converted to STORAGE, undoable
  *             from the canvas undo stack
  *           - Junction on empty canvas → placed freely, no split
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "layers/swmmmodellayer.h"
@@ -33,7 +34,8 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
 QString fixturePath()
 {
@@ -45,26 +47,28 @@ QString fixturePath()
  *  is in a Local CRS, so canvas coordinates ARE layer coordinates:
  *  J1(0,0) —C1— J2(1000,0) —C2— J3(2000,0) —C3— O1(3000,0), J4(2000,-800)
  *  with pump P1 J4→J3. */
-struct Harness
-{
-    OpenSWMMVisWorkspace  *ws     = nullptr;
-    SWMMVisProjectWindow  *window = nullptr;
-    MapCanvas             *canvas = nullptr;
-    SWMMModelLayer        *layer  = nullptr;
+struct Harness {
+    OpenSWMMVisWorkspace *ws = nullptr;
+    SWMMVisProjectWindow *window = nullptr;
+    MapCanvas *canvas = nullptr;
+    SWMMModelLayer *layer = nullptr;
 
     bool open()
     {
         ws = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
         window = new SWMMVisProjectWindow(ws, fixturePath(), nullptr);
         QList<QString> warnings, errors;
-        if (!window->loadModel(warnings, errors)) return false;
+        if (!window->loadModel(warnings, errors))
+            return false;
         window->resize(900, 700);
         window->show();
-        if (!QTest::qWaitForWindowExposed(window)) return false;
+        if (!QTest::qWaitForWindowExposed(window))
+            return false;
         QTest::qWait(200);
         canvas = window->canvas();
-        layer  = window->modelLayer();
-        if (!canvas || !layer) return false;
+        layer = window->modelLayer();
+        if (!canvas || !layer)
+            return false;
         canvas->zoomToFullExtent();
         QTest::qWait(100);
         return true;
@@ -78,13 +82,13 @@ struct Harness
     {
         int px = 0, py = 0;
         canvas->toPixelCoords(mapX, mapY, px, py);
-        return { px, py };
+        return {px, py};
     }
     void click(OpenSWMMVisMapToolAddNode &tool, const QPoint &at)
     {
         canvas->setActiveTool(&tool);
         QTest::mouseMove(canvas, at);
-        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, at);   // press + release
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, at); // press + release
         canvas->setActiveTool(nullptr);
     }
 };
@@ -93,7 +97,8 @@ int engineNodeType(SWMMModelLayer *layer, const QString &name)
 {
     const int idx = swmm_node_index(layer->engine(), name.toUtf8().constData());
     int type = -1;
-    if (idx >= 0) swmm_node_get_type(layer->engine(), idx, &type);
+    if (idx >= 0)
+        swmm_node_get_type(layer->engine(), idx, &type);
     return type;
 }
 
@@ -113,7 +118,7 @@ private slots:
 
         OpenSWMMVisMapToolAddNode tool(h.canvas, 0, QStringLiteral("junction"));
         QSignalSpy split(&tool, &OpenSWMMVisMapToolAddNode::nodeInsertedOnConduit);
-        h.click(tool, h.pixelOf(500.0, 0.0));            // middle of C1
+        h.click(tool, h.pixelOf(500.0, 0.0)); // middle of C1
 
         QCOMPARE(h.layer->cachedLinkCount(), links + 1);
         QCOMPARE(h.layer->cachedNodeCount(), nodes + 1);
@@ -142,7 +147,7 @@ private slots:
         OpenSWMMVisMapToolAddNode tool(h.canvas, 1, QStringLiteral("outfall"));
         QVERIFY(!tool.kindCanSplitConduit());
         QSignalSpy status(&tool, &OpenSWMMVisMapToolAddNode::statusMessageChanged);
-        h.click(tool, h.pixelOf(1500.0, 0.0));           // middle of C2
+        h.click(tool, h.pixelOf(1500.0, 0.0)); // middle of C2
 
         QCOMPARE(h.layer->cachedLinkCount(), links);
         QCOMPARE(h.layer->cachedNodeCount(), nodes);
@@ -164,7 +169,7 @@ private slots:
 
         OpenSWMMVisMapToolAddNode tool(h.canvas, 2, QStringLiteral("storage"));
         QSignalSpy split(&tool, &OpenSWMMVisMapToolAddNode::nodeInsertedOnConduit);
-        h.click(tool, h.pixelOf(2500.0, 0.0));           // middle of C3
+        h.click(tool, h.pixelOf(2500.0, 0.0)); // middle of C3
 
         QCOMPARE(split.count(), 1);
         const QString nodeName = split.first().at(0).toString();
@@ -197,7 +202,7 @@ private slots:
         OpenSWMMVisMapToolAddNode tool(h.canvas, 0, QStringLiteral("junction"));
         QSignalSpy split(&tool, &OpenSWMMVisMapToolAddNode::nodeInsertedOnConduit);
         QSignalSpy added(&tool, &OpenSWMMVisMapToolAddNode::nodeAdded);
-        h.click(tool, h.pixelOf(500.0, -500.0));         // nowhere near a link
+        h.click(tool, h.pixelOf(500.0, -500.0)); // nowhere near a link
 
         QCOMPARE(split.count(), 0);
         QCOMPARE(added.count(), 1);

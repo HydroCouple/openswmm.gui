@@ -1,3 +1,12 @@
+/**
+ * @file      actionregistry.cpp
+ * @brief     UI redesign P1 — runtime registry over the action catalog (actioncatalog.h).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/actionregistry.h"
 #include "ui/actioncatalog.h"
 
@@ -7,7 +16,8 @@
 #include <QSettings>
 #include <QWidget>
 
-namespace {
+namespace
+{
 
 Q_LOGGING_CATEGORY(lcActionRegistry, "openswmm.ui.actionregistry")
 
@@ -15,24 +25,28 @@ const QString kSettingsGroup = QStringLiteral("SWMMVis::Shortcuts");
 
 /*! Resolve a catalog "std:Name" token to the StandardKey enum. Only the
  *  names the catalog actually uses are mapped; the catalog integrity
- *  test fails on any token missing here. */
+ *  test fails on any token missing here.
+ * @param[in] token Case-sensitive standard-key suffix such as New/Save/Undo, without std:.
+ * @param[out] out Optional StandardKey destination, assigned only on a recognized token.
+ * @return True for a mapped catalog token, false otherwise. Does not ask the platform for actual bindings.
+ */
 bool standardKeyForToken(const QString &token, QKeySequence::StandardKey *out)
 {
     // Exactly the tokens the catalog uses. Platform-theme-dependent keys
     // like Preferences/Quit stay literal in the catalog instead — the
     // offscreen QPA (used by every gui test) resolves them to nothing.
     static const QHash<QString, QKeySequence::StandardKey> kMap = {
-        {QStringLiteral("New"),          QKeySequence::New},
-        {QStringLiteral("Open"),         QKeySequence::Open},
-        {QStringLiteral("Save"),         QKeySequence::Save},
-        {QStringLiteral("SaveAs"),       QKeySequence::SaveAs},
-        {QStringLiteral("Print"),        QKeySequence::Print},
-        {QStringLiteral("Copy"),         QKeySequence::Copy},
-        {QStringLiteral("Find"),         QKeySequence::Find},
-        {QStringLiteral("Undo"),         QKeySequence::Undo},
-        {QStringLiteral("Redo"),         QKeySequence::Redo},
-        {QStringLiteral("ZoomIn"),       QKeySequence::ZoomIn},
-        {QStringLiteral("ZoomOut"),      QKeySequence::ZoomOut},
+        {QStringLiteral("New"), QKeySequence::New},
+        {QStringLiteral("Open"), QKeySequence::Open},
+        {QStringLiteral("Save"), QKeySequence::Save},
+        {QStringLiteral("SaveAs"), QKeySequence::SaveAs},
+        {QStringLiteral("Print"), QKeySequence::Print},
+        {QStringLiteral("Copy"), QKeySequence::Copy},
+        {QStringLiteral("Find"), QKeySequence::Find},
+        {QStringLiteral("Undo"), QKeySequence::Undo},
+        {QStringLiteral("Redo"), QKeySequence::Redo},
+        {QStringLiteral("ZoomIn"), QKeySequence::ZoomIn},
+        {QStringLiteral("ZoomOut"), QKeySequence::ZoomOut},
         {QStringLiteral("HelpContents"), QKeySequence::HelpContents},
     };
     const auto it = kMap.constFind(token);
@@ -43,12 +57,12 @@ bool standardKeyForToken(const QString &token, QKeySequence::StandardKey *out)
     return true;
 }
 
-}   // namespace
+} // namespace
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-ActionRegistry::ActionRegistry(QObject *parent)
-    : QObject(parent)
+ActionRegistry::ActionRegistry(QObject *parent) : QObject(parent)
 {
     mEntries.reserve(int(kActionCatalogSize));
     for (const ActionCatalogEntry &e : kActionCatalog)
@@ -71,23 +85,20 @@ void ActionRegistry::registerAction(const QString &id, QAction *action)
         return;
     const ActionCatalogEntry *entry = mEntries.value(id, nullptr);
     if (!entry) {
-        qCWarning(lcActionRegistry) << "unknown catalog id" << id
-                                    << "for action" << action->objectName();
+        qCWarning(lcActionRegistry)
+            << "unknown catalog id" << id << "for action" << action->objectName();
         return;
     }
     QAction *existing = mActions.value(id, nullptr);
     if (existing == action)
         return;
     if (existing) {
-        qCWarning(lcActionRegistry) << "id" << id
-                                    << "already bound; ignoring re-registration of"
-                                    << action->objectName();
+        qCWarning(lcActionRegistry)
+            << "id" << id << "already bound; ignoring re-registration of" << action->objectName();
         return;
     }
     mActions.insert(id, action);
-    connect(action, &QObject::destroyed, this, [this, id]() {
-        mActions.remove(id);
-    });
+    connect(action, &QObject::destroyed, this, [this, id]() { mActions.remove(id); });
     applyShortcut(id);
     emit actionRegistered(id);
 }
@@ -167,8 +178,7 @@ QList<QKeySequence> ActionRegistry::defaultShortcuts(const QString &id) const
         QKeySequence::StandardKey sk;
         if (standardKeyForToken(spec.mid(4), &sk))
             return QKeySequence::keyBindings(sk);
-        qCWarning(lcActionRegistry) << "unknown standard-key token" << spec
-                                    << "for" << id;
+        qCWarning(lcActionRegistry) << "unknown standard-key token" << spec << "for" << id;
         return {};
     }
     const QKeySequence seq(spec, QKeySequence::PortableText);
@@ -184,9 +194,8 @@ QList<QKeySequence> ActionRegistry::effectiveShortcuts(const QString &id) const
     if (stored.isValid()) {
         const QString text = stored.toString();
         if (text.isEmpty())
-            return {};   // deliberately cleared
-        const QKeySequence seq =
-            QKeySequence::fromString(text, QKeySequence::PortableText);
+            return {}; // deliberately cleared
+        const QKeySequence seq = QKeySequence::fromString(text, QKeySequence::PortableText);
         return seq.isEmpty() ? QList<QKeySequence>{} : QList<QKeySequence>{seq};
     }
     return defaultShortcuts(id);
@@ -225,8 +234,7 @@ bool ActionRegistry::hasUserShortcut(const QString &id) const
     return present;
 }
 
-QString ActionRegistry::conflictingActionId(const QKeySequence &seq,
-                                            const QString &excludeId) const
+QString ActionRegistry::conflictingActionId(const QKeySequence &seq, const QString &excludeId) const
 {
     if (seq.isEmpty())
         return {};
@@ -245,4 +253,4 @@ void ActionRegistry::applyShortcut(const QString &id)
         act->setShortcuts(effectiveShortcuts(id));
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

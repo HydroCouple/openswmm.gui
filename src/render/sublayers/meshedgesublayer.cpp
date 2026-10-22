@@ -1,7 +1,12 @@
-/*!
- * \file   meshedgesublayer.cpp
- * \brief  Mesh wireframe-edge sublayer — style bag + sublayer plumbing.
+/**
+ * @file      meshedgesublayer.cpp
+ * @brief     Mesh wireframe-edge sublayer — style bag + sublayer plumbing.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "render/sublayers/meshedgesublayer.h"
 
 #include <QJsonObject>
@@ -33,7 +38,7 @@ void MeshEdgeStyle::seedSchemeFromLegacy()
     m_scheme.setRangeMin(0.0);
     m_scheme.setRangeMax(1.0);
     m_scheme.setMethod(BinMethod::Manual);
-    m_scheme.setManualBreaks({ m_slopeBreak });
+    m_scheme.setManualBreaks({m_slopeBreak});
     m_scheme.setClassCount(2);
     m_scheme.setLowColor(m_color);
     m_scheme.setHighColor(m_wideColor);
@@ -43,7 +48,8 @@ void MeshEdgeStyle::seedSchemeFromLegacy()
 
 void MeshEdgeStyle::setScheme(const ClassificationScheme &s)
 {
-    if (m_scheme == s) return;
+    if (m_scheme == s)
+        return;
     m_scheme = s;
     setDirty();
 }
@@ -51,7 +57,8 @@ void MeshEdgeStyle::setScheme(const ClassificationScheme &s)
 void MeshEdgeStyle::setLineWidthPx(double v)
 {
     v = qBound(0.1, v, 20.0);
-    if (qFuzzyCompare(m_lineWidthPx + 1.0, v + 1.0)) return;
+    if (qFuzzyCompare(m_lineWidthPx + 1.0, v + 1.0))
+        return;
     m_lineWidthPx = v;
     setDirty();
 }
@@ -59,7 +66,8 @@ void MeshEdgeStyle::setLineWidthPx(double v)
 void MeshEdgeStyle::setSlopeBreak(double v)
 {
     v = qBound(0.0, v, 1.0);
-    if (qFuzzyCompare(m_slopeBreak + 1.0, v + 1.0)) return;
+    if (qFuzzyCompare(m_slopeBreak + 1.0, v + 1.0))
+        return;
     m_slopeBreak = v;
     setDirty();
 }
@@ -67,7 +75,8 @@ void MeshEdgeStyle::setSlopeBreak(double v)
 void MeshEdgeStyle::setWideWidthPx(double v)
 {
     v = qBound(0.1, v, 20.0);
-    if (qFuzzyCompare(m_wideWidthPx + 1.0, v + 1.0)) return;
+    if (qFuzzyCompare(m_wideWidthPx + 1.0, v + 1.0))
+        return;
     m_wideWidthPx = v;
     setDirty();
 }
@@ -75,14 +84,14 @@ void MeshEdgeStyle::setWideWidthPx(double v)
 QJsonObject MeshEdgeStyle::toJson() const
 {
     QJsonObject j;
-    j[QStringLiteral("color")]               = m_color.name(QColor::HexArgb);
-    j[QStringLiteral("lineWidthPx")]         = m_lineWidthPx;
-    j[QStringLiteral("dashPattern")]         = int(m_dashPattern);
+    j[QStringLiteral("color")] = m_color.name(QColor::HexArgb);
+    j[QStringLiteral("lineWidthPx")] = m_lineWidthPx;
+    j[QStringLiteral("dashPattern")] = int(m_dashPattern);
     j[QStringLiteral("useSlopeDrivenWidth")] = m_useSlopeDrivenWidth;
-    j[QStringLiteral("slopeBreak")]          = m_slopeBreak;
-    j[QStringLiteral("wideWidthPx")]         = m_wideWidthPx;
-    j[QStringLiteral("wideColor")]           = m_wideColor.name(QColor::HexArgb);
-    j[QStringLiteral("classification")]      = m_scheme.toJson();
+    j[QStringLiteral("slopeBreak")] = m_slopeBreak;
+    j[QStringLiteral("wideWidthPx")] = m_wideWidthPx;
+    j[QStringLiteral("wideColor")] = m_wideColor.name(QColor::HexArgb);
+    j[QStringLiteral("classification")] = m_scheme.toJson();
     return j;
 }
 
@@ -90,30 +99,38 @@ void MeshEdgeStyle::fromJson(const QJsonObject &j)
 {
     if (j.contains(QStringLiteral("color"))) {
         const QColor c(j.value(QStringLiteral("color")).toString());
-        if (c.isValid()) m_color = c;
+        if (c.isValid())
+            m_color = c;
     }
     if (j.contains(QStringLiteral("lineWidthPx")))
-        m_lineWidthPx = qBound(0.1, j.value(QStringLiteral("lineWidthPx")).toDouble(m_lineWidthPx), 20.0);
+        m_lineWidthPx =
+            qBound(0.1, j.value(QStringLiteral("lineWidthPx")).toDouble(m_lineWidthPx), 20.0);
     if (j.contains(QStringLiteral("dashPattern")))
-        m_dashPattern = static_cast<Qt::PenStyle>(j.value(QStringLiteral("dashPattern")).toInt(int(Qt::SolidLine)));
+        m_dashPattern = static_cast<Qt::PenStyle>(
+            j.value(QStringLiteral("dashPattern")).toInt(int(Qt::SolidLine)));
     if (j.contains(QStringLiteral("useSlopeDrivenWidth")))
-        m_useSlopeDrivenWidth = j.value(QStringLiteral("useSlopeDrivenWidth")).toBool(m_useSlopeDrivenWidth);
+        m_useSlopeDrivenWidth =
+            j.value(QStringLiteral("useSlopeDrivenWidth")).toBool(m_useSlopeDrivenWidth);
     if (j.contains(QStringLiteral("slopeBreak")))
-        m_slopeBreak = qBound(0.0, j.value(QStringLiteral("slopeBreak")).toDouble(m_slopeBreak), 1.0);
+        m_slopeBreak =
+            qBound(0.0, j.value(QStringLiteral("slopeBreak")).toDouble(m_slopeBreak), 1.0);
     if (j.contains(QStringLiteral("wideWidthPx")))
-        m_wideWidthPx = qBound(0.1, j.value(QStringLiteral("wideWidthPx")).toDouble(m_wideWidthPx), 20.0);
+        m_wideWidthPx =
+            qBound(0.1, j.value(QStringLiteral("wideWidthPx")).toDouble(m_wideWidthPx), 20.0);
     if (j.contains(QStringLiteral("wideColor"))) {
         const QColor c(j.value(QStringLiteral("wideColor")).toString());
-        if (c.isValid()) m_wideColor = c;
+        if (c.isValid())
+            m_wideColor = c;
     }
 
     // Legacy "colorByBC" / "bc*" keys are intentionally ignored here — they
     // migrate to the MeshBcSublayer in SWMM2DMeshLayer::onSublayersJsonLoaded.
 
     if (j.contains(QStringLiteral("classification")))
-        m_scheme = ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
+        m_scheme =
+            ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
     else
-        seedSchemeFromLegacy();   // older file — reproduce the legacy 2-tier look
+        seedSchemeFromLegacy(); // older file — reproduce the legacy 2-tier look
 
     setDirty();
 }
@@ -126,7 +143,8 @@ MeshEdgeSublayer::MeshEdgeSublayer(QString id_, QObject *parent)
 
 void MeshEdgeSublayer::setVisible(bool v)
 {
-    if (m_visible == v) return;
+    if (m_visible == v)
+        return;
     m_visible = v;
     emit invalidated();
 }
@@ -134,7 +152,8 @@ void MeshEdgeSublayer::setVisible(bool v)
 void MeshEdgeSublayer::setOpacity(qreal o)
 {
     o = qBound(0.0, o, 1.0);
-    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0)) return;
+    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0))
+        return;
     m_opacity = o;
     emit invalidated();
 }
@@ -144,7 +163,7 @@ QList<LegendSymbolItem> MeshEdgeSublayer::legendSymbolItems() const
     // BC legend rows moved to MeshBcSublayer — this sublayer is the plain
     // wireframe only.
     LegendSymbolItem item;
-    item.label      = tr("Mesh Edges");
+    item.label = tr("Mesh Edges");
     item.sublayerId = m_id;
 
     SymbolLayer line;
@@ -153,7 +172,7 @@ QList<LegendSymbolItem> MeshEdgeSublayer::legendSymbolItems() const
     line.props.insert(QStringLiteral("widthPx"), m_style->lineWidthPx());
     item.symbol.layers.append(line);
     item.symbol.opacity = m_opacity;
-    return { item };
+    return {item};
 }
 
 QSGNode *MeshEdgeSublayer::buildOrUpdateNode(QSGNode *existing, const SublayerContext &ctx)

@@ -1,8 +1,9 @@
-/*!
- * \file   linkcompoundeditref.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      linkcompoundeditref.h
+ * @brief     Compound-attribute cell value for the link Property Browser.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice SC.1 — Compound-attribute cell value for the link Property
  * Browser. Mirror of `NodeCompoundEditRef` (Slice DB.2) for link-side
@@ -18,6 +19,7 @@
  * cell goes into edit mode. A `QMetaType` string converter is also
  * installed so the read-only display state shows the `summary`
  * string rather than `QVariant<LinkCompoundEditRef>`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef LINKCOMPOUNDEDITREF_H
@@ -26,36 +28,39 @@
 #include <QMetaType>
 #include <QString>
 
-#include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
+#include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 
 class SWMMModelLayer;
 
 /*! Identifies one editable compound attribute on a single link. */
-struct LinkCompoundEditRef
-{
+struct LinkCompoundEditRef {
     /*! Which legacy SWMM concept this cell wraps. Order matches the
      *  visual layout of `ConduitProps` rows 5/20 in
      *  `SWMM-GUI/Epaswmm5/objprops.txt` (Shape, Inlets). */
     enum Kind {
-        XSection = 0,  ///< `[XSECTIONS]` per-link shape + geom1..4 + barrels
-        InletUsage,    ///< `[INLETS]` per-conduit usage rows (placeholder)
+        XSection = 0, ///< `[XSECTIONS]` per-link shape + geom1..4 + barrels
+        InletUsage,   ///< `[INLETS]` per-conduit usage rows (placeholder)
     };
 
-    SWMM_Engine     engine   = nullptr;  ///< Engine handle (borrow, not owned)
-    QString         linkName;            ///< Owning link id
-    Kind            kind     = XSection;
-    QString         summary;             ///< Short text shown in the cell
+    SWMM_Engine engine = nullptr; ///< Engine handle (borrow, not owned)
+    QString linkName;             ///< Owning link id
+    Kind kind = XSection;
+    QString summary; ///< Short text shown in the cell
     /*! Owning model layer (borrow). Slice SC.1 — needed so the dialog's
      *  pages can route writes through `applyLinkXsect` /
      *  `applyLinkCulvertCode` so the Map + Attribute Table refresh via
      *  `attributeChanged(linkName)` without a second source of truth. */
-    SWMMModelLayer *layer    = nullptr;
+    SWMMModelLayer *layer = nullptr;
 
+    /**
+     * @brief Compare reference identity and every cached display/value field.
+     * @param[in] other Reference to compare without dereferencing borrowed engine/model pointers.
+     * @return True only when all stored fields match; equality does not verify current engine state.
+     */
     bool operator==(const LinkCompoundEditRef &other) const noexcept
     {
-        return engine == other.engine && linkName == other.linkName
-               && kind == other.kind && summary == other.summary
-               && layer == other.layer;
+        return engine == other.engine && linkName == other.linkName && kind == other.kind &&
+               summary == other.summary && layer == other.layer;
     }
 };
 
@@ -64,7 +69,9 @@ Q_DECLARE_METATYPE(LinkCompoundEditRef)
 /*! Install the `LinkCompoundEditRef → QString` metatype converter so
  *  the read-only DisplayRole path on QPropertyModel renders `summary`
  *  in the cell when the user isn't actively editing. Idempotent — safe
- *  to call multiple times from different initialisers. */
+ *  to call multiple times from different initialisers.
+ * @details Installs the Qt value-to-QString converter once using a local registration flag. Call during GUI startup before concurrent use; no engine ownership is acquired.
+ */
 void registerLinkCompoundEditRefConverter();
 
 #endif // LINKCOMPOUNDEDITREF_H

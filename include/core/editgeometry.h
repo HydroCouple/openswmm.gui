@@ -1,12 +1,14 @@
-/*!
- * \file   editgeometry.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
- * \brief  Pure geometry helpers used by the map-edit tools and commands.
- * \details These helpers live in a leaf module with no Qt-GUI, OGR, or
+/**
+ * @file      editgeometry.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @brief     Pure geometry helpers used by the map-edit tools and commands.
+ * @details These helpers live in a leaf module with no Qt-GUI, OGR, or
  *          engine dependencies so they can be exercised directly by a
  *          lightweight QtTest binary without dragging in the full
  *          SWMMModelLayer / MapCanvas graph.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #ifndef EDITGEOMETRY_H
@@ -74,8 +76,8 @@ constexpr double kCoincidenceTol = 1e-6;
  * \param to       To-node coordinate (polyline end).
  * \returns        \p interior, reversed iff it was stored to→from.
  */
-[[nodiscard]] QVector<QPointF> orientInteriorToEndpoints(
-    QVector<QPointF> interior, const QPointF &from, const QPointF &to);
+[[nodiscard]] QVector<QPointF> orientInteriorToEndpoints(QVector<QPointF> interior,
+                                                         const QPointF &from, const QPointF &to);
 
 /*!
  * \brief Compute the total length of a polyline.
@@ -95,17 +97,19 @@ constexpr double kCoincidenceTol = 1e-6;
  * \returns        New polyline, or a copy of \p vertices if \p index is
  *                 out of range.
  */
-[[nodiscard]] QVector<QPointF> replacedAt(const QVector<QPointF> &vertices,
-                                          int index,
+[[nodiscard]] QVector<QPointF> replacedAt(const QVector<QPointF> &vertices, int index,
                                           const QPointF &newPt);
 
 /*!
  * \brief Insert a vertex at \p index, producing a new polyline of size+1.
  * \details Pass \p index = vertices.size() to append, 0 to prepend.
  *          Out-of-range indices are clamped.
+ * @param[in] vertices Source polyline, unchanged by this operation.
+ * @param[in] index Insertion position clamped to [0, vertices.size()].
+ * @param[in] newPt Coordinate in the same frame as the source.
+ * @return Copy with one inserted point; no geometry validity check is performed.
  */
-[[nodiscard]] QVector<QPointF> insertedAt(const QVector<QPointF> &vertices,
-                                          int index,
+[[nodiscard]] QVector<QPointF> insertedAt(const QVector<QPointF> &vertices, int index,
                                           const QPointF &newPt);
 
 /*!
@@ -114,9 +118,10 @@ constexpr double kCoincidenceTol = 1e-6;
  *          that need a minimum vertex count (subcatchment polygons) enforce
  *          it themselves; a link's interior list may legitimately become
  *          empty.
+ * @param[in] vertices Source polyline, unchanged by this operation.
+ * @param[in] index Zero-based vertex to erase; invalid indexes are ignored.
  */
-[[nodiscard]] QVector<QPointF> removedAt(const QVector<QPointF> &vertices,
-                                         int index);
+[[nodiscard]] QVector<QPointF> removedAt(const QVector<QPointF> &vertices, int index);
 
 /*!
  * \brief Distance from a point to the nearest point on a polyline segment.
@@ -128,9 +133,11 @@ constexpr double kCoincidenceTol = 1e-6;
  * \returns Distance in the same units as the input coordinates.
  *          Returns std::numeric_limits<double>::infinity() for fewer
  *          than two vertices.
+ * @param[in] vertices Ordered polyline vertices, in a common Euclidean coordinate frame.
+ * @param[in] point Query coordinate in the same frame.
+ * @details On fewer than two vertices, optional outputs are initialized to -1 and a default QPointF. Equal-distance ties retain the first segment.
  */
-[[nodiscard]] double distanceToPolyline(const QVector<QPointF> &vertices,
-                                        const QPointF &point,
+[[nodiscard]] double distanceToPolyline(const QVector<QPointF> &vertices, const QPointF &point,
                                         int *segmentIndex = nullptr,
                                         QPointF *closestPoint = nullptr);
 
@@ -160,42 +167,61 @@ constexpr double kCoincidenceTol = 1e-6;
  *          (negative signed area). Consumers that care about ring winding
  *          (e.g. Shapefile export) may rely on that post-normalize.
  */
-struct RingPolygon
-{
-    QVector<QPointF>          exterior;   ///< Outer boundary (open ring, >= 3 pts).
-    QVector<QVector<QPointF>> interiors;  ///< Holes; each an open ring (>= 3 pts).
+struct RingPolygon {
+    QVector<QPointF> exterior;           ///< Outer boundary (open ring, >= 3 pts).
+    QVector<QVector<QPointF>> interiors; ///< Holes; each an open ring (>= 3 pts).
 
-    [[nodiscard]] bool isEmpty()   const { return exterior.size() < 3; }
-    [[nodiscard]] int  holeCount() const { return static_cast<int>(interiors.size()); }
+    /**
+     * @brief Test only whether the exterior has enough vertices to form a ring.
+     * @return True for fewer than three exterior vertices; does not test area, intersections or holes.
+     */
+    [[nodiscard]] bool isEmpty() const { return exterior.size() < 3; }
+    /**
+     * @brief Count stored interior rings without validating them.
+     * @return Number of interior-ring vectors.
+     */
+    [[nodiscard]] int holeCount() const { return static_cast<int>(interiors.size()); }
 };
 
 /*!
  * \brief Signed area of a ring via the shoelace formula.
  * \returns Positive for counter-clockwise winding, negative for clockwise,
  *          0 for fewer than 3 vertices. Handles open or explicitly-closed rings.
+ * @param[in] ring Ordered open or explicitly closed ring in a Euclidean frame.
+ * @return Signed area in squared coordinate units, preserving ring orientation.
  */
 [[nodiscard]] double signedRingArea(const QVector<QPointF> &ring);
 
 /*!
  * \brief Even-odd point-in-ring test (boundary result is unspecified but
  *        stable). Returns false for rings with fewer than 3 vertices.
+ * @param[in] ring Ordered ring in the same coordinate frame as the query.
+ * @param[in] pt Point to classify; no tolerance is applied.
+ * @return Result of the even-odd ray test; degenerate rings return false.
  */
 [[nodiscard]] bool pointInRing(const QVector<QPointF> &ring, const QPointF &pt);
 
 /*!
  * \brief Clean every ring (dedupe + de-close), drop degenerate interior rings,
  *        and orient exterior CCW / interiors CW.
+ * @param[in] p Polygon copied by value; input storage held by the caller is unchanged.
+ * @param[in] tol Coincidence tolerance in input coordinate units, as for cleanPolyline().
+ * @return Open, oriented exterior and surviving nondegenerate holes; this does not repair self-intersections or misplaced holes.
  */
-[[nodiscard]] RingPolygon normalizeRingPolygon(RingPolygon p,
-                                               double tol = kCoincidenceTol);
+[[nodiscard]] RingPolygon normalizeRingPolygon(RingPolygon p, double tol = kCoincidenceTol);
 
 /*!
  * \brief Net area = |exterior| − Σ|holes|, clamped to >= 0.
+ * @param[in] p Polygon with rings expressed in one Euclidean frame.
+ * @return Nonnegative exterior-minus-hole area in squared coordinate units; does not validate ring containment.
  */
 [[nodiscard]] double netArea(const RingPolygon &p);
 
 /*!
  * \brief True when \p pt is inside the exterior and outside every hole.
+ * @param[in] p Polygon in the query frame.
+ * @param[in] pt Point tested against the exterior and each interior ring.
+ * @return True for exterior membership excluding all holes; boundary behavior follows pointInRing().
  */
 [[nodiscard]] bool containsPoint(const RingPolygon &p, const QPointF &pt);
 
@@ -207,12 +233,13 @@ struct RingPolygon
  *          Falls back to the vertex centroid only for degenerate input.
  *          This replaces the naive vertex-centroid seed, which can fall
  *          outside a non-convex ring.
+ * @param[in] ring Simple ring, open or explicitly closed, in a Euclidean frame.
+ * @return Interior scanline seed for usable rings; a default point for empty input or vertex centroid for degenerate geometry. Degenerate fallback is not guaranteed interior.
  */
 [[nodiscard]] QPointF interiorPoint(const QVector<QPointF> &ring);
 
 /*! \brief Validity classes for a RingPolygon (in-house checks, no GEOS). */
-enum class RingValidity
-{
+enum class RingValidity {
     Ok,
     TooFewVertices,      ///< Exterior or a hole has < 3 vertices.
     SelfIntersecting,    ///< Exterior or a hole crosses itself.
@@ -223,6 +250,8 @@ enum class RingValidity
 /*!
  * \brief Validate a RingPolygon with in-house geometry checks (O(n^2) edge
  *        tests; intended for hand-digitized / GIS-sourced rings).
+ * @param[in] p Exterior and holes to inspect without modifying storage.
+ * @return First detected validity class: insufficient vertices, self-intersection, escaping hole or overlapping/nested holes; Ok when these checks pass.
  */
 [[nodiscard]] RingValidity validateRingPolygon(const RingPolygon &p);
 

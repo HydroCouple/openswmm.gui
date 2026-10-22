@@ -1,9 +1,9 @@
-/*!
- * \file   comparisonpairsdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5 — editor for the
+/**
+ * @file      comparisonpairsdialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5 — editor for the
  *         Comparison Plot's user-configured 1v1 pairs.
  *
  * MVC: the dialog edits ComparisonPlotModel's pair list directly; the
@@ -11,7 +11,9 @@
  * ComparisonPlotDialog rebuilds its scatter column live while this
  * dialog is open. An empty pair list means auto mode (baseline vs every
  * other run, matched by objectRef).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_COMPARISONPAIRSDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_COMPARISONPAIRSDIALOG_H
 
@@ -21,9 +23,13 @@ class QComboBox;
 class QListWidget;
 class QPushButton;
 
-namespace openswmmvis::plot { class ComparisonPlotModel; }
+namespace openswmmvis::plot
+{
+class ComparisonPlotModel;
+}
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class ComparisonPairsDialog : public QDialog
 {
@@ -46,12 +52,12 @@ private:
 
     openswmmvis::plot::ComparisonPlotModel *m_model = nullptr;
 
-    QComboBox   *m_xCombo     = nullptr;
-    QComboBox   *m_yCombo     = nullptr;
-    QListWidget *m_pairList   = nullptr;
-    QPushButton *m_addBtn     = nullptr;
-    QPushButton *m_removeBtn  = nullptr;
-    QPushButton *m_resetBtn   = nullptr;
+    QComboBox *m_xCombo = nullptr;
+    QComboBox *m_yCombo = nullptr;
+    QListWidget *m_pairList = nullptr;
+    QPushButton *m_addBtn = nullptr;
+    QPushButton *m_removeBtn = nullptr;
+    QPushButton *m_resetBtn = nullptr;
 };
 
 } // namespace openswmmvis::ui

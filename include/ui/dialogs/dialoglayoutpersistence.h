@@ -1,9 +1,9 @@
-/*!
- * \file   dialoglayoutpersistence.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Step E.1 + Step H — free helpers for dialog layout persistence
+/**
+ * @file      dialoglayoutpersistence.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Step E.1 + Step H — free helpers for dialog layout persistence
  *         via QSettings and a uniform always-on-top policy.
  *
  * Iteration 2 (D1): persistence is applied automatically by the app-wide
@@ -27,7 +27,9 @@
  *
  * QSettings keys live under `Dialogs/<objectName>/...` so they're isolated
  * from main-window state and from one another.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_DIALOGLAYOUTPERSISTENCE_H
 #define OPENSWMMVIS_UI_DIALOGS_DIALOGLAYOUTPERSISTENCE_H
 
@@ -39,7 +41,8 @@ class QDialog;
 class QScreen;
 class QWidget;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 /*! \brief Persist the dialog's geometry + every named QSplitter under it.
  *

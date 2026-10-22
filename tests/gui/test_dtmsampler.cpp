@@ -1,12 +1,15 @@
-/*!
- * \file   test_dtmsampler.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_dtmsampler.cpp
+ * @brief     Tests for dtmsampler.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
- * Slice AU — QtTest coverage for DTMSampler. Uses GDAL's MEM driver to
- * build a small in-memory raster so the test never touches disk.
+ * Slice AU — QtTest coverage for DTMSampler. Writes small GeoTIFF ramp
+ * fixtures in QTemporaryDir; their lifetime is bounded by each test case.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include <QtTest>
 #include <QPointF>
 #include <QString>
@@ -29,6 +32,17 @@ private:
     /*! Build a 10×10 raster on disk where elevation = x + 10*y so we
      *  can predict bilinear samples. Origin at (0,0); pixel size 1.0;
      *  band 1 is Float64. Returns empty string on failure. */
+    /**
+     *
+     * @brief Write a ten-by-ten north-up Float64 ramp GeoTIFF into the fixture directory.
+     * @param dir Borrowed valid temporary directory, owning output-file lifetime.
+     * @param noData Band sentinel metadata, default -9999; no pixels are replaced by it.
+     * @return Owned ramp.tif path or empty on absent driver/dataset allocation failure.
+     * Replaces the file; geotransform, RasterIO and NoData setter statuses are unchecked.
+     * Unit pixels cover zero..ten in each axis; values are column plus ten times
+     * bottom-up row index, not raw world-coordinate x+10*y. Registers GDAL globally.
+     *
+     */
     QString buildRamp(QTemporaryDir &dir, double noData = -9999.0) const
     {
         GDALAllRegister();
@@ -36,10 +50,11 @@ private:
         const int W = 10, H = 10;
         const QString path = dir.filePath("ramp.tif");
         GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
-        if (!drv) return {};
-        GDALDataset *ds = drv->Create(path.toUtf8().constData(), W, H, 1,
-                                       GDT_Float64, nullptr);
-        if (!ds) return {};
+        if (!drv)
+            return {};
+        GDALDataset *ds = drv->Create(path.toUtf8().constData(), W, H, 1, GDT_Float64, nullptr);
+        if (!ds)
+            return {};
 
         // GDAL geotransform: identity except origin at upper-left.
         // Standard layout: (origin_x, dx, 0, origin_y, 0, -dy).
@@ -53,8 +68,7 @@ private:
         for (int r = 0; r < H; ++r)
             for (int c = 0; c < W; ++c)
                 buf[r * W + c] = double(c) + 10.0 * double(H - 1 - r);
-        ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, W, H, buf.data(),
-                                         W, H, GDT_Float64, 0, 0);
+        ds->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, W, H, buf.data(), W, H, GDT_Float64, 0, 0);
         ds->GetRasterBand(1)->SetNoDataValue(noData);
         GDALClose(ds);
         return path;
@@ -62,6 +76,11 @@ private:
 
 private slots:
 
+    /**
+     *
+     * @brief Require sampling an unopened DEM sampler to return NaN.
+     *
+     */
     void notOpen_returnsNaN()
     {
         mesh::DTMSampler s;
@@ -69,6 +88,12 @@ private slots:
         QVERIFY(std::isnan(s.sample(0, 0)));
     }
 
+    /**
+     *
+     * @brief Require missing raster opening to fail with a diagnostic and leave the sampler
+     * closed.
+     *
+     */
     void openMissingFile_fails()
     {
         mesh::DTMSampler s;
@@ -78,6 +103,12 @@ private slots:
     }
 
     /*! Open a known ramp + sample at exact pixel centres. */
+    /**
+     *
+     * @brief Require exact corner/interior pixel-center samples to equal the constructed ramp
+     * values 90, nine and 45.
+     *
+     */
     void rampAtPixelCentres_returnsExpected()
     {
         QTemporaryDir dir;
@@ -97,6 +128,11 @@ private slots:
     }
 
     /*! Bilinear interpolation between adjacent pixels. */
+    /**
+     *
+     * @brief Require the midpoint of four neighboring centers to interpolate to 85.5 within 1e-9.
+     *
+     */
     void rampMidPoint_bilinear()
     {
         QTemporaryDir dir;
@@ -114,6 +150,11 @@ private slots:
     }
 
     /*! Out-of-bounds returns NaN. */
+    /**
+     *
+     * @brief Require samples well beyond either raster side to return NaN.
+     *
+     */
     void outsideBounds_returnsNaN()
     {
         QTemporaryDir dir;
@@ -123,7 +164,7 @@ private slots:
         QVERIFY(s.open(path));
 
         QVERIFY(std::isnan(s.sample(-100, 0)));
-        QVERIFY(std::isnan(s.sample(0,  100)));
+        QVERIFY(std::isnan(s.sample(0, 100)));
     }
 
     /*! Coordinates FAR outside the raster (a network node hundreds of km
@@ -131,6 +172,12 @@ private slots:
      *  beyond int range. The range test must run in double space BEFORE
      *  narrowing — the out-of-range double→int cast is UB (saturates on
      *  ARM64, INT_MIN on x86, either way platform-divergent). */
+    /**
+     *
+     * @brief Require huge positive/negative coordinates through 1e300 to return NaN without
+     * narrowing into pixel indices.
+     *
+     */
     void farOutsideBounds_returnsNaN_noNarrowingUB()
     {
         QTemporaryDir dir;
@@ -139,16 +186,21 @@ private slots:
         mesh::DTMSampler s;
         QVERIFY(s.open(path));
 
-        QVERIFY(std::isnan(s.sample( 1e12,  5.0)));
-        QVERIFY(std::isnan(s.sample(-1e12,  5.0)));
-        QVERIFY(std::isnan(s.sample( 5.0,  1e12)));
-        QVERIFY(std::isnan(s.sample( 5.0, -1e12)));
-        QVERIFY(std::isnan(s.sample( 1e300, -1e300)));
+        QVERIFY(std::isnan(s.sample(1e12, 5.0)));
+        QVERIFY(std::isnan(s.sample(-1e12, 5.0)));
+        QVERIFY(std::isnan(s.sample(5.0, 1e12)));
+        QVERIFY(std::isnan(s.sample(5.0, -1e12)));
+        QVERIFY(std::isnan(s.sample(1e300, -1e300)));
     }
 
     /*! A non-finite coordinate (e.g. from a failed upstream CRS transform)
      *  returns NaN rather than reaching static_cast<int>(floor(NaN)), which
      *  is UB. */
+    /**
+     *
+     * @brief Require NaN and signed-infinite coordinate combinations to return NaN.
+     *
+     */
     void nonFiniteCoords_returnNaN()
     {
         QTemporaryDir dir;
@@ -166,6 +218,12 @@ private slots:
     }
 
     /*! Bulk sampling matches per-point loop. */
+    /**
+     *
+     * @brief Require three-point bulk sampling to preserve count/order and equal individual
+     * scalar samples exactly.
+     *
+     */
     void bulkMatchesIndividual()
     {
         QTemporaryDir dir;
@@ -174,9 +232,7 @@ private slots:
         mesh::DTMSampler s;
         QVERIFY(s.open(path));
 
-        QVector<QPointF> pts {
-            {0.5, 9.5}, {1.5, 9.5}, {5.5, 4.5}
-        };
+        QVector<QPointF> pts{{0.5, 9.5}, {1.5, 9.5}, {5.5, 4.5}};
         const QVector<double> bulk = s.sampleBulk(pts);
         QCOMPARE(bulk.size(), pts.size());
         for (int i = 0; i < pts.size(); ++i)

@@ -1,9 +1,12 @@
-/*!
- * \file   timeseriesregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      timeseriesregistry.cpp
+ * @brief     TimeseriesProvider instances.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "timeseries/timeseriesregistry.h"
 
 #include "timeseries/timeseriesprovider.h"
@@ -16,20 +19,26 @@
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
-#include <openswmm/engine/openswmm_edit.h>   // swmm_table_delete
+#include <openswmm/engine/openswmm_edit.h> // swmm_table_delete
 
 #include <QFileInfo>
 
 #include <string>
 
-namespace openswmmvis::timeseries {
+namespace openswmmvis::timeseries
+{
 
-namespace {
-constexpr int kTableTypeTimeseries = 0;   // openswmm::TableType::TIMESERIES
+namespace
+{
+constexpr int kTableTypeTimeseries = 0; // openswmm::TableType::TIMESERIES
 
 /*! Engine index of the TIMESERIES named \p name, or -1. A same-named curve
  *  is a different object (legacy keeps separate tables), so it never
- *  matches; swmm_table_index would fall back to one. */
+ *  matches; swmm_table_index would fall back to one.
+ * @param[in] eng Borrowed engine read synchronously.
+ * @param[in] name Identifier matched case-insensitively.
+ * @return First matching type-zero TIMESERIES table index, or -1; same-named curves never match.
+ */
 int seriesTableIndex(SWMM_Engine eng, const QString &name)
 {
     const int n = swmm_table_count(eng);
@@ -45,21 +54,19 @@ int seriesTableIndex(SWMM_Engine eng, const QString &name)
 }
 } // namespace
 
-TimeseriesRegistry::TimeseriesRegistry(QObject *parent)
-    : QObject(parent)
-{
-}
+TimeseriesRegistry::TimeseriesRegistry(QObject *parent) : QObject(parent) {}
 
 TimeseriesRegistry::~TimeseriesRegistry() = default;
 
-TimeseriesProvider *TimeseriesRegistry::findByName(const QString& name) const
+TimeseriesProvider *TimeseriesRegistry::findByName(const QString &name) const
 {
     return m_byLowerName.value(name.toLower(), nullptr);
 }
 
-TimeseriesProvider *TimeseriesRegistry::create(const QString& name)
+TimeseriesProvider *TimeseriesRegistry::create(const QString &name)
 {
-    if (name.isEmpty() || hasName(name)) return nullptr;
+    if (name.isEmpty() || hasName(name))
+        return nullptr;
 
     auto *p = new TimeseriesProvider(name, this);
     m_providers.push_back(p);
@@ -69,7 +76,7 @@ TimeseriesProvider *TimeseriesRegistry::create(const QString& name)
     // (e.g. via RenameTimeseriesCommand). The registry's `rename()` path
     // updates the index up-front; this connection covers direct setName.
     connect(p, &TimeseriesProvider::nameChanged, this,
-            [this, p](const QString& prev, const QString& now) {
+            [this, p](const QString &prev, const QString &now) {
                 m_byLowerName.remove(prev.toLower());
                 m_byLowerName.insert(now.toLower(), p);
                 emit providerRenamed(p, prev, now);
@@ -91,7 +98,8 @@ TimeseriesProvider *TimeseriesRegistry::create(const QString& name)
 
 void TimeseriesRegistry::remove(TimeseriesProvider *p)
 {
-    if (!p || !m_providers.contains(p)) return;
+    if (!p || !m_providers.contains(p))
+        return;
     emit providerAboutToBeRemoved(p);
 
     // Delete the ENGINE table too (perf-plan Phase A3, and a bug fix: this
@@ -102,7 +110,8 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const int idx = seriesTableIndex(eng, p->name());
-        if (idx >= 0) swmm_table_delete(eng, idx, nullptr);
+        if (idx >= 0)
+            swmm_table_delete(eng, idx, nullptr);
     }
 
     m_byLowerName.remove(p->name().toLower());
@@ -111,11 +120,13 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
     p->deleteLater();
 }
 
-bool TimeseriesRegistry::rename(TimeseriesProvider *p, const QString& newName)
+bool TimeseriesRegistry::rename(TimeseriesProvider *p, const QString &newName)
 {
-    if (!p || newName.isEmpty()) return false;
+    if (!p || newName.isEmpty())
+        return false;
     const bool caseOnly = p->name().compare(newName, Qt::CaseInsensitive) == 0;
-    if (!caseOnly && hasName(newName)) return false;  // Collision with a different provider.
+    if (!caseOnly && hasName(newName))
+        return false; // Collision with a different provider.
 
     // Engine first: the series exists there from creation, and renaming only
     // the provider would leave the old table behind (and the next flush would
@@ -127,30 +138,36 @@ bool TimeseriesRegistry::rename(TimeseriesProvider *p, const QString& newName)
         if (idx >= 0 && swmm_table_rename(eng, idx, newName.toUtf8().constData()) != SWMM_OK)
             return false;
     }
-    p->setName(newName);                  // nameChanged signal updates m_byLowerName.
+    p->setName(newName); // nameChanged signal updates m_byLowerName.
     return true;
 }
 
 int TimeseriesRegistry::loadFromEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
-    m_engineHandle = engineHandle;  // remember for the no-arg saveToEngine() path
+    m_engineHandle = engineHandle; // remember for the no-arg saveToEngine() path
 
     const int tableCount = swmm_table_count(eng);
     int added = 0;
     for (int i = 0; i < tableCount; ++i) {
         int type = -1;
-        if (swmm_table_get_type(eng, i, &type) != SWMM_OK) continue;
-        if (type != kTableTypeTimeseries) continue;
+        if (swmm_table_get_type(eng, i, &type) != SWMM_OK)
+            continue;
+        if (type != kTableTypeTimeseries)
+            continue;
 
         const char *cid = swmm_table_id(eng, i);
-        if (!cid || !*cid) continue;
+        if (!cid || !*cid)
+            continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id)) continue;          // skip duplicates
+        if (hasName(id))
+            continue; // skip duplicates
 
         TimeseriesProvider *p = create(id);
-        if (!p) continue;
+        if (!p)
+            continue;
 
         // B4 — a FILE-backed engine series carries its verbatim
         // "path[:column]" token in the TIMESERIES_DATA file-path slot.
@@ -160,17 +177,15 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
         // points loaded below are the engine's resolved cache for that
         // column — kept so the grid/chart render without a re-read.
         {
-            char absBuf[1024]  = {};
+            char absBuf[1024] = {};
             char origBuf[1024] = {};
-            if (swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA,
-                                   cid, absBuf, int(sizeof(absBuf)),
-                                   origBuf, int(sizeof(origBuf))) == SWMM_OK
-                && origBuf[0] != '\0') {
+            if (swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, cid, absBuf, int(sizeof(absBuf)),
+                                   origBuf, int(sizeof(origBuf))) == SWMM_OK &&
+                origBuf[0] != '\0') {
                 std::string pathPart, colPart;
-                openswmmvis::ui::extcol::splitPathColumn(
-                    absBuf[0] != '\0' ? std::string(absBuf)
-                                      : std::string(origBuf),
-                    pathPart, colPart);
+                openswmmvis::ui::extcol::splitPathColumn(absBuf[0] != '\0' ? std::string(absBuf)
+                                                                           : std::string(origBuf),
+                                                         pathPart, colPart);
                 const QString filePath = QString::fromStdString(pathPart);
                 const QFileInfo fi(filePath);
                 p->setFileSource(filePath, QString::fromStdString(colPart),
@@ -189,7 +204,8 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
         pts.reserve(nPts);
         for (int j = 0; j < nPts; ++j) {
             double x = 0.0, y = 0.0;
-            if (swmm_table_get_point(eng, i, j, &x, &y) != SWMM_OK) continue;
+            if (swmm_table_get_point(eng, i, j, &x, &y) != SWMM_OK)
+                continue;
             pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(x), y});
         }
         // setAllPoints validates strict-monotone; if engine somehow returns
@@ -207,10 +223,9 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
         {
             int nRel = 0;
             double anchorOA = 0.0;
-            if (swmm_timeseries_get_relative_info(eng, i, &nRel, &anchorOA)
-                    == SWMM_OK && nRel > 0) {
-                p->setRelativeInfo(
-                    nRel, openswmmvis::core::swmmDateTimeToQDateTime(anchorOA));
+            if (swmm_timeseries_get_relative_info(eng, i, &nRel, &anchorOA) == SWMM_OK &&
+                nRel > 0) {
+                p->setRelativeInfo(nRel, openswmmvis::core::swmmDateTimeToQDateTime(anchorOA));
             }
         }
         ++added;
@@ -225,9 +240,10 @@ int TimeseriesRegistry::saveToEngine()
 
 int TimeseriesRegistry::saveToEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
-    m_engineHandle = engineHandle;  // remember for future no-arg flushes
+    m_engineHandle = engineHandle; // remember for future no-arg flushes
     int written = 0;
 
     for (TimeseriesProvider *p : std::as_const(m_providers))
@@ -238,8 +254,10 @@ int TimeseriesRegistry::saveToEngine(void *engineHandle)
 
 bool TimeseriesRegistry::saveProviderToEngine(TimeseriesProvider *p, void *engineHandle)
 {
-    if (!engineHandle) engineHandle = m_engineHandle;
-    if (!engineHandle || !p || !m_providers.contains(p)) return false;
+    if (!engineHandle)
+        engineHandle = m_engineHandle;
+    if (!engineHandle || !p || !m_providers.contains(p))
+        return false;
     m_engineHandle = engineHandle;
     return writeProvider(static_cast<SWMM_Engine>(engineHandle), p);
 }
@@ -251,10 +269,11 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
     // A deliberate valid replacement may repair it; later clearing is normal.
     if (m_failedPointImports.contains(p)) {
         if (p->pointCount() == 0) {
-            emit p->mutationRejected(tr("Time series %1 could not be loaded because its "
-                "timestamps are out of sequence. Its original engine data has been "
-                "preserved; correct the source or enter a valid replacement before saving it.")
-                .arg(p->name()));
+            emit p->mutationRejected(
+                tr("Time series %1 could not be loaded because its "
+                   "timestamps are out of sequence. Its original engine data has been "
+                   "preserved; correct the source or enter a valid replacement before saving it.")
+                    .arg(p->name()));
             return false;
         }
         m_failedPointImports.remove(p);
@@ -264,18 +283,19 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
     // FILE timeseries ("path:col" token) below. Pathless ExternalFile
     // and GeopackageObserved providers keep their previous skip.
     const bool fileBacked =
-        p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
-        && !p->filePath().isEmpty();
-    if (p->sourceMode() != TimeseriesProvider::SourceMode::Inline
-        && !fileBacked) return false;
+        p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile && !p->filePath().isEmpty();
+    if (p->sourceMode() != TimeseriesProvider::SourceMode::Inline && !fileBacked)
+        return false;
 
     const QByteArray idUtf8 = p->name().toUtf8();
     int idx = seriesTableIndex(eng, p->name());
     if (idx < 0) {
         // Create a new timeseries in the engine. Requires BUILDING state.
-        if (swmm_timeseries_add(eng, idUtf8.constData()) != SWMM_OK) return false;
+        if (swmm_timeseries_add(eng, idUtf8.constData()) != SWMM_OK)
+            return false;
         idx = seriesTableIndex(eng, p->name());
-        if (idx < 0) return false;
+        if (idx < 0)
+            return false;
     } else if (!fileBacked) {
         // Existing — wipe before re-add so deleted points don't linger.
         swmm_table_clear(eng, idx);
@@ -283,32 +303,29 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
 
     // Read the slot's current token so an unchanged reference is left
     // verbatim (keeps a relative .inp token relative across saves).
-    char absBuf[1024]  = {};
+    char absBuf[1024] = {};
     char origBuf[1024] = {};
     const bool haveSlot =
-        swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA,
-                           idUtf8.constData(), absBuf, int(sizeof(absBuf)),
-                           origBuf, int(sizeof(origBuf))) == SWMM_OK;
+        swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, idUtf8.constData(), absBuf,
+                           int(sizeof(absBuf)), origBuf, int(sizeof(origBuf))) == SWMM_OK;
 
     if (fileBacked) {
         // Compose "path:col" — the GUI owns the colon convention; the
         // user never types it (spec §4 task 5). InpWriter then emits
         // `name FILE "path:col"` whenever the slot is non-empty.
         const std::string wantPath = p->filePath().toStdString();
-        const std::string wantCol  = p->columnSelector().toStdString();
+        const std::string wantCol = p->columnSelector().toStdString();
         bool same = false;
         if (haveSlot && origBuf[0] != '\0') {
             std::string oPath, oCol, aPath, aCol;
             openswmmvis::ui::extcol::splitPathColumn(origBuf, oPath, oCol);
-            openswmmvis::ui::extcol::splitPathColumn(absBuf,  aPath, aCol);
-            same = (oCol == wantCol && oPath == wantPath)
-                || (aCol == wantCol && aPath == wantPath);
+            openswmmvis::ui::extcol::splitPathColumn(absBuf, aPath, aCol);
+            same = (oCol == wantCol && oPath == wantPath) || (aCol == wantCol && aPath == wantPath);
         }
-        if (same
-            || swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA,
-                                  idUtf8.constData(),
-                                  openswmmvis::ui::extcol::composePathColumn(
-                                      wantPath, wantCol).c_str()) == SWMM_OK)
+        if (same ||
+            swmm_file_path_set(
+                eng, SWMM_FILE_TIMESERIES_DATA, idUtf8.constData(),
+                openswmmvis::ui::extcol::composePathColumn(wantPath, wantCol).c_str()) == SWMM_OK)
             return true;
         return false;
     }
@@ -316,11 +333,10 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
     // Inline — clear any stale FILE token first (a series Detached to
     // Inline would otherwise still write as FILE and drop its points).
     if (haveSlot && origBuf[0] != '\0')
-        swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA,
-                           idUtf8.constData(), "");
+        swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, idUtf8.constData(), "");
 
     bool allOk = true;
-    for (const TimeseriesPoint& pt : p->points()) {
+    for (const TimeseriesPoint &pt : p->points()) {
         const double x = openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);
         if (swmm_table_add_point(eng, idx, x, pt.value) != SWMM_OK) {
             allOk = false;
@@ -334,11 +350,10 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
         // subtraction, so such a series downgrades to Absolute — not
         // reachable through the UI, which requires a valid simulation
         // start to enter Relative mode.
-        int    nRel     = p->relativeCount();
+        int nRel = p->relativeCount();
         double anchorOA = 0.0;
         if (nRel > 0 && p->relativeAnchor().isValid())
-            anchorOA = openswmmvis::core::qDateTimeToSwmmDateTime(
-                p->relativeAnchor());
+            anchorOA = openswmmvis::core::qDateTimeToSwmmDateTime(p->relativeAnchor());
         else
             nRel = 0;
         swmm_timeseries_set_relative_info(eng, idx, nRel, anchorOA);

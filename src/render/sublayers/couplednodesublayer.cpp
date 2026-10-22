@@ -1,7 +1,12 @@
-/*!
- * \file   couplednodesublayer.cpp
- * \brief  SWMM-coupled vertex marker sublayer — style bag + plumbing.
+/**
+ * @file      couplednodesublayer.cpp
+ * @brief     SWMM-coupled vertex marker sublayer — style bag + plumbing.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "render/sublayers/couplednodesublayer.h"
 
 #include <QJsonObject>
@@ -12,7 +17,8 @@ namespace OpenSWMM::Render
 void CoupledNodeStyle::setMarkerSizePx(double v)
 {
     v = qBound(0.5, v, 40.0);
-    if (qFuzzyCompare(m_markerSizePx + 1.0, v + 1.0)) return;
+    if (qFuzzyCompare(m_markerSizePx + 1.0, v + 1.0))
+        return;
     m_markerSizePx = v;
     setDirty();
 }
@@ -20,7 +26,7 @@ void CoupledNodeStyle::setMarkerSizePx(double v)
 QJsonObject CoupledNodeStyle::toJson() const
 {
     QJsonObject j;
-    j[QStringLiteral("color")]        = m_color.name(QColor::HexArgb);
+    j[QStringLiteral("color")] = m_color.name(QColor::HexArgb);
     j[QStringLiteral("markerSizePx")] = m_markerSizePx;
     return j;
 }
@@ -29,11 +35,12 @@ void CoupledNodeStyle::fromJson(const QJsonObject &j)
 {
     if (j.contains(QStringLiteral("color"))) {
         const QColor c(j.value(QStringLiteral("color")).toString());
-        if (c.isValid()) m_color = c;
+        if (c.isValid())
+            m_color = c;
     }
     if (j.contains(QStringLiteral("markerSizePx")))
-        m_markerSizePx = qBound(
-            0.5, j.value(QStringLiteral("markerSizePx")).toDouble(m_markerSizePx), 40.0);
+        m_markerSizePx =
+            qBound(0.5, j.value(QStringLiteral("markerSizePx")).toDouble(m_markerSizePx), 40.0);
     setDirty();
 }
 
@@ -45,7 +52,8 @@ CoupledNodeSublayer::CoupledNodeSublayer(QString id_, QObject *parent)
 
 void CoupledNodeSublayer::setVisible(bool v)
 {
-    if (m_visible == v) return;
+    if (m_visible == v)
+        return;
     m_visible = v;
     emit invalidated();
 }
@@ -53,7 +61,8 @@ void CoupledNodeSublayer::setVisible(bool v)
 void CoupledNodeSublayer::setOpacity(qreal o)
 {
     o = qBound(0.0, o, 1.0);
-    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0)) return;
+    if (qFuzzyCompare(m_opacity + 1.0, o + 1.0))
+        return;
     m_opacity = o;
     emit invalidated();
 }
@@ -61,7 +70,7 @@ void CoupledNodeSublayer::setOpacity(qreal o)
 QList<LegendSymbolItem> CoupledNodeSublayer::legendSymbolItems() const
 {
     LegendSymbolItem item;
-    item.label      = tr("SWMM-coupled vertices");
+    item.label = tr("SWMM-coupled vertices");
     item.sublayerId = m_id;
 
     SymbolLayer marker;
@@ -70,7 +79,7 @@ QList<LegendSymbolItem> CoupledNodeSublayer::legendSymbolItems() const
     marker.props.insert(QStringLiteral("sizePx"), m_style->markerSizePx());
     item.symbol.layers.append(marker);
     item.symbol.opacity = m_opacity;
-    return { item };
+    return {item};
 }
 
 QSGNode *CoupledNodeSublayer::buildOrUpdateNode(QSGNode *existing, const SublayerContext &ctx)

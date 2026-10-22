@@ -3,6 +3,16 @@
 // hidden and fall back to a visible tab when hidden while current, the
 // last active tab persists through QSettings, and every catalog entry
 // carrying a tab id names a known tab.
+
+/**
+ * @file      test_compact_toolbar.cpp
+ * @brief     Tests for compact toolbar.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QLabel>
@@ -49,12 +59,24 @@ private:
     Rig makeRig(bool finalize = true);
 };
 
+/**
+ *
+ * @brief Select the isolated openswmm-test/compacttoolbar-test process application identity for
+ * toolbar persistence.
+ *
+ */
 void TestCompactToolbar::initTestCase()
 {
     QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
     QCoreApplication::setApplicationName(QStringLiteral("compacttoolbar-test"));
 }
 
+/**
+ *
+ * @brief Remove the saved CompactToolbarTab setting before each case; does not clear other
+ * main-window settings.
+ *
+ */
 void TestCompactToolbar::init()
 {
     QSettings settings;
@@ -63,18 +85,27 @@ void TestCompactToolbar::init()
     settings.endGroup();
 }
 
+/**
+ *
+ * @brief Allocate/show a main window with Home/Model and initially contextual Mesh toolbar tabs.
+ * @param finalize Restore/complete controller setup when true, default true.
+ * @return By-value raw-pointer bundle: caller owns window and must delete it;
+ * window owns all bars and controller. Controller may read/write current test
+ * QSettings. A false finalize leaves that step to the caller.
+ *
+ */
 TestCompactToolbar::Rig TestCompactToolbar::makeRig(bool finalize)
 {
     auto *window = new QMainWindow;
-    auto *home  = new QToolBar(QStringLiteral("Home"), window);
+    auto *home = new QToolBar(QStringLiteral("Home"), window);
     home->setObjectName(QStringLiteral("toolBarHome"));
     auto *model = new QToolBar(QStringLiteral("Model"), window);
     model->setObjectName(QStringLiteral("toolBarModel"));
-    auto *mesh  = new QToolBar(QStringLiteral("Mesh"), window);
+    auto *mesh = new QToolBar(QStringLiteral("Mesh"), window);
     mesh->setObjectName(QStringLiteral("toolBarMesh2D"));
 
     auto *controller = new CompactToolbarController(window);
-    controller->addTab(QStringLiteral("home"),  QStringLiteral("Home"),  {home});
+    controller->addTab(QStringLiteral("home"), QStringLiteral("Home"), {home});
     controller->addTab(QStringLiteral("model"), QStringLiteral("Model"), {model});
     controller->addTab(QStringLiteral("mesh2d"), QStringLiteral("Mesh 2D"), {mesh},
                        /*contextual*/ true);
@@ -84,6 +115,11 @@ TestCompactToolbar::Rig TestCompactToolbar::makeRig(bool finalize)
     return {window, controller, home, model, mesh};
 }
 
+/**
+ *
+ * @brief Require changing Home to Model to swap visible toolbar rows and update the current tab.
+ *
+ */
 void TestCompactToolbar::tabSwitchSwapsVisibility()
 {
     Rig rig = makeRig();
@@ -98,6 +134,12 @@ void TestCompactToolbar::tabSwitchSwapsVisibility()
     delete rig.window;
 }
 
+/**
+ *
+ * @brief Require a hidden Mesh tab to refuse selection until explicitly revealed, then show its
+ * toolbar.
+ *
+ */
 void TestCompactToolbar::contextualTabHiddenUntilRevealed()
 {
     Rig rig = makeRig();
@@ -114,6 +156,12 @@ void TestCompactToolbar::contextualTabHiddenUntilRevealed()
     delete rig.window;
 }
 
+/**
+ *
+ * @brief Require hiding the active contextual tab to choose another visible tab and display that
+ * tab toolbar.
+ *
+ */
 void TestCompactToolbar::hidingCurrentTabFallsBack()
 {
     Rig rig = makeRig();
@@ -134,6 +182,12 @@ void TestCompactToolbar::hidingCurrentTabFallsBack()
     delete rig.window;
 }
 
+/**
+ *
+ * @brief Require choosing Model in one window to restore Model when a fresh fixture window is
+ * created in the same test namespace.
+ *
+ */
 void TestCompactToolbar::lastTabPersists()
 {
     {
@@ -148,6 +202,12 @@ void TestCompactToolbar::lastTabPersists()
     }
 }
 
+/**
+ *
+ * @brief Require every nonempty catalog tab ID to belong to kActionCatalogTabs.
+ * This checks the vocabulary, without constructing the complete application tab mounting.
+ *
+ */
 void TestCompactToolbar::catalogTabIdsAreMounted()
 {
     QSet<QString> known;
@@ -165,12 +225,18 @@ void TestCompactToolbar::catalogTabIdsAreMounted()
     }
 }
 
+/**
+ *
+ * @brief Require a tab-owned terrain bar to mount after its own toolbar break and swap visibility
+ * together with its ordinary Model bar.
+ *
+ */
 void TestCompactToolbar::ownRowBarSitsBelowBreak()
 {
     // An own-row bar (Terrain / Mesh Editing) mounts AFTER a toolbar
     // break — its own full row — while ordinary bars share row 2.
     auto *window = new QMainWindow;
-    auto *home  = new QToolBar(QStringLiteral("Home"), window);
+    auto *home = new QToolBar(QStringLiteral("Home"), window);
     home->setObjectName(QStringLiteral("toolBarHome"));
     auto *model = new QToolBar(QStringLiteral("Model"), window);
     model->setObjectName(QStringLiteral("toolBarModel"));
@@ -179,8 +245,7 @@ void TestCompactToolbar::ownRowBarSitsBelowBreak()
 
     auto *controller = new CompactToolbarController(window);
     controller->addTab(QStringLiteral("home"), QStringLiteral("Home"), {home});
-    controller->addTab(QStringLiteral("model"), QStringLiteral("Model"),
-                       {model, terrain});
+    controller->addTab(QStringLiteral("model"), QStringLiteral("Model"), {model, terrain});
     controller->setOwnRow(terrain);
     controller->finalize();
     window->show();
@@ -202,6 +267,12 @@ void TestCompactToolbar::ownRowBarSitsBelowBreak()
     delete window;
 }
 
+/**
+ *
+ * @brief Require hiding the dedicated terrain row to restore central-widget top position exactly
+ * after a visible-row round trip.
+ *
+ */
 void TestCompactToolbar::hiddenOwnRowConsumesNoHeight()
 {
     // The design leans on QToolBarAreaLayout collapsing a line whose
@@ -209,9 +280,9 @@ void TestCompactToolbar::hiddenOwnRowConsumesNoHeight()
     // tabs without an own-row bar.
     auto *window = new QMainWindow;
     window->setCentralWidget(new QWidget(window));
-    auto *home  = new QToolBar(QStringLiteral("Home"), window);
+    auto *home = new QToolBar(QStringLiteral("Home"), window);
     home->setObjectName(QStringLiteral("toolBarHome"));
-    home->addWidget(new QWidget(home));   // non-empty so the row has height
+    home->addWidget(new QWidget(home)); // non-empty so the row has height
     auto *model = new QToolBar(QStringLiteral("Model"), window);
     model->setObjectName(QStringLiteral("toolBarModel"));
     auto *terrain = new QToolBar(QStringLiteral("Terrain"), window);
@@ -220,8 +291,7 @@ void TestCompactToolbar::hiddenOwnRowConsumesNoHeight()
 
     auto *controller = new CompactToolbarController(window);
     controller->addTab(QStringLiteral("home"), QStringLiteral("Home"), {home});
-    controller->addTab(QStringLiteral("model"), QStringLiteral("Model"),
-                       {model, terrain});
+    controller->addTab(QStringLiteral("model"), QStringLiteral("Model"), {model, terrain});
     controller->setOwnRow(terrain);
     controller->finalize();
     window->resize(700, 400);
@@ -230,23 +300,27 @@ void TestCompactToolbar::hiddenOwnRowConsumesNoHeight()
 
     controller->setCurrentTab(QStringLiteral("home"));
     QTRY_VERIFY(!terrain->isVisibleTo(window));
-    const int topWithoutOwnRow = window->centralWidget()->mapTo(
-        window, QPoint(0, 0)).y();
+    const int topWithoutOwnRow = window->centralWidget()->mapTo(window, QPoint(0, 0)).y();
 
     controller->setCurrentTab(QStringLiteral("model"));
     QTRY_VERIFY(terrain->isVisible());
-    const int topWithOwnRow = window->centralWidget()->mapTo(
-        window, QPoint(0, 0)).y();
+    const int topWithOwnRow = window->centralWidget()->mapTo(window, QPoint(0, 0)).y();
     QVERIFY2(topWithOwnRow > topWithoutOwnRow,
              qPrintable(QStringLiteral("own row added no height (%1 -> %2)")
-                            .arg(topWithoutOwnRow).arg(topWithOwnRow)));
+                            .arg(topWithoutOwnRow)
+                            .arg(topWithOwnRow)));
 
     controller->setCurrentTab(QStringLiteral("home"));
-    QTRY_COMPARE(window->centralWidget()->mapTo(window, QPoint(0, 0)).y(),
-                 topWithoutOwnRow);
+    QTRY_COMPARE(window->centralWidget()->mapTo(window, QPoint(0, 0)).y(), topWithoutOwnRow);
     delete window;
 }
 
+/**
+ *
+ * @brief Require revealing Mesh to resize the tab bar to at least its size hint with the final
+ * tab inside the visible width.
+ *
+ */
 void TestCompactToolbar::revealingTabWidensStripNoScrollers()
 {
     // Revealing a contextual tab grows the tab bar's size hint; the host
@@ -257,8 +331,7 @@ void TestCompactToolbar::revealingTabWidensStripNoScrollers()
     rig.window->resize(900, 300);
     QVERIFY(QTest::qWaitForWindowExposed(rig.window));
 
-    auto *tabBar = rig.window->findChild<QTabBar *>(
-        QStringLiteral("compactToolbarTabBar"));
+    auto *tabBar = rig.window->findChild<QTabBar *>(QStringLiteral("compactToolbarTabBar"));
     QVERIFY(tabBar);
 
     rig.controller->setTabVisible(QStringLiteral("mesh2d"), true);

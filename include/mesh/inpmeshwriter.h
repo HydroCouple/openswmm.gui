@@ -1,8 +1,12 @@
-/*!
- * \file   inpmeshwriter.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      inpmeshwriter.h
+ * @brief     emit `[2D_VERTICES]` / `[2D_TRIANGLES]` / `[2D_VERTEX_NODE_MAP]` /
+ *            `[2D_TRIANGLE_NODE_MAP]` (plus the GG0a `[2D_INFILTRATION*]` family) sections from a
+ *            MeshResult + a CouplingMap, and patch them into a SWMM `.inp` file (replacing
+ *            existing sections in place).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AU — emit `[2D_VERTICES]` / `[2D_TRIANGLES]` /
  * `[2D_VERTEX_NODE_MAP]` / `[2D_TRIANGLE_NODE_MAP]` (plus the GG0a
@@ -10,7 +14,9 @@
  * and patch them into a SWMM `.inp` file (replacing existing sections in
  * place). Format follows `openswmm.engine/docs/2dModelStrategy.md` §1.4–1.7
  * and, for infiltration, the engine's `InpWriter.cpp emit2DInfilSections()`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_MESH_INPMESHWRITER_H
 #define OPENSWMMVIS_MESH_INPMESHWRITER_H
 
@@ -21,7 +27,8 @@
 #include <QString>
 #include <QVector>
 
-namespace mesh {
+namespace mesh
+{
 
 /*! \brief 1D↔2D coupling map produced by the meshing dialog.
  *
@@ -30,15 +37,14 @@ namespace mesh {
  *  ID. This is the only cross-file glue the writer needs — the writer
  *  itself is data-agnostic.
  */
-struct CouplingMap
-{
+struct CouplingMap {
     /*! Vertex index (in MeshResult::vertices) → SWMM node ID. */
     QHash<int, QString> vertexToNode;
     /*! Triangle index (in MeshResult::triangles) → SWMM node ID. */
     QHash<int, QString> triangleToNode;
     /*! Per-triangle Manning's n. Triangles missing from the map use the
      *  default passed into the writer. */
-    QHash<int, double>  triangleMannings;
+    QHash<int, double> triangleMannings;
 };
 
 /*! \brief Output strategy for the four 2D mesh sections.
@@ -49,8 +55,8 @@ struct CouplingMap
  *  one file.
  */
 enum class MeshOutputMode {
-    External,   ///< Write `.2dm` next to the .inp; reference via `[2D_MESH_FILE]`.
-    Inline      ///< Inline the four sections directly in the `.inp`.
+    External, ///< Write `.2dm` next to the .inp; reference via `[2D_MESH_FILE]`.
+    Inline    ///< Inline the four sections directly in the `.inp`.
 };
 
 class InpMeshWriter
@@ -71,10 +77,10 @@ public:
      *  engine has been updated to honour it, the engine skips that
      *  multiplication.
      */
-    struct UnitInfo
-    {
-        QString linearUnitName;     ///< Goes into `;; UNITS:` (e.g. "metre", "US survey foot", "SI (m)").
-        QString sourceCrsTag;       ///< Goes into `;; SOURCE_CRS:` (e.g. "EPSG:2249").
+    struct UnitInfo {
+        QString
+            linearUnitName;   ///< Goes into `;; UNITS:` (e.g. "metre", "US survey foot", "SI (m)").
+        QString sourceCrsTag; ///< Goes into `;; SOURCE_CRS:` (e.g. "EPSG:2249").
 
         // User-declared (out-of-line) default ctor: makes UnitInfo a
         // non-aggregate so the `const UnitInfo & = {}` default arguments
@@ -155,8 +161,8 @@ public:
      *
      *  CONVEYANCE is a dimensionless multiplier in [0, 1]. 1.0 (default)
      *  is unrestricted; 0.0 is a closed (impermeable) edge. */
-    [[nodiscard]] static QString buildConveyanceSectionText(
-        const MeshResult &mesh, const QVector<MeshEdgeBC> &bcs);
+    [[nodiscard]] static QString buildConveyanceSectionText(const MeshResult &mesh,
+                                                            const QVector<MeshEdgeBC> &bcs);
 
     /*! \brief Default mode: write the mesh into a sibling `.2dm` file and
      *         patch the `.inp` with a `[2D_MESH_FILE]` reference.
@@ -173,47 +179,37 @@ public:
      *  is **relative to the .inp directory** when the mesh sits beside
      *  the .inp; absolute otherwise.
      */
-    [[nodiscard]] static bool writeExternal(const QString &inpPath,
-                                             const QString &meshFilePath,
-                                             const MeshResult &mesh,
-                                             const CouplingMap &coupling,
-                                             double defaultMannings = 0.035,
-                                             QString *errorOut = nullptr,
-                                             const UnitInfo &units = {});
+    [[nodiscard]] static bool writeExternal(const QString &inpPath, const QString &meshFilePath,
+                                            const MeshResult &mesh, const CouplingMap &coupling,
+                                            double defaultMannings = 0.035,
+                                            QString *errorOut = nullptr,
+                                            const UnitInfo &units = {});
 
     /*! \brief §V.VD.1 overload — additionally writes the
      *  `[2D_BOUNDARY_CONDITIONS]` section. Empty / all-Wall BC vector
      *  is equivalent to the non-BC overload (section is omitted). */
-    [[nodiscard]] static bool writeExternal(const QString &inpPath,
-                                             const QString &meshFilePath,
-                                             const MeshResult &mesh,
-                                             const CouplingMap &coupling,
-                                             const QVector<MeshEdgeBC> &bcs,
-                                             double defaultMannings,
-                                             QString *errorOut = nullptr,
-                                             const UnitInfo &units = {});
+    [[nodiscard]] static bool writeExternal(const QString &inpPath, const QString &meshFilePath,
+                                            const MeshResult &mesh, const CouplingMap &coupling,
+                                            const QVector<MeshEdgeBC> &bcs, double defaultMannings,
+                                            QString *errorOut = nullptr,
+                                            const UnitInfo &units = {});
 
     /*! \brief Replace (or append) all four 2D sections in the .inp at
      *         \p inpPath. Existing 2D sections are stripped first; any
      *         existing `[2D_MESH_FILE]` block is also removed so the
      *         engine reads the freshly-inlined sections instead.
      */
-    [[nodiscard]] static bool writeInline(const QString &inpPath,
-                                           const MeshResult &mesh,
-                                           const CouplingMap &coupling,
-                                           double defaultMannings = 0.035,
-                                           QString *errorOut = nullptr,
-                                           const UnitInfo &units = {});
+    [[nodiscard]] static bool writeInline(const QString &inpPath, const MeshResult &mesh,
+                                          const CouplingMap &coupling,
+                                          double defaultMannings = 0.035,
+                                          QString *errorOut = nullptr, const UnitInfo &units = {});
 
     /*! \brief §V.VD.1 overload — additionally writes the
      *  `[2D_BOUNDARY_CONDITIONS]` section inline. */
-    [[nodiscard]] static bool writeInline(const QString &inpPath,
-                                           const MeshResult &mesh,
-                                           const CouplingMap &coupling,
-                                           const QVector<MeshEdgeBC> &bcs,
-                                           double defaultMannings,
-                                           QString *errorOut = nullptr,
-                                           const UnitInfo &units = {});
+    [[nodiscard]] static bool writeInline(const QString &inpPath, const MeshResult &mesh,
+                                          const CouplingMap &coupling,
+                                          const QVector<MeshEdgeBC> &bcs, double defaultMannings,
+                                          QString *errorOut = nullptr, const UnitInfo &units = {});
 
     /*! \brief Retarget the `.inp`'s `[2D_MESH_FILE]` reference at an
      *         already-existing `.2dm` without writing any mesh geometry.
@@ -228,25 +224,25 @@ public:
      *  \param meshFilePath Existing `.2dm` to reference (must exist on disk).
      *  \param errorOut     Set on failure.
      *  \returns true on success. */
-    [[nodiscard]] static bool writeMeshFileRef(const QString &inpPath,
-                                               const QString &meshFilePath,
+    [[nodiscard]] static bool writeMeshFileRef(const QString &inpPath, const QString &meshFilePath,
                                                QString *errorOut = nullptr);
 
     /*! Reference a prepared mesh using its final logical name. The physical
      *  staged file must exist, be regular and nonempty; the logical final file
      *  need not exist yet. inpPath must retain the final model's directory
      *  anchor for relative references. Publishes only inpPath, atomically. */
-    [[nodiscard]] static bool writePreparedMeshFileRef(
-        const QString &inpPath, const QString &logicalFinalMeshPath,
-        const QString &physicalStagedMeshPath, QString *errorOut = nullptr);
+    [[nodiscard]] static bool writePreparedMeshFileRef(const QString &inpPath,
+                                                       const QString &logicalFinalMeshPath,
+                                                       const QString &physicalStagedMeshPath,
+                                                       QString *errorOut = nullptr);
 
     /*! Refuse unsupported mesh-indexed velocity, quality and groundwater
      *  assignments before topology replacement, including tag assignments
      *  whose meaning needs remapping. Global/XY/AUTO configuration is retained.
      *  This is an ownership guard, not a complete
      *  engine syntax validator. Does not modify the file. */
-    [[nodiscard]] static bool validateTopologyReplacement(
-        const QString &filePath, QString *errorOut = nullptr);
+    [[nodiscard]] static bool validateTopologyReplacement(const QString &filePath,
+                                                          QString *errorOut = nullptr);
 
     /*! Replace the complete GUI-owned mesh in a prepared INP/mesh file, without
      *  requiring its old topology or row counts to match. Rebuilds coupling
@@ -255,10 +251,11 @@ public:
      *  Unsupported topology-indexed rows fail without changing the file.
      *  Removes any old external mesh reference. Null units preserve metadata;
      *  explicit units follow patchMeshSections' metadata rules. */
-    [[nodiscard]] static bool replaceMeshSections(
-        const QString &filePath, const MeshResult &mesh,
-        const QVector<MeshEdgeBC> &bcs, QString *errorOut = nullptr,
-        double defaultMannings = 0.035, const UnitInfo *units = nullptr);
+    [[nodiscard]] static bool replaceMeshSections(const QString &filePath, const MeshResult &mesh,
+                                                  const QVector<MeshEdgeBC> &bcs,
+                                                  QString *errorOut = nullptr,
+                                                  double defaultMannings = 0.035,
+                                                  const UnitInfo *units = nullptr);
 
     /*! \brief Replace the `[2D_BOUNDARY_CONDITIONS]` and
      *         `[2D_EDGE_CONVEYANCE]` sections of \p filePath (a `.inp` or
@@ -276,8 +273,7 @@ public:
      *                   `TRI = slotCell, EDGE = slotLocal`, 0..3 for a quad).
      *  \param errorOut  Set on failure.
      *  \returns true on success. */
-    [[nodiscard]] static bool patchBCSections(const QString &filePath,
-                                              const MeshResult &mesh,
+    [[nodiscard]] static bool patchBCSections(const QString &filePath, const MeshResult &mesh,
                                               const QVector<MeshEdgeBC> &bcs,
                                               QString *errorOut = nullptr);
 
@@ -324,8 +320,7 @@ public:
      *  Validation or write failure leaves this file unchanged; other files
      *  involved in a project Save are outside this single-file guarantee.
      */
-    [[nodiscard]] static bool patchMeshSections(const QString &filePath,
-                                                const MeshResult &mesh,
+    [[nodiscard]] static bool patchMeshSections(const QString &filePath, const MeshResult &mesh,
                                                 const QVector<MeshEdgeBC> &bcs,
                                                 QString *errorOut = nullptr,
                                                 double defaultMannings = 0.035,
@@ -343,18 +338,13 @@ public:
      *  \param inpPath  SWMM input file to patch.
      *  \param errorOut Set on failure.
      *  \returns true on success. */
-    [[nodiscard]] static bool clearMeshFileRef(const QString &inpPath,
-                                               QString *errorOut = nullptr);
+    [[nodiscard]] static bool clearMeshFileRef(const QString &inpPath, QString *errorOut = nullptr);
 
     /*! \brief Convenience dispatch on \ref MeshOutputMode. */
-    [[nodiscard]] static bool write(MeshOutputMode mode,
-                                     const QString &inpPath,
-                                     const QString &meshFilePath,
-                                     const MeshResult &mesh,
-                                     const CouplingMap &coupling,
-                                     double defaultMannings = 0.035,
-                                     QString *errorOut = nullptr,
-                                     const UnitInfo &units = {});
+    [[nodiscard]] static bool write(MeshOutputMode mode, const QString &inpPath,
+                                    const QString &meshFilePath, const MeshResult &mesh,
+                                    const CouplingMap &coupling, double defaultMannings = 0.035,
+                                    QString *errorOut = nullptr, const UnitInfo &units = {});
 };
 
 } // namespace mesh

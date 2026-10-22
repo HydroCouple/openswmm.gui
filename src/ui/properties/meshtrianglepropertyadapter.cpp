@@ -1,9 +1,12 @@
-/*!
- * \file   meshtrianglepropertyadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshtrianglepropertyadapter.cpp
+ * @brief     Q_PROPERTY-backed view of one 2D mesh triangle (cell).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/properties/meshtrianglepropertyadapter.h"
 
 #include "layers/swmm2dmeshlayer.h"
@@ -21,14 +24,21 @@ MeshTrianglePropertyAdapter::MeshTrianglePropertyAdapter(SWMM2DMeshLayer *layer,
     : QObject(parent), m_layer(layer), m_idx(triIdx)
 {
     if (m_layer) {
-        connect(m_layer,&SWMM2DMeshLayer::meshEditsChanged,this,[this]{emit changed();});
+        connect(m_layer, &SWMM2DMeshLayer::meshEditsChanged, this, [this] { emit changed(); });
         m_refName = mesh::MeshObjectRef::cell(m_layer->sourcePath(), m_idx).name;
-        connect(m_layer, &SWMM2DMeshLayer::attributeChanged,
-                this, &MeshTrianglePropertyAdapter::onLayerAttributeChanged);
+        connect(m_layer, &SWMM2DMeshLayer::attributeChanged, this,
+                &MeshTrianglePropertyAdapter::onLayerAttributeChanged);
     }
 }
 
-namespace {
+namespace
+{
+/**
+ * @brief Check whether a guarded layer still contains the indexed cell.
+ * @param[in] layer Borrowed guarded mesh layer.
+ * @param[in] idx Zero-based cell index.
+ * @return True only for a surviving layer and an index in its cell array.
+ */
 bool valid(const QPointer<SWMM2DMeshLayer> &layer, int idx)
 {
     return layer && idx >= 0 && idx < layer->mesh().triangles.size();
@@ -63,73 +73,108 @@ QString MeshTrianglePropertyAdapter::tag() const
 
 void MeshTrianglePropertyAdapter::setMannings(double n)
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     mesh::pushCellParamEdit(m_layer, {m_idx}, "mannings", n, m_canvas);
 }
 
 double MeshTrianglePropertyAdapter::initDepth() const
 {
-    if (!valid(m_layer, m_idx)) return std::numeric_limits<double>::quiet_NaN();
+    if (!valid(m_layer, m_idx))
+        return std::numeric_limits<double>::quiet_NaN();
     const double d = m_layer->mesh().triangles[m_idx].initDepth;
-    return std::isfinite(d) ? d : 0.0;   // unset column = engine default 0 (dry)
+    return std::isfinite(d) ? d : 0.0; // unset column = engine default 0 (dry)
 }
 
 void MeshTrianglePropertyAdapter::setInitDepth(double d)
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     mesh::pushCellParamEdit(m_layer, {m_idx}, "initDepth", d, m_canvas);
 }
 
 void MeshTrianglePropertyAdapter::setTag(const QString &tag)
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     m_layer->applyMeshTriangleTag(m_idx, tag);
 }
 
 void MeshTrianglePropertyAdapter::onLayerAttributeChanged(const QString &refName)
 {
-    if (refName == m_refName) emit changed();
+    if (refName == m_refName)
+        emit changed();
 }
 
 QString MeshTrianglePropertyAdapter::displayLabelFor(const QString &property) const
 {
-    if (property == QStringLiteral("index"))    return QCoreApplication::translate("MeshTriangle", "Cell #");
-    if (property == QStringLiteral("v0"))       return QCoreApplication::translate("MeshTriangle", "Vertex 1");
-    if (property == QStringLiteral("v1"))       return QCoreApplication::translate("MeshTriangle", "Vertex 2");
-    if (property == QStringLiteral("v2"))       return QCoreApplication::translate("MeshTriangle", "Vertex 3");
-    if (property == QStringLiteral("mannings"))  return mesh::cellParamLabel("mannings", m_depthUnit);
-    if (property == QStringLiteral("initDepth")) return mesh::cellParamLabel("initDepth", m_depthUnit);
-    if (property == QStringLiteral("tag"))      return QCoreApplication::translate("MeshTriangle", "Tag");
-    if (property == QStringLiteral("infiltrationOwner")) return tr("Infiltration owner");
-    if (property == QStringLiteral("infiltrationSource")) return tr("Ownership source");
-    if (property == QStringLiteral("infiltrationConflict")) return tr("Ownership conflict");
-    if(property=="surfaceOwnershipReview")return mesh::cellParamLabel("surface.owner",{});
-    if(property=="remainingMeshWeather")return mesh::cellParamLabel("surface.meshWeather",{});
-    if(property=="spatialSourcePervious")return mesh::cellParamLabel("surface.sourcePervious",{});
+    if (property == QStringLiteral("index"))
+        return QCoreApplication::translate("MeshTriangle", "Cell #");
+    if (property == QStringLiteral("v0"))
+        return QCoreApplication::translate("MeshTriangle", "Vertex 1");
+    if (property == QStringLiteral("v1"))
+        return QCoreApplication::translate("MeshTriangle", "Vertex 2");
+    if (property == QStringLiteral("v2"))
+        return QCoreApplication::translate("MeshTriangle", "Vertex 3");
+    if (property == QStringLiteral("mannings"))
+        return mesh::cellParamLabel("mannings", m_depthUnit);
+    if (property == QStringLiteral("initDepth"))
+        return mesh::cellParamLabel("initDepth", m_depthUnit);
+    if (property == QStringLiteral("tag"))
+        return QCoreApplication::translate("MeshTriangle", "Tag");
+    if (property == QStringLiteral("infiltrationOwner"))
+        return tr("Infiltration owner");
+    if (property == QStringLiteral("infiltrationSource"))
+        return tr("Ownership source");
+    if (property == QStringLiteral("infiltrationConflict"))
+        return tr("Ownership conflict");
+    if (property == "surfaceOwnershipReview")
+        return mesh::cellParamLabel("surface.owner", {});
+    if (property == "remainingMeshWeather")
+        return mesh::cellParamLabel("surface.meshWeather", {});
+    if (property == "spatialSourcePervious")
+        return mesh::cellParamLabel("surface.sourcePervious", {});
     return property;
 }
 
-QString MeshTrianglePropertyAdapter::infiltrationOwner() const {
- const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"infil.owner"):qQNaN();
- return std::isfinite(value)?mesh::cellParamSpec("infil.owner")->enumLabels.value(int(value)):tr("Unavailable");
+QString MeshTrianglePropertyAdapter::infiltrationOwner() const
+{
+    const double value =
+        m_layer ? mesh::cellParamValue(m_layer->mesh(), m_idx, "infil.owner") : qQNaN();
+    return std::isfinite(value) ? mesh::cellParamSpec("infil.owner")->enumLabels.value(int(value))
+                                : tr("Unavailable");
 }
-QString MeshTrianglePropertyAdapter::infiltrationSource() const {
- return m_layer&&m_idx>=0&&m_idx<m_layer->mesh().infiltrationSource.size()?m_layer->mesh().infiltrationSource[m_idx]:tr("Unavailable");
+QString MeshTrianglePropertyAdapter::infiltrationSource() const
+{
+    return m_layer && m_idx >= 0 && m_idx < m_layer->mesh().infiltrationSource.size()
+               ? m_layer->mesh().infiltrationSource[m_idx]
+               : tr("Unavailable");
 }
-QString MeshTrianglePropertyAdapter::infiltrationConflict() const {
- const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"infil.conflict"):qQNaN();
- return std::isfinite(value)?mesh::cellParamSpec("infil.conflict")->enumLabels.value(int(value)):tr("Unavailable");
+QString MeshTrianglePropertyAdapter::infiltrationConflict() const
+{
+    const double value =
+        m_layer ? mesh::cellParamValue(m_layer->mesh(), m_idx, "infil.conflict") : qQNaN();
+    return std::isfinite(value)
+               ? mesh::cellParamSpec("infil.conflict")->enumLabels.value(int(value))
+               : tr("Unavailable");
 }
 
-QString MeshTrianglePropertyAdapter::surfaceOwnershipReview() const {
- const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"surface.owner"):qQNaN();
- return std::isfinite(value)?mesh::cellParamSpec("surface.owner")->enumLabels.value(int(value)):tr("Unavailable");
+QString MeshTrianglePropertyAdapter::surfaceOwnershipReview() const
+{
+    const double value =
+        m_layer ? mesh::cellParamValue(m_layer->mesh(), m_idx, "surface.owner") : qQNaN();
+    return std::isfinite(value) ? mesh::cellParamSpec("surface.owner")->enumLabels.value(int(value))
+                                : tr("Unavailable");
 }
-QString MeshTrianglePropertyAdapter::remainingMeshWeather() const {
- const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"surface.meshWeather"):qQNaN();
- return std::isfinite(value)?QString::number(value,'g',8)+"%":tr("Unavailable");
+QString MeshTrianglePropertyAdapter::remainingMeshWeather() const
+{
+    const double value =
+        m_layer ? mesh::cellParamValue(m_layer->mesh(), m_idx, "surface.meshWeather") : qQNaN();
+    return std::isfinite(value) ? QString::number(value, 'g', 8) + "%" : tr("Unavailable");
 }
-QString MeshTrianglePropertyAdapter::spatialSourcePervious() const {
- const double value=m_layer?mesh::cellParamValue(m_layer->mesh(),m_idx,"surface.sourcePervious"):qQNaN();
- return std::isfinite(value)?QString::number(value,'g',8)+"%":tr("Unavailable");
+QString MeshTrianglePropertyAdapter::spatialSourcePervious() const
+{
+    const double value =
+        m_layer ? mesh::cellParamValue(m_layer->mesh(), m_idx, "surface.sourcePervious") : qQNaN();
+    return std::isfinite(value) ? QString::number(value, 'g', 8) + "%" : tr("Unavailable");
 }

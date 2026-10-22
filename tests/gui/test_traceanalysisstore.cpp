@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      test_traceanalysisstore.cpp
+ * @brief     Tests for traceanalysisstore.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "output/traceanalysisstore.h"
 #include <QDir>
 #include <QUuid>
@@ -8,7 +18,17 @@ using namespace openswmmvis::trace;
 class TraceAnalysisStoreTest : public QObject
 {
     Q_OBJECT
-  private slots:
+private slots:
+    /**
+     *
+     * @brief Persist/reload a synthetic SI trace analysis and require travel time, ratio,
+     * geometry, identity and style to survive without native output.
+     * Creates a uniquely named persistent GeoPackage under SWMMVIS_TRACE_TEST_OUTPUT.
+     * Checks incompatible run identity refusal, style-only update and pre-cancelled save
+     * without extra rows. Native trace handle closes on the success path before persistence;
+     * early Qt assertions can terminate before that explicit cleanup.
+     *
+     */
     void savedResultsSurviveWithoutOutput()
     {
         QString directory = QStringLiteral(SWMMVIS_TRACE_TEST_OUTPUT);

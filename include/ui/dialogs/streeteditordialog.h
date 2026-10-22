@@ -1,9 +1,9 @@
-/*!
- * \file   streeteditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Three-pane CRUD editor for SWMM street cross-sections ([STREETS]).
+/**
+ * @file      streeteditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Three-pane CRUD editor for SWMM street cross-sections ([STREETS]).
  *
  * Mirrors TransectEditorDialog's role and entry points (createNew /
  * pickStreet) but a street is parametric, so the middle pane is a field
@@ -27,7 +27,9 @@
  *
  * Legacy parity: EPA SWMM-GUI Dstreet.pas (TStreetEditorForm) + the
  * combo/edit-button launch path in Dxsect.pas (TsectBtnClick).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_STREETEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_STREETEDITORDIALOG_H
 
@@ -45,12 +47,14 @@ class QSplitter;
 
 class SWMMModelLayer;
 
-namespace openswmmvis::street {
+namespace openswmmvis::street
+{
 class StreetProvider;
 class StreetRegistry;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class StreetListModel;
 
@@ -77,34 +81,28 @@ public:
     enum class Mode { Edit, CreateNew };
     Q_ENUM(Mode)
 
-    StreetEditorDialog(openswmmvis::street::StreetRegistry *registry,
-                        SWMMModelLayer *layer,
-                        QWidget *parent = nullptr);
+    StreetEditorDialog(openswmmvis::street::StreetRegistry *registry, SWMMModelLayer *layer,
+                       QWidget *parent = nullptr);
     ~StreetEditorDialog() override;
 
-    static StreetEditorDialog *createNew(
-        openswmmvis::street::StreetRegistry *registry,
-        SWMMModelLayer *layer,
-        QWidget *parent = nullptr);
+    static StreetEditorDialog *createNew(openswmmvis::street::StreetRegistry *registry,
+                                         SWMMModelLayer *layer, QWidget *parent = nullptr);
 
     /*! \brief Modal pick / create / edit entry point — mirrors
      *  TransectEditorDialog::pickTransect. Empty \p initialName →
      *  CreateNew mode; otherwise → Edit mode pre-selecting that street.
      *  Returns the name of the street bound to the dialog on close, or
      *  empty if none. After close the registry is flushed to the engine. */
-    static QString pickStreet(
-        openswmmvis::street::StreetRegistry *registry,
-        SWMMModelLayer *layer,
-        const QString  &initialName,
-        QWidget        *parent = nullptr);
+    static QString pickStreet(openswmmvis::street::StreetRegistry *registry, SWMMModelLayer *layer,
+                              const QString &initialName, QWidget *parent = nullptr);
 
     Mode mode() const noexcept { return m_mode; }
     openswmmvis::street::StreetProvider *currentProvider() const noexcept;
 
     // ── Test hooks ──────────────────────────────────────────────────────────
-    QListView       *listView()  const noexcept { return m_listView; }
-    StreetListModel *listModel()  const noexcept { return m_listModel; }
-    QLineEdit       *nameEdit()   const noexcept { return m_nameEdit; }
+    QListView *listView() const noexcept { return m_listView; }
+    StreetListModel *listModel() const noexcept { return m_listModel; }
+    QLineEdit *nameEdit() const noexcept { return m_nameEdit; }
 
     void invokeNew();
 
@@ -126,8 +124,8 @@ private slots:
     void onFieldEdited_();
     void onSidesToggled_();
     void onProviderAdded_(openswmmvis::street::StreetProvider *p);
-    void onProviderRenamed_(openswmmvis::street::StreetProvider *p,
-                              const QString &prev, const QString &now);
+    void onProviderRenamed_(openswmmvis::street::StreetProvider *p, const QString &prev,
+                            const QString &now);
 
 private:
     void buildUi_();
@@ -137,31 +135,31 @@ private:
 
     bool m_contextValid = true;
     QPointer<openswmmvis::street::StreetRegistry> m_registry;
-    QPointer<SWMMModelLayer>                       m_layer;
-    QPointer<openswmmvis::street::StreetProvider>  m_current;
-    Mode                                           m_mode = Mode::Edit;
+    QPointer<SWMMModelLayer> m_layer;
+    QPointer<openswmmvis::street::StreetProvider> m_current;
+    Mode m_mode = Mode::Edit;
 
-    QSplitter   *m_splitter = nullptr;
+    QSplitter *m_splitter = nullptr;
 
     // Left pane.
-    QListView       *m_listView  = nullptr;
+    QListView *m_listView = nullptr;
     StreetListModel *m_listModel = nullptr;
-    QPushButton     *m_addBtn    = nullptr;
-    QPushButton     *m_delBtn    = nullptr;
+    QPushButton *m_addBtn = nullptr;
+    QPushButton *m_delBtn = nullptr;
 
     // Middle pane (field form).
-    QLineEdit      *m_nameEdit          = nullptr;
-    QDoubleSpinBox *m_crownWidthSpin    = nullptr;
-    QDoubleSpinBox *m_curbHeightSpin    = nullptr;
-    QDoubleSpinBox *m_crossSlopeSpin    = nullptr;
-    QDoubleSpinBox *m_roadRoughSpin     = nullptr;
-    QDoubleSpinBox *m_gutterDepSpin     = nullptr;
-    QDoubleSpinBox *m_gutterWidthSpin   = nullptr;
-    QRadioButton   *m_oneSidedRadio     = nullptr;
-    QRadioButton   *m_twoSidedRadio     = nullptr;
-    QDoubleSpinBox *m_backWidthSpin     = nullptr;
-    QDoubleSpinBox *m_backSlopeSpin     = nullptr;
-    QDoubleSpinBox *m_backRoughSpin     = nullptr;
+    QLineEdit *m_nameEdit = nullptr;
+    QDoubleSpinBox *m_crownWidthSpin = nullptr;
+    QDoubleSpinBox *m_curbHeightSpin = nullptr;
+    QDoubleSpinBox *m_crossSlopeSpin = nullptr;
+    QDoubleSpinBox *m_roadRoughSpin = nullptr;
+    QDoubleSpinBox *m_gutterDepSpin = nullptr;
+    QDoubleSpinBox *m_gutterWidthSpin = nullptr;
+    QRadioButton *m_oneSidedRadio = nullptr;
+    QRadioButton *m_twoSidedRadio = nullptr;
+    QDoubleSpinBox *m_backWidthSpin = nullptr;
+    QDoubleSpinBox *m_backSlopeSpin = nullptr;
+    QDoubleSpinBox *m_backRoughSpin = nullptr;
 
     // Right pane.
     StreetSectionPreview *m_preview = nullptr;

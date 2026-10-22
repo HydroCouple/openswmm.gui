@@ -1,9 +1,9 @@
-/*!
- * \file   swmm_category.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Standalone definition of the SWMM-element Category enum used by
+/**
+ * @file      swmm_category.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Standalone definition of the SWMM-element Category enum used by
  *         per-Category APIs across layers, sublayers, dialogs, and tests.
  *
  *         Carved out of swmmmodellayer.h so leaf tests can depend on the
@@ -11,11 +11,14 @@
  *         GUI dependencies. swmmmodellayer.h aliases the enum into the
  *         SWMMModelLayer class via `using` so existing call-sites that
  *         write SWMMModelLayer::Category continue to compile unchanged.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_LAYERS_SWMM_CATEGORY_H
 #define OPENSWMMVIS_LAYERS_SWMM_CATEGORY_H
 
-namespace OpenSWMMVis {
+namespace OpenSWMMVis
+{
 
 /*!
  * \enum SwmmCategory
@@ -26,7 +29,7 @@ namespace OpenSWMMVis {
  *        tree-view expansion state survives schema updates.
  */
 enum SwmmCategory {
-    CatJunctions     = 0,
+    CatJunctions = 0,
     CatOutfalls,
     CatStorage,
     CatDividers,

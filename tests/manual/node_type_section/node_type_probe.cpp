@@ -1,6 +1,6 @@
-/*!
- * \file node_type_probe.cpp
- * \brief Renders one node profile per node type and per connecting-link type,
+/**
+ * @file      node_type_probe.cpp
+ * @brief     Renders one node profile per node type and per connecting-link type,
  *        so the type-distinguishing drawing can be reviewed as pixels.
  *
  * Not a test: the assertions that guard this behaviour live in
@@ -12,7 +12,11 @@
  * needed and every case is exactly as extreme as it needs to be.
  *
  * Build + run:  sh tests/manual/node_type_section/build_and_run.sh
- * Output:       tests/manual/node_type_section/out/*.png
+ * Output:       tests/manual/node_type_section/out/ (PNG files)
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/sectionview/sectiondiagram.h"
@@ -32,26 +36,46 @@
 
 using namespace openswmmvis::sectionview;
 
-namespace {
+namespace
+{
 
 QString gOut;
-const DiagramUnits kUnits{ QStringLiteral("ft"), false };
+const DiagramUnits kUnits{QStringLiteral("ft"), false};
 
+/**
+ *
+ * @brief Construct the fixed dark palette for section-diagram visual review.
+ * @return Owned palette overriding nine relevant roles; remaining roles use QPalette
+ * defaults. Does not apply it globally or change theme settings.
+ *
+ */
 QPalette darkPalette()
 {
     QPalette p;
-    p.setColor(QPalette::Base,       QColor(0x1e, 0x1e, 0x1e));
-    p.setColor(QPalette::Window,     QColor(0x1e, 0x1e, 0x1e));
-    p.setColor(QPalette::Text,       QColor(0xe0, 0xe0, 0xe0));
+    p.setColor(QPalette::Base, QColor(0x1e, 0x1e, 0x1e));
+    p.setColor(QPalette::Window, QColor(0x1e, 0x1e, 0x1e));
+    p.setColor(QPalette::Text, QColor(0xe0, 0xe0, 0xe0));
     p.setColor(QPalette::WindowText, QColor(0xe0, 0xe0, 0xe0));
-    p.setColor(QPalette::Highlight,  QColor(0x3d, 0x8b, 0xfd));
-    p.setColor(QPalette::Mid,        QColor(0x6a, 0x6a, 0x6a));
-    p.setColor(QPalette::Dark,       QColor(0x9a, 0x9a, 0x9a));
-    p.setColor(QPalette::Midlight,   QColor(0x4a, 0x4a, 0x4a));
-    p.setColor(QPalette::Button,     QColor(0x2d, 0x2d, 0x2d));
+    p.setColor(QPalette::Highlight, QColor(0x3d, 0x8b, 0xfd));
+    p.setColor(QPalette::Mid, QColor(0x6a, 0x6a, 0x6a));
+    p.setColor(QPalette::Dark, QColor(0x9a, 0x9a, 0x9a));
+    p.setColor(QPalette::Midlight, QColor(0x4a, 0x4a, 0x4a));
+    p.setColor(QPalette::Button, QColor(0x2d, 0x2d, 0x2d));
     return p;
 }
 
+/**
+ *
+ * @brief Paint one section model and attempt a persistent inspection image.
+ * @param m Borrowed built diagram model, not changed.
+ * @param file Relative filename under global gOut; caller controls disposable output.
+ * @param pal Borrowed palette for background and production diagram painting.
+ * @param size Positive image pixel dimensions, default 520x420.
+ * Prints success/failure plus model text/item counts, but returns no status and does
+ * not fail the program on save errors. Uses antialiasing and no extra DPI scaling;
+ * requires GUI initialization and existing output directory.
+ *
+ */
 void save(const SectionDiagramModel &m, const QString &file, const QPalette &pal,
           QSize size = QSize(520, 420))
 {
@@ -66,14 +90,25 @@ void save(const SectionDiagramModel &m, const QString &file, const QPalette &pal
     QTextStream(stdout) << (img.save(path) ? "  wrote " : "  FAILED ") << path
                         << "\n      subtitle=\"" << m.subtitle << "\""
                         << "\n      footer=\"" << m.footer << "\""
-                        << "  polys=" << m.polys.size()
-                        << " symbols=" << m.symbols.size()
+                        << "  polys=" << m.polys.size() << " symbols=" << m.symbols.size()
                         << " arrows=" << m.arrows.size() << Qt::endl;
 }
 
-//! An upstream junction + a conduit into \p target, so every case has a pipe.
-int addFeeder(SWMM_Engine e, const char *name, int target, double invert,
-              double diameter)
+/**
+ *
+ * @brief Add an upstream junction and circular conduit into a probe target node.
+ * @param e Borrowed BUILDING engine, owned and later destroyed by the caller.
+ * @param name Borrowed unique null-terminated node ID; conduit ID is C_ plus name.
+ * @param target Valid zero-based downstream node index in e.
+ * @param invert Reference invert in project length units (feet for this probe);
+ * upstream invert is invert+4, upstream max depth 8 and conduit length 300.
+ * @param diameter Intended positive circular conduit diameter in those units.
+ * @return Looked-up conduit index, potentially negative after an unchecked API error.
+ * Mutates model topology/settings without status checks or rollback; does not initialize
+ * or simulate the model.
+ *
+ */
+int addFeeder(SWMM_Engine e, const char *name, int target, double invert, double diameter)
 {
     swmm_node_add(e, name, SWMM_NODE_JUNCTION);
     const int up = swmm_node_index(e, name);
@@ -91,6 +126,19 @@ int addFeeder(SWMM_Engine e, const char *name, int target, double invert,
 
 } // namespace
 
+/**
+ *
+ * @brief Render synthetic and bundled node/link profiles for manual pixel inspection.
+ * @param argc Process argument count; optional first non-Qt argument selects output.
+ * @param argv Borrowed Qt/process arguments; argv[1] is local-encoding output directory,
+ * default tests/manual/node_type_section/out. Extra application arguments ignored.
+ * @return Always 0 after the Qt application is constructed, even if an image save
+ * or bundled-deck open fails (failures print diagnostics). Creates/replaces many PNGs
+ * and reports/output files, using foot-based model geometry and light/dark palettes.
+ * Most engine setters/creation statuses are unchecked. Engines are destroyed on
+ * ordinary paths; this does not assert visual correctness or run a GUI event loop.
+ *
+ */
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
@@ -125,12 +173,16 @@ int main(int argc, char **argv)
     }
 
     // ── 2. Storage, one image per shape ─────────────────────────────────────
-    struct StorageCase { const char *tag; int shape; double p1, p2, p3; };
+    struct StorageCase {
+        const char *tag;
+        int shape;
+        double p1, p2, p3;
+    };
     static const StorageCase kStorage[] = {
-        { "cylindrical", SWMM_STORAGE_CYLINDRICAL, 40.0, 30.0, 0.0 },
-        { "conical",     SWMM_STORAGE_CONICAL,     20.0, 16.0, 3.0 },
-        { "pyramidal",   SWMM_STORAGE_PYRAMIDAL,   24.0, 18.0, 2.5 },
-        { "paraboloid",  SWMM_STORAGE_PARABOLOID,  60.0, 40.0, 10.0 },
+        {"cylindrical", SWMM_STORAGE_CYLINDRICAL, 40.0, 30.0, 0.0},
+        {"conical", SWMM_STORAGE_CONICAL, 20.0, 16.0, 3.0},
+        {"pyramidal", SWMM_STORAGE_PYRAMIDAL, 24.0, 18.0, 2.5},
+        {"paraboloid", SWMM_STORAGE_PARABOLOID, 60.0, 40.0, 10.0},
     };
     for (const auto &sc : kStorage) {
         SWMM_Engine e = swmm_engine_new();
@@ -160,10 +212,8 @@ int main(int argc, char **argv)
         swmm_node_set_initial_depth(e, s, 2.5);
         swmm_node_set_storage_functional(e, s, 500.0, 1.5, 200.0);
         addFeeder(e, "IN2", s, 105.0, 2.0);
-        save(buildNodeProfile(e, s, kUnits),
-             QStringLiteral("2_storage_functional.png"), light);
-        save(buildNodeProfile(e, s, kUnits),
-             QStringLiteral("2_storage_functional_dark.png"), dark);
+        save(buildNodeProfile(e, s, kUnits), QStringLiteral("2_storage_functional.png"), light);
+        save(buildNodeProfile(e, s, kUnits), QStringLiteral("2_storage_functional_dark.png"), dark);
         swmm_engine_destroy(e);
     }
     {
@@ -172,9 +222,9 @@ int main(int argc, char **argv)
         const int cv = swmm_table_index(e, "SC1");
         // A pond that widens fast near the bottom then flattens — a shape a
         // rectangle would completely hide.
-        swmm_table_add_point(e, cv,  0.0,  400.0);
-        swmm_table_add_point(e, cv,  2.0, 2600.0);
-        swmm_table_add_point(e, cv,  5.0, 4200.0);
+        swmm_table_add_point(e, cv, 0.0, 400.0);
+        swmm_table_add_point(e, cv, 2.0, 2600.0);
+        swmm_table_add_point(e, cv, 5.0, 4200.0);
         swmm_table_add_point(e, cv, 10.0, 5000.0);
 
         swmm_node_add(e, "ST3", SWMM_NODE_STORAGE);
@@ -184,17 +234,21 @@ int main(int argc, char **argv)
         swmm_node_set_initial_depth(e, s, 3.0);
         swmm_node_set_storage_curve(e, s, cv);
         addFeeder(e, "IN3", s, 106.0, 2.5);
-        save(buildNodeProfile(e, s, kUnits),
-             QStringLiteral("2_storage_tabular.png"), light);
+        save(buildNodeProfile(e, s, kUnits), QStringLiteral("2_storage_tabular.png"), light);
         swmm_engine_destroy(e);
     }
 
     // ── 3. Outfalls: free discharge, fixed tailwater, tidal ─────────────────
-    struct OutfallCase { const char *tag; int type; double stage; int flap; };
+    struct OutfallCase {
+        const char *tag;
+        int type;
+        double stage;
+        int flap;
+    };
     static const OutfallCase kOutfalls[] = {
-        { "free",       0, 0.0,  0 },
-        { "fixed",      2, 95.0, 1 },
-        { "tidal",      3, 0.0,  0 },
+        {"free", 0, 0.0, 0},
+        {"fixed", 2, 95.0, 1},
+        {"tidal", 3, 0.0, 0},
     };
     for (const auto &oc : kOutfalls) {
         SWMM_Engine e = swmm_engine_new();
@@ -203,15 +257,15 @@ int main(int argc, char **argv)
         swmm_node_set_invert_elev(e, o, 90.0);
         swmm_node_set_max_depth(e, o, 10.0);
         swmm_node_set_outfall_type(e, o, oc.type);
-        if (oc.type == 2) swmm_node_set_outfall_stage(e, o, oc.stage);
+        if (oc.type == 2)
+            swmm_node_set_outfall_stage(e, o, oc.stage);
         swmm_node_set_outfall_flap_gate(e, o, oc.flap);
         addFeeder(e, "OUTF", o, 91.0, 3.0);
 
         save(buildNodeProfile(e, o, kUnits),
              QStringLiteral("3_outfall_%1.png").arg(QLatin1String(oc.tag)), light);
         if (oc.type == 0)
-            save(buildNodeProfile(e, o, kUnits),
-                 QStringLiteral("3_outfall_free_dark.png"), dark);
+            save(buildNodeProfile(e, o, kUnits), QStringLiteral("3_outfall_free_dark.png"), dark);
         swmm_engine_destroy(e);
     }
 
@@ -266,14 +320,14 @@ int main(int argc, char **argv)
         swmm_link_set_nodes(e, ol, ww, swmm_node_index(e, "OL_DN"));
         swmm_link_set_offset_up(e, ol, 1.0);
 
-        save(buildNodeProfile(e, ww, kUnits), QStringLiteral("5_devices.png"),
-             light, QSize(640, 460));
-        save(buildNodeProfile(e, ww, kUnits), QStringLiteral("5_devices_dark.png"),
-             dark, QSize(640, 460));
+        save(buildNodeProfile(e, ww, kUnits), QStringLiteral("5_devices.png"), light,
+             QSize(640, 460));
+        save(buildNodeProfile(e, ww, kUnits), QStringLiteral("5_devices_dark.png"), dark,
+             QSize(640, 460));
 
         // Same wet well, now as a link profile of the pump itself.
-        save(buildLinkProfile(e, pmp, kUnits),
-             QStringLiteral("6_link_profile_pump.png"), light, QSize(640, 400));
+        save(buildLinkProfile(e, pmp, kUnits), QStringLiteral("6_link_profile_pump.png"), light,
+             QSize(640, 400));
         swmm_engine_destroy(e);
     }
 
@@ -296,8 +350,8 @@ int main(int argc, char **argv)
         swmm_link_set_nodes(e, c, j, s);
         swmm_link_set_length(e, c, 250.0);
         swmm_link_set_xsect(e, c, SWMM_XSECT_CIRCULAR, 2.5, 0, 0, 0);
-        save(buildLinkProfile(e, c, kUnits),
-             QStringLiteral("6_link_profile_storage.png"), light, QSize(640, 400));
+        save(buildLinkProfile(e, c, kUnits), QStringLiteral("6_link_profile_storage.png"), light,
+             QSize(640, 400));
         swmm_engine_destroy(e);
     }
 
@@ -312,8 +366,8 @@ int main(int argc, char **argv)
         const QByteArray out = (gOut + QStringLiteral("/storage_water.out")).toUtf8();
 
         SWMM_Engine e = swmm_engine_create();
-        const int rc = swmm_engine_open(e, inp.constData(), rpt.constData(),
-                                       out.constData(), nullptr);
+        const int rc =
+            swmm_engine_open(e, inp.constData(), rpt.constData(), out.constData(), nullptr);
         if (rc != 0) {
             QTextStream(stderr) << "  inp open failed rc=" << rc << ": "
                                 << swmm_get_last_error_msg(e) << Qt::endl;
@@ -341,23 +395,26 @@ int main(int argc, char **argv)
         const QByteArray out = (gOut + QStringLiteral("/structures_demo.out")).toUtf8();
 
         SWMM_Engine e = swmm_engine_create();
-        if (swmm_engine_open(e, inp.constData(), rpt.constData(),
-                             out.constData(), nullptr) != 0) {
-            QTextStream(stderr) << "  structures_demo open failed: "
-                                << swmm_get_last_error_msg(e) << Qt::endl;
+        if (swmm_engine_open(e, inp.constData(), rpt.constData(), out.constData(), nullptr) != 0) {
+            QTextStream(stderr) << "  structures_demo open failed: " << swmm_get_last_error_msg(e)
+                                << Qt::endl;
         } else {
-            struct Case { const char *node; const char *file; };
+            struct Case {
+                const char *node;
+                const char *file;
+            };
             static const Case kCases[] = {
-                { "J4",   "8_demo_J4_devices.png" },
-                { "ST1",  "8_demo_ST1_storage.png" },
-                { "OUT2", "8_demo_OUT2_gated_outfall.png" },
-                { "J2",   "8_demo_J2_junction.png" },
+                {"J4", "8_demo_J4_devices.png"},
+                {"ST1", "8_demo_ST1_storage.png"},
+                {"OUT2", "8_demo_OUT2_gated_outfall.png"},
+                {"J2", "8_demo_J2_junction.png"},
             };
             for (const auto &c : kCases) {
                 const int idx = swmm_node_index(e, c.node);
-                if (idx < 0) continue;
-                save(buildNodeProfile(e, idx, kUnits),
-                     QLatin1String(c.file), light, QSize(900, 620));
+                if (idx < 0)
+                    continue;
+                save(buildNodeProfile(e, idx, kUnits), QLatin1String(c.file), light,
+                     QSize(900, 620));
             }
             save(buildNodeProfile(e, swmm_node_index(e, "J4"), kUnits),
                  QStringLiteral("8_demo_J4_devices_dark.png"), dark, QSize(900, 620));

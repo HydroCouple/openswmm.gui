@@ -1,9 +1,9 @@
-/*!
- * \file   rulebasedrendererpanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  IRendererPanel implementation for the "Rule-based" renderer
+/**
+ * @file      rulebasedrendererpanel.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     IRendererPanel implementation for the "Rule-based" renderer
  *         class.  Slice X.13 — completes the rule-based leg that
  *         previously had no registered panel and fell through to the
  *         "no editor registered" placeholder.
@@ -19,7 +19,9 @@
  *         panel calls that out — empty-expression rules already work
  *         today (they "match always") and are useful for static
  *         "default rule first" setups.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/irendererpanel.h"
 
 #include "layers/openswmmvislayer.h"
@@ -47,9 +49,11 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 using OpenSWMM::Render::IFeatureRenderer;
 using OpenSWMM::Render::RuleBasedRenderer;
@@ -61,8 +65,7 @@ class RuleColorDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
-    void paint(QPainter *p, const QStyleOptionViewItem &opt,
-               const QModelIndex &idx) const override
+    void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override
     {
         const QColor c = idx.data(Qt::BackgroundRole).value<QColor>();
         p->save();
@@ -83,16 +86,17 @@ public:
         return nullptr;
     }
 
-    bool editorEvent(QEvent *e, QAbstractItemModel *m,
-                     const QStyleOptionViewItem &, const QModelIndex &idx) override
+    bool editorEvent(QEvent *e, QAbstractItemModel *m, const QStyleOptionViewItem &,
+                     const QModelIndex &idx) override
     {
-        if (e->type() != QEvent::MouseButtonDblClick) return false;
+        if (e->type() != QEvent::MouseButtonDblClick)
+            return false;
         QColor cur = idx.data(Qt::BackgroundRole).value<QColor>();
-        const QColor picked = QColorDialog::getColor(
-            cur.isValid() ? cur : QColor(Qt::white),
-            nullptr, QObject::tr("Rule colour"),
-            QColorDialog::ShowAlphaChannel);
-        if (!picked.isValid()) return true;
+        const QColor picked =
+            QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white), nullptr,
+                                   QObject::tr("Rule colour"), QColorDialog::ShowAlphaChannel);
+        if (!picked.isValid())
+            return true;
         m->setData(idx, picked, Qt::BackgroundRole);
         return true;
     }
@@ -104,8 +108,7 @@ OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
     OpenSWMM::Render::SymbolLayer layer;
     // Gap A1.2 — canonical QColor variant (hex strings are unreadable
     // through the typed spec readers' value<QColor>()).
-    OpenSWMM::Render::SymbolProps::writeColor(
-        layer.props, QStringLiteral("color"), c);
+    OpenSWMM::Render::SymbolProps::writeColor(layer.props, QStringLiteral("color"), c);
     s.layers.append(layer);
     return s;
 }
@@ -124,7 +127,7 @@ public:
     explicit RuleBasedPanel(const RendererPanelContext &ctx, QWidget *parent)
         : IRendererPanel(parent), m_ctx(ctx)
     {
-        m_modelLayer   = qobject_cast<SWMMModelLayer *>(ctx.hostLayer);
+        m_modelLayer = qobject_cast<SWMMModelLayer *>(ctx.hostLayer);
         m_resultsLayer = qobject_cast<SWMMResultsLayer *>(ctx.hostLayer);
 
         auto *outer = new QVBoxLayout(this);
@@ -137,45 +140,47 @@ public:
 
         // Slice X.25 — DSL evaluator is live.  Banner now documents the
         // accepted syntax rather than warning users it's deferred.
-        auto *banner = new QLabel(tr(
-            "<i>Expression syntax:  <b>field = 'value'</b>, "
-            "<b>field &gt; 100</b>, <b>NOT</b>, <b>AND</b>, <b>OR</b>, "
-            "<b>IS NULL</b>, <b>LIKE 'pat%'</b>.  Empty expression matches "
-            "always (use as a default rule at the bottom).</i>"),
-            box);
+        auto *banner =
+            new QLabel(tr("<i>Expression syntax:  <b>field = 'value'</b>, "
+                          "<b>field &gt; 100</b>, <b>NOT</b>, <b>AND</b>, <b>OR</b>, "
+                          "<b>IS NULL</b>, <b>LIKE 'pat%'</b>.  Empty expression matches "
+                          "always (use as a default rule at the bottom).</i>"),
+                       box);
         banner->setWordWrap(true);
         vlay->addWidget(banner);
 
         m_model = new QStandardItemModel(0, 3, box);
-        m_model->setHorizontalHeaderLabels({
-            tr("Expression"), tr("Label"), tr("Colour")
-        });
+        m_model->setHorizontalHeaderLabels({tr("Expression"), tr("Label"), tr("Colour")});
         m_table = new QTableView(box);
         m_table->setModel(m_model);
         m_table->verticalHeader()->setVisible(false);
         m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         m_table->horizontalHeader()->setStretchLastSection(false);
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-        m_table->setEditTriggers(QAbstractItemView::DoubleClicked
-                                  | QAbstractItemView::SelectedClicked);
+        m_table->setEditTriggers(QAbstractItemView::DoubleClicked |
+                                 QAbstractItemView::SelectedClicked);
         m_table->setAlternatingRowColors(true);
         m_table->setItemDelegateForColumn(2, new RuleColorDelegate(m_table));
         m_table->setMinimumHeight(180);
         vlay->addWidget(m_table, 1);
 
         auto *btnRow = new QHBoxLayout;
-        m_addBtn    = new QToolButton(box); m_addBtn   ->setText(tr("Add"));
+        m_addBtn = new QToolButton(box);
+        m_addBtn->setText(tr("Add"));
         m_addBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")));
-        m_removeBtn = new QToolButton(box); m_removeBtn->setText(tr("Remove"));
+        m_removeBtn = new QToolButton(box);
+        m_removeBtn->setText(tr("Remove"));
         m_removeBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")));
-        m_upBtn     = new QToolButton(box); m_upBtn    ->setText(tr("Move up"));
+        m_upBtn = new QToolButton(box);
+        m_upBtn->setText(tr("Move up"));
         m_upBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveUp")));
-        m_downBtn   = new QToolButton(box); m_downBtn  ->setText(tr("Move down"));
+        m_downBtn = new QToolButton(box);
+        m_downBtn->setText(tr("Move down"));
         m_downBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveDown")));
-        m_clearBtn  = new QToolButton(box); m_clearBtn ->setText(tr("Clear"));
+        m_clearBtn = new QToolButton(box);
+        m_clearBtn->setText(tr("Clear"));
         m_clearBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Clear")));
-        for (QToolButton *b : { m_addBtn, m_removeBtn, m_upBtn, m_downBtn,
-                                m_clearBtn })
+        for (QToolButton *b : {m_addBtn, m_removeBtn, m_upBtn, m_downBtn, m_clearBtn})
             b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         btnRow->addWidget(m_addBtn);
         btnRow->addWidget(m_removeBtn);
@@ -200,13 +205,12 @@ public:
         fbLay->addStretch();
         vlay->addWidget(fbBox);
 
-        connect(m_addBtn,    &QToolButton::clicked, this, &RuleBasedPanel::onAddRule);
+        connect(m_addBtn, &QToolButton::clicked, this, &RuleBasedPanel::onAddRule);
         connect(m_removeBtn, &QToolButton::clicked, this, &RuleBasedPanel::onRemoveSelected);
-        connect(m_upBtn,     &QToolButton::clicked, this, [this] { moveSelected(-1); });
-        connect(m_downBtn,   &QToolButton::clicked, this, [this] { moveSelected(+1); });
-        connect(m_clearBtn,  &QToolButton::clicked, this, &RuleBasedPanel::onClearAll);
-        connect(m_model, &QStandardItemModel::itemChanged,
-                this, &RuleBasedPanel::onRowEdited);
+        connect(m_upBtn, &QToolButton::clicked, this, [this] { moveSelected(-1); });
+        connect(m_downBtn, &QToolButton::clicked, this, [this] { moveSelected(+1); });
+        connect(m_clearBtn, &QToolButton::clicked, this, &RuleBasedPanel::onClearAll);
+        connect(m_model, &QStandardItemModel::itemChanged, this, &RuleBasedPanel::onRowEdited);
 
         refreshFromModel();
     }
@@ -215,12 +219,12 @@ public:
     {
         if (o == m_fallbackSwatch && e->type() == QEvent::MouseButtonDblClick) {
             auto *r = currentRenderer();
-            if (!r) return true;
+            if (!r)
+                return true;
             const QColor cur = swatchFromSymbol(r->fallbackSymbol());
-            const QColor picked = QColorDialog::getColor(
-                cur.isValid() ? cur : QColor(Qt::gray),
-                this, tr("Fallback colour"),
-                QColorDialog::ShowAlphaChannel);
+            const QColor picked =
+                QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::gray), this,
+                                       tr("Fallback colour"), QColorDialog::ShowAlphaChannel);
             if (picked.isValid()) {
                 r->setFallbackSymbol(makeColourSymbol(picked));
                 pushBack(r);
@@ -247,22 +251,26 @@ private:
         if (m_ctx.rule) {
             r = m_ctx.rule->renderer();
         } else if (m_ctx.category.has_value()) {
-            if (m_modelLayer)   r = m_modelLayer  ->kindRenderer(*m_ctx.category);
-            if (m_resultsLayer) r = m_resultsLayer->kindRenderer(*m_ctx.category);
+            if (m_modelLayer)
+                r = m_modelLayer->kindRenderer(*m_ctx.category);
+            if (m_resultsLayer)
+                r = m_resultsLayer->kindRenderer(*m_ctx.category);
         }
         return dynamic_cast<RuleBasedRenderer *>(r);
     }
 
     void pushBack(RuleBasedRenderer *r)
     {
-        if (!r) return;
+        if (!r)
+            return;
         auto fresh = r->clone();
         // Slice B.6e — Rule path takes priority.
         if (m_ctx.rule) {
             m_ctx.rule->setRenderer(std::move(fresh));
             return;
         }
-        if (!m_ctx.category.has_value()) return;
+        if (!m_ctx.category.has_value())
+            return;
         if (m_modelLayer)
             m_modelLayer->setKindRenderer(*m_ctx.category, std::move(fresh));
         else if (m_resultsLayer)
@@ -271,7 +279,8 @@ private:
 
     void refreshFallbackSwatch()
     {
-        if (!m_fallbackSwatch) return;
+        if (!m_fallbackSwatch)
+            return;
         auto *r = currentRenderer();
         const QColor c = r ? swatchFromSymbol(r->fallbackSymbol()) : QColor();
         QPalette p = m_fallbackSwatch->palette();
@@ -285,12 +294,15 @@ private:
         m_model->setRowCount(0);
 
         auto *r = currentRenderer();
-        if (!r) { m_suppress = false; return; }
+        if (!r) {
+            m_suppress = false;
+            return;
+        }
 
         const auto rules = r->rules();
         int idx = 0;
         for (const auto &ru : rules) {
-            auto *exprItem  = new QStandardItem(ru.expression);
+            auto *exprItem = new QStandardItem(ru.expression);
             auto *labelItem = new QStandardItem(ru.label.isEmpty() ? ru.expression : ru.label);
             auto *colorItem = new QStandardItem;
             QColor sw = swatchFromSymbol(ru.symbol);
@@ -300,7 +312,7 @@ private:
             }
             colorItem->setData(sw, Qt::BackgroundRole);
             colorItem->setEditable(true);
-            m_model->appendRow({ exprItem, labelItem, colorItem });
+            m_model->appendRow({exprItem, labelItem, colorItem});
             ++idx;
         }
         m_suppress = false;
@@ -309,10 +321,11 @@ private:
     void onAddRule()
     {
         auto *r = currentRenderer();
-        if (!r) return;
+        if (!r)
+            return;
         RuleBasedRenderer::Rule ru;
-        ru.expression = QString();      // empty → matches always (engine default)
-        ru.label      = tr("New rule");
+        ru.expression = QString(); // empty → matches always (engine default)
+        ru.label = tr("New rule");
         const int idx = r->rules().size();
         const double hue = std::fmod(idx * 0.137, 1.0);
         ru.symbol = makeColourSymbol(QColor::fromHsvF(hue, 0.55, 0.85));
@@ -324,18 +337,21 @@ private:
     void onRemoveSelected()
     {
         auto *r = currentRenderer();
-        if (!r) return;
-        const auto sel = m_table->selectionModel()
-            ? m_table->selectionModel()->selectedRows()
-            : QModelIndexList{};
-        if (sel.isEmpty()) return;
+        if (!r)
+            return;
+        const auto sel = m_table->selectionModel() ? m_table->selectionModel()->selectedRows()
+                                                   : QModelIndexList{};
+        if (sel.isEmpty())
+            return;
 
         QList<int> rows;
-        for (const QModelIndex &i : sel) rows.append(i.row());
+        for (const QModelIndex &i : sel)
+            rows.append(i.row());
         std::sort(rows.begin(), rows.end(), std::greater<int>());
         auto rules = r->rules();
         for (int row : rows)
-            if (row >= 0 && row < rules.size()) rules.removeAt(row);
+            if (row >= 0 && row < rules.size())
+                rules.removeAt(row);
         r->setRules(rules);
         pushBack(r);
         rebuildTable();
@@ -344,14 +360,18 @@ private:
     void moveSelected(int delta)
     {
         auto *r = currentRenderer();
-        if (!r) return;
-        if (!m_table->selectionModel()) return;
+        if (!r)
+            return;
+        if (!m_table->selectionModel())
+            return;
         const QModelIndexList sel = m_table->selectionModel()->selectedRows();
-        if (sel.size() != 1) return;
+        if (sel.size() != 1)
+            return;
         const int from = sel.first().row();
-        const int to   = from + delta;
+        const int to = from + delta;
         auto rules = r->rules();
-        if (to < 0 || to >= rules.size()) return;
+        if (to < 0 || to >= rules.size())
+            return;
         rules.move(from, to);
         r->setRules(rules);
         pushBack(r);
@@ -362,7 +382,8 @@ private:
     void onClearAll()
     {
         auto *r = currentRenderer();
-        if (!r) return;
+        if (!r)
+            return;
         r->setRules({});
         pushBack(r);
         rebuildTable();
@@ -370,9 +391,11 @@ private:
 
     void onRowEdited(QStandardItem *)
     {
-        if (m_suppress) return;
+        if (m_suppress)
+            return;
         auto *r = currentRenderer();
-        if (!r) return;
+        if (!r)
+            return;
 
         QList<RuleBasedRenderer::Rule> rules;
         const int rows = m_model->rowCount();
@@ -381,18 +404,17 @@ private:
         for (int row = 0; row < rows; ++row) {
             RuleBasedRenderer::Rule ru;
             ru.expression = m_model->item(row, 0)->text();
-            ru.label      = m_model->item(row, 1)->text();
+            ru.label = m_model->item(row, 1)->text();
             const QColor sw = m_model->item(row, 2)->data(Qt::BackgroundRole).value<QColor>();
             if (row < existing.size()) {
-                ru.symbol     = existing.at(row).symbol;
+                ru.symbol = existing.at(row).symbol;
                 ru.scaleRange = existing.at(row).scaleRange;
                 if (sw.isValid()) {
                     if (ru.symbol.layers.isEmpty())
                         ru.symbol = makeColourSymbol(sw);
                     else
-                        OpenSWMM::Render::SymbolProps::writeColor(
-                            ru.symbol.layers.first().props,
-                            QStringLiteral("color"), sw);
+                        OpenSWMM::Render::SymbolProps::writeColor(ru.symbol.layers.first().props,
+                                                                  QStringLiteral("color"), sw);
                 }
             } else {
                 ru.symbol = makeColourSymbol(sw.isValid() ? sw : QColor(Qt::gray));
@@ -403,18 +425,18 @@ private:
         pushBack(r);
     }
 
-    RendererPanelContext   m_ctx;
-    SWMMModelLayer        *m_modelLayer   = nullptr;
-    SWMMResultsLayer      *m_resultsLayer = nullptr;
+    RendererPanelContext m_ctx;
+    SWMMModelLayer *m_modelLayer = nullptr;
+    SWMMResultsLayer *m_resultsLayer = nullptr;
 
-    QTableView            *m_table          = nullptr;
-    QStandardItemModel    *m_model          = nullptr;
-    QToolButton           *m_addBtn         = nullptr;
-    QToolButton           *m_removeBtn      = nullptr;
-    QToolButton           *m_upBtn          = nullptr;
-    QToolButton           *m_downBtn        = nullptr;
-    QToolButton           *m_clearBtn       = nullptr;
-    QLabel                *m_fallbackSwatch = nullptr;
+    QTableView *m_table = nullptr;
+    QStandardItemModel *m_model = nullptr;
+    QToolButton *m_addBtn = nullptr;
+    QToolButton *m_removeBtn = nullptr;
+    QToolButton *m_upBtn = nullptr;
+    QToolButton *m_downBtn = nullptr;
+    QToolButton *m_clearBtn = nullptr;
+    QLabel *m_fallbackSwatch = nullptr;
 
     bool m_suppress = false;
 };

@@ -1,6 +1,6 @@
-/*!
- * \file test_processes_hub.cpp
- * \brief U1 (2026-09-07) — Simulation Options: the Transport-by-domain
+/**
+ * @file      test_processes_hub.cpp
+ * @brief     U1 (2026-09-07) — Simulation Options: the Transport-by-domain
  *        matrix on the Models page, the 2D page Processes group (E2 keys)
  *        and the [PROCESS_COMPONENTS] table on Files / Output / Plugins.
  *
@@ -14,7 +14,12 @@
  *     forced-only and an unedited Apply writes nothing.
  *   - The components table stages a registration that lands on Apply and a
  *     removal that lands on Apply.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/processcomponentsmodel.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
@@ -32,32 +37,76 @@
 
 #include <memory>
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Select SWMMVIS_GUI_TEST_DATA or current-directory dot for process-hub fixture inputs.
+ * @return Owned unvalidated directory; no IO.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
-QString fixture(const QString &name) { return QDir(dataDir()).filePath(name); }
+/**
+ *
+ * @brief Resolve a process-hub fixture input path.
+ * @param name Borrowed filename resolved under dataDir(), without sanitization.
+ * @return Owned path without opening or validating it.
+ *
+ */
+QString fixture(const QString &name)
+{
+    return QDir(dataDir()).filePath(name);
+}
 
+/**
+ *
+ * @brief Allocate and load a fresh process-hub fixture layer.
+ * @param path Borrowed input filename copied into the new layer.
+ * @return Unique owned loaded layer or nullptr after failed-load cleanup; warnings
+ * and errors are local. Loading may write reports, but case edits are not saved.
+ *
+ */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &path)
 {
     auto layer = std::make_unique<SWMMModelLayer>(path, nullptr);
     QList<QString> warnings, errors;
-    if (!layer->loadModel(warnings, errors)) return nullptr;
+    if (!layer->loadModel(warnings, errors))
+        return nullptr;
     return layer;
 }
 
+/**
+ *
+ * @brief Read and trim one fixed-buffer process option.
+ * @param e Borrowed valid loaded engine.
+ * @param key Borrowed null-terminated engine option name.
+ * @return Owned UTF-8 text from a 512-byte buffer, empty on getter failure or an
+ * empty option; long values follow engine buffer policy. Does not mutate the option.
+ *
+ */
 QString ext(SWMM_Engine e, const char *key)
 {
     char buf[512] = {};
-    if (swmm_options_get_ext(e, key, buf, sizeof buf) != SWMM_OK) return {};
+    if (swmm_options_get_ext(e, key, buf, sizeof buf) != SWMM_OK)
+        return {};
     return QString::fromUtf8(buf).trimmed();
 }
 
-template <class W>
-W *child(QObject *root, const char *name)
+/**
+ *
+ * @brief Find a named fixture descendant of the requested widget type.
+ * @tparam W QObject-derived target type.
+ * @param root Borrowed non-null object searched recursively.
+ * @param name Borrowed null-terminated Latin-1 objectName.
+ * @return Borrowed matching widget or nullptr, without creating/reparenting it.
+ *
+ */
+template <class W> W *child(QObject *root, const char *name)
 {
     return root->findChild<W *>(QLatin1String(name));
 }
@@ -69,6 +118,14 @@ class TestProcessesHub : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require engine-derived transport matrix dimensions/states, reasoned unavailable
+     * groundwater and bidirectional 2D checkbox mirroring.
+     * Checks Apply saves pollutant transport NO and reopening preserves it with no
+     * additional writes; creates a pollutant only in the loaded model.
+     *
+     */
     void matrixIsEngineComputedAndMirrorsThe2DBoxes()
     {
         auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -83,7 +140,8 @@ private slots:
         QVERIFY(table);
         QCOMPARE(table->rowCount(), SWMM_TRANSPORT_DOMAIN_COUNT);
         QCOMPARE(table->columnCount(), SWMM_TRANSPORT_CLASS_COUNT);
-        auto *cell2D = table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D, SWMM_TRANSPORT_CLASS_POLLUTANTS);
+        auto *cell2D =
+            table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D, SWMM_TRANSPORT_CLASS_POLLUTANTS);
         QVERIFY(cell2D);
         QVERIFY2(cell2D->text().startsWith(QStringLiteral("on")), qPrintable(cell2D->text()));
         QCOMPARE(cell2D->checkState(), Qt::Checked);
@@ -99,14 +157,15 @@ private slots:
         QVERIFY(box->isChecked());
         cell2D->setCheckState(Qt::Unchecked);
         QVERIFY(!box->isChecked());
-        QCOMPARE(table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D,
-                             SWMM_TRANSPORT_CLASS_POLLUTANTS)->text(),
-                 QStringLiteral("off"));
+        QCOMPARE(
+            table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D, SWMM_TRANSPORT_CLASS_POLLUTANTS)->text(),
+            QStringLiteral("off"));
 
         // Tick the box → the cell follows.
         box->setChecked(true);
-        QCOMPARE(table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D,
-                             SWMM_TRANSPORT_CLASS_POLLUTANTS)->checkState(), Qt::Checked);
+        QCOMPARE(table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D, SWMM_TRANSPORT_CLASS_POLLUTANTS)
+                     ->checkState(),
+                 Qt::Checked);
 
         // Apply with the box off writes TRANSPORT_POLLUTANTS NO.
         box->setChecked(false);
@@ -114,8 +173,9 @@ private slots:
         QVERIFY(dlg.wroteAnyChanges());
         QCOMPARE(ext(e, "TRANSPORT_POLLUTANTS"), QStringLiteral("NO"));
         // After the re-read the engine matrix says DISABLED_BY_USER.
-        QCOMPARE(table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D,
-                             SWMM_TRANSPORT_CLASS_POLLUTANTS)->text(), QStringLiteral("off"));
+        QCOMPARE(
+            table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D, SWMM_TRANSPORT_CLASS_POLLUTANTS)->text(),
+            QStringLiteral("off"));
 
         SimulationOptionsDialog dlg2(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
         auto *box2 = child<QCheckBox>(&dlg2, "transport2DBox_TRANSPORT_POLLUTANTS");
@@ -125,6 +185,13 @@ private slots:
         QVERIFY(!dlg2.wroteAnyChanges());
     }
 
+    /**
+     *
+     * @brief Require infiltration/step/destination/evaporation defaults to hydrate without writes
+     * and explicit edits to persist in engine options.
+     * Reopening must retain infiltration NO and accept unchanged without further writes.
+     *
+     */
     void processesGroupSeedsDefaultsAndWritesEdits()
     {
         auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -132,11 +199,11 @@ private slots:
         SWMM_Engine e = layer->engine();
         SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
 
-        auto *mode   = child<QComboBox>(&dlg, "infil2DModeCombo");
-        auto *same   = child<QCheckBox>(&dlg, "infil2DStepSameBox");
+        auto *mode = child<QComboBox>(&dlg, "infil2DModeCombo");
+        auto *same = child<QCheckBox>(&dlg, "infil2DStepSameBox");
         auto *method = child<QComboBox>(&dlg, "infil2DMethodCombo");
-        auto *dest   = child<QComboBox>(&dlg, "infil2DDestCombo");
-        auto *evap   = child<QComboBox>(&dlg, "evap2DCombo");
+        auto *dest = child<QComboBox>(&dlg, "infil2DDestCombo");
+        auto *evap = child<QComboBox>(&dlg, "evap2DCombo");
         QVERIFY(mode && same && method && dest && evap);
         QCOMPARE(mode->currentData().toString(), QStringLiteral("AUTO"));
         QVERIFY2(mode->currentText().contains(QStringLiteral("off")),
@@ -165,6 +232,14 @@ private slots:
         QVERIFY(!dlg2.wroteAnyChanges());
     }
 
+    /**
+     *
+     * @brief Require component catalog availability and staged reaction registration/removal to
+     * reach the engine only through Apply.
+     * Checks config filename model.rxn, dirty-state clearing and unchanged reopening;
+     * does not initialize/run the component or validate its external file contents.
+     *
+     */
     void componentsTableStagesRegistrationsAndRemovals()
     {
         auto layer = openLayer(fixture(QStringLiteral("typed_selection_fixture.inp")));
@@ -177,7 +252,9 @@ private slots:
         const auto known = ProcessComponentsModel::knownIds();
         QVERIFY(known.size() >= 6);
         bool hasReactions = false;
-        for (const auto &k : known) if (k.id == QLatin1String(kReactions)) hasReactions = true;
+        for (const auto &k : known)
+            if (k.id == QLatin1String(kReactions))
+                hasReactions = true;
         QVERIFY(hasReactions);
 
         SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
@@ -187,8 +264,8 @@ private slots:
         QVERIFY(model);
         QCOMPARE(model->rowCount(), 0);
 
-        const int row = model->appendRow(QString::fromLatin1(kReactions),
-                                         QStringLiteral("model.rxn"));
+        const int row =
+            model->appendRow(QString::fromLatin1(kReactions), QStringLiteral("model.rxn"));
         QCOMPARE(row, 0);
         QVERIFY(model->isDirty());
         QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
@@ -196,8 +273,9 @@ private slots:
         QVERIFY(swmm_process_component_find(e, kReactions) >= 0);
         {
             char id[128] = {}, cfg[512] = {}, res[512] = {};
-            QCOMPARE(swmm_process_component_get(e, 0, id, sizeof id, cfg, sizeof cfg,
-                                                res, sizeof res), SWMM_OK);
+            QCOMPARE(
+                swmm_process_component_get(e, 0, id, sizeof id, cfg, sizeof cfg, res, sizeof res),
+                SWMM_OK);
             QCOMPARE(QString::fromUtf8(cfg), QStringLiteral("model.rxn"));
         }
         QVERIFY(!model->isDirty());

@@ -1,9 +1,9 @@
-/*!
- * \file   cellsurfaceinterp.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Per-cell free-surface sampling with physically consistent
+/**
+ * @file      cellsurfaceinterp.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Per-cell free-surface sampling with physically consistent
  *         extrapolation into no-data corners (2D profile WSE fix, see
  *         workplans/2D_PROFILE_WSE_EXTRAPOLATION_PLAN_2026-08-02.md).
  *
@@ -33,6 +33,7 @@
  *         maxDepthAtSceneInterp) and the unit tests share one implementation —
  *         the layer's link closure is too large to drive from a leaf test
  *         (see the test_2dresults_vizfixes note in tests/gui/CMakeLists.txt).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef CELL_SURFACE_INTERP_H
@@ -70,14 +71,14 @@ namespace CellSurfaceInterp
  *   4. cap η at the max over WET corners (driving head — guards
  *      extrapolating weights at/outside the edge);
  *   5. return max(0, η − ground_interp).
+ * @note All XY positions must use one finite coordinate system; z/signed-depth values must be finite and share one vertical unit/datum (normally SI metres). The sample is not checked for containment. Only an exactly zero barycentric denominator sets degenerate; near-degenerate/nonfinite arithmetic has no separate failure report. Negative signed depths are excluded as suppliers just like zero sentinels. No mutation/allocation occurs.
  */
-inline double depthAt(const QPointF &p,
-                      const QPointF &a, const QPointF &b, const QPointF &c,
-                      double z0, double z1, double z2,
-                      double sd0, double sd1, double sd2,
+inline double depthAt(const QPointF &p, const QPointF &a, const QPointF &b, const QPointF &c,
+                      double z0, double z1, double z2, double sd0, double sd1, double sd2,
                       bool *degenerate = nullptr)
 {
-    if (degenerate) *degenerate = false;
+    if (degenerate)
+        *degenerate = false;
 
     const double v0x = c.x() - a.x(), v0y = c.y() - a.y();
     const double v1x = b.x() - a.x(), v1y = b.y() - a.y();
@@ -89,12 +90,13 @@ inline double depthAt(const QPointF &p,
     const double d21 = v2x * v1x + v2y * v1y;
     const double denom = d00 * d11 - d01 * d01;
     if (denom == 0.0) {
-        if (degenerate) *degenerate = true;
+        if (degenerate)
+            *degenerate = true;
         return 0.0;
     }
-    const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
-    const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
-    const double w = 1.0 - u - v;                       // weight for a
+    const double u = (d11 * d20 - d01 * d21) / denom; // weight for c
+    const double v = (d00 * d21 - d01 * d20) / denom; // weight for b
+    const double w = 1.0 - u - v;                     // weight for a
 
     // Only WET corners (sd > 0 — water actually stands above their bed)
     // SUPPLY surface. The other two states carry no water at their corner:
@@ -105,21 +107,26 @@ inline double depthAt(const QPointF &p,
     // nor raise the driving-head cap (a high bank corner with η above the
     // pool would license the blend to climb the wall face) — both were the
     // residual profile artifacts after the first iteration of this fix.
-    const bool wet[3] = { sd0 > 0.0, sd1 > 0.0, sd2 > 0.0 };
+    const bool wet[3] = {sd0 > 0.0, sd1 > 0.0, sd2 > 0.0};
     const int nWet = int(wet[0]) + int(wet[1]) + int(wet[2]);
     // Vertex-scoped dryness: no wet corner → nothing can flood this cell.
-    if (nWet == 0) return 0.0;
+    if (nWet == 0)
+        return 0.0;
 
-    const double eta[3] = { z0 + sd0, z1 + sd1, z2 + sd2 };
+    const double eta[3] = {z0 + sd0, z1 + sd1, z2 + sd2};
     const double groundInterp = w * z0 + v * z1 + u * z2;
 
     // Driving-head cap over the WET corners' η — the head the water actually
     // supplies; guards extrapolating weights at/outside the edge.
-    bool   any    = false;
+    bool any = false;
     double maxEta = 0.0;
     for (int k = 0; k < 3; ++k) {
-        if (!wet[k]) continue;
-        if (!any || eta[k] > maxEta) { maxEta = eta[k]; any = true; }
+        if (!wet[k])
+            continue;
+        if (!any || eta[k] > maxEta) {
+            maxEta = eta[k];
+            any = true;
+        }
     }
 
     double blend;
@@ -137,9 +144,10 @@ inline double depthAt(const QPointF &p,
         // lands the waterline at the sub-cell bed intercept — the surface
         // extends flat to the wall face instead of stopping at a cell edge.
         double wetW = 0.0, wetE = 0.0;
-        const double wgt[3] = { w, v, u };
+        const double wgt[3] = {w, v, u};
         for (int k = 0; k < 3; ++k) {
-            if (!wet[k]) continue;
+            if (!wet[k])
+                continue;
             wetW += wgt[k];
             wetE += wgt[k] * eta[k];
         }

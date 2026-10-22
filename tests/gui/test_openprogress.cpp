@@ -1,9 +1,9 @@
-/*!
- * \file   test_openprogress.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  LOAD_PERF plan Phase 1 — OpenProgressModel contract.
+/**
+ * @file      test_openprogress.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     LOAD_PERF plan Phase 1 — OpenProgressModel contract.
  *
  *         The status bar's determinate percent is composed from stages that
  *         complete on three different threads in a non-deterministic order.
@@ -13,7 +13,9 @@
  *           - a skipped stage group (no 2D mesh) jumps forward, not backward
  *           - finished() fires exactly once, only when every stage is done
  *           - progressChanged does not fire for no-op ticks
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "core/loadprogress.h"
 
 #include <QSignalSpy>
@@ -63,23 +65,18 @@ void TestOpenProgress::neverDecreasesOnOutOfOrderStages()
     QSignalSpy spy(&m, &OpenProgressModel::progressChanged);
 
     const OpenStage order[] = {
-        OpenStage::MeshParse,     // mesh worker gets there first
-        OpenStage::EngineParse,
-        OpenStage::MeshSceneA,
-        OpenStage::SoaCopy,
-        OpenStage::Sidecar,
-        OpenStage::GeomCache,
-        OpenStage::Results,
-        OpenStage::CrsFinish,
-        OpenStage::MeshSceneB,
+        OpenStage::MeshParse, // mesh worker gets there first
+        OpenStage::EngineParse, OpenStage::MeshSceneA, OpenStage::SoaCopy,   OpenStage::Sidecar,
+        OpenStage::GeomCache,   OpenStage::Results,    OpenStage::CrsFinish, OpenStage::MeshSceneB,
     };
 
     int last = 0;
     for (OpenStage s : order) {
         m.finishStage(s);
-        QVERIFY2(m.percent() >= last,
-                 qPrintable(QStringLiteral("percent went backwards: %1 -> %2")
-                                .arg(last).arg(m.percent())));
+        QVERIFY2(
+            m.percent() >= last,
+            qPrintable(
+                QStringLiteral("percent went backwards: %1 -> %2").arg(last).arg(m.percent())));
         last = m.percent();
     }
     QCOMPARE(m.percent(), 100);
@@ -105,9 +102,9 @@ void TestOpenProgress::skippedMeshStagesJumpForward()
     m.finishStage(OpenStage::MeshSceneA);
     m.finishStage(OpenStage::MeshSceneB);
 
-    const int meshWeight = OpenProgressModel::stageWeight(OpenStage::MeshParse)
-                         + OpenProgressModel::stageWeight(OpenStage::MeshSceneA)
-                         + OpenProgressModel::stageWeight(OpenStage::MeshSceneB);
+    const int meshWeight = OpenProgressModel::stageWeight(OpenStage::MeshParse) +
+                           OpenProgressModel::stageWeight(OpenStage::MeshSceneA) +
+                           OpenProgressModel::stageWeight(OpenStage::MeshSceneB);
     QCOMPARE(m.percent(), before + meshWeight);
     QVERIFY(m.percent() > before);
 }
@@ -165,7 +162,7 @@ void TestOpenProgress::engineParseWithoutSubTicksStillReaches100()
     OpenProgressModel m;
     QSignalSpy spy(&m, &OpenProgressModel::progressChanged);
 
-    m.finishStage(OpenStage::EngineParse);          // 0 -> 28 in one step
+    m.finishStage(OpenStage::EngineParse); // 0 -> 28 in one step
     QCOMPARE(m.percent(), OpenProgressModel::stageWeight(OpenStage::EngineParse));
 
     for (int i = 1; i < static_cast<int>(OpenStage::Count_); ++i)

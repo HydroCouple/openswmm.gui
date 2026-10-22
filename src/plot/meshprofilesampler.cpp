@@ -1,7 +1,12 @@
-/*!
- * \file   meshprofilesampler.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      meshprofilesampler.cpp
+ * @brief     surface mesh into a longitudinal cross-section: cumulative chainage, ground
+ *            elevation, current-frame water depth, and the max-depth envelope at evenly-spaced
+ *            samples along the path.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "plot/meshprofilesampler.h"
@@ -17,18 +22,24 @@
 namespace MeshProfileSampler
 {
 
-namespace {
+namespace
+{
 
 /*! Characteristic cell size of the mesh in scene units — sqrt(bbox area /
  *  triangle count). Falls back to a fraction of the bbox diagonal when the
  *  count is unavailable. Used to choose a resample step that follows the
- *  terrain without oversampling. */
+ *  terrain without oversampling.
+ * @param[in] mesh Optional borrowed layer with cached bounding box/triangles.
+ * @return sqrt(abs(bbox area)/triangle count), or 1% of its diagonal when count/area is unusable, or zero for null layer/null box. Units are scene units.
+ */
 double characteristicCellSize(SWMM2DMeshLayer *mesh)
 {
-    if (!mesh) return 0.0;
+    if (!mesh)
+        return 0.0;
     const QRectF bb = mesh->m_sceneBBox;
-    const int nTri  = mesh->m_sceneTris.size();
-    if (bb.isNull()) return 0.0;
+    const int nTri = mesh->m_sceneTris.size();
+    if (bb.isNull())
+        return 0.0;
     if (nTri > 0) {
         const double area = std::abs(bb.width() * bb.height());
         if (area > 0.0)
@@ -40,71 +51,92 @@ double characteristicCellSize(SWMM2DMeshLayer *mesh)
 
 // Every interval is owned by one storage triangle. A boundary-aligned path
 // retains both adjacent sides so a dry owner cannot hide the wet edge.
-MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
-                               const QVector<QPointF>& path, bool withMaximum)
+/**
+ * @brief Intersect a traced path with exact result storage triangles and retain independent interval endpoints.
+ * @param[in] results Required borrowed result layer with compatible triangles/owner mapping and available frames.
+ * @param[in] path At least two finite scene points. Zero-length segments are skipped.
+ * @param[in] withMaximum Whether to call applyMaximum() after constructing current/ground stations.
+ * @return Owned exactWaterGeometry section tagged with geometry revision. Overlapping intervals choose the smallest owner/triangle pair, retain a second boundary triangle when exactly two are active, and mark each interval start as a break. Off-mesh ends are NaN markers; no uniform resampling or strict count cap occurs.
+ */
+MeshProfile buildResultProfile(SWMM2DResultsLayer *results, const QVector<QPointF> &path,
+                               bool withMaximum)
 {
     MeshProfile out;
     out.hasResults = true;
     out.exactWaterGeometry = true;
     out.geometryRevision = results->geomRevision();
     const double scale = results->depthToMeshUnits();
-    const auto& tris = results->m_sceneTris;
-    const auto& owners = results->triCellMap();
-    struct Event { double t; int tri; bool entering; };
+    const auto &tris = results->m_sceneTris;
+    const auto &owners = results->triCellMap();
+    struct Event {
+        double t;
+        int tri;
+        bool entering;
+    };
     double chain = 0;
     for (int seg = 1; seg < path.size(); ++seg) {
-        const QPointF a = path[seg-1], b = path[seg];
-        const double len = std::hypot(b.x()-a.x(),b.y()-a.y());
-        if (!(len > 0)) continue;
-        const double margin = 64 * std::numeric_limits<double>::epsilon()
-                            * std::max({1.0,std::abs(a.x()),std::abs(a.y()),
-                                       std::abs(b.x()),std::abs(b.y())});
-        const QRectF box = QRectF(a,b).normalized().adjusted(-margin,-margin,margin,margin);
+        const QPointF a = path[seg - 1], b = path[seg];
+        const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
+        if (!(len > 0))
+            continue;
+        const double margin =
+            64 * std::numeric_limits<double>::epsilon() *
+            std::max({1.0, std::abs(a.x()), std::abs(a.y()), std::abs(b.x()), std::abs(b.y())});
+        const QRectF box = QRectF(a, b).normalized().adjusted(-margin, -margin, margin, margin);
         QVector<int> candidates = results->m_triGrid.query(box);
         if (results->m_triGrid.isEmpty())
-            for (int i = 0; i < tris.size(); ++i) candidates.push_back(i);
+            for (int i = 0; i < tris.size(); ++i)
+                candidates.push_back(i);
         std::vector<Event> events;
-        events.reserve(size_t(candidates.size())*2);
+        events.reserve(size_t(candidates.size()) * 2);
         for (int i : candidates) {
-            const auto& t = tris[i];
-            double lo,hi;
-            if (CellWaterGeometry::triangleInterval(a,b,t.a,t.b,t.c,lo,hi)) {
-                events.push_back({lo,i,true}); events.push_back({hi,i,false});
+            const auto &t = tris[i];
+            double lo, hi;
+            if (CellWaterGeometry::triangleInterval(a, b, t.a, t.b, t.c, lo, hi)) {
+                events.push_back({lo, i, true});
+                events.push_back({hi, i, false});
             }
         }
-        std::sort(events.begin(),events.end(),[](const Event& x,const Event& y) {
-            return x.t < y.t;
-        });
-        std::set<std::pair<int,int>> active;
+        std::sort(events.begin(), events.end(),
+                  [](const Event &x, const Event &y) { return x.t < y.t; });
+        std::set<std::pair<int, int>> active;
         size_t e = 0;
         while (e < events.size()) {
             const double lo = events[e].t;
             do {
-                const auto& ev = events[e];
-                const auto key = std::make_pair(owners[size_t(ev.tri)],ev.tri);
-                if (ev.entering) active.insert(key); else active.erase(key);
+                const auto &ev = events[e];
+                const auto key = std::make_pair(owners[size_t(ev.tri)], ev.tri);
+                if (ev.entering)
+                    active.insert(key);
+                else
+                    active.erase(key);
                 ++e;
             } while (e < events.size() && events[e].t == lo);
-            if (e == events.size() || active.empty()) continue;
+            if (e == events.size() || active.empty())
+                continue;
             const double hi = events[e].t;
-            if (!(hi > lo)) continue;
-            const auto [cell,tri] = *active.begin();
+            if (!(hi > lo))
+                continue;
+            const auto [cell, tri] = *active.begin();
             for (int end = 0; end < 2; ++end) {
                 const double f = end ? hi : lo;
                 Sample s;
-                s.chainage = chain + len*f;
-                s.scenePt = a + f*(b-a);
-                s.triIdx = cell; s.displayTriIdx = tri;
-                if (active.size() == 2) s.boundaryTriIdx = std::next(active.begin())->second;
+                s.chainage = chain + len * f;
+                s.scenePt = a + f * (b - a);
+                s.triIdx = cell;
+                s.displayTriIdx = tri;
+                if (active.size() == 2)
+                    s.boundaryTriIdx = std::next(active.begin())->second;
                 s.breakBefore = end == 0;
-                const double ground = results->groundAtDisplayTriangle(tri,s.scenePt);
-                s.ground = ground*scale;
-                s.signedDepthNow = signedWaterDepth(results,tri,s.boundaryTriIdx,s.scenePt)*scale;
-                s.depthNow = std::max(0.0,s.signedDepthNow);
+                const double ground = results->groundAtDisplayTriangle(tri, s.scenePt);
+                s.ground = ground * scale;
+                s.signedDepthNow =
+                    signedWaterDepth(results, tri, s.boundaryTriIdx, s.scenePt) * scale;
+                s.depthNow = std::max(0.0, s.signedDepthNow);
                 s.cellHasSurface = std::isfinite(s.signedDepthNow);
                 out.samples.push_back(s);
                 if (end == 0 && std::isfinite(s.ground))
-                    out.crossings.push_back({s.chainage,s.ground,s.scenePt});
+                    out.crossings.push_back({s.chainage, s.ground, s.scenePt});
             }
         }
         chain += len;
@@ -112,61 +144,69 @@ MeshProfile buildResultProfile(SWMM2DResultsLayer* results,
     // Preserve the complete requested chainage, including off-mesh ends.
     // NaN terrain prevents a line or water fill across these gaps.
     if (out.samples.isEmpty() || out.samples.first().chainage > 0) {
-        Sample s; s.ground = std::numeric_limits<double>::quiet_NaN();
-        s.scenePt = path.first(); s.breakBefore = true;
+        Sample s;
+        s.ground = std::numeric_limits<double>::quiet_NaN();
+        s.scenePt = path.first();
+        s.breakBefore = true;
         out.samples.prepend(s);
     }
     if (out.samples.last().chainage < chain) {
-        Sample s; s.chainage = chain; s.ground = std::numeric_limits<double>::quiet_NaN();
-        s.scenePt = path.last(); s.breakBefore = true;
+        Sample s;
+        s.chainage = chain;
+        s.ground = std::numeric_limits<double>::quiet_NaN();
+        s.scenePt = path.last();
+        s.breakBefore = true;
         out.samples.push_back(s);
     }
-    if (withMaximum) applyMaximum(out,results);
+    if (withMaximum)
+        applyMaximum(out, results);
     return out;
 }
 
 } // namespace
 
-double signedWaterDepth(SWMM2DResultsLayer *results, int displayTri,
-                        int boundaryTri, const QPointF &scenePoint)
+double signedWaterDepth(SWMM2DResultsLayer *results, int displayTri, int boundaryTri,
+                        const QPointF &scenePoint)
 {
-    const double primary = results->signedDepthAtDisplayTriangle(displayTri,scenePoint);
+    const double primary = results->signedDepthAtDisplayTriangle(displayTri, scenePoint);
     return std::isfinite(primary) ? primary
-        : results->signedDepthAtDisplayTriangle(boundaryTri,scenePoint);
+                                  : results->signedDepthAtDisplayTriangle(boundaryTri, scenePoint);
 }
 
 void applyMaximum(MeshProfile &profile, SWMM2DResultsLayer *results, double verticalScale)
 {
-    if (!results || !profile.exactWaterGeometry) return;
+    if (!results || !profile.exactWaterGeometry)
+        return;
     const auto maxima = results->maxSurfaceDepths();
     const double scale = results->depthToMeshUnits();
     for (auto &s : profile.samples) {
-        if (s.displayTriIdx < 0) continue;   // off-mesh end markers carry no surface
-        s.signedMaxDepth = results->signedDepthAtDisplayTriangle(s.displayTriIdx,s.scenePt,maxima)*scale;
-        const double boundaryMax = results->signedDepthAtDisplayTriangle(
-            s.boundaryTriIdx,s.scenePt,maxima)*scale;
-        if (std::isfinite(boundaryMax)
-            && (!std::isfinite(s.signedMaxDepth) || boundaryMax > s.signedMaxDepth))
+        if (s.displayTriIdx < 0)
+            continue; // off-mesh end markers carry no surface
+        s.signedMaxDepth =
+            results->signedDepthAtDisplayTriangle(s.displayTriIdx, s.scenePt, maxima) * scale;
+        const double boundaryMax =
+            results->signedDepthAtDisplayTriangle(s.boundaryTriIdx, s.scenePt, maxima) * scale;
+        if (std::isfinite(boundaryMax) &&
+            (!std::isfinite(s.signedMaxDepth) || boundaryMax > s.signedMaxDepth))
             s.signedMaxDepth = boundaryMax;
         s.signedMaxDepth *= verticalScale;
-        s.maxDepth = std::max(0.0,s.signedMaxDepth);
+        s.maxDepth = std::max(0.0, s.signedMaxDepth);
     }
 }
 
-MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
-                             SWMM2DResultsLayer *results,
-                             const QVector<QPointF> &scenePolyline,
-                             double stepHint, bool withMaximum)
+MeshProfile buildMeshProfile(SWMM2DMeshLayer *mesh, SWMM2DResultsLayer *results,
+                             const QVector<QPointF> &scenePolyline, double stepHint,
+                             bool withMaximum)
 {
     MeshProfile out;
     if ((!mesh && !results) || scenePolyline.size() < 2)
         return out;
 
-    out.hasResults = results && results->source()
-                     && results->source()->timeCount() > 0;
+    out.hasResults = results && results->source() && results->source()->timeCount() > 0;
     if (out.hasResults && !results->m_sceneTris.isEmpty())
-        return buildResultProfile(results,scenePolyline,withMaximum);
-    if (!mesh) return out;
+        return buildResultProfile(results, scenePolyline, withMaximum);
+    if (!mesh)
+        return out;
 
     // Total polyline length (scene units == map units; scene is a pure Y-flip).
     double totalLen = 0.0;
@@ -184,7 +224,8 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
         const double cell = characteristicCellSize(mesh);
         step = (cell > 0.0) ? cell * 0.5 : totalLen / 200.0;
     }
-    if (step <= 0.0) step = totalLen / 200.0;
+    if (step <= 0.0)
+        step = totalLen / 200.0;
     if (totalLen / step > kMaxSamples)
         step = totalLen / kMaxSamples;
 
@@ -214,9 +255,9 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
     // identical ground/depth columns.
     auto makeSample = [&](const QPointF &sp, double chain) -> Sample {
         Sample s;
-        s.scenePt  = sp;
+        s.scenePt = sp;
         s.chainage = chain;
-        s.ground = mesh->sampleZAt(sp.x(), sp.y());   // NaN off-mesh — a plot gap.
+        s.ground = mesh->sampleZAt(sp.x(), sp.y()); // NaN off-mesh — a plot gap.
         if (results) {
             const int tri = results->pickCellAt(sp);
             s.triIdx = tri;
@@ -246,7 +287,8 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
         const QPointF a = scenePolyline[i - 1];
         const QPointF b = scenePolyline[i];
         const double segLen = std::hypot(b.x() - a.x(), b.y() - a.y());
-        if (segLen <= 0.0) continue;
+        if (segLen <= 0.0)
+            continue;
         const QPointF dir((b.x() - a.x()) / segLen, (b.y() - a.y()) / segLen);
 
         // Interior points along this segment at multiples of `step`.
@@ -257,7 +299,7 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
             d += step;
         }
         chainAtVertex += segLen;
-        emitSample(b, chainAtVertex);   // exact vertex sample
+        emitSample(b, chainAtVertex); // exact vertex sample
     }
 
     // Cell-boundary crossings: wherever the mesh-triangle index changes
@@ -267,31 +309,32 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
     // triangle membership, then record (chainage, ground) for a dot on the
     // ground line. Land the dot on whichever side is on-mesh so the ground is
     // finite even at the mesh boundary.
-    auto refineCrossing = [&](const QPointF &pa, double ca, int triA,
-                              const QPointF &pb, double cb) -> CellCrossing {
-        double lo = 0.0, hi = 1.0;     // lo stays in triA, hi is past the edge
+    auto refineCrossing = [&](const QPointF &pa, double ca, int triA, const QPointF &pb,
+                              double cb) -> CellCrossing {
+        double lo = 0.0, hi = 1.0; // lo stays in triA, hi is past the edge
         for (int it = 0; it < 24; ++it) {
             const double mid = 0.5 * (lo + hi);
-            const QPointF pm(pa.x() + (pb.x() - pa.x()) * mid,
-                             pa.y() + (pb.y() - pa.y()) * mid);
-            if (mesh->locateTriangleAt(pm.x(), pm.y()) == triA) lo = mid;
-            else                                                hi = mid;
+            const QPointF pm(pa.x() + (pb.x() - pa.x()) * mid, pa.y() + (pb.y() - pa.y()) * mid);
+            if (mesh->locateTriangleAt(pm.x(), pm.y()) == triA)
+                lo = mid;
+            else
+                hi = mid;
         }
-        const double t = (triA >= 0) ? lo : hi;   // pick the on-mesh side
+        const double t = (triA >= 0) ? lo : hi; // pick the on-mesh side
         CellCrossing c;
-        c.scenePt  = QPointF(pa.x() + (pb.x() - pa.x()) * t,
-                             pa.y() + (pb.y() - pa.y()) * t);
+        c.scenePt = QPointF(pa.x() + (pb.x() - pa.x()) * t, pa.y() + (pb.y() - pa.y()) * t);
         c.chainage = ca + (cb - ca) * t;
-        c.ground   = mesh->sampleZAt(c.scenePt.x(), c.scenePt.y());
+        c.ground = mesh->sampleZAt(c.scenePt.x(), c.scenePt.y());
         return c;
     };
 
     for (int i = 1; i < out.samples.size(); ++i) {
-        if (meshTriOf[i] == meshTriOf[i - 1]) continue;
+        if (meshTriOf[i] == meshTriOf[i - 1])
+            continue;
         const Sample &A = out.samples[i - 1];
         const Sample &B = out.samples[i];
-        const CellCrossing c = refineCrossing(A.scenePt, A.chainage, meshTriOf[i - 1],
-                                              B.scenePt, B.chainage);
+        const CellCrossing c =
+            refineCrossing(A.scenePt, A.chainage, meshTriOf[i - 1], B.scenePt, B.chainage);
         if (std::isfinite(c.ground))
             out.crossings.push_back(c);
     }
@@ -312,9 +355,7 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
             out.samples.push_back(s);
         }
         std::stable_sort(out.samples.begin(), out.samples.end(),
-                         [](const Sample &a, const Sample &b) {
-                             return a.chainage < b.chainage;
-                         });
+                         [](const Sample &a, const Sample &b) { return a.chainage < b.chainage; });
     }
 
     return out;

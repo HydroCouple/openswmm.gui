@@ -1,12 +1,15 @@
-/*!
- * \file   test_marchingtriangles.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_marchingtriangles.cpp
+ * @brief     Tests for marchingtriangles.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BJ.2-lite — unit tests for OpenSWMM::Contour::marchingTriangles.
  * Self-contained: header-only algorithm, no Qt widgets, no engine deps.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "contour/marchingtriangles.h"
 
 #include <QObject>
@@ -23,34 +26,71 @@ using OpenSWMM::Contour::evenlySpacedLevelsInclusive;
 using OpenSWMM::Contour::IsoBandPolygon;
 using OpenSWMM::Contour::marchingTrianglesIsobands;
 
-namespace {
+namespace
+{
 
 // Test handle = struct of {3 points, 3 values}; trivial extractor below.
-struct Tri
-{
+struct Tri {
     QPointF p0, p1, p2;
-    double  v0, v1, v2;
+    double v0, v1, v2;
 };
 
-const auto extract = [](const Tri &t,
-                        QPointF &p0, QPointF &p1, QPointF &p2,
-                        double  &v0, double  &v1, double  &v2)
-{
-    p0 = t.p0; p1 = t.p1; p2 = t.p2;
-    v0 = t.v0; v1 = t.v1; v2 = t.v2;
+/**
+ *
+ * @brief Copy one test triangle into the contour callback outputs.
+ * The borrowed input t supplies scene-unit points p0/p1/p2 and corresponding
+ * scalar values v0/v1/v2. All six borrowed output references are overwritten;
+ * no pointer/reference is retained and no validation, allocation or IO occurs.
+ *
+ */
+const auto extract = [](const Tri &t, QPointF &p0, QPointF &p1, QPointF &p2, double &v0, double &v1,
+                        double &v2) {
+    p0 = t.p0;
+    p1 = t.p1;
+    p2 = t.p2;
+    v0 = t.v0;
+    v1 = t.v1;
+    v2 = t.v2;
 };
 
+/**
+ *
+ * @brief Compare scalar fixtures by inclusive absolute tolerance.
+ * @param a First scalar value in the same units as b/eps.
+ * @param b Second scalar value.
+ * @param eps Nonnegative absolute tolerance, default 1e-9; not validated.
+ * @return abs(a-b)<=eps. NaNs compare false; no relative scaling or mutation.
+ *
+ */
 bool nearlyEqual(double a, double b, double eps = 1e-9)
 {
     return std::abs(a - b) <= eps;
 }
 
+/**
+ *
+ * @brief Compare both point coordinates independently by absolute tolerance.
+ * @param a Borrowed first point in fixture scene units.
+ * @param b Borrowed second point in the same coordinate system.
+ * @param eps Nonnegative per-axis scene-unit tolerance, default 1e-9.
+ * @return True only if both scalar comparisons pass; not a Euclidean-distance test.
+ *
+ */
 bool nearlyEqual(const QPointF &a, const QPointF &b, double eps = 1e-9)
 {
     return nearlyEqual(a.x(), b.x(), eps) && nearlyEqual(a.y(), b.y(), eps);
 }
 
 // Unsigned polygon area via the shoelace formula (vertices in order).
+/**
+ *
+ * @brief Compute unsigned shoelace area of an ordered polygon fixture.
+ * @param p Borrowed cyclic vertex list in common scene units; closure is implicit.
+ * Empty input returns zero. Self-intersections yield absolute algebraic area rather
+ * than geometric union area; nonfinite/overflow arithmetic is not rejected.
+ * @return Absolute signed area in squared coordinate units; no input mutation.
+ *
+ */
 double polyArea(const std::vector<QPointF> &p)
 {
     double a = 0.0;
@@ -72,13 +112,17 @@ private slots:
 
     // ---- Case enumeration ------------------------------------------------
 
+    /**
+     *
+     * @brief Require one contour segment with expected midpoint endpoints and level when one
+     * vertex is below the threshold.
+     *
+     */
     void singleCrossing_oneBelow()
     {
         // Right triangle, v0 < level < v1 = v2 (one vertex below)
         // Edges crossed: (0,1) and (0,2).
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 1.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 1.0}};
         auto segs = marchingTriangles(tris, std::vector<double>{0.5}, extract);
         QCOMPARE(segs.size(), size_t(1));
         // (0,1) crossing at t=0.5: (0.5, 0); (0,2) crossing at t=0.5: (0, 0.5)
@@ -90,12 +134,15 @@ private slots:
         QCOMPARE(s.level, 0.5);
     }
 
+    /**
+     *
+     * @brief Require the expected midpoint segment when two vertices are below the threshold.
+     *
+     */
     void singleCrossing_twoBelow()
     {
         // Mirror of above: v0 = v1 < level < v2  (one vertex above)
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 0.0, 1.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 0.0, 1.0}};
         auto segs = marchingTriangles(tris, std::vector<double>{0.5}, extract);
         QCOMPARE(segs.size(), size_t(1));
         // Edges crossed: (1,2) and (0,2). (1,2) at t=0.5: midpoint of (1,0)→(0,1) = (0.5,0.5)
@@ -107,79 +154,102 @@ private slots:
         QVERIFY(ok);
     }
 
+    /**
+     *
+     * @brief Require no contour segment when every scalar is below the requested level.
+     *
+     */
     void noCrossing_allBelow()
     {
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 0.0, 0.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 0.0, 0.0}};
         auto segs = marchingTriangles(tris, std::vector<double>{0.5}, extract);
         QCOMPARE(segs.size(), size_t(0));
     }
 
+    /**
+     *
+     * @brief Require no contour segment when every scalar is above the requested level.
+     *
+     */
     void noCrossing_allAbove()
     {
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 1.0, 1.0, 1.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 1.0, 1.0, 1.0}};
         auto segs = marchingTriangles(tris, std::vector<double>{0.5}, extract);
         QCOMPARE(segs.size(), size_t(0));
     }
 
+    /**
+     *
+     * @brief Require a constant-valued triangle at the contour level to emit no isoline.
+     *
+     */
     void degenerateFlatTriangle_skipped()
     {
         // All three vertices share the same value — early-out path
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.5, 0.5, 0.5 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.5, 0.5, 0.5}};
         auto segs = marchingTriangles(tris, std::vector<double>{0.5}, extract);
         QCOMPARE(segs.size(), size_t(0));
     }
 
     // ---- Multi-level + multi-triangle ------------------------------------
 
+    /**
+     *
+     * @brief Require one segment for each of three interior levels and preserve their level
+     * metadata.
+     *
+     */
     void multipleLevels_oneTriangle()
     {
         // Linear ramp z = x along the bottom edge; three contour levels
         // should each cross the triangle at a different chainage.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 0.0}};
         std::vector<double> levels{0.25, 0.50, 0.75};
         auto segs = marchingTriangles(tris, levels, extract);
         QCOMPARE(segs.size(), size_t(3));
 
         // Each segment level should match one of the requested levels.
         std::vector<double> gotLevels;
-        for (const auto &s : segs) gotLevels.push_back(s.level);
+        for (const auto &s : segs)
+            gotLevels.push_back(s.level);
         std::sort(gotLevels.begin(), gotLevels.end());
         QCOMPARE(gotLevels, levels);
     }
 
+    /**
+     *
+     * @brief Require levels outside the triangle scalar range to emit no segments.
+     *
+     */
     void levelOutsideRange_skipped()
     {
         // Levels far outside [vMin, vMax] should be skipped by the early-out.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 0.0}};
         std::vector<double> levels{-1.0, 2.0};
         auto segs = marchingTriangles(tris, levels, extract);
         QCOMPARE(segs.size(), size_t(0));
     }
 
+    /**
+     *
+     * @brief Require two separated triangles to each emit a segment in its own coordinate
+     * neighborhood.
+     *
+     */
     void twoTriangles_independent()
     {
         // Two non-overlapping triangles each crossed by the same level.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 1.0 },
-            { {10,10}, {11,10}, {10,11}, 0.0, 1.0, 1.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 1.0},
+                              {{10, 10}, {11, 10}, {10, 11}, 0.0, 1.0, 1.0}};
         auto segs = marchingTriangles(tris, std::vector<double>{0.5}, extract);
         QCOMPARE(segs.size(), size_t(2));
         // Second triangle's segment should be offset by (10,10).
         bool foundOrigin = false, foundOffset = false;
         for (const auto &s : segs) {
-            if (s.a.x() < 5.0) foundOrigin = true;
-            else               foundOffset = true;
+            if (s.a.x() < 5.0)
+                foundOrigin = true;
+            else
+                foundOffset = true;
         }
         QVERIFY(foundOrigin);
         QVERIFY(foundOffset);
@@ -187,6 +257,11 @@ private slots:
 
     // ---- evenlySpacedLevels helper ---------------------------------------
 
+    /**
+     *
+     * @brief Require four interior levels across [0,10] to be exactly 2,4,6,8.
+     *
+     */
     void evenlySpacedLevels_basic()
     {
         auto lv = evenlySpacedLevels(0.0, 10.0, 4);
@@ -198,12 +273,22 @@ private slots:
         QCOMPARE(lv[3], 8.0);
     }
 
+    /**
+     *
+     * @brief Require zero and negative interior-level counts to return empty lists.
+     *
+     */
     void evenlySpacedLevels_zeroCount_empty()
     {
         QCOMPARE(evenlySpacedLevels(0.0, 10.0, 0).size(), size_t(0));
         QCOMPARE(evenlySpacedLevels(0.0, 10.0, -3).size(), size_t(0));
     }
 
+    /**
+     *
+     * @brief Require equal/reversed interior-level bounds to return empty lists.
+     *
+     */
     void evenlySpacedLevels_degenerateRange_empty()
     {
         QCOMPARE(evenlySpacedLevels(5.0, 5.0, 4).size(), size_t(0));
@@ -212,16 +297,27 @@ private slots:
 
     // ---- evenlySpacedLevelsInclusive helper ------------------------------
 
+    /**
+     *
+     * @brief Require five inclusive levels across [0,10] with exact endpoints and midpoint.
+     *
+     */
     void evenlySpacedLevelsInclusive_basic()
     {
         // 5 levels across [0, 10] → step 2.5, endpoints kept.
         const auto lv = evenlySpacedLevelsInclusive(0.0, 10.0, 5);
         QCOMPARE(lv.size(), size_t(5));
         QCOMPARE(lv.front(), 0.0);
-        QCOMPARE(lv.back(),  10.0);
-        QCOMPARE(lv[2],      5.0);
+        QCOMPARE(lv.back(), 10.0);
+        QCOMPARE(lv[2], 5.0);
     }
 
+    /**
+     *
+     * @brief Require the final inclusive level to equal the requested 0.2 endpoint exactly
+     * despite step rounding.
+     *
+     */
     void evenlySpacedLevelsInclusive_endpointGuard()
     {
         // The last entry is hard-set to vMax so floating-point drift across
@@ -230,156 +326,204 @@ private slots:
         QCOMPARE(lv.back(), 0.2);
     }
 
+    /**
+     *
+     * @brief Require a one-level request or equal bounds to produce no inclusive intervals.
+     *
+     */
     void evenlySpacedLevelsInclusive_degenerate_empty()
     {
         QCOMPARE(evenlySpacedLevelsInclusive(0.0, 10.0, 1).size(), size_t(0));
-        QCOMPARE(evenlySpacedLevelsInclusive(5.0, 5.0, 4).size(),  size_t(0));
+        QCOMPARE(evenlySpacedLevelsInclusive(5.0, 5.0, 4).size(), size_t(0));
     }
 
     // ---- marchingTrianglesIsobands ---------------------------------------
 
+    /**
+     *
+     * @brief Require a containing band to emit one three-vertex polygon with exact band metadata.
+     *
+     */
     void isobands_singleBand_coversFullTriangle()
     {
         // Triangle entirely inside band [-1, 2] → polygon = triangle.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.5 }
-        };
-        const auto bands = marchingTrianglesIsobands(
-            tris, std::vector<double>{-1.0, 2.0}, extract);
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 0.5}};
+        const auto bands = marchingTrianglesIsobands(tris, std::vector<double>{-1.0, 2.0}, extract);
         QCOMPARE(bands.size(), size_t(1));
         QCOMPARE(bands[0].verts.size(), size_t(3));
         QCOMPARE(bands[0].bandIndex, 0);
         QCOMPARE(bands[0].bandLo, -1.0);
-        QCOMPARE(bands[0].bandHi,  2.0);
+        QCOMPARE(bands[0].bandHi, 2.0);
     }
 
+    /**
+     *
+     * @brief Require an entirely above-range sloping triangle to retain its full half-unit area
+     * in the maximum band.
+     *
+     */
     void isobands_singleBand_aboveRange_saturates()
     {
         // A sloping triangle above the range uses the maximum band.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 5.0, 6.0, 7.0 }
-        };
-        const auto bands = marchingTrianglesIsobands(
-            tris, std::vector<double>{0.0, 1.0}, extract);
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 5.0, 6.0, 7.0}};
+        const auto bands = marchingTrianglesIsobands(tris, std::vector<double>{0.0, 1.0}, extract);
         QCOMPARE(bands.size(), size_t(1));
         QVERIFY(nearlyEqual(polyArea(bands[0].verts), 0.5, 1e-9));
     }
 
+    /**
+     *
+     * @brief Require a visibility-clipped triangle to emit one polygon with three to five
+     * vertices.
+     * This checks output shape bounds, not exact clipped area.
+     *
+     */
     void isobands_singleBand_partialCoverage()
     {
         // Triangle vertices at values 0, 1, 0.5. Band [0.25, 0.75] cuts
         // through. Below the explicit visibility cutoff is hidden, while
         // values above the maximum remain in the only band.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.5 }
-        };
-        const auto bands = marchingTrianglesIsobands(
-            tris, std::vector<double>{0.25, 0.75}, extract, 0.25);
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 0.5}};
+        const auto bands =
+            marchingTrianglesIsobands(tris, std::vector<double>{0.25, 0.75}, extract, 0.25);
         QCOMPARE(bands.size(), size_t(1));
         QVERIFY(bands[0].verts.size() >= 3);
         QVERIFY(bands[0].verts.size() <= 5);
     }
 
+    /**
+     *
+     * @brief Require at least two emitted band polygons with at least three vertices each.
+     * Despite the case name, this does not independently assert area conservation.
+     *
+     */
     void isobands_multipleBands_tile()
     {
         // 4 break levels = 3 bands. Triangle with values 0/1/0.5 should
         // contribute polygons to bands 0..2.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.5 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 0.5}};
         const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 4);
         QCOMPARE(lv.size(), size_t(4));
         const auto bands = marchingTrianglesIsobands(tris, lv, extract);
-        QVERIFY(bands.size() >= 2);   // at least 2 bands cross this triangle
+        QVERIFY(bands.size() >= 2); // at least 2 bands cross this triangle
         // Each emitted band should have ≥ 3 vertices.
         for (const auto &bp : bands)
             QVERIFY(bp.verts.size() >= 3);
     }
 
+    /**
+     *
+     * @brief Require a uniform triangle to fill one containing band with its full half-unit area.
+     *
+     */
     void isobands_uniformTriangle_fullFill()
     {
         // A uniform-value triangle (flat field, e.g. ponded water) must be
         // filled ENTIRELY with the band containing that value — NOT skipped.
         // (Skipping was the old gap bug; for filled bands it left a hole.)
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.5, 0.5, 0.5 }
-        };
-        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 4);  // 3 bands
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.5, 0.5, 0.5}};
+        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 4); // 3 bands
         const auto bands = marchingTrianglesIsobands(tris, lv, extract);
         QCOMPARE(bands.size(), size_t(1));
-        QCOMPARE(bands[0].verts.size(), size_t(3));            // full triangle
+        QCOMPARE(bands[0].verts.size(), size_t(3)); // full triangle
         QVERIFY(bands[0].bandLo <= 0.5 && 0.5 <= bands[0].bandHi);
         // Filled area equals the whole triangle (no hole).
         QVERIFY(nearlyEqual(polyArea(bands[0].verts), 0.5, 1e-9));
     }
 
+    /**
+     *
+     * @brief Require uniform values exactly at first/last levels to choose the first/last band
+     * indices.
+     *
+     */
     void isobands_uniformTriangle_clampsToEndBands()
     {
         // Uniform value at/below the first level → band 0; at/above the last
         // level → the last band. levels {0,1,2} → bands 0 and 1.
-        std::vector<Tri> below { { {0,0}, {1,0}, {0,1}, 0.0, 0.0, 0.0 } };
-        std::vector<Tri> above { { {0,0}, {1,0}, {0,1}, 2.0, 2.0, 2.0 } };
+        std::vector<Tri> below{{{0, 0}, {1, 0}, {0, 1}, 0.0, 0.0, 0.0}};
+        std::vector<Tri> above{{{0, 0}, {1, 0}, {0, 1}, 2.0, 2.0, 2.0}};
         const std::vector<double> lv{0.0, 1.0, 2.0};
         const auto b0 = marchingTrianglesIsobands(below, lv, extract);
         const auto b1 = marchingTrianglesIsobands(above, lv, extract);
         QCOMPARE(b0.size(), size_t(1));
         QCOMPARE(b0[0].bandIndex, 0);
         QCOMPARE(b1.size(), size_t(1));
-        QCOMPARE(b1[0].bandIndex, 1);   // last band
+        QCOMPARE(b1[0].bandIndex, 1); // last band
     }
 
+    /**
+     *
+     * @brief Require a uniform triangle below the first color bound to remain absent with default
+     * or explicit visibility cutoff.
+     *
+     */
     void isobands_uniformOutsideRange_canSkip()
     {
         // Depth-result contour bands use the first level as the dry cutoff:
         // a flat cell below it should remain transparent, not clamp into the
         // first visible wet band.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 0.0, 0.0 }
-        };
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 0.0, 0.0}};
         const std::vector<double> lv{0.1, 0.5, 1.0};
         const auto clamped = marchingTrianglesIsobands(tris, lv, extract);
-        const auto clipped = marchingTrianglesIsobands(
-            tris, lv, extract, /*minimumVisibleValue=*/0.1);
+        const auto clipped =
+            marchingTrianglesIsobands(tris, lv, extract, /*minimumVisibleValue=*/0.1);
         QCOMPARE(clamped.size(), size_t(0));
         QCOMPARE(clipped.size(), size_t(0));
     }
 
+    /**
+     *
+     * @brief Pin exact clipped total/upper-band areas without shifting interior thresholds by
+     * clamping vertex values.
+     * Checks color minimum dominating a lower wet cutoff, and complete top-band fill
+     * for a uniform above-range triangle.
+     *
+     */
     void isobands_saturateWithoutMovingInteriorCrossings()
     {
         // Scalar is x: exact area with x>=0.5 is 1.125. Clamping vertex
         // values into [0.25,1] would put that crossing at x=2/3 instead.
-        std::vector<Tri> tris{{{0,0},{2,0},{0,2},0,2,0}};
-        const std::vector<double> levels{0.25,0.5,1.0};
+        std::vector<Tri> tris{{{0, 0}, {2, 0}, {0, 2}, 0, 2, 0}};
+        const std::vector<double> levels{0.25, 0.5, 1.0};
         const auto bands = marchingTrianglesIsobands(tris, levels, extract);
-        double area=0, upper=0;
+        double area = 0, upper = 0;
         for (const auto &b : bands) {
             area += polyArea(b.verts);
-            if (b.bandIndex == 1) upper += polyArea(b.verts);
+            if (b.bandIndex == 1)
+                upper += polyArea(b.verts);
         }
-        QVERIFY(nearlyEqual(area,1.53125,1e-9));
-        QVERIFY(nearlyEqual(upper,1.125,1e-9));
-        const auto wet = marchingTrianglesIsobands(tris,levels,extract,0.1);
-        area=0;
-        for (const auto &b : wet) area+=polyArea(b.verts);
-        QVERIFY(nearlyEqual(area,1.53125,1e-9)); // stricter color minimum
-        tris[0].v0=tris[0].v1=tris[0].v2=3;
-        const auto above = marchingTrianglesIsobands(tris,levels,extract,0.1);
-        QCOMPARE(above.size(),size_t(1));
-        QCOMPARE(above[0].bandIndex,1);
-        QVERIFY(nearlyEqual(polyArea(above[0].verts),2.0,1e-9));
+        QVERIFY(nearlyEqual(area, 1.53125, 1e-9));
+        QVERIFY(nearlyEqual(upper, 1.125, 1e-9));
+        const auto wet = marchingTrianglesIsobands(tris, levels, extract, 0.1);
+        area = 0;
+        for (const auto &b : wet)
+            area += polyArea(b.verts);
+        QVERIFY(nearlyEqual(area, 1.53125, 1e-9)); // stricter color minimum
+        tris[0].v0 = tris[0].v1 = tris[0].v2 = 3;
+        const auto above = marchingTrianglesIsobands(tris, levels, extract, 0.1);
+        QCOMPARE(above.size(), size_t(1));
+        QCOMPARE(above[0].bandIndex, 1);
+        QVERIFY(nearlyEqual(polyArea(above[0].verts), 2.0, 1e-9));
     }
 
+    /**
+     *
+     * @brief Require summed isoband polygon area to equal the three-triangle mixed uniform/graded
+     * fixture within 1e-7.
+     *
+     */
     void isobands_areaConserved_noGaps()
     {
         // Gap-freeness invariant: across a fan mixing uniform and graded
         // triangles whose value range lies inside the level span, the summed
         // area of all emitted band polygons equals the total triangle area.
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.20, 0.80, 0.50 },  // graded, multi-band
-            { {1,0}, {1,1}, {0,1}, 0.40, 0.40, 0.40 },  // uniform (was a hole)
-            { {1,1}, {2,1}, {1,2}, 0.95, 0.95, 0.95 },  // uniform, top band
+        std::vector<Tri> tris{
+            {{0, 0}, {1, 0}, {0, 1}, 0.20, 0.80, 0.50}, // graded, multi-band
+            {{1, 0}, {1, 1}, {0, 1}, 0.40, 0.40, 0.40}, // uniform (was a hole)
+            {{1, 1}, {2, 1}, {1, 2}, 0.95, 0.95, 0.95}, // uniform, top band
         };
-        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 5);  // 4 bands
+        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 5); // 4 bands
         const auto bands = marchingTrianglesIsobands(tris, lv, extract);
 
         double total = 0.0;
@@ -390,28 +534,33 @@ private slots:
             filled += polyArea(bp.verts);
 
         QVERIFY2(nearlyEqual(filled, total, 1e-7),
-                 qPrintable(QStringLiteral("filled=%1 total=%2")
-                                .arg(filled).arg(total)));
+                 qPrintable(QStringLiteral("filled=%1 total=%2").arg(filled).arg(total)));
     }
 
+    /**
+     *
+     * @brief Require fewer than two break levels to define no band polygons.
+     *
+     */
     void isobands_singleLevel_empty()
     {
         // <2 levels → no bands defined → empty
-        std::vector<Tri> tris {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.5 }
-        };
-        const auto bands = marchingTrianglesIsobands(
-            tris, std::vector<double>{0.5}, extract);
+        std::vector<Tri> tris{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 0.5}};
+        const auto bands = marchingTrianglesIsobands(tris, std::vector<double>{0.5}, extract);
         QCOMPARE(bands.size(), size_t(0));
     }
 
+    /**
+     *
+     * @brief Require every emitted band index to identify its corresponding adjacent level pair.
+     * The loop does not separately assert a nonempty polygon result.
+     *
+     */
     void isobands_bandIndexAssigned()
     {
         // Confirm the bandIndex matches the level-pair offset.
-        std::vector<Tri> tris {
-            { {0,0}, {10,0}, {0,10}, 0.0, 10.0, 5.0 }
-        };
-        std::vector<double> levels{0.0, 3.0, 6.0, 10.0};   // 3 bands
+        std::vector<Tri> tris{{{0, 0}, {10, 0}, {0, 10}, 0.0, 10.0, 5.0}};
+        std::vector<double> levels{0.0, 3.0, 6.0, 10.0}; // 3 bands
         const auto bands = marchingTrianglesIsobands(tris, levels, extract);
         // Each emitted band should report its index correctly.
         for (const auto &bp : bands) {
@@ -429,35 +578,43 @@ private slots:
     // value) fills the whole quad, and (2) a field linear on the quad yields
     // isolines that meet on the shared diagonal without a break.
 
+    /**
+     *
+     * @brief Require two uniform quad-fan triangles to fill total unit area in the same band and
+     * emit no diagonal isoline.
+     *
+     */
     void quadFan_uniformCellValue_fillsWholeQuad()
     {
         // Unit square split on the 1–3 diagonal; both halves read the quad's
         // value 0.5.
-        std::vector<Tri> fan {
-            { {0,0}, {1,0}, {0,1}, 0.5, 0.5, 0.5 },
-            { {1,0}, {1,1}, {0,1}, 0.5, 0.5, 0.5 }
-        };
-        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 4);   // 3 bands
+        std::vector<Tri> fan{{{0, 0}, {1, 0}, {0, 1}, 0.5, 0.5, 0.5},
+                             {{1, 0}, {1, 1}, {0, 1}, 0.5, 0.5, 0.5}};
+        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 4); // 3 bands
         const auto bands = marchingTrianglesIsobands(fan, lv, extract);
         QCOMPARE(bands.size(), size_t(2));
         double area = 0.0;
         for (const auto &bp : bands) {
-            QCOMPARE(bp.bandIndex, bands[0].bandIndex);   // same band both halves
+            QCOMPARE(bp.bandIndex, bands[0].bandIndex); // same band both halves
             area += polyArea(bp.verts);
         }
-        QVERIFY(nearlyEqual(area, 1.0, 1e-9));           // the full quad
+        QVERIFY(nearlyEqual(area, 1.0, 1e-9)); // the full quad
         // No contour crosses a uniform cell — the diagonal is not an edge.
         QVERIFY(marchingTriangles(fan, std::vector<double>{0.5}, extract).empty());
     }
 
+    /**
+     *
+     * @brief Require two linear-field contour segments to stay on x=0.5 and share the diagonal
+     * endpoint twice.
+     *
+     */
     void quadFan_linearField_isolinesContinuousAcrossDiagonal()
     {
         // v(x,y) = x on the unit square: the 0.5 isoline is the vertical
         // x = 0.5, crossing the 1–3 diagonal (from (1,0) to (0,1)) at (0.5,0.5).
-        std::vector<Tri> fan {
-            { {0,0}, {1,0}, {0,1}, 0.0, 1.0, 0.0 },
-            { {1,0}, {1,1}, {0,1}, 1.0, 1.0, 0.0 }
-        };
+        std::vector<Tri> fan{{{0, 0}, {1, 0}, {0, 1}, 0.0, 1.0, 0.0},
+                             {{1, 0}, {1, 1}, {0, 1}, 1.0, 1.0, 0.0}};
         const auto segs = marchingTriangles(fan, std::vector<double>{0.5}, extract);
         QCOMPARE(segs.size(), size_t(2));
         // Every endpoint lies on x = 0.5, and the two segments share the
@@ -467,7 +624,8 @@ private slots:
             QVERIFY(nearlyEqual(s.a.x(), 0.5));
             QVERIFY(nearlyEqual(s.b.x(), 0.5));
             for (const QPointF &p : {s.a, s.b})
-                if (nearlyEqual(p, QPointF(0.5, 0.5))) ++onDiagonal;
+                if (nearlyEqual(p, QPointF(0.5, 0.5)))
+                    ++onDiagonal;
         }
         QCOMPARE(onDiagonal, 2);
     }

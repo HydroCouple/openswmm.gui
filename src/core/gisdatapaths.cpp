@@ -1,8 +1,10 @@
-/*!
- * \file   gisdatapaths.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      gisdatapaths.cpp
+ * @brief     Portable GDAL/PROJ data-directory resolution.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "core/gisdatapaths.h"
@@ -25,6 +27,12 @@ namespace
 // in-process CPL config store. Env covers child processes and code paths that
 // read getenv() directly; CPLSetConfigOption covers the case where gdal's
 // shared library was already loaded before the env var was set.
+/**
+ * @brief Publish one bundled data path to both environment and CPL configuration.
+ * @param[in] key Non-null environment/configuration key such as GDAL_DATA.
+ * @param[in] path Resolved directory converted to native separators and local bytes.
+ * @details Mutates process-wide state; configure before starting GIS workers.
+ */
 void publishDataPath(const char *key, const QString &path)
 {
     const QByteArray native = QDir::toNativeSeparators(path).toLocal8Bit();
@@ -32,8 +40,13 @@ void publishDataPath(const char *key, const QString &path)
     CPLSetConfigOption(key, native.constData());
 }
 
-bool dirHasAnyMarker(const QString &dir,
-                     std::initializer_list<const char *> markers)
+/**
+ * @brief Identify a plausible GIS share directory using known marker files.
+ * @param[in] dir Candidate directory.
+ * @param[in] markers Non-null relative marker filenames.
+ * @return True if any candidate marker exists below the directory.
+ */
+bool dirHasAnyMarker(const QString &dir, std::initializer_list<const char *> markers)
 {
     for (const char *marker : markers) {
         if (QFileInfo::exists(QDir(dir).filePath(QString::fromLatin1(marker))))
@@ -50,6 +63,10 @@ bool dirHasAnyMarker(const QString &dir,
 //
 // On macOS we additionally check Contents/Resources/, which is where the
 // POST_BUILD step places the data for a proper .app bundle layout.
+/**
+ * @brief Enumerate application-layout roots in precedence order.
+ * @return Executable directory, followed on macOS by the normalized Resources directory.
+ */
 QStringList gisSearchRoots()
 {
     const QString base = QCoreApplication::applicationDirPath();
@@ -72,7 +89,7 @@ void setupBundledGisDataPaths()
 
     for (const QString &root : roots) {
         const QString gdalDir = QDir(root).filePath(QStringLiteral("gdal"));
-        if (dirHasAnyMarker(gdalDir, { "gml_registry.xml", "gdalvrt.xsd" })) {
+        if (dirHasAnyMarker(gdalDir, {"gml_registry.xml", "gdalvrt.xsd"})) {
             publishDataPath("GDAL_DATA", gdalDir);
             break;
         }

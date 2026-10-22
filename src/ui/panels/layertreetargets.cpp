@@ -1,21 +1,31 @@
-/*!
- * \file   layertreetargets.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      layertreetargets.cpp
+ * @brief     What the layer tree's right-click "Open Attribute Table" and "Export…" entries act on
+ *            (workplans/FEATURE_LAYER_ROLES_AND_FIELDS_PLAN_2026-09-30.md §7 Part B, §8 Part C).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/panels/layertreetargets.h"
 
 #include "ui/panels/layertreecategories.h"
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 using T = LayerTypeOrdinal;
 
-/*! The mesh table a mesh sublayer row stands for, or -1 (no table). */
+/*! The mesh table a mesh sublayer row stands for, or -1 (no table).
+ * @param[in] id Exact case-sensitive ISublayer ID, no trimming.
+ * @return Vertices 0 for mesh.vertices,Edges 1 for mesh.edges/mesh.bc,Cells 2 for
+ *   mesh.fill,otherwise -1. Unknown/coupled/contour IDs have no specific table; caller decides
+ *   no-table versus all-export meaning. Pure mapping, no layer access.
+ */
 int meshTableForSublayer(const QString &id)
 {
     if (id == QLatin1String("mesh.vertices"))
@@ -24,15 +34,20 @@ int meshTableForSublayer(const QString &id)
         return static_cast<int>(MeshTable::Edges);
     if (id == QLatin1String("mesh.fill"))
         return static_cast<int>(MeshTable::Cells);
-    return -1;   // mesh.coupledNodes, mesh.contourBands, mesh.isolines
+    return -1; // mesh.coupledNodes, mesh.contourBands, mesh.isolines
 }
 
+/**
+ * @param[in] type Typed serialized layer ordinal.
+ * @return True only SWMMModelLayer or SWMMResultsLayer (1D), false all others. No runtime
+ *   pointer/type validation or mutation.
+ */
 bool isSwmmParent(T type)
 {
     return type == T::SWMMModelLayer || type == T::SWMMResultsLayer;
 }
 
-}   // namespace
+} // namespace
 
 AttributeTableTarget attributeTableTarget(const LayerTreeRow &row)
 {
@@ -85,7 +100,8 @@ AttributeTableTarget attributeTableTarget(const LayerTreeRow &row)
         break;
     }
 
-    if (out.isValid()) out.layer = row.layer;
+    if (out.isValid())
+        out.layer = row.layer;
     return out;
 }
 
@@ -134,7 +150,7 @@ LayerExportTarget layerExportTarget(const LayerTreeRow &row)
     case LayerTreeRow::Kind::Sublayer:
         if (type == T::SWMM2DMeshLayer) {
             out.kind = LayerExportTarget::Kind::Mesh;
-            out.meshTable = meshTableForSublayer(row.sublayerId);   // -1 → all three
+            out.meshTable = meshTableForSublayer(row.sublayerId); // -1 → all three
         } else if (type == T::SWMMResultsLayer && row.category >= 0) {
             out.kind = LayerExportTarget::Kind::SwmmObjects;
             out.category = row.category;
@@ -143,8 +159,9 @@ LayerExportTarget layerExportTarget(const LayerTreeRow &row)
         break;
     }
 
-    if (out.isValid()) out.layer = row.layer;
+    if (out.isValid())
+        out.layer = row.layer;
     return out;
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

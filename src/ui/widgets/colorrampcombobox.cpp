@@ -1,8 +1,10 @@
-/*!
- * \file   colorrampcombobox.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      colorrampcombobox.cpp
+ * @brief     ramps as horizontal gradient swatches in the dropdown.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/widgets/colorrampcombobox.h"
@@ -23,8 +25,8 @@
 namespace
 {
 
-constexpr int RampDataRole = Qt::UserRole + 1;   // RasterColorRamp payload
-constexpr int RampKindRole = Qt::UserRole + 2;   // "builtin" / "custom" / "edit" / "sep"
+constexpr int RampDataRole = Qt::UserRole + 1; // RasterColorRamp payload
+constexpr int RampKindRole = Qt::UserRole + 2; // "builtin" / "custom" / "edit" / "sep"
 
 // Custom delegate that paints each combo row as
 //   ┌─────────────┐
@@ -37,6 +39,12 @@ class RampItemDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    /**
+     * @brief Ensure gradient dropdown rows are at least 22 logical pixels high.
+     * @param[in] opt Base view style options.
+     * @param[in] idx Model row.
+     * @return Base width with height enlarged to at least 22.
+     */
     QSize sizeHint(const QStyleOptionViewItem &opt, const QModelIndex &idx) const override
     {
         QSize s = QStyledItemDelegate::sizeHint(opt, idx);
@@ -44,13 +52,18 @@ public:
         return s;
     }
 
+    /**
+     * @brief Draw separator/edit rows or a sampled gradient swatch beside a ramp label.
+     * @param[in,out] p Required painter; custom drawing saves/restores state.
+     * @param[in] opt Cell rectangle, palette and selection state.
+     * @param[in] idx Row exposing kind and optional RasterColorRamp payload; missing payload delegates to Qt.
+     */
     void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &idx) const override
     {
         const QString kind = idx.data(RampKindRole).toString();
 
         // Separators just render as a thin horizontal line — no swatch / text.
-        if (kind == QStringLiteral("sep"))
-        {
+        if (kind == QStringLiteral("sep")) {
             p->save();
             p->setPen(opt.palette.color(QPalette::Mid));
             const int y = opt.rect.center().y();
@@ -60,8 +73,7 @@ public:
         }
 
         // "Edit Custom Ramp…" sentinel — italic text, no swatch.
-        if (kind == QStringLiteral("edit"))
-        {
+        if (kind == QStringLiteral("edit")) {
             QStyleOptionViewItem o = opt;
             o.font.setItalic(true);
             QStyledItemDelegate::paint(p, o, idx);
@@ -70,8 +82,7 @@ public:
 
         // Ramp item: paint the gradient swatch on the left, label on the right.
         const QVariant payload = idx.data(RampDataRole);
-        if (!payload.canConvert<RasterColorRamp>())
-        {
+        if (!payload.canConvert<RasterColorRamp>()) {
             QStyledItemDelegate::paint(p, opt, idx);
             return;
         }
@@ -79,25 +90,22 @@ public:
         const auto ramp = payload.value<RasterColorRamp>();
 
         p->save();
-        p->fillRect(opt.rect,
-                    (opt.state & QStyle::State_Selected) ? opt.palette.highlight()
-                                                         : opt.palette.base());
+        p->fillRect(opt.rect, (opt.state & QStyle::State_Selected) ? opt.palette.highlight()
+                                                                   : opt.palette.base());
 
         const int pad = 3;
         const int textPad = 6;
         const int swatchW = std::min(opt.rect.width() / 2, 140);
-        QRect swatchRect(opt.rect.left() + pad,
-                         opt.rect.top() + pad,
-                         swatchW,
+        QRect swatchRect(opt.rect.left() + pad, opt.rect.top() + pad, swatchW,
                          opt.rect.height() - 2 * pad);
 
         // Sample the ramp every couple of pixels — handles HSV interpolation
         // implicitly (the ramp's colorAt does the work).
-        for (int x = swatchRect.left(); x < swatchRect.right(); ++x)
-        {
+        for (int x = swatchRect.left(); x < swatchRect.right(); ++x) {
             const double t = (swatchRect.width() > 1)
-                ? static_cast<double>(x - swatchRect.left()) / static_cast<double>(swatchRect.width() - 1)
-                : 0.0;
+                                 ? static_cast<double>(x - swatchRect.left()) /
+                                       static_cast<double>(swatchRect.width() - 1)
+                                 : 0.0;
             p->setPen(ramp.colorAt(t));
             p->drawLine(x, swatchRect.top(), x, swatchRect.bottom());
         }
@@ -107,24 +115,24 @@ public:
         QRect textRect = opt.rect;
         textRect.setLeft(swatchRect.right() + textPad);
         p->setPen(((opt.state & QStyle::State_Selected) ? opt.palette.highlightedText()
-                                                        : opt.palette.text()).color());
-        p->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, idx.data(Qt::DisplayRole).toString());
+                                                        : opt.palette.text())
+                      .color());
+        p->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+                    idx.data(Qt::DisplayRole).toString());
         p->restore();
     }
 };
 
 } // namespace
 
-ColorRampComboBox::ColorRampComboBox(QWidget *parent)
-    : QComboBox(parent)
+ColorRampComboBox::ColorRampComboBox(QWidget *parent) : QComboBox(parent)
 {
     setItemDelegate(new RampItemDelegate(this));
     setSizeAdjustPolicy(QComboBox::AdjustToContents);
     view()->setMinimumWidth(280);
     rebuildItems();
 
-    connect(this, QOverload<int>::of(&QComboBox::activated),
-            this, &ColorRampComboBox::onActivated);
+    connect(this, QOverload<int>::of(&QComboBox::activated), this, &ColorRampComboBox::onActivated);
 }
 
 ColorRampComboBox::~ColorRampComboBox() = default;
@@ -142,8 +150,7 @@ void ColorRampComboBox::rebuildItems()
 void ColorRampComboBox::appendBuiltins()
 {
     const QStringList names = RasterColorRamp::builtinNames();
-    for (const QString &name : names)
-    {
+    for (const QString &name : names) {
         addItem(name);
         const int row = count() - 1;
         setItemData(row, QVariant::fromValue(RasterColorRamp::builtin(name)), RampDataRole);
@@ -165,8 +172,7 @@ void ColorRampComboBox::appendCustoms()
     if (model && model->item(row))
         model->item(row)->setFlags(Qt::NoItemFlags);
 
-    for (auto it = customs.constBegin(); it != customs.constEnd(); ++it)
-    {
+    for (auto it = customs.constBegin(); it != customs.constEnd(); ++it) {
         addItem(it.key());
         row = count() - 1;
         setItemData(row, QVariant::fromValue(it.value()), RampDataRole);
@@ -199,16 +205,13 @@ RasterColorRamp ColorRampComboBox::currentRamp() const
 
 bool ColorRampComboBox::currentIsCustom() const
 {
-    return itemData(currentIndex(), RampKindRole).toString()
-           == QStringLiteral("custom");
+    return itemData(currentIndex(), RampKindRole).toString() == QStringLiteral("custom");
 }
 
 void ColorRampComboBox::setCurrentRampByName(const QString &name)
 {
-    for (int i = 0; i < count(); ++i)
-    {
-        if (itemText(i).compare(name, Qt::CaseInsensitive) == 0)
-        {
+    for (int i = 0; i < count(); ++i) {
+        if (itemText(i).compare(name, Qt::CaseInsensitive) == 0) {
             setCurrentIndex(i);
             m_lastRampRow = i;
             return;
@@ -218,10 +221,8 @@ void ColorRampComboBox::setCurrentRampByName(const QString &name)
 
 void ColorRampComboBox::ensureRampSelected(const QString &name, const RasterColorRamp &ramp)
 {
-    for (int i = 0; i < count(); ++i)
-    {
-        if (itemText(i).compare(name, Qt::CaseInsensitive) == 0)
-        {
+    for (int i = 0; i < count(); ++i) {
+        if (itemText(i).compare(name, Qt::CaseInsensitive) == 0) {
             setCurrentIndex(i);
             m_lastRampRow = i;
             return;
@@ -231,12 +232,9 @@ void ColorRampComboBox::ensureRampSelected(const QString &name, const RasterColo
     // just before the trailing separator + "Edit Custom Ramp…" sentinel so
     // the selection and swatch reflect the scheme's embedded payload.
     int row = count();
-    for (int i = 0; i < count(); ++i)
-    {
-        if (itemData(i, RampKindRole).toString() == QStringLiteral("sep")
-            && i + 1 < count()
-            && itemData(i + 1, RampKindRole).toString() == QStringLiteral("edit"))
-        {
+    for (int i = 0; i < count(); ++i) {
+        if (itemData(i, RampKindRole).toString() == QStringLiteral("sep") && i + 1 < count() &&
+            itemData(i + 1, RampKindRole).toString() == QStringLiteral("edit")) {
             row = i;
             break;
         }
@@ -250,11 +248,11 @@ void ColorRampComboBox::ensureRampSelected(const QString &name, const RasterColo
 
 void ColorRampComboBox::onActivated(int index)
 {
-    if (index < 0) return;
+    if (index < 0)
+        return;
     const QString kind = itemData(index, RampKindRole).toString();
 
-    if (kind == QStringLiteral("edit"))
-    {
+    if (kind == QStringLiteral("edit")) {
         openEditor();
         return;
     }
@@ -281,8 +279,8 @@ void ColorRampComboBox::paintEvent(QPaintEvent *)
     sp.drawComplexControl(QStyle::CC_ComboBox, opt);
 
     // Field rect (the inner area excluding the arrow button).
-    const QRect field = style()->subControlRect(QStyle::CC_ComboBox, &opt,
-                                                 QStyle::SC_ComboBoxEditField, this);
+    const QRect field =
+        style()->subControlRect(QStyle::CC_ComboBox, &opt, QStyle::SC_ComboBoxEditField, this);
     if (!field.isValid()) {
         sp.drawControl(QStyle::CE_ComboBoxLabel, opt);
         return;
@@ -300,14 +298,11 @@ void ColorRampComboBox::paintEvent(QPaintEvent *)
             const auto ramp = payload.value<RasterColorRamp>();
             const int pad = 2;
             const int swatchW = std::min(field.width() / 2, 120);
-            QRect swatch(field.left() + pad,
-                         field.top() + pad,
-                         swatchW,
-                         field.height() - 2 * pad);
+            QRect swatch(field.left() + pad, field.top() + pad, swatchW, field.height() - 2 * pad);
             for (int x = swatch.left(); x < swatch.right(); ++x) {
                 const double t = (swatch.width() > 1)
-                    ? double(x - swatch.left()) / double(swatch.width() - 1)
-                    : 0.0;
+                                     ? double(x - swatch.left()) / double(swatch.width() - 1)
+                                     : 0.0;
                 p.setPen(ramp.colorAt(t));
                 p.drawLine(x, swatch.top(), x, swatch.bottom());
             }
@@ -317,16 +312,14 @@ void ColorRampComboBox::paintEvent(QPaintEvent *)
             QRect textRect = field;
             textRect.setLeft(swatch.right() + 6);
             p.setPen(palette().color(QPalette::Text));
-            p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
-                       currentText());
+            p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, currentText());
             return;
         }
     }
 
     // Sentinel / separator / unknown — fall back to the default label.
     p.setPen(palette().color(QPalette::Text));
-    p.drawText(field.adjusted(4, 0, -4, 0),
-               Qt::AlignVCenter | Qt::AlignLeft, currentText());
+    p.drawText(field.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, currentText());
 }
 
 void ColorRampComboBox::openEditor()
@@ -336,21 +329,17 @@ void ColorRampComboBox::openEditor()
     // seeded every edit session from Grayscale).
     RasterColorRamp seed = RasterColorRamp::viridis();
     QString seedName;
-    if (m_lastRampRow >= 0 && m_lastRampRow < count())
-    {
+    if (m_lastRampRow >= 0 && m_lastRampRow < count()) {
         const QVariant payload = itemData(m_lastRampRow, RampDataRole);
-        if (payload.canConvert<RasterColorRamp>())
-        {
+        if (payload.canConvert<RasterColorRamp>()) {
             seed = payload.value<RasterColorRamp>();
-            if (itemData(m_lastRampRow, RampKindRole).toString()
-                == QStringLiteral("custom"))
+            if (itemData(m_lastRampRow, RampKindRole).toString() == QStringLiteral("custom"))
                 seedName = itemText(m_lastRampRow);
         }
     }
     openswmmvis::ui::ColorRampEditorDialog dlg(seed, this);
     dlg.setRampName(seedName);
-    if (dlg.exec() != QDialog::Accepted || dlg.rampName().isEmpty())
-    {
+    if (dlg.exec() != QDialog::Accepted || dlg.rampName().isEmpty()) {
         // User cancelled — restore the pre-edit selection (previously this
         // reset to row 0 = Grayscale without even emitting rampChanged,
         // desynchronising the combo from the style it edits).

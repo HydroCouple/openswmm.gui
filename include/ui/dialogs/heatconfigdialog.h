@@ -1,12 +1,12 @@
-/*!
- * \file heatconfigdialog.h
- * \brief Editor for the heat-transport configuration — `[HEAT_SOURCES]`
+/**
+ * @file      heatconfigdialog.h
+ * @brief     Editor for the heat-transport configuration — `[HEAT_SOURCES]`
  *        inlet temperatures, `[HEAT_FLUXES]` module toggles, and H6a's
  *        `[RADIATIVE_FLUXES]` / `[SOLAR_RADIATION]` / `[CLOUD_COVER]`
  *        (GUI plan G4g, against the corrected spec — there is no
  *        `[HEAT_METEOROLOGY]` section).
  *
- * \details Heat enters the model at seven water sources, each with a
+ * @details Heat enters the model at seven water sources, each with a
  *          GLOBAL inlet temperature in °C and — for DWF and external
  *          inflow — per-NODE overrides (the engine parser's H1 scope
  *          rule, which `swmm_heat_set_node_override` refuses to break).
@@ -25,9 +25,9 @@
  *          test can construct it against a synthetic BUILDING engine and
  *          drive the widgets (the WaterAgeSourcesDialog precedent).
  *
- * \author  Caleb Buahin <caleb.buahin@gmail.com>
- * \copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
- * \license Apache-2.0
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   Apache-2.0
  */
 
 #ifndef OPENSWMM_UI_DIALOGS_HEATCONFIGDIALOG_H
@@ -61,11 +61,11 @@ class HeatConfigDialog : public QDialog
 public:
     /*! Tab indices, in build order. */
     enum Tab {
-        TabSources   = 0,
-        TabFluxes    = 1,
+        TabSources = 0,
+        TabFluxes = 1,
         TabRadiative = 2,
-        TabSolar     = 3,
-        TabCloud     = 4,
+        TabSolar = 3,
+        TabCloud = 4,
         TabBed = 5,
         TabSpatial = 6
     };
@@ -108,14 +108,14 @@ private:
     bool reportFailure(QWidget *field, const QString &message);
     bool checked(int status, QWidget *field, const QString &action);
     void refreshOverrideAccessibility();
-    int  writeToEngine();
-    int  writeSolar();
-    int  writeRadiative();
-    int  writeSources();
-    int  writeModules();
-    int  writeCloud();
-    int  writeBed();
-    int  writeElements();
+    int writeToEngine();
+    int writeSolar();
+    int writeRadiative();
+    int writeSources();
+    int writeModules();
+    int writeCloud();
+    int writeBed();
+    int writeElements();
     void addElementOverride();
     void previewElements();
     void previewChannelGroundContacts();
@@ -128,15 +128,15 @@ private:
 
     SWMM_Engine m_engine = nullptr;
     bool m_wroteAnyChanges = false;
-    int  m_lastWriteCount = 0;
+    int m_lastWriteCount = 0;
     bool m_writeFailed = false;
     QLabel *m_validationError = nullptr;
     QTabWidget *m_tabs = nullptr;
     bool m_twoDTransportNavigationEnabled = false;
 
     // Sources tab
-    QTableWidget *m_sourceTable = nullptr;    ///< 7 rows: check + °C spin
-    QTableWidget *m_overrideTable = nullptr;  ///< source / node / °C
+    QTableWidget *m_sourceTable = nullptr;   ///< 7 rows: check + °C spin
+    QTableWidget *m_overrideTable = nullptr; ///< source / node / °C
 
     // Fluxes tab
     QCheckBox *m_modules[4] = {};
@@ -171,14 +171,14 @@ private:
     QString m_swTsInitial;
     QString m_cloudTsInitial;
     QCheckBox *m_landcoverConfigured = nullptr;
-    QDoubleSpinBox *m_radSpin[9] = {};        ///< index = param enum; [0] unused
+    QDoubleSpinBox *m_radSpin[9] = {}; ///< index = param enum; [0] unused
 
     // Solar tab
-    QDoubleSpinBox *m_solarSpin[9] = {};      ///< index = param enum
+    QDoubleSpinBox *m_solarSpin[9] = {}; ///< index = param enum
 
     // Cloud tab
     QCheckBox *m_cloudEnable = nullptr;
-    QDoubleSpinBox *m_cloudSpin[4] = {};      ///< index = param enum
+    QDoubleSpinBox *m_cloudSpin[4] = {}; ///< index = param enum
     QComboBox *m_cloudTsCombo = nullptr;
 };
 

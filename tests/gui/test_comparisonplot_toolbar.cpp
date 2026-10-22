@@ -1,8 +1,9 @@
-/*!
- * \file   test_comparisonplot_toolbar.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_comparisonplot_toolbar.cpp
+ * @brief     Tests for comparisonplot toolbar.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AT.2 — pins the public API of `InteractiveChartView`: mode
  * round-trip, modeChanged emission, resetZoom restoring axis ranges
@@ -13,7 +14,9 @@
  * the AT.2 verification plan — synthetic-event drag is brittle on
  * offscreen QPA and Qt Charts' coordinate-mapping (mapFromScene /
  * mapToScene) returns null rects without a real top-level window.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/interactivechartview.h"
 
 #include <QChart>
@@ -60,8 +63,10 @@ QChart *TestComparisonPlotToolbar::makeChart()
     series->append(1.0, 20.0);
     series->append(2.0, 30.0);
     chart->addSeries(series);
-    auto *xAxis = new QValueAxis;  xAxis->setRange(0.0, 2.0);
-    auto *yAxis = new QValueAxis;  yAxis->setRange(0.0, 30.0);
+    auto *xAxis = new QValueAxis;
+    xAxis->setRange(0.0, 2.0);
+    auto *yAxis = new QValueAxis;
+    yAxis->setRange(0.0, 30.0);
     chart->addAxis(xAxis, Qt::AlignBottom);
     chart->addAxis(yAxis, Qt::AlignLeft);
     series->attachAxis(xAxis);
@@ -81,8 +86,10 @@ QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &en
     chart->addSeries(series);
     // The production time axis (issue #11) — a QValueAxis by inheritance, so
     // this also pins that the edge editor treats it as a date axis.
-    auto *xAxis = new openswmmvis::plot::UtcTimeAxis; xAxis->setRange(start, end);
-    auto *yAxis = new QValueAxis;    yAxis->setRange(0.0, 30.0);
+    auto *xAxis = new openswmmvis::plot::UtcTimeAxis;
+    xAxis->setRange(start, end);
+    auto *yAxis = new QValueAxis;
+    yAxis->setRange(0.0, 30.0);
     chart->addAxis(xAxis, Qt::AlignBottom);
     chart->addAxis(yAxis, Qt::AlignLeft);
     series->attachAxis(xAxis);
@@ -117,7 +124,7 @@ void TestComparisonPlotToolbar::modeChangeIsIdempotent()
     InteractiveChartView view(makeChart());
     QSignalSpy spy(&view, &InteractiveChartView::modeChanged);
     view.setMode(Mode::Pan);
-    view.setMode(Mode::Pan);   // re-set to same mode — no signal
+    view.setMode(Mode::Pan); // re-set to same mode — no signal
     view.setMode(Mode::Pan);
     QCOMPARE(spy.count(), 1);
 }
@@ -131,8 +138,7 @@ void TestComparisonPlotToolbar::rightClickEmitsContextMenuRequest()
 
     // Synthetic right-button press at viewport center.
     const QPoint pt = view.viewport()->rect().center();
-    QMouseEvent press(QEvent::MouseButtonPress,
-                      QPointF(pt), view.viewport()->mapToGlobal(pt),
+    QMouseEvent press(QEvent::MouseButtonPress, QPointF(pt), view.viewport()->mapToGlobal(pt),
                       Qt::RightButton, Qt::RightButton, Qt::NoModifier);
     QCoreApplication::sendEvent(view.viewport(), &press);
 
@@ -205,17 +211,13 @@ void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
         return view.mapFromScene(chart->mapToScene(chartPoint));
     };
 
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(0, 12)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(0, 12)),
              InteractiveChartView::AxisEdge::XMinimum);
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.right(), plot.bottom())) + QPoint(0, 12)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.right(), plot.bottom())) + QPoint(0, 12)),
              InteractiveChartView::AxisEdge::XMaximum);
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(-12, -10)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(-12, -10)),
              InteractiveChartView::AxisEdge::YMinimum);
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.left(), plot.top())) + QPoint(-12, 10)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.left(), plot.top())) + QPoint(-12, 10)),
              InteractiveChartView::AxisEdge::YMaximum);
 
     auto *xAxis = qobject_cast<QValueAxis *>(chart->axes(Qt::Horizontal).first());
@@ -243,7 +245,8 @@ void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
     auto *chart = makeDateChart(start, end);
     InteractiveChartView view(chart);
 
-    auto *xAxis = qobject_cast<openswmmvis::plot::UtcTimeAxis *>(chart->axes(Qt::Horizontal).first());
+    auto *xAxis =
+        qobject_cast<openswmmvis::plot::UtcTimeAxis *>(chart->axes(Qt::Horizontal).first());
     QVERIFY(xAxis);
 
     const QDateTime nextStart = start.addSecs(3600);

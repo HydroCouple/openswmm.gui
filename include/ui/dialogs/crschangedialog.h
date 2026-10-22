@@ -1,13 +1,17 @@
-/*!
- * \file   crschangedialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      crschangedialog.h
+ * @brief     modal that asks the user how to apply a CRS change to a model with already-loaded
+ *            geometry: reproject the stored coordinates, just re-render in the new CRS, or cancel.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Phase 0.7 — modal that asks the user how to apply a CRS change to a model
  * with already-loaded geometry: reproject the stored coordinates, just
  * re-render in the new CRS, or cancel.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef CRSCHANGEDIALOG_H
 #define CRSCHANGEDIALOG_H
 
@@ -31,10 +35,10 @@ class CRSChangeDialog : public QDialog
 
 public:
     enum Choice {
-        Cancel     = 0,
-        Reproject  = 1,  ///< Permanently rewrite stored coordinates via OGR transform.
-        RenderOnly = 2,  ///< Keep stored coordinates; only the canvas display CRS changes.
-        Assign     = 3,  ///< Declare the CRS of existing coordinates without transforming them.
+        Cancel = 0,
+        Reproject = 1,  ///< Permanently rewrite stored coordinates via OGR transform.
+        RenderOnly = 2, ///< Keep stored coordinates; only the canvas display CRS changes.
+        Assign = 3,     ///< Declare the CRS of existing coordinates without transforming them.
     };
 
     /*!
@@ -43,10 +47,8 @@ public:
      * \param sourceIsLocal If true, only assignment is available; a transform
      *                      requires a known source CRS.
      */
-    explicit CRSChangeDialog(const QString &oldAuth,
-                             const QString &newAuth,
-                             bool sourceIsLocal = false,
-                             QWidget *parent = nullptr);
+    explicit CRSChangeDialog(const QString &oldAuth, const QString &newAuth,
+                             bool sourceIsLocal = false, QWidget *parent = nullptr);
 
     Choice choice() const { return m_choice; }
 
@@ -54,11 +56,11 @@ private slots:
     void onAccept();
 
 private:
-    Choice            m_choice          = Cancel;
-    QRadioButton     *m_radioReproject  = nullptr;
-    QRadioButton     *m_radioRenderOnly = nullptr;
-    QRadioButton     *m_radioAssign     = nullptr;
-    QDialogButtonBox *m_buttonBox       = nullptr;
+    Choice m_choice = Cancel;
+    QRadioButton *m_radioReproject = nullptr;
+    QRadioButton *m_radioRenderOnly = nullptr;
+    QRadioButton *m_radioAssign = nullptr;
+    QDialogButtonBox *m_buttonBox = nullptr;
 };
 
 #endif // CRSCHANGEDIALOG_H

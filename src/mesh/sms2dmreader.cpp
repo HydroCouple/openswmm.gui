@@ -1,9 +1,13 @@
-/*!
- * \file   sms2dmreader.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      sms2dmreader.cpp
+ * @brief     Phase G5 of workplans/TRI_QUAD_MESHING_PLAN_2026-09-06.md — a minimal reader for the
+ *            SMS 2DM mesh format (Aquaveo).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/sms2dmreader.h"
 #include "mesh/meshcellgeom.h"
 
@@ -12,11 +16,22 @@
 #include <QHash>
 #include <QStringList>
 
-namespace mesh {
+namespace mesh
+{
 
-namespace {
+namespace
+{
 
-/*! Whitespace-split; empty for blank lines. 2DM has no inline comments. */
+/**
+ * @brief Split one SMS record on simplified whitespace without interpreting comments or quoting.
+ * @param[in] raw Borrowed line, unchanged; tabs/other QString whitespace collapse to single
+ * spaces.
+ * @return Owned token list, empty for blank/whitespace-only input. Card case/content is
+ * preserved; inline comment characters remain ordinary tokens. Allocates text/list storage,
+ * retains no source reference and performs no numeric, geometry or file validation.
+ *
+ * @details Whitespace-split; empty for blank lines. 2DM has no inline comments.
+ */
 QStringList tokenize(const QString &raw)
 {
     return raw.simplified().split(QChar(' '), Qt::SkipEmptyParts);
@@ -48,14 +63,19 @@ MeshResult Sms2dmReader::parse(const QString &text, bool splitQuads)
     // them to vertex indices. Elements are resolved after every ND card has
     // been seen — SMS writes elements BEFORE nodes.
     QHash<int, int> nodeIndex;
-    struct Elem { int line; int n[4]; int nv; QString tag; };
+    struct Elem {
+        int line;
+        int n[4];
+        int nv;
+        QString tag;
+    };
     QVector<Elem> tris, quads;
 
     const QStringList lines = text.split(QChar('\n'));
-    for (int i = 0; i < lines.size(); ++i)
-    {
+    for (int i = 0; i < lines.size(); ++i) {
         const QStringList tok = tokenize(lines[i]);
-        if (tok.isEmpty()) continue;
+        if (tok.isEmpty())
+            continue;
         const QString &card = tok[0];
         const int lineNo = i + 1;
 
@@ -66,7 +86,7 @@ MeshResult Sms2dmReader::parse(const QString &text, bool splitQuads)
             const int id = tok[1].toInt(&oki);
             MeshVertex v;
             v.xy = QPointF(tok[2].toDouble(&okx), tok[3].toDouble(&oky));
-            v.z  = tok[4].toDouble(&okz);
+            v.z = tok[4].toDouble(&okz);
             if (!oki || !okx || !oky || !okz)
                 return fail(lineNo, QStringLiteral("ND non-numeric value"));
             if (nodeIndex.contains(id))
@@ -78,7 +98,8 @@ MeshResult Sms2dmReader::parse(const QString &text, bool splitQuads)
 
         const bool e3t = card == QLatin1String("E3T");
         const bool e4q = card == QLatin1String("E4Q");
-        if (!e3t && !e4q) continue;   // other cards carry no geometry
+        if (!e3t && !e4q)
+            continue; // other cards carry no geometry
 
         const int nv = e4q ? 4 : 3;
         if (tok.size() < 2 + nv)
@@ -111,17 +132,24 @@ MeshResult Sms2dmReader::parse(const QString &text, bool splitQuads)
     };
     for (Elem &el : tris) {
         const QString err = resolve(el);
-        if (!err.isEmpty()) return fail(el.line, err);
+        if (!err.isEmpty())
+            return fail(el.line, err);
         MeshTriangle t;
-        t.v0 = el.n[0]; t.v1 = el.n[1]; t.v2 = el.n[2];
+        t.v0 = el.n[0];
+        t.v1 = el.n[1];
+        t.v2 = el.n[2];
         t.tag = el.tag;
         out.triangles.append(t);
     }
     for (Elem &el : quads) {
         const QString err = resolve(el);
-        if (!err.isEmpty()) return fail(el.line, err);
+        if (!err.isEmpty())
+            return fail(el.line, err);
         MeshTriangle q;
-        q.v0 = el.n[0]; q.v1 = el.n[1]; q.v2 = el.n[2]; q.v3 = el.n[3];
+        q.v0 = el.n[0];
+        q.v1 = el.n[1];
+        q.v2 = el.n[2];
+        q.v3 = el.n[3];
         q.tag = el.tag;
         if (!splitQuads) {
             out.triangles.append(q);
@@ -130,7 +158,9 @@ MeshResult Sms2dmReader::parse(const QString &text, bool splitQuads)
         const CellGeom g = cellGeom(out.vertices, q);
         for (int s = 0; s < g.nSub; ++s) {
             MeshTriangle t;
-            t.v0 = g.sub[s][0]; t.v1 = g.sub[s][1]; t.v2 = g.sub[s][2];
+            t.v0 = g.sub[s][0];
+            t.v1 = g.sub[s][1];
+            t.v2 = g.sub[s][2];
             t.tag = el.tag;
             out.triangles.append(t);
         }
@@ -144,24 +174,27 @@ MeshResult Sms2dmReader::parse(const QString &text, bool splitQuads)
     return out;
 }
 
-
 bool Sms2dmReader::looksLikeSms2dm(const QString &path)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
     QTextStream in(&f);
     int seen = 0;
     while (!in.atEnd() && seen < 200) {
         const QString line = in.readLine().trimmed();
-        if (line.isEmpty()) continue;
+        if (line.isEmpty())
+            continue;
         ++seen;
-        if (line.startsWith(QLatin1Char('['))) return false;      // SWMMVis sections
-        if (line.startsWith(QLatin1String(";;"))) continue;        // comment
+        if (line.startsWith(QLatin1Char('[')))
+            return false; // SWMMVis sections
+        if (line.startsWith(QLatin1String(";;")))
+            continue; // comment
         const QString card = line.section(QLatin1Char(' '), 0, 0).toUpper();
         if (card == QLatin1String("MESH2D") || card == QLatin1String("ND") ||
-            card == QLatin1String("E3T")    || card == QLatin1String("E4Q") ||
-            card == QLatin1String("E2L")    || card == QLatin1String("E6T") ||
-            card == QLatin1String("E8Q")    || card == QLatin1String("E9Q"))
+            card == QLatin1String("E3T") || card == QLatin1String("E4Q") ||
+            card == QLatin1String("E2L") || card == QLatin1String("E6T") ||
+            card == QLatin1String("E8Q") || card == QLatin1String("E9Q"))
             return true;
     }
     return false;

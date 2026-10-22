@@ -1,12 +1,16 @@
-/*!
- * \file   test_hotstartsavesmodel.cpp
- * \brief  QtTest: the scheduled hot-start saves table model and its Format
+/**
+ * @file      test_hotstartsavesmodel.cpp
+ * @brief     QtTest: the scheduled hot-start saves table model and its Format
  *         column ([FILES] SAVE HOTSTART ... LEGACY|NATIVE).
  *
  * The model stores the engine's SWMM_HOTSTART_FORMAT_* value (0 Auto,
  * 1 Legacy, 2 Native). These cases pin that EditRole carries the int,
  * DisplayRole the name, that invalid values are refused, that row moves
  * carry the format, and that the combo delegate round-trips it.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/hotstartsavesmodel.h"
@@ -48,9 +52,9 @@ void TestHotstartSavesModel::formatColumnExistsAndDefaultsToAuto()
 void TestHotstartSavesModel::appendRowCarriesFormat()
 {
     HotstartSavesModel m;
-    m.appendRow(QStringLiteral("a.hsf"), 0.0);          // two-argument form: Auto
+    m.appendRow(QStringLiteral("a.hsf"), 0.0); // two-argument form: Auto
     m.appendRow(QStringLiteral("b.hsf"), 46036.5, 2);
-    m.appendRow(QStringLiteral("c.hsf"), 0.0, 7);       // out of range -> Auto
+    m.appendRow(QStringLiteral("c.hsf"), 0.0, 7); // out of range -> Auto
     QCOMPARE(m.formatAt(0), 0);
     QCOMPARE(m.formatAt(1), 2);
     QCOMPARE(m.formatAt(2), 0);
@@ -68,7 +72,7 @@ void TestHotstartSavesModel::setDataAcceptsOnlyTheThreeFormats()
     QVERIFY(m.setData(f, 1, Qt::EditRole));
     QCOMPARE(m.formatAt(0), 1);
     QCOMPARE(changed.count(), 1);
-    QVERIFY(m.setData(f, 1, Qt::EditRole));             // unchanged: no signal
+    QVERIFY(m.setData(f, 1, Qt::EditRole)); // unchanged: no signal
     QCOMPARE(changed.count(), 1);
     QVERIFY(!m.setData(f, 3, Qt::EditRole));
     QVERIFY(!m.setData(f, -1, Qt::EditRole));

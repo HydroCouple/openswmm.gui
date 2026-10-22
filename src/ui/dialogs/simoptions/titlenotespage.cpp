@@ -1,9 +1,12 @@
-/*!
- * \file   titlenotespage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      titlenotespage.cpp
+ * @brief     Simulation Options → Title / Notes.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/titlenotespage.h"
 
 #include <QAction>
@@ -72,29 +75,33 @@ void TitleNotesPage::buildUi()
     vlay->addWidget(m_notesEdit, 1);
 
     connect(m_boldAction, &QAction::triggered, this, [this](bool checked) {
-        if (!m_notesEdit) return;
+        if (!m_notesEdit)
+            return;
         QTextCharFormat fmt;
         fmt.setFontWeight(checked ? QFont::Bold : QFont::Normal);
         m_notesEdit->mergeCurrentCharFormat(fmt);
     });
     connect(m_italicAction, &QAction::triggered, this, [this](bool checked) {
-        if (!m_notesEdit) return;
+        if (!m_notesEdit)
+            return;
         QTextCharFormat fmt;
         fmt.setFontItalic(checked);
         m_notesEdit->mergeCurrentCharFormat(fmt);
     });
     connect(m_underlineAction, &QAction::triggered, this, [this](bool checked) {
-        if (!m_notesEdit) return;
+        if (!m_notesEdit)
+            return;
         QTextCharFormat fmt;
         fmt.setFontUnderline(checked);
         m_notesEdit->mergeCurrentCharFormat(fmt);
     });
     auto applyListStyle = [this](QTextListFormat::Style style) {
-        if (!m_notesEdit) return;
+        if (!m_notesEdit)
+            return;
         QTextCursor c = m_notesEdit->textCursor();
         c.createList(style);
     };
-    connect(bulletAction,   &QAction::triggered, this,
+    connect(bulletAction, &QAction::triggered, this,
             [applyListStyle]() { applyListStyle(QTextListFormat::ListDisc); });
     connect(numberedAction, &QAction::triggered, this,
             [applyListStyle]() { applyListStyle(QTextListFormat::ListDecimal); });
@@ -112,7 +119,8 @@ void TitleNotesPage::buildUi()
 
 void TitleNotesPage::read()
 {
-    if (!m_notesEdit) return;
+    if (!m_notesEdit)
+        return;
     QSignalBlocker blk(m_notesEdit);
     // Prefer the .oswp-persisted rich HTML when available — it preserves
     // formatting that the engine's plain-text [TITLE] cannot.
@@ -140,9 +148,11 @@ void TitleNotesPage::read()
 
 int TitleNotesPage::write()
 {
-    if (!m_notesEdit) return 0;
+    if (!m_notesEdit)
+        return 0;
     const QString currentHtml = m_notesEdit->toHtml();
-    if (currentHtml == m_initialHtml) return 0;
+    if (currentHtml == m_initialHtml)
+        return 0;
 
     int n = 0;
     if (SWMM_Engine e = ctx_.engine()) {
@@ -155,8 +165,8 @@ int TitleNotesPage::write()
     }
     if (SWMMVisProjectWindow *pw = ctx_.projectWindow()) {
         const QString plain = m_notesEdit->toPlainText();
-        // Drop the HTML if the document only carries plain text — keeps
-        // .oswp tidy and matches the "no notes" empty case.
+        // Drop HTML only when the document has no plain-text content;
+        // otherwise retain the normalized rich-text representation.
         pw->setNotesHtml(plain.isEmpty() ? QString() : currentHtml);
     }
     m_initialHtml = currentHtml;

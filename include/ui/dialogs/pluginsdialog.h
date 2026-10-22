@@ -1,13 +1,15 @@
-/*!
- * \file   pluginsdialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      pluginsdialog.h
+ * @brief     Tools → Plugins.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AA — Tools → Plugins. Read-only listing of every filter the
  * FileFilterRegistry knows about (built-in + engine-discovered),
  * grouped by FilterKind. Enable / disable / Add Plugin land in the
  * AA-2 follow-up.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef PLUGINSDIALOG_H

@@ -1,9 +1,12 @@
-/*!
- * \file   dialoglayoutpersistence.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      dialoglayoutpersistence.cpp
+ * @brief     via QSettings and a uniform always-on-top policy.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include <QAction>
@@ -23,9 +26,11 @@
 #include <QTreeView>
 #include <QWidget>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /// Deliberate opt-in: only children the dialog author explicitly named
 /// persist; Qt-internal names ("qt_tabwidget_stackedwidget", …) never do.
@@ -36,7 +41,8 @@ bool userNamed_(const QString &name)
 
 QString rootGroupName_(QWidget *root, bool windowLayout)
 {
-    if (!root) return {};
+    if (!root)
+        return {};
     QWidget *w = !windowLayout || root->isWindow() ? root : root->window();
     return w ? w->objectName() : QString();
 }
@@ -45,7 +51,7 @@ QString rootGroupName_(QWidget *root, bool windowLayout)
 /// user to be able to grab and drag it back. Deliberately small — parking a
 /// window mostly off the edge is a legitimate thing to do; being unable to
 /// reach it ever again is not.
-constexpr int kMinVisibleWidth  = 160;
+constexpr int kMinVisibleWidth = 160;
 constexpr int kMinVisibleHeight = 60;
 
 /// Fallback height of the title bar when the real frame is not yet known
@@ -92,13 +98,17 @@ QRect clampToVisibleScreen(const QRect &saved, int titleBarStrip)
     const QScreen *target = nullptr;
     qint64 bestArea = 0;
     for (const QScreen *s : screens) {
-        if (!s) continue;
+        if (!s)
+            continue;
         const QRect inter = s->availableGeometry().intersected(frame);
         const qint64 area = qint64(inter.width()) * qint64(inter.height());
-        if (area > bestArea) { bestArea = area; target = s; }
+        if (area > bestArea) {
+            bestArea = area;
+            target = s;
+        }
     }
     if (!target)
-        target = QGuiApplication::primaryScreen();   // overlaps nothing at all
+        target = QGuiApplication::primaryScreen(); // overlaps nothing at all
     if (!target)
         return saved;
 
@@ -108,12 +118,12 @@ QRect clampToVisibleScreen(const QRect &saved, int titleBarStrip)
     // Size clamp against the TARGET screen — a rect saved on a 27" display
     // must not stay 2560 px wide when restored onto a laptop panel, even
     // though its center is legitimately on that panel.
-    f.setWidth (qMin(f.width(),  avail.width()));
+    f.setWidth(qMin(f.width(), avail.width()));
     f.setHeight(qMin(f.height(), avail.height()));
 
     const QRect visible = avail.intersected(f);
-    const bool enoughVisible = visible.width()  >= qMin(f.width(),  kMinVisibleWidth)
-                            && visible.height() >= qMin(f.height(), kMinVisibleHeight);
+    const bool enoughVisible = visible.width() >= qMin(f.width(), kMinVisibleWidth) &&
+                               visible.height() >= qMin(f.height(), kMinVisibleHeight);
     // The title bar is the drag handle: if its strip is above the available
     // area (under the menu bar) the window cannot be moved, however much of
     // its body happens to be visible.
@@ -122,20 +132,26 @@ QRect clampToVisibleScreen(const QRect &saved, int titleBarStrip)
     if (!enoughVisible || !titleReachable || f.size() != frame.size()) {
         // Translate minimally back inside rather than recentering, so a
         // window nudged off one edge returns to where the user had it.
-        if (f.right()  > avail.right())  f.moveRight (avail.right());
-        if (f.bottom() > avail.bottom()) f.moveBottom(avail.bottom());
-        if (f.left()   < avail.left())   f.moveLeft  (avail.left());
-        if (f.top()    < avail.top())    f.moveTop   (avail.top());
+        if (f.right() > avail.right())
+            f.moveRight(avail.right());
+        if (f.bottom() > avail.bottom())
+            f.moveBottom(avail.bottom());
+        if (f.left() < avail.left())
+            f.moveLeft(avail.left());
+        if (f.top() < avail.top())
+            f.moveTop(avail.top());
     }
 
-    return f.adjusted(0, titleBarStrip, 0, 0);   // back to client coordinates
+    return f.adjusted(0, titleBarStrip, 0, 0); // back to client coordinates
 }
 
 void ensureWindowOnScreen(QWidget *widget, const QScreen *preferred)
 {
-    if (!widget) return;
+    if (!widget)
+        return;
     QWidget *w = widget->window();
-    if (!w) return;
+    if (!w)
+        return;
 
     const int strip = titleBarStripFor_(w);
     const QRect current = w->geometry();
@@ -149,7 +165,7 @@ void ensureWindowOnScreen(QWidget *widget, const QScreen *preferred)
     // I cannot find" would defeat it.
     if (preferred) {
         const QRect avail = preferred->availableGeometry();
-        target.setWidth (qMin(target.width(),  avail.width()));
+        target.setWidth(qMin(target.width(), avail.width()));
         // qMax guards a pathological screen shorter than the title bar,
         // which would otherwise produce an invalid rect.
         target.setHeight(qMin(target.height(), qMax(1, avail.height() - strip)));
@@ -165,70 +181,79 @@ void ensureWindowOnScreen(QWidget *widget, const QScreen *preferred)
 void saveDialogLayout(QWidget *root, bool windowLayout)
 {
     const QString name = rootGroupName_(root, windowLayout);
-    if (name.isEmpty()) return;
+    if (name.isEmpty())
+        return;
 
     QSettings s;
     s.beginGroup(QStringLiteral("Dialogs"));
     s.beginGroup(name);
-    if (windowLayout) s.setValue(QStringLiteral("geometry"), root->window()->geometry());
+    if (windowLayout)
+        s.setValue(QStringLiteral("geometry"), root->window()->geometry());
 
     s.beginGroup(QStringLiteral("splitter"));
     const QList<QSplitter *> splitters = root->findChildren<QSplitter *>();
     for (QSplitter *sp : splitters) {
         const QString spName = sp ? sp->objectName() : QString();
-        if (!userNamed_(spName)) continue;    // opt-in via objectName only
+        if (!userNamed_(spName))
+            continue; // opt-in via objectName only
         s.setValue(spName, sp->saveState());
     }
-    s.endGroup();   // splitter
+    s.endGroup(); // splitter
 
     // Iteration 2 (D1) — the richer view/layout state, same naming rule.
     s.beginGroup(QStringLiteral("header"));
     const QList<QTableView *> tables = root->findChildren<QTableView *>();
     for (QTableView *v : tables) {
-        if (!userNamed_(v->objectName())) continue;
+        if (!userNamed_(v->objectName()))
+            continue;
         if (QHeaderView *h = v->horizontalHeader())
             s.setValue(v->objectName(), h->saveState());
     }
     const QList<QTreeView *> trees = root->findChildren<QTreeView *>();
     for (QTreeView *v : trees) {
-        if (!userNamed_(v->objectName())) continue;
+        if (!userNamed_(v->objectName()))
+            continue;
         if (QHeaderView *h = v->header())
             s.setValue(v->objectName(), h->saveState());
     }
-    s.endGroup();   // header
+    s.endGroup(); // header
 
     s.beginGroup(QStringLiteral("tab"));
     const QList<QTabWidget *> tabs = root->findChildren<QTabWidget *>();
     for (QTabWidget *t : tabs) {
-        if (!userNamed_(t->objectName())) continue;
+        if (!userNamed_(t->objectName()))
+            continue;
         s.setValue(t->objectName(), t->currentIndex());
     }
-    s.endGroup();   // tab
+    s.endGroup(); // tab
 
     s.beginGroup(QStringLiteral("page"));
     const QList<QStackedWidget *> stacks = root->findChildren<QStackedWidget *>();
     for (QStackedWidget *st : stacks) {
-        if (!userNamed_(st->objectName())) continue;
+        if (!userNamed_(st->objectName()))
+            continue;
         s.setValue(st->objectName(), st->currentIndex());
     }
-    s.endGroup();   // page
+    s.endGroup(); // page
 
     s.beginGroup(QStringLiteral("toggle"));
     const QList<QAction *> actions = root->findChildren<QAction *>();
     for (QAction *a : actions) {
-        if (!a->isCheckable() || !userNamed_(a->objectName())
-            || a->property("noLayoutPersistence").toBool()) continue;
+        if (!a->isCheckable() || !userNamed_(a->objectName()) ||
+            a->property("noLayoutPersistence").toBool())
+            continue;
         s.setValue(a->objectName(), a->isChecked());
     }
-    s.endGroup();   // toggle
-    s.endGroup();   // <name>
-    s.endGroup();   // Dialogs
+    s.endGroup(); // toggle
+    s.endGroup(); // <name>
+    s.endGroup(); // Dialogs
 }
 
 bool restoreDialogLayout(QWidget *root, bool windowLayout)
 {
     const QString name = rootGroupName_(root, windowLayout);
-    if (name.isEmpty()) return false;
+    if (name.isEmpty())
+        return false;
 
     QSettings s;
     s.beginGroup(QStringLiteral("Dialogs"));
@@ -249,12 +274,13 @@ bool restoreDialogLayout(QWidget *root, bool windowLayout)
     const QList<QSplitter *> splitters = root->findChildren<QSplitter *>();
     for (QSplitter *sp : splitters) {
         const QString spName = sp ? sp->objectName() : QString();
-        if (!userNamed_(spName)) continue;
+        if (!userNamed_(spName))
+            continue;
         const QByteArray state = s.value(spName).toByteArray();
         if (!state.isEmpty() && sp->restoreState(state))
             restored = true;
     }
-    s.endGroup();   // splitter
+    s.endGroup(); // splitter
 
     // Iteration 2 (D1) — richer state, restored after geometry/splitters.
     // QHeaderView::restoreState rejects blobs from a different column
@@ -263,7 +289,8 @@ bool restoreDialogLayout(QWidget *root, bool windowLayout)
     s.beginGroup(QStringLiteral("header"));
     const QList<QTableView *> tables = root->findChildren<QTableView *>();
     for (QTableView *v : tables) {
-        if (!userNamed_(v->objectName())) continue;
+        if (!userNamed_(v->objectName()))
+            continue;
         const QByteArray state = s.value(v->objectName()).toByteArray();
         QHeaderView *h = v->horizontalHeader();
         if (h && !state.isEmpty() && h->restoreState(state))
@@ -271,51 +298,56 @@ bool restoreDialogLayout(QWidget *root, bool windowLayout)
     }
     const QList<QTreeView *> trees = root->findChildren<QTreeView *>();
     for (QTreeView *v : trees) {
-        if (!userNamed_(v->objectName())) continue;
+        if (!userNamed_(v->objectName()))
+            continue;
         const QByteArray state = s.value(v->objectName()).toByteArray();
         QHeaderView *h = v->header();
         if (h && !state.isEmpty() && h->restoreState(state))
             restored = true;
     }
-    s.endGroup();   // header
+    s.endGroup(); // header
 
     s.beginGroup(QStringLiteral("tab"));
     const QList<QTabWidget *> tabs = root->findChildren<QTabWidget *>();
     for (QTabWidget *t : tabs) {
-        if (!userNamed_(t->objectName())) continue;
+        if (!userNamed_(t->objectName()))
+            continue;
         const int idx = s.value(t->objectName(), -1).toInt();
         if (idx >= 0 && idx < t->count()) {
             t->setCurrentIndex(idx);
             restored = true;
         }
     }
-    s.endGroup();   // tab
+    s.endGroup(); // tab
 
     s.beginGroup(QStringLiteral("page"));
     const QList<QStackedWidget *> stacks = root->findChildren<QStackedWidget *>();
     for (QStackedWidget *st : stacks) {
-        if (!userNamed_(st->objectName())) continue;
+        if (!userNamed_(st->objectName()))
+            continue;
         const int idx = s.value(st->objectName(), -1).toInt();
         if (idx >= 0 && idx < st->count()) {
             st->setCurrentIndex(idx);
             restored = true;
         }
     }
-    s.endGroup();   // page
+    s.endGroup(); // page
 
     s.beginGroup(QStringLiteral("toggle"));
     const QList<QAction *> actions = root->findChildren<QAction *>();
     for (QAction *a : actions) {
-        if (!a->isCheckable() || !userNamed_(a->objectName())
-            || a->property("noLayoutPersistence").toBool()) continue;
-        if (!s.contains(a->objectName())) continue;
+        if (!a->isCheckable() || !userNamed_(a->objectName()) ||
+            a->property("noLayoutPersistence").toBool())
+            continue;
+        if (!s.contains(a->objectName()))
+            continue;
         // setChecked fires toggled() so dependent views update themselves.
         a->setChecked(s.value(a->objectName()).toBool());
         restored = true;
     }
-    s.endGroup();   // toggle
-    s.endGroup();   // <name>
-    s.endGroup();   // Dialogs
+    s.endGroup(); // toggle
+    s.endGroup(); // <name>
+    s.endGroup(); // Dialogs
 
     for (QTableView *table : tables) {
         table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -330,7 +362,8 @@ bool restoreDialogLayout(QWidget *root, bool windowLayout)
 
 void applyAlwaysOnTopPolicy(QDialog *d)
 {
-    if (!d) return;
+    if (!d)
+        return;
 #ifndef Q_OS_MACOS
     // On macOS this hint also floats the dialog above other applications, so
     // it is skipped there; Qt::Tool already keeps such dialogs above the main

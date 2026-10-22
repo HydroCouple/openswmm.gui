@@ -1,9 +1,9 @@
-/*!
- * \file   ruleseditordialog.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BR Phase 6.8.1/2 — two-pane non-modal CRUD editor for
+/**
+ * @file      ruleseditordialog.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BR Phase 6.8.1/2 — two-pane non-modal CRUD editor for
  *         SWMM control rules.
  *
  * Layout (left → right):
@@ -22,7 +22,9 @@
  *
  * Mirrors `CurveEditorDialog` / `PatternEditorDialog` for the public API
  * surface so `ComprehensiveEditorRegistry` slots in mechanically.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_RULESEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_RULESEDITORDIALOG_H
 
@@ -41,13 +43,15 @@ class QUndoStack;
 
 class SWMMModelLayer;
 
-namespace openswmmvis::controls {
+namespace openswmmvis::controls
+{
 class ControlRuleProvider;
 class ControlRuleRegistry;
 class RuleValidator;
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class RuleCodeEditor;
 class RuleListModel;
@@ -59,16 +63,13 @@ public:
     enum class Mode { Edit, CreateNew };
     Q_ENUM(Mode)
 
-    RulesEditorDialog(SWMMModelLayer *layer,
-                       QUndoStack    *undoStack,
-                       QWidget       *parent = nullptr);
+    RulesEditorDialog(SWMMModelLayer *layer, QUndoStack *undoStack, QWidget *parent = nullptr);
     ~RulesEditorDialog() override;
 
     /*! \brief Slice BM.0-Add-New factory: same dialog, started in
      *  CreateNew mode. Caller owns the returned dialog. */
-    static RulesEditorDialog *createNew(SWMMModelLayer *layer,
-                                          QUndoStack    *undoStack,
-                                          QWidget       *parent = nullptr);
+    static RulesEditorDialog *createNew(SWMMModelLayer *layer, QUndoStack *undoStack,
+                                        QWidget *parent = nullptr);
 
     /*! \brief Modal pick / create / edit entry point — mirrors
      *  `TimeseriesEditorDialog::pickTimeseries`. Empty \p initialName
@@ -77,10 +78,8 @@ public:
      *  dialog on close, or empty if no commit happened. All edits
      *  flow through `applyControlRule*` so the engine state matches
      *  on close regardless of which button closes the dialog. */
-    static QString pickControlRule(SWMMModelLayer *layer,
-                                     QUndoStack    *undoStack,
-                                     const QString &initialName,
-                                     QWidget       *parent = nullptr);
+    static QString pickControlRule(SWMMModelLayer *layer, QUndoStack *undoStack,
+                                   const QString &initialName, QWidget *parent = nullptr);
 
     /*! \brief Bring the dialog forward and select \p name in the list
      *  (no-op if absent). */
@@ -91,16 +90,16 @@ public:
 
     // ── Test hooks ──────────────────────────────────────────────────────
 
-    QListView      *listView()  const noexcept { return m_listView; }
+    QListView *listView() const noexcept { return m_listView; }
     RuleCodeEditor *codeEditor() const noexcept { return m_codeEditor; }
-    RuleListModel  *listModel() const noexcept { return m_listModel; }
-    QString         pendingName() const;
-    bool            isCreateEnabled() const;
-    void            submitCreateNew();
-    void            invokeNew();
-    void            invokeDelete();
-    bool            renameCurrent(const QString &newName);
-    void            flushPendingEdit();
+    RuleListModel *listModel() const noexcept { return m_listModel; }
+    QString pendingName() const;
+    bool isCreateEnabled() const;
+    void submitCreateNew();
+    void invokeNew();
+    void invokeDelete();
+    bool renameCurrent(const QString &newName);
+    void flushPendingEdit();
 
 protected:
     void closeEvent(QCloseEvent *e) override;
@@ -116,8 +115,8 @@ private slots:
     void onCancelCreateClicked_();
     void onCreateNewNameChanged_(const QString &text);
     void onCreateNewSubmit_();
-    void onProviderRenamed_(openswmmvis::controls::ControlRuleProvider *p,
-                              const QString &prev, const QString &now);
+    void onProviderRenamed_(openswmmvis::controls::ControlRuleProvider *p, const QString &prev,
+                            const QString &now);
     void onProviderValidationChanged_();
 
 private:
@@ -127,43 +126,43 @@ private:
     void updateValidationBanner_();
     openswmmvis::controls::ControlRuleRegistry *registry_() const;
 
-    QPointer<SWMMModelLayer>                              m_layer;
-    QUndoStack                                            *m_undoStack = nullptr;
-    QPointer<openswmmvis::controls::ControlRuleProvider>   m_current;
-    Mode                                                   m_mode      = Mode::Edit;
+    QPointer<SWMMModelLayer> m_layer;
+    QUndoStack *m_undoStack = nullptr;
+    QPointer<openswmmvis::controls::ControlRuleProvider> m_current;
+    Mode m_mode = Mode::Edit;
 
-    QSplitter             *m_splitter   = nullptr;
+    QSplitter *m_splitter = nullptr;
 
     // Pane 1: list
-    QLineEdit             *m_searchEdit = nullptr;
-    QListView             *m_listView   = nullptr;
-    RuleListModel         *m_listModel  = nullptr;
-    QSortFilterProxyModel *m_listProxy  = nullptr;
-    QToolButton           *m_addBtn     = nullptr;
-    QToolButton           *m_delBtn     = nullptr;
-    QToolButton           *m_renameBtn  = nullptr;
+    QLineEdit *m_searchEdit = nullptr;
+    QListView *m_listView = nullptr;
+    RuleListModel *m_listModel = nullptr;
+    QSortFilterProxyModel *m_listProxy = nullptr;
+    QToolButton *m_addBtn = nullptr;
+    QToolButton *m_delBtn = nullptr;
+    QToolButton *m_renameBtn = nullptr;
 
     // Pane 2: editor
-    QLabel                *m_nameLabel        = nullptr;
-    QToolButton           *m_renameBodyBtn    = nullptr;
-    QFrame                *m_validationBanner = nullptr;
-    QLabel                *m_validationLabel  = nullptr;
-    RuleCodeEditor        *m_codeEditor       = nullptr;
-    QToolButton           *m_validateNowBtn   = nullptr;
+    QLabel *m_nameLabel = nullptr;
+    QToolButton *m_renameBodyBtn = nullptr;
+    QFrame *m_validationBanner = nullptr;
+    QLabel *m_validationLabel = nullptr;
+    RuleCodeEditor *m_codeEditor = nullptr;
+    QToolButton *m_validateNowBtn = nullptr;
 
     openswmmvis::controls::RuleValidator *m_validator = nullptr;
 
     // CreateNew-mode UI (always built; hidden in Edit mode and revealed
     // by the "+ Add" button or the createNew factory).
-    QFrame      *m_createCard          = nullptr;
-    QLineEdit   *m_createNameEdit      = nullptr;
-    QLabel      *m_createValidationLbl = nullptr;
-    QPushButton *m_createBtn           = nullptr;
-    QPushButton *m_cancelCreateBtn     = nullptr;
+    QFrame *m_createCard = nullptr;
+    QLineEdit *m_createNameEdit = nullptr;
+    QLabel *m_createValidationLbl = nullptr;
+    QPushButton *m_createBtn = nullptr;
+    QPushButton *m_cancelCreateBtn = nullptr;
 
     // Internal state
-    bool m_suppressTextSignal = false;   ///< prevents echo when we set body programmatically
-    bool m_dirty              = false;   ///< true between text changes and flushPendingEdit
+    bool m_suppressTextSignal = false; ///< prevents echo when we set body programmatically
+    bool m_dirty = false;              ///< true between text changes and flushPendingEdit
 };
 
 } // namespace openswmmvis::ui

@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file      snowclimatesettings.h
+ * @brief     Shared snow climate settings used by model editors.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #pragma once
 #include <openswmm/engine/openswmm_snow.h>
 #include <QMap>
@@ -6,8 +16,14 @@
 #include <QStringList>
 #include <array>
 
-namespace openswmmvis::ui {
-struct UebFieldSpec { const char* key; const char* label; const char* group; double minimum, maximum; };
+namespace openswmmvis::ui
+{
+struct UebFieldSpec {
+    const char *key;
+    const char *label;
+    const char *group;
+    double minimum, maximum;
+};
 inline constexpr UebFieldSpec uebFields[] = {
     {"Z0", "Roughness length (m)", "Turbulence", .000001, 10},
     {"ZM", "Measurement height (m)", "Turbulence", .000001, 1000},
@@ -34,8 +50,7 @@ inline constexpr UebFieldSpec uebFields[] = {
     {"CV", "Visible albedo ageing coefficient", "Albedo and radiation", 0, 1},
     {"CIR", "Infrared albedo ageing coefficient", "Albedo and radiation", 0, 1},
     {"BC_A", "Bristow–Campbell maximum transmissivity", "Albedo and radiation", .000001, 1},
-    {"BC_C", "Bristow–Campbell exponent", "Albedo and radiation", .000001, 100}
-};
+    {"BC_C", "Bristow–Campbell exponent", "Albedo and radiation", .000001, 100}};
 
 // Staged model shared by the climatology form and its UEB parameter editor.
 // Neither view writes the engine until the parent dialog accepts the draft.
@@ -49,59 +64,116 @@ struct SnowClimateSettings {
     QMap<QString, QString> options;
     std::array<double, 12> ranges{};
 
-    bool load(SWMM_Engine engine) {
-        if (swmm_snow_get_model(engine, &model) != SWMM_OK || swmm_snow_get_step(engine, &step) != SWMM_OK ||
+    /**
+     * @brief Read global snow, radiation, cloud and UEB settings into this editor draft.
+     * @param[in] engine Borrowed engine handle, never modified.
+     * @return True after all getters succeed; false may leave earlier fields/options updated. No rollback or UI notification occurs.
+     * @note step uses seconds, radiation site elevation metres and coordinates degrees; UEB parameter units are specified by uebFields.
+     */
+    bool load(SWMM_Engine engine)
+    {
+        if (swmm_snow_get_model(engine, &model) != SWMM_OK ||
+            swmm_snow_get_step(engine, &step) != SWMM_OK ||
             swmm_climate_get_radiation(engine, &radiation) != SWMM_OK ||
-            swmm_ueb_get_monthly_ranges(engine, ranges.data()) != SWMM_OK) return false;
+            swmm_ueb_get_monthly_ranges(engine, ranges.data()) != SWMM_OK)
+            return false;
         char value[8192];
-        if (swmm_climate_get_cloud(engine,&cloud,value,sizeof(value)) != SWMM_OK) return false;
-        cloudSeries=QString::fromUtf8(value);
+        if (swmm_climate_get_cloud(engine, &cloud, value, sizeof(value)) != SWMM_OK)
+            return false;
+        cloudSeries = QString::fromUtf8(value);
         for (int i = 0; i < 3; ++i) {
-            if (swmm_climate_get_radiation_source(engine, i, value, sizeof(value)) != SWMM_OK) return false;
+            if (swmm_climate_get_radiation_source(engine, i, value, sizeof(value)) != SWMM_OK)
+                return false;
             sources[i] = QString::fromUtf8(value);
         }
         QStringList keys{QStringLiteral("SURFACE_TEMP"), QStringLiteral("PRECIP_SPLIT")};
-        for (const auto& f : uebFields) keys << QString::fromLatin1(f.key);
-        for (const auto& key : keys) {
-            if (swmm_ueb_option_get(engine, key.toUtf8().constData(), value, sizeof(value)) != SWMM_OK) return false;
+        for (const auto &f : uebFields)
+            keys << QString::fromLatin1(f.key);
+        for (const auto &key : keys) {
+            if (swmm_ueb_option_get(engine, key.toUtf8().constData(), value, sizeof(value)) !=
+                SWMM_OK)
+                return false;
             options[key] = QString::fromUtf8(value);
         }
         return true;
     }
-    QString temperatureRows() const {
-        QStringList rows{QStringLiteral("SNOWMELT_MODEL ") + (model == 1 ? QStringLiteral("UEB") : QStringLiteral("DEGREE_DAY")),
+    /**
+     * @brief Encode snow model/step and authored radiation/site sources as TEMPERATURE section rows.
+     * @return Body text without a section header; non-UEB model values encode DEGREE_DAY. Source strings are quoted without escaping, so apply() validates prohibited characters.
+     */
+    QString temperatureRows() const
+    {
+        QStringList rows{QStringLiteral("SNOWMELT_MODEL ") +
+                             (model == 1 ? QStringLiteral("UEB") : QStringLiteral("DEGREE_DAY")),
                          QStringLiteral("SNOW_STEP ") + QString::number(step, 'g', 17)};
         if (radiation.explicit_site)
-            rows << QStringLiteral("SITE %1 %2 %3 %4").arg(radiation.latitude, 0, 'g', 17).arg(radiation.longitude, 0, 'g', 17)
-                .arg(radiation.timezone, 0, 'g', 17).arg(radiation.elevation_m, 0, 'g', 17);
+            rows << QStringLiteral("SITE %1 %2 %3 %4")
+                        .arg(radiation.latitude, 0, 'g', 17)
+                        .arg(radiation.longitude, 0, 'g', 17)
+                        .arg(radiation.timezone, 0, 'g', 17)
+                        .arg(radiation.elevation_m, 0, 'g', 17);
         for (int i = 0; i < 2; ++i) {
-            if (!(i ? radiation.longwave_authored : radiation.shortwave_authored)) continue;
+            if (!(i ? radiation.longwave_authored : radiation.shortwave_authored))
+                continue;
             const int mode = i ? radiation.longwave_mode : radiation.shortwave_mode;
             rows << (i ? QStringLiteral("LONGWAVE ") : QStringLiteral("SHORTWAVE ")) +
-                (mode == 1 ? QStringLiteral("TIMESERIES \"") + sources[i] + '"' : mode == 2 ? QStringLiteral("FILE") : QStringLiteral("COMPUTED"));
+                        (mode == 1   ? QStringLiteral("TIMESERIES \"") + sources[i] + '"'
+                         : mode == 2 ? QStringLiteral("FILE")
+                                     : QStringLiteral("COMPUTED"));
         }
-        if (!sources[2].isEmpty()) rows << QStringLiteral("MET_FILE \"") + sources[2] + '"';
+        if (!sources[2].isEmpty())
+            rows << QStringLiteral("MET_FILE \"") + sources[2] + '"';
         return rows.join('\n');
     }
-    QString optionRows() const {
+    /**
+     * @brief Encode staged UEB key/value options and positive monthly Bristow–Campbell ranges.
+     * @return Section body ordered by QMap keys then month 1–12; no validation or escaping occurs.
+     */
+    QString optionRows() const
+    {
         QStringList rows;
-        for (auto it = options.cbegin(); it != options.cend(); ++it) rows << it.key() + ' ' + it.value();
-        for (int i = 0; i < 12; ++i) if (ranges[i] > 0)
-            rows << QStringLiteral("BC_MONTHLY %1 %2").arg(i+1).arg(ranges[i], 0, 'g', 17);
+        for (auto it = options.cbegin(); it != options.cend(); ++it)
+            rows << it.key() + ' ' + it.value();
+        for (int i = 0; i < 12; ++i)
+            if (ranges[i] > 0)
+                rows << QStringLiteral("BC_MONTHLY %1 %2").arg(i + 1).arg(ranges[i], 0, 'g', 17);
         return rows.join('\n');
     }
-    QString signature() const {
-        return temperatureRows() + '\n' + optionRows() + QStringLiteral("\nCLOUD %1 %2 %3 %4 %5 %6")
-            .arg(cloud.mode).arg(cloud.fraction,0,'g',17).arg(cloud.shortwave_k,0,'g',17)
-            .arg(cloud.shortwave_n,0,'g',17).arg(cloud.longwave_k,0,'g',17).arg(cloudSeries);
+    /**
+     * @brief Build a deterministic comparison string for the persisted snow/radiation/cloud draft fields.
+     * @return Temperature rows, UEB rows and cloud numeric/series fields; intended for editor change detection, not cryptographic identity.
+     */
+    QString signature() const
+    {
+        return temperatureRows() + '\n' + optionRows() +
+               QStringLiteral("\nCLOUD %1 %2 %3 %4 %5 %6")
+                   .arg(cloud.mode)
+                   .arg(cloud.fraction, 0, 'g', 17)
+                   .arg(cloud.shortwave_k, 0, 'g', 17)
+                   .arg(cloud.shortwave_n, 0, 'g', 17)
+                   .arg(cloud.longwave_k, 0, 'g', 17)
+                   .arg(cloudSeries);
     }
-    QString apply(SWMM_Engine engine) const {
-        for (const auto& source : sources) if (source.contains('"') || source.contains('\n') || source.contains('\r'))
-            return QStringLiteral("Source names and paths cannot contain quotes or line breaks.");
+    /**
+     * @brief Atomically submit the complete global snow/radiation/cloud draft to the engine.
+     * @param[in] engine Borrowed engine in editable BUILDING/OPENED state.
+     * @return Empty on accepted replacement; diagnostic for prohibited source quotes/newlines, engine validation or lifecycle rejection.
+     * @note Engine validates copied section data, source references and meteorology coverage before publication. This method does not itself emit UI or dirty-state notifications.
+     */
+    QString apply(SWMM_Engine engine) const
+    {
+        for (const auto &source : sources)
+            if (source.contains('"') || source.contains('\n') || source.contains('\r'))
+                return QStringLiteral(
+                    "Source names and paths cannot contain quotes or line breaks.");
         char error[1024]{};
-        if (swmm_snow_apply_configuration_with_cloud(engine, temperatureRows().toUtf8().constData(),
-                optionRows().toUtf8().constData(), &cloud, cloudSeries.toUtf8().constData(), error, sizeof(error)) != SWMM_OK)
-            return *error ? QString::fromUtf8(error) : QStringLiteral("The snow configuration could not be changed in the current model state.");
+        if (swmm_snow_apply_configuration_with_cloud(
+                engine, temperatureRows().toUtf8().constData(), optionRows().toUtf8().constData(),
+                &cloud, cloudSeries.toUtf8().constData(), error, sizeof(error)) != SWMM_OK)
+            return *error
+                       ? QString::fromUtf8(error)
+                       : QStringLiteral(
+                             "The snow configuration could not be changed in the current model state.");
         return {};
     }
 };

@@ -1,9 +1,12 @@
-/*!
- * \file   hydraulicspage.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      hydraulicspage.cpp
+ * @brief     Simulation Options → Routing & Hydraulics.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/simoptions/hydraulicspage.h"
 
 #include <QCheckBox>
@@ -42,7 +45,8 @@ QString HydraulicsPage::flowRouting() const
 
 void HydraulicsPage::setMinimumStep(double seconds)
 {
-    if (m_minStepSpin) m_minStepSpin->setValue(seconds);
+    if (m_minStepSpin)
+        m_minStepSpin->setValue(seconds);
 }
 
 void HydraulicsPage::buildUi()
@@ -55,16 +59,16 @@ void HydraulicsPage::buildUi()
     auto *headerForm = new QFormLayout;
     m_routingCombo = new QComboBox(this);
     m_routingCombo->setObjectName(QStringLiteral("flowRoutingCombo"));
-    m_routingCombo->addItem(tr("Steady"),            QStringLiteral("STEADY"));
-    m_routingCombo->addItem(tr("Kinematic Wave"),    QStringLiteral("KINWAVE"));
-    m_routingCombo->addItem(tr("Dynamic Wave"),      QStringLiteral("DYNWAVE"));
-    m_routingCombo->addItem(tr("Finite Volume"),     QStringLiteral("FV"));
+    m_routingCombo->addItem(tr("Steady"), QStringLiteral("STEADY"));
+    m_routingCombo->addItem(tr("Kinematic Wave"), QStringLiteral("KINWAVE"));
+    m_routingCombo->addItem(tr("Dynamic Wave"), QStringLiteral("DYNWAVE"));
+    m_routingCombo->addItem(tr("Finite Volume"), QStringLiteral("FV"));
     m_routingCombo->setToolTip(
         tr("Flow-routing method for conduits (option FLOW_ROUTING).\n"
            "Finite Volume is the explicit Godunov solver; the tabs below grey "
            "themselves out when they do not apply to the selected method."));
-    connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int) { emit gateInputsChanged(); });
+    connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { emit gateInputsChanged(); });
     headerForm->addRow(tr("Flow routing:"), m_routingCombo);
     root->addLayout(headerForm);
 
@@ -72,20 +76,23 @@ void HydraulicsPage::buildUi()
     m_tabs->setObjectName(QStringLiteral("hydraulicsTabs"));
     root->addWidget(m_tabs, 1);
 
-    auto *rtTab = new QWidget(m_tabs); auto *rtLay = new QVBoxLayout(rtTab);
-    auto *dwTab = new QWidget(m_tabs); auto *dwLay = new QVBoxLayout(dwTab);
-    auto *fvTab = new QWidget(m_tabs); auto *fvLay = new QVBoxLayout(fvTab);
-    auto *ufTab = new QWidget(m_tabs); auto *ufLay = new QVBoxLayout(ufTab);
-
+    auto *rtTab = new QWidget(m_tabs);
+    auto *rtLay = new QVBoxLayout(rtTab);
+    auto *dwTab = new QWidget(m_tabs);
+    auto *dwLay = new QVBoxLayout(dwTab);
+    auto *fvTab = new QWidget(m_tabs);
+    auto *fvLay = new QVBoxLayout(fvTab);
+    auto *ufTab = new QWidget(m_tabs);
+    auto *ufLay = new QVBoxLayout(ufTab);
 
     // ── Surcharge group ────────────────────────────────────────────────
     auto *surGroup = new QGroupBox(tr("Surcharge handling"), this);
-    auto *surForm  = new QFormLayout(surGroup);
+    auto *surForm = new QFormLayout(surGroup);
 
     m_surchargeCombo = new QComboBox(surGroup);
-    m_surchargeCombo->addItem(tr("EXTRAN (legacy)"),  QStringLiteral("EXTRAN"));
+    m_surchargeCombo->addItem(tr("EXTRAN (legacy)"), QStringLiteral("EXTRAN"));
     m_surchargeCombo->addItem(tr("SLOT (Preissmann)"), QStringLiteral("SLOT"));
-    m_surchargeCombo->addItem(tr("DYNAMIC_SLOT"),     QStringLiteral("DYNAMIC_SLOT"));
+    m_surchargeCombo->addItem(tr("DYNAMIC_SLOT"), QStringLiteral("DYNAMIC_SLOT"));
     m_surchargeCombo->addItem(tr("TPA (two-component pressure, experimental)"),
                               QStringLiteral("TPA"));
     m_surchargeCombo->setToolTip(
@@ -118,25 +125,23 @@ void HydraulicsPage::buildUi()
     m_tpaCeleritySpin = new QDoubleSpinBox(surGroup);
     m_tpaCeleritySpin->setRange(1.0, 5000.0);
     m_tpaCeleritySpin->setDecimals(1);
-    m_tpaCeleritySpin->setToolTip(
-        tr("Acoustic (pressure-wave) celerity a for the TPA surcharge "
-           "method, in project length units per second (TPA_CELERITY). "
-           "Sets the pressurized wall compliance w = g·A_full/a²."));
+    m_tpaCeleritySpin->setToolTip(tr("Acoustic (pressure-wave) celerity a for the TPA surcharge "
+                                     "method, in project length units per second (TPA_CELERITY). "
+                                     "Sets the pressurized wall compliance w = g·A_full/a²."));
     surForm->addRow(tr("TPA celerity:"), m_tpaCeleritySpin);
 
     dwLay->addWidget(surGroup);
-    connect(m_surchargeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ emit gateInputsChanged(); });
+    connect(m_surchargeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { emit gateInputsChanged(); });
 
     // ── Solver group ───────────────────────────────────────────────────
     auto *solGroup = new QGroupBox(tr("Solver"), this);
-    auto *solForm  = new QFormLayout(solGroup);
+    auto *solForm = new QFormLayout(solGroup);
 
     m_nodeContinuityCombo = new QComboBox(solGroup);
-    m_nodeContinuityCombo->addItem(tr("Explicit (legacy)"),       QStringLiteral("EXPLICIT"));
-    m_nodeContinuityCombo->addItem(tr("Semi-implicit (new)"),     QStringLiteral("SEMI_IMPLICIT"));
-    m_nodeContinuityCombo->setToolTip(
-        tr("Node continuity scheme (option NODE_CONTINUITY)."));
+    m_nodeContinuityCombo->addItem(tr("Explicit (legacy)"), QStringLiteral("EXPLICIT"));
+    m_nodeContinuityCombo->addItem(tr("Semi-implicit (new)"), QStringLiteral("SEMI_IMPLICIT"));
+    m_nodeContinuityCombo->setToolTip(tr("Node continuity scheme (option NODE_CONTINUITY)."));
     solForm->addRow(tr("Node continuity:"), m_nodeContinuityCombo);
 
     m_andersonAccelBox = new QCheckBox(tr("Anderson acceleration (ANDERSON_ACCEL)"), solGroup);
@@ -207,41 +212,38 @@ void HydraulicsPage::buildUi()
 
     m_fvMinCellsSpin = new QSpinBox(m_fvGroup);
     m_fvMinCellsSpin->setRange(1, 1000);
-    m_fvMinCellsSpin->setToolTip(
-        tr("Minimum number of cells per conduit (FV_MIN_CELLS)."));
+    m_fvMinCellsSpin->setToolTip(tr("Minimum number of cells per conduit (FV_MIN_CELLS)."));
     fvForm->addRow(tr("Min cells per conduit:"), m_fvMinCellsSpin);
 
     m_fvCflSpin = new QDoubleSpinBox(m_fvGroup);
     m_fvCflSpin->setRange(0.05, 1.0);
     m_fvCflSpin->setSingleStep(0.05);
     m_fvCflSpin->setDecimals(2);
-    m_fvCflSpin->setToolTip(
-        tr("Courant number the explicit substep targets (FV_CFL)."));
+    m_fvCflSpin->setToolTip(tr("Courant number the explicit substep targets (FV_CFL)."));
     fvForm->addRow(tr("CFL number:"), m_fvCflSpin);
 
     m_fvRiemannCombo = new QComboBox(m_fvGroup);
     m_fvRiemannCombo->addItem(tr("HLLC"), QStringLiteral("HLLC"));
-    m_fvRiemannCombo->addItem(tr("HLL"),  QStringLiteral("HLL"));
+    m_fvRiemannCombo->addItem(tr("HLL"), QStringLiteral("HLL"));
     m_fvRiemannCombo->setToolTip(tr("Approximate Riemann solver for face fluxes (FV_RIEMANN)."));
     fvForm->addRow(tr("Riemann solver:"), m_fvRiemannCombo);
 
     m_fvOrderCombo = new QComboBox(m_fvGroup);
-    m_fvOrderCombo->addItem(tr("1st order"),                  QStringLiteral("1"));
-    m_fvOrderCombo->addItem(tr("2nd order (MUSCL-Hancock)"),  QStringLiteral("2"));
+    m_fvOrderCombo->addItem(tr("1st order"), QStringLiteral("1"));
+    m_fvOrderCombo->addItem(tr("2nd order (MUSCL-Hancock)"), QStringLiteral("2"));
     m_fvOrderCombo->setToolTip(tr("Spatial reconstruction order (FV_ORDER)."));
     fvForm->addRow(tr("Spatial order:"), m_fvOrderCombo);
 
     m_fvLimiterCombo = new QComboBox(m_fvGroup);
-    m_fvLimiterCombo->addItem(tr("Minmod"),   QStringLiteral("MINMOD"));
+    m_fvLimiterCombo->addItem(tr("Minmod"), QStringLiteral("MINMOD"));
     m_fvLimiterCombo->addItem(tr("van Leer"), QStringLiteral("VANLEER"));
     m_fvLimiterCombo->addItem(tr("Superbee"), QStringLiteral("SUPERBEE"));
-    m_fvLimiterCombo->setToolTip(
-        tr("Slope limiter for 2nd-order reconstruction (FV_LIMITER)."));
+    m_fvLimiterCombo->setToolTip(tr("Slope limiter for 2nd-order reconstruction (FV_LIMITER)."));
     fvForm->addRow(tr("Slope limiter:"), m_fvLimiterCombo);
 
     m_fvTimeIntCombo = new QComboBox(m_fvGroup);
     m_fvTimeIntCombo->addItem(tr("Euler"), QStringLiteral("EULER"));
-    m_fvTimeIntCombo->addItem(tr("RK2"),   QStringLiteral("RK2"));
+    m_fvTimeIntCombo->addItem(tr("RK2"), QStringLiteral("RK2"));
     m_fvTimeIntCombo->setToolTip(tr("Substep time integrator (FV_TIME_INTEGRATION)."));
     fvForm->addRow(tr("Time integration:"), m_fvTimeIntCombo);
 
@@ -258,8 +260,7 @@ void HydraulicsPage::buildUi()
     // posture above.
     m_fvPressureClosureCombo = new QComboBox(m_fvGroup);
     m_fvPressureClosureCombo->addItem(tr("SLOT (Preissmann)"), QStringLiteral("SLOT"));
-    m_fvPressureClosureCombo->addItem(tr("TPA (two-component pressure)"),
-                                      QStringLiteral("TPA"));
+    m_fvPressureClosureCombo->addItem(tr("TPA (two-component pressure)"), QStringLiteral("TPA"));
     m_fvPressureClosureCombo->setToolTip(
         tr("Pressure closure for surcharged FV cells (FV_PRESSURE_CLOSURE). "
            "TPA carries a signed pressure head so sub-atmospheric "
@@ -273,8 +274,7 @@ void HydraulicsPage::buildUi()
     // revise it, but it is fully functional and gated, and needed to
     // experiment with pressurized transmission mains from the GUI.
     m_fvPressImplicitBox = new QCheckBox(
-        tr("Implicit pressurized head solve (FV_PRESSURIZED_IMPLICIT, experimental)"),
-        m_fvGroup);
+        tr("Implicit pressurized head solve (FV_PRESSURIZED_IMPLICIT, experimental)"), m_fvGroup);
     m_fvPressImplicitBox->setToolTip(
         tr("Experimental. Solve surcharged-cell heads implicitly so "
            "pressurized reaches stop binding the CFL substep and full-bore "
@@ -293,11 +293,10 @@ void HydraulicsPage::buildUi()
     // Eulerian ARD engine.
 
     m_fvStructCouplingCombo = new QComboBox(m_fvGroup);
-    m_fvStructCouplingCombo->addItem(tr("Every substep"),      QStringLiteral("SUBSTEP"));
+    m_fvStructCouplingCombo->addItem(tr("Every substep"), QStringLiteral("SUBSTEP"));
     m_fvStructCouplingCombo->addItem(tr("Every routing step"), QStringLiteral("ROUTING_STEP"));
-    m_fvStructCouplingCombo->setToolTip(
-        tr("How often weir/orifice/pump flows are re-evaluated "
-           "(FV_STRUCTURE_COUPLING)."));
+    m_fvStructCouplingCombo->setToolTip(tr("How often weir/orifice/pump flows are re-evaluated "
+                                           "(FV_STRUCTURE_COUPLING)."));
     fvForm->addRow(tr("Structure coupling:"), m_fvStructCouplingCombo);
 
     fvLay->addWidget(m_fvGroup);
@@ -306,35 +305,32 @@ void HydraulicsPage::buildUi()
     auto *fvPerfForm = new QFormLayout(m_fvPerfGroup);
 
     m_fvBackendCombo = new QComboBox(m_fvPerfGroup);
-    m_fvBackendCombo->addItem(tr("Auto"),  QStringLiteral("AUTO"));
+    m_fvBackendCombo->addItem(tr("Auto"), QStringLiteral("AUTO"));
     m_fvBackendCombo->addItem(tr("CPU (serial)"), QStringLiteral("CPU"));
     m_fvBackendCombo->addItem(tr("OpenMP"), QStringLiteral("OMP"));
-    m_fvBackendCombo->addItem(tr("CUDA"),  QStringLiteral("CUDA"));
-    m_fvBackendCombo->addItem(tr("HIP"),   QStringLiteral("HIP"));
-    m_fvBackendCombo->addItem(tr("SYCL"),  QStringLiteral("SYCL"));
-    m_fvBackendCombo->setToolTip(
-        tr("Compute backend for the FV kernels (FV_BACKEND). Auto picks "
-           "based on mesh size and available plugins."));
+    m_fvBackendCombo->addItem(tr("CUDA"), QStringLiteral("CUDA"));
+    m_fvBackendCombo->addItem(tr("HIP"), QStringLiteral("HIP"));
+    m_fvBackendCombo->addItem(tr("SYCL"), QStringLiteral("SYCL"));
+    m_fvBackendCombo->setToolTip(tr("Compute backend for the FV kernels (FV_BACKEND). Auto picks "
+                                    "based on mesh size and available plugins."));
     fvPerfForm->addRow(tr("Backend:"), m_fvBackendCombo);
 
     m_fvMinParallelSpin = new QSpinBox(m_fvPerfGroup);
     m_fvMinParallelSpin->setRange(0, 100000000);
     m_fvMinParallelSpin->setSingleStep(1000);
-    m_fvMinParallelSpin->setToolTip(
-        tr("Cell count below which the solver stays serial "
-           "(FV_MIN_PARALLEL_CELLS)."));
+    m_fvMinParallelSpin->setToolTip(tr("Cell count below which the solver stays serial "
+                                       "(FV_MIN_PARALLEL_CELLS)."));
     fvPerfForm->addRow(tr("Min parallel cells:"), m_fvMinParallelSpin);
 
-    m_fvCompactionBox = new QCheckBox(tr("Compact dry-cell storage (FV_COMPACTION)"),
-                                      m_fvPerfGroup);
+    m_fvCompactionBox =
+        new QCheckBox(tr("Compact dry-cell storage (FV_COMPACTION)"), m_fvPerfGroup);
     m_fvCompactionBox->setToolTip(
         tr("Skip fully dry reaches in the substep loop (FV_COMPACTION)."));
     fvPerfForm->addRow(QString(), m_fvCompactionBox);
 
     m_fvLtsBox = new QCheckBox(tr("Local time stepping (FV_LTS)"), m_fvPerfGroup);
-    m_fvLtsBox->setToolTip(
-        tr("Advance slow cells with larger substeps grouped in tiers "
-           "(FV_LTS)."));
+    m_fvLtsBox->setToolTip(tr("Advance slow cells with larger substeps grouped in tiers "
+                              "(FV_LTS)."));
     fvPerfForm->addRow(QString(), m_fvLtsBox);
 
     m_fvLtsTiersSpin = new QSpinBox(m_fvPerfGroup);
@@ -345,9 +341,8 @@ void HydraulicsPage::buildUi()
 
     m_fvCflCensusSpin = new QSpinBox(m_fvPerfGroup);
     m_fvCflCensusSpin->setRange(1, 10000);
-    m_fvCflCensusSpin->setToolTip(
-        tr("Substeps between full CFL re-surveys of the mesh "
-           "(FV_CFL_CENSUS_INTERVAL). 1 = every substep (exact)."));
+    m_fvCflCensusSpin->setToolTip(tr("Substeps between full CFL re-surveys of the mesh "
+                                     "(FV_CFL_CENSUS_INTERVAL). 1 = every substep (exact)."));
     fvPerfForm->addRow(tr("CFL census interval:"), m_fvCflCensusSpin);
 
     fvLay->addWidget(m_fvPerfGroup);
@@ -359,7 +354,7 @@ void HydraulicsPage::buildUi()
     auto *ufForm = new QFormLayout(m_ufGroup);
 
     m_ufMethodCombo = new QComboBox(m_ufGroup);
-    m_ufMethodCombo->addItem(tr("None"),      QStringLiteral("NONE"));
+    m_ufMethodCombo->addItem(tr("None"), QStringLiteral("NONE"));
     m_ufMethodCombo->addItem(tr("Vitkovsky"), QStringLiteral("VITKOVSKY"));
     m_ufMethodCombo->setToolTip(
         tr("Unsteady (transient) friction model added to the steady friction "
@@ -373,26 +368,24 @@ void HydraulicsPage::buildUi()
     m_ufK3Spin->setRange(0.0, 0.05);
     m_ufK3Spin->setDecimals(3);
     m_ufK3Spin->setSingleStep(0.005);
-    m_ufK3Spin->setToolTip(
-        tr("Vitkovsky (Brunone-type) coefficient k3 (UF_K3). Used only when "
-           "an unsteady-friction method is selected; paper range "
-           "0.005–0.020."));
+    m_ufK3Spin->setToolTip(tr("Vitkovsky (Brunone-type) coefficient k3 (UF_K3). Used only when "
+                              "an unsteady-friction method is selected; paper range "
+                              "0.005–0.020."));
     ufForm->addRow(tr("Coefficient k3:"), m_ufK3Spin);
 
     ufLay->addWidget(m_ufGroup);
 
-    connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ emit gateInputsChanged(); });
-    connect(m_fvOrderCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ emit gateInputsChanged(); });
-    connect(m_fvLtsBox, &QCheckBox::toggled,
-            this, [this](bool){ emit gateInputsChanged(); });
-    connect(m_ufMethodCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int){ emit gateInputsChanged(); });
+    connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { emit gateInputsChanged(); });
+    connect(m_fvOrderCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { emit gateInputsChanged(); });
+    connect(m_fvLtsBox, &QCheckBox::toggled, this, [this](bool) { emit gateInputsChanged(); });
+    connect(m_ufMethodCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { emit gateInputsChanged(); });
 
     // ── Conduit / channel group ────────────────────────────────────────
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), this);
-    auto *condForm  = new QFormLayout(condGroup);
+    auto *condForm = new QFormLayout(condGroup);
 
     m_forceMainCombo = new QComboBox(condGroup);
     m_forceMainCombo->addItem(tr("Hazen-Williams (H-W)"), QStringLiteral("H-W"));
@@ -401,18 +394,19 @@ void HydraulicsPage::buildUi()
     condForm->addRow(tr("Force-main equation:"), m_forceMainCombo);
 
     m_normalFlowCombo = new QComboBox(condGroup);
-    m_normalFlowCombo->addItem(tr("Slope"),   QStringLiteral("SLOPE"));
-    m_normalFlowCombo->addItem(tr("Froude"),  QStringLiteral("FROUDE"));
-    m_normalFlowCombo->addItem(tr("Both"),    QStringLiteral("BOTH"));
+    m_normalFlowCombo->addItem(tr("Slope"), QStringLiteral("SLOPE"));
+    m_normalFlowCombo->addItem(tr("Froude"), QStringLiteral("FROUDE"));
+    m_normalFlowCombo->addItem(tr("Both"), QStringLiteral("BOTH"));
     m_normalFlowCombo->addItem(tr("Neither"), QStringLiteral("NEITHER"));
     m_normalFlowCombo->setToolTip(tr("Normal-flow limiter criterion (NORMAL_FLOW_LIMITED)."));
     condForm->addRow(tr("Normal-flow criterion:"), m_normalFlowCombo);
 
     m_inertialDampCombo = new QComboBox(condGroup);
-    m_inertialDampCombo->addItem(tr("None"),    QStringLiteral("NONE"));
+    m_inertialDampCombo->addItem(tr("None"), QStringLiteral("NONE"));
     m_inertialDampCombo->addItem(tr("Partial"), QStringLiteral("PARTIAL"));
-    m_inertialDampCombo->addItem(tr("Full"),    QStringLiteral("FULL"));
-    m_inertialDampCombo->setToolTip(tr("Inertial-term damping in dynamic-wave routing (INERTIAL_DAMPING)."));
+    m_inertialDampCombo->addItem(tr("Full"), QStringLiteral("FULL"));
+    m_inertialDampCombo->setToolTip(
+        tr("Inertial-term damping in dynamic-wave routing (INERTIAL_DAMPING)."));
     condForm->addRow(tr("Inertial damping:"), m_inertialDampCombo);
 
     m_minSurfAreaSpin = new QDoubleSpinBox(condGroup);
@@ -438,10 +432,9 @@ void HydraulicsPage::buildUi()
     // — engine treats them as the change thresholds for declaring a period
     // "steady". Grouping the three together makes the dependency clear.
     auto *skipGroup = new QGroupBox(tr("Skip steady state"), this);
-    auto *skipForm  = new QFormLayout(skipGroup);
+    auto *skipForm = new QFormLayout(skipGroup);
 
-    m_skipSteadyBox = new QCheckBox(tr("Skip steady-periods (SKIP_STEADY_STATE)"),
-                                     skipGroup);
+    m_skipSteadyBox = new QCheckBox(tr("Skip steady-periods (SKIP_STEADY_STATE)"), skipGroup);
     skipForm->addRow(QString(), m_skipSteadyBox);
 
     m_latFlowTolSpin = new QDoubleSpinBox(skipGroup);
@@ -458,8 +451,7 @@ void HydraulicsPage::buildUi()
 
     // Grey out the tolerance spins when skip-steady is off — they remain
     // serialised either way so toggling back on restores the prior values.
-    connect(m_skipSteadyBox, &QCheckBox::toggled,
-            this, [this](bool){ emit gateInputsChanged(); });
+    connect(m_skipSteadyBox, &QCheckBox::toggled, this, [this](bool) { emit gateInputsChanged(); });
 
     rtLay->addWidget(skipGroup);
 
@@ -521,20 +513,18 @@ void HydraulicsPage::tagWidgets()
 void HydraulicsPage::read()
 {
     const auto sim = PreferencesManager::instance()->simulationDefaults();
-    const auto ynStr = [](bool v) {
-        return v ? QStringLiteral("YES") : QStringLiteral("NO");
-    };
+    const auto ynStr = [](bool v) { return v ? QStringLiteral("YES") : QStringLiteral("NO"); };
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
-        if (idx >= 0) c->setCurrentIndex(idx);
+        if (idx >= 0)
+            c->setCurrentIndex(idx);
     };
     // Numeric option reads: keep the fallback when the engine string fails
     // to parse instead of silently seeding 0 into the spin box (which
     // write() would then persist as a real edit).
     auto optDouble = [this](const char *key, double fallback) {
         bool okNum = false;
-        const double v = ctx_.option(key, QString::number(fallback, 'g', 6))
-                             .toDouble(&okNum);
+        const double v = ctx_.option(key, QString::number(fallback, 'g', 6)).toDouble(&okNum);
         return okNum ? v : fallback;
     };
     auto optInt = [this](const char *key, int fallback) {
@@ -544,21 +534,23 @@ void HydraulicsPage::read()
     };
     Q_UNUSED(ynStr)
 
-    selectComboByData(m_routingCombo,      ctx_.option("FLOW_ROUTING", sim.flowRouting));
-    m_skipSteadyBox->setChecked(  SimulationOptionsDialog::parseEngineBool(ctx_.option("SKIP_STEADY_STATE", ynStr(sim.skipSteadyState))) == Qt::Checked);
+    selectComboByData(m_routingCombo, ctx_.option("FLOW_ROUTING", sim.flowRouting));
+    m_skipSteadyBox->setChecked(SimulationOptionsDialog::parseEngineBool(
+                                    ctx_.option("SKIP_STEADY_STATE", ynStr(sim.skipSteadyState))) ==
+                                Qt::Checked);
     // ---- Tab 3 ---------------------------------------------------------
-    selectComboByData(m_surchargeCombo,      ctx_.option("SURCHARGE_METHOD",    sim.surchargeMethod));
-    selectComboByData(m_nodeContinuityCombo, ctx_.option("NODE_CONTINUITY",     sim.nodeContinuity));
-    selectComboByData(m_forceMainCombo,      ctx_.option("FORCE_MAIN_EQUATION", sim.forceMainEquation));
-    selectComboByData(m_normalFlowCombo,     ctx_.option("NORMAL_FLOW_LIMITED", sim.normalFlowLimited));
-    selectComboByData(m_inertialDampCombo,   ctx_.option("INERTIAL_DAMPING",    sim.inertialDamping));
-    m_andersonAccelBox->setChecked(SimulationOptionsDialog::parseEngineBool(ctx_.option("ANDERSON_ACCEL",
-                                                              ynStr(sim.andersonAccel))) == Qt::Checked);
+    selectComboByData(m_surchargeCombo, ctx_.option("SURCHARGE_METHOD", sim.surchargeMethod));
+    selectComboByData(m_nodeContinuityCombo, ctx_.option("NODE_CONTINUITY", sim.nodeContinuity));
+    selectComboByData(m_forceMainCombo, ctx_.option("FORCE_MAIN_EQUATION", sim.forceMainEquation));
+    selectComboByData(m_normalFlowCombo, ctx_.option("NORMAL_FLOW_LIMITED", sim.normalFlowLimited));
+    selectComboByData(m_inertialDampCombo, ctx_.option("INERTIAL_DAMPING", sim.inertialDamping));
+    m_andersonAccelBox->setChecked(SimulationOptionsDialog::parseEngineBool(ctx_.option(
+                                       "ANDERSON_ACCEL", ynStr(sim.andersonAccel))) == Qt::Checked);
 
     // DPS_* knobs are dynamic-slot specific and not surfaced in
     // PreferencesManager — keep engine-side defaults.
-    m_dpsCelerSpin->setValue(optDouble("DPS_CELERITY",   25.0));
-    m_dpsAlphaSpin->setValue(optDouble("DPS_ALPHA",      3.0));
+    m_dpsCelerSpin->setValue(optDouble("DPS_CELERITY", 25.0));
+    m_dpsAlphaSpin->setValue(optDouble("DPS_ALPHA", 3.0));
     m_dpsDecaySpin->setValue(optDouble("DPS_DECAY_TIME", 0.5));
     // TPA_CELERITY follows the DPS_* rule: method-specific, not surfaced in
     // PreferencesManager — fallback is the engine-side default.
@@ -566,12 +558,10 @@ void HydraulicsPage::read()
 
     // Unsteady friction (engine issue #156) — prefs-backed like the other
     // method combos on this tab.
-    selectComboByData(m_ufMethodCombo,
-                      ctx_.option("UNSTEADY_FRICTION", sim.unsteadyFriction));
+    selectComboByData(m_ufMethodCombo, ctx_.option("UNSTEADY_FRICTION", sim.unsteadyFriction));
     m_ufK3Spin->setValue(optDouble("UF_K3", sim.ufK3));
 
-    m_lengtheningSpin->setValue(
-        optDouble("LENGTHENING_STEP", sim.lengtheningStepSec));
+    m_lengtheningSpin->setValue(optDouble("LENGTHENING_STEP", sim.lengtheningStepSec));
     // VARIABLE_STEP toggle in prefs zeroes the Courant factor when off.
     const double variablePref = sim.variableStepOn ? sim.variableStepFactor : 0.0;
     m_variableStepSpin->setValue(optDouble("VARIABLE_STEP", variablePref));
@@ -592,29 +582,29 @@ void HydraulicsPage::read()
     m_fvCellLengthSpin->setValue(optDouble("FV_CELL_LENGTH", 0.0));
     m_fvMinCellsSpin->setValue(optInt("FV_MIN_CELLS", 4));
     m_fvCflSpin->setValue(optDouble("FV_CFL", 0.5));
-    selectComboByData(m_fvRiemannCombo,  ctx_.option("FV_RIEMANN",  QStringLiteral("HLLC")));
-    selectComboByData(m_fvOrderCombo,    ctx_.option("FV_ORDER",    QStringLiteral("1")));
-    selectComboByData(m_fvLimiterCombo,  ctx_.option("FV_LIMITER",  QStringLiteral("MINMOD")));
-    selectComboByData(m_fvTimeIntCombo,  ctx_.option("FV_TIME_INTEGRATION", QStringLiteral("EULER")));
+    selectComboByData(m_fvRiemannCombo, ctx_.option("FV_RIEMANN", QStringLiteral("HLLC")));
+    selectComboByData(m_fvOrderCombo, ctx_.option("FV_ORDER", QStringLiteral("1")));
+    selectComboByData(m_fvLimiterCombo, ctx_.option("FV_LIMITER", QStringLiteral("MINMOD")));
+    selectComboByData(m_fvTimeIntCombo,
+                      ctx_.option("FV_TIME_INTEGRATION", QStringLiteral("EULER")));
     m_fvSlotCeleritySpin->setValue(optDouble("FV_SLOT_CELERITY", 100.0));
     selectComboByData(m_fvPressureClosureCombo,
                       ctx_.option("FV_PRESSURE_CLOSURE", QStringLiteral("SLOT")));
     m_fvPressImplicitBox->setChecked(
-        SimulationOptionsDialog::parseEngineBool(ctx_.option("FV_PRESSURIZED_IMPLICIT",
-                                  QStringLiteral("NO"))) == Qt::Checked);
+        SimulationOptionsDialog::parseEngineBool(
+            ctx_.option("FV_PRESSURIZED_IMPLICIT", QStringLiteral("NO"))) == Qt::Checked);
     // FV_SCALAR_SCHEME is NOT here: it stays on Quality & Transport >
     // Eulerian ARD (PLAN §1.4), even though it is an FV_* key.
     selectComboByData(m_fvStructCouplingCombo,
                       ctx_.option("FV_STRUCTURE_COUPLING", QStringLiteral("SUBSTEP")));
-    m_fvCompactionBox->setChecked(
-        SimulationOptionsDialog::parseEngineBool(ctx_.option("FV_COMPACTION", QStringLiteral("YES"))) == Qt::Checked);
-    selectComboByData(m_fvBackendCombo,  ctx_.option("FV_BACKEND",  QStringLiteral("AUTO")));
+    m_fvCompactionBox->setChecked(SimulationOptionsDialog::parseEngineBool(ctx_.option(
+                                      "FV_COMPACTION", QStringLiteral("YES"))) == Qt::Checked);
+    selectComboByData(m_fvBackendCombo, ctx_.option("FV_BACKEND", QStringLiteral("AUTO")));
     m_fvMinParallelSpin->setValue(optInt("FV_MIN_PARALLEL_CELLS", 20000));
-    m_fvLtsBox->setChecked(
-        SimulationOptionsDialog::parseEngineBool(ctx_.option("FV_LTS", QStringLiteral("YES"))) == Qt::Checked);
+    m_fvLtsBox->setChecked(SimulationOptionsDialog::parseEngineBool(
+                               ctx_.option("FV_LTS", QStringLiteral("YES"))) == Qt::Checked);
     m_fvLtsTiersSpin->setValue(optInt("FV_LTS_MAX_TIERS", 6));
     m_fvCflCensusSpin->setValue(optInt("FV_CFL_CENSUS_INTERVAL", 1));
-
 }
 
 int HydraulicsPage::write()
@@ -623,93 +613,65 @@ int HydraulicsPage::write()
     // Page header
     n += ctx_.writeIfChanged("FLOW_ROUTING", flowRouting());
     // Tab 3 — Routing & Hydraulics
-    n += ctx_.writeIfChanged("SURCHARGE_METHOD",
-                   m_surchargeCombo->currentData().toString());
-    n += ctx_.writeIfChanged("DPS_CELERITY",
-                   QString::number(m_dpsCelerSpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("DPS_ALPHA",
-                   QString::number(m_dpsAlphaSpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("DPS_DECAY_TIME",
-                   QString::number(m_dpsDecaySpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("TPA_CELERITY",
-                   QString::number(m_tpaCeleritySpin->value(), 'f', 1));
+    n += ctx_.writeIfChanged("SURCHARGE_METHOD", m_surchargeCombo->currentData().toString());
+    n += ctx_.writeIfChanged("DPS_CELERITY", QString::number(m_dpsCelerSpin->value(), 'f', 4));
+    n += ctx_.writeIfChanged("DPS_ALPHA", QString::number(m_dpsAlphaSpin->value(), 'f', 4));
+    n += ctx_.writeIfChanged("DPS_DECAY_TIME", QString::number(m_dpsDecaySpin->value(), 'f', 4));
+    n += ctx_.writeIfChanged("TPA_CELERITY", QString::number(m_tpaCeleritySpin->value(), 'f', 1));
     // Unsteady friction (engine issue #156) — consumed by DW and FV; the
     // engine accepts the keys under any routing model.
-    n += ctx_.writeIfChanged("UNSTEADY_FRICTION",
-                   m_ufMethodCombo->currentData().toString());
-    n += ctx_.writeIfChanged("UF_K3",
-                   QString::number(m_ufK3Spin->value(), 'f', 3));
-    n += ctx_.writeIfChanged("NODE_CONTINUITY",
-                   m_nodeContinuityCombo->currentData().toString());
-    n += ctx_.writeIfChanged("ANDERSON_ACCEL",
-                   SimulationOptionsDialog::engineBoolString(m_andersonAccelBox->isChecked()));
-    n += ctx_.writeIfChanged("FORCE_MAIN_EQUATION",
-                   m_forceMainCombo->currentData().toString());
-    n += ctx_.writeIfChanged("NORMAL_FLOW_LIMITED",
-                   m_normalFlowCombo->currentData().toString());
-    n += ctx_.writeIfChanged("INERTIAL_DAMPING",
-                   m_inertialDampCombo->currentData().toString());
+    n += ctx_.writeIfChanged("UNSTEADY_FRICTION", m_ufMethodCombo->currentData().toString());
+    n += ctx_.writeIfChanged("UF_K3", QString::number(m_ufK3Spin->value(), 'f', 3));
+    n += ctx_.writeIfChanged("NODE_CONTINUITY", m_nodeContinuityCombo->currentData().toString());
+    n += ctx_.writeIfChanged("ANDERSON_ACCEL", SimulationOptionsDialog::engineBoolString(
+                                                   m_andersonAccelBox->isChecked()));
+    n += ctx_.writeIfChanged("FORCE_MAIN_EQUATION", m_forceMainCombo->currentData().toString());
+    n += ctx_.writeIfChanged("NORMAL_FLOW_LIMITED", m_normalFlowCombo->currentData().toString());
+    n += ctx_.writeIfChanged("INERTIAL_DAMPING", m_inertialDampCombo->currentData().toString());
     n += ctx_.writeIfChanged("LENGTHENING_STEP",
-                   QString::number(m_lengtheningSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("VARIABLE_STEP",
-                   QString::number(m_variableStepSpin->value(), 'f', 3));
-    n += ctx_.writeIfChanged("MINIMUM_STEP",
-                   QString::number(m_minStepSpin->value(), 'f', 3));
-    n += ctx_.writeIfChanged("MAX_TRIALS",
-                   QString::number(m_maxTrialsSpin->value()));
-    n += ctx_.writeIfChanged("HEAD_TOLERANCE",
-                   QString::number(m_headTolSpin->value(), 'f', 6));
+                             QString::number(m_lengtheningSpin->value(), 'f', 2));
+    n += ctx_.writeIfChanged("VARIABLE_STEP", QString::number(m_variableStepSpin->value(), 'f', 3));
+    n += ctx_.writeIfChanged("MINIMUM_STEP", QString::number(m_minStepSpin->value(), 'f', 3));
+    n += ctx_.writeIfChanged("MAX_TRIALS", QString::number(m_maxTrialsSpin->value()));
+    n += ctx_.writeIfChanged("HEAD_TOLERANCE", QString::number(m_headTolSpin->value(), 'f', 6));
     // LAT/SYS_FLOW_TOL speak percent through the options API, matching the
     // spin display and the .inp surface.
-    n += ctx_.writeIfChanged("LAT_FLOW_TOL",
-                   QString::number(m_latFlowTolSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("SYS_FLOW_TOL",
-                   QString::number(m_sysFlowTolSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("MIN_SURFAREA",
-                   QString::number(m_minSurfAreaSpin->value(), 'f', 4));
-    n += ctx_.writeIfChanged("MIN_SLOPE",
-                   QString::number(m_minSlopeSpin->value(), 'f', 4));
+    n += ctx_.writeIfChanged("LAT_FLOW_TOL", QString::number(m_latFlowTolSpin->value(), 'f', 2));
+    n += ctx_.writeIfChanged("SYS_FLOW_TOL", QString::number(m_sysFlowTolSpin->value(), 'f', 2));
+    n += ctx_.writeIfChanged("MIN_SURFAREA", QString::number(m_minSurfAreaSpin->value(), 'f', 4));
+    n += ctx_.writeIfChanged("MIN_SLOPE", QString::number(m_minSlopeSpin->value(), 'f', 4));
 
     // Tab 3 — Finite volume solver. Written regardless of the routing
     // selection: the engine accepts FV_* keys as inert under non-FV routing
     // and its InpWriter only persists them when FLOW_ROUTING is FV.
-    n += ctx_.writeIfChanged("FV_CELL_LENGTH",
-                   QString::number(m_fvCellLengthSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("FV_MIN_CELLS",
-                   QString::number(m_fvMinCellsSpin->value()));
-    n += ctx_.writeIfChanged("FV_CFL",
-                   QString::number(m_fvCflSpin->value(), 'f', 2));
-    n += ctx_.writeIfChanged("FV_RIEMANN",
-                   m_fvRiemannCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_ORDER",
-                   m_fvOrderCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_LIMITER",
-                   m_fvLimiterCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_TIME_INTEGRATION",
-                   m_fvTimeIntCombo->currentData().toString());
+    n +=
+        ctx_.writeIfChanged("FV_CELL_LENGTH", QString::number(m_fvCellLengthSpin->value(), 'f', 2));
+    n += ctx_.writeIfChanged("FV_MIN_CELLS", QString::number(m_fvMinCellsSpin->value()));
+    n += ctx_.writeIfChanged("FV_CFL", QString::number(m_fvCflSpin->value(), 'f', 2));
+    n += ctx_.writeIfChanged("FV_RIEMANN", m_fvRiemannCombo->currentData().toString());
+    n += ctx_.writeIfChanged("FV_ORDER", m_fvOrderCombo->currentData().toString());
+    n += ctx_.writeIfChanged("FV_LIMITER", m_fvLimiterCombo->currentData().toString());
+    n += ctx_.writeIfChanged("FV_TIME_INTEGRATION", m_fvTimeIntCombo->currentData().toString());
     n += ctx_.writeIfChanged("FV_SLOT_CELERITY",
-                   QString::number(m_fvSlotCeleritySpin->value(), 'f', 1));
+                             QString::number(m_fvSlotCeleritySpin->value(), 'f', 1));
     n += ctx_.writeIfChanged("FV_PRESSURE_CLOSURE",
-                   m_fvPressureClosureCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_PRESSURIZED_IMPLICIT",
-                   SimulationOptionsDialog::engineBoolString(m_fvPressImplicitBox->isChecked()));
+                             m_fvPressureClosureCombo->currentData().toString());
+    n += ctx_.writeIfChanged("FV_PRESSURIZED_IMPLICIT", SimulationOptionsDialog::engineBoolString(
+                                                            m_fvPressImplicitBox->isChecked()));
     // FV_SCALAR_SCHEME is edited on the Quality & Transport page (ARD group)
     // but is an FV_* key; written with its siblings so the engine sees one
     // coherent FV block.
     n += ctx_.writeIfChanged("FV_STRUCTURE_COUPLING",
-                   m_fvStructCouplingCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_COMPACTION",
-                   SimulationOptionsDialog::engineBoolString(m_fvCompactionBox->isChecked()));
-    n += ctx_.writeIfChanged("FV_BACKEND",
-                   m_fvBackendCombo->currentData().toString());
-    n += ctx_.writeIfChanged("FV_MIN_PARALLEL_CELLS",
-                   QString::number(m_fvMinParallelSpin->value()));
+                             m_fvStructCouplingCombo->currentData().toString());
+    n += ctx_.writeIfChanged(
+        "FV_COMPACTION", SimulationOptionsDialog::engineBoolString(m_fvCompactionBox->isChecked()));
+    n += ctx_.writeIfChanged("FV_BACKEND", m_fvBackendCombo->currentData().toString());
+    n +=
+        ctx_.writeIfChanged("FV_MIN_PARALLEL_CELLS", QString::number(m_fvMinParallelSpin->value()));
     n += ctx_.writeIfChanged("FV_LTS",
-                   SimulationOptionsDialog::engineBoolString(m_fvLtsBox->isChecked()));
-    n += ctx_.writeIfChanged("FV_LTS_MAX_TIERS",
-                   QString::number(m_fvLtsTiersSpin->value()));
-    n += ctx_.writeIfChanged("FV_CFL_CENSUS_INTERVAL",
-                   QString::number(m_fvCflCensusSpin->value()));
+                             SimulationOptionsDialog::engineBoolString(m_fvLtsBox->isChecked()));
+    n += ctx_.writeIfChanged("FV_LTS_MAX_TIERS", QString::number(m_fvLtsTiersSpin->value()));
+    n += ctx_.writeIfChanged("FV_CFL_CENSUS_INTERVAL", QString::number(m_fvCflCensusSpin->value()));
 
     return n;
 }
@@ -724,56 +686,62 @@ void HydraulicsPage::refreshGates()
         m_surchargeCombo ? m_surchargeCombo->currentData().toString() : QString();
     const bool dyn = surcharge == QLatin1String("DYNAMIC_SLOT");
     const bool tpa = surcharge == QLatin1String("TPA");
-    if (m_dpsCelerSpin)    m_dpsCelerSpin->setEnabled(dyn);
-    if (m_dpsAlphaSpin)    m_dpsAlphaSpin->setEnabled(dyn);
-    if (m_dpsDecaySpin)    m_dpsDecaySpin->setEnabled(dyn);
-    if (m_tpaCeleritySpin) m_tpaCeleritySpin->setEnabled(tpa && ctx_.caps().tpa);
+    if (m_dpsCelerSpin)
+        m_dpsCelerSpin->setEnabled(dyn);
+    if (m_dpsAlphaSpin)
+        m_dpsAlphaSpin->setEnabled(dyn);
+    if (m_dpsDecaySpin)
+        m_dpsDecaySpin->setEnabled(dyn);
+    if (m_tpaCeleritySpin)
+        m_tpaCeleritySpin->setEnabled(tpa && ctx_.caps().tpa);
 
     if (m_fvLimiterCombo && m_fvOrderCombo)
-        m_fvLimiterCombo->setEnabled(
-            m_fvOrderCombo->currentData().toString() == QLatin1String("2"));
+        m_fvLimiterCombo->setEnabled(m_fvOrderCombo->currentData().toString() ==
+                                     QLatin1String("2"));
     if (m_fvLtsTiersSpin && m_fvLtsBox)
         m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isChecked());
     if (m_ufK3Spin && m_ufMethodCombo)
-        m_ufK3Spin->setEnabled(m_ufMethodCombo->currentData().toString()
-                                   != QLatin1String("NONE"));
+        m_ufK3Spin->setEnabled(m_ufMethodCombo->currentData().toString() != QLatin1String("NONE"));
 
     // The tolerances are serialised either way, so toggling skip-steady back
     // on restores the prior values.
     const bool skip = m_skipSteadyBox && m_skipSteadyBox->isChecked();
-    if (m_latFlowTolSpin) m_latFlowTolSpin->setEnabled(skip);
-    if (m_sysFlowTolSpin) m_sysFlowTolSpin->setEnabled(skip);
+    if (m_latFlowTolSpin)
+        m_latFlowTolSpin->setEnabled(skip);
+    if (m_sysFlowTolSpin)
+        m_sysFlowTolSpin->setEnabled(skip);
 }
 
 void HydraulicsPage::applyCapabilities()
 {
     const EngineCapabilities &c = ctx_.caps();
     const QString legacyTip = tr("Not available in SWMM 5 (legacy engine).");
-    const QString mixedFlowTip =
-        c.legacy ? legacyTip
-                 : tr("This engine build predates the mixed-flow "
-                      "(TPA / unsteady-friction) option surface.");
+    const QString mixedFlowTip = c.legacy ? legacyTip
+                                          : tr("This engine build predates the mixed-flow "
+                                               "(TPA / unsteady-friction) option surface.");
 
     // Disable one item of a combo the way the original did: the VALUE cannot
     // exist on this engine, so the item goes grey and the selection falls back.
-    const auto disableItem = [](QComboBox *combo, const char *data,
-                                const QString &tip, int fallbackIdx) {
-        if (!combo) return;
+    const auto disableItem = [](QComboBox *combo, const char *data, const QString &tip,
+                                int fallbackIdx) {
+        if (!combo)
+            return;
         auto *model = qobject_cast<QStandardItemModel *>(combo->model());
-        if (!model) return;
+        if (!model)
+            return;
         for (int i = 0; i < combo->count(); ++i) {
             if (combo->itemData(i).toString() == QLatin1String(data)) {
                 model->item(i)->setEnabled(false);
                 model->item(i)->setToolTip(tip);
-                if (combo->currentIndex() == i) combo->setCurrentIndex(fallbackIdx);
+                if (combo->currentIndex() == i)
+                    combo->setCurrentIndex(fallbackIdx);
                 break;
             }
         }
     };
 
     if (!c.fv) {
-        const int dyn = m_routingCombo
-            ? m_routingCombo->findData(QStringLiteral("DYNWAVE")) : 0;
+        const int dyn = m_routingCombo ? m_routingCombo->findData(QStringLiteral("DYNWAVE")) : 0;
         disableItem(m_routingCombo, "FV",
                     c.legacy ? legacyTip
                              : tr("This engine build predates the "
@@ -781,7 +749,7 @@ void HydraulicsPage::applyCapabilities()
                     dyn >= 0 ? dyn : 0);
     }
     if (!c.tpa) {
-        disableItem(m_surchargeCombo, "TPA", mixedFlowTip, 0);   // fall back to EXTRAN
+        disableItem(m_surchargeCombo, "TPA", mixedFlowTip, 0); // fall back to EXTRAN
         if (m_tpaCeleritySpin) {
             m_tpaCeleritySpin->setEnabled(false);
             m_tpaCeleritySpin->setToolTip(mixedFlowTip);

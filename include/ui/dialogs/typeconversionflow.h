@@ -1,9 +1,9 @@
-/*!
- * \file   typeconversionflow.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Shared confirm → convert → summary flow for changing a node or
+/**
+ * @file      typeconversionflow.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Shared confirm → convert → summary flow for changing a node or
  *         link to a different SWMM type. Reused by:
  *           - `OpenSWMMVisMapToolSelect::showContextMenu` ("Convert To ▸")
  *           - `AttributeTablePanel::onChangeTypeTriggered` ("Change Type…")
@@ -11,7 +11,9 @@
  * The user is warned BEFORE the conversion that the old type's specific
  * attributes will be cleared (the conversion is not undoable), and shown
  * the engine-reported cleared fields + topology warnings AFTER it.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_UI_DIALOGS_TYPECONVERSIONFLOW_H
 #define OPENSWMMVIS_UI_DIALOGS_TYPECONVERSIONFLOW_H
 
@@ -22,7 +24,8 @@
 class QWidget;
 class SWMMModelLayer;
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 class TypeConversionFlow
 {
@@ -55,21 +58,19 @@ public:
 
     /*! \brief Pre-conversion confirmation text warning that the old type's
      *  specific attributes will be lost. Pure text builder. */
-    static QString confirmText(bool isNode, const QString &name,
-                               int currentType, int newType);
+    static QString confirmText(bool isNode, const QString &name, int currentType, int newType);
 
     /*! \brief Post-conversion summary (cleared fields + topology warnings,
      *  or "(no side effects)" when both are empty). Pure text builder. */
-    static QString summaryHtml(const QStringList &cleared,
-                               const QStringList &warnings);
+    static QString summaryHtml(const QStringList &cleared, const QStringList &warnings);
 
     /*! \brief Confirm with the user, then convert via
      *  `SWMMModelLayer::applyNodeConvert/applyLinkConvert`, then show the
      *  engine-reported summary (or the failure reason). The layer method
      *  emits the repaint/geometry/attribute signals that refresh the map
      *  and panels. Returns true only if the conversion succeeded. */
-    static bool run(QWidget *parent, SWMMModelLayer *layer, bool isNode,
-                    const QString &name, int currentType, int newType);
+    static bool run(QWidget *parent, SWMMModelLayer *layer, bool isNode, const QString &name,
+                    int currentType, int newType);
 
     /*! \brief Promote \p name to an inlet junction: confirm, set the flag
      *  (`swmm_node_set_inlet`), then install the usage row naming
@@ -77,11 +78,9 @@ public:
      *  identity fields have to be collected BEFORE the mutation (D-G6) and
      *  run()'s signature carries no room for them. Not undoable, like every
      *  other type conversion — the confirm text says so. */
-    static bool runToInletJunction(QWidget *parent, SWMMModelLayer *layer,
-                                   const QString &name, int currentType,
-                                   const QString &inletDesign,
-                                   const QString &captureNode,
-                                   int placement);
+    static bool runToInletJunction(QWidget *parent, SWMMModelLayer *layer, const QString &name,
+                                   int currentType, const QString &inletDesign,
+                                   const QString &captureNode, int placement);
 };
 
 } // namespace openswmmvis::ui
