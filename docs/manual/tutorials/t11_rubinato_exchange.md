@@ -132,6 +132,48 @@ The blue points show how reducing the routing step changes the late-window
 mean in one selected case per regime. Positive is sewer to surface.
 These four reruns do not establish convergence of the full matrix.
 
+## Fixed-time smoothing and convergence — 22 October follow-up
+
+The figures above preserve the 21 October review. The follow-up changes the
+numerical smoothing schedule, with physical coefficients and geometry held fixed.
+In a copy of a steady input, open Simulation Options → 2D Surface Routing →
+Hydraulics. Under Explicit marcher set Momentum θ to 0.8 and Smoothing
+reference interval to 1 s. The engine key is `THETA_REFERENCE_STEP`.
+Zero means the original per-step smoothing; older engines disable the new control.
+
+Keep the 1 s reference fixed in three copies with routing steps 0.0125,
+0.00625 and 0.003125 s. To match the study, use maximum 1D trials 80,
+head tolerance 0.00001 m, variable step 0 and lengthening step 0. These are
+numerical controls; the reference interval was not fitted to measurements.
+Compare mean exchange over 240–300 s, the preceding minute, heads and
+separate 1D/2D continuity. The supplied steady examples are the first row of
+each regime; the download includes every Table 2 row and identifies each case.
+
+All 36 cases meet the 1% final timestep-change criterion (maximum
+**0.516%**) and the separate 2% drift/ordinary 1D continuity
+checks. **0/36** meet the illustrative experimental comparison band. This
+improves numerical consistency; experimental qualification remains incomplete.
+
+\fig{t11_rubinato_momentum_parity.png, Fine-step physical-time model results compared with all 36 measured rates and the archived coarse-step results}
+
+Blue filled circles are the new simulated rates at 0.003125 s. Gray open
+circles are the older 0.5 s per-step results. The green dashed line shows
+1:1 agreement and horizontal bars the measured variation. The new points
+expose the remaining model bias; they do not establish experimental validation.
+
+\fig{t11_rubinato_momentum_convergence.png, Relative exchange changes across two timestep halvings with the same smoothing interval}
+
+Orange triangles show 0.0125 → 0.00625 s and blue circles 0.00625 → 0.003125 s.
+Green shading is below the 1% comparison criterion; the ordinate is logarithmic.
+The single-cell delivery and spatial-convergence limitations remain.
+
+Download the [follow-up report and reusable figures](rubinato2017_momentum.zip),
+[36-case comparison table](rubinato2017_momentum_comparison.csv), and
+[plotted data, heads and separate volume ledgers](rubinato2017_momentum_data.json).
+The original transient viewer retains its original settings; no measured
+transient validation is added by this steady refinement study. Positive reference
+intervals require compatible engine support and surface GPU plugins at ABI 9.
+
 ## Variations
 
 - Run copies with 0.1 s and 0.05 s routing steps. Compare late-window rates,
